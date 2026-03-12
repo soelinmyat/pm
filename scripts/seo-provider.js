@@ -62,6 +62,41 @@ function httpsGet(options, transport) {
 }
 
 /**
+ * Make an HTTPS POST request with a JSON body. Returns a Promise<{ statusCode, headers, body }>.
+ * The optional `transport` parameter allows tests to inject a mock.
+ */
+function httpsPost(options, bodyObj, transport) {
+  const _transport = transport || defaultTransport;
+  const payload = JSON.stringify(bodyObj);
+  const requestOptions = Object.assign({}, options, {
+    method: 'POST',
+    headers: Object.assign({}, options.headers, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+    }),
+  });
+  return new Promise((resolve, reject) => {
+    const req = _transport(requestOptions, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const raw = chunks.join('');
+        let body;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = raw;
+        }
+        resolve({ statusCode: res.statusCode, headers: res.headers || {}, body });
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
  * Sleep for `ms` milliseconds.
  */
 function sleep(ms) {
@@ -154,6 +189,87 @@ function parseResponse(response) {
 }
 
 // ---------------------------------------------------------------------------
+// DataForSEO adapter
+// ---------------------------------------------------------------------------
+
+const DATAFORSEO_HOST = 'api.dataforseo.com';
+
+/**
+ * Extract DataForSEO credentials (login + password) from config.
+ * Throws a descriptive error if missing.
+ */
+function getDataForSEOCreds(config) {
+  const seo = config && config.integrations && config.integrations.seo;
+  const login = seo && seo.login;
+  const password = seo && seo.password;
+  if (!login || !password) throw new Error('Missing seo.login or seo.password in config');
+  return { login, password };
+}
+
+/**
+ * Low-level DataForSEO HTTPS POST.
+ * endpoint: e.g. '/v3/keywords_data/google_ads/keywords_for_site/live'
+ * body: JSON-serialisable array/object
+ * login, password: DataForSEO credentials
+ * transport: optional mock transport
+ */
+function dataforseoRequest(endpoint, body, login, password, transport) {
+  const token = Buffer.from(`${login}:${password}`).toString('base64');
+  const options = {
+    hostname: DATAFORSEO_HOST,
+    port: 443,
+    path: endpoint,
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${token}`,
+      Accept: 'application/json',
+    },
+  };
+  return httpsPost(options, body, transport);
+}
+
+/**
+ * Parse a DataForSEO keywords response into the provider-agnostic shape:
+ * { keywords: [{ keyword, volume, difficulty }] }
+ */
+function parseDataForSEOKeywords(response) {
+  if (response.statusCode !== 200) {
+    const message =
+      (response.body && (response.body.status_message || response.body.error)) ||
+      `HTTP ${response.statusCode}`;
+    return { error: message };
+  }
+
+  const keywords = [];
+  const tasks = (response.body && response.body.tasks) || [];
+  for (const task of tasks) {
+    const results = (task && task.result) || [];
+    for (const result of results) {
+      const items = (result && result.keyword_data) || [];
+      for (const item of items) {
+        keywords.push({
+          keyword: item.keyword,
+          volume: item.keyword_info && item.keyword_info.search_volume,
+          difficulty: item.keyword_info && item.keyword_info.keyword_difficulty,
+        });
+      }
+    }
+  }
+  return { keywords };
+}
+
+// ---------------------------------------------------------------------------
+// Provider routing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the provider name from config (defaults to 'ahrefs').
+ */
+function getProvider(config) {
+  return (config && config.integrations && config.integrations.seo && config.integrations.seo.provider) || 'ahrefs';
+}
+
+// ---------------------------------------------------------------------------
 // Provider-agnostic interface
 // ---------------------------------------------------------------------------
 
@@ -161,6 +277,18 @@ function parseResponse(response) {
  * Get keyword data for a domain.
  */
 async function getKeywords(domain, config, transport, opts) {
+  if (getProvider(config) === 'dataforseo') {
+    const { login, password } = getDataForSEOCreds(config);
+    const response = await dataforseoRequest(
+      '/v3/keywords_data/google_ads/keywords_for_site/live',
+      [{ target: domain, limit: 100 }],
+      login,
+      password,
+      transport,
+    );
+    return parseDataForSEOKeywords(response);
+  }
+
   const apiKey = getApiKey(config);
   const response = await ahrefsRequestWithRetry(
     '/v3/site-explorer/organic-keywords',
@@ -306,6 +434,7 @@ module.exports = {
   getCompetitors,
   verify,
   ahrefsRequest,
+  dataforseoRequest,
 };
 
 // Run CLI only when invoked directly

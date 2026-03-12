@@ -404,3 +404,161 @@ test('429 on both attempts returns { error: "rate_limited", retry_after: N }', a
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Shared DataForSEO config fixture
+// ---------------------------------------------------------------------------
+
+const DATAFORSEO_CONFIG = {
+  config_schema: 1,
+  integrations: {
+    seo: {
+      provider: 'dataforseo',
+      login: 'user@example.com',
+      password: 'secret123',
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Mock transport for POST requests (DataForSEO uses POST)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a mock transport that captures the request options AND body written
+ * via req.write(), then resolves with the given HTTP response.
+ */
+function mockPostTransport(statusCode, body) {
+  const calls = [];
+  const transport = (options, cb) => {
+    const call = { options, requestBody: '' };
+    calls.push(call);
+    const chunks = [JSON.stringify(body)];
+    let idx = 0;
+    const res = {
+      statusCode,
+      headers: {},
+      on(event, handler) {
+        if (event === 'data') setImmediate(() => handler(chunks[idx++] || ''));
+        if (event === 'end') setImmediate(() => setImmediate(() => handler()));
+        return res;
+      },
+    };
+    cb(res);
+    return {
+      on() { return this; },
+      write(data) { call.requestBody += data; },
+      end() {},
+    };
+  };
+  return { transport, calls };
+}
+
+// ---------------------------------------------------------------------------
+// 13. DataForSEO getKeywords — correct URL and Basic auth header
+// ---------------------------------------------------------------------------
+
+test('DataForSEO getKeywords constructs correct URL and Basic auth header', async () => {
+  const { dir, cleanup } = withTmpDir(DATAFORSEO_CONFIG);
+  try {
+    const { getKeywords } = loadProvider();
+    const { transport, calls } = mockPostTransport(200, {
+      tasks: [{ result: [{ keyword_data: [] }] }],
+    });
+
+    await getKeywords('example.com', DATAFORSEO_CONFIG, transport);
+
+    assert.equal(calls.length, 1);
+    const { options } = calls[0];
+    assert.equal(options.hostname, 'api.dataforseo.com');
+    assert.match(options.path, /\/v3\//);
+    assert.equal(options.method, 'POST');
+    assert.ok(options.headers['Authorization'], 'Authorization header must be present');
+    assert.match(options.headers['Authorization'], /^Basic /);
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 14. DataForSEO auth uses login:password base64 encoded
+// ---------------------------------------------------------------------------
+
+test('DataForSEO auth header is base64 of login:password', async () => {
+  const { dir, cleanup } = withTmpDir(DATAFORSEO_CONFIG);
+  try {
+    const { getKeywords } = loadProvider();
+    const { transport, calls } = mockPostTransport(200, {
+      tasks: [{ result: [{ keyword_data: [] }] }],
+    });
+
+    await getKeywords('example.com', DATAFORSEO_CONFIG, transport);
+
+    const { options } = calls[0];
+    const authHeader = options.headers['Authorization'];
+    const base64Part = authHeader.replace('Basic ', '');
+    const decoded = Buffer.from(base64Part, 'base64').toString('utf8');
+    assert.equal(decoded, 'user@example.com:secret123');
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 15. DataForSEO response parsing handles their API response format
+// ---------------------------------------------------------------------------
+
+test('DataForSEO response parsing normalises their API format to provider-agnostic shape', async () => {
+  const { dir, cleanup } = withTmpDir(DATAFORSEO_CONFIG);
+  try {
+    const { getKeywords } = loadProvider();
+    const dfsResponse = {
+      tasks: [
+        {
+          result: [
+            {
+              keyword_data: [
+                { keyword: 'office cleaning', keyword_info: { search_volume: 3000, keyword_difficulty: 45 } },
+                { keyword: 'janitorial service', keyword_info: { search_volume: 1200, keyword_difficulty: 32 } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const { transport } = mockPostTransport(200, dfsResponse);
+
+    const result = await getKeywords('example.com', DATAFORSEO_CONFIG, transport);
+
+    assert.ok(Array.isArray(result.keywords), 'result.keywords should be an array');
+    assert.equal(result.keywords.length, 2);
+    assert.equal(result.keywords[0].keyword, 'office cleaning');
+    assert.equal(result.keywords[0].volume, 3000);
+    assert.equal(result.keywords[0].difficulty, 45);
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 16. Provider routing — selects correct adapter based on config provider field
+// ---------------------------------------------------------------------------
+
+test('provider routing selects DataForSEO adapter when config.provider is dataforseo', async () => {
+  const { dir, cleanup } = withTmpDir(DATAFORSEO_CONFIG);
+  try {
+    const { getKeywords } = loadProvider();
+    const { transport, calls } = mockPostTransport(200, {
+      tasks: [{ result: [{ keyword_data: [] }] }],
+    });
+
+    await getKeywords('example.com', DATAFORSEO_CONFIG, transport);
+
+    // DataForSEO uses POST to api.dataforseo.com — not GET to api.ahrefs.com
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options.hostname, 'api.dataforseo.com');
+    assert.equal(calls[0].options.method, 'POST');
+  } finally {
+    cleanup();
+  }
+});
