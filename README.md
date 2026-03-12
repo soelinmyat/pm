@@ -1,6 +1,6 @@
-# PM Plugin
+# PM — Product Memory
 
-PM is a Claude Code plugin for product discovery, competitive research, strategy, and backlog grooming.
+PM (Product Memory) is a Claude Code plugin for product discovery, competitive research, strategy, and backlog grooming.
 
 LLMs and coding agents changed the cost of building. What used to take a team weeks now takes hours. But the bottleneck did not disappear. It moved upstream.
 
