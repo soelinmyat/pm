@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pm",
+  "owner": {
+    "name": "Soe Lin Myat"
+  },
+  "plugins": [
+    {
+      "name": "pm",
+      "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Soe Lin Myat"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/soelinmyat/pm"
+    }
+  ]
+}

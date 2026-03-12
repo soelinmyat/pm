@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Project Memory System</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
+  .hero { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #7c3aed 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+  .hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
+  .hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
+  .hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
+  .hero h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  .hero .subtitle { font-size: 1.1rem; color: rgba(255,255,255,0.85); max-width: 640px; margin-bottom: 1.5rem; }
+  .metrics-strip { display: flex; gap: 0; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); }
+  .metric { flex: 1; padding: 0.75rem 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+  .metric:last-child { border-right: none; }
+  .metric-value { font-size: 1.5rem; font-weight: 800; display: block; line-height: 1.2; }
+  .metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
+  .toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
+  .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .toc a:hover, .toc a.active { color: #2563eb; border-bottom-color: #2563eb; }
+  .proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  .section { margin-bottom: 3rem; opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+  .section:nth-child(1) { animation-delay: 0.05s; } .section:nth-child(2) { animation-delay: 0.1s; } .section:nth-child(3) { animation-delay: 0.15s; } .section:nth-child(4) { animation-delay: 0.2s; } .section:nth-child(5) { animation-delay: 0.25s; } .section:nth-child(6) { animation-delay: 0.3s; } .section:nth-child(7) { animation-delay: 0.35s; } .section:nth-child(8) { animation-delay: 0.4s; } .section:nth-child(9) { animation-delay: 0.45s; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 0.5rem; }
+  .section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+  .section p, .section li { font-size: 0.95rem; color: #444; }
+  .section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .section li { margin-bottom: 0.35rem; }
+  .callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
+  .callout strong { color: #1e3a8a; }
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+  .scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; } .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; } .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; } .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+  .issue-group { margin-bottom: 1.5rem; }
+  .issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+  .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
+  .issue-labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .label { font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; background: #f3f4f6; color: #555; border: 1px solid #e5e7eb; text-transform: uppercase; letter-spacing: 0.03em; }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  .ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; }
+  .ac-list li { margin-bottom: 0.25rem; } .ac-list li::marker { color: #2563eb; }
+  .mermaid-container { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem; overflow-x: auto; }
+  .mermaid { text-align: center; }
+  .comp-table-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 1rem; }
+  .comp-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .comp-table th, .comp-table td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; }
+  .comp-table th { background: #f9fafb; font-weight: 600; color: #555; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .comp-table td { color: #444; } .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 500; }
+  .comp-table td.competitor-weak { color: #9ca3af; } .comp-table tr:last-child td { border-bottom: none; }
+  .feasibility-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .feasibility-box { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .feasibility-box h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.35rem; }
+  .feasibility-box.build-on h4 { color: #16a34a; } .feasibility-box.build-new h4 { color: #2563eb; }
+  .feasibility-box.risks h4 { color: #d97706; } .feasibility-box.sequencing h4 { color: #7c3aed; }
+  .feasibility-box ul { padding-left: 1.1rem; } .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.25rem; color: #555; }
+  .review-pipeline { display: flex; align-items: center; gap: 0; margin-bottom: 1.5rem; overflow-x: auto; padding: 0.5rem 0; }
+  .pipeline-step { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 120px; position: relative; }
+  .pipeline-dot { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 700; margin-bottom: 0.4rem; border: 2px solid #e5e7eb; background: #fff; color: #aaa; transition: all 0.3s; }
+  .pipeline-step.passed .pipeline-dot { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .pipeline-step.current .pipeline-dot { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,0.15); }
+  .pipeline-label { font-size: 0.7rem; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pipeline-step.passed .pipeline-label { color: #16a34a; } .pipeline-step.current .pipeline-label { color: #2563eb; }
+  .pipeline-connector { flex: 1; height: 2px; background: #e5e7eb; min-width: 24px; margin-bottom: 1.2rem; }
+  .pipeline-connector.done { background: #16a34a; }
+  .verdict-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 999px; }
+  .verdict-badge.ready { background: #dcfce7; color: #166534; } .verdict-badge.caution { background: #fef3c7; color: #92400e; } .verdict-badge.blocked { background: #fee2e2; color: #991b1b; }
+  .review-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; transition: transform 0.2s; }
+  .review-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+  .review-card-role { font-size: 0.85rem; font-weight: 600; color: #333; }
+  .review-card-note { font-size: 0.83rem; color: #777; line-height: 1.4; }
+  .questions-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; }
+  .questions-card > p { font-size: 0.9rem; color: #555; margin-bottom: 1rem; }
+  .question-list { list-style: none; padding: 0; counter-reset: question; }
+  .question-list li { counter-increment: question; display: grid; grid-template-columns: 2rem 1fr; gap: 0.4rem; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; font-size: 0.93rem; color: #444; }
+  .question-list li:last-child { border-bottom: none; padding-bottom: 0; }
+  .question-list li::before { content: counter(question); font-weight: 800; color: #fff; background: #2563eb; width: 1.6rem; height: 1.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0; }
+  .advisory-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 1rem 1.25rem; margin-top: 1rem; }
+  .advisory-card h3 { font-size: 0.8rem; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+  .advisory-list { padding-left: 1.25rem; font-size: 0.88rem; color: #78350f; } .advisory-list li { margin-bottom: 0.3rem; }
+  @media print { body { background: #fff; } .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .toc { display: none; } .proposal { max-width: 100%; padding: 1rem 0; } .section { opacity: 1 !important; transform: none !important; animation: none !important; } .issue-card, .scope-column, .feasibility-box, .review-card { break-inside: avoid; box-shadow: none; } .mermaid-container { break-inside: avoid; } }
+  @media (max-width: 640px) { .hero h1 { font-size: 1.5rem; } .metrics-strip { flex-wrap: wrap; } .metric { min-width: 50%; } .scope-grid, .feasibility-grid { grid-template-columns: 1fr; } .issue-card.child { margin-left: 1rem; } .review-cards { grid-template-columns: 1fr; } .toc-inner { padding: 0 0.5rem; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Feature Proposal</div>
+    <h1>Project Memory System</h1>
+    <p class="subtitle">The PM plugin remembers what it learned from past grooming sessions and surfaces relevant context at the start of future sessions, so each session starts smarter instead of from scratch.</p>
+    <div class="metrics-strip">
+      <div class="metric"><span class="metric-value">High</span><span class="metric-label">Priority</span></div>
+      <div class="metric"><span class="metric-value">10x</span><span class="metric-label">Differentiator</span></div>
+      <div class="metric"><span class="metric-value">Compounding</span><span class="metric-label">Expected Impact</span></div>
+      <div class="metric"><span class="metric-value">Solo Builders</span><span class="metric-label">ICP Segment</span></div>
+      <div class="metric"><span class="metric-value">4 issues</span><span class="metric-label">Scope Size</span></div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#problem">Problem</a>
+    <a href="#scope">Scope</a>
+    <a href="#flows">Flows</a>
+    <a href="#competitive">Competitive</a>
+    <a href="#feasibility">Feasibility</a>
+    <a href="#issues">Issues</a>
+    <a href="#review">Review</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<div class="proposal">
+
+  <div class="section" id="problem">
+    <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
+    <p>Every PM groom session generates valuable learnings — what research was useful, which scope decisions got challenged, what review patterns emerged. Today, all of this is discarded when the groom state file is deleted at Phase 6 completion. The next session on the same project starts cold, repeating mistakes and rediscovering context that was already known.</p>
+    <p style="margin-top: 0.75rem;">The existing workaround is a manually-maintained <code>learnings.md</code> journal, but it's updated sporadically and never read back into sessions. Claude's built-in session memory captures 5 feedback entries but they're generic, not structured for PM workflows.</p>
+    <div class="callout">
+      <strong>Research signal:</strong> AI agent memory systems have matured rapidly in 2025-2026. GitHub Copilot's memory system shows 7% improvement in PR merge rates. Trajectory-informed memory extraction shows +14.3pp on task completion. The critical insight across all research: capturing signal is easy; closing the loop back to behavior change is hard. No PM tool has a structured improvement loop.
+    </div>
+  </div>
+
+  <div class="section" id="scope">
+    <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>&#10003; In Scope</h4>
+        <ul>
+          <li>Groom session outcome extraction at Phase 6 — extract structured learnings from state file before deletion</li>
+          <li>Project memory file (<code>pm/memory.md</code>) — persistent per-project learnings with defined schema</li>
+          <li>Memory injection at Phase 1 — surface past learnings with progressive disclosure before first scope decision</li>
+          <li>Retro prompt at session end — 3-question structured reflection written to project memory</li>
+        </ul>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>&#10007; Out of Scope</h4>
+        <ul>
+          <li>Plugin quality metrics <span style="color:#999;">(v2 — needs real session data first)</span></li>
+          <li>Improvement suggestions after N sessions <span style="color:#999;">(v2 — depends on metrics)</span></li>
+          <li>Cross-project plugin improvement <span style="color:#999;">(v2 — needs aggregation infra)</span></li>
+          <li>Phase-gate injection beyond Phase 1 <span style="color:#999;">(v2 — incremental refinement)</span></li>
+          <li>Vector/semantic search <span style="color:#999;">(overkill at this scale)</span></li>
+          <li>Automatic skill prompt modification <span style="color:#999;">(too risky for v1)</span></li>
+          <li>Cloud sync / shared team memory <span style="color:#999;">(non-goal per strategy)</span></li>
+        </ul>
+      </div>
+    </div>
+    <span class="filter-badge">&#9889; 10x — no PM tool has a structured improvement loop</span>
+  </div>
+
+  <div class="section" id="flows">
+    <h2 class="section-title"><span class="icon">&#8644;</span> User Flows</h2>
+    <div class="mermaid-container">
+      <pre class="mermaid">
+graph TD
+    A[User starts groom session] --> B{pm/memory.md exists?}
+    B -->|Yes| C[Read memory file]
+    B -->|No| D[Proceed without memory]
+    C --> E[Surface 5 most recent one-line summaries]
+    E --> F[User proceeds through groom phases]
+    D --> F
+    F --> G[Session reaches Phase 6]
+    G --> H[Ask 3 retro questions]
+    H --> I[Extract learnings from state file]
+    I --> J[Write structured entries to pm/memory.md]
+    J --> K[Delete groom state file]
+    K --> L[Next session inherits accumulated knowledge]
+    %% Source: pm/research/memory-improvement-loop/findings.md — Finding 3: four parallel memory channels
+    %% Source: pm/research/memory-improvement-loop/findings.md — Finding 5: structured triggers at session end
+      </pre>
+    </div>
+  </div>
+
+  <div class="section" id="competitive">
+    <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
+    <div class="comp-table-wrap">
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>Productboard Spark</th>
+            <th>Claude-Mem</th>
+            <th>PM (Ours)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Memory scope</td>
+            <td class="competitor-weak">Organization-level, cloud SaaS</td>
+            <td class="competitor-weak">Raw session transcripts, SQLite</td>
+            <td class="us"><strong>Project-level, version-controlled in repo</strong></td>
+          </tr>
+          <tr>
+            <td>Extraction method</td>
+            <td class="competitor-weak">Automated theme detection</td>
+            <td class="competitor-weak">Compress everything, retrieve by similarity</td>
+            <td class="us"><strong>Structured extraction at phase gates + user retro</strong></td>
+          </tr>
+          <tr>
+            <td>Behavior change</td>
+            <td class="competitor-weak">Surfaces themes, doesn't change workflow</td>
+            <td class="competitor-weak">Context injection only, no behavior loop</td>
+            <td class="us"><strong>Injects learnings at decision points before scope input</strong></td>
+          </tr>
+          <tr>
+            <td>Data portability</td>
+            <td class="competitor-weak">Locked in Productboard cloud</td>
+            <td>Local SQLite + vector DB</td>
+            <td class="us"><strong>Plain markdown, git clone away</strong></td>
+          </tr>
+          <tr>
+            <td>Self-improvement loop</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="us"><strong>Extracts both success and failure signals</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Key differentiator:</strong> PM is the only tool that captures structured learnings from product workflow sessions and surfaces them at decision points. Memory lives in the user's repo, version-controlled alongside code — no vendor lock-in, no cloud dependency.
+    </div>
+  </div>
+
+  <div class="section" id="feasibility">
+    <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
+    <p style="margin-bottom: 1rem;"><strong>Verdict:</strong> <span class="verdict-badge caution">&#10003; Feasible with caveats</span></p>
+    <div class="feasibility-grid">
+      <div class="feasibility-box build-on">
+        <h4>&#9654; Build On</h4>
+        <ul>
+          <li><code>skills/groom/phases/phase-6-link.md</code> — natural hook point before state file deletion</li>
+          <li><code>skills/groom/phases/phase-1-intake.md</code> step 3 — existing pm/research/ read pattern</li>
+          <li><code>scripts/server.js</code> parseFrontmatter() — handles array-of-objects YAML</li>
+          <li><code>scripts/validate.js</code> — existing validation framework to extend</li>
+        </ul>
+      </div>
+      <div class="feasibility-box build-new">
+        <h4>&#10010; Build New</h4>
+        <ul>
+          <li><code>pm/memory.md</code> schema and file format</li>
+          <li>Retro prompt step in Phase 6</li>
+          <li>Automated extraction logic in Phase 6</li>
+          <li>Memory injection step in Phase 1</li>
+          <li>validate.js parser upgrade for array-of-objects</li>
+        </ul>
+      </div>
+      <div class="feasibility-box risks">
+        <h4>&#9888; Risks</h4>
+        <ul>
+          <li>Phase 6 deletion ordering — must extract before deleting state file</li>
+          <li>Token budget for memory injection — progressive disclosure enforced</li>
+          <li>validate.js parseFrontmatter() needs upgrade from server.js version</li>
+          <li>Retro prompt pacing at session exit — skip mechanism mitigates</li>
+        </ul>
+      </div>
+      <div class="feasibility-box sequencing">
+        <h4>&#8594; Sequencing</h4>
+        <ul>
+          <li>1. PM-039: Memory file schema (foundation)</li>
+          <li>2. PM-040: Retro prompt (first capture mechanism)</li>
+          <li>3. PM-041: Automated extraction (supplements retro)</li>
+          <li>4. PM-042: Memory injection at Phase 1 (closes the loop)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="issues">
+    <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
+    <div class="issue-group">
+      <div class="issue-card parent">
+        <div class="issue-header">
+          <span class="issue-id">PM-038</span>
+          <span class="issue-title">Project Memory System</span>
+        </div>
+        <p class="issue-outcome">The PM plugin remembers what it learned from past grooming sessions and surfaces relevant context at the start of future sessions, so each session starts smarter instead of from scratch.</p>
+        <div class="issue-labels">
+          <span class="label">memory</span>
+          <span class="label">core-loop</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li><code>pm/memory.md</code> is created and populated when the first groom session completes Phase 6.</li>
+          <li>Subsequent sessions read <code>pm/memory.md</code> at Phase 1 and surface relevant one-line summaries.</li>
+          <li>Memory file lives in the project repo, version-controlled alongside the codebase. Memory never leaves the user's repository.</li>
+          <li>The retro prompt captures qualitative learnings; automated extraction captures quantitative signals.</li>
+          <li>Memory entries have dates and source citations (which session, which phase).</li>
+          <li>Phase 6 completion always results in at least one memory entry, or a logged warning if writing fails.</li>
+          <li>Users can manually add entries following the schema.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-039</span>
+          <span class="issue-title">Define Project Memory File Schema</span>
+        </div>
+        <p class="issue-outcome">pm/memory.md has a defined, validated schema so learnings are structured consistently and retrievable by future sessions.</p>
+        <div class="issue-labels">
+          <span class="label">memory</span>
+          <span class="label">schema</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>YAML frontmatter with <code>type: project-memory</code>, <code>created</code>, <code>updated</code>, and <code>entries:</code> key containing a list of entry objects.</li>
+          <li>Each entry: <code>date</code>, <code>source</code>, <code>category</code> (scope|research|review|process|quality), <code>learning</code>. Optional: <code>detail</code>.</li>
+          <li>validate.js exits non-zero with descriptive error when entries are missing required fields.</li>
+          <li>validate.js prints warning when file exceeds 50 entries.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-040</span>
+          <span class="issue-title">Retro Prompt at Groom Session End</span>
+        </div>
+        <p class="issue-outcome">Users reflect on what worked and what didn't at the end of each groom session, and those learnings are written to pm/memory.md automatically.</p>
+        <div class="issue-labels">
+          <span class="label">memory</span>
+          <span class="label">capture</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li><code>phase-6-link.md</code> modified: retro step inserted after issue creation, before state file deletion.</li>
+          <li>3 questions with fixed categories: "What worked well?" (quality), "What was slow?" (process), "What to do differently?" (process).</li>
+          <li>Skip on any question bypasses all remaining questions gracefully.</li>
+          <li>State file NOT deleted until retro completes or is skipped.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-041</span>
+          <span class="issue-title">Automated Learning Extraction from Groom State</span>
+        </div>
+        <p class="issue-outcome">Structured learnings are automatically extracted from the groom session state file at Phase 6, capturing quantitative signals the retro prompt misses.</p>
+        <div class="issue-labels">
+          <span class="label">memory</span>
+          <span class="label">capture</span>
+          <span class="label priority-medium">medium priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>Extraction step in <code>phase-6-link.md</code> after retro, before state deletion.</li>
+          <li>Extracts when: scope iterations &gt;1, team review has conditions, bar raiser sends back, scope items moved.</li>
+          <li>Clean session marker when scope passed first iteration and bar raiser approved.</li>
+          <li>Sessions with no notable signals produce no extraction entries.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-042</span>
+          <span class="issue-title">Memory Injection at Phase 1 Session Start</span>
+        </div>
+        <p class="issue-outcome">New groom sessions surface relevant learnings from past sessions at Phase 1, so the user starts with accumulated project context instead of from scratch.</p>
+        <div class="issue-labels">
+          <span class="label">memory</span>
+          <span class="label">retrieval</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>New step in <code>phase-1-intake.md</code> after research check, before codebase scan.</li>
+          <li>Surface 5 most recent entries by date (deterministic, no relevance ranking in v1).</li>
+          <li>Memory surfaced before first scope input, not as ambient preamble.</li>
+          <li>Token budget: ~500 tokens for summaries. Full detail on-demand via fenced blockquote.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="review">
+    <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
+    <div class="review-pipeline">
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Scope Review</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Team Review</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Bar Raiser</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step current"><div class="pipeline-dot">&#9654;</div><span class="pipeline-label">Decision</span></div>
+    </div>
+    <div class="review-cards">
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Product Manager</span>
+          <span class="verdict-badge ready">&#10003; Ready</span>
+        </div>
+        <p class="review-card-note">4/4 scope items covered. ACs testable after iteration 2 fixes. Fixed categories, deterministic selection.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Competitive Strategist</span>
+          <span class="verdict-badge ready">&#10003; Sharp</span>
+        </div>
+        <p class="review-card-note">Version-controlled memory encoded as AC. Deferral trap addressed. Clean session markers added. 8/9 findings utilized.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Engineering Manager</span>
+          <span class="verdict-badge ready">&#10003; Ready</span>
+        </div>
+        <p class="review-card-note">Clean decomposition. Dependencies explicit. Parser upgrade called out. Sequential ordering on phase-6-link.md documented.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Bar Raiser</span>
+          <span class="verdict-badge ready">&#10003; Ready</span>
+        </div>
+        <p class="review-card-note">Narrative is coherent. Right feature, right time. "Ship it, accumulate real data, instrument measurement in v2."</p>
+      </div>
+    </div>
+    <div class="advisory-card">
+      <h3>Advisory (non-blocking)</h3>
+      <ul class="advisory-list">
+        <li><strong>[PM-039]</strong> validate.js parseFrontmatter() needs array-of-objects support ported from server.js.</li>
+        <li><strong>[PM-041]</strong> Scope tightening signal depends on comparing two list states — may need implementer guidance.</li>
+        <li><strong>[PM-034]</strong> If readable-output-foundation ships first, memory output formatting should follow its terminal rules.</li>
+        <li><strong>[PM-040]</strong> If retro completion drops below 70%, consider reducing to 1 question or making opt-in.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section" id="questions">
+    <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
+    <div class="questions-card">
+      <p>Questions the decision-maker should be prepared to discuss:</p>
+      <ul class="question-list">
+        <li>How do we measure whether memory actually improves outcomes? (v1 captures data; measurement instrumentation is v2. Proxy: at least one memory entry per session with &gt;1 scope iteration.)</li>
+        <li>What is the migration path for the existing <code>learnings.md</code>? (Different purpose: learnings.md captures plugin development retrospectives; pm/memory.md captures product grooming learnings. No migration needed — they coexist.)</li>
+        <li>What happens when memory entries conflict or become stale? (v1 provides manual pruning guideline at 50 entries / 6 months. Automated contradiction detection deferred to v2.)</li>
+        <li>How will we track retro prompt completion rate? (Qualitative observation in v1 — if users consistently skip, we know from the memory file having few retro-sourced entries.)</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  function updateToc() {
+    const scrollY = window.scrollY + 100;
+    const pageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+    let current = sections[0];
+    if (pageBottom) { current = sections[sections.length - 1]; }
+    else { sections.forEach(s => { if (s.offsetTop <= scrollY) current = s; }); }
+    tocLinks.forEach(l => l.classList.remove('active'));
+    const active = document.querySelector(`.toc a[href="#${current.id}"]`);
+    if (active) active.classList.add('active');
+  }
+  window.addEventListener('scroll', updateToc, { passive: true });
+  updateToc();
+</script>
+
+</body>
+</html>
