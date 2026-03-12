@@ -110,6 +110,19 @@ If the file has no recognizable date key, treat it as stale.
 
 ## Phase 1: Audit
 
+### Missing File Detection
+
+Before checking staleness, verify that each competitor directory has all 5 expected files:
+
+For each directory under `pm/competitors/*/`:
+- Check for: `profile.md`, `features.md`, `api.md`, `seo.md`, `sentiment.md`
+- Classify missing files as **[Missing]** (distinct from Incomplete or Stale)
+- Include missing files in the audit report with: `[Missing] {slug}/{file} — never created`
+
+Missing files should be created during Phase 2 execution using the same methodology as initial profiling (`skills/research/competitor-profiling.md`). They take priority over stale file refreshes.
+
+### Staleness Check
+
 Scan all in-scope `pm/` files with frontmatter. For each file:
 
 1. Read the file age using the date priority rules above.

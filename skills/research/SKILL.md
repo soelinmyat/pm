@@ -119,7 +119,15 @@ When `pm/landscape.md` exists and user runs landscape mode again: re-run searche
 
 Determine dispatch strategy based on candidate count and environment:
 
-**1 competitor:** Profile inline. Follow methodology in `skills/research/competitor-profiling.md`.
+**1 competitor:** Profile inline. Create all 5 files per competitor:
+1. Read methodology in `skills/research/competitor-profiling.md`
+2. Create `pm/competitors/{slug}/profile.md`
+3. Create `pm/competitors/{slug}/features.md`
+4. Create `pm/competitors/{slug}/api.md`
+5. Create `pm/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
+6. Create `pm/competitors/{slug}/sentiment.md`
+
+Verify all 5 files exist before proceeding to Phase 3.
 
 **2+ competitors, subagents available (Claude Code, Codex):**
 Dispatch one researcher agent per competitor in parallel. Use this syntax for each:
@@ -131,7 +139,18 @@ Write all output files to pm/competitors/{slug}/.
 Do NOT write to pm/competitors/index.md — that is owned by the parent skill."
 ```
 
-Wait for all agents to complete before Phase 3.
+Wait for all agents to complete, then validate output for each competitor:
+
+```
+For each {slug}, verify these 5 files exist:
+- pm/competitors/{slug}/profile.md
+- pm/competitors/{slug}/features.md
+- pm/competitors/{slug}/api.md
+- pm/competitors/{slug}/seo.md
+- pm/competitors/{slug}/sentiment.md
+
+If any file is missing, re-run that section of research before proceeding to Phase 3.
+```
 
 **2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
 Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
@@ -142,7 +161,18 @@ Profile sequentially inline, one at a time. After each: "Finished {name}. Profil
 
 ### Phase 3: Synthesize
 
-After all profiles are complete:
+**Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
+
+For each competitor slug, check:
+- [ ] `pm/competitors/{slug}/profile.md` exists
+- [ ] `pm/competitors/{slug}/features.md` exists
+- [ ] `pm/competitors/{slug}/api.md` exists
+- [ ] `pm/competitors/{slug}/seo.md` exists
+- [ ] `pm/competitors/{slug}/sentiment.md` exists
+
+If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?"
+
+Only proceed to synthesis after all files are present.
 
 1. Update `pm/competitors/index.md` — add links to each profile, last-profiled date.
 2. Write or update `pm/competitors/matrix.md` — feature comparison table across all profiled competitors.

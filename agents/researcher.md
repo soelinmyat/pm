@@ -96,6 +96,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/seo-provider.js getBacklinks "{domain}"
 
 Network errors, rate limits, and provider errors are expected; they do not prevent completion.
 
+**CRITICAL: All five files are mandatory.** You must create all five output files before signaling completion, regardless of SEO provider status:
+- If SEO data is unavailable, create `seo.md` with `seo_data_available: false` and a note explaining why (e.g., provider: "none", rate limit, API error).
+- Do NOT skip `features.md`, `api.md`, or `sentiment.md` if SEO fails.
+- If web research for any file yields limited results, still create the file with what you found and note gaps.
+
 ## Tools Available
 
 - **WebSearch** — Broad searches for competitors, market position, recent news
