@@ -1,0 +1,12 @@
+{
+  "name": "pm",
+  "description": "Product discovery, competitive intelligence, and feature grooming for Product Managers",
+  "version": "1.0.0",
+  "author": { "name": "Soe Lin Myat" },
+  "homepage": "https://github.com/soelinmyat/pm",
+  "repository": "https://github.com/soelinmyat/pm",
+  "license": "MIT",
+  "keywords": ["product-management", "competitive-intelligence", "grooming", "research", "discovery"],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

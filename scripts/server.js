@@ -1,0 +1,1590 @@
+const crypto = require('crypto');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+// ========== WebSocket Protocol (RFC 6455) ==========
+
+const OPCODES = { TEXT: 0x01, CLOSE: 0x08, PING: 0x09, PONG: 0x0A };
+const WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+function computeAcceptKey(clientKey) {
+  return crypto.createHash('sha1').update(clientKey + WS_MAGIC).digest('base64');
+}
+
+function encodeFrame(opcode, payload) {
+  const fin = 0x80;
+  const len = payload.length;
+  let header;
+
+  if (len < 126) {
+    header = Buffer.alloc(2);
+    header[0] = fin | opcode;
+    header[1] = len;
+  } else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = fin | opcode;
+    header[1] = 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = fin | opcode;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+
+  return Buffer.concat([header, payload]);
+}
+
+function decodeFrame(buffer) {
+  if (buffer.length < 2) return null;
+
+  const secondByte = buffer[1];
+  const opcode = buffer[0] & 0x0F;
+  const masked = (secondByte & 0x80) !== 0;
+  let payloadLen = secondByte & 0x7F;
+  let offset = 2;
+
+  if (!masked) throw new Error('Client frames must be masked');
+
+  if (payloadLen === 126) {
+    if (buffer.length < 4) return null;
+    payloadLen = buffer.readUInt16BE(2);
+    offset = 4;
+  } else if (payloadLen === 127) {
+    if (buffer.length < 10) return null;
+    payloadLen = Number(buffer.readBigUInt64BE(2));
+    offset = 10;
+  }
+
+  const maskOffset = offset;
+  const dataOffset = offset + 4;
+  const totalLen = dataOffset + payloadLen;
+  if (buffer.length < totalLen) return null;
+
+  const mask = buffer.slice(maskOffset, dataOffset);
+  const data = Buffer.alloc(payloadLen);
+  for (let i = 0; i < payloadLen; i++) {
+    data[i] = buffer[dataOffset + i] ^ mask[i % 4];
+  }
+
+  return { opcode, payload: data, bytesConsumed: totalLen };
+}
+
+// ========== Configuration ==========
+
+const PORT = process.env.PM_PORT || (49152 + Math.floor(Math.random() * 16383));
+const HOST = process.env.PM_HOST || '127.0.0.1';
+const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
+
+// Default SCREEN_DIR to .pm/sessions/{timestamp} relative to cwd
+const DEFAULT_SCREEN_DIR = path.join(process.cwd(), '.pm', 'sessions', String(Date.now()));
+const SCREEN_DIR = process.env.PM_DIR || DEFAULT_SCREEN_DIR;
+
+const OWNER_PID = process.env.PM_OWNER_PID ? Number(process.env.PM_OWNER_PID) : null;
+
+// --mode flag: 'companion' (default) or 'dashboard'
+const MODE = (() => {
+  const idx = process.argv.indexOf('--mode');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return process.env.PM_MODE || 'companion';
+})();
+
+// --dir flag: directory for dashboard mode (default: 'pm/' relative to cwd)
+const DIR_FLAG = (() => {
+  const idx = process.argv.indexOf('--dir');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return null;
+})();
+
+const MIME_TYPES = {
+  '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml'
+};
+
+// ========== Templates and Constants ==========
+
+const WAITING_PAGE = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>PM Companion</title>
+<style>body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; }
+h1 { color: #333; } p { color: #666; }</style>
+</head>
+<body><h1>PM Companion</h1>
+<p>Waiting for Claude to push a screen...</p></body></html>`;
+
+// ========== Mode Parsing (exported for testing) ==========
+
+function parseMode(argv) {
+  const idx = argv.indexOf('--mode');
+  if (idx !== -1 && argv[idx + 1]) return argv[idx + 1];
+  return process.env.PM_MODE || 'companion';
+}
+
+// ========== YAML Frontmatter Parser ==========
+
+/**
+ * Parse YAML frontmatter from a markdown file content string.
+ * Handles three shapes:
+ *   1. Flat key-value:  key: value
+ *   2. Scalar arrays:   key:\n  - item
+ *   3. Array of objects: key:\n  - field: val\n    field2: val2
+ *
+ * Returns { data: {}, body: '...' }
+ */
+function parseFrontmatter(content) {
+  const FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+  const match = content.match(FM_RE);
+  if (!match) return { data: {}, body: content };
+
+  const rawYaml = match[1];
+  const body = match[2] || '';
+  const data = {};
+
+  const lines = rawYaml.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Skip empty lines
+    if (line.trim() === '') { i++; continue; }
+
+    // Top-level key (not indented, not a list item)
+    const keyMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+    if (!keyMatch) { i++; continue; }
+
+    const key = keyMatch[1];
+    const inlineVal = keyMatch[2].trim();
+
+    if (inlineVal !== '') {
+      // Flat key-value
+      data[key] = inlineVal;
+      i++;
+      continue;
+    }
+
+    // No inline value — check if next lines are array items
+    const items = [];
+    i++;
+    while (i < lines.length) {
+      const next = lines[i];
+      // Check if this is an indented list item (scalar or object start)
+      const scalarItemMatch = next.match(/^[ \t]+-\s+([^:\n]+)$/);
+      const objItemMatch = next.match(/^[ \t]+-\s+([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+      const contObjMatch = next.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+
+      if (objItemMatch) {
+        // Start of an object item
+        const obj = {};
+        obj[objItemMatch[1]] = objItemMatch[2].trim();
+        i++;
+        // Collect continuation lines for this object
+        while (i < lines.length) {
+          const cont = lines[i];
+          const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+          if (contMatch && !cont.match(/^[ \t]+-\s/)) {
+            obj[contMatch[1]] = contMatch[2].trim();
+            i++;
+          } else {
+            break;
+          }
+        }
+        items.push(obj);
+      } else if (scalarItemMatch) {
+        items.push(scalarItemMatch[1].trim());
+        i++;
+      } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === 'object') {
+        // Continuation of last object (shouldn't normally reach here but be safe)
+        items[items.length - 1][contObjMatch[1]] = contObjMatch[2].trim();
+        i++;
+      } else {
+        // No more items for this key
+        break;
+      }
+    }
+
+    if (items.length > 0) {
+      data[key] = items;
+    }
+    // (if items.length === 0 and no inline val, key is null/undefined — skip)
+  }
+
+  return { data, body };
+}
+
+// ========== Simple Markdown-to-HTML Renderer ==========
+
+function renderMarkdown(md) {
+  const lines = md.split('\n');
+  const out = [];
+  let inCodeBlock = false;
+  let inList = false;
+  let inTable = false;
+  let tableHeaderDone = false;
+
+  function closeList() {
+    if (inList) { out.push('</ul>'); inList = false; }
+  }
+  function closeTable() {
+    if (inTable) { out.push('</tbody></table>'); inTable = false; tableHeaderDone = false; }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith('```')) {
+      closeList(); closeTable();
+      if (inCodeBlock) { out.push('</code></pre>'); inCodeBlock = false; }
+      else { out.push('<pre><code>'); inCodeBlock = true; }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      out.push(escHtml(line));
+      continue;
+    }
+
+    // Table detection: line contains |
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      closeList();
+      const cells = line.trim().slice(1, -1).split('|').map(c => c.trim());
+      // Separator row?
+      if (cells.every(c => /^[-: ]+$/.test(c))) {
+        if (!tableHeaderDone) {
+          out.push('</thead><tbody>');
+          tableHeaderDone = true;
+        }
+        continue;
+      }
+      if (!inTable) {
+        out.push('<table><thead>');
+        inTable = true;
+        tableHeaderDone = false;
+        const row = cells.map(c => '<th>' + inlineMarkdown(c) + '</th>').join('');
+        out.push('<tr>' + row + '</tr>');
+        continue;
+      }
+      const tag = tableHeaderDone ? 'td' : 'th';
+      const row = cells.map(c => '<' + tag + '>' + inlineMarkdown(c) + '</' + tag + '>').join('');
+      out.push('<tr>' + row + '</tr>');
+      continue;
+    } else {
+      closeTable();
+    }
+
+    // Headings
+    const h6 = line.match(/^######\s+(.*)/);
+    const h5 = line.match(/^#####\s+(.*)/);
+    const h4 = line.match(/^####\s+(.*)/);
+    const h3 = line.match(/^###\s+(.*)/);
+    const h2 = line.match(/^##\s+(.*)/);
+    const h1 = line.match(/^#\s+(.*)/);
+    if (h6) { closeList(); out.push('<h6>' + inlineMarkdown(h6[1]) + '</h6>'); continue; }
+    if (h5) { closeList(); out.push('<h5>' + inlineMarkdown(h5[1]) + '</h5>'); continue; }
+    if (h4) { closeList(); out.push('<h4>' + inlineMarkdown(h4[1]) + '</h4>'); continue; }
+    if (h3) { closeList(); out.push('<h3>' + inlineMarkdown(h3[1]) + '</h3>'); continue; }
+    if (h2) { closeList(); out.push('<h2>' + inlineMarkdown(h2[1]) + '</h2>'); continue; }
+    if (h1) { closeList(); out.push('<h1>' + inlineMarkdown(h1[1]) + '</h1>'); continue; }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
+      closeList(); out.push('<hr>'); continue;
+    }
+
+    // List items
+    const liMatch = line.match(/^[ \t]*[-*+]\s+(.*)/);
+    if (liMatch) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push('<li>' + inlineMarkdown(liMatch[1]) + '</li>');
+      continue;
+    } else {
+      closeList();
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      continue;
+    }
+
+    // Paragraph
+    out.push('<p>' + inlineMarkdown(line) + '</p>');
+  }
+
+  closeList();
+  closeTable();
+  if (inCodeBlock) out.push('</code></pre>');
+
+  return out.join('\n');
+}
+
+function escHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function inlineMarkdown(str) {
+  // Escape HTML entities first to prevent XSS
+  str = escHtml(str);
+  // Bold+italic
+  str = str.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  // Bold
+  str = str.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  str = str.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Inline code
+  str = str.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Links — sanitize href to block javascript:/data:/vbscript: schemes
+  str = str.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    const scheme = url.trim().toLowerCase();
+    if (/^(javascript|data|vbscript):/i.test(scheme)) return text;
+    return '<a href="' + url + '">' + text + '</a>';
+  });
+  return str;
+}
+
+// ========== Dashboard CSS ==========
+
+const DASHBOARD_CSS = `
+:root {
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --border: #e2e5ea;
+  --text: #1e2128;
+  --text-muted: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff4ff;
+  --dark: #1a1a2e;
+  --success: #16a34a;
+  --warning: #ea580c;
+  --info: #0891b2;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.07);
+  --transition: 180ms ease-out;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* Nav */
+nav { background: var(--dark); padding: 0 1.5rem; display: flex; gap: 0; align-items: stretch; min-height: 48px; }
+nav .brand { color: #fff; font-weight: 700; font-size: 0.9375rem; display: flex; align-items: center;
+  margin-right: 1.5rem; letter-spacing: -0.01em; }
+nav a { color: rgba(255,255,255,0.6); font-size: 0.8125rem; padding: 0 0.875rem;
+  display: flex; align-items: center; border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition); text-decoration: none; }
+nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
+nav a.active { color: #fff; border-bottom-color: var(--accent); }
+nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Layout */
+.container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+/* Typography */
+h1 { font-size: 1.625rem; font-weight: 700; margin-bottom: 0.25rem; letter-spacing: -0.02em; }
+h2 { font-size: 1.1875rem; font-weight: 600; margin: 1.75rem 0 0.75rem; letter-spacing: -0.01em; }
+h3 { font-size: 0.9375rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+p { margin-bottom: 0.75rem; }
+ul { margin: 0.5rem 0 0.75rem 1.5rem; }
+li { margin-bottom: 0.25rem; }
+pre { background: var(--dark); color: #e8eaed; padding: 1rem; border-radius: var(--radius-sm);
+  overflow-x: auto; margin: 0.75rem 0; font-size: 0.8125rem; line-height: 1.5; }
+code { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.85em; }
+p code, li code { background: #eef0f4; padding: 0.15em 0.35em; border-radius: 4px; }
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+th, td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: left; }
+th { background: #eef0f4; font-weight: 600; font-size: 0.8125rem; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--text-muted); }
+hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+
+/* Stat cards */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1.25rem; text-align: center; box-shadow: var(--shadow-sm); }
+.stat-card .value { font-size: 2rem; font-weight: 700; color: var(--accent); line-height: 1; }
+.stat-card .label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Card grid */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1.25rem; display: flex; flex-direction: column; box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--transition); }
+.card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.card h3 { margin: 0 0 0.25rem; }
+.card .meta { font-size: 0.8125rem; color: var(--text-muted); margin: 0; }
+.card .card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.75rem; }
+.card .card-footer .view-link { font-size: 0.8125rem; font-weight: 500; }
+
+/* Kanban */
+.kanban { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; align-items: start; }
+.kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; box-shadow: var(--shadow-sm); }
+.kanban-col .col-header { background: #eef0f4; padding: 0.75rem 1rem; font-weight: 600;
+  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.kanban-col .col-body { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.kanban-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem;
+  font-size: 0.875rem; transition: box-shadow var(--transition); }
+.kanban-item:hover { box-shadow: var(--shadow-sm); }
+.kanban-item a { color: var(--text); font-weight: 500; }
+.kanban-item a:hover { color: var(--accent); text-decoration: none; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
+.tab { padding: 0.625rem 1rem; cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
+  transition: color var(--transition), border-color var(--transition); user-select: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 150ms ease-out; }
+
+/* Badges */
+.badge { display: inline-block; padding: 0.15em 0.5em; border-radius: 4px; font-size: 0.6875rem;
+  font-weight: 600; background: #eef0f4; color: var(--text-muted); vertical-align: middle;
+  letter-spacing: 0.02em; }
+.badge-ready { background: #dcfce7; color: #166534; }
+.badge-empty { background: #f3f4f6; color: #9ca3af; }
+.badge-fresh { background: #dcfce7; color: #166534; }
+.badge-aging { background: #fef3c7; color: #92400e; }
+.badge-stale { background: #fee2e2; color: #991b1b; }
+.badge-origin-internal { background: #dbeafe; color: #1d4ed8; }
+.badge-origin-external { background: #e5e7eb; color: #374151; }
+.badge-origin-mixed { background: #fde68a; color: #92400e; }
+.badge-evidence { background: #e0f2fe; color: #0c4a6e; }
+
+/* Content sections */
+.content-section { margin-top: 2rem; }
+.content-section h2 { margin-top: 0; }
+
+/* Empty states */
+.empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-muted); }
+.empty-state h2 { color: var(--text); margin-bottom: 0.5rem; }
+.empty-state p { max-width: 420px; margin-left: auto; margin-right: auto; }
+.empty-state code { background: var(--accent-subtle); padding: 0.2em 0.5em; border-radius: 4px;
+  font-size: 0.85rem; color: var(--accent); }
+
+/* Page header */
+.page-header { margin-bottom: 2rem; }
+.page-header .subtitle { color: var(--text-muted); margin-top: 0.125rem; font-size: 0.9375rem; }
+.page-header .breadcrumb { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.375rem; }
+.page-header .breadcrumb a { color: var(--text-muted); }
+.page-header .breadcrumb a:hover { color: var(--accent); }
+.topic-badges { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+/* Markdown body — content pages */
+.markdown-body { max-width: 820px; }
+.markdown-body h1 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
+.markdown-body h2 { font-size: 1.25rem; margin: 1.75rem 0 0.625rem; }
+.markdown-body h3 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+.markdown-body p { line-height: 1.7; }
+.markdown-body ul, .markdown-body ol { margin-left: 1.25rem; }
+.markdown-body li { margin-bottom: 0.375rem; line-height: 1.6; }
+.markdown-body table { font-size: 0.8125rem; }
+.markdown-body table th { white-space: nowrap; }
+.markdown-body strong { font-weight: 600; }
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+`;
+
+// ========== Dashboard HTML Shell ==========
+
+function dashboardPage(title, activeNav, bodyContent) {
+  const navLinks = [
+    { href: '/', label: 'Home' },
+    { href: '/research', label: 'Research' },
+    { href: '/strategy', label: 'Strategy' },
+    { href: '/backlog', label: 'Backlog' },
+  ];
+  const navHtml = navLinks.map(l =>
+    `<a href="${l.href}"${activeNav === l.href ? ' class="active"' : ''}>${l.label}</a>`
+  ).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(title)} - PM Dashboard</title>
+<style>${DASHBOARD_CSS}</style>
+</head>
+<body>
+<nav>
+  <span class="brand">PM Dashboard</span>
+  ${navHtml}
+</nav>
+<div class="container">
+${bodyContent}
+</div>
+<script>
+(function() {
+  var ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onmessage = function(e) {
+    try { var d = JSON.parse(e.data); if (d.type === 'reload') location.reload(); } catch(err) {}
+  };
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ========== Dashboard Route Handlers ==========
+
+function routeDashboard(req, res, pmDir) {
+  touchActivity();
+  const url = req.url.split('?')[0];
+  const pmExists = fs.existsSync(pmDir);
+
+  if (!pmExists) {
+    const html = dashboardPage('PM Dashboard', '/', `
+<div class="empty-state">
+  <h2>No knowledge base found</h2>
+  <p>The <code>pm/</code> directory does not exist yet.</p>
+  <p>Run <code>/pm:setup</code> to get started and initialize your knowledge base.</p>
+</div>`);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  if (url === '/') {
+    handleDashboardHome(res, pmDir);
+  } else if (url === '/research') {
+    handleResearchPage(res, pmDir);
+  } else if (url === '/landscape') {
+    // Redirect old route
+    res.writeHead(302, { 'Location': '/research#landscape' }); res.end();
+  } else if (url === '/competitors') {
+    // Redirect old route
+    res.writeHead(302, { 'Location': '/research#competitors' }); res.end();
+  } else if (url.startsWith('/competitors/')) {
+    const slug = url.slice('/competitors/'.length).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleCompetitorDetail(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (url.startsWith('/research/')) {
+    const topic = url.slice('/research/'.length).replace(/\/$/, '');
+    if (topic && !topic.includes('/') && !topic.includes('..')) {
+      handleResearchTopic(res, pmDir, topic);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (url === '/strategy') {
+    handleMarkdownPage(res, pmDir, 'strategy.md', 'Strategy', '/strategy');
+  } else if (url === '/backlog') {
+    handleBacklog(res, pmDir);
+  } else if (url.startsWith('/backlog/')) {
+    const slug = url.slice('/backlog/'.length).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleBacklogItem(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else {
+    res.writeHead(404); res.end('Not found');
+  }
+}
+
+function getUpdatedDate(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const { data } = parseFrontmatter(content);
+    return data.updated || data.created || null;
+  } catch { return null; }
+}
+
+function getNewestUpdated(dir) {
+  if (!fs.existsSync(dir)) return null;
+  let newest = null;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const fp = path.join(dir, e.name);
+      let d = null;
+      if (e.isDirectory()) {
+        const idx = path.join(fp, 'profile.md');
+        if (fs.existsSync(idx)) d = getUpdatedDate(idx);
+        if (!d) d = getNewestUpdated(fp);
+      } else if (e.name.endsWith('.md')) {
+        d = getUpdatedDate(fp);
+      }
+      if (d && (!newest || d > newest)) newest = d;
+    }
+  } catch {}
+  return newest;
+}
+
+function stalenessInfo(dateStr) {
+  if (!dateStr) return null;
+  const updated = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - updated;
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  let label, level;
+  if (days === 0) label = 'Updated today';
+  else if (days === 1) label = 'Updated yesterday';
+  else if (days < 7) label = `Updated ${days}d ago`;
+  else if (days < 30) { const w = Math.floor(days / 7); label = `Updated ${w}w ago`; }
+  else { const m = Math.floor(days / 30); label = `Updated ${m}mo ago`; }
+
+  if (days < 7) level = 'fresh';
+  else if (days < 30) level = 'aging';
+  else level = 'stale';
+
+  return { label, level };
+}
+
+function humanizeSlug(slug) {
+  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function normalizeSourceOrigin(value) {
+  const origin = String(value || 'external').toLowerCase();
+  return origin === 'internal' || origin === 'mixed' || origin === 'external'
+    ? origin
+    : 'external';
+}
+
+function parseCount(value) {
+  const count = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(count) ? count : null;
+}
+
+function buildTopicMeta(slug, data, findingsPath) {
+  const origin = normalizeSourceOrigin(data.source_origin);
+  const evidenceCount = parseCount(data.evidence_count);
+  const label = typeof data.topic === 'string' && data.topic.trim() !== ''
+    ? data.topic.trim()
+    : humanizeSlug(slug);
+  const originLabel = origin.charAt(0).toUpperCase() + origin.slice(1);
+  const subtitleParts = [
+    origin === 'internal'
+      ? 'Customer evidence'
+      : origin === 'mixed'
+        ? 'Customer + market evidence'
+        : 'External research'
+  ];
+
+  const badges = [
+    `<span class="badge badge-origin-${origin}">${escHtml(originLabel)}</span>`
+  ];
+
+  if ((origin === 'internal' || origin === 'mixed') && evidenceCount) {
+    const evidenceLabel = `${evidenceCount} evidence record${evidenceCount === 1 ? '' : 's'}`;
+    subtitleParts.push(evidenceLabel);
+    badges.push(`<span class="badge badge-evidence">${escHtml(evidenceLabel)}</span>`);
+  }
+
+  const stale = stalenessInfo(getUpdatedDate(findingsPath));
+  if (stale) badges.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
+
+  return {
+    label,
+    subtitle: subtitleParts.join(' · '),
+    badgesHtml: badges.join(' ')
+  };
+}
+
+function handleDashboardHome(res, pmDir) {
+  // Scan pm/ and count files by type
+  const stats = { total: 0, landscape: 0, strategy: 0, competitors: 0, backlog: 0, research: 0 };
+
+  function countFiles(dir) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isDirectory()) countFiles(path.join(dir, e.name));
+      else if (e.name.endsWith('.md')) stats.total++;
+    }
+  }
+  countFiles(pmDir);
+
+  if (fs.existsSync(path.join(pmDir, 'landscape.md'))) stats.landscape = 1;
+  if (fs.existsSync(path.join(pmDir, 'strategy.md'))) stats.strategy = 1;
+
+  const backlogDir = path.join(pmDir, 'backlog');
+  if (fs.existsSync(backlogDir)) {
+    stats.backlog = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md')).length;
+  }
+
+  const compDir = path.join(pmDir, 'competitors');
+  if (fs.existsSync(compDir)) {
+    stats.competitors = fs.readdirSync(compDir, { withFileTypes: true })
+      .filter(e => e.isDirectory()).length;
+  }
+
+  const researchDir = path.join(pmDir, 'research');
+  if (fs.existsSync(researchDir)) {
+    stats.research = fs.readdirSync(researchDir, { withFileTypes: true })
+      .filter(e => e.isDirectory()).length;
+  }
+
+  // Collect updated dates for staleness
+  const updatedDates = {
+    strategy: getUpdatedDate(path.join(pmDir, 'strategy.md')),
+    backlog: getNewestUpdated(path.join(pmDir, 'backlog')),
+  };
+  // Research staleness = newest across landscape, competitors, topics
+  const researchDates = [
+    getUpdatedDate(path.join(pmDir, 'landscape.md')),
+    getNewestUpdated(path.join(pmDir, 'competitors')),
+    getNewestUpdated(path.join(pmDir, 'research')),
+  ].filter(Boolean);
+  updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
+
+  // Build research sub-counts
+  const researchParts = [];
+  if (stats.landscape) researchParts.push('Landscape');
+  if (stats.competitors > 0) researchParts.push(`${stats.competitors} competitor${stats.competitors !== 1 ? 's' : ''}`);
+  if (stats.research > 0) researchParts.push(`${stats.research} topic${stats.research !== 1 ? 's' : ''}`);
+  const researchHasContent = researchParts.length > 0;
+  const researchDesc = researchHasContent ? researchParts.join(' · ') : 'Landscape, competitors, and topic research';
+
+  const sections = [
+    { href: '/research', title: 'Research', desc: researchDesc, hasContent: researchHasContent, key: 'research' },
+    { href: '/strategy', title: 'Strategy', desc: 'Product strategy and roadmap direction', hasContent: !!stats.strategy, key: 'strategy' },
+    { href: '/backlog', title: 'Backlog', desc: `${stats.backlog} backlog item${stats.backlog !== 1 ? 's' : ''}`, hasContent: stats.backlog > 0, key: 'backlog' },
+  ].map(s => {
+    const badge = s.hasContent
+      ? '<span class="badge badge-ready">Ready</span>'
+      : '<span class="badge badge-empty">Empty</span>';
+    const stale = s.hasContent ? stalenessInfo(updatedDates[s.key]) : null;
+    const footerRight = stale
+      ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
+      : '';
+    return `<div class="card">
+      <h3><a href="${s.href}">${s.title}</a> ${badge}</h3>
+      <p class="meta">${s.desc}</p>
+      <div class="card-footer"><span></span>${footerRight}</div>
+    </div>`;
+  }).join('');
+
+  const body = `
+<div class="page-header">
+  <h1>PM Dashboard</h1>
+  <p class="subtitle">Knowledge base overview</p>
+</div>
+<div class="card-grid">${sections}</div>`;
+
+  const html = dashboardPage('Home', '/', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleResearchPage(res, pmDir) {
+  // --- Landscape tab ---
+  let landscapeHtml = '';
+  const landscapePath = path.join(pmDir, 'landscape.md');
+  if (fs.existsSync(landscapePath)) {
+    const raw = fs.readFileSync(landscapePath, 'utf-8');
+    const { body } = parseFrontmatter(raw);
+    landscapeHtml = '<div class="markdown-body">' + renderMarkdown(body) + '</div>';
+  } else {
+    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+  }
+
+  // --- Competitors tab ---
+  let competitorsHtml = '';
+  const compDir = path.join(pmDir, 'competitors');
+  if (fs.existsSync(compDir)) {
+    const slugs = fs.readdirSync(compDir, { withFileTypes: true })
+      .filter(e => e.isDirectory()).map(e => e.name);
+
+    if (slugs.length > 0) {
+      const cards = slugs.map(slug => {
+        const profilePath = path.join(compDir, slug, 'profile.md');
+        let name = slug;
+        let cat = '';
+        let badge = '';
+
+        if (fs.existsSync(profilePath)) {
+          const profRaw = fs.readFileSync(profilePath, 'utf-8');
+          const profParsed = parseFrontmatter(profRaw);
+          if (profParsed.data.company) name = profParsed.data.company;
+          const summary = extractProfileSummary(profParsed.body);
+          if (summary.company) name = summary.company;
+          if (summary.category) cat = '<p class="meta">' + escHtml(summary.category) + '</p>';
+          const files = ['profile.md', 'features.md', 'api.md', 'seo.md', 'sentiment.md'];
+          const present = files.filter(f => fs.existsSync(path.join(compDir, slug, f))).length;
+          badge = '<span class="badge">' + present + '/5</span>';
+        }
+
+        return '<div class="card">' +
+          '<h3><a href="/competitors/' + escHtml(slug) + '">' + escHtml(name) + '</a></h3>' +
+          cat +
+          '<div class="card-footer">' + badge +
+          '<a href="/competitors/' + escHtml(slug) + '" class="view-link">View &rarr;</a></div>' +
+          '</div>';
+      }).join('');
+      competitorsHtml = '<div class="card-grid">' + cards + '</div>';
+
+      // Feature matrix
+      const matrixPath = path.join(compDir, 'matrix.md');
+      if (fs.existsSync(matrixPath)) {
+        const matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
+        const matrixParsed = parseFrontmatter(matrixRaw);
+        competitorsHtml += '<div class="content-section markdown-body">' + renderMarkdown(matrixParsed.body) + '</div>';
+      }
+
+      // Market gaps
+      const indexPath = path.join(compDir, 'index.md');
+      if (fs.existsSync(indexPath)) {
+        const raw = fs.readFileSync(indexPath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        const gapsMatch = parsed.body.match(/## Market Gaps\n([\s\S]*?)(?=\n## |$)/);
+        if (gapsMatch) {
+          competitorsHtml += '<div class="content-section markdown-body"><h2>Market Gaps</h2>' + renderMarkdown(gapsMatch[1].trim()) + '</div>';
+        }
+      }
+    }
+  }
+  if (!competitorsHtml) {
+    competitorsHtml = '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to start profiling.</p></div>';
+  }
+
+  // --- Topics tab ---
+  let topicsHtml = '';
+  const researchDir = path.join(pmDir, 'research');
+  if (fs.existsSync(researchDir)) {
+    const topics = fs.readdirSync(researchDir, { withFileTypes: true })
+      .filter(e => e.isDirectory()).map(e => e.name);
+
+    if (topics.length > 0) {
+      const topicCards = topics.map(t => {
+        const findingsPath = path.join(researchDir, t, 'findings.md');
+        let meta = { label: humanizeSlug(t), subtitle: 'External research', badgesHtml: '' };
+        if (fs.existsSync(findingsPath)) {
+          const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+          meta = buildTopicMeta(t, parsed.data, findingsPath);
+        }
+        return '<div class="card">' +
+          '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
+          '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
+          '<div class="card-footer"><span>' + meta.badgesHtml + '</span><a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
+          '</div>';
+      }).join('');
+      topicsHtml = '<div class="card-grid">' + topicCards + '</div>';
+    }
+  }
+  if (!topicsHtml) {
+    topicsHtml = '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>';
+  }
+
+  const tabs = [
+    { id: 'landscape', label: 'Landscape', content: landscapeHtml },
+    { id: 'competitors', label: 'Competitors', content: competitorsHtml },
+    { id: 'topics', label: 'Topics', content: topicsHtml },
+  ];
+
+  const tabHeaders = tabs.map((t, i) =>
+    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="${t.id}" onclick="switchTab(this,'tab-${t.id}')" onkeydown="tabKey(event,this,'tab-${t.id}')">${t.label}</div>`
+  ).join('');
+
+  const tabPanels = tabs.map((t, i) =>
+    `<div id="tab-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel">${t.content}</div>`
+  ).join('');
+
+  const body = `
+<div class="page-header">
+  <h1>Research</h1>
+  <p class="subtitle">Landscape, competitive intelligence, and shared topic research</p>
+</div>
+<div class="tabs" role="tablist">${tabHeaders}</div>
+${tabPanels}
+<script>
+function switchTab(el, panelId) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  el.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
+}
+function tabKey(e, el, panelId) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
+  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
+  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
+}
+(function() {
+  var hash = location.hash.slice(1);
+  if (hash) {
+    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
+    if (tab) switchTab(tab, 'tab-' + hash);
+  }
+})();
+</script>`;
+
+  const html = dashboardPage('Research', '/research', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleMarkdownPage(res, pmDir, filename, title, navPath) {
+  const filePath = path.join(pmDir, filename);
+  if (!fs.existsSync(filePath)) {
+    const html = dashboardPage(title, navPath, `
+<div class="page-header"><h1>${escHtml(title)}</h1></div>
+<div class="empty-state">
+  <p>No <code>${escHtml(filename)}</code> found.</p>
+  <p>Run <code>/pm:setup</code> to initialize the knowledge base structure.</p>
+</div>`);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const { body } = parseFrontmatter(raw);
+  const rendered = renderMarkdown(body);
+
+  const html = dashboardPage(title, navPath, `
+<div class="page-header"><h1>${escHtml(title)}</h1></div>
+<div class="markdown-body">${rendered}</div>`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function extractProfileSummary(profileContent) {
+  var summary = {};
+  var h1Match = profileContent.match(/^#\s+(.+?)(?:\s*[-—]|$)/m);
+  if (h1Match) summary.company = h1Match[1].trim();
+  var catMatch = profileContent.match(/\*\*Category claim:\*\*\s*(.+)/i);
+  if (catMatch) summary.category = catMatch[1].trim();
+  return summary;
+}
+
+function handleCompetitorsList(res, pmDir) {
+  var compDir = path.join(pmDir, 'competitors');
+  var cardsHtml = '';
+  var indexContent = '';
+
+  var indexPath = path.join(compDir, 'index.md');
+  if (fs.existsSync(indexPath)) {
+    var raw = fs.readFileSync(indexPath, 'utf-8');
+    var parsed = parseFrontmatter(raw);
+    var gapsMatch = parsed.body.match(/## Market Gaps\n([\s\S]*?)(?=\n## |$)/);
+    if (gapsMatch) {
+      indexContent = '<div class="content-section"><h2>Market Gaps</h2>' + renderMarkdown(gapsMatch[1].trim()) + '</div>';
+    }
+  }
+
+  var matrixContent = '';
+  var matrixPath = path.join(compDir, 'matrix.md');
+  if (fs.existsSync(matrixPath)) {
+    var matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
+    var matrixParsed = parseFrontmatter(matrixRaw);
+    matrixContent = '<div class="content-section">' + renderMarkdown(matrixParsed.body) + '</div>';
+  }
+
+  if (fs.existsSync(compDir)) {
+    var slugs = fs.readdirSync(compDir, { withFileTypes: true })
+      .filter(function(e) { return e.isDirectory(); })
+      .map(function(e) { return e.name; });
+
+    cardsHtml = slugs.map(function(slug) {
+      var profilePath = path.join(compDir, slug, 'profile.md');
+      var name = slug;
+      var cat = '';
+      var badge = '';
+
+      if (fs.existsSync(profilePath)) {
+        var profRaw = fs.readFileSync(profilePath, 'utf-8');
+        var profParsed = parseFrontmatter(profRaw);
+        if (profParsed.data.company) name = profParsed.data.company;
+
+        var summary = extractProfileSummary(profParsed.body);
+        if (summary.company) name = summary.company;
+        if (summary.category) cat = '<p class="meta">' + escHtml(summary.category) + '</p>';
+
+        var files = ['profile.md', 'features.md', 'api.md', 'seo.md', 'sentiment.md'];
+        var present = files.filter(function(f) { return fs.existsSync(path.join(compDir, slug, f)); }).length;
+        badge = '<span class="badge">' + present + '/5</span>';
+      }
+
+      return '<div class="card">' +
+        '<h3><a href="/competitors/' + escHtml(slug) + '">' + escHtml(name) + '</a></h3>' +
+        cat +
+        '<div class="card-footer">' + badge +
+        '<a href="/competitors/' + escHtml(slug) + '" class="view-link">View &rarr;</a></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  var body = '<div class="page-header"><h1>Competitors</h1></div>' +
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p></div>') +
+    matrixContent + indexContent;
+
+  var html = dashboardPage('Competitors', '/competitors', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleCompetitorDetail(res, pmDir, slug) {
+  const compDir = path.join(pmDir, 'competitors', slug);
+  if (!fs.existsSync(compDir)) {
+    const html = dashboardPage('Not Found', '/competitors', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    return;
+  }
+
+  const sections = ['profile', 'features', 'api', 'seo', 'sentiment'];
+  let name = slug;
+
+  const tabHeaders = [];
+  const tabPanels = [];
+
+  const TAB_LABELS = { profile: 'Profile', features: 'Features', api: 'API', seo: 'SEO', sentiment: 'Sentiment' };
+
+  sections.forEach((sec, idx) => {
+    const filePath = path.join(compDir, sec + '.md');
+    if (!fs.existsSync(filePath)) return;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const { data, body } = parseFrontmatter(raw);
+    if (idx === 0 && data.name) name = data.name;
+    const label = TAB_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
+    const isFirst = tabHeaders.length === 0;
+    tabHeaders.push(`<div class="tab${isFirst ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${isFirst}" onclick="switchTab(this,'tab-${sec}')" onkeydown="tabKey(event,this,'tab-${sec}')">${label}</div>`);
+    tabPanels.push(`<div id="tab-${sec}" class="tab-panel${isFirst ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${renderMarkdown(body)}</div></div>`);
+  });
+
+  const body = `
+<div class="page-header">
+  <p class="breadcrumb"><a href="/research#competitors">&larr; Competitors</a></p>
+  <h1>${escHtml(name)}</h1>
+</div>
+<div class="tabs" role="tablist">${tabHeaders.join('')}</div>
+${tabPanels.join('')}
+<script>
+function switchTab(el, panelId) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  el.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+}
+function tabKey(e, el, panelId) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
+  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
+  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
+}
+</script>`;
+
+  const html = dashboardPage(name, '/competitors', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleResearchTopic(res, pmDir, topic) {
+  const topicDir = path.join(pmDir, 'research', topic);
+  const findingsPath = path.join(topicDir, 'findings.md');
+
+  if (!fs.existsSync(findingsPath)) {
+    const html = dashboardPage('Not Found', '/research', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    return;
+  }
+
+  const raw = fs.readFileSync(findingsPath, 'utf-8');
+  const { data, body } = parseFrontmatter(raw);
+  const meta = buildTopicMeta(topic, data, findingsPath);
+  const html = dashboardPage(meta.label, '/research', `
+<div class="page-header">
+  <p class="breadcrumb"><a href="/research#topics">&larr; Research</a></p>
+  <h1>${escHtml(meta.label)}</h1>
+  <p class="subtitle">${escHtml(meta.subtitle)}</p>
+  <div class="topic-badges">${meta.badgesHtml}</div>
+</div>
+<div class="markdown-body">${renderMarkdown(body)}</div>`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleBacklog(res, pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  const columns = {};
+
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const status = data.status || 'todo';
+      const title = data.title || file.replace('.md', '');
+      const slug = file.replace('.md', '');
+      if (!columns[status]) columns[status] = [];
+      columns[status].push({ slug, title });
+    }
+  }
+
+  const STATUS_ORDER = ['todo', 'open', 'in-progress', 'done'];
+  // Include any statuses found in files even if not in default order
+  const allStatuses = [...new Set([...STATUS_ORDER, ...Object.keys(columns)])];
+
+  const cols = allStatuses.filter(s => columns[s] && columns[s].length > 0).map(status => {
+    const items = columns[status].map(item =>
+      `<div class="kanban-item"><a href="/backlog/${escHtml(item.slug)}">${escHtml(item.title)}</a></div>`
+    ).join('');
+    const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `<div class="kanban-col">
+  <div class="col-header">${label}</div>
+  <div class="col-body">${items}</div>
+</div>`;
+  }).join('');
+
+  const body = `
+<div class="page-header"><h1>Backlog</h1></div>
+${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
+
+  const html = dashboardPage('Backlog', '/backlog', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleBacklogItem(res, pmDir, slug) {
+  const filePath = path.join(pmDir, 'backlog', slug + '.md');
+  if (!fs.existsSync(filePath)) {
+    const html = dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Backlog item not found.</p><p><a href="/backlog">&larr; Back to backlog</a></p></div>');
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    return;
+  }
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const { data, body } = parseFrontmatter(raw);
+  const title = data.title || slug;
+
+  const html = dashboardPage(title, '/backlog', `
+<div class="page-header">
+  <p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
+  <h1>${escHtml(title)}</h1>
+</div>
+<div class="markdown-body">${renderMarkdown(body)}</div>`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+// ========== Dashboard Server Factory ==========
+
+function createDashboardServer(pmDir) {
+  const dashClients = new Set();
+  // Track all raw connections so we can force-close them when stopping
+  const allConnections = new Set();
+  const dirWatchers = new Map();
+
+  function handleDashboardUpgrade(req, socket) {
+    touchActivity();
+    const key = req.headers['sec-websocket-key'];
+    if (!key) { socket.destroy(); return; }
+    const accept = computeAcceptKey(key);
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+    );
+    dashClients.add(socket);
+    allConnections.add(socket);
+    socket.on('close', () => { dashClients.delete(socket); allConnections.delete(socket); });
+    socket.on('error', () => { dashClients.delete(socket); allConnections.delete(socket); });
+  }
+
+  function broadcastDashboard(msg) {
+    const frame = encodeFrame(OPCODES.TEXT, Buffer.from(JSON.stringify(msg)));
+    for (const socket of dashClients) {
+      try { socket.write(frame); } catch (e) { dashClients.delete(socket); }
+    }
+  }
+
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET') {
+      routeDashboard(req, res, pmDir);
+    } else {
+      res.writeHead(405); res.end('Method Not Allowed');
+    }
+  });
+
+  // Track HTTP connections too
+  server.on('connection', (socket) => {
+    allConnections.add(socket);
+    socket.on('close', () => allConnections.delete(socket));
+  });
+
+  server.on('upgrade', handleDashboardUpgrade);
+
+  let watcherActive = false;
+  function closeWatchersUnder(prefixPath) {
+    for (const [watchPath, watcher] of dirWatchers) {
+      if (watchPath === prefixPath || watchPath.startsWith(prefixPath + path.sep)) {
+        try { watcher.close(); } catch (e) {}
+        dirWatchers.delete(watchPath);
+      }
+    }
+  }
+
+  function watchDirectoryTree(dirPath) {
+    if (!watcherActive || dirWatchers.has(dirPath)) return;
+
+    let stat;
+    try {
+      stat = fs.statSync(dirPath);
+    } catch (e) {
+      return;
+    }
+    if (!stat.isDirectory()) return;
+
+    try {
+      const watcher = fs.watch(dirPath, (eventType, filename) => {
+        if (!watcherActive) return;
+
+        const name = filename ? filename.toString() : '';
+        const changedPath = name ? path.join(dirPath, name) : dirPath;
+
+        if (eventType === 'rename') {
+          try {
+            const changedStat = fs.statSync(changedPath);
+            if (changedStat.isDirectory()) {
+              watchDirectoryTree(changedPath);
+            }
+          } catch (e) {
+            closeWatchersUnder(changedPath);
+          }
+        }
+
+        broadcastDashboard({ type: 'reload' });
+      });
+
+      dirWatchers.set(dirPath, watcher);
+      watcher.on('error', () => closeWatchersUnder(dirPath));
+    } catch (e) {
+      return;
+    }
+
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        watchDirectoryTree(path.join(dirPath, entry.name));
+      }
+    }
+  }
+
+  if (fs.existsSync(pmDir)) {
+    watcherActive = true;
+    watchDirectoryTree(pmDir);
+  }
+
+  // Patch server.close to also destroy all open connections and close watcher
+  const origClose = server.close.bind(server);
+  server.close = function(cb) {
+    // Stop the watcher first so no more broadcasts fire during teardown
+    watcherActive = false;
+    closeWatchersUnder(pmDir);
+    // Destroy all open sockets so server.close callback fires promptly
+    for (const sock of allConnections) {
+      try { sock.destroy(); } catch (e) {}
+    }
+    allConnections.clear();
+    dashClients.clear();
+    origClose(cb);
+  };
+
+  return server;
+}
+
+const frameTemplate = fs.readFileSync(path.join(__dirname, 'frame-template.html'), 'utf-8');
+const helperScript = fs.readFileSync(path.join(__dirname, 'helper.js'), 'utf-8');
+const helperInjection = '<script>\n' + helperScript + '\n</script>';
+
+// ========== Helper Functions ==========
+
+function isFullDocument(html) {
+  const trimmed = html.trimStart().toLowerCase();
+  return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+}
+
+function wrapInFrame(content) {
+  return frameTemplate.replace('<!-- CONTENT -->', content);
+}
+
+function getNewestScreen() {
+  const files = fs.readdirSync(SCREEN_DIR)
+    .filter(f => f.endsWith('.html'))
+    .map(f => {
+      const fp = path.join(SCREEN_DIR, f);
+      return { path: fp, mtime: fs.statSync(fp).mtime.getTime() };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  return files.length > 0 ? files[0].path : null;
+}
+
+// ========== HTTP Request Handler ==========
+
+function handleRequest(req, res) {
+  touchActivity();
+  if (req.method === 'GET' && req.url === '/') {
+    const screenFile = getNewestScreen();
+    let html = screenFile
+      ? (raw => isFullDocument(raw) ? raw : wrapInFrame(raw))(fs.readFileSync(screenFile, 'utf-8'))
+      : WAITING_PAGE;
+
+    if (html.includes('</body>')) {
+      html = html.replace('</body>', helperInjection + '\n</body>');
+    } else {
+      html += helperInjection;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+  } else if (req.method === 'GET' && req.url.startsWith('/files/')) {
+    const fileName = req.url.slice(7);
+    const filePath = path.join(SCREEN_DIR, path.basename(fileName));
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(fs.readFileSync(filePath));
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+}
+
+// ========== WebSocket Connection Handling ==========
+
+const clients = new Set();
+
+function handleUpgrade(req, socket) {
+  const key = req.headers['sec-websocket-key'];
+  if (!key) { socket.destroy(); return; }
+
+  const accept = computeAcceptKey(key);
+  socket.write(
+    'HTTP/1.1 101 Switching Protocols\r\n' +
+    'Upgrade: websocket\r\n' +
+    'Connection: Upgrade\r\n' +
+    'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+  );
+
+  let buffer = Buffer.alloc(0);
+  clients.add(socket);
+
+  socket.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    while (buffer.length > 0) {
+      let result;
+      try {
+        result = decodeFrame(buffer);
+      } catch (e) {
+        socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
+        clients.delete(socket);
+        return;
+      }
+      if (!result) break;
+      buffer = buffer.slice(result.bytesConsumed);
+
+      switch (result.opcode) {
+        case OPCODES.TEXT:
+          handleMessage(result.payload.toString());
+          break;
+        case OPCODES.CLOSE:
+          socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
+          clients.delete(socket);
+          return;
+        case OPCODES.PING:
+          socket.write(encodeFrame(OPCODES.PONG, result.payload));
+          break;
+        case OPCODES.PONG:
+          break;
+        default: {
+          const closeBuf = Buffer.alloc(2);
+          closeBuf.writeUInt16BE(1003);
+          socket.end(encodeFrame(OPCODES.CLOSE, closeBuf));
+          clients.delete(socket);
+          return;
+        }
+      }
+    }
+  });
+
+  socket.on('close', () => clients.delete(socket));
+  socket.on('error', () => clients.delete(socket));
+}
+
+function handleMessage(text) {
+  let event;
+  try {
+    event = JSON.parse(text);
+  } catch (e) {
+    console.error('Failed to parse WebSocket message:', e.message);
+    return;
+  }
+  touchActivity();
+  console.log(JSON.stringify({ source: 'user-event', ...event }));
+  if (event.choice) {
+    const eventsFile = path.join(SCREEN_DIR, '.events');
+    fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
+  }
+}
+
+function broadcast(msg) {
+  const frame = encodeFrame(OPCODES.TEXT, Buffer.from(JSON.stringify(msg)));
+  for (const socket of clients) {
+    try { socket.write(frame); } catch (e) { clients.delete(socket); }
+  }
+}
+
+// ========== Activity Tracking ==========
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+let lastActivity = Date.now();
+
+function touchActivity() {
+  lastActivity = Date.now();
+}
+
+// ========== File Watching ==========
+
+const debounceTimers = new Map();
+
+// ========== Server Startup ==========
+
+function startServer() {
+  // ---- Dashboard mode ----
+  if (MODE === 'dashboard') {
+    const pmDir = DIR_FLAG
+      ? path.resolve(process.cwd(), DIR_FLAG)
+      : path.join(process.cwd(), 'pm');
+
+    const server = createDashboardServer(pmDir);
+
+    function ownerAliveDash() {
+      if (!OWNER_PID) return true;
+      try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
+    }
+
+    const lifecycleCheck = setInterval(() => {
+      if (!ownerAliveDash()) {
+        console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
+        clearInterval(lifecycleCheck);
+        server.close(() => process.exit(0));
+      } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+        console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
+        clearInterval(lifecycleCheck);
+        server.close(() => process.exit(0));
+      }
+    }, 60 * 1000);
+    lifecycleCheck.unref();
+
+    server.listen(PORT, HOST, () => {
+      const address = server.address();
+      const boundPort = address && typeof address === 'object' ? Number(address.port) : Number(PORT);
+      const info = JSON.stringify({
+        type: 'server-started', port: boundPort, host: HOST,
+        url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
+        pm_dir: pmDir, mode: MODE
+      });
+      console.log(info);
+    });
+    return;
+  }
+
+  // ---- Companion mode (default) ----
+  if (!fs.existsSync(SCREEN_DIR)) fs.mkdirSync(SCREEN_DIR, { recursive: true });
+
+  // Track known files to distinguish new screens from updates.
+  // macOS fs.watch reports 'rename' for both new files and overwrites,
+  // so we can't rely on eventType alone.
+  const knownFiles = new Set(
+    fs.readdirSync(SCREEN_DIR).filter(f => f.endsWith('.html'))
+  );
+
+  const server = http.createServer(handleRequest);
+  server.on('upgrade', handleUpgrade);
+
+  const watcher = fs.watch(SCREEN_DIR, (eventType, filename) => {
+    if (!filename || !filename.endsWith('.html')) return;
+
+    if (debounceTimers.has(filename)) clearTimeout(debounceTimers.get(filename));
+    debounceTimers.set(filename, setTimeout(() => {
+      debounceTimers.delete(filename);
+      const filePath = path.join(SCREEN_DIR, filename);
+
+      if (!fs.existsSync(filePath)) return; // file was deleted
+      touchActivity();
+
+      if (!knownFiles.has(filename)) {
+        knownFiles.add(filename);
+        const eventsFile = path.join(SCREEN_DIR, '.events');
+        if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
+        console.log(JSON.stringify({ type: 'screen-added', file: filePath }));
+      } else {
+        console.log(JSON.stringify({ type: 'screen-updated', file: filePath }));
+      }
+
+      broadcast({ type: 'reload' });
+    }, 100));
+  });
+  watcher.on('error', (err) => console.error('fs.watch error:', err.message));
+
+  function shutdown(reason) {
+    console.log(JSON.stringify({ type: 'server-stopped', reason }));
+    const infoFile = path.join(SCREEN_DIR, '.server-info');
+    if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
+    fs.writeFileSync(
+      path.join(SCREEN_DIR, '.server-stopped'),
+      JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
+    );
+    watcher.close();
+    clearInterval(lifecycleCheck);
+    server.close(() => process.exit(0));
+  }
+
+  function ownerAlive() {
+    if (!OWNER_PID) return true;
+    try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
+  }
+
+  // Check every 60s: exit if owner process died or idle for 30 minutes
+  const lifecycleCheck = setInterval(() => {
+    if (!ownerAlive()) shutdown('owner process exited');
+    else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) shutdown('idle timeout');
+  }, 60 * 1000);
+  lifecycleCheck.unref();
+
+  server.listen(PORT, HOST, () => {
+    const address = server.address();
+    const boundPort = address && typeof address === 'object' ? Number(address.port) : Number(PORT);
+    const info = JSON.stringify({
+      type: 'server-started', port: boundPort, host: HOST,
+      url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
+      screen_dir: SCREEN_DIR, mode: MODE
+    });
+    console.log(info);
+    fs.writeFileSync(path.join(SCREEN_DIR, '.server-info'), info + '\n');
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
+  parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
+  createDashboardServer,
+};

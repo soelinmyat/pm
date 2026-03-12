@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pm",
+  "owner": {
+    "name": "Soe Lin Myat"
+  },
+  "plugins": [
+    {
+      "name": "pm",
+      "description": "Product discovery, competitive intelligence, and feature grooming for Product Managers",
+      "version": "1.0.0",
+      "author": {
+        "name": "Soe Lin Myat"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/soelinmyat/pm"
+    }
+  ]
+}
