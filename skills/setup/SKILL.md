@@ -1,12 +1,12 @@
 ---
 name: setup
-description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Triggers automatically on first use of any pm skill."
+description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding."
 ---
 
 # pm:setup
 
 ## Purpose
-Configure integrations and bootstrap the knowledge base.
+Configure integrations, bootstrap the knowledge base, and get to value fast — especially when the user already has existing research or evidence.
 
 ## When Required
 Setup is advisory, not a hard gate. It is:
@@ -16,11 +16,19 @@ Setup is advisory, not a hard gate. It is:
 
 Skills that need integrations check for config themselves and prompt setup if missing.
 
+## Argument
+
+`/pm:setup [path/to/existing-data]`
+
+The path is optional. If provided, setup will import the data via `/pm:ingest` after configuration, so the user doesn't need to run two separate commands.
+
 ## Checklist
 1. Create folder structure
 2. Configure integrations
-3. Present bootstrap flow
-4. Write config
+3. Write config
+4. Import existing data (if path provided)
+5. Scan knowledge base and launch dashboard (if data exists)
+6. Present gap-aware next steps
 
 ---
 
@@ -126,13 +134,86 @@ Populate fields:
 
 **If `seo.provider` is `"none"`:** Skip this step.
 
-## Step 6: Bootstrap Flow
+## Step 6: Import Existing Data
 
-Tell the user:
+**If a path argument was provided:**
+- Invoke `/pm:ingest <path>` to import the data into the knowledge base.
+- This normalizes evidence into `.pm/evidence/`, updates shared research in `pm/research/`, and handles deduplication.
+- After ingest completes, continue to Step 7.
 
-> "Setup complete. Recommended next steps: /pm:ingest <path> (if you already have customer evidence) -> /pm:research landscape -> /pm:strategy -> /pm:research competitors -> /pm:groom"
+**If no path argument but `pm/` already has files** (e.g., cloned repo with committed research):
+- Skip ingest. The data is already in place.
+- Continue to Step 7.
 
-Ask if they want to start with landscape research now. If yes, invoke `/pm:research landscape` immediately.
+**If no path and `pm/` is empty:**
+- Skip to Step 8 (fresh start flow).
+
+## Step 7: Launch Dashboard and Scan for Gaps
+
+When the knowledge base has data (from ingest or pre-existing files), do two things:
+
+### Launch the dashboard
+Start `/pm:view` so the user can see their data immediately:
+
+> "Opening the PM dashboard so you can see what's already in the knowledge base..."
+
+Launch the dashboard server and give the user the URL.
+
+### Scan for gaps
+Read the `pm/` directory and classify what exists:
+
+| Artifact | Check | Status |
+|---|---|---|
+| Landscape | `pm/landscape.md` exists | ✓ / ✗ |
+| Strategy | `pm/strategy.md` exists | ✓ / ✗ |
+| Competitors | Count dirs in `pm/competitors/` (exclude index.md, matrix.md) | N found / none |
+| Competitor profiles | For each competitor, check which of the 5 files exist (profile, features, api, seo, sentiment) | Complete / partial / missing |
+| Topic research | Count dirs in `pm/research/` | N topics / none |
+| Customer evidence | Count files in `.pm/evidence/` | N records / none |
+| Backlog | Count files in `pm/backlog/` | N issues / none |
+
+Present a summary like:
+
+```
+Knowledge Base Status:
+  ✓ Landscape overview
+  ✓ Strategy document
+  ✓ 5 competitors profiled (all complete)
+  ✗ No SEO data for competitors (Ahrefs now configured — run /pm:refresh seo)
+  ✗ No topic research
+  ✓ 12 customer evidence records
+
+Suggested next steps:
+  1. /pm:refresh seo — backfill SEO data now that Ahrefs is configured
+  2. /pm:research <topic> — investigate a specific question
+```
+
+### Gap-aware next step suggestions
+
+Only suggest what's actually missing. Use this priority order:
+
+1. **No landscape** → `/pm:research landscape`
+2. **Landscape exists, no strategy** → `/pm:strategy`
+3. **Strategy exists, no competitors** → `/pm:research competitors`
+4. **Competitors exist but missing SEO data + Ahrefs configured** → `/pm:refresh seo`
+5. **Competitors exist but incomplete profiles** → `/pm:refresh <slug>`
+6. **Everything exists but stale** → `/pm:refresh`
+7. **All research complete, no backlog** → `/pm:groom`
+
+Ask the user if they want to start the first suggested step now.
+
+## Step 8: Fresh Start Flow
+
+When `pm/` is empty and no import path was provided:
+
+> "Setup complete. Your knowledge base is empty — let's build it.
+> Recommended pipeline: `/pm:research landscape` → `/pm:strategy` → `/pm:research competitors` → `/pm:groom`
+>
+> Want to start with landscape research now?"
+
+If yes, invoke `/pm:research landscape` immediately.
+
+Do **not** launch `/pm:view` for an empty knowledge base — there's nothing to see yet.
 
 ---
 
