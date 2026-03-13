@@ -1,5 +1,5 @@
 ---
-name: dig
+name: pm-dig
 description: "Use for quick inline product research during other work. Lightweight alternative to pm:groom. No state, no issues. Frame question, check strategy, research, recommend. Triggers on 'quick question about,' 'should we,' 'how do competitors handle.'"
 ---
 

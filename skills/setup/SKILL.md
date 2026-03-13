@@ -1,5 +1,5 @@
 ---
-name: setup
+name: pm-setup
 description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding."
 ---
 

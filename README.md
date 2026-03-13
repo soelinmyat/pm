@@ -27,11 +27,14 @@ claude plugin install pm@pm
 
 Copy the `.cursor-plugin/` directory into your project root, or install via Cursor's plugin marketplace once published.
 
-### Codex, OpenCode, Gemini CLI
+### Codex
+
+Codex installs PM as a bundle of skills, not a `plugins:` config entry. Follow the Codex-specific guide in [`.codex/INSTALL.md`](.codex/INSTALL.md).
+
+### OpenCode, Gemini CLI
 
 These platforms do not have a one-line install. See the platform-specific guides:
 
-- **Codex:** [`.codex/INSTALL.md`](.codex/INSTALL.md)
 - **OpenCode:** [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
 - **Gemini CLI:** Clone the repo and add it to your Gemini extensions. See [`GEMINI.md`](GEMINI.md).
 
@@ -69,6 +72,8 @@ The fastest path from zero to a groomed backlog:
 **`/pm:research <topic>`** investigates a specific area — pricing models, API standards, regulatory requirements, or any question that needs grounded answers before building.
 
 **`/pm:groom`** converts strategy and research into groomed Linear issues with acceptance criteria, effort estimates, and priority scores.
+
+In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, and `pm-refresh`.
 
 ---
 

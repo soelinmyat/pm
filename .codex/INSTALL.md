@@ -1,92 +1,66 @@
-# PM Plugin: Codex CLI Installation
+# PM Plugin: Codex Installation
+
+PM integrates with Codex as a set of skills. Codex discovers user-installed skills from `~/.agents/skills` and project-local skills from `<project>/.agents/skills`.
+
+The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
 
 ## Prerequisites
 
-- [Codex CLI](https://github.com/openai/codex) installed and authenticated
-- Node.js 18+
+- Codex installed and authenticated
 - Git
 
----
+## Install
 
-## Installation
-
-### 1. Clone the repository
+### 1. Clone PM into a stable vendor path
 
 ```bash
-git clone https://github.com/soelinmyat/pm ~/Projects/pm
+mkdir -p ~/.agents/vendor ~/.agents/skills
+git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 ```
 
-### 2. Register with Codex
+### 2. Expose the PM skills to Codex
 
-Codex discovers plugins via its `.codex/` directory convention. Add the plugin path to your Codex configuration:
-
-```yaml
-# ~/.codex/config.yml
-plugins:
-  - path: ~/Projects/pm
+```bash
+ln -sfn ~/.agents/vendor/pm/skills/setup ~/.agents/skills/pm-setup
+ln -sfn ~/.agents/vendor/pm/skills/research ~/.agents/skills/pm-research
+ln -sfn ~/.agents/vendor/pm/skills/strategy ~/.agents/skills/pm-strategy
+ln -sfn ~/.agents/vendor/pm/skills/ideate ~/.agents/skills/pm-ideate
+ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
+ln -sfn ~/.agents/vendor/pm/skills/dig ~/.agents/skills/pm-dig
+ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
+ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ```
 
-Or, if your project uses a local Codex config, add it there:
+The skill folders in this repo already include symlinks to the shared `agents/`, `commands/`, `hooks/`, `scripts/`, and `templates/` directories that Codex may read while following the workflows.
 
-```yaml
-# <project-root>/.codex/config.yml
-plugins:
-  - path: ~/Projects/pm
-```
+### 3. Restart Codex
 
-### 3. Enable parallel researcher agents (optional)
-
-The `/pm:research` skill uses the `spawn_agent` tool to dispatch parallel researcher agents. This requires `collab = true` in your Codex config:
-
-```yaml
-# ~/.codex/config.yml
-collab: true
-plugins:
-  - path: ~/Projects/pm
-```
-
-Without `collab: true`, research tasks run sequentially. All other skills work without this flag.
-
----
+Restart Codex so it reloads the newly installed skills.
 
 ## Verification
 
-Start a Codex session and run:
+Start a new Codex session and invoke one of the skills explicitly, for example:
 
-```
-/pm:setup
-```
-
-You should see the PM setup wizard. If you see "command not found", check that the plugin path is correct in your config and that the `commands/` directory exists at `~/Projects/pm/commands/`.
-
----
-
-## Windows Instructions
-
-Windows does not support symlinks without Developer Mode. Use directory junctions instead.
-
-### Option A: Enable Developer Mode (recommended)
-
-1. Open Settings > System > For developers
-2. Enable Developer Mode
-3. Proceed with the standard installation above (symlinks will work)
-
-### Option B: Directory junctions
-
-```cmd
-# In an elevated Command Prompt (Run as Administrator):
-mklink /J C:\Users\<you>\.codex\plugins\pm C:\Projects\pm
+```text
+$pm-setup
 ```
 
-Replace paths to match your actual install locations.
+If Codex does not find the skill:
 
----
+1. Check that `~/.agents/skills/pm-setup/SKILL.md` exists.
+2. Confirm the symlink points at your PM clone.
+3. Restart Codex again.
 
 ## Updating
 
+Pull the latest changes in the vendor clone, then restart Codex:
+
 ```bash
-cd ~/Projects/pm
-git pull
+git -C ~/.agents/vendor/pm pull --ff-only
 ```
 
-No rebuild step required. Changes take effect on the next Codex session.
+Your `~/.agents/skills/pm-*` symlinks do not need to be recreated unless you move the clone.
+
+## Windows Notes
+
+If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks can be created successfully.
