@@ -82,7 +82,7 @@ To copy source changes to the plugin cache for immediate testing:
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
   /Users/soelinmyat/Projects/pm/ \
-  ~/.claude/plugins/cache/pm/pm/1.0.4/
+  ~/.claude/plugins/cache/pm/pm/{version}/
 ```
 
 This overwrites the cache with your local source. It will be overwritten again on the next official plugin update, which is fine — your changes should be committed to source before that happens.
@@ -98,7 +98,7 @@ When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/1.0.4/scripts/server.js \
+node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
   --mode dashboard --dir "$PWD/pm"
 ```
 
@@ -130,10 +130,20 @@ Planning notes live in:
 
 ## Version Bump Rules
 
-Version bumps must update all 3 manifests:
+When the user says **"bump version"**, **"bump patch"**, or **"bump minor version"**: increment the **patch** number (e.g., 1.0.5 → 1.0.6). This is the default and most common bump.
+
+| User says | Semver meaning | Example |
+|---|---|---|
+| "bump version" / "bump patch" / "bump minor version" | Patch | 1.0.5 → 1.0.6 |
+| "bump minor" (explicit semver) | Minor | 1.0.5 → 1.1.0 |
+| "bump major" | Major | 1.0.5 → 2.0.0 |
+
+All version bumps must update **all 3 manifests**:
 - `.claude-plugin/plugin.json`
 - `.cursor-plugin/plugin.json`
-- `marketplace.json` (if present)
+- `.claude-plugin/marketplace.json`
+
+Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.
 
 ## Data Rules
 
