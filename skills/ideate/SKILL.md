@@ -48,7 +48,7 @@ Read all available sources before generating ideas. Each idea must trace back to
 | Strategy priorities | `pm/strategy.md` § 6 | Top 3 priorities — ideas should advance these |
 | Strategy non-goals | `pm/strategy.md` § 7 | Filter out ideas that conflict |
 | Market gaps | `pm/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
-| Feature matrix | `pm/competitors/matrix.md` | Cells where Product Memory shows "No" or "Planned" |
+| Feature matrix | `pm/competitors/matrix.md` | Cells where the product shows "No" or "Planned" |
 | Competitor weaknesses | `pm/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
 | Landscape observations | `pm/landscape.md` § Initial Observations | Whitespace and macro trends |
 | Keyword opportunities | `pm/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
@@ -64,12 +64,11 @@ Read all available sources before generating ideas. Each idea must trace back to
 
 Before generating ideas, understand what's already built. This prevents suggesting features that already exist.
 
-1. **Read all skill files** in `skills/*/SKILL.md` — catalog every capability the product already has.
-2. **Read the dashboard server** capabilities — check `scripts/server.js` for existing tabs, views, and features.
-3. **Read hooks and commands** — check `hooks/` and `commands/` for existing automation.
-4. **Read the feature matrix** — `pm/competitors/matrix.md` shows what Product Memory already does. Trust the "Yes" cells. Verify any "No" or "Planned" cells against actual skill files before suggesting ideas to fill them.
+1. **Explore the project codebase** — scan the project's source code structure to catalog existing capabilities. Look at top-level directories, key source files, and any documentation that describes current features.
+2. **Read the feature matrix** — `pm/competitors/matrix.md` shows what the product already does. Trust the "Yes" cells. Verify any "No" or "Planned" cells against actual source code before suggesting ideas to fill them.
+3. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
 
-Build a mental inventory: "Product Memory already does X, Y, Z." Every idea generated in Step 2 must be checked against this inventory.
+Build a mental inventory: "The product already does X, Y, Z." Every idea generated in Step 2 must be checked against this inventory.
 
 ### Step 2: Mine signals
 
@@ -184,19 +183,6 @@ updated: YYYY-MM-DD
 ## Outcome
 
 {What the user can do after this ships that they couldn't before.}
-
-
-## Custom Instructions
-
-Before starting work, check for user instructions:
-
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
-3. If neither file exists, proceed normally.
-
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
-
----
 
 ## Signal Sources
 

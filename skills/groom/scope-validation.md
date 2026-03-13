@@ -8,10 +8,10 @@ Used by `pm:groom` during Phase 4. Follow this guide to define scope precisely, 
 
 Strategy check happened in Phase 2, but scope is where it bites. Before defining any boundary, re-read the relevant sections of `pm/strategy.md`:
 
-**Current priorities (Section 5):** Which of the top 3 priorities does this scope serve?
+**Current priorities (Section 6):** Which of the top 3 priorities does this scope serve?
 Write it down explicitly. If you cannot name the priority, the scope is suspect.
 
-**Non-goals (Section 6):** Does any proposed in-scope item touch a stated non-goal?
+**Non-goals (Section 7):** Does any proposed in-scope item touch a stated non-goal?
 If yes: stop. The non-goal exists because that decision was already made deliberately.
 Do not reopen it silently through scope — raise it explicitly and get a decision.
 

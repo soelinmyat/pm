@@ -368,6 +368,7 @@ After execution, show what changed:
 2. **File has no frontmatter date:** Treat as stale (unknown age = should refresh).
 3. **SEO provider is `"none"`:** Skip all SEO refresh. Note in audit.
 4. **Ahrefs call fails:** Log the error, note in audit summary, continue with other files.
+5. **All files fresh:** Report "All files are within threshold. Nothing to refresh." and exit.
 6. **User selects a fresh file explicitly:** Allow it. Re-run with interactive mode.
 7. **File has user-added custom sections:** Preserve them. Only patch/append methodology-defined sections.
 8. **Slug not found:** Error with list of available slugs.
