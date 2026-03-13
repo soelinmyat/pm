@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Pre-commit checks:
+# 1. Version consistency across all 3 manifests
+# 2. JSON validity for manifest files
+
+set -euo pipefail
+
+MANIFESTS=(
+  ".claude-plugin/plugin.json"
+  ".cursor-plugin/plugin.json"
+  ".claude-plugin/marketplace.json"
+)
+
+# --- JSON validity ---
+for f in "${MANIFESTS[@]}"; do
+  if [[ -f "$f" ]]; then
+    if ! python3 -m json.tool "$f" > /dev/null 2>&1; then
+      echo "ERROR: Invalid JSON in $f"
+      exit 1
+    fi
+  fi
+done
+
+# --- Version consistency ---
+versions=()
+for f in "${MANIFESTS[@]}"; do
+  if [[ -f "$f" ]]; then
+    v=$(python3 -c "import json; d=json.load(open('$f')); print(d.get('version') or d['plugins'][0]['version'])" 2>/dev/null)
+    versions+=("$v:$f")
+  fi
+done
+
+if [[ ${#versions[@]} -lt 2 ]]; then
+  exit 0  # Not enough manifests to compare
+fi
+
+first_version="${versions[0]%%:*}"
+for entry in "${versions[@]:1}"; do
+  v="${entry%%:*}"
+  f="${entry#*:}"
+  if [[ "$v" != "$first_version" ]]; then
+    echo "ERROR: Version mismatch across manifests."
+    for e in "${versions[@]}"; do
+      echo "  ${e#*:}: ${e%%:*}"
+    done
+    echo "All 3 manifests must have the same version."
+    exit 1
+  fi
+done
+
+exit 0

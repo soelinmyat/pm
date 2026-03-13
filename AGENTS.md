@@ -64,6 +64,33 @@ Edit source → commit → push → Claude Code updates marketplace → reinstal
 
 The **cache** is what Claude Code actually loads at runtime. The **marketplace** is a git clone of the GitHub repo. The **source** is where you develop.
 
+## Branching Rules
+
+**Never push directly to main.** All changes go through a PR.
+
+```
+feature branch: commit → commit → bump version (last commit) → PR → merge to main
+```
+
+- Create a feature branch for all work
+- Commit freely on the branch — no version bumps until ready
+- **Bump version as the last commit** on the branch before creating the PR
+- Create a PR, merge to main
+- The pre-push hook enforces this — direct pushes to main are blocked
+
+## Git Hooks
+
+Hooks live in `.githooks/` (version-controlled). After cloning, activate them:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+| Hook | What it does |
+|---|---|
+| `pre-push` | Blocks direct pushes to main |
+| `pre-commit` | Validates JSON and version consistency across all 3 manifests |
+
 ## Development Flow
 
 ### Editing source code (skills, scripts, commands, agents)
@@ -72,7 +99,7 @@ The **cache** is what Claude Code actually loads at runtime. The **marketplace**
 2. **Sync to cache** to test immediately (see sync command below)
 3. **Verify** the change works (restart dashboard, run the skill, etc.)
 4. **Commit** to the source repo when satisfied
-5. **Bump version** and push when ready to release (see version bump rules below)
+5. **Bump version** as the last commit on the branch, then create a PR (see version bump rules below)
 
 ### Sync command (dev only)
 
