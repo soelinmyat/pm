@@ -303,6 +303,13 @@ function renderMarkdown(md) {
       closeList();
     }
 
+    // HTML comments (pass through for VIZ_PLACEHOLDER injection)
+    if (/^\s*<!--.*-->\s*$/.test(line)) {
+      closeList();
+      out.push(line.trim());
+      continue;
+    }
+
     // Empty line
     if (line.trim() === '') {
       continue;
@@ -490,6 +497,134 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .markdown-body table th { white-space: nowrap; }
 .markdown-body strong { font-weight: 600; }
 
+/* SWOT grid */
+.swot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+.swot-box { border-radius: var(--radius); padding: 1.25rem; border: 1px solid var(--border); }
+.swot-box h4 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.75rem; }
+.swot-box ul { margin: 0; padding-left: 1.25rem; font-size: 0.875rem; }
+.swot-box li { margin-bottom: 0.375rem; line-height: 1.5; }
+.swot-strengths { background: #f0fdf4; border-color: #bbf7d0; }
+.swot-strengths h4 { color: #166534; }
+.swot-weaknesses { background: #fef2f2; border-color: #fecaca; }
+.swot-weaknesses h4 { color: #991b1b; }
+.swot-opportunities { background: #eff6ff; border-color: #bfdbfe; }
+.swot-opportunities h4 { color: #1e40af; }
+.swot-threats { background: #fffbeb; border-color: #fde68a; }
+.swot-threats h4 { color: #92400e; }
+@media (max-width: 700px) { .swot-grid { grid-template-columns: 1fr; } }
+
+/* Scatter plot */
+.scatter-container { position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2.5rem 2.5rem 2.5rem 3rem; margin: 1.5rem 0 3rem 0; aspect-ratio: 16/10; }
+.scatter-area { position: relative; width: 100%; height: 100%; }
+.scatter-dot { position: absolute; border-radius: 50%; background: var(--accent); opacity: 0.85;
+  transform: translate(-50%, -50%); transition: opacity var(--transition), transform var(--transition); cursor: default; }
+.scatter-dot:hover { opacity: 1; transform: translate(-50%, -50%) scale(1.15); z-index: 2; }
+.scatter-dot.highlight { background: #044842; opacity: 1; }
+.scatter-label { position: absolute; transform: translate(-50%, 0); font-size: 0.6875rem; font-weight: 600;
+  white-space: nowrap; color: var(--text); text-align: center; pointer-events: none; }
+.scatter-axis-x, .scatter-axis-y { position: absolute; font-size: 0.6875rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.scatter-axis-x { bottom: -1.75rem; left: 50%; transform: translateX(-50%); }
+.scatter-axis-y { top: 50%; left: -2.5rem; transform: translateY(-50%) rotate(-90deg); }
+.scatter-axis-label { position: absolute; font-size: 0.625rem; color: var(--text-muted); }
+.scatter-axis-label-left { left: 0; }
+.scatter-axis-label-right { right: 0; }
+.scatter-axis-label-top { top: 0; }
+.scatter-axis-label-bottom { bottom: 0; }
+.scatter-gridline { position: absolute; background: var(--border); }
+.scatter-gridline-h { left: 0; right: 0; height: 1px; }
+.scatter-gridline-v { top: 0; bottom: 0; width: 1px; }
+.scatter-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); }
+.scatter-legend-item { display: flex; align-items: center; gap: 0.375rem; }
+.scatter-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* Quadrant chart */
+.quadrant-container { position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2rem; margin: 1.5rem 0; }
+.quadrant-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 2px; background: var(--border); aspect-ratio: 1.6/1; }
+.quadrant-cell { background: var(--surface); padding: 1rem; position: relative; }
+.quadrant-cell-label { position: absolute; top: 0.5rem; left: 0.75rem; font-size: 0.6875rem;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); opacity: 0.7; }
+.quadrant-item { display: inline-block; padding: 0.25em 0.625em; border-radius: 4px; font-size: 0.75rem;
+  font-weight: 500; margin: 0.25rem; cursor: default; }
+.quadrant-items { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 1.5rem; }
+.quadrant-q1 { background: #dcfce7; color: #166534; }
+.quadrant-q2 { background: #fef3c7; color: #92400e; }
+.quadrant-q3 { background: #dbeafe; color: #1d4ed8; }
+.quadrant-q4 { background: #f3f4f6; color: #6b7280; }
+.quadrant-axis-x { text-align: center; font-size: 0.6875rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-top: 0.75rem; }
+.quadrant-axis-y { position: absolute; top: 50%; left: -2rem; transform: translateY(-50%) rotate(-90deg);
+  font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
+/* Heatmap */
+.heatmap-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.8125rem; }
+.heatmap-table th, .heatmap-table td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: center; }
+.heatmap-table th { background: #eef0f4; font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--text-muted); }
+.heatmap-table th:first-child, .heatmap-table td:first-child { text-align: left; font-weight: 500; }
+.heatmap-pillar { background: var(--dark); color: #fff; font-weight: 700; font-size: 0.6875rem;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+.heatmap-full { background: #dcfce7; color: #166534; font-weight: 600; }
+.heatmap-partial { background: #fef3c7; color: #92400e; font-weight: 600; }
+.heatmap-missing { background: #fee2e2; color: #991b1b; font-weight: 600; }
+.heatmap-diff { background: #ccfbf1; color: #044842; font-weight: 700; }
+
+/* Horizontal bar chart */
+.bar-chart { margin: 1.5rem 0; }
+.bar-group { margin-bottom: 1.25rem; }
+.bar-group-label { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; }
+.bar-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.375rem; }
+.bar-row-label { font-size: 0.75rem; color: var(--text-muted); width: 100px; flex-shrink: 0; text-align: right; }
+.bar-track { flex: 1; height: 20px; background: #eef0f4; border-radius: 4px; position: relative; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding: 0 0.5rem;
+  font-size: 0.6875rem; font-weight: 600; color: #fff; min-width: fit-content; }
+.bar-fill-green { background: #16a34a; }
+.bar-fill-yellow { background: #eab308; }
+.bar-fill-red { background: #dc2626; }
+.bar-fill-blue { background: #2563eb; }
+.bar-fill-teal { background: #044842; }
+.bar-value { font-size: 0.75rem; font-weight: 600; color: var(--text); min-width: 36px; }
+
+/* Timeline */
+.timeline-container { margin: 1.5rem 0; padding: 1.5rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.timeline-track { display: flex; gap: 0; position: relative; }
+.timeline-phase { flex: 1; padding: 1rem; border: 1px solid var(--border); position: relative; }
+.timeline-phase:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.timeline-phase:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.timeline-phase:not(:first-child) { border-left: none; }
+.timeline-phase-name { font-size: 0.8125rem; font-weight: 700; margin-bottom: 0.5rem; }
+.timeline-phase-focus { font-size: 0.75rem; color: var(--text-muted); }
+.timeline-phase-focus li { margin-bottom: 0.125rem; }
+.timeline-phase.active { background: var(--accent-subtle); border-color: var(--accent); }
+.timeline-phase.active .timeline-phase-name { color: var(--accent); }
+.timeline-arrow { position: absolute; right: -0.5rem; top: 50%; transform: translateY(-50%);
+  width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent;
+  border-left: 8px solid var(--border); z-index: 1; }
+.timeline-labels { display: flex; gap: 0; margin-top: 0.5rem; }
+.timeline-label { flex: 1; text-align: center; font-size: 0.6875rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+
+/* Coverage matrix */
+.coverage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.coverage-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; }
+.coverage-group-header { padding: 0.75rem 1rem; font-weight: 600; font-size: 0.8125rem;
+  text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+.coverage-group-body { padding: 0.5rem; }
+.coverage-topic { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem; border-radius: var(--radius-sm); }
+.coverage-topic:hover { background: var(--bg); }
+.coverage-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.coverage-dot-fresh { background: #16a34a; }
+.coverage-dot-aging { background: #eab308; }
+.coverage-dot-stale { background: #dc2626; }
+.coverage-topic-name { flex: 1; }
+.coverage-topic-badges { display: flex; gap: 0.25rem; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -582,7 +717,7 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (url === '/strategy') {
-    handleMarkdownPage(res, pmDir, 'strategy.md', 'Strategy', '/strategy');
+    handleStrategyPage(res, pmDir);
   } else if (url === '/backlog') {
     handleBacklog(res, pmDir);
   } else if (url.startsWith('/backlog/')) {
@@ -792,7 +927,7 @@ function handleResearchPage(res, pmDir) {
   if (fs.existsSync(landscapePath)) {
     const raw = fs.readFileSync(landscapePath, 'utf-8');
     const { body } = parseFrontmatter(raw);
-    landscapeHtml = '<div class="markdown-body">' + renderMarkdown(body) + '</div>';
+    landscapeHtml = '<div class="markdown-body">' + renderLandscapeWithViz(body) + '</div>';
   } else {
     landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
   }
@@ -832,13 +967,19 @@ function handleResearchPage(res, pmDir) {
       }).join('');
       competitorsHtml = '<div class="card-grid">' + cards + '</div>';
 
-      // Feature matrix
+      // Feature matrix (heatmap)
       const matrixPath = path.join(compDir, 'matrix.md');
       if (fs.existsSync(matrixPath)) {
         const matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
         const matrixParsed = parseFrontmatter(matrixRaw);
-        competitorsHtml += '<div class="content-section markdown-body">' + renderMarkdown(matrixParsed.body) + '</div>';
+        competitorsHtml += '<div class="content-section">' + renderFeatureHeatmap(matrixParsed.body) + '</div>';
       }
+
+      // Sentiment gap analysis
+      competitorsHtml += renderSentimentGap(compDir, slugs);
+
+      // SEO competitive position
+      competitorsHtml += renderSeoComparison(compDir, slugs);
 
       // Market gaps
       const indexPath = path.join(compDir, 'index.md');
@@ -864,20 +1005,95 @@ function handleResearchPage(res, pmDir) {
       .filter(e => e.isDirectory()).map(e => e.name);
 
     if (topics.length > 0) {
-      const topicCards = topics.map(t => {
-        const findingsPath = path.join(researchDir, t, 'findings.md');
-        let meta = { label: humanizeSlug(t), subtitle: 'External research', badgesHtml: '' };
-        if (fs.existsSync(findingsPath)) {
-          const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
-          meta = buildTopicMeta(t, parsed.data, findingsPath);
+      // Try to parse pillar groupings from index.md
+      const indexMdPath = path.join(researchDir, 'index.md');
+      let pillarGroups = null;
+      if (fs.existsSync(indexMdPath)) {
+        const indexRaw = fs.readFileSync(indexMdPath, 'utf-8');
+        const pillarRe = /<!-- pillar: ([^,]+), ([^>]+) -->/g;
+        let pm;
+        const groups = [];
+        const grouped = new Set();
+        while ((pm = pillarRe.exec(indexRaw)) !== null) {
+          const pillarName = pm[1].trim();
+          const pillarTopics = pm[2].trim().split('|').map(function(s) { return s.trim(); });
+          groups.push({ name: pillarName, topics: pillarTopics });
+          pillarTopics.forEach(function(t) { grouped.add(t); });
         }
-        return '<div class="card">' +
-          '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
-          '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
-          '<div class="card-footer"><span>' + meta.badgesHtml + '</span><a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
+        // Add ungrouped topics
+        const ungrouped = topics.filter(function(t) { return !grouped.has(t); });
+        if (ungrouped.length > 0) groups.push({ name: 'Other', topics: ungrouped });
+        if (groups.length > 0) pillarGroups = groups;
+      }
+
+      if (pillarGroups) {
+        // Render coverage grid grouped by pillar
+        const pillarColors = {
+          'Operational Replacement': '#dcfce7',
+          'Payroll-Readiness': '#dbeafe',
+          'Exception-First Ops': '#fef3c7',
+          'AI & Platform': '#e0e7ff',
+          'UX & Design': '#fce7f3',
+          'Infrastructure': '#e5e7eb',
+          'Other': '#f3f4f6'
+        };
+
+        const groupsHtml = pillarGroups.map(function(g) {
+          const headerColor = pillarColors[g.name] || '#eef0f4';
+          const topicItems = g.topics.map(function(t) {
+            const findingsPath = path.join(researchDir, t, 'findings.md');
+            const compPath = path.join(researchDir, t, 'comparison.md');
+            const hasFindings = fs.existsSync(findingsPath);
+            const hasComparison = fs.existsSync(compPath);
+            if (!hasFindings && !fs.existsSync(path.join(researchDir, t))) return '';
+
+            let dotClass = 'coverage-dot-stale';
+            if (hasFindings) {
+              const stale = stalenessInfo(getUpdatedDate(findingsPath));
+              if (stale) dotClass = 'coverage-dot-' + stale.level;
+            }
+
+            const badges = [];
+            if (hasComparison) badges.push('<span class="badge" style="font-size:0.5625rem">+comparison</span>');
+
+            return '<a href="/research/' + escHtml(t) + '" class="coverage-topic">' +
+              '<span class="coverage-dot ' + dotClass + '"></span>' +
+              '<span class="coverage-topic-name">' + escHtml(humanizeSlug(t)) + '</span>' +
+              '<span class="coverage-topic-badges">' + badges.join('') + '</span>' +
+              '</a>';
+          }).filter(Boolean).join('');
+
+          return '<div class="coverage-group">' +
+            '<div class="coverage-group-header" style="background:' + headerColor + '">' + escHtml(g.name) + ' <span class="badge">' + g.topics.length + '</span></div>' +
+            '<div class="coverage-group-body">' + topicItems + '</div>' +
+            '</div>';
+        }).join('');
+
+        const legendHtml = '<div style="display:flex;gap:1rem;font-size:0.75rem;color:var(--text-muted);margin-bottom:1rem">' +
+          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-fresh"></span> Fresh (&lt;7d)</span>' +
+          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-aging"></span> Aging (7-30d)</span>' +
+          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-stale"></span> Stale (&gt;30d)</span>' +
           '</div>';
-      }).join('');
-      topicsHtml = '<div class="card-grid">' + topicCards + '</div>';
+
+        topicsHtml = '<h2 style="margin-top:0">Research Coverage Matrix</h2>' + legendHtml +
+          '<div class="coverage-grid">' + groupsHtml + '</div>';
+      } else {
+        // Fallback: flat card grid
+        const topicCards = topics.map(t => {
+          const findingsPath = path.join(researchDir, t, 'findings.md');
+          let meta = { label: humanizeSlug(t), subtitle: 'External research', badgesHtml: '' };
+          if (fs.existsSync(findingsPath)) {
+            const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+            meta = buildTopicMeta(t, parsed.data, findingsPath);
+          }
+          return '<div class="card">' +
+            '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
+            '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
+            '<div class="card-footer"><span>' + meta.badgesHtml + '</span><a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
+            '</div>';
+        }).join('');
+        topicsHtml = '<div class="card-grid">' + topicCards + '</div>';
+      }
     }
   }
   if (!topicsHtml) {
@@ -956,6 +1172,492 @@ function handleMarkdownPage(res, pmDir, filename, title, navPath) {
 <div class="markdown-body">${rendered}</div>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
+}
+
+function renderSwotGrid(body) {
+  const swotRe = /### (Strengths|Weaknesses|Opportunities|Threats)\s*\n([\s\S]*?)(?=\n### |\n## |$)/g;
+  const sections = {};
+  let match;
+  while ((match = swotRe.exec(body)) !== null) {
+    sections[match[1].toLowerCase()] = match[2].trim();
+  }
+  if (!sections.strengths && !sections.weaknesses) return null;
+
+  const keys = ['strengths', 'weaknesses', 'opportunities', 'threats'];
+  const labels = { strengths: 'Strengths', weaknesses: 'Weaknesses', opportunities: 'Opportunities', threats: 'Threats' };
+  const boxes = keys.map(k => {
+    const items = (sections[k] || '').split('\n').filter(l => l.match(/^[-*]\s/)).map(l => {
+      return '<li>' + inlineMarkdown(l.replace(/^[-*]\s+/, '')) + '</li>';
+    }).join('');
+    return '<div class="swot-box swot-' + k + '"><h4>' + labels[k] + '</h4><ul>' + (items || '<li style="color:var(--text-muted)">Not yet analyzed</li>') + '</ul></div>';
+  }).join('');
+
+  return '<div class="swot-grid">' + boxes + '</div>';
+}
+
+function renderProfileWithSwot(body) {
+  if (body.indexOf('## SWOT Analysis') === -1) return renderMarkdown(body);
+
+  var swotStart = body.indexOf('## SWOT Analysis');
+  var beforeSwot = body.substring(0, swotStart);
+  var rest = body.substring(swotStart);
+  var afterSwotMatch = rest.match(/\n## (?!SWOT)[^\n]+/);
+  var swotSection, afterSwot;
+  if (afterSwotMatch) {
+    swotSection = rest.substring(0, afterSwotMatch.index);
+    afterSwot = rest.substring(afterSwotMatch.index);
+  } else {
+    swotSection = rest;
+    afterSwot = '';
+  }
+
+  var swotGrid = renderSwotGrid(swotSection);
+  return renderMarkdown(beforeSwot) +
+    '<h2>SWOT Analysis</h2>' +
+    (swotGrid || renderMarkdown(swotSection)) +
+    renderMarkdown(afterSwot);
+}
+
+function renderPositioningScatter(body) {
+  var posRe = /<!-- ([\w\s]+), (\d+), (\d+), (\d+), ([\w-]+) -->/g;
+  var dots = [];
+  var m;
+  while ((m = posRe.exec(body)) !== null) {
+    dots.push({ name: m[1].trim(), x: parseInt(m[2]), y: parseInt(m[3]), traffic: parseInt(m[4]), segment: m[5] });
+  }
+  if (dots.length === 0) return null;
+
+  var maxTraffic = Math.max.apply(null, dots.map(function(d) { return d.traffic || 1; }));
+  var segColors = {
+    'horizontal': '#6366f1', 'enterprise': '#dc2626', 'mid-market': '#2563eb',
+    'smb': '#16a34a', 'cleanlog': '#044842'
+  };
+
+  var dotsHtml = dots.map(function(d) {
+    var size = d.segment === 'cleanlog' ? 16 : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
+    var color = segColors[d.segment] || '#6b7280';
+    var cls = d.segment === 'cleanlog' ? ' highlight' : '';
+    var yFlipped = 100 - d.y;
+    return '<div class="scatter-dot' + cls + '" style="left:' + d.x + '%;top:' + yFlipped + '%;width:' + size + 'px;height:' + size + 'px;background:' + color + ';" title="' + escHtml(d.name) + '"></div>' +
+      '<div class="scatter-label" style="left:' + d.x + '%;top:calc(' + yFlipped + '% + ' + (size / 2 + 4) + 'px);">' + escHtml(d.name) + '</div>';
+  }).join('');
+
+  var legendItems = Object.keys(segColors).map(function(seg) {
+    return '<span class="scatter-legend-item"><span class="scatter-legend-dot" style="background:' + segColors[seg] + '"></span>' +
+      seg.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) + '</span>';
+  }).join('');
+
+  return '<div class="scatter-container">' +
+    '<div class="scatter-axis-y">Target Segment</div>' +
+    '<div class="scatter-axis-label scatter-axis-label-top" style="top:-1.25rem;left:0">Enterprise</div>' +
+    '<div class="scatter-axis-label scatter-axis-label-bottom" style="bottom:-2.75rem;left:0">SMB</div>' +
+    '<div class="scatter-gridline scatter-gridline-h" style="top:50%"></div>' +
+    '<div class="scatter-gridline scatter-gridline-v" style="left:50%"></div>' +
+    '<div class="scatter-area">' + dotsHtml + '</div>' +
+    '<div class="scatter-axis-x">Feature Specificity</div>' +
+    '<div class="scatter-axis-label" style="bottom:-1.25rem;left:0">Vertical-specific</div>' +
+    '<div class="scatter-axis-label" style="bottom:-1.25rem;right:0">Horizontal</div>' +
+    '</div>' +
+    '<div class="scatter-legend">' + legendItems + '</div>';
+}
+
+function renderKeywordQuadrant(body) {
+  var kwSection = body.match(/### Core category keywords \(US\)\s*\n([\s\S]*?)(?=\n### |\n## |$)/);
+  if (!kwSection) return null;
+
+  var rows = kwSection[1].match(/^\|(?!\s*[-:]).+\|$/gm);
+  if (!rows || rows.length < 2) return null;
+
+  var keywords = [];
+  for (var i = 1; i < rows.length; i++) {
+    var cells = rows[i].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+    if (cells.length >= 4) {
+      keywords.push({
+        name: cells[0],
+        volume: parseInt(cells[1]) || 0,
+        difficulty: parseInt(cells[2]) || 0,
+        cpc: parseFloat(cells[3].replace('$', '')) || 0
+      });
+    }
+  }
+  if (keywords.length === 0) return null;
+
+  var maxVol = Math.max.apply(null, keywords.map(function(k) { return k.volume; }));
+  var maxDiff = Math.max.apply(null, keywords.map(function(k) { return k.difficulty; }));
+  var diffMid = maxDiff / 2;
+  var volMid = maxVol / 2;
+
+  var q1 = [], q2 = [], q3 = [], q4 = [];
+  keywords.forEach(function(kw) {
+    if (kw.volume >= volMid && kw.difficulty <= diffMid) q1.push(kw);
+    else if (kw.volume >= volMid && kw.difficulty > diffMid) q2.push(kw);
+    else if (kw.volume < volMid && kw.difficulty <= diffMid) q3.push(kw);
+    else q4.push(kw);
+  });
+
+  function renderItems(arr, cls) {
+    return arr.map(function(kw) {
+      return '<span class="quadrant-item ' + cls + '" title="Vol: ' + kw.volume + ' | KD: ' + kw.difficulty + ' | CPC: $' + kw.cpc.toFixed(2) + '">' + escHtml(kw.name) + '</span>';
+    }).join('');
+  }
+
+  return '<div class="quadrant-container">' +
+    '<div class="quadrant-grid">' +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Quick Wins</div><div class="quadrant-items">' + renderItems(q1, 'quadrant-q1') + '</div></div>' +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Long-term Bets</div><div class="quadrant-items">' + renderItems(q2, 'quadrant-q2') + '</div></div>' +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Niche Plays</div><div class="quadrant-items">' + renderItems(q3, 'quadrant-q3') + '</div></div>' +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Avoid</div><div class="quadrant-items">' + renderItems(q4, 'quadrant-q4') + '</div></div>' +
+    '</div>' +
+    '<div class="quadrant-axis-x">Difficulty &rarr;</div>' +
+    '</div>';
+}
+
+function renderTimeline(body) {
+  var phaseRe = /<!-- phase: ([^,]+), ([^,]+), ([^,]+), ([^>]+) -->/g;
+  var phases = [];
+  var m;
+  while ((m = phaseRe.exec(body)) !== null) {
+    phases.push({
+      name: m[1].trim(),
+      status: m[2].trim(),
+      focus: m[3].trim().split('|').map(function(s) { return s.trim(); }),
+      gate: m[4].trim()
+    });
+  }
+  if (phases.length === 0) return null;
+
+  var phasesHtml = phases.map(function(p, i) {
+    var cls = p.status === 'active' ? ' active' : '';
+    var focusHtml = '<ul class="timeline-phase-focus">' +
+      p.focus.map(function(f) { return '<li>' + escHtml(f) + '</li>'; }).join('') +
+      '</ul>';
+    var arrow = i < phases.length - 1 ? '<div class="timeline-arrow"></div>' : '';
+    return '<div class="timeline-phase' + cls + '">' +
+      '<div class="timeline-phase-name">Phase ' + (i + 1) + ': ' + escHtml(p.name) + '</div>' +
+      focusHtml +
+      '<div style="margin-top:0.5rem;font-size:0.6875rem;color:var(--text-muted);font-style:italic">' + escHtml(p.gate) + '</div>' +
+      arrow +
+      '</div>';
+  }).join('');
+
+  var labelsHtml = phases.map(function(p) {
+    var badge = p.status === 'active'
+      ? '<span class="badge badge-fresh">Active</span>'
+      : '<span class="badge">Planned</span>';
+    return '<div class="timeline-label">' + badge + '</div>';
+  }).join('');
+
+  return '<div class="timeline-container">' +
+    '<div class="timeline-track">' + phasesHtml + '</div>' +
+    '<div class="timeline-labels">' + labelsHtml + '</div>' +
+    '</div>';
+}
+
+function renderStrategyWithViz(body) {
+  var roadmapRe = /## 10\. Execution Roadmap\s*\n([\s\S]*?)(?=\n## \d|$)/;
+  var roadmapMatch = body.match(roadmapRe);
+  if (roadmapMatch) {
+    var timeline = renderTimeline(roadmapMatch[1]);
+    if (timeline) {
+      var before = body.substring(0, roadmapMatch.index);
+      var after = body.substring(roadmapMatch.index + roadmapMatch[0].length);
+      body = before + '## 10. Execution Roadmap\n\n<!-- VIZ_PLACEHOLDER_TIMELINE -->\n' +
+        roadmapMatch[1].replace(/<!-- phase:[^>]+-->\n?/g, '') + after;
+      var html = renderMarkdown(body);
+      html = html.replace('<!-- VIZ_PLACEHOLDER_TIMELINE -->', timeline);
+      return html;
+    }
+  }
+  return renderMarkdown(body);
+}
+
+function handleStrategyPage(res, pmDir) {
+  var filePath = path.join(pmDir, 'strategy.md');
+  if (!fs.existsSync(filePath)) {
+    var html = dashboardPage('Strategy', '/strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
+      '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  var raw = fs.readFileSync(filePath, 'utf-8');
+  var parsed = parseFrontmatter(raw);
+  var rendered = renderStrategyWithViz(parsed.body);
+
+  var html = dashboardPage('Strategy', '/strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
+    '<div class="markdown-body">' + rendered + '</div>');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function renderSentimentGap(compDir, slugs) {
+  var competitors = [];
+  slugs.forEach(function(slug) {
+    var sentimentPath = path.join(compDir, slug, 'sentiment.md');
+    if (!fs.existsSync(sentimentPath)) return;
+    var raw = fs.readFileSync(sentimentPath, 'utf-8');
+    var parsed = parseFrontmatter(raw);
+    var name = parsed.data.company || humanizeSlug(slug);
+
+    // Extract ratings from the ratings table
+    var b2bRating = null;
+    var iosRating = null;
+    var androidRating = null;
+
+    var tableRows = parsed.body.match(/^\|[^|]+\|[^|]+\|[^|]+\|.*\|$/gm);
+    if (tableRows) {
+      tableRows.forEach(function(row) {
+        var cells = row.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+        if (cells.length < 2) return;
+        var platform = cells[0].toLowerCase();
+        var ratingMatch = cells[1].match(/([\d.]+)\s*\/\s*5/);
+        if (!ratingMatch) return;
+        var rating = parseFloat(ratingMatch[1]);
+        if (platform.indexOf('capterra') !== -1 || platform.indexOf('g2') !== -1 || platform.indexOf('getapp') !== -1) {
+          if (!b2bRating || rating > b2bRating) b2bRating = rating;
+        }
+        if (platform.indexOf('apple') !== -1 || platform.indexOf('ios') !== -1) {
+          if (platform.indexOf('legacy') === -1) {
+            if (!iosRating || rating < iosRating) iosRating = rating;
+          }
+        }
+        if (platform.indexOf('google') !== -1 || platform.indexOf('android') !== -1) {
+          androidRating = rating;
+        }
+      });
+    }
+
+    if (b2bRating || iosRating || androidRating) {
+      competitors.push({ name: name, b2b: b2bRating, ios: iosRating, android: androidRating });
+    }
+  });
+
+  if (competitors.length === 0) return '';
+
+  var groups = competitors.map(function(comp) {
+    var rows = '';
+    function barRow(label, value, colorCls) {
+      if (!value) return '';
+      var pct = (value / 5) * 100;
+      return '<div class="bar-row">' +
+        '<div class="bar-row-label">' + label + '</div>' +
+        '<div class="bar-track"><div class="bar-fill ' + colorCls + '" style="width:' + pct + '%">' + value.toFixed(1) + '</div></div>' +
+        '</div>';
+    }
+    rows += barRow('B2B Reviews', comp.b2b, 'bar-fill-blue');
+    rows += barRow('iOS App Store', comp.ios, comp.ios >= 4.0 ? 'bar-fill-green' : comp.ios >= 3.0 ? 'bar-fill-yellow' : 'bar-fill-red');
+    rows += barRow('Google Play', comp.android, comp.android >= 4.0 ? 'bar-fill-green' : comp.android >= 3.0 ? 'bar-fill-yellow' : 'bar-fill-red');
+
+    var gap = '';
+    var mobileAvg = null;
+    if (comp.ios && comp.android) mobileAvg = (comp.ios + comp.android) / 2;
+    else if (comp.ios) mobileAvg = comp.ios;
+    else if (comp.android) mobileAvg = comp.android;
+    if (comp.b2b && mobileAvg) {
+      var diff = comp.b2b - mobileAvg;
+      if (diff > 0.3) {
+        gap = ' <span class="badge badge-stale">Gap: ' + diff.toFixed(1) + '</span>';
+      }
+    }
+
+    return '<div class="bar-group"><div class="bar-group-label">' + escHtml(comp.name) + gap + '</div>' + rows + '</div>';
+  }).join('');
+
+  return '<div class="content-section"><h2>User Satisfaction Gap Analysis</h2>' +
+    '<p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:1rem">B2B review ratings (manager perspective) vs. app store ratings (field worker perspective). The gap reveals mobile app quality issues.</p>' +
+    '<div class="bar-chart">' + groups + '</div></div>';
+}
+
+function renderSeoComparison(compDir, slugs) {
+  var competitors = [];
+  slugs.forEach(function(slug) {
+    var seoPath = path.join(compDir, slug, 'seo.md');
+    var profilePath = path.join(compDir, slug, 'profile.md');
+    var name = humanizeSlug(slug);
+
+    // Try profile first for company name
+    if (fs.existsSync(profilePath)) {
+      var profRaw = fs.readFileSync(profilePath, 'utf-8');
+      var profParsed = parseFrontmatter(profRaw);
+      if (profParsed.data.company) name = profParsed.data.company;
+    }
+
+    // Extract SEO data from seo.md or profile.md (some have inline SEO tables)
+    var source = null;
+    if (fs.existsSync(seoPath)) {
+      source = fs.readFileSync(seoPath, 'utf-8');
+    } else if (fs.existsSync(profilePath)) {
+      var raw = fs.readFileSync(profilePath, 'utf-8');
+      if (raw.indexOf('Domain Rating') !== -1) source = raw;
+    }
+    if (!source) return;
+
+    var dr = null, traffic = null, keywords = null, top3 = null, trafficValue = null;
+    var tableRows = source.match(/^\|[^|]+\|[^|]+\|$/gm);
+    if (tableRows) {
+      tableRows.forEach(function(row) {
+        var cells = row.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+        if (cells.length < 2) return;
+        var metric = cells[0].toLowerCase();
+        var val = cells[1].replace(/[,$]/g, '').replace(/\/mo$/, '');
+        if (metric.indexOf('domain rating') !== -1) dr = parseInt(val) || null;
+        if (metric.indexOf('organic traffic') !== -1 && metric.indexOf('value') === -1) traffic = parseInt(val) || null;
+        if (metric.indexOf('organic keywords') !== -1) {
+          var kwMatch = val.match(/^(\d+)/);
+          keywords = kwMatch ? parseInt(kwMatch[1]) : null;
+        }
+        if (metric.indexOf('top 3') !== -1) top3 = parseInt(val) || null;
+        if (metric.indexOf('traffic value') !== -1) trafficValue = parseInt(val) || null;
+      });
+    }
+
+    if (dr || traffic) {
+      competitors.push({ name: name, dr: dr, traffic: traffic, keywords: keywords, top3: top3, trafficValue: trafficValue });
+    }
+  });
+
+  if (competitors.length === 0) return '';
+
+  // Sort by DR descending
+  competitors.sort(function(a, b) { return (b.dr || 0) - (a.dr || 0); });
+
+  var maxDr = Math.max.apply(null, competitors.map(function(c) { return c.dr || 0; }));
+  var maxTraffic = Math.max.apply(null, competitors.map(function(c) { return c.traffic || 0; }));
+
+  var rows = competitors.map(function(comp) {
+    var drPct = maxDr > 0 ? ((comp.dr || 0) / 100) * 100 : 0;
+    var trafficPct = maxTraffic > 0 ? ((comp.traffic || 0) / maxTraffic) * 100 : 0;
+
+    var drBar = '<div class="bar-row">' +
+      '<div class="bar-row-label">DR</div>' +
+      '<div class="bar-track"><div class="bar-fill bar-fill-teal" style="width:' + drPct + '%">' + (comp.dr || '-') + '</div></div>' +
+      '</div>';
+    var trafficBar = '<div class="bar-row">' +
+      '<div class="bar-row-label">Traffic/mo</div>' +
+      '<div class="bar-track"><div class="bar-fill bar-fill-blue" style="width:' + trafficPct + '%">' + (comp.traffic ? comp.traffic.toLocaleString() : '-') + '</div></div>' +
+      '</div>';
+
+    var meta = [];
+    if (comp.keywords) meta.push(comp.keywords + ' keywords');
+    if (comp.top3) meta.push(comp.top3 + ' in top 3');
+    if (comp.trafficValue) meta.push('$' + comp.trafficValue.toLocaleString() + '/mo value');
+    var metaHtml = meta.length > 0
+      ? '<div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem">' + meta.join(' \u00b7 ') + '</div>'
+      : '';
+
+    return '<div class="bar-group"><div class="bar-group-label">' + escHtml(comp.name) + '</div>' +
+      drBar + trafficBar + metaHtml + '</div>';
+  }).join('');
+
+  return '<div class="content-section"><h2>SEO Competitive Position</h2>' +
+    '<p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:1rem">Domain authority and organic traffic comparison. Higher DR = harder to outrank.</p>' +
+    '<div class="bar-chart">' + rows + '</div></div>';
+}
+
+function renderFeatureHeatmap(body) {
+  // Parse pillar sections with tables
+  var pillarRe = /## (Pillar \d+: [^\n]+|Cross-Cutting: [^\n]+)\s*\n([\s\S]*?)(?=\n## |$)/g;
+  var pillars = [];
+  var m;
+  while ((m = pillarRe.exec(body)) !== null) {
+    var pillarName = m[1];
+    var tableContent = m[2];
+    var rows = tableContent.match(/^\|(?!\s*[-:]).+\|$/gm);
+    if (!rows || rows.length < 2) continue;
+
+    var headers = rows[0].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+    var features = [];
+    for (var i = 1; i < rows.length; i++) {
+      var cells = rows[i].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+      if (cells.length >= 2) features.push(cells);
+    }
+    pillars.push({ name: pillarName, headers: headers, features: features });
+  }
+
+  if (pillars.length === 0) return renderMarkdown(body);
+
+  var ratingClass = function(val) {
+    var v = val.toLowerCase();
+    if (v === 'full') return 'heatmap-full';
+    if (v === 'partial') return 'heatmap-partial';
+    if (v === 'missing') return 'heatmap-missing';
+    if (v === 'differentiator') return 'heatmap-diff';
+    return '';
+  };
+
+  var ratingLabel = function(val) {
+    var v = val.toLowerCase();
+    if (v === 'full') return '\u2713';
+    if (v === 'partial') return '\u00BD';
+    if (v === 'missing') return '\u2717';
+    if (v === 'differentiator') return '\u2605';
+    return escHtml(val);
+  };
+
+  // Build single unified table
+  var allHeaders = pillars[0].headers;
+  var colHeaders = allHeaders.slice(1).map(function(h) { return '<th>' + escHtml(h) + '</th>'; }).join('');
+  var tableRows = '';
+
+  pillars.forEach(function(p) {
+    tableRows += '<tr><td colspan="' + allHeaders.length + '" class="heatmap-pillar">' + escHtml(p.name) + '</td></tr>';
+    p.features.forEach(function(row) {
+      var cells = '<td>' + escHtml(row[0]) + '</td>';
+      for (var j = 1; j < row.length; j++) {
+        var cls = ratingClass(row[j]);
+        cells += '<td class="' + cls + '">' + ratingLabel(row[j]) + '</td>';
+      }
+      tableRows += '<tr>' + cells + '</tr>';
+    });
+  });
+
+  return '<h2>Feature Parity Matrix</h2>' +
+    '<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem">' +
+    '<span class="heatmap-full" style="padding:0.15em 0.5em;border-radius:4px;margin-right:0.5rem">\u2713 Full</span>' +
+    '<span class="heatmap-partial" style="padding:0.15em 0.5em;border-radius:4px;margin-right:0.5rem">\u00BD Partial</span>' +
+    '<span class="heatmap-missing" style="padding:0.15em 0.5em;border-radius:4px;margin-right:0.5rem">\u2717 Missing</span>' +
+    '<span class="heatmap-diff" style="padding:0.15em 0.5em;border-radius:4px">\u2605 Differentiator</span>' +
+    '</div>' +
+    '<table class="heatmap-table"><thead><tr><th>Capability</th>' + colHeaders + '</tr></thead><tbody>' +
+    tableRows + '</tbody></table>';
+}
+
+function renderLandscapeWithViz(body) {
+  // Replace positioning map section with scatter plot
+  var posMapRe = /## Market Positioning Map\s*\n([\s\S]*?)(?=\n## |$)/;
+  var posMatch = body.match(posMapRe);
+  if (posMatch) {
+    var scatter = renderPositioningScatter(posMatch[1]);
+    if (scatter) {
+      var before = body.substring(0, posMatch.index);
+      var after = body.substring(posMatch.index + posMatch[0].length);
+      body = before + '## Market Positioning Map\n\n<!-- VIZ_PLACEHOLDER_SCATTER -->\n' + after;
+    }
+  }
+
+  // Replace keyword section with quadrant chart
+  var kwRe = /### Core category keywords \(US\)\s*\n([\s\S]*?)(?=\n### |\n## |$)/;
+  var kwMatch = body.match(kwRe);
+  var kwQuadrant = kwMatch ? renderKeywordQuadrant(body) : null;
+  if (kwQuadrant && kwMatch) {
+    var kwBefore = body.substring(0, kwMatch.index);
+    var kwAfter = body.substring(kwMatch.index + kwMatch[0].length);
+    body = kwBefore + '### Keyword Opportunity Matrix (US)\n\n<!-- VIZ_PLACEHOLDER_KEYWORDS -->\n' + kwAfter;
+  }
+
+  var html = renderMarkdown(body);
+
+  // Inject visualizations
+  if (posMatch) {
+    var scatterPlot = renderPositioningScatter(posMatch[1]);
+    if (scatterPlot) html = html.replace('<!-- VIZ_PLACEHOLDER_SCATTER -->', scatterPlot);
+  }
+  if (kwQuadrant) {
+    html = html.replace('<!-- VIZ_PLACEHOLDER_KEYWORDS -->', kwQuadrant);
+  }
+
+  return html;
 }
 
 function extractProfileSummary(profileContent) {
@@ -1058,7 +1760,8 @@ function handleCompetitorDetail(res, pmDir, slug) {
     const label = TAB_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
     const isFirst = tabHeaders.length === 0;
     tabHeaders.push(`<div class="tab${isFirst ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${isFirst}" onclick="switchTab(this,'tab-${sec}')" onkeydown="tabKey(event,this,'tab-${sec}')">${label}</div>`);
-    tabPanels.push(`<div id="tab-${sec}" class="tab-panel${isFirst ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${renderMarkdown(body)}</div></div>`);
+    const rendered = sec === 'profile' ? renderProfileWithSwot(body) : renderMarkdown(body);
+    tabPanels.push(`<div id="tab-${sec}" class="tab-panel${isFirst ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${rendered}</div></div>`);
   });
 
   const body = `
