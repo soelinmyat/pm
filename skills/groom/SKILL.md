@@ -26,7 +26,7 @@ Wait for the user's answer. If resuming: skip completed phases. If starting fres
 
 ---
 
-## Lifecycle: intake -> strategy check -> research -> scope -> groom -> link
+## Lifecycle: intake -> strategy check -> research -> scope -> product & competitive review -> groom -> link
 
 ---
 
@@ -155,6 +155,87 @@ scope:
 
 ---
 
+### Phase 4.5: Product & Competitive Review
+
+After scope is confirmed, dispatch **2 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment and competitive blind spots that the strategy check (Phase 2) is too coarse to find.
+
+Dispatch both in parallel (subagent_type: general-purpose, model: sonnet):
+
+**Agent 1: Product Manager**
+
+```
+You are a product manager reviewing a scoped feature initiative for CleanLog, a janitorial operations SaaS targeting mid-market cleaning contractors (10-300 cleaners, multi-site, tight SLAs).
+
+**Read before reviewing:** pm/strategy.md, pm/landscape.md, pm/competitors/index.md
+**Groom state:** .pm/.groom-state.md (contains topic, scope, strategy check result, research location)
+**Research:** Read all files in the research location from groom state
+
+You are opinionated. You care about whether this moves the needle for the business, not whether the scope is well-formatted.
+
+Review from these angles:
+
+1. **JTBD clarity.** What job is the customer hiring this feature to do? Can you state it in one sentence? If not, the scope is too vague to draft issues from.
+2. **ICP fit.** Does this solve a problem our ICP actually has, or is it a feature we think is cool? Would an ops director with 80 cleaners across 12 sites care about this?
+3. **Prioritization.** Given our 3 pillars (operational replacement, payroll-readiness, exception-first ops), does this belong in 2026 or is it a distraction? Be harsh.
+4. **Scope right-sizing.** Is the scope trying to do too much? Would cutting 30% still deliver the core value? Are any in-scope items actually out-of-scope in disguise?
+5. **Success criteria.** How would we know this worked in 90 days? If there's no measurable outcome defined, that's a gap.
+
+**Output:**
+## Product Review
+**Verdict:** Ship it | Rethink scope | Wrong priority
+**Blocking issues:** (must fix before drafting issues)
+- [issue] - [why this matters for the business]
+**Pushback:** (challenges to consider, non-blocking)
+- [concern] - [what to watch for]
+```
+
+**Agent 2: Competitive Strategist**
+
+```
+You are a competitive strategist reviewing a scoped feature initiative for CleanLog.
+
+**Read before reviewing:** pm/strategy.md, pm/landscape.md, pm/competitors/ (all profile.md and features.md files)
+**Groom state:** .pm/.groom-state.md (contains topic, scope, 10x filter result, research location)
+**Research:** Read all files in the research location from groom state
+
+CleanLog competes on ease of use and reliability, not feature breadth. Our wedge is scheduling + payroll-readiness. Our differentiator is AI-native orchestration (Copilot proposes, system validates, user confirms). No incumbent has shipped meaningful AI features.
+
+Review from these angles:
+
+1. **Differentiation.** Does this make CleanLog more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
+2. **Switching motivation.** Would this contribute to a contractor's decision to switch from JM/Swept/CleanSmarts? Or is it "nice to have" post-switch?
+3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
+4. **Non-goal violations.** Does any in-scope item creep toward explicit non-goals (full payroll processing, inventory, procurement, vendor marketplace, enterprise compliance)?
+5. **AI-native opportunity.** Is there a Copilot integration angle missing from the scope?
+
+**Output:**
+## Competitive Review
+**Verdict:** Strengthens position | Neutral | Weakens focus
+**Blocking issues:** (strategic misalignment that should stop issue drafting)
+- [issue] - [competitive risk]
+**Opportunities:** (ways to sharpen competitive edge, non-blocking)
+- [opportunity] - [why it matters]
+```
+
+**Handling findings:**
+
+1. Merge both agent outputs. Deduplicate.
+2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
+3. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
+4. If iteration 3 still has blocking issues, present to user for decision.
+5. Update state:
+
+```yaml
+phase: product-review
+product_review:
+  pm_verdict: ship-it | rethink-scope | wrong-priority
+  competitive_verdict: strengthens | neutral | weakens
+  blocking_issues_fixed: 0
+  iterations: 1
+```
+
+---
+
 ### Phase 5: Groom
 
 1. Draft a structured issue set: one parent issue + child issues for discrete work.
@@ -225,7 +306,7 @@ Only one state file at a time. If one exists when starting fresh, overwrite it.
 ```yaml
 ---
 topic: "{topic name}"
-phase: intake | strategy-check | research | scope | groom | link
+phase: intake | strategy-check | research | scope | product-review | groom | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 
@@ -244,6 +325,12 @@ scope:
   out_of_scope:
     - "{item}: {reason}"
   filter_result: 10x | parity | gap-fill | null
+
+product_review:
+  pm_verdict: ship-it | rethink-scope | wrong-priority | null
+  competitive_verdict: strengthens | neutral | weakens | null
+  blocking_issues_fixed: 0
+  iterations: 1
 
 issues:
   - slug: "{issue-slug}"
