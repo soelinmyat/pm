@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-007
 title: "Custom Instructions"
 outcome: "Users can customize PM plugin behavior via a .pm/instructions.md file that all skills respect"
 status: idea

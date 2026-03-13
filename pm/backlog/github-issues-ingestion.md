@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-009
 title: "GitHub Issues Ingestion"
 outcome: "PMs can import GitHub issues and discussions as customer evidence and feature request signals"
 status: idea

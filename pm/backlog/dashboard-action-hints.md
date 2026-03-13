@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-008
 title: "Dashboard Action Hints"
 outcome: "Dashboard shows contextual command hints so users know which CLI commands to run for next actions"
 status: idea

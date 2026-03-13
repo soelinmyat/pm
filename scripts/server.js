@@ -449,8 +449,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-item.priority-low { border-left-color: #9ca3af; }
 .kanban-item:hover { box-shadow: var(--shadow-sm); }
 a.kanban-item { color: var(--text); text-decoration: none; display: block; cursor: pointer; }
-.kanban-title { font-weight: 500; }
-.kanban-item-header { display: flex; align-items: center; gap: 0.5rem; }
+.kanban-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.kanban-parent { font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
+.backlog-item-id { font-size: 0.75em; font-weight: 600; color: var(--accent); }
+.issue-relations { margin-top: 0.75rem; padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; }
+.issue-relation { font-size: 0.875rem; margin-bottom: 0.375rem; }
+.issue-relation:last-child { margin-bottom: 0; }
+.relation-label { font-weight: 600; color: var(--text-muted); }
+.issue-relation a { color: var(--accent); text-decoration: none; }
+.issue-relation a:hover { text-decoration: underline; }
+.issue-children { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+.issue-children li { margin-bottom: 0.125rem; }
+.kanban-item-ids { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.kanban-item-title { font-weight: 500; }
 .kanban-item-meta { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
 .kanban-label { font-size: 0.6875rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; background: #f1f5f9; color: #475569; }
 .kanban-scope { font-size: 0.6875rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; font-weight: 500; }
@@ -1985,6 +1996,7 @@ function handleResearchTopic(res, pmDir, topic) {
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
+  const slugLookup = {};
   const STATUS_ORDER = ['idea', 'groomed', 'shipped'];
   const STATUS_MAP = { 'idea': 'idea', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'groomed', 'done': 'shipped' };
 
@@ -2001,8 +2013,11 @@ function handleBacklog(res, pmDir) {
       const priority = data.priority || 'medium';
       const labels = Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [];
       const scope = data.scope_signal || null;
+      const id = data.id || null;
+      const parent = data.parent || null;
       if (!columns[status]) columns[status] = [];
-      columns[status].push({ slug, title, badge, priority, labels, scope });
+      slugLookup[slug] = { id, title };
+      columns[status].push({ slug, title, badge, priority, labels, scope, id, parent });
     }
   }
 
@@ -2013,7 +2028,11 @@ function handleBacklog(res, pmDir) {
       const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
       const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
       const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
-      return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}"><div class="kanban-item-header"><span class="kanban-title">${escHtml(item.title)}</span>${badgeHtml}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
+      const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
+      const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
+      const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
+      return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
     }).join('');
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const emptyClass = !columns[status] || columns[status].length === 0 ? ' col-empty' : '';
@@ -2049,10 +2068,48 @@ function handleBacklogItem(res, pmDir, slug) {
   const { data, body } = parseFrontmatter(raw);
   const title = data.title || slug;
 
+  // Build slug lookup for resolving parent/children references
+  const backlogDir = path.join(pmDir, 'backlog');
+  const slugLookup = {};
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const s = file.replace('.md', '');
+      const r = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data: d } = parseFrontmatter(r);
+      slugLookup[s] = { id: d.id || null, title: d.title || s };
+    }
+  }
+
+  const idTag = data.id ? `<span class="backlog-item-id">${escHtml(data.id)}</span> ` : '';
+
+  // Parent link
+  let parentHtml = '';
+  if (data.parent && slugLookup[data.parent]) {
+    const p = slugLookup[data.parent];
+    const pLabel = p.id ? `${escHtml(p.id)} ${escHtml(p.title)}` : escHtml(p.title);
+    parentHtml = `<div class="issue-relation"><span class="relation-label">Parent:</span> <a href="/backlog/${escHtml(data.parent)}">${pLabel}</a></div>`;
+  }
+
+  // Children links
+  let childrenHtml = '';
+  const children = Array.isArray(data.children) ? data.children.filter(c => c && slugLookup[c]) : [];
+  if (children.length > 0) {
+    const childLinks = children.map(c => {
+      const ch = slugLookup[c];
+      const cLabel = ch.id ? `${escHtml(ch.id)} ${escHtml(ch.title)}` : escHtml(ch.title);
+      return `<li><a href="/backlog/${escHtml(c)}">${cLabel}</a></li>`;
+    }).join('');
+    childrenHtml = `<div class="issue-relation"><span class="relation-label">Children:</span><ul class="issue-children">${childLinks}</ul></div>`;
+  }
+
+  const relationsHtml = (parentHtml || childrenHtml) ? `<div class="issue-relations">${parentHtml}${childrenHtml}</div>` : '';
+
   const html = dashboardPage(title, '/backlog', `
 <div class="page-header">
   <p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
-  <h1>${escHtml(title)}</h1>
+  <h1>${idTag}${escHtml(title)}</h1>
+  ${relationsHtml}
 </div>
 <div class="markdown-body">${renderMarkdown(body)}</div>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

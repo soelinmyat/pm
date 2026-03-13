@@ -372,9 +372,12 @@ Never silently overwrite an existing state file. Always ask resume vs. fresh. St
 
 Write to `pm/backlog/{issue-slug}.md`.
 
+**ID assignment:** Each backlog issue gets a sequential `id` in the format `PM-{NNN}`. Before creating a new issue, scan all existing `pm/backlog/*.md` files for the highest `id` value and increment by 1. The first issue is `PM-001`. IDs are zero-padded to 3 digits. The dashboard displays IDs on kanban cards and detail pages, and shows parent references (e.g., `↑ PM-001`) on child issue cards.
+
 ```markdown
 ---
 type: backlog-issue
+id: "PM-{NNN}"
 title: "{Issue Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
 status: idea | drafted | approved | in-progress | done

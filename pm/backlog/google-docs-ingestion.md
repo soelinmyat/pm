@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-010
 title: "Google Docs Ingestion"
 outcome: "PMs can import product docs, meeting notes, and specs from Google Docs into the knowledge base via /pm:ingest"
 status: idea

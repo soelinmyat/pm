@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-013
 title: "Public Demo Dashboard"
 outcome: "Users can see a live demo of PM's knowledge base dashboard before installing, showcasing the plugin's own dogfooded data"
 status: idea

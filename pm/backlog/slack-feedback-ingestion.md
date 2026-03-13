@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-014
 title: "Slack Feedback Ingestion"
 outcome: "PMs can import customer feedback from Slack channels into the knowledge base as structured evidence"
 status: idea

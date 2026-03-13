@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-011
 title: "Notion Import"
 outcome: "PMs can ingest Notion pages (PRDs, specs, meeting notes) as context for research and grooming"
 status: idea

@@ -1,5 +1,6 @@
 ---
 type: backlog-issue
+id: PM-012
 title: "Pencil MCP Integration"
 outcome: "PMs can optionally generate high-fidelity UI mockups in .pen files as part of grooming, when Pencil MCP is available"
 status: idea

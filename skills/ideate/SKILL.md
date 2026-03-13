@@ -143,11 +143,14 @@ Then ask:
 
 ### Step 7: Write to backlog
 
-On user confirmation (or if they select (d)), write each idea to `pm/backlog/{idea-slug}.md` using the backlog issue format with `status: idea`:
+On user confirmation (or if they select (d)), write each idea to `pm/backlog/{idea-slug}.md` using the backlog issue format with `status: idea`.
+
+**ID assignment:** Each backlog issue gets a sequential `id` in the format `PM-{NNN}`. Before creating new issues, scan all existing `pm/backlog/*.md` files for the highest `id` value and increment by 1. The first issue is `PM-001`. IDs are zero-padded to 3 digits.
 
 ```markdown
 ---
 type: backlog-issue
+id: "PM-{NNN}"
 title: "{Idea Name}"
 outcome: "{One-liner: what changes for the user}"
 status: idea
