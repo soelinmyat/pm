@@ -438,12 +438,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .card .card-footer .view-link { font-size: 0.8125rem; font-weight: 500; }
 
 /* Kanban */
-.kanban { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; align-items: start; }
-.kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  overflow: hidden; box-shadow: var(--shadow-sm); }
-.kanban-col .col-header { background: #eef0f4; padding: 0.75rem 1rem; font-weight: 600;
-  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
-.kanban-col .col-body { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 1.5rem 0; align-items: start; }
+.kanban-col { background: transparent; border: none; border-radius: 0;
+  overflow: hidden; box-shadow: none; border-right: 1px solid var(--border); }
+.kanban-col:last-child { border-right: none; }
+.kanban-col .col-header { background: transparent; padding: 0.5rem 1rem 0.75rem; font-weight: 600;
+  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.kanban-col .col-body { padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .kanban-col.col-empty { opacity: 0.45; }
 .kanban-col.col-empty .col-body { min-height: 3rem; }
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
@@ -468,6 +469,12 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .issue-relation a:hover { text-decoration: underline; }
 .issue-children { margin: 0.25rem 0 0 1.25rem; padding: 0; }
 .issue-children li { margin-bottom: 0.125rem; }
+.wireframe-embed { margin: 1.5rem 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.wireframe-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+.wireframe-label { font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.wireframe-open { font-size: 0.75rem; color: var(--accent); text-decoration: none; }
+.wireframe-open:hover { text-decoration: underline; }
+.wireframe-iframe { width: 100%; height: 500px; border: none; background: #fff; }
 .kanban-item-ids { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
 .kanban-item-title { font-weight: 500; }
 .kanban-item-meta { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
@@ -902,6 +909,9 @@ function routeDashboard(req, res, pmDir) {
     handleStrategyPage(res, pmDir);
   } else if (url === '/backlog') {
     handleBacklog(res, pmDir);
+  } else if (url.startsWith('/backlog/wireframes/')) {
+    const slug = decodeURIComponent(url.slice('/backlog/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
+    handleWireframe(res, pmDir, slug);
   } else if (url.startsWith('/backlog/')) {
     const slug = url.slice('/backlog/'.length).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
@@ -2003,6 +2013,29 @@ function handleResearchTopic(res, pmDir, topic) {
   res.end(html);
 }
 
+function handleWireframe(res, pmDir, slug) {
+  if (!slug || slug.includes('/') || slug.includes('..')) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Not Found', '/backlog', '<div class="markdown-body"><h1>Not found</h1></div>'));
+    return;
+  }
+  const wireframesDir = path.resolve(pmDir, 'backlog', 'wireframes');
+  const wfPath = path.resolve(wireframesDir, slug + '.html');
+  if (!wfPath.startsWith(wireframesDir + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Forbidden', '/backlog', '<div class="markdown-body"><h1>Forbidden</h1></div>'));
+    return;
+  }
+  try {
+    const content = fs.readFileSync(wfPath, 'utf-8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(content);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Wireframe Not Found', '/backlog', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
+  }
+}
+
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
@@ -2115,12 +2148,23 @@ function handleBacklogItem(res, pmDir, slug) {
 
   const relationsHtml = (parentHtml || childrenHtml) ? `<div class="issue-relations">${parentHtml}${childrenHtml}</div>` : '';
 
+  // Wireframe embed
+  let wireframeHtml = '';
+  try {
+    fs.accessSync(path.join(pmDir, 'backlog', 'wireframes', slug + '.html'));
+    wireframeHtml = `<div class="wireframe-embed">
+  <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/backlog/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
+  <iframe src="/backlog/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
+</div>`;
+  } catch { /* no wireframe for this item */ }
+
   const html = dashboardPage(title, '/backlog', `
 <div class="page-header">
   <p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
   <h1>${idTag}${escHtml(title)}</h1>
   ${relationsHtml}
 </div>
+${wireframeHtml}
 <div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(body))}</div>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -2128,6 +2172,7 @@ function handleBacklogItem(res, pmDir, slug) {
 
 function rewriteKnowledgeBaseLinks(md) {
   return md
+    .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, '](/backlog/wireframes/$1)')
     .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, '](/research/$1)')
     .replace(/\]\(pm\/research\/([^)]+)\)/g, '](/research/$1)')
     .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, '](/competitors/$1#$2)')

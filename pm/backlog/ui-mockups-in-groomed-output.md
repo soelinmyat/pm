@@ -3,9 +3,12 @@ type: backlog-issue
 id: PM-006
 title: "UI Mockups in Groomed Output (v2)"
 outcome: "Groomed backlog items for UI features include visual mockups or wireframes — extending the PRD-grade output with screen layout previews"
-status: idea
+status: done
 parent: "prd-grade-output"
-children: []
+children:
+  - "groom-html-wireframe-generation"
+  - "dashboard-wireframe-embed"
+  - "backlog-template-wireframes-section"
 labels:
   - "output-quality"
   - "grooming"

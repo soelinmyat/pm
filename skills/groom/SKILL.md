@@ -292,20 +292,20 @@ product_review:
 
 Before drafting issues, classify the feature type to determine which visual artifacts to generate:
 
-- **UI feature:** Has user-facing screens, workflows, or interactions → generate user flow diagram
-- **Workflow feature:** Has multi-step processes, decision points, or state transitions → generate user flow diagram
-- **API feature:** Exposes or consumes APIs → no diagram (API contracts are engineering's domain)
-- **Data feature:** Introduces new data structures or storage → no diagram (data models are engineering's domain)
-- **Infrastructure feature:** Config, tooling, or plumbing → no diagram
+- **UI feature:** Has user-facing screens, workflows, or interactions → generate user flow diagram + HTML wireframe
+- **Workflow feature:** Has multi-step processes, decision points, or state transitions → generate user flow diagram only
+- **API feature:** Exposes or consumes APIs → no visual artifacts (API contracts are engineering's domain)
+- **Data feature:** Introduces new data structures or storage → no visual artifacts (data models are engineering's domain)
+- **Infrastructure feature:** Config, tooling, or plumbing → no visual artifacts
 
 Confirm with the user:
-> "This looks like a [UI/workflow/API/data/infrastructure] feature. I'll generate a [user flow diagram / no visual artifacts]. Sound right?"
+> "This looks like a [UI/workflow/API/data/infrastructure] feature. I'll generate [user flow diagram + HTML wireframe / user flow diagram / no visual artifacts]. Sound right?"
 
 Wait for confirmation before proceeding.
 
-#### Step 2: Generate Mermaid user flow diagram (if applicable)
+#### Step 2a: Generate Mermaid user flow diagram (if applicable)
 
-If the feature type warrants a user flow diagram:
+If the feature type is UI or workflow:
 
 1. Generate a Mermaid flowchart showing:
    - Primary happy path from user intent to completion
@@ -321,6 +321,37 @@ If the feature type warrants a user flow diagram:
 
 3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.
 
+#### Step 2b: Generate HTML wireframe (UI features only)
+
+If the feature type is UI, generate a standalone HTML wireframe file:
+
+1. **Create the wireframes directory** if it doesn't exist: `pm/backlog/wireframes/`
+
+2. **Write a self-contained HTML file** to `pm/backlog/wireframes/{parent-issue-slug}.html` with:
+   - A `<style>` block — no external dependencies. Use lo-fi wireframe CSS: gray boxes, borders, labels, placeholder areas.
+   - Component vocabulary: `.wireframe-screen`, `.wireframe-header`, `.wireframe-nav`, `.wireframe-sidebar`, `.wireframe-content`, `.wireframe-form`, `.wireframe-button`, `.wireframe-input`, `.wireframe-table`, `.wireframe-card`, `.wireframe-placeholder`
+   - Layout using CSS flexbox/grid — simple, reliable, LLM-friendly
+   - A title bar showing the feature name and "Lo-fi Wireframe"
+   - Labeled components matching the feature scope (e.g., form fields with real labels from the spec, nav items matching the user flow, table columns matching the data model)
+
+3. **Ground the wireframe in scope and research:**
+   - Component labels should match the terminology from the scope definition
+   - Screen layout should reflect the user flow from Step 2a
+   - Add HTML comments citing sources: `<!-- Source: pm/research/{topic}/findings.md -->`
+
+4. **Keep it lo-fi.** The wireframe communicates layout and component placement, not visual design:
+   - Gray backgrounds, black borders, system fonts
+   - No colors, icons, or images (use text placeholders: `[Icon]`, `[Image]`)
+   - No interactivity (static HTML only)
+   - Max 2-3 screens per wireframe file (use sections or scroll)
+
+5. **Reference the wireframe** in the parent issue's `## Wireframes` section:
+   ```
+   [Wireframe preview](pm/backlog/wireframes/{issue-slug}.html)
+   ```
+
+The HTML wireframe file also works standalone — users can open it directly in any browser. The PM dashboard embeds it via iframe on the backlog detail page.
+
 #### Step 3: Draft issues
 
 Draft a structured issue set: one parent issue + child issues for discrete work.
@@ -332,7 +363,8 @@ Each issue must contain:
    - **Customer evidence:** Include internal evidence count, affected segment, or source theme when available.
    - **Competitor context:** How competitors handle this, with specific references from Phase 3.
    - **Scope note:** Which in-scope items this issue covers.
-   - **User Flows:** Mermaid flowchart (if generated in Step 2), or "N/A — no user-facing workflow for this feature type"
+   - **User Flows:** Mermaid flowchart (if generated in Step 2a), or "N/A — no user-facing workflow for this feature type"
+   - **Wireframes:** Link to the HTML wireframe file (if generated in Step 2b), or "N/A — no user-facing workflow for this feature type"
    - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If no EM review was conducted, note "No codebase context available."
 
 #### Step 4: Present and confirm
@@ -500,6 +532,13 @@ graph TD
     B -->|No| D[Alternative]
     %% Source: pm/research/{topic-slug}/findings.md
 ```
+
+## Wireframes
+
+{For UI features: link to the HTML wireframe file generated during grooming.
+For non-UI features: "N/A — no user-facing workflow for this feature type."}
+
+[Wireframe preview](pm/backlog/wireframes/{issue-slug}.html)
 
 ## Competitor Context
 
