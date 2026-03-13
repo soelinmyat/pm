@@ -220,6 +220,7 @@ function renderMarkdown(md) {
   const lines = md.split('\n');
   const out = [];
   let inCodeBlock = false;
+  let inMermaid = false;
   let inList = false;
   let inTable = false;
   let tableHeaderDone = false;
@@ -237,7 +238,14 @@ function renderMarkdown(md) {
     if (line.startsWith('```')) {
       closeList(); closeTable();
       if (inCodeBlock) { out.push('</code></pre>'); inCodeBlock = false; }
+      else if (inMermaid) { out.push('</pre>'); inMermaid = false; }
+      else if (line.trim() === '```mermaid') { out.push('<pre class="mermaid">'); inMermaid = true; }
       else { out.push('<pre><code>'); inCodeBlock = true; }
+      continue;
+    }
+
+    if (inMermaid) {
+      out.push(escHtml(line));
       continue;
     }
 
@@ -702,6 +710,8 @@ function dashboardPage(title, activeNav, bodyContent) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escHtml(title)} - PM Dashboard</title>
 <style>${DASHBOARD_CSS}</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose'});</script>
 </head>
 <body>
 <nav>

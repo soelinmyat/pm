@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-001
 title: "PRD-Grade Groomed Output (v1: User Flows + EM Feasibility Review)"
 outcome: "Groomed backlog items include Mermaid user flow diagrams, an EM feasibility review grounded in the codebase, and research-cited visual artifacts — making every groomed ticket a coding-agent-ready spec that replaces standalone PRDs"
-status: drafted
+status: done
 parent: null
 children:
   - "groom-mermaid-user-flows"

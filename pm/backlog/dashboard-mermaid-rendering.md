@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-005
 title: "Dashboard Mermaid Rendering"
 outcome: "The PM dashboard renders Mermaid code blocks in backlog issue views as interactive SVG diagrams"
-status: drafted
+status: done
 parent: "prd-grade-output"
 children: []
 labels:

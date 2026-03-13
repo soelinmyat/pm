@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-004
 title: "Backlog Issue Format Extension"
 outcome: "The backlog issue markdown template supports user flow and technical feasibility sections for consistent, parseable groomed output"
-status: drafted
+status: done
 parent: "prd-grade-output"
 children: []
 labels:

@@ -164,9 +164,9 @@ scope:
 
 ### Phase 4.5: Product & Competitive Review
 
-After scope is confirmed, dispatch **2 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment and competitive blind spots that the strategy check (Phase 2) is too coarse to find.
+After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Dispatch both in parallel (subagent_type: general-purpose, model: sonnet):
+Dispatch all three in parallel (subagent_type: general-purpose, model: sonnet):
 
 **Agent 1: Product Manager**
 
@@ -224,9 +224,51 @@ Review from these angles:
 - [opportunity] - [why it matters]
 ```
 
+**Agent 3: Engineering Manager**
+
+```
+You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
+
+**Read before reviewing:** pm/strategy.md (for non-goals boundary)
+**Groom state:** .pm/.groom-state.md (contains topic, scope, research location)
+**Codebase:** Read the relevant source files — skills/, scripts/, commands/, hooks/, templates/ — to understand current implementation
+
+You are practical and observational. Your job is to ground the product scope in implementation reality. You tell the team what the code says, not what to do about it.
+
+Review from these angles:
+
+1. **Build-on.** What existing code, patterns, or infrastructure supports this feature? Name specific files and patterns. (e.g., "Dashboard server already renders HTML/SVG from structured comments — same pattern extends here")
+2. **Build-new.** What doesn't exist yet and would need to be created? Be specific about what's missing.
+3. **Risk.** What makes this harder than it looks? Missing dependencies, architectural constraints, performance concerns, format ambiguities.
+4. **Sequencing advice.** What should be built first? Are there natural implementation milestones?
+
+**Important boundaries:**
+- Stay observational: "the codebase currently has X" — not prescriptive: "you should implement it with Y"
+- Reference specific file paths to make findings verifiable
+- If the codebase is not available or the feature is for a greenfield project, note "No codebase context available" and fall back to research-based feasibility signals
+
+**Output:**
+## Engineering Manager Review
+**Verdict:** Feasible as scoped | Feasible with caveats | Needs rearchitecting
+**Build-on:** (existing infrastructure that supports this)
+- [file/pattern] - [how it helps]
+**Build-new:** (what needs to be created)
+- [component] - [what it does]
+**Risks:** (things that make this harder than it looks)
+- [risk] - [why it matters]
+**Sequencing:** (recommended build order)
+1. [step] - [rationale]
+```
+
+After the EM agent completes, present its findings conversationally to the user. The EM review is interactive — invite the user to ask follow-up questions or push back on the assessment before proceeding.
+
+> "The EM reviewed the codebase. Here are the findings: {summary}. Any questions or concerns before we proceed to drafting issues?"
+
+Wait for user confirmation. Capture the EM's key findings for inclusion in the `## Technical Feasibility` section of groomed issues.
+
 **Handling findings:**
 
-1. Merge both agent outputs. Deduplicate.
+1. Merge all three agent outputs. Deduplicate.
 2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
 3. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
 4. If iteration 3 still has blocking issues, present to user for decision.
@@ -237,6 +279,7 @@ phase: product-review
 product_review:
   pm_verdict: ship-it | rethink-scope | wrong-priority
   competitive_verdict: strengthens | neutral | weakens
+  em_verdict: feasible | feasible-with-caveats | needs-rearchitecting
   blocking_issues_fixed: 0
   iterations: 1
 ```
@@ -245,23 +288,62 @@ product_review:
 
 ### Phase 5: Groom
 
-1. Draft a structured issue set: one parent issue + child issues for discrete work.
+#### Step 1: Feature-type detection
 
-   Each issue must contain:
+Before drafting issues, classify the feature type to determine which visual artifacts to generate:
+
+- **UI feature:** Has user-facing screens, workflows, or interactions → generate user flow diagram
+- **Workflow feature:** Has multi-step processes, decision points, or state transitions → generate user flow diagram
+- **API feature:** Exposes or consumes APIs → no diagram (API contracts are engineering's domain)
+- **Data feature:** Introduces new data structures or storage → no diagram (data models are engineering's domain)
+- **Infrastructure feature:** Config, tooling, or plumbing → no diagram
+
+Confirm with the user:
+> "This looks like a [UI/workflow/API/data/infrastructure] feature. I'll generate a [user flow diagram / no visual artifacts]. Sound right?"
+
+Wait for confirmation before proceeding.
+
+#### Step 2: Generate Mermaid user flow diagram (if applicable)
+
+If the feature type warrants a user flow diagram:
+
+1. Generate a Mermaid flowchart showing:
+   - Primary happy path from user intent to completion
+   - Key decision points as diamond nodes
+   - Error states and edge cases as branching paths
+   - Start and end states clearly labeled
+
+2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
+   ```
+   %% Source: pm/research/{topic}/findings.md — Finding N: {description}
+   %% Source: pm/competitors/{slug}/features.md — {gap or pattern}
+   ```
+
+3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.
+
+#### Step 3: Draft issues
+
+Draft a structured issue set: one parent issue + child issues for discrete work.
+
+Each issue must contain:
    - **Outcome statement:** What changes for the user when this ships? (not a task description)
    - **Acceptance criteria:** Numbered list. Testable, specific.
    - **Research links:** Paths to relevant findings in `pm/research/`.
    - **Customer evidence:** Include internal evidence count, affected segment, or source theme when available.
    - **Competitor context:** How competitors handle this, with specific references from Phase 3.
    - **Scope note:** Which in-scope items this issue covers.
+   - **User Flows:** Mermaid flowchart (if generated in Step 2), or "N/A — no user-facing workflow for this feature type"
+   - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If no EM review was conducted, note "No codebase context available."
 
-2. Present the full draft set to the user before creating anything:
-   > "Here are the proposed issues. Review them — are any missing, redundant, or
-   > incorrectly scoped? I'll create them once you approve."
+#### Step 4: Present and confirm
 
-   If `visual_companion: true`: render issue preview cards (title, outcome, AC count, labels).
+Present the full draft set to the user before creating anything:
+> "Here are the proposed issues. Review them — are any missing, redundant, or
+> incorrectly scoped? I'll create them once you approve."
 
-3. Wait for explicit approval. Accept edits inline.
+If `visual_companion: true`: render issue preview cards (title, outcome, AC count, labels).
+
+Wait for explicit approval. Accept edits inline.
 
 4. Update state:
 
@@ -336,6 +418,7 @@ scope:
 product_review:
   pm_verdict: ship-it | rethink-scope | wrong-priority | null
   competitive_verdict: strengthens | neutral | weakens | null
+  em_verdict: feasible | feasible-with-caveats | needs-rearchitecting | null
   blocking_issues_fixed: 0
   iterations: 1
 
@@ -404,10 +487,29 @@ What were they unable to do before?}
 2. {Specific, testable condition.}
 3. {Edge cases handled: ...}
 
+## User Flows
+
+{Mermaid diagrams showing primary user flow(s) for this feature.
+Include the main happy path. Add alternate/error paths for complex features.
+Each diagram should have a `%% Source:` comment citing the signal that shaped it.}
+
+```mermaid
+graph TD
+    A[User action] --> B{Decision}
+    B -->|Yes| C[Outcome]
+    B -->|No| D[Alternative]
+    %% Source: pm/research/{topic-slug}/findings.md
+```
+
 ## Competitor Context
 
 {How do competitors handle this? Where do they fall short?
 Reference specific profiles from pm/competitors/ if applicable.}
+
+## Technical Feasibility
+
+{Engineering Manager assessment of build-on vs build-new, risks, and sequencing.
+Include verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Research Links
 

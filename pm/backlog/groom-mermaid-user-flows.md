@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-002
 title: "Groom Skill — Mermaid User Flow Generation"
 outcome: "When a user runs /pm:groom, Phase 5 generates a Mermaid user flow diagram showing the primary user journey and embeds it in the groomed backlog issue with research citations"
-status: drafted
+status: done
 parent: "prd-grade-output"
 children: []
 labels:

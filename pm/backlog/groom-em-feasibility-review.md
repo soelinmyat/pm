@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-003
 title: "Engineering Manager Feasibility Review"
 outcome: "During grooming, an EM persona agent scans the codebase and counsels the user on technical feasibility — surfacing what exists, what's missing, and what's risky before the ticket is finalized"
-status: drafted
+status: done
 parent: "prd-grade-output"
 children: []
 labels:
