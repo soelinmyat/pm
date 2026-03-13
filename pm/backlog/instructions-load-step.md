@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-018
 title: "Instructions Load Step in All Skills"
 outcome: "Every PM skill reads pm/instructions.md (shared) and pm/instructions.local.md (personal) after prerequisite checks, applying user preferences to output"
-status: idea
+status: done
 parent: "custom-instructions"
 children: []
 labels:

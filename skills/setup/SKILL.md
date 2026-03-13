@@ -32,6 +32,19 @@ The path is optional. If provided, setup will import the data via `/pm:ingest` a
 
 ---
 
+
+## Custom Instructions
+
+Before starting work, check for user instructions:
+
+1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+3. If neither file exists, proceed normally.
+
+**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+---
+
 ## Step 1: Create Folder Structure
 
 Create the following directories. Do not create the .md files — those are written by their respective skills.
@@ -59,13 +72,14 @@ pm/                   # Committed knowledge base
 
 ## Step 2: Gitignore
 
-Append `.pm/` to the project root `.gitignore`. Create the file if it doesn't exist.
+Append these entries to the project root `.gitignore`. Create the file if it doesn't exist.
 
 ```bash
 echo '.pm/' >> .gitignore
+echo 'pm/*.local.md' >> .gitignore
 ```
 
-Verify the line is not already present before appending to avoid duplicates.
+Verify each line is not already present before appending to avoid duplicates. The `pm/*.local.md` pattern gitignores personal instruction files.
 
 ## Step 3: Integration Setup
 
@@ -199,6 +213,7 @@ Only suggest what's actually missing. Use this priority order:
 5. **Competitors exist but incomplete profiles** → `/pm:refresh <slug>`
 6. **Everything exists but stale** → `/pm:refresh`
 7. **All research complete, no backlog** → `/pm:groom`
+8. **No custom instructions** → Mention: "You can customize PM behavior by creating `pm/instructions.md` — think of it as the CLAUDE.md for your product. Add your team's terminology, writing style, competitors to track, and output preferences. For personal overrides, use `pm/instructions.local.md` (gitignored)."
 
 Ask the user if they want to start the first suggested step now.
 

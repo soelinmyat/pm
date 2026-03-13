@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-019
 title: "Gitignore and Setup Onboarding for Instructions"
 outcome: "New and existing PM projects gitignore pm/*.local.md, and setup mentions custom instructions as an opt-in customization path with a commented template"
-status: idea
+status: done
 parent: "custom-instructions"
 children: []
 labels:

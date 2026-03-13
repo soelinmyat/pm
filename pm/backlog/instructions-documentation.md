@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-020
 title: "Instructions Documentation"
 outcome: "The plugin includes documentation explaining the instructions feature: file locations, example content, override hierarchy, and limitations"
-status: idea
+status: done
 parent: "custom-instructions"
 children: []
 labels:
