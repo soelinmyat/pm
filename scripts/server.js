@@ -2111,9 +2111,17 @@ function handleBacklogItem(res, pmDir, slug) {
   <h1>${idTag}${escHtml(title)}</h1>
   ${relationsHtml}
 </div>
-<div class="markdown-body">${renderMarkdown(body)}</div>`);
+<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(body))}</div>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
+}
+
+function rewriteKnowledgeBaseLinks(md) {
+  return md
+    .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, '](/research/$1)')
+    .replace(/\]\(pm\/research\/([^)]+)\)/g, '](/research/$1)')
+    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, '](/competitors/$1#$2)')
+    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, '](/competitors/$1)');
 }
 
 // ========== Dashboard Server Factory ==========
