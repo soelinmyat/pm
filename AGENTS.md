@@ -130,12 +130,12 @@ Planning notes live in:
 
 ## Version Bump Rules
 
-When the user says **"bump version"**, **"bump patch"**, or **"bump minor version"**: increment the **patch** number (e.g., 1.0.5 → 1.0.6). This is the default and most common bump.
+When the user says **"bump version"** or **"bump patch"**: increment the **patch** number (e.g., 1.0.5 → 1.0.6). This is the default and most common bump.
 
 | User says | Semver meaning | Example |
 |---|---|---|
-| "bump version" / "bump patch" / "bump minor version" | Patch | 1.0.5 → 1.0.6 |
-| "bump minor" (explicit semver) | Minor | 1.0.5 → 1.1.0 |
+| "bump version" / "bump patch" | Patch | 1.0.5 → 1.0.6 |
+| "bump minor" | Minor | 1.0.5 → 1.1.0 |
 | "bump major" | Major | 1.0.5 → 2.0.0 |
 
 All version bumps must update **all 3 manifests**:
