@@ -22,7 +22,7 @@ Building for secondary segments is allowed, but it must be a conscious choice. N
 
 ## 2. The 10x Filter
 
-Before finalizing scope, answer these four questions. Record the answers in the state file.
+Before finalizing scope, work through these four questions with the user. Ask them ONE at a time — wait for each answer before presenting the next. Record answers in the state file.
 
 **Q1: Is this meaningfully better than the best existing solution?**
 "Meaningfully" means: faster, cheaper, simpler, or more accurate by a margin users can feel — not a marginal improvement that requires a press release to explain.

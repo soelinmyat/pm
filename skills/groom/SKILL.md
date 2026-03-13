@@ -11,6 +11,10 @@ Orchestrate the full product discovery lifecycle: from raw idea to structured, r
 
 Research gates grooming. Strategy gates scoping. Neither is optional.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 ## Resume Check
@@ -52,13 +56,14 @@ Skip to step 3 after confirmation.
 
 **Otherwise:**
 
-1. Ask: "What's the idea? Describe the problem, who it affects, and why it matters now."
+1. Ask: "What's the idea?"
    One question. Wait for the full answer.
 
-2. Clarify if needed:
-   - Problem vs. solution: is this a user pain or a proposed feature?
-   - Scope signal: is this a small UX improvement or a new capability area?
-   - Why now: is there a trigger (competitor move, user request spike, strategic priority)?
+2. Clarify if needed — ask ONE follow-up at a time, only if the answer didn't already cover it:
+   - "Is this a user pain you've observed, or a proposed solution?" (problem vs. solution)
+   - "Is this a small UX improvement or a new capability area?" (scope signal)
+   - "What triggered this — a competitor move, user request, or something else?" (why now)
+   Skip any question the user's initial answer already addressed.
 
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."

@@ -8,6 +8,10 @@ description: "Use when configuring the pm plugin for a new project, setting up i
 ## Purpose
 Configure integrations, bootstrap the knowledge base, and get to value fast — especially when the user already has existing research or evidence.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ## When Required
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)

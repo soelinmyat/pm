@@ -23,6 +23,10 @@ It does two things in one workflow:
 
 The user should think: "I have customer evidence. Ingest it."
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 ## Setup Expectations

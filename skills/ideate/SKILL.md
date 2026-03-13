@@ -12,6 +12,10 @@ Surface what to build next. Ideate mines the entire knowledge base — strategy,
 Ideas are early-stage backlog items. They live in `pm/backlog/` with `status: idea` and get promoted to `drafted` when groomed. One place, one flow:
 **setup → research → strategy → ideate → groom**
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 ## Prerequisite Check
