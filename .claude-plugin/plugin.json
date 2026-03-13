@@ -1,7 +1,7 @@
 {
   "name": "pm",
   "description": "Product Memory — structured research, competitive intelligence, and feature grooming that compounds over time",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": { "name": "Soe Lin Myat" },
   "homepage": "https://github.com/soelinmyat/pm",
   "repository": "https://github.com/soelinmyat/pm",

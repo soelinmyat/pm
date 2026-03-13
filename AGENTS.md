@@ -82,7 +82,7 @@ To copy source changes to the plugin cache for immediate testing:
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
   /Users/soelinmyat/Projects/pm/ \
-  ~/.claude/plugins/cache/pm/pm/1.0.3/
+  ~/.claude/plugins/cache/pm/pm/1.0.4/
 ```
 
 This overwrites the cache with your local source. It will be overwritten again on the next official plugin update, which is fine — your changes should be committed to source before that happens.
@@ -98,7 +98,7 @@ When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/1.0.3/scripts/server.js \
+node ~/.claude/plugins/cache/pm/pm/1.0.4/scripts/server.js \
   --mode dashboard --dir "$PWD/pm"
 ```
 

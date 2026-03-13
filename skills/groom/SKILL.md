@@ -30,6 +30,19 @@ Wait for the user's answer. If resuming: skip completed phases. If starting fres
 
 ---
 
+
+## Custom Instructions
+
+Before starting work, check for user instructions:
+
+1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+3. If neither file exists, proceed normally.
+
+**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+---
+
 ### Phase 1: Intake
 
 **If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:

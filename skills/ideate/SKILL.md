@@ -26,6 +26,19 @@ Ideas are early-stage backlog items. They live in `pm/backlog/` with `status: id
 
 ---
 
+
+## Custom Instructions
+
+Before starting work, check for user instructions:
+
+1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+3. If neither file exists, proceed normally.
+
+**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+---
+
 ## Signal Sources
 
 Read all available sources before generating ideas. Each idea must trace back to at least one signal.
@@ -171,6 +184,19 @@ updated: YYYY-MM-DD
 ## Outcome
 
 {What the user can do after this ships that they couldn't before.}
+
+
+## Custom Instructions
+
+Before starting work, check for user instructions:
+
+1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+3. If neither file exists, proceed normally.
+
+**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+---
 
 ## Signal Sources
 

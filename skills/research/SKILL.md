@@ -11,6 +11,19 @@ Build and maintain the product knowledge base. Research gates strategy and groom
 
 ---
 
+
+## Custom Instructions
+
+Before starting work, check for user instructions:
+
+1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+3. If neither file exists, proceed normally.
+
+**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+---
+
 ## Mode Routing
 
 | Argument | Mode |
