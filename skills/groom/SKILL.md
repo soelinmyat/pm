@@ -1,5 +1,5 @@
 ---
-name: groom
+name: pm-groom
 description: "Use when doing product discovery, feature grooming, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for.'"
 ---
 
@@ -87,7 +87,7 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
 
    If it does NOT exist:
    > "No strategy doc found. Strategy check requires one. Options:
-   > (a) Run /pm:strategy now to create it, then continue grooming
+   > (a) Run $pm-strategy now to create it, then continue grooming
    > (b) Skip strategy check and proceed at your own risk"
    Wait for selection. If (a): invoke pm:strategy, then return here when complete.
 
@@ -130,7 +130,7 @@ strategy_check:
 2. Key questions to answer:
    - How do competitors handle this? (UI patterns, feature depth, limitations)
    - What do users expect based on reviews and community signals?
-   - What does internal customer evidence in `pm/research/` say, if `/pm:ingest` has been used?
+   - What does internal customer evidence in `pm/research/` say, if `$pm-ingest` has been used?
    - Is there a market signal validating this is a real problem?
 
 3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
@@ -429,7 +429,7 @@ Delete `.pm/.groom-state.md` after successful link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
-> Recommended next: /pm:ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
+> Recommended next: $pm-ideate for more ideas, $pm-groom {next-idea}, or update priorities in pm/strategy.md."
 
 ---
 

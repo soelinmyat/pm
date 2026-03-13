@@ -1,5 +1,5 @@
 ---
-name: research
+name: pm-research
 description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, or building the product knowledge base. Three modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview.'"
 ---
 
@@ -45,7 +45,7 @@ Wait for user selection before proceeding.
 
 ---
 
-## Landscape Mode (`/pm:research landscape`)
+## Landscape Mode (`$pm-research landscape`)
 
 ### When to Use
 
@@ -73,12 +73,7 @@ First research activity in a new project. Produces the market overview that make
 
 4. **Write `pm/landscape.md`** (see structure below). Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
 
-5. **Visual companion.** If `visual_companion: true` in `.pm/config.json`: launch the PM dashboard server and share the URL with the user so they can review the landscape and positioning map visually. Run the start script in the background:
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "${CLAUDE_PROJECT_DIR:-$PWD}" --mode dashboard
-   ```
-   Parse the returned JSON for the `url` field and present it:
-   > "Dashboard running at {url} — open it to see the landscape visually."
+5. **Visual companion.** If `visual_companion: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the landscape and positioning map visually.
 
 ### Landscape Document Structure
 
@@ -148,7 +143,7 @@ When `pm/landscape.md` exists and user runs landscape mode again: re-run searche
 
 ---
 
-## Competitor Mode (`/pm:research competitors`)
+## Competitor Mode (`$pm-research competitors`)
 
 ### Phase 1: Discover
 
@@ -236,7 +231,7 @@ Only proceed to synthesis after all files are present.
    - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `updated:` date in frontmatter.
-5. **Launch dashboard.** If `visual_companion: true` in `.pm/config.json`: launch the PM dashboard server and share the URL so the user can review the updated landscape, positioning map, and competitor profiles visually.
+5. **Launch dashboard.** If `visual_companion: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the updated landscape, positioning map, and competitor profiles visually.
 
 ### Cost Guardrail
 
@@ -248,14 +243,14 @@ Only continue after explicit confirmation.
 
 ---
 
-## Topic Mode (`/pm:research {topic}`)
+## Topic Mode (`$pm-research {topic}`)
 
 For targeted deep dives not covered by landscape or competitor profiling.
 
 ### Flow
 
 1. **Check existing knowledge.** Read `pm/research/index.md` if it exists. Check `pm/landscape.md` and `pm/strategy.md` for relevant context.
-   Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `/pm:ingest`, not just external research.
+   Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `$pm-ingest`, not just external research.
 2. **Check strategy alignment.** If `pm/strategy.md` exists, note how the topic relates to current priorities.
 3. **Search demand check** (if ahrefs-mcp configured).
    - `keywords-explorer-overview` — get volume, difficulty, CPC for the topic as a keyword. Quantifies how much people search for this.

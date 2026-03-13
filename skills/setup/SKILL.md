@@ -1,5 +1,5 @@
 ---
-name: setup
+name: pm-setup
 description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding."
 ---
 
@@ -12,15 +12,15 @@ Configure integrations, bootstrap the knowledge base, and get to value fast — 
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)
 - **Required** before skills that use integrations (research with SEO, groom with Linear)
-- **NOT required** for /pm:view (read-only over committed files) or /pm:dig (web search fallback)
+- **NOT required** for `$pm-view` (read-only over committed files) or `$pm-dig` (web search fallback)
 
 Skills that need integrations check for config themselves and prompt setup if missing.
 
 ## Argument
 
-`/pm:setup [path/to/existing-data]`
+`$pm-setup [path/to/existing-data]`
 
-The path is optional. If provided, setup will import the data via `/pm:ingest` after configuration, so the user doesn't need to run two separate commands.
+The path is optional. If provided, setup will import the data via `$pm-ingest` after configuration, so the user doesn't need to run two separate commands.
 
 ## Checklist
 1. Create folder structure
@@ -65,8 +65,8 @@ pm/                   # Committed knowledge base
   research/
   backlog/            # Used only if Linear is unavailable
 .pm/                  # Gitignored runtime/config
-  imports/            # /pm:ingest manifest + source tracking
-  evidence/           # /pm:ingest normalized customer evidence
+  imports/            # $pm-ingest manifest + source tracking
+  evidence/           # $pm-ingest normalized customer evidence
   sessions/           # Visual companion session state
 ```
 
@@ -94,24 +94,11 @@ Present two options and ask the user to choose:
 **Option A — Ahrefs MCP** (recommended, requires Ahrefs Lite plan or higher)
 - Provides keyword volume, difficulty, SERP data, backlink metrics via the official Ahrefs MCP server.
 - No API key needed — uses MCP authentication.
-- After the user selects this option, check the Ahrefs MCP server status by running:
-  ```bash
-  claude mcp list 2>&1 | grep ahrefs
-  ```
+- After the user selects this option, check whether the Ahrefs MCP tools are available in the current client.
 - Handle three states:
-  1. **Not configured** — Tell the user to add the Ahrefs MCP server:
-     ```
-     Run this command in a separate terminal, then come back:
-     claude mcp add ahrefs https://api.ahrefs.com/mcp/mcp -t http
-     ```
-     After the user confirms, re-check the status.
-  2. **Configured but needs authentication** (status shows `! Needs authentication`) — Tell the user:
-     ```
-     The Ahrefs MCP server is configured but not authenticated.
-     Run /mcp in Claude Code, find "ahrefs" in the list, and complete the OAuth login.
-     ```
-     After the user confirms, re-check the status.
-  3. **Connected** (status shows `✓ Connected`) — Ready to use. Proceed.
+  1. **Not configured** — Tell the user to add/configure the Ahrefs MCP server for their client, then continue once it is available.
+  2. **Configured but needs authentication** — Tell the user to complete the client's MCP authentication flow for Ahrefs, then continue.
+  3. **Connected** — Ready to use. Proceed.
 
 **Option B — None** (web search only)
 - All qualitative research still works. No keyword volume or difficulty scores.
@@ -151,7 +138,7 @@ Populate fields:
 ## Step 6: Import Existing Data
 
 **If a path argument was provided:**
-- Invoke `/pm:ingest <path>` to import the data into the knowledge base.
+- Invoke `$pm-ingest <path>` to import the data into the knowledge base.
 - This normalizes evidence into `.pm/evidence/`, updates shared research in `pm/research/`, and handles deduplication.
 - After ingest completes, continue to Step 7.
 
@@ -167,7 +154,7 @@ Populate fields:
 When the knowledge base has data (from ingest or pre-existing files), do two things:
 
 ### Launch the dashboard
-Start `/pm:view` so the user can see their data immediately:
+Start `$pm-view` so the user can see their data immediately:
 
 > "Opening the PM dashboard so you can see what's already in the knowledge base..."
 
@@ -193,26 +180,26 @@ Knowledge Base Status:
   ✓ Landscape overview
   ✓ Strategy document
   ✓ 5 competitors profiled (all complete)
-  ✗ No SEO data for competitors (Ahrefs now configured — run /pm:refresh seo)
+  ✗ No SEO data for competitors (Ahrefs now configured — run $pm-refresh seo)
   ✗ No topic research
   ✓ 12 customer evidence records
 
 Suggested next steps:
-  1. /pm:refresh seo — backfill SEO data now that Ahrefs is configured
-  2. /pm:research <topic> — investigate a specific question
+  1. $pm-refresh seo — backfill SEO data now that Ahrefs is configured
+  2. $pm-research <topic> — investigate a specific question
 ```
 
 ### Gap-aware next step suggestions
 
 Only suggest what's actually missing. Use this priority order:
 
-1. **No landscape** → `/pm:research landscape`
-2. **Landscape exists, no strategy** → `/pm:strategy`
-3. **Strategy exists, no competitors** → `/pm:research competitors`
-4. **Competitors exist but missing SEO data + Ahrefs configured** → `/pm:refresh seo`
-5. **Competitors exist but incomplete profiles** → `/pm:refresh <slug>`
-6. **Everything exists but stale** → `/pm:refresh`
-7. **All research complete, no backlog** → `/pm:groom`
+1. **No landscape** → `$pm-research landscape`
+2. **Landscape exists, no strategy** → `$pm-strategy`
+3. **Strategy exists, no competitors** → `$pm-research competitors`
+4. **Competitors exist but missing SEO data + Ahrefs configured** → `$pm-refresh seo`
+5. **Competitors exist but incomplete profiles** → `$pm-refresh <slug>`
+6. **Everything exists but stale** → `$pm-refresh`
+7. **All research complete, no backlog** → `$pm-groom`
 8. **No custom instructions** → Mention: "You can customize PM behavior by creating `pm/instructions.md` — think of it as the CLAUDE.md for your product. Add your team's terminology, writing style, competitors to track, and output preferences. For personal overrides, use `pm/instructions.local.md` (gitignored)."
 
 Ask the user if they want to start the first suggested step now.
@@ -222,13 +209,13 @@ Ask the user if they want to start the first suggested step now.
 When `pm/` is empty and no import path was provided:
 
 > "Setup complete. Your knowledge base is empty — let's build it.
-> Recommended pipeline: `/pm:research landscape` → `/pm:strategy` → `/pm:research competitors` → `/pm:groom`
+> Recommended pipeline: `$pm-research landscape` → `$pm-strategy` → `$pm-research competitors` → `$pm-groom`
 >
 > Want to start with landscape research now?"
 
-If yes, invoke `/pm:research landscape` immediately.
+If yes, invoke `$pm-research landscape` immediately.
 
-Do **not** launch `/pm:view` for an empty knowledge base — there's nothing to see yet.
+Do **not** launch `$pm-view` for an empty knowledge base — there's nothing to see yet.
 
 ---
 

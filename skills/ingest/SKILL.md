@@ -1,5 +1,5 @@
 ---
-name: ingest
+name: pm-ingest
 description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, or other local evidence. Normalizes records into .pm/ and updates shared research artifacts in pm/research/."
 ---
 
@@ -9,7 +9,7 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 Import customer evidence into PM.
 
-`/pm:ingest` is the internal-evidence lane:
+`$pm-ingest` is the internal-evidence lane:
 - support tickets
 - interview notes
 - call transcripts
@@ -27,7 +27,7 @@ The user should think: "I have customer evidence. Ingest it."
 
 ## Setup Expectations
 
-`/pm:ingest` does **not** require full `/pm:setup`, but it does require the PM folder structure.
+`$pm-ingest` does **not** require full `$pm-setup`, but it does require the PM folder structure.
 
 If the folders do not exist yet, bootstrap the minimum structure automatically:
 
@@ -49,15 +49,15 @@ Do not block on setup just because the user wants to import evidence first.
 ### With a path
 
 ```text
-/pm:ingest <path>
+$pm-ingest <path>
 ```
 
 Examples:
 
 ```text
-/pm:ingest ~/Downloads/interviews/
-/pm:ingest ~/Desktop/support-export.csv
-/pm:ingest ./customer-notes/
+$pm-ingest ~/Downloads/interviews/
+$pm-ingest ~/Desktop/support-export.csv
+$pm-ingest ./customer-notes/
 ```
 
 ### Without a path
@@ -275,7 +275,7 @@ pm/
       findings.md
 ```
 
-`/pm:ingest` and `pm:research` share this structure.
+`$pm-ingest` and `$pm-research` share this structure.
 
 ### `pm/research/index.md`
 
@@ -357,10 +357,10 @@ When a topic already exists from `pm:research`, do **not** overwrite it wholesal
 Ownership rules:
 - `source_origin`: set to `mixed` when both internal and external evidence exist
 - `sources`: append your source refs; do not remove the other skill's refs
-- `evidence_count`, `segments`, `confidence`: owned by `/pm:ingest`
+- `evidence_count`, `segments`, `confidence`: owned by `$pm-ingest`
 - `Summary`: rewrite to incorporate both internal and external evidence
 - `Findings`: append your own numbered findings prefixed `[internal]`
-- `Representative Quotes`: owned by `/pm:ingest`
+- `Representative Quotes`: owned by `$pm-ingest`
 - `Strategic Relevance`: rewrite to incorporate current evidence
 - `Implications`: rewrite to incorporate current evidence
 - `Open Questions`: additive
@@ -406,9 +406,9 @@ End with a concise import report:
 - parse warnings
 
 Then recommend the next best step:
-- `/pm:strategy` if new evidence changes ICP or priorities
-- `/pm:groom` if the evidence strengthens a feature decision
-- `/pm:view` if the user wants to review the updated research visually
+- `$pm-strategy` if new evidence changes ICP or priorities
+- `$pm-groom` if the evidence strengthens a feature decision
+- `$pm-view` if the user wants to review the updated research visually
 
 ---
 
