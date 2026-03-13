@@ -68,9 +68,9 @@ Read all available sources before generating ideas. Each idea must trace back to
 
 Before generating ideas, understand what's already built. This prevents suggesting features that already exist.
 
-1. **Explore the project codebase** — scan the project's source code structure to catalog existing capabilities. Look at top-level directories, key source files, and any documentation that describes current features.
-2. **Read the feature matrix** — `pm/competitors/matrix.md` shows what the product already does. Trust the "Yes" cells. Verify any "No" or "Planned" cells against actual source code before suggesting ideas to fill them.
-3. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
+1. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
+2. **Read the feature matrix** — `pm/competitors/matrix.md` shows what the product already does. Trust the "Yes" cells.
+3. **Explore the project codebase (if one exists)** — scan the project's source code structure to catalog existing capabilities. Look at top-level directories, key source files, and any documentation that describes current features. If no codebase exists (greenfield product, standalone knowledge base, or pre-development planning), skip this step — rely on strategy and the feature matrix instead.
 
 Build a mental inventory: "The product already does X, Y, Z." Every idea generated in Step 2 must be checked against this inventory.
 
@@ -238,7 +238,7 @@ When the user picks an idea to groom:
 
 1. Every idea must cite at least one signal source with a file path. No unsourced ideas.
 2. Every idea must pass all 5 filters. No exceptions.
-3. Do not suggest features that already exist. When in doubt, check the skill files.
+3. Do not suggest features that already exist. When in doubt, check the codebase or feature matrix.
 4. Do not duplicate ideas already in `pm/backlog/`. Reference existing backlog items instead.
 5. Scope signals are rough estimates, not commitments. Groom refines scope.
 6. If no knowledge base exists (no strategy, no landscape, no competitors), say:
