@@ -42,13 +42,15 @@ These platforms do not have a one-line install. See the platform-specific guides
 
 ## About the `pm/` directory in this repo
 
-The `pm/` directory contains Product Memory's own knowledge base — landscape research, competitor profiles, strategy, and backlog. This is PM dogfooding itself: the plugin is used to manage its own product development. It is not part of the plugin's source code or execution. When you install PM in your project, your own `pm/` directory will be generated fresh by `/pm:setup`.
+The `pm/` directory contains Product Memory's own knowledge base — landscape research, competitor profiles, strategy, and backlog. This is PM dogfooding itself: the plugin is used to manage its own product development. It is not part of the plugin's source code or execution. When you install PM in your project, your own `pm/` directory will be generated fresh by `/pm:setup` or `$pm-setup` in Codex.
 
 ---
 
 ## Quick Start
 
-The fastest path from zero to a groomed backlog:
+The fastest path from zero to a groomed backlog depends on the client:
+
+### Command-Based Clients
 
 ```
 /pm:setup
@@ -59,6 +61,20 @@ The fastest path from zero to a groomed backlog:
 /pm:research competitors
 /pm:research <topic>
 /pm:groom
+```
+
+### Codex
+
+```text
+$pm-setup
+$pm-ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
+$pm-research landscape
+$pm-strategy
+$pm-ideate
+$pm-research competitors
+$pm-research <topic>
+$pm-groom
+$pm-view
 ```
 
 **`/pm:setup`** configures your product context, target market, and integrations (Linear, SEO providers).
@@ -73,11 +89,13 @@ The fastest path from zero to a groomed backlog:
 
 **`/pm:groom`** converts strategy and research into groomed Linear issues with acceptance criteria, effort estimates, and priority scores.
 
-In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, and `pm-refresh`.
+In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, `pm-refresh`, and `pm-view`.
 
 ---
 
-## Commands
+## Commands (Command-Based Clients)
+
+Codex uses the `pm-*` skills shown above instead of these slash commands.
 
 | Command | Description |
 |---------|-------------|

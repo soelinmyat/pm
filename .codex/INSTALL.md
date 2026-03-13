@@ -29,6 +29,7 @@ ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
 ln -sfn ~/.agents/vendor/pm/skills/dig ~/.agents/skills/pm-dig
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
+ln -sfn ~/.agents/vendor/pm/skills/view ~/.agents/skills/pm-view
 ```
 
 The skill folders in this repo already include symlinks to the shared `agents/`, `commands/`, `hooks/`, `scripts/`, and `templates/` directories that Codex may read while following the workflows.

@@ -7,7 +7,7 @@ description: "Use for quick inline product research during other work. Lightweig
 
 ## Purpose
 
-Quick inline research for mid-work decisions. No ceremony, no state files, no issues — just frame the question, check existing knowledge, research gaps, and recommend. Use when you need a fast answer that does not warrant a full `/pm:groom` cycle.
+Quick inline research for mid-work decisions. No ceremony, no state files, no issues — just frame the question, check existing knowledge, research gaps, and recommend. Use when you need a fast answer that does not warrant a full `$pm-groom` cycle.
 
 ---
 
@@ -18,8 +18,8 @@ Quick inline research for mid-work decisions. No ceremony, no state files, no is
 - **Decision validation:** "Is this aligned with our positioning?"
 - **Feature viability checks:** "Do users ask for this?"
 
-Not for: big feature grooming (use `/pm:groom`), full market analysis (use `/pm:research`), or strategy rewrites (use `/pm:strategy`).
-If the user has raw support exports, interview notes, or other local evidence files, use `/pm:ingest` first instead of trying to parse them inline during `/pm:dig`.
+Not for: big feature grooming (use `$pm-groom`), full market analysis (use `$pm-research`), or strategy rewrites (use `$pm-strategy`).
+If the user has raw support exports, interview notes, or other local evidence files, use `$pm-ingest` first instead of trying to parse them inline during `$pm-dig`.
 
 ---
 
@@ -48,7 +48,7 @@ Note conflicts explicitly.
 Scan:
 - `pm/strategy.md` (positioning, ICP, priorities, non-goals)
 - `pm/research/` (related topic research)
-- Internal customer evidence from `/pm:ingest` also lands in `pm/research/` with `source_origin: internal` or `mixed`
+- Internal customer evidence from `$pm-ingest` also lands in `pm/research/` with `source_origin: internal` or `mixed`
 - `pm/competitors/` (competitor capabilities, market gaps)
 
 Do NOT duplicate what you already know. If the answer is in existing docs, cite it and skip research.
@@ -60,7 +60,7 @@ If the question is not already answered:
 - **Competitor research:** Check `pm/competitors/index.md` or profile specific competitors on features.
 - **Market research:** Quick web search for user behavior, adoption patterns, or industry norms.
 - **User patterns:** If research exists in `pm/research/`, check for user need signals.
-- **Raw evidence handoff:** If the user points to local files that have not been ingested yet, stop and recommend `/pm:ingest <path>` instead of doing ad hoc file parsing here.
+- **Raw evidence handoff:** If the user points to local files that have not been ingested yet, stop and recommend `$pm-ingest <path>` instead of doing ad hoc file parsing here.
 
 Keep it focused. One search round, then synthesize.
 
@@ -103,10 +103,10 @@ Keep it tight. 3-5 bullets max.
 ## Rules
 
 1. **No state file.** Do not create `.dig-state` or track sessions. Each dig is self-contained.
-2. **No issues.** Do not create Linear issues. If the user needs tracking, suggest `/pm:groom` or manual issue creation.
+2. **No issues.** Do not create Linear issues. If the user needs tracking, suggest `$pm-groom` or manual issue creation.
 3. **Save significant discoveries.** Only write to `pm/` if the finding adds new knowledge, not if it confirms existing docs.
 4. **Cite sources.** When you make a claim, provide the source file or URL.
-5. **Suggest escalation.** If the dig reveals a bigger question (e.g., "we need to rethink our ICP"), recommend `/pm:strategy` or `/pm:groom` instead.
+5. **Suggest escalation.** If the dig reveals a bigger question (e.g., "we need to rethink our ICP"), recommend `$pm-strategy` or `$pm-groom` instead.
 
 ---
 
@@ -148,7 +148,7 @@ Flow:
 
 If the dig reveals any of these, suggest the appropriate next step:
 
-- **Strategic misalignment that needs discussion:** `/pm:strategy` (update interview)
-- **Big feature decision with many unknowns:** `/pm:groom` (full grooming cycle)
-- **New competitive threat or market shift:** `/pm:research competitors` (re-profile, update matrix)
-- **Systemic user need not yet captured:** `/pm:research {topic}` (deep dive)
+- **Strategic misalignment that needs discussion:** `$pm-strategy` (update interview)
+- **Big feature decision with many unknowns:** `$pm-groom` (full grooming cycle)
+- **New competitive threat or market shift:** `$pm-research competitors` (re-profile, update matrix)
+- **Systemic user need not yet captured:** `$pm-research {topic}` (deep dive)

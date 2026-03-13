@@ -15,7 +15,7 @@ Check if `pm/landscape.md` exists.
 
 If it does NOT exist, say:
 
-> "Consider running /pm:research landscape first. Strategy interviews are more
+> "Consider running $pm-research landscape first. Strategy interviews are more
 > productive with landscape context — knowing the key players and market segments
 > sharpens your positioning answers. This is a recommendation, not a requirement."
 
@@ -41,7 +41,7 @@ If starting fresh: proceed with the full interview.
 
 ## Update Flow
 
-When `pm/strategy.md` already exists and the user invokes /pm:strategy again:
+When `pm/strategy.md` already exists and the user invokes `$pm-strategy` again:
 
 1. Ask: "What changed? (e.g., pivoted ICP, new competitors, revised priorities)"
 2. Re-interview only the affected sections.
@@ -61,7 +61,7 @@ Rules:
 - If `pm/landscape.md` exists, read it first. Use named competitors and market
   segments from it to make questions more specific (e.g., "How do you differ
   from [Competitor A] and [Competitor B]?" instead of "Who are your competitors?").
-- If `pm/research/` contains internal or mixed topic findings from `/pm:ingest`,
+- If `pm/research/` contains internal or mixed topic findings from `$pm-ingest`,
   use them to sharpen ICP, segmentation, priorities, and non-goals. Customer
   evidence should influence strategy when available.
 - After Essentials are complete, ask: "Want to go deeper on any area, or is
@@ -116,8 +116,8 @@ Leading indicators preferred over lagging.
 After writing, say:
 
 > "Strategy doc written to pm/strategy.md. Recommended next steps:
-> /pm:research competitors -> /pm:ideate -> /pm:groom [feature idea]
-> If you have un-ingested customer evidence, run /pm:ingest <path> before making bigger prioritization calls."
+> $pm-research competitors -> $pm-ideate -> $pm-groom [feature idea]
+> If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
 
 ## Visual Companion
 

@@ -34,7 +34,7 @@ All paths hit the cost guardrail before executing.
 - `pm/research/{topic}/findings.md` — **origin-aware** (see Topic Research Rules below)
 
 **Out of scope:**
-- `pm/strategy.md` — created via interactive interview. Use `/pm:strategy` to update.
+- `pm/strategy.md` — created via interactive interview. Use `$pm-strategy` to update.
 
 ### Topic Research Origin Rules
 
@@ -43,10 +43,10 @@ Topic research files use a `source_origin` frontmatter field that determines own
 | `source_origin` | Refresh behavior |
 |---|---|
 | `external` | Refresh normally — re-run web searches and SEO demand checks. |
-| `internal` | **Skip entirely.** Internal evidence is owned by `/pm:ingest`. Do not re-run web searches or modify any content. Show in audit as: "[Internal — skipped, owned by /pm:ingest]". |
+| `internal` | **Skip entirely.** Internal evidence is owned by `$pm-ingest`. Do not re-run web searches or modify any content. Show in audit as: "[Internal — skipped, owned by $pm-ingest]". |
 | `mixed` | **Refresh external sections only.** Re-run web searches and SEO demand checks for `[external]`-prefixed findings, Summary, Strategic Relevance, and Implications. **Never modify** Representative Quotes, internal evidence entries, or `[internal]`-prefixed findings. When rewriting shared sections (Summary, Strategic Relevance, Implications), incorporate both internal and external evidence. |
 
-**Mixed-topic frontmatter protection:** For `mixed` topics, the following frontmatter fields are owned by `/pm:ingest` and must never be modified by refresh:
+**Mixed-topic frontmatter protection:** For `mixed` topics, the following frontmatter fields are owned by `$pm-ingest` and must never be modified by refresh:
 - `source_origin` (must remain `mixed`)
 - `evidence_count`
 - `segments`
@@ -351,7 +351,7 @@ After execution, show what changed:
 
 ## Edge Cases
 
-1. **No `pm/` directory exists:** Error: "No research found. Run `/pm:research landscape` first."
+1. **No `pm/` directory exists:** Error: "No research found. Run `$pm-research landscape` first."
 2. **File has no frontmatter date:** Treat as stale (unknown age = should refresh).
 3. **SEO provider is `"none"`:** Skip all SEO refresh. Note in audit.
 4. **Ahrefs call fails:** Log the error, note in audit summary, continue with other files.
@@ -362,5 +362,5 @@ After execution, show what changed:
 10. **Synthesis files with no competitor updates:** Skip index.md/matrix.md refresh.
 11. **Interrupted refresh:** Each file is self-contained. Only write `refreshed:` after successfully updating that file. Safe to re-run after interruption.
 12. **`.pm/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
-13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by /pm:ingest]". Never modify internal evidence files.
+13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
