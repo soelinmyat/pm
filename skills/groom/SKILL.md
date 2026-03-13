@@ -32,6 +32,13 @@ Wait for the user's answer. If resuming: skip completed phases. If starting fres
 
 ### Phase 1: Intake
 
+**If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
+> "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
+
+Skip to step 3 after confirmation.
+
+**Otherwise:**
+
 1. Ask: "What's the idea? Describe the problem, who it affects, and why it matters now."
    One question. Wait for the full answer.
 
@@ -295,7 +302,7 @@ Delete `.pm/.groom-state.md` after successful link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
-> Recommended next: /pm:groom {next-idea} or update priorities in pm/strategy.md."
+> Recommended next: /pm:ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
 
 ---
 
@@ -370,7 +377,7 @@ Write to `pm/backlog/{issue-slug}.md`.
 type: backlog-issue
 title: "{Issue Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
-status: drafted | approved | in-progress | done
+status: idea | drafted | approved | in-progress | done
 parent: "{parent-issue-slug}" | null
 children:
   - "{child-issue-slug}"

@@ -159,8 +159,8 @@ function parseFrontmatter(content) {
     const inlineVal = keyMatch[2].trim();
 
     if (inlineVal !== '') {
-      // Flat key-value
-      data[key] = inlineVal;
+      // Flat key-value — strip surrounding quotes
+      data[key] = inlineVal.replace(/^["'](.*)["']$/, '$1');
       i++;
       continue;
     }
@@ -178,14 +178,14 @@ function parseFrontmatter(content) {
       if (objItemMatch) {
         // Start of an object item
         const obj = {};
-        obj[objItemMatch[1]] = objItemMatch[2].trim();
+        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
         i++;
         // Collect continuation lines for this object
         while (i < lines.length) {
           const cont = lines[i];
           const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
           if (contMatch && !cont.match(/^[ \t]+-\s/)) {
-            obj[contMatch[1]] = contMatch[2].trim();
+            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
             i++;
           } else {
             break;
@@ -193,11 +193,11 @@ function parseFrontmatter(content) {
         }
         items.push(obj);
       } else if (scalarItemMatch) {
-        items.push(scalarItemMatch[1].trim());
+        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, '$1'));
         i++;
       } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === 'object') {
         // Continuation of last object (shouldn't normally reach here but be safe)
-        items[items.length - 1][contObjMatch[1]] = contObjMatch[2].trim();
+        items[items.length - 1][contObjMatch[1]] = contObjMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
         i++;
       } else {
         // No more items for this key
@@ -436,10 +436,34 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-col .col-header { background: #eef0f4; padding: 0.75rem 1rem; font-weight: 600;
   font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .kanban-col .col-body { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.kanban-col.col-empty { opacity: 0.45; }
+.kanban-col.col-empty .col-body { min-height: 3rem; }
+.status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
+.badge-in-progress { background: #dbeafe; color: #1d4ed8; }
+.badge-approved { background: #dcfce7; color: #15803d; }
 .kanban-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem;
-  font-size: 0.875rem; transition: box-shadow var(--transition); }
+  font-size: 0.875rem; transition: box-shadow var(--transition); border-left: 3px solid var(--border); }
+.kanban-item.priority-critical { border-left-color: #dc2626; }
+.kanban-item.priority-high { border-left-color: #f59e0b; }
+.kanban-item.priority-medium { border-left-color: #3b82f6; }
+.kanban-item.priority-low { border-left-color: #9ca3af; }
 .kanban-item:hover { box-shadow: var(--shadow-sm); }
-.kanban-item a { color: var(--text); font-weight: 500; }
+a.kanban-item { color: var(--text); text-decoration: none; display: block; cursor: pointer; }
+.kanban-title { font-weight: 500; }
+.kanban-item-header { display: flex; align-items: center; gap: 0.5rem; }
+.kanban-item-meta { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem; flex-wrap: wrap; }
+.kanban-label { font-size: 0.6875rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; background: #f1f5f9; color: #475569; }
+.kanban-scope { font-size: 0.6875rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; font-weight: 500; }
+.scope-small { background: #dcfce7; color: #15803d; }
+.scope-medium { background: #dbeafe; color: #1d4ed8; }
+.scope-large { background: #fef3c7; color: #92400e; }
+.backlog-legend { display: flex; gap: 1rem; margin-top: 0.5rem; }
+.legend-item { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--text-muted); }
+.legend-bar { width: 3px; height: 14px; border-radius: 2px; }
+.legend-bar.priority-critical { background: #dc2626; }
+.legend-bar.priority-high { background: #f59e0b; }
+.legend-bar.priority-medium { background: #3b82f6; }
+.legend-bar.priority-low { background: #9ca3af; }
 .kanban-item a:hover { color: var(--accent); text-decoration: none; }
 
 /* Tabs */
@@ -625,6 +649,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .coverage-topic-name { flex: 1; }
 .coverage-topic-badges { display: flex; gap: 0.25rem; }
 
+/* Positioning map */
+.positioning-map { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1.5rem; margin: 1.5rem 0; box-shadow: var(--shadow-sm); }
+.positioning-map h3 { margin: 0 0 1rem; font-size: 0.9375rem; }
+.positioning-map svg { display: block; margin: 0 auto; }
+.positioning-map .map-legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem;
+  justify-content: center; font-size: 0.75rem; color: var(--text-muted); }
+.positioning-map .map-legend .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+.positioning-map .map-legend .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.positioning-map .map-axes { display: flex; justify-content: space-between; margin-top: 0.5rem;
+  font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.positioning-map .map-y-label { position: absolute; font-size: 0.6875rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em; }
+.positioning-map .map-container { position: relative; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -671,6 +710,128 @@ ${bodyContent}
 </script>
 </body>
 </html>`;
+}
+
+// ========== Positioning Map Renderer ==========
+
+const SEGMENT_COLORS = {
+  'enterprise':  '#7c3aed',
+  'mid-market':  '#2563eb',
+  'smb':         '#16a34a',
+  'horizontal':  '#ea580c',
+  'cleanlog':    '#ef4444',
+  'self':        '#ef4444',
+  'default':     '#6b7280',
+};
+
+function parseStatsData(mdBody) {
+  var regex = /<!--\s*stat:\s*([^,]+),\s*(.+?)\s*-->/g;
+  var stats = [];
+  var match;
+  while ((match = regex.exec(mdBody)) !== null) {
+    stats.push({ value: match[1].trim(), label: match[2].trim() });
+  }
+  return stats.length > 0 ? stats : null;
+}
+
+function renderStatsCards(stats) {
+  if (!stats) return '';
+  var cards = stats.map(function(s) {
+    return '<div class="stat-card"><div class="value">' + escHtml(s.value) + '</div><div class="label">' + escHtml(s.label) + '</div></div>';
+  }).join('');
+  return '<div class="stat-grid">' + cards + '</div>';
+}
+
+function parsePositioningData(mdBody) {
+  const headerMatch = mdBody.match(/<!--\s*positioning:\s*company,\s*x\s*\(0-100,?\s*([^)]*)\),\s*y\s*\(0-100,?\s*([^)]*)\),\s*traffic,\s*segment-color\s*-->/i);
+  if (!headerMatch) return null;
+
+  const xDesc = headerMatch[1].trim();
+  const yDesc = headerMatch[2].trim();
+
+  const xParts = xDesc.split(/\s+to\s+/i);
+  const xLabelLeft = xParts[0] || '';
+  const xLabelRight = xParts[1] || '';
+  const yParts = yDesc.split(/\s+to\s+/i);
+  const yLabelBottom = yParts[0] || '';
+  const yLabelTop = yParts[1] || '';
+
+  const dataRegex = /<!--\s*([^,]+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\w[\w-]*)\s*-->/g;
+  const points = [];
+  let match;
+  while ((match = dataRegex.exec(mdBody)) !== null) {
+    if (match[1].trim().toLowerCase() === 'positioning') continue;
+    points.push({
+      name: match[1].trim(),
+      x: parseInt(match[2]),
+      y: parseInt(match[3]),
+      traffic: parseInt(match[4]),
+      segment: match[5].trim().toLowerCase(),
+    });
+  }
+
+  if (points.length === 0) return null;
+
+  return { points, xLabelLeft, xLabelRight, yLabelBottom, yLabelTop };
+}
+
+function renderPositioningMap(data) {
+  if (!data) return '';
+
+  const W = 600, H = 400;
+  const PAD = { top: 20, right: 30, bottom: 40, left: 30 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const maxTraffic = Math.max(...data.points.map(function(p) { return p.traffic; }), 1);
+  function bubbleRadius(traffic) {
+    if (traffic <= 0) return 4;
+    var minR = 4, maxR = 16;
+    var logVal = Math.log10(traffic + 1);
+    var logMax = Math.log10(maxTraffic + 1);
+    return minR + (maxR - minR) * (logVal / logMax);
+  }
+
+  var bubbles = data.points.map(function(p) {
+    var cx = PAD.left + (p.x / 100) * plotW;
+    var cy = PAD.top + (1 - p.y / 100) * plotH;
+    var r = bubbleRadius(p.traffic);
+    var color = SEGMENT_COLORS[p.segment] || SEGMENT_COLORS['default'];
+    var labelY = cy - r - 6 > PAD.top ? cy - r - 6 : cy + r + 14;
+    return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + color + '" fill-opacity="0.7" stroke="' + color + '" stroke-width="1.5"/>' +
+      '<text x="' + cx + '" y="' + labelY + '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">' + escHtml(p.name) + '</text>';
+  }).join('\n    ');
+
+  var gridLines = [];
+  for (var i = 0; i <= 4; i++) {
+    var gx = PAD.left + (i / 4) * plotW;
+    var gy = PAD.top + (i / 4) * plotH;
+    gridLines.push('<line x1="' + gx + '" y1="' + PAD.top + '" x2="' + gx + '" y2="' + (PAD.top + plotH) + '" stroke="var(--border)" stroke-dasharray="4,4"/>');
+    gridLines.push('<line x1="' + PAD.left + '" y1="' + gy + '" x2="' + (PAD.left + plotW) + '" y2="' + gy + '" stroke="var(--border)" stroke-dasharray="4,4"/>');
+  }
+
+  var segments = [];
+  data.points.forEach(function(p) { if (segments.indexOf(p.segment) === -1) segments.push(p.segment); });
+  var legendItems = segments.map(function(s) {
+    var color = SEGMENT_COLORS[s] || SEGMENT_COLORS['default'];
+    return '<span class="legend-item"><span class="legend-dot" style="background:' + color + '"></span>' + escHtml(s) + '</span>';
+  }).join('');
+
+  return '<div class="positioning-map">' +
+    '<h3>Market Positioning Map</h3>' +
+    '<div class="map-container">' +
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="max-width:' + W + 'px">' +
+    gridLines.join('\n') +
+    '<rect x="' + PAD.left + '" y="' + PAD.top + '" width="' + plotW + '" height="' + plotH + '" fill="none" stroke="var(--border)" stroke-width="1"/>' +
+    bubbles +
+    '<text x="' + PAD.left + '" y="' + (H - 4) + '" font-size="10" fill="var(--text-muted)">' + escHtml(data.xLabelLeft) + '</text>' +
+    '<text x="' + (W - PAD.right) + '" y="' + (H - 4) + '" font-size="10" fill="var(--text-muted)" text-anchor="end">' + escHtml(data.xLabelRight) + '</text>' +
+    '<text x="' + (PAD.left - 4) + '" y="' + (PAD.top + 4) + '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' + (PAD.left - 4) + ', ' + (PAD.top + 4) + ')">' + escHtml(data.yLabelTop) + '</text>' +
+    '<text x="' + (PAD.left - 4) + '" y="' + (PAD.top + plotH) + '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' + (PAD.left - 4) + ', ' + (PAD.top + plotH) + ')">' + escHtml(data.yLabelBottom) + '</text>' +
+    '</svg>' +
+    '</div>' +
+    '<div class="map-legend">' + legendItems + '<span class="legend-item" style="margin-left:1rem;font-style:italic">Bubble size = organic traffic</span></div>' +
+    '</div>';
 }
 
 // ========== Dashboard Route Handlers ==========
@@ -927,7 +1088,12 @@ function handleResearchPage(res, pmDir) {
   if (fs.existsSync(landscapePath)) {
     const raw = fs.readFileSync(landscapePath, 'utf-8');
     const { body } = parseFrontmatter(raw);
-    landscapeHtml = '<div class="markdown-body">' + renderLandscapeWithViz(body) + '</div>';
+    const statsData = parseStatsData(body);
+    const statsHtml = renderStatsCards(statsData);
+    var rendered = renderLandscapeWithViz(body);
+    // Inject stats right after the first h1
+    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+    landscapeHtml = '<div class="markdown-body">' + rendered + '</div>';
   } else {
     landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
   }
@@ -1819,37 +1985,52 @@ function handleResearchTopic(res, pmDir, topic) {
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
+  const STATUS_ORDER = ['idea', 'groomed', 'shipped'];
+  const STATUS_MAP = { 'idea': 'idea', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'groomed', 'done': 'shipped' };
 
   if (fs.existsSync(backlogDir)) {
     const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
       const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
       const { data } = parseFrontmatter(raw);
-      const status = data.status || 'todo';
+      const rawStatus = data.status || 'idea';
+      const status = STATUS_MAP[rawStatus] || rawStatus;
       const title = data.title || file.replace('.md', '');
       const slug = file.replace('.md', '');
+      const badge = (rawStatus === 'in-progress' || rawStatus === 'approved') ? rawStatus : null;
+      const priority = data.priority || 'medium';
+      const labels = Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [];
+      const scope = data.scope_signal || null;
       if (!columns[status]) columns[status] = [];
-      columns[status].push({ slug, title });
+      columns[status].push({ slug, title, badge, priority, labels, scope });
     }
   }
 
-  const STATUS_ORDER = ['todo', 'open', 'in-progress', 'done'];
-  // Include any statuses found in files even if not in default order
-  const allStatuses = [...new Set([...STATUS_ORDER, ...Object.keys(columns)])];
+  const allStatuses = STATUS_ORDER;
 
-  const cols = allStatuses.filter(s => columns[s] && columns[s].length > 0).map(status => {
-    const items = columns[status].map(item =>
-      `<div class="kanban-item"><a href="/backlog/${escHtml(item.slug)}">${escHtml(item.title)}</a></div>`
-    ).join('');
+  const cols = allStatuses.map(status => {
+    const items = (columns[status] || []).map(item => {
+      const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
+      const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
+      const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
+      return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}"><div class="kanban-item-header"><span class="kanban-title">${escHtml(item.title)}</span>${badgeHtml}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
+    }).join('');
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    return `<div class="kanban-col">
+    const emptyClass = !columns[status] || columns[status].length === 0 ? ' col-empty' : '';
+    return `<div class="kanban-col${emptyClass}">
   <div class="col-header">${label}</div>
-  <div class="col-body">${items}</div>
+  <div class="col-body">${items || '<div class="col-placeholder"></div>'}</div>
 </div>`;
   }).join('');
 
+  const legend = `<div class="backlog-legend">
+<span class="legend-item"><span class="legend-bar priority-critical"></span>Critical</span>
+<span class="legend-item"><span class="legend-bar priority-high"></span>High</span>
+<span class="legend-item"><span class="legend-bar priority-medium"></span>Medium</span>
+<span class="legend-item"><span class="legend-bar priority-low"></span>Low</span>
+</div>`;
   const body = `
-<div class="page-header"><h1>Backlog</h1></div>
+<div class="page-header"><h1>Backlog</h1>${legend}</div>
 ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);

@@ -58,9 +58,14 @@ First research activity in a new project. Produces the market overview that make
 3. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
-4. **Write `pm/landscape.md`** (see structure below).
+4. **Write `pm/landscape.md`** (see structure below). Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
 
-5. **Visual companion.** If `visual_companion: true` in `.pm/config.json`: offer to open the PM dashboard in the browser via `/pm:view` so the user can review the landscape visually.
+5. **Visual companion.** If `visual_companion: true` in `.pm/config.json`: launch the PM dashboard server and share the URL with the user so they can review the landscape and positioning map visually. Run the start script in the background:
+   ```bash
+   bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "${CLAUDE_PROJECT_DIR:-$PWD}" --mode dashboard
+   ```
+   Parse the returned JSON for the `url` field and present it:
+   > "Dashboard running at {url} — open it to see the landscape visually."
 
 ### Landscape Document Structure
 
@@ -76,6 +81,13 @@ sources:
 
 # Market Landscape: {Space}
 
+<!-- stat: {value}, {label} -->
+<!-- stat: {value}, {label} -->
+<!-- stat: {value}, {label} -->
+<!-- stat: {value}, {label} -->
+
+Add 3-5 headline stat comments right after the h1 title. Pick the most impactful numbers from the research (adoption rates, market size, search volume, growth metrics). The dashboard renders these as a stat card row at the top of the page.
+
 ## Market Overview
 2-3 paragraph summary: market size, growth direction, primary buyer, key dynamics.
 
@@ -83,7 +95,9 @@ sources:
 
 | Company | Positioning | Primary Segment | Notable |
 |---|---|---|---|
-| ...     | ...         | ...             | ...     |
+| [Company](https://domain.com) | ... | ... | ... |
+
+Use markdown links for company names so the dashboard renders them as clickable links to their websites.
 
 ## Keyword Landscape
 Top terms by volume (if SEO configured) or qualitative keyword clusters (web search only).
@@ -93,6 +107,23 @@ Top terms by volume (if SEO configured) or qualitative keyword clusters (web sea
 
 ## Market Segments
 Named segments with a 1-sentence description each. Who buys, why, and at what price sensitivity.
+
+## Market Positioning Map
+
+<!-- positioning: company, x (0-100, x-axis-low-label to x-axis-high-label), y (0-100, y-axis-low-label to y-axis-high-label), traffic, segment-color -->
+<!-- Company A, 85, 30, 311655, horizontal -->
+<!-- Company B, 20, 60, 3091, mid-market -->
+<!-- Our Product, 25, 50, 0, self -->
+
+Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise).
+Each row is an HTML comment with: company name, x position (0-100), y position (0-100), monthly organic traffic, segment label.
+The dashboard renders these as a bubble chart (bubble size = traffic, color = segment).
+
+X-axis: {description of left to right}.
+Y-axis: {description of bottom to top}.
+Dot size: Monthly organic traffic. Color: segment.
+
+{1-2 sentences explaining where your product sits and what the whitespace reveals.}
 
 ## Initial Observations
 3-5 bullets. Gaps, tensions, underserved segments, or early hypotheses worth testing.
@@ -108,12 +139,22 @@ When `pm/landscape.md` exists and user runs landscape mode again: re-run searche
 
 ### Phase 1: Discover
 
-1. If `pm/landscape.md` exists: pull the Key Players table as the candidate list.
-2. If not: use the SEO provider to discover competitors:
-   - If `"ahrefs-mcp"`: use `site-explorer-organic-competitors` on any known domain in the space to find who competes for the same keywords. Supplement with web search.
-   - Supplement with web search regardless of provider.
-3. Present the candidate list. Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
-4. Write or update `pm/competitors/index.md` with confirmed candidates (name, slug, one-line description).
+The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.
+
+1. **Start with landscape.** If `pm/landscape.md` exists, pull the Key Players table as a seed list.
+2. **Go deeper.** Do NOT stop at the landscape list. Run additional searches to find competitors the landscape may have missed:
+   - Search for tools on the **same platform** (e.g., other Claude Code plugins, Cursor plugins, IDE extensions that do similar work).
+   - Search for tools targeting the **same user** (e.g., "AI tools for [ICP role]", "[workflow] tool for [audience]").
+   - Search for tools solving the **same problem** differently (e.g., web apps, CLI tools, browser extensions).
+   - Search GitHub, plugin marketplaces, Product Hunt, and Indie Hackers for emerging/unlisted competitors.
+   - If `"ahrefs-mcp"` is configured: use `site-explorer-organic-competitors` on any known competitor domain to discover who else competes for the same keywords.
+3. **Filter by relevance.** Classify candidates by proximity:
+   - **Direct competitors**: Same platform, same workflow, same audience.
+   - **Adjacent competitors**: Different platform or delivery model, but overlapping use case.
+   - **Aspirational competitors**: Different segment entirely (e.g., enterprise SaaS), but set user expectations for what the product category should do.
+   Present all three tiers. Recommend profiling direct and adjacent competitors. Aspirational competitors are optional context.
+4. **Confirm with user.** Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
+5. Write or update `pm/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier).
 
 ### Phase 2: Profile
 
@@ -177,7 +218,12 @@ Only proceed to synthesis after all files are present.
 1. Update `pm/competitors/index.md` — add links to each profile, last-profiled date.
 2. Write or update `pm/competitors/matrix.md` — feature comparison table across all profiled competitors.
 3. Add a **Market Gaps** section to `pm/competitors/index.md` — capabilities absent or weak across all competitors.
-4. If `visual_companion: true` in `.pm/config.json`: offer a positioning map (two axes, user chooses dimensions).
+4. **Update `pm/landscape.md`** — keep the landscape as the single source of truth for the market view:
+   - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
+   - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
+   - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
+   - Bump the `updated:` date in frontmatter.
+5. **Launch dashboard.** If `visual_companion: true` in `.pm/config.json`: launch the PM dashboard server and share the URL so the user can review the updated landscape, positioning map, and competitor profiles visually.
 
 ### Cost Guardrail
 

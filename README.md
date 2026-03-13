@@ -37,6 +37,12 @@ These platforms do not have a one-line install. See the platform-specific guides
 
 ---
 
+## About the `pm/` directory in this repo
+
+The `pm/` directory contains Product Memory's own knowledge base — landscape research, competitor profiles, strategy, and backlog. This is PM dogfooding itself: the plugin is used to manage its own product development. It is not part of the plugin's source code or execution. When you install PM in your project, your own `pm/` directory will be generated fresh by `/pm:setup`.
+
+---
+
 ## Quick Start
 
 The fastest path from zero to a groomed backlog:
@@ -46,6 +52,7 @@ The fastest path from zero to a groomed backlog:
 /pm:ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
 /pm:research landscape
 /pm:strategy
+/pm:ideate
 /pm:research competitors
 /pm:research <topic>
 /pm:groom
@@ -73,6 +80,7 @@ The fastest path from zero to a groomed backlog:
 | `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
 | `/pm:strategy` | Generate and refine product positioning and strategic bets |
 | `/pm:research <topic>` | Landscape mapping, competitor deep-dives, market signal analysis |
+| `/pm:ideate` | Generate ranked feature ideas from your knowledge base |
 | `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
 | `/pm:dig <question>` | Quick inline research for mid-work decisions. No state, no issues. |
 | `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |

@@ -116,7 +116,7 @@ Leading indicators preferred over lagging.
 After writing, say:
 
 > "Strategy doc written to pm/strategy.md. Recommended next steps:
-> /pm:research competitors -> /pm:groom [feature idea]
+> /pm:research competitors -> /pm:ideate -> /pm:groom [feature idea]
 > If you have un-ingested customer evidence, run /pm:ingest <path> before making bigger prioritization calls."
 
 ## Visual Companion
