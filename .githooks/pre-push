@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Prevent direct pushes to main. All changes must go through a PR.
+# Pre-push checks:
+# 1. Block direct pushes to main
+# 2. Verify git tag exists for the current manifest version
 
 remote="$1"
 while read -r local_ref local_oid remote_ref remote_oid; do
@@ -9,5 +11,19 @@ while read -r local_ref local_oid remote_ref remote_oid; do
     exit 1
   fi
 done
+
+# --- Version tag check ---
+manifest=".claude-plugin/plugin.json"
+if [[ -f "$manifest" ]]; then
+  version=$(python3 -c "import json; print(json.load(open('$manifest'))['version'])" 2>/dev/null)
+  if [[ -n "$version" ]]; then
+    if ! git tag -l "v$version" | grep -q "v$version"; then
+      echo "ERROR: Git tag v$version does not exist."
+      echo "The manifest version is $version but no matching tag was found."
+      echo "Run: git tag v$version"
+      exit 1
+    fi
+  fi
+fi
 
 exit 0
