@@ -1,57 +1,83 @@
 ---
 type: backlog-issue
 id: PM-013
-title: "Public Demo Dashboard"
-outcome: "Users can see a live demo of PM's knowledge base dashboard before installing, showcasing the plugin's own dogfooded data"
-status: idea
+title: "pm:example Onboarding Command"
+outcome: "New users who just installed PM can run /pm:example to see PM's own populated knowledge base dashboard, understand what PM produces, and start their first workflow confidently"
+status: drafted
 parent: null
-children: []
+children:
+  - "pm-example-command-skill"
+  - "pm-example-session-hook"
 labels:
-  - "ideate"
-  - "gtm"
-priority: high
+  - "onboarding"
+priority: medium
 evidence_strength: strong
-scope_signal: medium
-strategic_fit: "Priority 2: Quality of groomed output"
+scope_signal: small
+strategic_fit: "GTM (Section 5): Product-led, community-driven distribution"
 competitor_gap: unique
 dependencies: []
 created: 2026-03-13
-updated: 2026-03-13
+updated: 2026-03-14
 ---
 
 ## Outcome
 
-A public, read-only version of PM's own dogfooded dashboard is hosted (e.g., on productmemory.io or GitHub Pages) and linked from the README. Potential users can see exactly what PM produces — landscape with positioning map, competitor profiles, strategy, research topics, and a backlog with ideas flowing through the pipeline. Building in public as a distribution strategy.
+New users who just installed PM can run `/pm:example` to see PM's own populated knowledge base dashboard — landscape, competitors, strategy, research, and backlog — before setting up their own project. A terminal orientation prints before the browser opens, explaining what each section demonstrates. This reduces activation friction and gives users a concrete mental model of what they're building toward.
 
-## Signal Sources
+JTBD: "When I've just installed PM and have no data yet, help me understand what PM produces so I start my first workflow confidently."
 
-- `pm/strategy.md` § 5 GTM: "Product-led, community-driven. Users discover PM through plugin marketplaces, GitHub, word-of-mouth, and content marketing."
-- `pm/landscape.md` § Keyword Landscape: "ai product discovery" at KD 3 — a public dashboard page could rank for this.
-- `pm/competitors/pm-skills-marketplace/profile.md` § Strengths: PM Skills Marketplace grew via newsletter-led distribution. PM needs its own distribution lever — a live demo is more compelling than a README.
-- `pm/competitors/chatprd/profile.md`: ChatPRD's template library is a top-of-funnel SEO play. A public demo dashboard serves the same purpose for Product Memory.
+## Acceptance Criteria
+
+1. `/pm:example` opens the dashboard server pointed at `${CLAUDE_PLUGIN_ROOT}/pm/` and prints the URL.
+2. Dashboard displays PM's landscape, competitors, strategy, research, and backlog.
+3. Dashboard header shows "Product Memory" (via `.pm/config.json` at plugin root).
+4. A terminal orientation prints before the URL — lists available sections and what each demonstrates, explicitly notes this is PM's own knowledge base (not the user's project).
+5. SessionStart hook for unconfigured projects mentions `/pm:example`.
+6. `/pm:example` works in a fresh project with no `.pm/config.json` (smoke-test: `CLAUDE_PLUGIN_ROOT` resolves before `/pm:setup`).
+
+## User Flows
+
+N/A — no user-facing workflow for this feature type.
+
+## Wireframes
+
+N/A — no user-facing workflow for this feature type.
 
 ## Competitor Context
 
-- **PM Skills Marketplace:** README with screenshots. No live demo.
+No competitor offers a live demo of their own output:
+- **PM Skills Marketplace:** README with screenshots. No live demo. No persistence — users can't see accumulated output.
 - **ChatPRD:** Limited free tier (3 chats) as the "demo." No public showcase of output quality.
-- **Productboard Spark:** 150 free credits as trial. No public knowledge base demo.
+- **Productboard Spark:** 150 free credits as trial. Organizational memory is opaque — users can't preview what a mature knowledge base looks like.
 
-A public demo dashboard would be unique — no competitor shows their actual product intelligence output publicly.
+PM's self-dogfooded dashboard is unique — it demonstrates the "compounding knowledge base" value prop from the first interaction.
 
-## Implementation Approach
+## Technical Feasibility
 
-1. **Static export:** Add a build command that exports the dashboard as static HTML from the current `pm/` directory.
-2. **Host on GitHub Pages** or productmemory.io — zero cost.
-3. **Auto-update:** GitHub Action rebuilds the static site on push to main, keeping the demo current with the latest dogfooded data.
-4. **README integration:** Add a "See it in action" section with a screenshot and link to the live demo.
-5. **SEO opportunity:** The public dashboard pages can target low-competition keywords ("ai product discovery", "ai competitive analysis tool").
+**Verdict:** Feasible as scoped.
 
-## Dependencies
+**Build-on:**
+- `server.js` already supports `--dir` pointing at any path (`scripts/server.js:93-98`)
+- `getProjectName` (`scripts/server.js:886-897`) reads `.pm/config.json` relative to pm directory parent
+- `commands/view.md` is the direct template
+- `CLAUDE_PLUGIN_ROOT` is established across hooks, skills, and agents
 
-None for static export. The dashboard server already renders all the HTML — just needs a static export mode.
+**Build-new:**
+- `commands/example.md` — command file reading the skill
+- `skills/example/SKILL.md` — skill with orientation + server launch
+- `project_name` field in `.pm/config.json`
+- One line in `hooks/check-setup.sh`
 
-## Open Questions
+**Risks:**
+- Ensure no trailing slash when passing `--dir` path (affects `getProjectName` resolution)
+- Smoke-test `CLAUDE_PLUGIN_ROOT` in fresh unconfigured project
 
-- Should it be a full static site or a single-page screenshot gallery?
-- How to handle sensitive data if the dogfooded knowledge base contains anything private? (Currently it doesn't — all public research.)
-- Should the demo link to individual competitor profiles or keep those private?
+## Research Links
+
+- No dedicated research topic — signal sources are embedded in strategy (Section 5 GTM) and landscape (keyword analysis).
+
+## Notes
+
+- Original PM-013 scope (public hosted demo dashboard for distribution/SEO) deferred to PM-023.
+- The `pm/` directory at plugin root is now load-bearing for the demo experience — future refactors should preserve it.
+- Consider mentioning PM's parallel agent architecture in the terminal orientation as a differentiator.

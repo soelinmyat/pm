@@ -3,4 +3,4 @@ description: "Audit research for staleness and missing sections, then patch with
 argument-hint: "[seo|landscape|topics|<competitor-slug>]"
 ---
 
-Invoke the pm:refresh skill and follow it exactly as presented to you. The user's message after /pm:refresh is the scope argument.
+Read the skill file at ${CLAUDE_PLUGIN_ROOT}/skills/refresh/SKILL.md and follow it exactly. The user's message after /pm:refresh is the scope argument.
