@@ -76,6 +76,10 @@ feature branch: commit → commit → bump version (last commit) → PR → merg
 - Commit freely on the branch — no version bumps until ready
 - **Bump version as the last commit** on the branch before creating the PR
 - Create a PR, merge to main
+- After merge, delete the remote branch (`gh pr merge` does this by default) and clean up locally:
+  ```bash
+  git checkout main && git pull && git branch -d <branch-name>
+  ```
 - The pre-push hook enforces this — direct pushes to main are blocked
 
 ## Git Hooks
@@ -88,7 +92,7 @@ git config core.hooksPath .githooks
 
 | Hook | What it does |
 |---|---|
-| `pre-push` | Blocks direct pushes to main |
+| `pre-push` | Blocks direct pushes to main; verifies git tag exists for manifest version |
 | `pre-commit` | Validates JSON, version consistency across all 4 manifests, and pm/ artifact schemas |
 
 ## Development Flow
@@ -165,13 +169,16 @@ When the user says **"bump version"** or **"bump patch"**: increment the **patch
 | "bump minor" | Minor | 1.0.5 → 1.1.0 |
 | "bump major" | Major | 1.0.5 → 2.0.0 |
 
-All version bumps must update **all 4 manifests**:
+All version bumps must update **all 4 manifests** and **create a git tag**:
 - `.claude-plugin/plugin.json`
 - `.cursor-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
 - `gemini-extension.json`
+- Run `git tag v{new_version}` after committing the bump
 
 Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.
+
+The pre-push hook will block pushes if the tag is missing.
 
 ## Data Rules
 
