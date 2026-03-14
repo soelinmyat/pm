@@ -227,6 +227,65 @@ test('GET /backlog returns kanban HTML grouped by status', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 6b. Shipped column caps at 10 items with view-all link
+// ---------------------------------------------------------------------------
+
+test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', async () => {
+  const files = {};
+  for (let i = 1; i <= 15; i++) {
+    const n = String(i).padStart(3, '0');
+    files[`pm/backlog/done-${n}.md`] = `---\ntype: backlog-issue\nid: PM-${n}\ntitle: Done Item ${i}\nstatus: done\npriority: medium\ncreated: 2026-03-01\nupdated: 2026-03-${String(i).padStart(2, '0')}\n---\n# Done ${i}\n`;
+  }
+  const { pmDir, cleanup } = withPmDir(files);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('View all 15 shipped'), 'must show view-all link with total count');
+      // Should show the 10 most recently updated (PM-006 through PM-015)
+      assert.ok(body.includes('PM-015'), 'must include most recent shipped item');
+      assert.ok(!body.includes('PM-001') || body.indexOf('PM-001') > body.indexOf('View all'), 'PM-001 should not be in kanban cards');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 6c. GET /backlog/shipped returns all shipped items
+// ---------------------------------------------------------------------------
+
+test('GET /backlog/shipped returns all shipped items', async () => {
+  const files = {};
+  for (let i = 1; i <= 15; i++) {
+    const n = String(i).padStart(3, '0');
+    files[`pm/backlog/done-${n}.md`] = `---\ntype: backlog-issue\nid: PM-${n}\ntitle: Done Item ${i}\nstatus: done\npriority: medium\ncreated: 2026-03-01\nupdated: 2026-03-${String(i).padStart(2, '0')}\n---\n# Done ${i}\n`;
+  }
+  files['pm/backlog/idea-1.md'] = '---\ntype: backlog-issue\nid: PM-100\ntitle: Idea Item\nstatus: idea\npriority: low\ncreated: 2026-03-01\nupdated: 2026-03-01\n---\n# Idea\n';
+  const { pmDir, cleanup } = withPmDir(files);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog/shipped');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Shipped'), 'must have Shipped heading');
+      assert.ok(body.includes('15 items'), 'must show total count');
+      assert.ok(body.includes('PM-001'), 'must include oldest shipped item');
+      assert.ok(body.includes('PM-015'), 'must include newest shipped item');
+      assert.ok(!body.includes('PM-100'), 'must not include non-shipped items');
+      assert.ok(body.includes('Backlog'), 'must have breadcrumb back to backlog');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 7. GET /research returns topic list HTML
 // ---------------------------------------------------------------------------
 

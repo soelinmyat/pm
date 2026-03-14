@@ -491,6 +491,11 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .legend-bar.priority-medium { background: #3b82f6; }
 .legend-bar.priority-low { background: #9ca3af; }
 .kanban-item a:hover { color: var(--accent); text-decoration: none; }
+.kanban-view-all { display: block; text-align: center; padding: 0.5rem; font-size: 0.8125rem; color: var(--accent); text-decoration: none; border-top: 1px solid var(--border); margin-top: 0.25rem; }
+.kanban-view-all:hover { text-decoration: underline; }
+.col-count { font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
+.shipped-list { display: flex; flex-direction: column; gap: 0.5rem; max-width: 40rem; }
+.shipped-date { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
 
 /* Tabs */
 .tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
@@ -673,6 +678,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .coverage-dot-aging { background: #eab308; }
 .coverage-dot-stale { background: #dc2626; }
 .coverage-topic-name { flex: 1; }
+.coverage-topic-subtitle { font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
 .coverage-topic-badges { display: flex; gap: 0.25rem; }
 
 /* Positioning map */
@@ -908,6 +914,8 @@ function routeDashboard(req, res, pmDir) {
     handleStrategyPage(res, pmDir);
   } else if (url === '/backlog') {
     handleBacklog(res, pmDir);
+  } else if (url === '/backlog/shipped') {
+    handleShipped(res, pmDir);
   } else if (url.startsWith('/backlog/wireframes/')) {
     const slug = decodeURIComponent(url.slice('/backlog/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
@@ -1252,10 +1260,20 @@ function handleResearchPage(res, pmDir) {
             const badges = [];
             if (hasComparison) badges.push('<span class="badge" style="font-size:0.5625rem">+comparison</span>');
 
+            let meta = null;
+            if (hasFindings) {
+              const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+              meta = buildTopicMeta(t, parsed.data, findingsPath);
+            }
+
+            const topicLabel = meta ? meta.label : humanizeSlug(t);
+            const subtitleHtml = meta && meta.subtitle ? '<span class="coverage-topic-subtitle">' + escHtml(meta.subtitle) + '</span>' : '';
+
             return '<a href="/research/' + escHtml(t) + '" class="coverage-topic">' +
               '<span class="coverage-dot ' + dotClass + '"></span>' +
-              '<span class="coverage-topic-name">' + escHtml(humanizeSlug(t)) + '</span>' +
-              '<span class="coverage-topic-badges">' + badges.join('') + '</span>' +
+              '<span class="coverage-topic-name">' + escHtml(topicLabel) + '</span>' +
+              subtitleHtml +
+              '<span class="coverage-topic-badges">' + (meta ? meta.badgesHtml : '') + badges.join('') + '</span>' +
               '</a>';
           }).filter(Boolean).join('');
 
@@ -2059,28 +2077,43 @@ function handleBacklog(res, pmDir) {
       const parent = data.parent || null;
       if (!columns[status]) columns[status] = [];
       slugLookup[slug] = { id, title };
-      columns[status].push({ slug, title, badge, priority, labels, scope, id, parent });
+      const updated = data.updated || data.created || '';
+      columns[status].push({ slug, title, badge, priority, labels, scope, id, parent, updated });
     }
   }
 
   const allStatuses = STATUS_ORDER;
 
+  const SHIPPED_LIMIT = 10;
+
+  const renderItem = (item) => {
+    const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
+    const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
+    const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
+    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
+    const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
+    const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
+    const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
+    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
+  };
+
   const cols = allStatuses.map(status => {
-    const items = (columns[status] || []).map(item => {
-      const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
-      const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
-      const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
-      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
-      const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
-      const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
-      const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
-      return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
-    }).join('');
+    const allItems = columns[status] || [];
+    const isShipped = status === 'shipped';
+    const totalCount = allItems.length;
+    const displayItems = isShipped && totalCount > SHIPPED_LIMIT
+      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, SHIPPED_LIMIT)
+      : allItems;
+    const items = displayItems.map(renderItem).join('');
+    const viewAllLink = isShipped && totalCount > SHIPPED_LIMIT
+      ? `<a href="/backlog/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
+      : '';
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const emptyClass = !columns[status] || columns[status].length === 0 ? ' col-empty' : '';
+    const countLabel = isShipped && totalCount > SHIPPED_LIMIT ? ` <span class="col-count">${totalCount}</span>` : '';
+    const emptyClass = totalCount === 0 ? ' col-empty' : '';
     return `<div class="kanban-col${emptyClass}">
-  <div class="col-header">${label}</div>
-  <div class="col-body">${items || '<div class="col-placeholder"></div>'}</div>
+  <div class="col-header">${label}${countLabel}</div>
+  <div class="col-body">${items || '<div class="col-placeholder"></div>'}${viewAllLink}</div>
 </div>`;
   }).join('');
 
@@ -2095,6 +2128,50 @@ function handleBacklog(res, pmDir) {
 ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleShipped(res, pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  const STATUS_MAP = { 'done': true };
+  const items = [];
+
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      if (!STATUS_MAP[data.status]) continue;
+      items.push({
+        slug: file.replace('.md', ''),
+        title: data.title || file.replace('.md', ''),
+        id: data.id || null,
+        priority: data.priority || 'medium',
+        labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
+        updated: data.updated || data.created || '',
+      });
+    }
+  }
+
+  items.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+
+  const rows = items.map(item => {
+    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+    const labelHtml = item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join(' ');
+    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">
+  <div class="kanban-item-ids">${idHtml}</div>
+  <div class="kanban-item-title">${escHtml(item.title)}</div>
+  <div class="kanban-item-meta">${labelHtml}<span class="shipped-date">${escHtml(item.updated)}</span></div>
+</a>`;
+  }).join('');
+
+  const body = `
+<p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
+<div class="page-header"><h1>Shipped</h1><span class="col-count" style="font-size:1rem;margin-left:0.5rem">${items.length} items</span></div>
+<div class="shipped-list">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
+
+  const html = dashboardPage('Shipped', '/backlog', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
