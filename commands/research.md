@@ -3,4 +3,4 @@ description: "Competitive intelligence and market research. Modes: landscape (in
 argument-hint: "<mode-or-topic>"
 ---
 
-Invoke the pm:research skill and follow it exactly as presented to you. The user's message after /pm:research is the mode or topic argument.
+Read the skill file at ${CLAUDE_PLUGIN_ROOT}/skills/research/SKILL.md and follow it exactly. The user's message after /pm:research is the mode or topic argument.
