@@ -214,6 +214,12 @@ Profile sequentially inline, one at a time. After each: "Finished {name}. Profil
 
 ### Phase 3: Synthesize
 
+<HARD-GATE>
+Synthesis is required after profiling. Do NOT skip because "the profiles are the deliverable."
+Index, matrix, market gaps, and landscape updates are what make individual profiles usable by downstream skills (strategy, ideate, groom).
+Without synthesis, profiling is raw data — not knowledge.
+</HARD-GATE>
+
 **Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
 
 For each competitor slug, check:

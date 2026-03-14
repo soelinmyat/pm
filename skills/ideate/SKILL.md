@@ -66,6 +66,11 @@ Read all available sources before generating ideas. Each idea must trace back to
 
 ### Step 1: Audit what exists
 
+<HARD-GATE>
+Auditing existing capabilities is required before generating ideas. Do NOT skip because "I know the product."
+Read strategy, feature matrix, and codebase (if present). Without this step, ideation produces duplicates and wastes grooming cycles.
+</HARD-GATE>
+
 Before generating ideas, understand what's already built. This prevents suggesting features that already exist.
 
 1. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
@@ -83,6 +88,11 @@ Read every available signal source listed above. For each, extract:
 - **Evidence**: Customer signals pointing to unmet needs
 
 ### Step 3: Generate and filter ideas
+
+<HARD-GATE>
+All 5 filters must be applied to every candidate idea. Do NOT skip filters based on confidence or idea quality.
+If a filter doesn't eliminate an idea, that is a valid result — it is different from never checking.
+</HARD-GATE>
 
 Produce candidate ideas, then apply these filters **before presenting**. Be ruthless — fewer, stronger ideas are better than a long list of weak ones.
 
