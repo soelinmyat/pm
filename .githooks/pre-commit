@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Pre-commit checks:
-# 1. Version consistency across all 3 manifests
+# 1. Version consistency across all 4 manifests
 # 2. JSON validity for manifest files
+# 3. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
 
 set -euo pipefail
 
@@ -9,6 +10,7 @@ MANIFESTS=(
   ".claude-plugin/plugin.json"
   ".cursor-plugin/plugin.json"
   ".claude-plugin/marketplace.json"
+  "gemini-extension.json"
 )
 
 # --- JSON validity ---
@@ -43,9 +45,27 @@ for entry in "${versions[@]:1}"; do
     for e in "${versions[@]}"; do
       echo "  ${e#*:}: ${e%%:*}"
     done
-    echo "All 3 manifests must have the same version."
+    echo "All 4 manifests must have the same version."
     exit 1
   fi
 done
+
+# --- pm/ artifact validation ---
+VALIDATE_SCRIPT="scripts/validate.js"
+if [[ -d "pm" && -f "$VALIDATE_SCRIPT" ]]; then
+  result=$(node "$VALIDATE_SCRIPT" --dir pm 2>/dev/null)
+  ok=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
+  if [[ "$ok" == "False" ]]; then
+    echo "ERROR: pm/ artifact validation failed."
+    echo "$result" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for d in data.get('details', []):
+    if d['level'] == 'error':
+        print(f\"  {d['file']}: {d['message']}\")
+" 2>/dev/null
+    exit 1
+  fi
+fi
 
 exit 0

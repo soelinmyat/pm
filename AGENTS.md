@@ -89,7 +89,7 @@ git config core.hooksPath .githooks
 | Hook | What it does |
 |---|---|
 | `pre-push` | Blocks direct pushes to main |
-| `pre-commit` | Validates JSON and version consistency across all 3 manifests |
+| `pre-commit` | Validates JSON, version consistency across all 4 manifests, and pm/ artifact schemas |
 
 ## Development Flow
 
@@ -165,10 +165,11 @@ When the user says **"bump version"** or **"bump patch"**: increment the **patch
 | "bump minor" | Minor | 1.0.5 → 1.1.0 |
 | "bump major" | Major | 1.0.5 → 2.0.0 |
 
-All version bumps must update **all 3 manifests**:
+All version bumps must update **all 4 manifests**:
 - `.claude-plugin/plugin.json`
 - `.cursor-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
+- `gemini-extension.json`
 
 Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.
 

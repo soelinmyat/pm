@@ -425,7 +425,13 @@ issues:
    - Write each issue to `pm/backlog/{issue-slug}.md` (see Backlog Issue Format below).
    - Link child issues to parent via `parent:` frontmatter field.
 
-4. Update state, then clean up:
+4. **Validate written artifacts.** Run:
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+   ```
+   If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+5. Update state, then clean up:
 
 ```yaml
 issues:

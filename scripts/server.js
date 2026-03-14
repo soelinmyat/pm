@@ -747,7 +747,6 @@ const SEGMENT_COLORS = {
   'mid-market':  '#2563eb',
   'smb':         '#16a34a',
   'horizontal':  '#ea580c',
-  'cleanlog':    '#ef4444',
   'self':        '#ef4444',
   'default':     '#6b7280',
 };
@@ -1427,13 +1426,13 @@ function renderPositioningScatter(body) {
   var maxTraffic = Math.max.apply(null, dots.map(function(d) { return d.traffic || 1; }));
   var segColors = {
     'horizontal': '#6366f1', 'enterprise': '#dc2626', 'mid-market': '#2563eb',
-    'smb': '#16a34a', 'cleanlog': '#044842'
+    'smb': '#16a34a', 'self': '#044842'
   };
 
   var dotsHtml = dots.map(function(d) {
-    var size = d.segment === 'cleanlog' ? 16 : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
+    var size = d.segment === 'self' ? 16 : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
     var color = segColors[d.segment] || '#6b7280';
-    var cls = d.segment === 'cleanlog' ? ' highlight' : '';
+    var cls = d.segment === 'self' ? ' highlight' : '';
     var yFlipped = 100 - d.y;
     return '<div class="scatter-dot' + cls + '" style="left:' + d.x + '%;top:' + yFlipped + '%;width:' + size + 'px;height:' + size + 'px;background:' + color + ';" title="' + escHtml(d.name) + '"></div>' +
       '<div class="scatter-label" style="left:' + d.x + '%;top:calc(' + yFlipped + '% + ' + (size / 2 + 4) + 'px);">' + escHtml(d.name) + '</div>';
