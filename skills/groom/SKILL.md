@@ -129,6 +129,11 @@ strategy_check:
 
 ### Phase 3: Research
 
+<HARD-GATE>
+Research is required before scoping. Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
+If the research yields "nothing relevant," that is a valid finding — it is different from never looking.
+</HARD-GATE>
+
 1. Invoke `pm:research {topic-slug}` for targeted investigation.
    Brief it on the grooming context: what problem, what user, what's already known.
 
@@ -150,6 +155,12 @@ research_location: pm/research/{topic-slug}/
 ---
 
 ### Phase 4: Scope
+
+<HARD-GATE>
+Formal scoping is required before review. Do NOT skip based on perceived simplicity or feature type.
+Even "obvious" features benefit from explicit in-scope / out-of-scope boundaries.
+If the scope is genuinely small, the exercise will be fast — that is different from skipping it.
+</HARD-GATE>
 
 Follow the full methodology in `scope-validation.md`.
 
@@ -182,9 +193,15 @@ scope:
 
 ### Phase 4.5: Product & Competitive Review
 
+<HARD-GATE>
+All three reviews (PM, Competitive, EM) are required before drafting issues.
+Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
+If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking.
+</HARD-GATE>
+
 After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "sonnet"`. Do NOT skip this step — the reviews are required before drafting issues.
+Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "sonnet"`.
 
 **Agent 1: Product Manager**
 

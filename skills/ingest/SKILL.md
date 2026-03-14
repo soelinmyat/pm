@@ -247,6 +247,11 @@ Use full rebuild as the fallback when incremental state is ambiguous.
 
 ### Phase 3: Synthesize Research
 
+<HARD-GATE>
+Synthesis is required after normalization. Do NOT skip because the record count is small.
+Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches pm/research/ — invisible to downstream skills.
+</HARD-GATE>
+
 Cluster records into **problem clusters**, not just filenames or raw keywords.
 
 Granularity rule:
