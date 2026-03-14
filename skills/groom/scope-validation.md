@@ -8,10 +8,10 @@ Used by `pm:groom` during Phase 4. Follow this guide to define scope precisely, 
 
 Strategy check happened in Phase 2, but scope is where it bites. Before defining any boundary, re-read the relevant sections of `pm/strategy.md`:
 
-**Current priorities (Section 5):** Which of the top 3 priorities does this scope serve?
+**Current priorities (Section 6):** Which of the top 3 priorities does this scope serve?
 Write it down explicitly. If you cannot name the priority, the scope is suspect.
 
-**Non-goals (Section 6):** Does any proposed in-scope item touch a stated non-goal?
+**Non-goals (Section 7):** Does any proposed in-scope item touch a stated non-goal?
 If yes: stop. The non-goal exists because that decision was already made deliberately.
 Do not reopen it silently through scope — raise it explicitly and get a decision.
 
@@ -22,7 +22,7 @@ Building for secondary segments is allowed, but it must be a conscious choice. N
 
 ## 2. The 10x Filter
 
-Before finalizing scope, answer these four questions. Record the answers in the state file.
+Before finalizing scope, work through these four questions with the user. Ask them ONE at a time — wait for each answer before presenting the next. Record answers in the state file.
 
 **Q1: Is this meaningfully better than the best existing solution?**
 "Meaningfully" means: faster, cheaper, simpler, or more accurate by a margin users can feel — not a marginal improvement that requires a press release to explain.

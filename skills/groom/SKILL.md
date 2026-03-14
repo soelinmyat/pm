@@ -11,6 +11,10 @@ Orchestrate the full product discovery lifecycle: from raw idea to structured, r
 
 Research gates grooming. Strategy gates scoping. Neither is optional.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 ## Resume Check
@@ -52,13 +56,14 @@ Skip to step 3 after confirmation.
 
 **Otherwise:**
 
-1. Ask: "What's the idea? Describe the problem, who it affects, and why it matters now."
+1. Ask: "What's the idea?"
    One question. Wait for the full answer.
 
-2. Clarify if needed:
-   - Problem vs. solution: is this a user pain or a proposed feature?
-   - Scope signal: is this a small UX improvement or a new capability area?
-   - Why now: is there a trigger (competitor move, user request spike, strategic priority)?
+2. Clarify if needed — ask ONE follow-up at a time, only if the answer didn't already cover it:
+   - "Is this a user pain you've observed, or a proposed solution?" (problem vs. solution)
+   - "Is this a small UX improvement or a new capability area?" (scope signal)
+   - "What triggered this — a competitor move, user request, or something else?" (why now)
+   Skip any question the user's initial answer already addressed.
 
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
@@ -93,9 +98,9 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
 
 2. Read `pm/strategy.md`. Check the idea against:
 
-   **Current priorities** (Section 5): Does this advance the stated top 3 priorities? Or does it pull focus away from them?
+   **Current priorities** (Section 6): Does this advance the stated top 3 priorities? Or does it pull focus away from them?
 
-   **Explicit non-goals** (Section 6): Does this idea touch anything on the non-goals list?
+   **Explicit non-goals** (Section 7): Does this idea touch anything on the non-goals list?
 
    **ICP fit** (Section 2): Does the target user match the ICP? Or is this serving a secondary segment?
 
@@ -179,14 +184,17 @@ scope:
 
 After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Dispatch all three in parallel (subagent_type: general-purpose, model: sonnet):
+Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "sonnet"`. Do NOT skip this step — the reviews are required before drafting issues.
 
 **Agent 1: Product Manager**
 
 ```
-You are a product manager reviewing a scoped feature initiative for CleanLog, a janitorial operations SaaS targeting mid-market cleaning contractors (10-300 cleaners, multi-site, tight SLAs).
+You are a product manager reviewing a scoped feature initiative.
 
-**Read before reviewing:** pm/strategy.md, pm/landscape.md, pm/competitors/index.md
+**Read before reviewing:**
+- pm/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
+- pm/landscape.md — market context
+- pm/competitors/index.md — competitive landscape
 **Groom state:** .pm/.groom-state.md (contains topic, scope, strategy check result, research location)
 **Research:** Read all files in the research location from groom state
 
@@ -195,8 +203,8 @@ You are opinionated. You care about whether this moves the needle for the busine
 Review from these angles:
 
 1. **JTBD clarity.** What job is the customer hiring this feature to do? Can you state it in one sentence? If not, the scope is too vague to draft issues from.
-2. **ICP fit.** Does this solve a problem our ICP actually has, or is it a feature we think is cool? Would an ops director with 80 cleaners across 12 sites care about this?
-3. **Prioritization.** Given our 3 pillars (operational replacement, payroll-readiness, exception-first ops), does this belong in 2026 or is it a distraction? Be harsh.
+2. **ICP fit.** Does this solve a problem the ICP (from pm/strategy.md Section 2) actually has, or is it a feature we think is cool?
+3. **Prioritization.** Given the current priorities (from pm/strategy.md Section 6), does this belong now or is it a distraction? Be harsh.
 4. **Scope right-sizing.** Is the scope trying to do too much? Would cutting 30% still deliver the core value? Are any in-scope items actually out-of-scope in disguise?
 5. **Success criteria.** How would we know this worked in 90 days? If there's no measurable outcome defined, that's a gap.
 
@@ -212,21 +220,22 @@ Review from these angles:
 **Agent 2: Competitive Strategist**
 
 ```
-You are a competitive strategist reviewing a scoped feature initiative for CleanLog.
+You are a competitive strategist reviewing a scoped feature initiative.
 
-**Read before reviewing:** pm/strategy.md, pm/landscape.md, pm/competitors/ (all profile.md and features.md files)
+**Read before reviewing:**
+- pm/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
+- pm/landscape.md — market context and positioning map
+- pm/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 **Groom state:** .pm/.groom-state.md (contains topic, scope, 10x filter result, research location)
 **Research:** Read all files in the research location from groom state
 
-CleanLog competes on ease of use and reliability, not feature breadth. Our wedge is scheduling + payroll-readiness. Our differentiator is AI-native orchestration (Copilot proposes, system validates, user confirms). No incumbent has shipped meaningful AI features.
-
 Review from these angles:
 
-1. **Differentiation.** Does this make CleanLog more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
-2. **Switching motivation.** Would this contribute to a contractor's decision to switch from JM/Swept/CleanSmarts? Or is it "nice to have" post-switch?
+1. **Differentiation.** Does this make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
+2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in pm/competitors/)? Or is it "nice to have" post-switch?
 3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
-4. **Non-goal violations.** Does any in-scope item creep toward explicit non-goals (full payroll processing, inventory, procurement, vendor marketplace, enterprise compliance)?
-5. **AI-native opportunity.** Is there a Copilot integration angle missing from the scope?
+4. **Non-goal violations.** Does any in-scope item creep toward the explicit non-goals listed in pm/strategy.md Section 7?
+5. **Differentiation opportunity.** Is there a unique angle (AI, automation, workflow depth) that the scope is missing? Check what competitors lack in their feature profiles.
 
 **Output:**
 ## Competitive Review
@@ -244,13 +253,13 @@ You are an engineering manager reviewing a scoped feature initiative by scanning
 
 **Read before reviewing:** pm/strategy.md (for non-goals boundary)
 **Groom state:** .pm/.groom-state.md (contains topic, scope, research location)
-**Codebase:** Read the relevant source files — skills/, scripts/, commands/, hooks/, templates/ — to understand current implementation
+**Codebase:** Explore the project's source code structure to understand current implementation. Start with the top-level directory listing, then read files relevant to the scoped feature.
 
 You are practical and observational. Your job is to ground the product scope in implementation reality. You tell the team what the code says, not what to do about it.
 
 Review from these angles:
 
-1. **Build-on.** What existing code, patterns, or infrastructure supports this feature? Name specific files and patterns. (e.g., "Dashboard server already renders HTML/SVG from structured comments — same pattern extends here")
+1. **Build-on.** What existing code, patterns, or infrastructure supports this feature? Name specific files and patterns.
 2. **Build-new.** What doesn't exist yet and would need to be created? Be specific about what's missing.
 3. **Risk.** What makes this harder than it looks? Missing dependencies, architectural constraints, performance concerns, format ambiguities.
 4. **Sequencing advice.** What should be built first? Are there natural implementation milestones?
@@ -416,7 +425,13 @@ issues:
    - Write each issue to `pm/backlog/{issue-slug}.md` (see Backlog Issue Format below).
    - Link child issues to parent via `parent:` frontmatter field.
 
-4. Update state, then clean up:
+4. **Validate written artifacts.** Run:
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+   ```
+   If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+5. Update state, then clean up:
 
 ```yaml
 issues:

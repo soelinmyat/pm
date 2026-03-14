@@ -23,6 +23,10 @@ It does two things in one workflow:
 
 The user should think: "I have customer evidence. Ingest it."
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 ## Setup Expectations
@@ -394,6 +398,16 @@ Instead:
 - keep quotes short and relevant
 - warn the user explicitly:
   > "Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction."
+
+### Post-write Validation
+
+After writing or updating any `pm/` artifacts, run:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+```
+
+If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
 ### Phase 4: Report Back
 

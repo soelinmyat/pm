@@ -64,6 +64,33 @@ Edit source → commit → push → Claude Code updates marketplace → reinstal
 
 The **cache** is what Claude Code actually loads at runtime. The **marketplace** is a git clone of the GitHub repo. The **source** is where you develop.
 
+## Branching Rules
+
+**Never push directly to main.** All changes go through a PR.
+
+```
+feature branch: commit → commit → bump version (last commit) → PR → merge to main
+```
+
+- Create a feature branch for all work
+- Commit freely on the branch — no version bumps until ready
+- **Bump version as the last commit** on the branch before creating the PR
+- Create a PR, merge to main
+- The pre-push hook enforces this — direct pushes to main are blocked
+
+## Git Hooks
+
+Hooks live in `.githooks/` (version-controlled). After cloning, activate them:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+| Hook | What it does |
+|---|---|
+| `pre-push` | Blocks direct pushes to main |
+| `pre-commit` | Validates JSON, version consistency across all 4 manifests, and pm/ artifact schemas |
+
 ## Development Flow
 
 ### Editing source code (skills, scripts, commands, agents)
@@ -72,7 +99,7 @@ The **cache** is what Claude Code actually loads at runtime. The **marketplace**
 2. **Sync to cache** to test immediately (see sync command below)
 3. **Verify** the change works (restart dashboard, run the skill, etc.)
 4. **Commit** to the source repo when satisfied
-5. **Bump version** and push when ready to release (see version bump rules below)
+5. **Bump version** as the last commit on the branch, then create a PR (see version bump rules below)
 
 ### Sync command (dev only)
 
@@ -82,7 +109,7 @@ To copy source changes to the plugin cache for immediate testing:
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
   /Users/soelinmyat/Projects/pm/ \
-  ~/.claude/plugins/cache/pm/pm/1.0.4/
+  ~/.claude/plugins/cache/pm/pm/{version}/
 ```
 
 This overwrites the cache with your local source. It will be overwritten again on the next official plugin update, which is fine — your changes should be committed to source before that happens.
@@ -98,7 +125,7 @@ When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/1.0.4/scripts/server.js \
+node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
   --mode dashboard --dir "$PWD/pm"
 ```
 
@@ -130,10 +157,21 @@ Planning notes live in:
 
 ## Version Bump Rules
 
-Version bumps must update all 3 manifests:
+When the user says **"bump version"** or **"bump patch"**: increment the **patch** number (e.g., 1.0.5 → 1.0.6). This is the default and most common bump.
+
+| User says | Semver meaning | Example |
+|---|---|---|
+| "bump version" / "bump patch" | Patch | 1.0.5 → 1.0.6 |
+| "bump minor" | Minor | 1.0.5 → 1.1.0 |
+| "bump major" | Major | 1.0.5 → 2.0.0 |
+
+All version bumps must update **all 4 manifests**:
 - `.claude-plugin/plugin.json`
 - `.cursor-plugin/plugin.json`
-- `marketplace.json` (if present)
+- `.claude-plugin/marketplace.json`
+- `gemini-extension.json`
+
+Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.
 
 ## Data Rules
 

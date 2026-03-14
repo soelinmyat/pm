@@ -9,6 +9,10 @@ description: "Use when doing industry landscape analysis, competitive intelligen
 
 Build and maintain the product knowledge base. Research gates strategy and grooming — without it, positioning is guesswork.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 

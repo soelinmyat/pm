@@ -21,6 +21,10 @@ Quick inline research for mid-work decisions. No ceremony, no state files, no is
 Not for: big feature grooming (use `$pm-groom`), full market analysis (use `$pm-research`), or strategy rewrites (use `$pm-strategy`).
 If the user has raw support exports, interview notes, or other local evidence files, use `$pm-ingest` first instead of trying to parse them inline during `$pm-dig`.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ---
 
 
@@ -40,12 +44,19 @@ Before starting work, check for user instructions:
 
 ### 1. Frame the Question
 
-Ask the user to clarify:
-- What is the decision being made?
-- Why does it matter right now?
-- What would change the answer?
+Start with: "What decision are you trying to make?"
 
-Example: "I'm deciding whether to add bulk actions. Why? The customer asked for it. What would change my answer? If competitors don't have it or if our users don't ask for it often."
+Wait for the answer. Then, if the context is still unclear, follow up with ONE of these (whichever is most needed):
+- "Why does this matter right now?"
+- "What would change your answer?"
+
+Do not ask all three at once. The user's first answer often covers the others.
+
+Example flow:
+> "What decision are you trying to make?"
+> → "Whether to add bulk actions."
+> "Why does it matter right now?"
+> → "Customer asked for it."
 
 ### 2. Check Strategy Alignment
 

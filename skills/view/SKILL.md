@@ -1,6 +1,6 @@
 ---
 name: pm-view
-description: "Open the PM knowledge base dashboard in Codex. Starts the bundled dashboard server for the current project's pm directory and returns the local URL."
+description: "Open the PM knowledge base dashboard in your browser. Starts the bundled dashboard server for the current project's pm directory and returns the local URL."
 ---
 
 # pm:view

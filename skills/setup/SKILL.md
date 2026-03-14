@@ -8,6 +8,10 @@ description: "Use when configuring the pm plugin for a new project, setting up i
 ## Purpose
 Configure integrations, bootstrap the knowledge base, and get to value fast — especially when the user already has existing research or evidence.
 
+## Interaction Pacing
+
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
 ## When Required
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)
@@ -24,11 +28,14 @@ The path is optional. If provided, setup will import the data via `$pm-ingest` a
 
 ## Checklist
 1. Create folder structure
-2. Configure integrations
-3. Write config
-4. Import existing data (if path provided)
-5. Scan knowledge base and launch dashboard (if data exists)
-6. Present gap-aware next steps
+2. Gitignore
+3. Project name
+4. Configure integrations
+5. Write config
+6. Verify SEO integration
+7. Import existing data (if path provided)
+8. Scan knowledge base and launch dashboard (if data exists)
+9. Present gap-aware next steps
 
 ---
 
@@ -81,7 +88,17 @@ echo 'pm/*.local.md' >> .gitignore
 
 Verify each line is not already present before appending to avoid duplicates. The `pm/*.local.md` pattern gitignores personal instruction files.
 
-## Step 3: Integration Setup
+## Step 3: Project Name
+
+Ask the user for their project name. This is displayed in the dashboard header and page titles.
+
+> "What's the name of this project?"
+
+Accept whatever they give — product name, company name, or repo name. Store it as `project_name` in the config.
+
+If the user skips or says something like "just use the default," derive it from the parent directory name of `pm/`.
+
+## Step 4: Integration Setup
 
 ### Linear
 - First, ask the user whether they want to use Linear for issue tracking or prefer the local markdown backlog (`pm/backlog/`).
@@ -104,13 +121,14 @@ Present two options and ask the user to choose:
 - All qualitative research still works. No keyword volume or difficulty scores.
 - Fully functional for landscape research, competitor analysis, and strategy.
 
-## Step 4: Write Config
+## Step 5: Write Config
 
 Write `.pm/config.json` with the values collected above. Use this schema:
 
 ```json
 {
   "config_schema": 1,
+  "project_name": "My Product",
   "integrations": {
     "linear": { "enabled": false },
     "seo": { "provider": "none" }
@@ -123,33 +141,34 @@ Write `.pm/config.json` with the values collected above. Use this schema:
 ```
 
 Populate fields:
+- `project_name`: the name the user provided in Step 3. Used in the dashboard header and page titles.
 - `linear.enabled`: `true` if the user chose Linear and the MCP was reachable, `false` otherwise.
 - `linear.team_id`: team ID selected by user (omit if disabled).
 - `linear.project_id`: project ID selected by user (omit if not chosen).
 - `seo.provider`: `"ahrefs-mcp"` or `"none"`. No credentials stored — Ahrefs authentication is handled by the MCP server.
 
-## Step 5: Verify SEO Integration
+## Step 6: Verify SEO Integration
 
 **If `seo.provider` is `"ahrefs-mcp"`:**
-- Verification was already done in Step 3 by checking the MCP server status shows `✓ Connected`. No further action needed.
+- Verification was already done in Step 4 by checking the MCP server status shows `✓ Connected`. No further action needed.
 
 **If `seo.provider` is `"none"`:** Skip this step.
 
-## Step 6: Import Existing Data
+## Step 7: Import Existing Data
 
 **If a path argument was provided:**
 - Invoke `$pm-ingest <path>` to import the data into the knowledge base.
 - This normalizes evidence into `.pm/evidence/`, updates shared research in `pm/research/`, and handles deduplication.
-- After ingest completes, continue to Step 7.
+- After ingest completes, continue to Step 8.
 
 **If no path argument but `pm/` already has files** (e.g., cloned repo with committed research):
 - Skip ingest. The data is already in place.
-- Continue to Step 7.
+- Continue to Step 8.
 
 **If no path and `pm/` is empty:**
-- Skip to Step 8 (fresh start flow).
+- Skip to Step 9 (fresh start flow).
 
-## Step 7: Launch Dashboard and Scan for Gaps
+## Step 8: Launch Dashboard and Scan for Gaps
 
 When the knowledge base has data (from ingest or pre-existing files), do two things:
 
@@ -204,7 +223,7 @@ Only suggest what's actually missing. Use this priority order:
 
 Ask the user if they want to start the first suggested step now.
 
-## Step 8: Fresh Start Flow
+## Step 9: Fresh Start Flow
 
 When `pm/` is empty and no import path was provided:
 
