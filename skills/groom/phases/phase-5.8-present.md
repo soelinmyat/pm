@@ -6,19 +6,21 @@ Present the reviewed, iterated proposal as a self-contained HTML presentation in
 
 **Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/skills/groom/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
 
+**Note:** The reference template uses a fictional "Dashboard Filtering System" proposal as example content. The structure and 5 metrics slots (issues, team reviews, bar raiser, differentiator, priority) are always present — populate them from the actual groom state values.
+
 Write the proposal to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
 
 **Sections** (match the reference template's order and layout):
 
-1. **Title & summary.** Feature name, one-sentence outcome, review meta (issue count, review rounds, date).
-2. **Problem & context.** The user pain, market signal, or strategic driver. Pull from intake and research.
+1. **Title & summary.** Hero header with feature name, one-sentence outcome, key metrics strip: priority, differentiator (10x/parity/gap-fill), expected impact (the key outcome metric), ICP segment (from strategy), scope size (issue count).
+2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
-4. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID, title, outcome, labels, numbered ACs.
-5. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
-6. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
-7. **Competitive context.** Comparison table (capability vs competitors vs our approach). Summary paragraph with key differentiator callout.
-8. **Technical feasibility.** Four-box grid: build-on, build-new, risks, sequencing. Include verdict.
-9. **Review summary.** Verdict table (reviewer, verdict, notes). Advisory items as a list below.
+4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
+5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
+6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
+7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
+8. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID badge, title, outcome, labels, numbered ACs.
+9. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.
 10. **Open questions.** Numbered list of bar raiser questions the decision-maker should be prepared to discuss.
 
 **Styling rules** (all defined in the reference template — copy the CSS):
