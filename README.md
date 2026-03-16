@@ -19,7 +19,7 @@ Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
 ### Claude Code
 
 ```bash
-claude plugin marketplace add https://github.com/soelinmyat/pm
+claude plugin marketplace add soelinmyat/pm
 claude plugin install pm@pm
 ```
 
