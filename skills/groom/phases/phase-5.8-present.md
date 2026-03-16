@@ -4,44 +4,33 @@ Present the reviewed, iterated proposal as a self-contained HTML presentation in
 
 #### Step 1: Generate the proposal presentation
 
-Write a self-contained HTML file to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
+**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/skills/groom/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
 
-The presentation must include these sections in order:
+Write the proposal to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
 
-1. **Title & summary.** Feature name, one-sentence outcome, review effort (team review rounds, bar raiser rounds).
+**Sections** (match the reference template's order and layout):
 
-2. **Problem & context.** Why this matters — the user pain, market signal, or strategic driver that prompted this initiative. Pull from intake and research.
+1. **Title & summary.** Feature name, one-sentence outcome, review meta (issue count, review rounds, date).
+2. **Problem & context.** The user pain, market signal, or strategic driver. Pull from intake and research.
+3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
+4. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID, title, outcome, labels, numbered ACs.
+5. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
+6. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
+7. **Competitive context.** Comparison table (capability vs competitors vs our approach). Summary paragraph with key differentiator callout.
+8. **Technical feasibility.** Four-box grid: build-on, build-new, risks, sequencing. Include verdict.
+9. **Review summary.** Verdict table (reviewer, verdict, notes). Advisory items as a list below.
+10. **Open questions.** Numbered list of bar raiser questions the decision-maker should be prepared to discuss.
 
-3. **Scope overview.** In-scope and out-of-scope as a clean two-column layout. Include the 10x filter result and what it means.
+**Styling rules** (all defined in the reference template — copy the CSS):
 
-4. **Issue breakdown.** Each issue as a card showing:
-   - ID and title
-   - Outcome statement
-   - Acceptance criteria (numbered list)
-   - Labels and priority
-   - Parent-child relationships (visually grouped — parent card with nested children)
-
-5. **User flows.** Render Mermaid diagrams using the mermaid.js CDN (`https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js`). Include the raw Mermaid source in `<pre class="mermaid">` blocks — mermaid.js renders them automatically.
-
-6. **Wireframes.** If wireframes were generated, embed them via `<iframe src="../wireframes/{slug}.html">` with a reasonable height. Include a direct link to open the wireframe standalone.
-
-7. **Competitive context.** Summary of how competitors handle this, key differentiators, and positioning implications. Pull from research and competitor profiles.
-
-8. **Technical feasibility.** EM assessment summary — build-on, build-new, risks, sequencing.
-
-9. **Review summary.** Brief table showing team review verdicts and bar raiser verdict. Do not dump full review findings — just the verdicts and any unresolved advisory items.
-
-10. **Open questions.** Bar raiser's "questions the proposal should answer" — presented as a numbered list the decision-maker should be prepared to discuss.
-
-**Presentation styling guidelines:**
-
-- Self-contained: single HTML file with inline `<style>`. Only external dependency is mermaid.js CDN for diagram rendering.
-- Clean, professional design: white background, readable typography (system font stack), generous whitespace, subtle section dividers.
-- Color palette: neutral grays for structure, one accent color for emphasis (links, issue IDs, labels). No decoration — let the content breathe.
-- Responsive: readable on both laptop screens and large monitors.
-- Issue cards: light border, subtle shadow, clear visual hierarchy (title > outcome > ACs).
-- Parent-child grouping: parent card spans full width, children indented or nested below with a visual connector (left border or indent).
-- Print-friendly: should look good if someone prints or exports to PDF.
+- Self-contained HTML with inline `<style>`. Only external dep: mermaid.js CDN.
+- System font stack, `#2563eb` accent, neutral grays, white backgrounds.
+- `max-width: 960px` centered layout with generous whitespace.
+- Issue cards: white background, subtle shadow, clear hierarchy (ID > title > outcome > ACs).
+- Parent cards: `border-left: 4px solid #2563eb`. Children: `margin-left: 2rem; border-left: 4px solid #93c5fd`.
+- Scope grid, feasibility grid: `grid-template-columns: 1fr 1fr`.
+- Verdicts colored: `.verdict-ready` green, `.verdict-caution` amber, `.verdict-blocked` red.
+- Print-friendly: `@media print` styles. Responsive: `@media (max-width: 640px)` collapses grids.
 
 #### Step 2: Open in browser and notify
 

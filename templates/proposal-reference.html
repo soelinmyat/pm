@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Dashboard Filtering System</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  /* ===== RESET & BASE ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: #1a1a1a;
+    background: #f8f9fa;
+    line-height: 1.6;
+  }
+
+  /* ===== LAYOUT ===== */
+  .proposal {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+
+  /* ===== HEADER ===== */
+  .proposal-header {
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .proposal-header h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 0.25rem;
+  }
+  .proposal-header .subtitle {
+    font-size: 1.05rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+  }
+  .proposal-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    color: #777;
+  }
+  .proposal-meta span { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+  /* ===== SECTIONS ===== */
+  .section {
+    margin-bottom: 2.5rem;
+  }
+  .section-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #2563eb;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .section p, .section li {
+    font-size: 0.95rem;
+    color: #333;
+  }
+  .section ul, .section ol {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .section li { margin-bottom: 0.35rem; }
+
+  /* ===== SCOPE GRID ===== */
+  .scope-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .scope-column {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+  .scope-column h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.5rem;
+  }
+  .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; }
+  .scope-column li { font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .filter-badge {
+    display: inline-block;
+    background: #dbeafe;
+    color: #2563eb;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    margin-top: 0.5rem;
+  }
+
+  /* ===== ISSUE CARDS ===== */
+  .issue-group { margin-bottom: 1.5rem; }
+  .issue-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.15s;
+  }
+  .issue-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .issue-card.parent {
+    border-left: 4px solid #2563eb;
+  }
+  .issue-card.child {
+    margin-left: 2rem;
+    border-left: 4px solid #93c5fd;
+  }
+  .issue-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .issue-id {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #2563eb;
+    white-space: nowrap;
+  }
+  .issue-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111;
+  }
+  .issue-outcome {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+    font-style: italic;
+  }
+  .issue-labels {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #555;
+    border: 1px solid #e5e7eb;
+  }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  .ac-list {
+    font-size: 0.88rem;
+    padding-left: 1.25rem;
+    color: #444;
+  }
+  .ac-list li { margin-bottom: 0.2rem; }
+
+  /* ===== MERMAID ===== */
+  .mermaid-container {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    overflow-x: auto;
+  }
+  .mermaid { text-align: center; }
+
+  /* ===== WIREFRAME EMBED ===== */
+  .wireframe-embed {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+  }
+  .wireframe-embed iframe {
+    width: 100%;
+    height: 500px;
+    border: none;
+  }
+  .wireframe-link {
+    font-size: 0.85rem;
+    color: #2563eb;
+    text-decoration: none;
+  }
+  .wireframe-link:hover { text-decoration: underline; }
+
+  /* ===== COMPETITIVE TABLE ===== */
+  .comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .comp-table th, .comp-table td {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .comp-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .comp-table td { color: #333; }
+
+  /* ===== FEASIBILITY ===== */
+  .feasibility-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .feasibility-box {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .feasibility-box h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.5rem;
+  }
+  .feasibility-box ul { padding-left: 1.1rem; }
+  .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.2rem; }
+
+  /* ===== REVIEW SUMMARY ===== */
+  .review-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .review-table th, .review-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+  }
+  .review-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.8rem;
+  }
+  .verdict-ready { color: #16a34a; font-weight: 600; }
+  .verdict-caution { color: #d97706; font-weight: 600; }
+  .verdict-blocked { color: #dc2626; font-weight: 600; }
+
+  /* ===== OPEN QUESTIONS ===== */
+  .question-list {
+    list-style: none;
+    padding: 0;
+    counter-reset: question;
+  }
+  .question-list li {
+    counter-increment: question;
+    padding: 0.75rem 1rem;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    font-size: 0.93rem;
+    color: #333;
+  }
+  .question-list li::before {
+    content: counter(question) ".";
+    font-weight: 700;
+    color: #2563eb;
+    margin-right: 0.5rem;
+  }
+
+  /* ===== ADVISORY ===== */
+  .advisory-list {
+    padding-left: 1.25rem;
+    font-size: 0.9rem;
+    color: #555;
+  }
+  .advisory-list li { margin-bottom: 0.3rem; }
+
+  /* ===== PRINT ===== */
+  @media print {
+    body { background: #fff; }
+    .proposal { max-width: 100%; padding: 0; }
+    .issue-card { break-inside: avoid; box-shadow: none; }
+    .mermaid-container { break-inside: avoid; }
+    .wireframe-embed { display: none; }
+    .wireframe-link::after { content: " (see attached wireframe)"; }
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 640px) {
+    .scope-grid, .feasibility-grid { grid-template-columns: 1fr; }
+    .issue-card.child { margin-left: 1rem; }
+    .proposal-meta { flex-direction: column; gap: 0.3rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="proposal">
+
+  <!-- ============================================
+       SECTION 1: TITLE & SUMMARY
+       ============================================ -->
+  <header class="proposal-header">
+    <h1>Dashboard Filtering System</h1>
+    <p class="subtitle">Users can narrow dashboard data to their team's metrics without requesting custom queries from engineering.</p>
+    <div class="proposal-meta">
+      <span>5 issues (1 parent + 4 children)</span>
+      <span>2 team review rounds</span>
+      <span>1 bar raiser round</span>
+      <span>2026-03-16</span>
+    </div>
+  </header>
+
+  <!-- ============================================
+       SECTION 2: PROBLEM & CONTEXT
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Problem &amp; Context</h2>
+    <p>Team leads currently rely on engineering to create custom SQL queries when they need filtered views of dashboard data. This creates a 2-3 day turnaround for what should be a self-service operation, consuming ~15% of engineering support time.</p>
+    <p style="margin-top: 0.5rem;">User interviews (pm/research/dashboard-filters/findings.md) confirmed that 8 of 12 team leads have requested filtered views in the past quarter. Competitor analysis shows that FilterCo and DashPro both offer self-service filtering, making this a switching motivator for prospects evaluating alternatives.</p>
+  </div>
+
+  <!-- ============================================
+       SECTION 3: SCOPE OVERVIEW
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Scope Overview</h2>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>In Scope</h4>
+        <ul>
+          <li>Date range filter (preset ranges + custom)</li>
+          <li>Team/department filter (multi-select)</li>
+          <li>Metric type filter (revenue, usage, engagement)</li>
+          <li>Filter persistence across sessions</li>
+          <li>Shareable filtered views via URL params</li>
+        </ul>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>Out of Scope</h4>
+        <ul>
+          <li>Custom calculated metrics (deferred — requires formula engine)</li>
+          <li>Export filtered data to CSV (Phase 2 candidate)</li>
+          <li>Scheduled filter reports (low demand signal)</li>
+          <li>Filter-level access control (revisit post-launch with usage data)</li>
+        </ul>
+      </div>
+    </div>
+    <span class="filter-badge">10x — single-step filtering vs competitors' 3-screen flow</span>
+  </div>
+
+  <!-- ============================================
+       SECTION 4: ISSUE BREAKDOWN
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Issue Breakdown</h2>
+
+    <!-- Parent issue -->
+    <div class="issue-group">
+      <div class="issue-card parent">
+        <div class="issue-header">
+          <span class="issue-id">PM-025</span>
+          <span class="issue-title">Dashboard Filtering System</span>
+        </div>
+        <p class="issue-outcome">Users can narrow dashboard data to their team's metrics without requesting custom queries from engineering.</p>
+        <div class="issue-labels">
+          <span class="label">feature</span>
+          <span class="label">dashboard</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>Dashboard renders a filter bar above the main content area with date, team, and metric type controls.</li>
+          <li>Applying any filter updates all dashboard widgets within 2 seconds for datasets up to 100k rows.</li>
+          <li>Active filters persist across browser sessions via localStorage, restored on next visit.</li>
+          <li>Filtered state is encoded in URL query params; sharing the URL reproduces the exact filtered view.</li>
+          <li>Clearing all filters restores the default unfiltered dashboard in under 500ms.</li>
+        </ol>
+      </div>
+
+      <!-- Child issue 1 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-026</span>
+          <span class="issue-title">Filter bar component and layout</span>
+        </div>
+        <p class="issue-outcome">Dashboard has a persistent, accessible filter bar that doesn't compete with data visibility.</p>
+        <div class="issue-labels">
+          <span class="label">frontend</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>Filter bar renders horizontally above dashboard widgets on screens >= 768px; collapses to a toggle drawer on mobile.</li>
+          <li>Each filter control has a visible label, current selection indicator, and clear button.</li>
+          <li>Filter bar consumes no more than 64px of vertical space in its default state.</li>
+          <li>All filter controls are keyboard-navigable and announce state changes to screen readers.</li>
+        </ol>
+      </div>
+
+      <!-- Child issue 2 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-027</span>
+          <span class="issue-title">Filter query engine and API</span>
+        </div>
+        <p class="issue-outcome">Dashboard widgets receive filtered data from a performant query layer, replacing manual SQL requests to engineering.</p>
+        <div class="issue-labels">
+          <span class="label">backend</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>GET /api/dashboard?date_from=X&date_to=Y&teams=A,B&metrics=C returns filtered widget data.</li>
+          <li>Query response time &lt; 500ms for datasets up to 100k rows (p95, measured at API layer).</li>
+          <li>Invalid filter combinations return a 400 response with a human-readable error message, not a 500.</li>
+          <li>API follows existing auth pattern in <code>src/middleware/auth.ts</code> — no new auth mechanism.</li>
+        </ol>
+      </div>
+
+      <!-- Child issue 3 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-028</span>
+          <span class="issue-title">Filter persistence and URL sharing</span>
+        </div>
+        <p class="issue-outcome">Users don't lose their filter configuration between sessions, and can share exact views with teammates via URL.</p>
+        <div class="issue-labels">
+          <span class="label">frontend</span>
+          <span class="label priority-medium">medium priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>On filter change, URL query params update without a page reload (history.replaceState).</li>
+          <li>On page load, filters initialize from URL params first; fall back to localStorage; fall back to defaults.</li>
+          <li>localStorage key follows existing pattern: <code>dashboard:filters:{userId}</code>.</li>
+          <li>Copying the URL and opening in a new tab reproduces the identical filtered view.</li>
+        </ol>
+      </div>
+
+      <!-- Child issue 4 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-029</span>
+          <span class="issue-title">Date range filter with presets</span>
+        </div>
+        <p class="issue-outcome">Users can filter by time period using one click for common ranges or a custom date picker for specific analysis.</p>
+        <div class="issue-labels">
+          <span class="label">frontend</span>
+          <span class="label priority-medium">medium priority</span>
+        </div>
+        <ol class="ac-list">
+          <li>Preset options: Today, Last 7 days, Last 30 days, Last quarter, Year to date, Custom range.</li>
+          <li>Custom range opens a date picker; selecting an invalid range (end before start) shows inline error.</li>
+          <li>Selecting a preset visually highlights it; selecting custom deselects all presets.</li>
+          <li>Default selection on first visit: Last 30 days.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 5: USER FLOWS
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">User Flows</h2>
+    <div class="mermaid-container">
+      <pre class="mermaid">
+graph TD
+    A[User opens dashboard] --> B{Filters in URL?}
+    B -->|Yes| C[Apply URL filters]
+    B -->|No| D{Filters in localStorage?}
+    D -->|Yes| E[Apply saved filters]
+    D -->|No| F[Show default view]
+    C --> G[Dashboard renders with filters]
+    E --> G
+    F --> G
+    G --> H[User adjusts filters]
+    H --> I[Update URL params]
+    I --> J[Save to localStorage]
+    J --> K[Fetch filtered data from API]
+    K --> L{Response OK?}
+    L -->|Yes| M[Update all widgets]
+    L -->|No| N[Show inline error, keep previous data]
+    M --> H
+    N --> H
+    H --> O[User clicks 'Clear all']
+    O --> F
+    %% Source: pm/research/dashboard-filters/findings.md — Finding 3: users expect filters to survive refresh
+    %% Source: pm/competitors/filterico/features.md — gap: no URL sharing
+      </pre>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 6: WIREFRAMES
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Wireframes</h2>
+    <div class="wireframe-embed">
+      <!-- In a real proposal, this iframe points to the actual wireframe file -->
+      <iframe src="../wireframes/dashboard-filtering-system.html" title="Dashboard Filtering Wireframe"></iframe>
+    </div>
+    <a class="wireframe-link" href="../wireframes/dashboard-filtering-system.html" target="_blank">Open wireframe in new tab</a>
+  </div>
+
+  <!-- ============================================
+       SECTION 7: COMPETITIVE CONTEXT
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Competitive Context</h2>
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>FilterCo</th>
+          <th>DashPro</th>
+          <th>Our approach</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Filter application</td>
+          <td>3 screens (select, configure, apply)</td>
+          <td>Sidebar panel, requires "Apply" click</td>
+          <td><strong>Inline filter bar, instant apply on selection</strong></td>
+        </tr>
+        <tr>
+          <td>URL sharing</td>
+          <td>Not supported</td>
+          <td>Manual "share" button generates link</td>
+          <td><strong>Automatic URL encoding, copy-paste ready</strong></td>
+        </tr>
+        <tr>
+          <td>Session persistence</td>
+          <td>Server-side, requires login</td>
+          <td>Cookie-based, clears on logout</td>
+          <td><strong>localStorage + URL, works across devices via link</strong></td>
+        </tr>
+        <tr>
+          <td>Custom date ranges</td>
+          <td>Presets only</td>
+          <td>Full date picker</td>
+          <td><strong>Presets + date picker (best of both)</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Key differentiator: single-step filtering with instant feedback vs competitors' multi-step workflows. URL-based sharing is a capability gap in both competitors that creates a meaningful collaboration advantage.</p>
+  </div>
+
+  <!-- ============================================
+       SECTION 8: TECHNICAL FEASIBILITY
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Technical Feasibility</h2>
+    <p style="margin-bottom: 0.75rem;"><strong>Verdict:</strong> <span class="verdict-ready">Feasible as scoped</span></p>
+    <div class="feasibility-grid">
+      <div class="feasibility-box">
+        <h4>Build On</h4>
+        <ul>
+          <li><code>src/api/dashboard.ts</code> — existing dashboard data endpoints, add query param support</li>
+          <li><code>src/components/Dashboard/</code> — widget rendering, already accepts data props</li>
+          <li><code>src/middleware/auth.ts</code> — auth pattern, reuse as-is</li>
+          <li><code>src/hooks/useQueryParams.ts</code> — existing URL param utility</li>
+        </ul>
+      </div>
+      <div class="feasibility-box">
+        <h4>Build New</h4>
+        <ul>
+          <li>Filter bar component (new, ~300 lines estimated)</li>
+          <li>Filter query engine on API side (extend existing endpoint)</li>
+          <li>localStorage sync hook (small utility)</li>
+          <li>Date picker integration (use existing design system component)</li>
+        </ul>
+      </div>
+      <div class="feasibility-box">
+        <h4>Risks</h4>
+        <ul>
+          <li>Query performance on large datasets — need indexing on date + team columns</li>
+          <li>URL param encoding for complex filter states — test with edge cases</li>
+        </ul>
+      </div>
+      <div class="feasibility-box">
+        <h4>Sequencing</h4>
+        <ul>
+          <li>1. API query engine (PM-027) — everything depends on this</li>
+          <li>2. Filter bar component (PM-026) — UI shell</li>
+          <li>3. Date range filter (PM-029) — most complex UI control</li>
+          <li>4. Persistence + URL sharing (PM-028) — polish layer</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 9: REVIEW SUMMARY
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Review Summary</h2>
+    <table class="review-table">
+      <thead>
+        <tr>
+          <th>Reviewer</th>
+          <th>Verdict</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Product Manager</td>
+          <td><span class="verdict-ready">Ready</span></td>
+          <td>All 5 scope items covered. ACs testable.</td>
+        </tr>
+        <tr>
+          <td>Competitive Strategist</td>
+          <td><span class="verdict-ready">Competitively sharp</span></td>
+          <td>URL sharing gap is well-exploited. Differentiation encoded in ACs.</td>
+        </tr>
+        <tr>
+          <td>Engineering Manager</td>
+          <td><span class="verdict-ready">Ready for engineering</span></td>
+          <td>Clean decomposition. PM-027 is the critical path.</td>
+        </tr>
+        <tr>
+          <td>Design Reviewer</td>
+          <td><span class="verdict-ready">Visually complete</span></td>
+          <td>Wireframe-flow alignment confirmed. Mobile collapse pattern consistent with existing nav.</td>
+        </tr>
+        <tr>
+          <td>Bar Raiser</td>
+          <td><span class="verdict-ready">Ready to present</span></td>
+          <td>Narrative is tight. Scope is right-sized for the problem.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-size: 0.95rem; font-weight: 600; color: #555; margin-top: 1rem; margin-bottom: 0.5rem;">Advisory (non-blocking)</h3>
+    <ul class="advisory-list">
+      <li><strong>[PM-026]</strong> Consider adding a "filter active" indicator badge on the collapsed mobile toggle so users know filters are applied.</li>
+      <li><strong>[PM-027]</strong> Add query plan analysis before launch to confirm index usage on production data volumes.</li>
+      <li><strong>[PM-029]</strong> Fiscal quarter presets may be more useful than calendar quarters for enterprise users — validate with 2-3 customers post-launch.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================
+       SECTION 10: OPEN QUESTIONS
+       ============================================ -->
+  <div class="section">
+    <h2 class="section-title">Open Questions</h2>
+    <p style="font-size: 0.9rem; color: #555; margin-bottom: 0.75rem;">Questions the decision-maker should be prepared to discuss:</p>
+    <ul class="question-list">
+      <li>What is the expected reduction in engineering support requests? (Currently ~15% of support time goes to custom query requests.)</li>
+      <li>Why prioritize this over the CSV export feature that was also requested? (Filtering enables self-service for the common case; export is a power-user feature with lower demand signal.)</li>
+      <li>How do we measure success in 90 days? (Suggested: 70%+ of active team leads using filters weekly, and engineering custom query requests drop by 50%.)</li>
+      <li>What is the migration path for existing saved custom queries? (Out of scope for v1 — existing queries continue to work, filters are additive.)</li>
+    </ul>
+  </div>
+
+</div>
+
+</body>
+</html>
