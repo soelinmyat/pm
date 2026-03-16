@@ -143,10 +143,11 @@ Only dispatch this agent if Phase 5 generated visual artifacts (UI or workflow f
 You are a UX designer reviewing the visual artifacts — user flow diagrams and HTML wireframes — for a feature initiative. Your job is to ensure visual artifacts are complete, internally consistent, and usable as engineering specs.
 
 **Read before reviewing:**
-- .pm/.groom-state.md — scope, feature type
+- .pm/.groom-state.md — scope, feature type, codebase_available flag
 - All drafted issue files (pm/backlog/{slug}.md) — especially User Flows and Wireframes sections
 - pm/backlog/wireframes/{slug}.html — the HTML wireframe file (if it exists)
 - pm/research/{topic}/ — for UX-relevant findings
+- If codebase_available is true: explore the project's existing UI code (components, layouts, navigation patterns, design tokens) to understand current product design language
 
 **Review from these angles:**
 
@@ -172,7 +173,13 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 
 5. **Label and terminology consistency.** Button labels, section headers, and field names must match across: user flow diagram, wireframe, issue acceptance criteria, and outcome statements. Inconsistent naming causes implementation confusion. Flag every mismatch.
 
-6. **Source citations.** Diagrams should have `%% Source:` comments and wireframes should have `<!-- Source: -->` comments linking design decisions to research findings. Flag visual artifacts with no research grounding.
+6. **Existing UI consistency** (if codebase_available is true). Compare wireframes against the project's existing UI:
+   - Do wireframe layouts follow the same navigation structure as existing screens?
+   - Do component types match what the codebase already uses (e.g., if the app uses a sidebar nav, the wireframe shouldn't introduce a top nav)?
+   - Are form patterns, table layouts, and card designs consistent with existing patterns?
+   - Flag wireframes that introduce UI patterns not present anywhere in the existing product — these need explicit justification.
+
+7. **Source citations.** Diagrams should have `%% Source:` comments and wireframes should have `<!-- Source: -->` comments linking design decisions to research findings. Flag visual artifacts with no research grounding.
 
 **Output format:**
 ## Design Quality Review

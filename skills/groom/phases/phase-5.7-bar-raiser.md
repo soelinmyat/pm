@@ -21,11 +21,12 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 **Read before reviewing:**
 - pm/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - pm/landscape.md — market context
-- .pm/.groom-state.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location. Do NOT read review sections.
+- .pm/.groom-state.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
 - All drafted issue files (pm/backlog/{slug}.md) — the complete proposal
 - pm/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
 - pm/research/{topic}/ — the underlying research
 - pm/backlog/*.md — existing backlog items (for overlap check)
+- If codebase_available is true: explore the project source code for overlapping or related implementations
 
 **Review from these angles:**
 
@@ -40,10 +41,11 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 3. **The "so what" test.** Imagine every issue in this proposal ships successfully. Does the combined result actually solve the problem stated in the scope? Or does it deliver components that do not add up to the claimed outcome?
    - This is the most common failure mode of well-formatted proposals — each issue looks fine individually, but collectively they miss the point.
 
-4. **Cross-cutting concerns.** Scan existing backlog items (pm/backlog/*.md) for overlap, conflicts, or dependencies.
-   - Flag items that duplicate work already planned
+4. **Cross-cutting concerns.** Scan existing backlog items (pm/backlog/*.md) AND the codebase (if available) for overlap, conflicts, or dependencies.
+   - Flag backlog items that duplicate work already planned
    - Flag items that conflict with existing backlog priorities
    - Flag dependencies on existing backlog items that are not acknowledged
+   - If codebase_available: check whether any proposed functionality already partially exists in code but wasn't surfaced during earlier phases. Existing dead code, feature flags, or abandoned implementations are common blind spots. Flag any "we're proposing to build what already exists" situations.
 
 5. **Executive anticipation.** If you were presenting this to a VP, what would they push back on? What question would they ask that the proposal cannot answer? Common executive questions:
    - "What is the expected impact, in numbers?"

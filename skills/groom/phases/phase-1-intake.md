@@ -19,7 +19,23 @@ Skip to step 3 after confirmation.
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
 
-4. Derive a topic slug from the idea (kebab-case, max 4 words).
+4. **Codebase scan** (if `codebase_available: true` in groom state):
+   Explore the project source code for existing implementation related to this idea. Look for:
+   - Existing files, modules, or components that touch this feature area
+   - Partial implementations or related functionality already built
+   - UI patterns, API endpoints, or data models that would be affected
+
+   If related code exists, note it:
+   > "Found existing code related to this idea:
+   > - {file/path}: {what it does and how it relates}
+   > This will inform scoping and technical feasibility."
+
+   If no related code exists, note:
+   > "No existing implementation found for this feature area — this is greenfield."
+
+   This scan is lightweight — save deep analysis for the EM review in Phase 4.5.
+
+5. Derive a topic slug from the idea (kebab-case, max 4 words).
 
 5. Write initial state to `.pm/.groom-state.md`:
 
@@ -28,4 +44,6 @@ topic: "{topic}"
 phase: intake
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
+codebase_available: true | false
+codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 ```
