@@ -1,0 +1,31 @@
+### Phase 1: Intake
+
+**If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
+> "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
+
+Skip to step 3 after confirmation.
+
+**Otherwise:**
+
+1. Ask: "What's the idea?"
+   One question. Wait for the full answer.
+
+2. Clarify if needed — ask ONE follow-up at a time, only if the answer didn't already cover it:
+   - "Is this a user pain you've observed, or a proposed solution?" (problem vs. solution)
+   - "Is this a small UX improvement or a new capability area?" (scope signal)
+   - "What triggered this — a competitor move, user request, or something else?" (why now)
+   Skip any question the user's initial answer already addressed.
+
+3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
+   > "Found related research at {path}. I'll use it in Phase 3."
+
+4. Derive a topic slug from the idea (kebab-case, max 4 words).
+
+5. Write initial state to `.pm/.groom-state.md`:
+
+```yaml
+topic: "{topic}"
+phase: intake
+started: YYYY-MM-DD
+updated: YYYY-MM-DD
+```
