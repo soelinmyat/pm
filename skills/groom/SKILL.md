@@ -47,6 +47,18 @@ Before starting work, check for user instructions:
 
 ---
 
+## Codebase Detection
+
+At the start of a grooming session (before Phase 1), determine whether the project has an accessible codebase:
+
+1. List the top-level project directory. Look for source code indicators: `src/`, `lib/`, `app/`, `packages/`, `*.py`, `*.ts`, `*.go`, `*.rs`, `*.java`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, or similar.
+2. If source code exists, set `codebase_available: true` in groom state. Note the primary language and entry points.
+3. If the project is purely a product knowledge base (only `pm/`, `.pm/`, docs), set `codebase_available: false`.
+
+When `codebase_available: true`, multiple phases will incorporate codebase analysis — checking existing implementation, UI patterns, and overlapping code. Each phase file specifies what to check and when.
+
+---
+
 ## Phases
 
 When entering a phase, read its detailed instructions from the phase file. Each phase file contains the full instructions, HARD-GATEs, agent prompts, and state update schemas.
@@ -78,6 +90,7 @@ topic: "{topic name}"
 phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
+codebase_available: true | false
 
 strategy_check:
   status: passed | failed | override | skipped

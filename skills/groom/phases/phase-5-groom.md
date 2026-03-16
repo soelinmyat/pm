@@ -46,10 +46,11 @@ If the feature type is UI, generate a standalone HTML wireframe file:
    - A title bar showing the feature name and "Lo-fi Wireframe"
    - Labeled components matching the feature scope (e.g., form fields with real labels from the spec, nav items matching the user flow, table columns matching the data model)
 
-3. **Ground the wireframe in scope and research:**
+3. **Ground the wireframe in scope, research, and existing UI** (if `codebase_available: true`):
    - Component labels should match the terminology from the scope definition
    - Screen layout should reflect the user flow from Step 2a
    - Add HTML comments citing sources: `<!-- Source: pm/research/{topic}/findings.md -->`
+   - If the project has existing UI, scan for current layout patterns, navigation structure, component conventions, and design language. The wireframe should feel like a natural extension of the existing product, not a disconnected screen. Reference existing patterns: `<!-- Matches existing pattern in: {file path} -->`
 
 4. **Keep it lo-fi.** The wireframe communicates layout and component placement, not visual design:
    - Gray backgrounds, black borders, system fonts
@@ -77,7 +78,7 @@ Draft a structured issue set: one parent issue + child issues for discrete work.
 
 Each issue must contain:
    - **Outcome statement:** What changes for the user when this ships? (not a task description)
-   - **Acceptance criteria:** Numbered list. Testable, specific.
+   - **Acceptance criteria:** Numbered list. Testable, specific. If `codebase_available: true`, ground ACs in actual code patterns — reference existing APIs, data models, or conventions that the AC must integrate with. ACs like "follows existing auth pattern in `src/middleware/auth.ts`" are more useful than abstract requirements.
    - **Research links:** Paths to relevant findings in `pm/research/`.
    - **Customer evidence:** Include internal evidence count, affected segment, or source theme when available.
    - **Competitor context:** How competitors handle this, with specific references from Phase 3.
