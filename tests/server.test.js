@@ -206,7 +206,7 @@ test('GET /backlog kanban shows per-card hints for ideas', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, '/backlog');
+      const { body } = await httpGet(port, '/backlog?view=kanban');
       assert.ok(body.includes('/pm:groom my-idea'), 'idea card must show groom hint with slug');
       assert.ok(!body.includes('/pm:groom shipped-item'), 'shipped card must not show groom hint');
     } finally { await close(); }
@@ -332,7 +332,7 @@ test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', asy
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/backlog');
+      const { statusCode, body } = await httpGet(port, '/backlog?view=kanban');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('View all 15 shipped'), 'must show view-all link with total count');
       // Should show the 10 most recently updated (PM-006 through PM-015)
@@ -1520,5 +1520,61 @@ test('buildBacklogGrouped shows dead proposal as plain text', () => {
     const html = mod.buildBacklogGrouped(pmDir);
     assert.ok(html.includes('Dead Proposal') || html.includes('dead-proposal'), 'must show dead proposal slug');
     assert.ok(!html.includes('group-gradient'), 'must NOT show gradient for dead proposal');
+  } finally { cleanup(); }
+});
+
+test('GET /backlog defaults to proposal-grouped view', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-y.meta.json': JSON.stringify({ title: 'Feature Y', date: '2026-03-17', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', verdictLabel: 'Ready', issueCount: 1 }),
+    'pm/backlog/feat-y.md': '---\ntitle: "Feature Y"\nstatus: drafted\nparent: null\nid: "PM-010"\n---\n',
+    'pm/backlog/task-1.md': '---\ntitle: "Task 1"\nstatus: idea\nparent: "feat-y"\nid: "PM-011"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('view-toggle'), 'must show view toggle');
+      assert.ok(body.includes('proposal-group'), 'must show proposal groups');
+      assert.ok(body.includes('Feature Y'), 'must show proposal header');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /backlog?view=kanban renders existing kanban', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/item-1.md': '---\ntitle: "Item 1"\nstatus: idea\nid: "PM-020"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog?view=kanban');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('view-toggle'), 'must show view toggle');
+      assert.ok(body.includes('kanban'), 'must render kanban');
+      assert.ok(body.includes('Item 1'), 'must show item');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /backlog toggle highlights active view correctly', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/item.md': '---\ntitle: "Item"\nstatus: idea\nid: "PM-030"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Default — proposals active
+      const def = await httpGet(port, '/backlog');
+      assert.ok(def.body.includes('view=proposals" class="toggle-btn active"'), 'proposals must be active by default');
+
+      // Explicit kanban
+      const kanban = await httpGet(port, '/backlog?view=kanban');
+      assert.ok(kanban.body.includes('view=kanban" class="toggle-btn active"'), 'kanban must be active when selected');
+
+      // Explicit proposals
+      const proposals = await httpGet(port, '/backlog?view=proposals');
+      assert.ok(proposals.body.includes('view=proposals" class="toggle-btn active"'), 'proposals must be active when explicit');
+    } finally { await close(); }
   } finally { cleanup(); }
 });

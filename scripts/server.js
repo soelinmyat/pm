@@ -981,6 +981,7 @@ function routeDashboard(req, res, pmDir) {
   const urlObj = new URL(rawUrl, 'http://localhost');
   const urlPath = urlObj.pathname;
   const tab = urlObj.searchParams.get('tab');
+  const view = urlObj.searchParams.get('view');
 
   if (urlPath === '/') {
     handleDashboardHome(res, pmDir);
@@ -1013,7 +1014,7 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (urlPath === '/backlog') {
-    handleBacklog(res, pmDir);
+    handleBacklog(res, pmDir, view);
   } else if (urlPath === '/backlog/shipped') {
     handleShipped(res, pmDir);
   } else if (urlPath.startsWith('/backlog/wireframes/')) {
@@ -2702,7 +2703,24 @@ function handleWireframe(res, pmDir, slug) {
   }
 }
 
-function handleBacklog(res, pmDir) {
+function handleBacklog(res, pmDir, view) {
+  const isKanban = view === 'kanban';
+  const toggleHtml = `<div class="view-toggle">
+  <a href="/backlog?view=proposals" class="toggle-btn${!isKanban ? ' active' : ''}">By Proposal</a>
+  <a href="/backlog?view=kanban" class="toggle-btn${isKanban ? ' active' : ''}">Kanban</a>
+</div>`;
+
+  if (!isKanban) {
+    // Proposal-grouped view (default)
+    const groupedHtml = buildBacklogGrouped(pmDir);
+    const body = `<div class="page-header"><h1>Backlog</h1></div>${toggleHtml}${groupedHtml}`;
+    const html = dashboardPage('Backlog', '/backlog', body);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  // Kanban view (existing code below)
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
   const slugLookup = {};
@@ -2784,6 +2802,7 @@ function handleBacklog(res, pmDir) {
 </div>`;
   const body = `
 <div class="page-header"><h1>Backlog</h1>${legend}</div>
+${toggleHtml}
 ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);
