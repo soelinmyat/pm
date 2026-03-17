@@ -1481,3 +1481,44 @@ test('findProposalAncestor handles circular chains safely', () => {
   const proposals = new Set();
   assert.equal(mod.findProposalAncestor('a', items, proposals), null);
 });
+
+test('buildBacklogGrouped groups items under proposals', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-x.meta.json': JSON.stringify({ title: 'Feature X', date: '2026-03-17', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', verdictLabel: 'Ready', issueCount: 2 }),
+    'pm/backlog/feat-x.md': '---\ntitle: "Feature X"\nstatus: drafted\nparent: null\nid: "PM-001"\n---\n',
+    'pm/backlog/child-a.md': '---\ntitle: "Child A"\nstatus: idea\nparent: "feat-x"\nid: "PM-002"\n---\n',
+    'pm/backlog/standalone.md': '---\ntitle: "Standalone"\nstatus: idea\nid: "PM-003"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('Feature X'), 'must show proposal group header');
+    assert.ok(html.includes('group-gradient'), 'must show gradient swatch');
+    assert.ok(html.includes('Child A'), 'must show child item');
+    assert.ok(html.includes('Standalone'), 'must show standalone section');
+    assert.ok(html.includes('standalone-header'), 'standalone must have distinct header');
+    assert.ok(html.indexOf('Feature X') < html.indexOf('Standalone Issues'), 'proposals before standalone');
+  } finally { cleanup(); }
+});
+
+test('buildBacklogGrouped returns empty state for empty backlog', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('empty-state') || html.includes('No backlog'), 'must show empty state');
+  } finally { cleanup(); }
+});
+
+test('buildBacklogGrouped shows dead proposal as plain text', () => {
+  const { pmDir, cleanup } = withPmDir({
+    // No .meta.json for "dead-proposal"
+    'pm/backlog/orphan-child.md': '---\ntitle: "Orphan Child"\nstatus: idea\nparent: "dead-proposal"\nid: "PM-010"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('Dead Proposal') || html.includes('dead-proposal'), 'must show dead proposal slug');
+    assert.ok(!html.includes('group-gradient'), 'must NOT show gradient for dead proposal');
+  } finally { cleanup(); }
+});

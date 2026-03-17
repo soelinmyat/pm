@@ -1167,6 +1167,146 @@ function readGroomState(pmDir) {
   }
 }
 
+function buildBacklogGrouped(pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  if (!fs.existsSync(backlogDir)) {
+    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+  if (files.length === 0) {
+    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  // Build items map
+  const items = {};
+  for (const file of files) {
+    const slug = file.replace('.md', '');
+    const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    items[slug] = {
+      slug, title: data.title || humanizeSlug(slug), status: data.status || 'idea',
+      id: data.id || null, parent: data.parent || null, priority: data.priority || 'medium',
+      labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
+    };
+  }
+
+  // Build proposal set from meta.json files
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const proposalSlugs = new Set();
+  if (fs.existsSync(proposalsDir)) {
+    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'))) {
+      proposalSlugs.add(f.replace('.meta.json', ''));
+    }
+  }
+
+  // Also treat any backlog item whose slug matches a proposal as a proposal parent
+  // (the parent chain may reference the backlog item slug, not the proposal slug)
+
+  // Group items by proposal ancestor
+  // Also check for "dead proposals" — parent references a slug that isn't a backlog item
+  // but also isn't in proposalSlugs. Treat the parent as a dead proposal group.
+  const groups = {}; // proposalSlug → [items]
+  const standalone = [];
+  for (const slug of Object.keys(items)) {
+    const ancestor = findProposalAncestor(slug, items, proposalSlugs);
+    if (ancestor) {
+      if (!groups[ancestor]) groups[ancestor] = [];
+      groups[ancestor].push(items[slug]);
+    } else if (items[slug].parent && !items[items[slug].parent]) {
+      // Parent references a non-existent backlog item — treat as dead proposal group
+      const deadSlug = items[slug].parent;
+      if (!groups[deadSlug]) groups[deadSlug] = [];
+      groups[deadSlug].push(items[slug]);
+    } else {
+      standalone.push(items[slug]);
+    }
+  }
+
+  // Render groups
+  let html = '';
+
+  for (const proposalSlug of Object.keys(groups)) {
+    const groupItems = groups[proposalSlug];
+    const meta = readProposalMeta(proposalSlug, pmDir);
+
+    // Status breakdown
+    const statusCounts = {};
+    for (const item of groupItems) {
+      const s = item.status;
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+    }
+    const countParts = Object.entries(statusCounts).map(([s, n]) => `${n} ${s}`);
+    const countText = `${groupItems.length} issue${groupItems.length !== 1 ? 's' : ''} — ${countParts.join(', ')}`;
+
+    // Sort: root items first, then children after their parent
+    const roots = groupItems.filter(i => !i.parent || i.parent === proposalSlug);
+    const children = groupItems.filter(i => i.parent && i.parent !== proposalSlug);
+    const ordered = [];
+    for (const root of roots) {
+      ordered.push({ item: root, isChild: false });
+      for (const child of children) {
+        if (child.parent === root.slug) {
+          ordered.push({ item: child, isChild: true });
+        }
+      }
+    }
+    // Add any children whose parent isn't a root (deeper nesting)
+    const placed = new Set(ordered.map(o => o.item.slug));
+    for (const child of children) {
+      if (!placed.has(child.slug)) {
+        ordered.push({ item: child, isChild: true });
+      }
+    }
+
+    if (meta) {
+      const gradient = sanitizeGradient(meta.gradient);
+      const title = escHtml(meta.title || humanizeSlug(proposalSlug));
+      html += `<div class="proposal-group">
+  <a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="group-header">
+    <div class="group-gradient" style="background: ${gradient}"></div>
+    <div class="group-title">${title}</div>
+    <div class="group-count">${escHtml(countText)}</div>
+  </a>
+  <div class="group-items">`;
+    } else {
+      // Dead proposal — no gradient, no link
+      const title = escHtml(humanizeSlug(proposalSlug));
+      html += `<div class="proposal-group">
+  <div class="group-header standalone-header">
+    <div class="group-title">${title}</div>
+    <div class="group-count">${escHtml(countText)}</div>
+  </div>
+  <div class="group-items">`;
+    }
+
+    for (const { item, isChild } of ordered) {
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+      const childClass = isChild ? ' child-item' : '';
+      html += `<a class="kanban-item priority-${item.priority}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+
+    html += '</div></div>\n';
+  }
+
+  // Standalone section
+  if (standalone.length > 0) {
+    html += `<div class="proposal-group">
+  <div class="group-header standalone-header">
+    <div class="group-title">Standalone Issues</div>
+    <div class="group-count">${standalone.length} issue${standalone.length !== 1 ? 's' : ''}</div>
+  </div>
+  <div class="group-items">`;
+    for (const item of standalone) {
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+      html += `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+    html += '</div></div>\n';
+  }
+
+  return html;
+}
+
 function findProposalAncestor(slug, items, proposalSlugs) {
   let current = slug;
   const visited = new Set();
@@ -3196,5 +3336,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards, findProposalAncestor,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards, findProposalAncestor, buildBacklogGrouped,
 };
