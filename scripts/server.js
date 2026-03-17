@@ -1005,9 +1005,9 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
   } else if (urlPath.startsWith('/proposals/')) {
-    const remainder = urlPath.slice('/proposals/'.length);
+    const remainder = urlPath.slice('/proposals/'.length).replace(/\/$/, '');
     const isRaw = remainder.endsWith('/raw');
-    const rawSlug = isRaw ? remainder.slice(0, -'/raw'.length) : remainder.replace(/\/$/, '');
+    const rawSlug = isRaw ? remainder.slice(0, -'/raw'.length) : remainder;
     let slug;
     try { slug = decodeURIComponent(rawSlug); }
     catch { res.writeHead(400); res.end('Bad request'); return; }
@@ -1417,13 +1417,20 @@ function handleProposalDetailRaw(res, pmDir, slug) {
   }
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   const htmlPath = path.resolve(proposalsDir, slug + '.html');
-  if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
+  if (!htmlPath.startsWith(proposalsDir + path.sep)) {
     res.writeHead(404); res.end('Not found');
     return;
   }
-  const html = fs.readFileSync(htmlPath, 'utf-8');
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(html);
+  try {
+    const html = fs.readFileSync(htmlPath, 'utf-8');
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': "frame-ancestors 'self'",
+    });
+    res.end(html);
+  } catch {
+    res.writeHead(404); res.end('Not found');
+  }
 }
 
 function handleProposalDetail(res, pmDir, slug) {
