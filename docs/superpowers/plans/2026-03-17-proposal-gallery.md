@@ -42,6 +42,7 @@ test('sanitizeGradient returns valid gradients and falls back for invalid', () =
   assert.equal(mod.sanitizeGradient(''), '#e5e7eb', 'empty string falls back to gray');
   assert.equal(mod.sanitizeGradient('url(javascript:alert(1))'), '#e5e7eb', 'XSS attempt falls back to gray');
   assert.equal(mod.sanitizeGradient('red'), '#e5e7eb', 'plain color falls back to gray');
+  assert.equal(mod.sanitizeGradient('linear-gradient(135deg, url(javascript:alert(1)))'), '#e5e7eb', 'nested url() inside gradient must be rejected');
 });
 ```
 
@@ -56,7 +57,7 @@ Add to `scripts/server.js` after `readGroomState()` (around line 1067):
 
 ```javascript
 function sanitizeGradient(value) {
-  if (typeof value === 'string' && /^linear-gradient\(/.test(value)) return value;
+  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(')) return value;
   return '#e5e7eb';
 }
 ```
@@ -242,7 +243,23 @@ function buildProposalCards(pmDir, limit) {
 }
 ```
 
-Add `buildProposalCards` to exports. Also need `groomPhaseLabel` — it exists from PM-027 branch but NOT in this worktree (branched from main before PM-027 merged). If `groomPhaseLabel` is not in this worktree, add a local version. Check with: `grep -n groomPhaseLabel scripts/server.js`
+Add `buildProposalCards` to exports. **Important:** `groomPhaseLabel` exists in the PM-027 branch but NOT in this worktree. Add it before `buildProposalCards`:
+
+```javascript
+const GROOM_PHASE_LABELS = {
+  'intake': 'Intake', 'strategy-check': 'Strategy Check', 'research': 'Research',
+  'scope': 'Scoping', 'scope-review': 'Scope Review', 'groom': 'Drafting Issues',
+  'team-review': 'Team Review', 'bar-raiser': 'Bar Raiser', 'present': 'Presentation',
+  'link': 'Linking Issues',
+};
+
+function groomPhaseLabel(phase) {
+  if (!phase) return 'Unknown';
+  return GROOM_PHASE_LABELS[phase] || humanizeSlug(phase);
+}
+```
+
+Also add `groomPhaseLabel` to exports.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -283,6 +300,22 @@ test('GET /proposals with proposals returns card grid', async () => {
       assert.ok(body.includes('Test Proposal'), 'must show proposal title');
       assert.ok(body.includes('card-gradient'), 'must render gradient strip');
       assert.ok(body.includes('Ready'), 'must show verdict badge');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals with active groom state shows draft card', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/.groom-state.md': '---\ntopic: "Active Feature"\nphase: research\nstarted: 2026-03-10\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Active Feature'), 'draft card must appear in gallery');
+      assert.ok(body.includes('draft'), 'must have draft CSS class');
+      assert.ok(body.includes('/pm:groom'), 'must have resume hint');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -463,6 +496,28 @@ test('Home page shows proposal cards when proposals exist', async () => {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('My Proposal'), 'home page must show proposal card');
       assert.ok(body.includes('proposals-view-all') || body.includes('View all proposals'), 'must have View all link');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Home page caps proposal cards at 6', async () => {
+  const metas = { 'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n' };
+  for (let i = 1; i <= 8; i++) {
+    metas[`pm/backlog/proposals/feat-${i}.meta.json`] = JSON.stringify({
+      title: `Feature ${i}`, date: `2026-03-${String(i).padStart(2,'0')}`,
+      verdict: 'ready', verdictLabel: 'Ready', phase: 'completed',
+      issueCount: 1, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: []
+    });
+  }
+  const { pmDir, cleanup } = withPmDir(metas);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Feature 8'), 'must include newest');
+      assert.ok(!body.includes('Feature 1'), 'must exclude oldest beyond limit');
+      assert.ok(body.includes('View all'), 'must have View all link');
+      assert.ok(body.includes('8 proposals'), 'View all must show total count');
     } finally { await close(); }
   } finally { cleanup(); }
 });
