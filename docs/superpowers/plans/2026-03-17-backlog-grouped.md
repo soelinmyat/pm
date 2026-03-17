@@ -235,17 +235,17 @@ test('GET /backlog toggle highlights active view', async () => {
 
 Change `handleBacklog(res, pmDir)` signature to `handleBacklog(res, pmDir, view)`.
 
-In routing, pass the view param:
+In routing, add `view` param alongside the existing `tab` param (do NOT replace `tab` — it's used for KB):
 ```javascript
-} else if (urlPath === '/backlog') {
-  handleBacklog(res, pmDir, tab);  // tab = urlObj.searchParams.get('tab') — wait, need 'view' not 'tab'
-```
-
-Actually, the routing already has `urlObj.searchParams` from the KB work. Add:
-```javascript
+// After the existing: const tab = urlObj.searchParams.get('tab');
 const view = urlObj.searchParams.get('view');
 ```
-And pass `view` to `handleBacklog`.
+
+Then update the backlog route call:
+```javascript
+} else if (urlPath === '/backlog') {
+  handleBacklog(res, pmDir, view);
+```
 
 Inside `handleBacklog`, add toggle bar rendering and view switching:
 ```javascript
