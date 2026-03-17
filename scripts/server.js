@@ -737,6 +737,10 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .proposals-header h2 { margin: 0; }
 .proposals-view-all { font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
 .proposals-view-all:hover { text-decoration: underline; }
+.proposal-embed { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 1rem; }
+.proposal-embed-header { display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+.proposal-iframe { width: 100%; height: 800px; border: none; background: #fff; }
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1001,10 +1005,17 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
   } else if (urlPath.startsWith('/proposals/')) {
+    const remainder = urlPath.slice('/proposals/'.length);
+    const isRaw = remainder.endsWith('/raw');
+    const rawSlug = isRaw ? remainder.slice(0, -'/raw'.length) : remainder.replace(/\/$/, '');
     let slug;
-    try { slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, ''); }
+    try { slug = decodeURIComponent(rawSlug); }
     catch { res.writeHead(400); res.end('Bad request'); return; }
-    handleProposalDetail(res, pmDir, slug);
+    if (isRaw) {
+      handleProposalDetailRaw(res, pmDir, slug);
+    } else {
+      handleProposalDetail(res, pmDir, slug);
+    }
   } else {
     res.writeHead(404); res.end('Not found');
   }
@@ -1399,6 +1410,22 @@ ${suggestedHtml}`;
   res.end(html);
 }
 
+function handleProposalDetailRaw(res, pmDir, slug) {
+  if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+    res.writeHead(404); res.end('Not found');
+    return;
+  }
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const htmlPath = path.resolve(proposalsDir, slug + '.html');
+  if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
+    res.writeHead(404); res.end('Not found');
+    return;
+  }
+  const html = fs.readFileSync(htmlPath, 'utf-8');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
 function handleProposalDetail(res, pmDir, slug) {
   if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1412,7 +1439,21 @@ function handleProposalDetail(res, pmDir, slug) {
     res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
     return;
   }
-  const html = fs.readFileSync(htmlPath, 'utf-8');
+  const encodedSlug = encodeURIComponent(slug);
+  const title = humanizeSlug(slug);
+  const body = `
+<div class="page-header">
+  <p class="breadcrumb"><a href="/proposals">&larr; Back to Proposals</a></p>
+  <h1>${escHtml(title)}</h1>
+</div>
+<div class="proposal-embed">
+  <div class="proposal-embed-header">
+    <span class="wireframe-label">PROPOSAL</span>
+    <a href="/proposals/${encodedSlug}/raw" target="_blank" class="wireframe-open">Open standalone &nearr;</a>
+  </div>
+  <iframe src="/proposals/${encodedSlug}/raw" class="proposal-iframe"></iframe>
+</div>`;
+  const html = dashboardPage(title, '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }

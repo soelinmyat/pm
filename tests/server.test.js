@@ -1326,7 +1326,7 @@ test('GET /proposals empty shows groom hint', async () => {
   } finally { cleanup(); }
 });
 
-test('GET /proposals/{slug} serves raw proposal HTML', async () => {
+test('GET /proposals/{slug} renders dashboard-framed view with iframe', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/proposals/my-feature.html': '<html><body><h1>My Feature Proposal</h1></body></html>',
   });
@@ -1335,7 +1335,8 @@ test('GET /proposals/{slug} serves raw proposal HTML', async () => {
     try {
       const { statusCode, body } = await httpGet(port, '/proposals/my-feature');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('My Feature Proposal'), 'must serve proposal HTML');
+      assert.ok(body.includes('proposal-embed'), 'must have dashboard chrome');
+      assert.ok(body.includes('iframe'), 'must embed via iframe');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1379,6 +1380,69 @@ test('Home page has no proposal section when no proposals exist', async () => {
       const { body } = await httpGet(port, '/');
       assert.ok(!body.includes('Recent Proposals'), 'must not show proposal section');
       assert.ok(!body.includes('View all proposals'), 'must not have View all link text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// Proposal detail view — iframe in dashboard chrome (PM-031)
+// ---------------------------------------------------------------------------
+
+test('GET /proposals/{slug} renders iframe in dashboard chrome', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.html': '<html><body><h1>My Feature Proposal</h1></body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/my-feature');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('proposal-embed'), 'must have proposal-embed wrapper');
+      assert.ok(body.includes('iframe'), 'must contain an iframe');
+      assert.ok(body.includes('/proposals/my-feature/raw'), 'iframe src must point to raw endpoint');
+      assert.ok(body.includes('Back to Proposals'), 'must have breadcrumb');
+      assert.ok(body.includes('Open standalone'), 'must have standalone link');
+      assert.ok(body.includes('PROPOSAL'), 'embed header must say PROPOSAL');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug}/raw serves raw proposal HTML', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.html': '<html><body><h1>My Feature Proposal</h1></body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/my-feature/raw');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('My Feature Proposal'), 'must serve raw HTML');
+      assert.ok(!body.includes('proposal-embed'), 'must NOT have dashboard chrome');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} returns 404 for missing proposal with back link', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/nonexistent');
+      assert.equal(statusCode, 404);
+      assert.ok(body.includes('/proposals'), 'must have back link to gallery');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} iframe height is 800px', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/tall-proposal.html': '<html><body>Tall proposal</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals/tall-proposal');
+      assert.ok(body.includes('800px'), 'iframe must be 800px height');
     } finally { await close(); }
   } finally { cleanup(); }
 });
