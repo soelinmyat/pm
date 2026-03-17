@@ -737,6 +737,30 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .proposals-header h2 { margin: 0; }
 .proposals-view-all { font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
 .proposals-view-all:hover { text-decoration: underline; }
+
+/* View toggle */
+.view-toggle { display: flex; gap: 0; margin-bottom: 1rem; border: 1px solid var(--border);
+  border-radius: 4px; overflow: hidden; width: fit-content; }
+.toggle-btn { padding: 0.375rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+  color: var(--text-muted); background: var(--bg); text-decoration: none;
+  border-right: 1px solid var(--border); }
+.toggle-btn:last-child { border-right: none; }
+.toggle-btn.active { background: var(--accent); color: #fff; }
+
+/* Backlog proposal groups */
+.proposal-group { margin-bottom: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.group-header { display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.625rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border);
+  text-decoration: none; color: var(--text); }
+.group-header:hover { background: #f0f2f5; }
+.group-gradient { width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; }
+.group-title { font-weight: 600; font-size: 0.875rem; flex: 1; }
+.group-count { font-size: 0.75rem; color: var(--text-muted); }
+.group-items { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
+.group-items .child-item { margin-left: 1.25rem; }
+.standalone-header { background: #f0f0f0; cursor: default; }
+.standalone-header:hover { background: #f0f0f0; }
+
 .proposal-embed { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 1rem; }
 .proposal-embed-header { display: flex; align-items: center; justify-content: space-between;
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -1141,6 +1165,20 @@ function readGroomState(pmDir) {
   } catch {
     return null;
   }
+}
+
+function findProposalAncestor(slug, items, proposalSlugs) {
+  let current = slug;
+  const visited = new Set();
+  for (let depth = 0; depth < 10; depth++) {
+    if (proposalSlugs.has(current)) return current;
+    if (visited.has(current)) return null;
+    visited.add(current);
+    const item = items[current];
+    if (!item || !item.parent) return null;
+    current = item.parent;
+  }
+  return null;
 }
 
 function sanitizeGradient(value) {
@@ -3158,5 +3196,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards, findProposalAncestor,
 };

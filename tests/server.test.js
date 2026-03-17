@@ -1446,3 +1446,38 @@ test('GET /proposals/{slug} iframe height is 800px', async () => {
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// Backlog grouped by proposal (PM-030)
+// ---------------------------------------------------------------------------
+
+test('findProposalAncestor walks parent chain to find proposal', () => {
+  const mod = loadServer();
+  const items = {
+    'child': { parent: 'parent-issue' },
+    'parent-issue': { parent: 'my-proposal' },
+    'my-proposal': { parent: null },
+  };
+  const proposals = new Set(['my-proposal']);
+  assert.equal(mod.findProposalAncestor('child', items, proposals), 'my-proposal');
+  assert.equal(mod.findProposalAncestor('parent-issue', items, proposals), 'my-proposal');
+  assert.equal(mod.findProposalAncestor('my-proposal', items, proposals), 'my-proposal');
+});
+
+test('findProposalAncestor returns null for standalone items', () => {
+  const mod = loadServer();
+  const items = {
+    'orphan': { parent: null },
+    'child-of-orphan': { parent: 'orphan' },
+  };
+  const proposals = new Set(['some-proposal']);
+  assert.equal(mod.findProposalAncestor('orphan', items, proposals), null);
+  assert.equal(mod.findProposalAncestor('child-of-orphan', items, proposals), null);
+});
+
+test('findProposalAncestor handles circular chains safely', () => {
+  const mod = loadServer();
+  const items = { 'a': { parent: 'b' }, 'b': { parent: 'a' } };
+  const proposals = new Set();
+  assert.equal(mod.findProposalAncestor('a', items, proposals), null);
+});
