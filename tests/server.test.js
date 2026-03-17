@@ -937,6 +937,74 @@ test('sanitizeGradient returns valid gradients and falls back for invalid', () =
 });
 
 // ---------------------------------------------------------------------------
+// 29. buildProposalCards
+// ---------------------------------------------------------------------------
+
+test('buildProposalCards returns cards sorted newest first', () => {
+  const meta1 = { title: 'Feature A', date: '2026-03-15', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 5, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const meta2 = { title: 'Feature B', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 3, gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feature-a.meta.json': JSON.stringify(meta1),
+    'pm/backlog/proposals/feature-b.meta.json': JSON.stringify(meta2),
+  });
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 2);
+    assert.ok(cardsHtml.includes('Feature B'), 'newer proposal must appear');
+    assert.ok(cardsHtml.includes('Feature A'), 'older proposal must appear');
+    assert.ok(cardsHtml.indexOf('Feature B') < cardsHtml.indexOf('Feature A'), 'sorted newest first');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards includes draft card pinned first', () => {
+  const meta = { title: 'Completed', date: '2026-03-10', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 2, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/completed.meta.json': JSON.stringify(meta),
+    // .pm/ is relative to root (parent of pmDir)
+    '.pm/.groom-state.md': '---\ntopic: "In Progress Feature"\nphase: research\nstarted: 2026-03-17\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 2);
+    assert.ok(cardsHtml.includes('In Progress Feature'), 'draft card must appear');
+    assert.ok(cardsHtml.includes('draft'), 'draft card must have draft class');
+    assert.ok(cardsHtml.includes('/pm:groom'), 'draft card must have resume hint');
+    assert.ok(cardsHtml.indexOf('In Progress Feature') < cardsHtml.indexOf('Completed'), 'draft pinned first');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards returns empty when no proposals exist', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 0);
+    assert.equal(cardsHtml, '');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards respects limit', () => {
+  const metas = {};
+  for (let i = 1; i <= 8; i++) {
+    metas[`pm/backlog/proposals/feat-${i}.meta.json`] = JSON.stringify({
+      title: `Feature ${i}`, date: `2026-03-${String(i).padStart(2, '0')}`, verdict: 'ready',
+      verdictLabel: 'Ready', phase: 'completed', issueCount: 1,
+      gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: []
+    });
+  }
+  const { pmDir, cleanup } = withPmDir(metas);
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, 3);
+    assert.equal(totalCount, 8, 'totalCount must be pre-limit');
+    assert.ok(cardsHtml.includes('Feature 8'), 'newest must appear');
+    assert.ok(!cardsHtml.includes('Feature 1'), 'oldest excluded by limit');
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
 // 28. readProposalMeta reads JSON sidecar and returns parsed data
 // ---------------------------------------------------------------------------
 

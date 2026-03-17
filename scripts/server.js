@@ -1095,6 +1095,69 @@ function sanitizeGradient(value) {
   return '#e5e7eb';
 }
 
+function buildProposalCards(pmDir, limit) {
+  const entries = [];
+
+  // Scan completed proposals
+  const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
+  if (fs.existsSync(proposalsDir)) {
+    const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    for (const file of files) {
+      const slug = file.replace('.meta.json', '');
+      const meta = readProposalMeta(slug, pmDir);
+      if (!meta) continue;
+      const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug);
+      const gradient = sanitizeGradient(meta.gradient);
+      const stale = stalenessInfo(meta.date);
+      const staleLabel = stale ? stale.label : '';
+      const verdictHtml = meta.verdictLabel
+        ? `<span class="badge badge-ready">${escHtml(String(meta.verdictLabel))}</span> `
+        : '';
+      const issueHtml = typeof meta.issueCount === 'number'
+        ? `<span class="badge">${meta.issueCount} issue${meta.issueCount !== 1 ? 's' : ''}</span>`
+        : '';
+      entries.push({
+        date: meta.date || '0000-00-00',
+        isDraft: false,
+        html: `<a href="/proposals/${escHtml(slug)}" class="card proposal-card">
+  <div class="card-gradient" style="background: ${gradient}"></div>
+  <h3>${escHtml(title)}</h3>
+  <p class="meta">${escHtml(staleLabel)}</p>
+  <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
+</a>`
+      });
+    }
+  }
+
+  // Check for draft from groom state
+  const groomState = readGroomState(pmDir);
+  if (groomState) {
+    const topic = escHtml(groomState.topic);
+    const phase = escHtml(groomPhaseLabel(groomState.phase || ''));
+    const started = escHtml(groomState.started || '');
+    entries.push({
+      date: '9999-99-99', // pin to front
+      isDraft: true,
+      html: `<div class="card proposal-card draft">
+  <div class="card-gradient draft-gradient"></div>
+  <h3>${topic}</h3>
+  <p class="meta">Grooming since ${started}</p>
+  <div class="card-footer"><span class="badge badge-draft">Draft — ${phase}</span></div>
+  <p class="action-hint">Resume with <code>/pm:groom</code></p>
+</div>`
+    });
+  }
+
+  // Sort newest first (draft pinned via 9999 date)
+  entries.sort((a, b) => b.date.localeCompare(a.date));
+
+  const totalCount = entries.length;
+  const limited = limit ? entries.slice(0, limit) : entries;
+  const cardsHtml = limited.map(e => e.html).join('\n');
+
+  return { cardsHtml, totalCount };
+}
+
 function normalizeSourceOrigin(value) {
   const origin = String(value || 'external').toLowerCase();
   return origin === 'internal' || origin === 'mixed' || origin === 'external'
@@ -2835,5 +2898,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards,
 };
