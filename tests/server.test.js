@@ -206,7 +206,7 @@ test('GET /backlog kanban shows per-card hints for ideas', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, '/backlog');
+      const { body } = await httpGet(port, '/backlog?view=kanban');
       assert.ok(body.includes('/pm:groom my-idea'), 'idea card must show groom hint with slug');
       assert.ok(!body.includes('/pm:groom shipped-item'), 'shipped card must not show groom hint');
     } finally { await close(); }
@@ -332,7 +332,7 @@ test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', asy
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/backlog');
+      const { statusCode, body } = await httpGet(port, '/backlog?view=kanban');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('View all 15 shipped'), 'must show view-all link with total count');
       // Should show the 10 most recently updated (PM-006 through PM-015)
@@ -1443,6 +1443,138 @@ test('GET /proposals/{slug} iframe height is 800px', async () => {
     try {
       const { body } = await httpGet(port, '/proposals/tall-proposal');
       assert.ok(body.includes('800px'), 'iframe must be 800px height');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// Backlog grouped by proposal (PM-030)
+// ---------------------------------------------------------------------------
+
+test('findProposalAncestor walks parent chain to find proposal', () => {
+  const mod = loadServer();
+  const items = {
+    'child': { parent: 'parent-issue' },
+    'parent-issue': { parent: 'my-proposal' },
+    'my-proposal': { parent: null },
+  };
+  const proposals = new Set(['my-proposal']);
+  assert.equal(mod.findProposalAncestor('child', items, proposals), 'my-proposal');
+  assert.equal(mod.findProposalAncestor('parent-issue', items, proposals), 'my-proposal');
+  assert.equal(mod.findProposalAncestor('my-proposal', items, proposals), 'my-proposal');
+});
+
+test('findProposalAncestor returns null for standalone items', () => {
+  const mod = loadServer();
+  const items = {
+    'orphan': { parent: null },
+    'child-of-orphan': { parent: 'orphan' },
+  };
+  const proposals = new Set(['some-proposal']);
+  assert.equal(mod.findProposalAncestor('orphan', items, proposals), null);
+  assert.equal(mod.findProposalAncestor('child-of-orphan', items, proposals), null);
+});
+
+test('findProposalAncestor handles circular chains safely', () => {
+  const mod = loadServer();
+  const items = { 'a': { parent: 'b' }, 'b': { parent: 'a' } };
+  const proposals = new Set();
+  assert.equal(mod.findProposalAncestor('a', items, proposals), null);
+});
+
+test('buildBacklogGrouped groups items under proposals', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-x.meta.json': JSON.stringify({ title: 'Feature X', date: '2026-03-17', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', verdictLabel: 'Ready', issueCount: 2 }),
+    'pm/backlog/feat-x.md': '---\ntitle: "Feature X"\nstatus: drafted\nparent: null\nid: "PM-001"\n---\n',
+    'pm/backlog/child-a.md': '---\ntitle: "Child A"\nstatus: idea\nparent: "feat-x"\nid: "PM-002"\n---\n',
+    'pm/backlog/standalone.md': '---\ntitle: "Standalone"\nstatus: idea\nid: "PM-003"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('Feature X'), 'must show proposal group header');
+    assert.ok(html.includes('group-gradient'), 'must show gradient swatch');
+    assert.ok(html.includes('Child A'), 'must show child item');
+    assert.ok(html.includes('Standalone'), 'must show standalone section');
+    assert.ok(html.includes('standalone-header'), 'standalone must have distinct header');
+    assert.ok(html.indexOf('Feature X') < html.indexOf('Standalone Issues'), 'proposals before standalone');
+  } finally { cleanup(); }
+});
+
+test('buildBacklogGrouped returns empty state for empty backlog', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('empty-state') || html.includes('No backlog'), 'must show empty state');
+  } finally { cleanup(); }
+});
+
+test('buildBacklogGrouped shows dead proposal as plain text', () => {
+  const { pmDir, cleanup } = withPmDir({
+    // No .meta.json for "dead-proposal"
+    'pm/backlog/orphan-child.md': '---\ntitle: "Orphan Child"\nstatus: idea\nparent: "dead-proposal"\nid: "PM-010"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('Dead Proposal') || html.includes('dead-proposal'), 'must show dead proposal slug');
+    assert.ok(!html.includes('group-gradient'), 'must NOT show gradient for dead proposal');
+  } finally { cleanup(); }
+});
+
+test('GET /backlog defaults to proposal-grouped view', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-y.meta.json': JSON.stringify({ title: 'Feature Y', date: '2026-03-17', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', verdictLabel: 'Ready', issueCount: 1 }),
+    'pm/backlog/feat-y.md': '---\ntitle: "Feature Y"\nstatus: drafted\nparent: null\nid: "PM-010"\n---\n',
+    'pm/backlog/task-1.md': '---\ntitle: "Task 1"\nstatus: idea\nparent: "feat-y"\nid: "PM-011"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('view-toggle'), 'must show view toggle');
+      assert.ok(body.includes('proposal-group'), 'must show proposal groups');
+      assert.ok(body.includes('Feature Y'), 'must show proposal header');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /backlog?view=kanban renders existing kanban', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/item-1.md': '---\ntitle: "Item 1"\nstatus: idea\nid: "PM-020"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog?view=kanban');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('view-toggle'), 'must show view toggle');
+      assert.ok(body.includes('kanban'), 'must render kanban');
+      assert.ok(body.includes('Item 1'), 'must show item');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /backlog toggle highlights active view correctly', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/item.md': '---\ntitle: "Item"\nstatus: idea\nid: "PM-030"\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Default — proposals active
+      const def = await httpGet(port, '/backlog');
+      assert.ok(def.body.includes('view=proposals" class="toggle-btn active"'), 'proposals must be active by default');
+
+      // Explicit kanban
+      const kanban = await httpGet(port, '/backlog?view=kanban');
+      assert.ok(kanban.body.includes('view=kanban" class="toggle-btn active"'), 'kanban must be active when selected');
+
+      // Explicit proposals
+      const proposals = await httpGet(port, '/backlog?view=proposals');
+      assert.ok(proposals.body.includes('view=proposals" class="toggle-btn active"'), 'proposals must be active when explicit');
     } finally { await close(); }
   } finally { cleanup(); }
 });

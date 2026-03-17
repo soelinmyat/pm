@@ -737,6 +737,30 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .proposals-header h2 { margin: 0; }
 .proposals-view-all { font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
 .proposals-view-all:hover { text-decoration: underline; }
+
+/* View toggle */
+.view-toggle { display: flex; gap: 0; margin-bottom: 1rem; border: 1px solid var(--border);
+  border-radius: 4px; overflow: hidden; width: fit-content; }
+.toggle-btn { padding: 0.375rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+  color: var(--text-muted); background: var(--bg); text-decoration: none;
+  border-right: 1px solid var(--border); }
+.toggle-btn:last-child { border-right: none; }
+.toggle-btn.active { background: var(--accent); color: #fff; }
+
+/* Backlog proposal groups */
+.proposal-group { margin-bottom: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.group-header { display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.625rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border);
+  text-decoration: none; color: var(--text); }
+.group-header:hover { background: #f0f2f5; }
+.group-gradient { width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; }
+.group-title { font-weight: 600; font-size: 0.875rem; flex: 1; }
+.group-count { font-size: 0.75rem; color: var(--text-muted); }
+.group-items { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
+.group-items .child-item { margin-left: 1.25rem; }
+.standalone-header { background: #f0f0f0; cursor: default; }
+.standalone-header:hover { background: #f0f0f0; }
+
 .proposal-embed { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 1rem; }
 .proposal-embed-header { display: flex; align-items: center; justify-content: space-between;
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -957,6 +981,7 @@ function routeDashboard(req, res, pmDir) {
   const urlObj = new URL(rawUrl, 'http://localhost');
   const urlPath = urlObj.pathname;
   const tab = urlObj.searchParams.get('tab');
+  const view = urlObj.searchParams.get('view');
 
   if (urlPath === '/') {
     handleDashboardHome(res, pmDir);
@@ -989,7 +1014,7 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (urlPath === '/backlog') {
-    handleBacklog(res, pmDir);
+    handleBacklog(res, pmDir, view);
   } else if (urlPath === '/backlog/shipped') {
     handleShipped(res, pmDir);
   } else if (urlPath.startsWith('/backlog/wireframes/')) {
@@ -1141,6 +1166,175 @@ function readGroomState(pmDir) {
   } catch {
     return null;
   }
+}
+
+const VALID_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
+
+function safePriority(value) {
+  return VALID_PRIORITIES.has(value) ? value : 'medium';
+}
+
+function buildBacklogGrouped(pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  const emptyHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  if (!fs.existsSync(backlogDir)) return emptyHtml;
+
+  const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+  if (files.length === 0) return emptyHtml;
+
+  // Build items map
+  const items = {};
+  for (const file of files) {
+    const slug = file.replace('.md', '');
+    const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    items[slug] = {
+      slug, title: data.title || humanizeSlug(slug), status: data.status || 'idea',
+      id: data.id || null, parent: data.parent || null, priority: data.priority || 'medium',
+      labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
+    };
+  }
+
+  // Build proposal set from meta.json files
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const proposalSlugs = new Set();
+  if (fs.existsSync(proposalsDir)) {
+    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'))) {
+      proposalSlugs.add(f.replace('.meta.json', ''));
+    }
+  }
+
+  // Also treat any backlog item whose slug matches a proposal as a proposal parent
+  // (the parent chain may reference the backlog item slug, not the proposal slug)
+
+  // Group items by proposal ancestor
+  // Also check for "dead proposals" — parent references a slug that isn't a backlog item
+  // but also isn't in proposalSlugs. Treat the parent as a dead proposal group.
+  const groups = {}; // proposalSlug → [items]
+  const standalone = [];
+  for (const slug of Object.keys(items)) {
+    const ancestor = findProposalAncestor(slug, items, proposalSlugs);
+    if (ancestor) {
+      if (!groups[ancestor]) groups[ancestor] = [];
+      groups[ancestor].push(items[slug]);
+    } else {
+      // No proposal ancestor found — check if the chain ends at a non-existent parent (dead proposal)
+      let deadSlug = null;
+      let walk = slug;
+      const walkVisited = new Set();
+      for (let d = 0; d < 10; d++) {
+        if (walkVisited.has(walk)) break;
+        walkVisited.add(walk);
+        const w = items[walk];
+        if (!w || !w.parent) break;
+        if (!items[w.parent]) { deadSlug = w.parent; break; }
+        walk = w.parent;
+      }
+      if (deadSlug) {
+        if (!groups[deadSlug]) groups[deadSlug] = [];
+        groups[deadSlug].push(items[slug]);
+      } else {
+        standalone.push(items[slug]);
+      }
+    }
+  }
+
+  // Render groups
+  let html = '';
+
+  for (const proposalSlug of Object.keys(groups)) {
+    const groupItems = groups[proposalSlug];
+    const meta = readProposalMeta(proposalSlug, pmDir);
+
+    // Status breakdown
+    const statusCounts = {};
+    for (const item of groupItems) {
+      const s = item.status;
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+    }
+    const countParts = Object.entries(statusCounts).map(([s, n]) => `${n} ${s}`);
+    const countText = `${groupItems.length} issue${groupItems.length !== 1 ? 's' : ''} — ${countParts.join(', ')}`;
+
+    // Sort: root items first, then children after their parent
+    const roots = groupItems.filter(i => !i.parent || i.parent === proposalSlug);
+    const children = groupItems.filter(i => i.parent && i.parent !== proposalSlug);
+    const ordered = [];
+    for (const root of roots) {
+      ordered.push({ item: root, isChild: false });
+      for (const child of children) {
+        if (child.parent === root.slug) {
+          ordered.push({ item: child, isChild: true });
+        }
+      }
+    }
+    // Add any children whose parent isn't a root (deeper nesting)
+    const placed = new Set(ordered.map(o => o.item.slug));
+    for (const child of children) {
+      if (!placed.has(child.slug)) {
+        ordered.push({ item: child, isChild: true });
+      }
+    }
+
+    if (meta) {
+      const gradient = sanitizeGradient(meta.gradient);
+      const title = escHtml(meta.title || humanizeSlug(proposalSlug));
+      html += `<div class="proposal-group">
+  <a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="group-header">
+    <div class="group-gradient" style="background: ${gradient}"></div>
+    <div class="group-title">${title}</div>
+    <div class="group-count">${escHtml(countText)}</div>
+  </a>
+  <div class="group-items">`;
+    } else {
+      // Dead proposal — no gradient, no link
+      const title = escHtml(humanizeSlug(proposalSlug));
+      html += `<div class="proposal-group">
+  <div class="group-header standalone-header">
+    <div class="group-title">${title}</div>
+    <div class="group-count">${escHtml(countText)}</div>
+  </div>
+  <div class="group-items">`;
+    }
+
+    for (const { item, isChild } of ordered) {
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+      const childClass = isChild ? ' child-item' : '';
+      html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+
+    html += '</div></div>\n';
+  }
+
+  // Standalone section
+  if (standalone.length > 0) {
+    html += `<div class="proposal-group">
+  <div class="group-header standalone-header">
+    <div class="group-title">Standalone Issues</div>
+    <div class="group-count">${standalone.length} issue${standalone.length !== 1 ? 's' : ''}</div>
+  </div>
+  <div class="group-items">`;
+    for (const item of standalone) {
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+      html += `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+    html += '</div></div>\n';
+  }
+
+  return html;
+}
+
+function findProposalAncestor(slug, items, proposalSlugs) {
+  let current = slug;
+  const visited = new Set();
+  for (let depth = 0; depth < 10; depth++) {
+    if (proposalSlugs.has(current)) return current;
+    if (visited.has(current)) return null;
+    visited.add(current);
+    const item = items[current];
+    if (!item || !item.parent) return null;
+    current = item.parent;
+  }
+  return null;
 }
 
 function sanitizeGradient(value) {
@@ -2524,7 +2718,24 @@ function handleWireframe(res, pmDir, slug) {
   }
 }
 
-function handleBacklog(res, pmDir) {
+function handleBacklog(res, pmDir, view) {
+  const isKanban = view === 'kanban';
+  const toggleHtml = `<div class="view-toggle">
+  <a href="/backlog?view=proposals" class="toggle-btn${!isKanban ? ' active' : ''}">By Proposal</a>
+  <a href="/backlog?view=kanban" class="toggle-btn${isKanban ? ' active' : ''}">Kanban</a>
+</div>`;
+
+  if (!isKanban) {
+    // Proposal-grouped view (default)
+    const groupedHtml = buildBacklogGrouped(pmDir);
+    const body = `<div class="page-header"><h1>Backlog</h1></div>${toggleHtml}${groupedHtml}`;
+    const html = dashboardPage('Backlog', '/backlog', body);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  // Kanban view (existing code below)
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
   const slugLookup = {};
@@ -2606,6 +2817,7 @@ function handleBacklog(res, pmDir) {
 </div>`;
   const body = `
 <div class="page-header"><h1>Backlog</h1>${legend}</div>
+${toggleHtml}
 ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);
@@ -3158,5 +3370,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards, findProposalAncestor, buildBacklogGrouped,
 };
