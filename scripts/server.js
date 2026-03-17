@@ -706,6 +706,19 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   text-transform: uppercase; letter-spacing: 0.05em; }
 .positioning-map .map-container { position: relative; }
 
+/* Proposal cards */
+.proposal-card { position: relative; overflow: hidden; }
+.proposal-card .card-gradient { height: 48px; border-radius: var(--radius) var(--radius) 0 0; }
+.proposal-card h3 { margin: 0.5rem 0 0.25rem; }
+.proposal-card.draft { border-style: dashed; border-color: #b8d4f0; cursor: default; opacity: 0.85; }
+.proposal-card.draft:hover { box-shadow: var(--shadow-sm); transform: none; }
+.draft-gradient { background: repeating-linear-gradient(45deg, #e8e8e8, #e8e8e8 10px, #f0f0f0 10px, #f0f0f0 20px); }
+.badge-draft { background: #dbeafe; color: #1d4ed8; }
+.proposals-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+.proposals-header h2 { margin: 0; }
+.proposals-view-all { font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
+.proposals-view-all:hover { text-decoration: underline; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1063,6 +1076,23 @@ function readGroomState(pmDir) {
   } catch {
     return null;
   }
+}
+
+const GROOM_PHASE_LABELS = {
+  'intake': 'Intake', 'strategy-check': 'Strategy Check', 'research': 'Research',
+  'scope': 'Scoping', 'scope-review': 'Scope Review', 'groom': 'Drafting Issues',
+  'team-review': 'Team Review', 'bar-raiser': 'Bar Raiser', 'present': 'Presentation',
+  'link': 'Linking Issues',
+};
+
+function groomPhaseLabel(phase) {
+  if (!phase) return 'Unknown';
+  return GROOM_PHASE_LABELS[phase] || humanizeSlug(phase);
+}
+
+function sanitizeGradient(value) {
+  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(')) return value;
+  return '#e5e7eb';
 }
 
 function normalizeSourceOrigin(value) {
@@ -2805,5 +2835,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient,
 };

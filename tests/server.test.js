@@ -918,6 +918,25 @@ test('start-server.sh launches dashboard mode against the provided project direc
 });
 
 // ---------------------------------------------------------------------------
+// 28. sanitizeGradient
+// ---------------------------------------------------------------------------
+
+test('sanitizeGradient returns valid gradients and falls back for invalid', () => {
+  const mod = loadServer();
+  assert.equal(
+    mod.sanitizeGradient('linear-gradient(135deg, #667eea 0%, #764ba2 100%)'),
+    'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    'valid gradient passes through'
+  );
+  assert.equal(mod.sanitizeGradient(null), '#e5e7eb', 'null falls back to gray');
+  assert.equal(mod.sanitizeGradient(undefined), '#e5e7eb', 'undefined falls back to gray');
+  assert.equal(mod.sanitizeGradient(''), '#e5e7eb', 'empty string falls back to gray');
+  assert.equal(mod.sanitizeGradient('url(javascript:alert(1))'), '#e5e7eb', 'XSS attempt falls back');
+  assert.equal(mod.sanitizeGradient('red'), '#e5e7eb', 'plain color falls back');
+  assert.equal(mod.sanitizeGradient('linear-gradient(135deg, url(javascript:alert(1)))'), '#e5e7eb', 'nested url() rejected');
+});
+
+// ---------------------------------------------------------------------------
 // 28. readProposalMeta reads JSON sidecar and returns parsed data
 // ---------------------------------------------------------------------------
 
