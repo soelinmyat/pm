@@ -10,6 +10,23 @@ Present the reviewed, iterated proposal as a self-contained HTML presentation in
 
 Write the proposal to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
 
+**Write the metadata sidecar** alongside the HTML. Create `pm/backlog/proposals/{topic-slug}.meta.json` with this schema:
+
+```json
+{
+  "title": "{Feature name}",
+  "date": "YYYY-MM-DD",
+  "verdict": "{bar-raiser verdict: ready | send-back | pause}",
+  "verdictLabel": "{Ready | Needs Work | Paused}",
+  "phase": "completed",
+  "issueCount": {number of child issues},
+  "gradient": "{deterministic CSS gradient from slug hash — use the proposalGradient() function in server.js, or assign from the 8-gradient palette based on djb2 hash of the slug}",
+  "labels": ["{label1}", "{label2}"]
+}
+```
+
+Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Work"`, `"pause"` → `"Paused"`. For any unmapped verdict value, use the raw value as the label.
+
 **Sections** (match the reference template's order and layout):
 
 1. **Title & summary.** Hero header with feature name, one-sentence outcome, key metrics strip: priority, differentiator (10x/parity/gap-fill), expected impact (the key outcome metric), ICP segment (from strategy), scope size (issue count).
