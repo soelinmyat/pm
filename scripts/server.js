@@ -1320,11 +1320,29 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
+  // Proposal cards section
+  let proposalsHtml = '';
+  const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6);
+  if (proposalCards) {
+    const viewAllText = proposalCount > 6
+      ? `View all ${proposalCount} proposals →`
+      : 'View all proposals →';
+    proposalsHtml = `
+<div class="content-section">
+  <div class="proposals-header">
+    <h2>Recent Proposals</h2>
+    <a href="/proposals" class="proposals-view-all">${viewAllText}</a>
+  </div>
+  <div class="card-grid">${proposalCards}</div>
+</div>`;
+  }
+
   const body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
+${proposalsHtml}
 <div class="card-grid">${sections}</div>
 ${suggestedHtml}`;
 

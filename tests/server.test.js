@@ -1100,6 +1100,63 @@ test('GET /proposals/{slug} rejects path traversal', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 32. Home page proposals section
+// ---------------------------------------------------------------------------
+
+test('Home page shows proposal cards when proposals exist', async () => {
+  const meta = { title: 'My Proposal', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 4, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('My Proposal'), 'home page must show proposal card');
+      assert.ok(body.includes('Recent Proposals'), 'must have section heading');
+      assert.ok(body.includes('proposals-view-all'), 'must have View all link');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Home page caps proposal cards at 6', async () => {
+  const metas = { 'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n' };
+  for (let i = 1; i <= 8; i++) {
+    metas[`pm/backlog/proposals/feat-${i}.meta.json`] = JSON.stringify({
+      title: `Feature ${i}`, date: `2026-03-${String(i).padStart(2,'0')}`,
+      verdict: 'ready', verdictLabel: 'Ready', phase: 'completed',
+      issueCount: 1, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: []
+    });
+  }
+  const { pmDir, cleanup } = withPmDir(metas);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Feature 8'), 'must include newest');
+      assert.ok(!body.includes('Feature 1'), 'must exclude oldest beyond limit');
+      assert.ok(body.includes('View all'), 'must have View all link');
+      assert.ok(body.includes('8 proposals'), 'View all must show total count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Home page has no proposal section when no proposals exist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('Recent Proposals'), 'must not show proposal section');
+      assert.ok(!body.includes('View all proposals'), 'must not have View all link text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
 // 28. readProposalMeta reads JSON sidecar and returns parsed data
 // ---------------------------------------------------------------------------
 
