@@ -818,18 +818,27 @@ test('path traversal via .. in route slugs does not expose parent directory cont
   const { pmDir, cleanup } = withPmDir({
     'pm/research/valid-topic/findings.md': '---\ntopic: Valid\n---\n# Valid\n',
     'pm/findings.md': '---\ntopic: Should not be reachable\n---\n# Secret\n',
+    'pm/backlog/normal-item.md': '---\ntitle: Normal\nstatus: idea\n---\n# Normal\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      // URL normalization resolves /research/.. to / (home page)
-      // The key assertion: parent content is NOT exposed
+      // URL normalization resolves /research/.. to / (home page) — content is NOT exposed
       const research = await httpGet(port, '/research/..');
       assert.ok(!research.body.includes('Should not be reachable'), '/research/.. must not expose parent content');
 
-      // Direct traversal attempts with encoded dots still blocked
+      // Encoded traversal attempts: %2e%2e is decoded to .. by the server
       const backlogTraversal = await httpGet(port, '/backlog/%2e%2e');
       assert.ok(!backlogTraversal.body.includes('Should not be reachable'), 'encoded traversal must not expose parent content');
+
+      // Percent-encoded traversal: %2e%2e is normalized by URL constructor to ..
+      // which resolves /competitors/%2e%2e to / (home page) — content still not exposed
+      const competitorTraversal = await httpGet(port, '/competitors/%2e%2e');
+      assert.ok(!competitorTraversal.body.includes('Should not be reachable'), '/competitors/%2e%2e must not expose parent content');
+
+      // Double-encoded traversal with slashes
+      const backlogSlug = await httpGet(port, '/backlog/%2e%2e%2f%2e%2e');
+      assert.ok(!backlogSlug.body.includes('Should not be reachable'), '/backlog/%2e%2e%2f%2e%2e must not expose parent content');
     } finally {
       await close();
     }

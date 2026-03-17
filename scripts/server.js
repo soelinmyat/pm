@@ -1553,7 +1553,7 @@ function tabKey(e, el, panelId) {
 })();
 </script>`;
 
-  const html = dashboardPage('Research', '/research', body);
+  const html = dashboardPage('Research', '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -1783,7 +1783,7 @@ function renderStrategyWithViz(body) {
 function handleStrategyPage(res, pmDir) {
   var filePath = path.join(pmDir, 'strategy.md');
   if (!fs.existsSync(filePath)) {
-    var html = dashboardPage('Strategy', '/strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
+    var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
       '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
@@ -1794,7 +1794,7 @@ function handleStrategyPage(res, pmDir) {
   var parsed = parseFrontmatter(raw);
   var rendered = renderStrategyWithViz(parsed.body);
 
-  var html = dashboardPage('Strategy', '/strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
+  var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
     '<div class="markdown-body">' + rendered + '</div>');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -2139,7 +2139,7 @@ function handleCompetitorsList(res, pmDir) {
     (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p></div>') +
     matrixContent + indexContent;
 
-  var html = dashboardPage('Competitors', '/competitors', body);
+  var html = dashboardPage('Competitors', '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2239,7 +2239,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
 function handleCompetitorDetail(res, pmDir, slug) {
   const compDir = path.join(pmDir, 'competitors', slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/competitors', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -2287,7 +2287,7 @@ function tabKey(e, el, panelId) {
 }
 </script>`;
 
-  const html = dashboardPage(name, '/competitors', body);
+  const html = dashboardPage(name, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2297,7 +2297,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const findingsPath = path.join(topicDir, 'findings.md');
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/research', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -2305,7 +2305,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const raw = fs.readFileSync(findingsPath, 'utf-8');
   const { data, body } = parseFrontmatter(raw);
   const meta = buildTopicMeta(topic, data, findingsPath);
-  const html = dashboardPage(meta.label, '/research', `
+  const html = dashboardPage(meta.label, '/kb', `
 <div class="page-header">
   <p class="breadcrumb"><a href="/kb?tab=research">&larr; Research</a></p>
   <h1>${escHtml(meta.label)}</h1>
