@@ -725,6 +725,19 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .kb-tab:hover { color: var(--text); }
 .kb-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* Proposal cards */
+.proposal-card { position: relative; overflow: hidden; }
+.proposal-card .card-gradient { height: 48px; border-radius: var(--radius) var(--radius) 0 0; }
+.proposal-card h3 { margin: 0.5rem 0 0.25rem; }
+.proposal-card.draft { border-style: dashed; border-color: #b8d4f0; cursor: default; opacity: 0.85; }
+.proposal-card.draft:hover { box-shadow: var(--shadow-sm); transform: none; }
+.draft-gradient { background: repeating-linear-gradient(45deg, #e8e8e8, #e8e8e8 10px, #f0f0f0 10px, #f0f0f0 20px); }
+.badge-draft { background: #dbeafe; color: #1d4ed8; }
+.proposals-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+.proposals-header h2 { margin: 0; }
+.proposals-view-all { font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
+.proposals-view-all:hover { text-decoration: underline; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -985,6 +998,13 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  } else if (urlPath === '/proposals') {
+    handleProposalsPage(res, pmDir);
+  } else if (urlPath.startsWith('/proposals/')) {
+    let slug;
+    try { slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, ''); }
+    catch { res.writeHead(400); res.end('Bad request'); return; }
+    handleProposalDetail(res, pmDir, slug);
   } else {
     res.writeHead(404); res.end('Not found');
   }
@@ -1110,6 +1130,66 @@ function readGroomState(pmDir) {
   } catch {
     return null;
   }
+}
+
+function sanitizeGradient(value) {
+  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(')) return value;
+  return '#e5e7eb';
+}
+
+function buildProposalCards(pmDir, limit) {
+  const entries = [];
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  if (fs.existsSync(proposalsDir)) {
+    const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    for (const file of files) {
+      const slug = file.replace('.meta.json', '');
+      const meta = readProposalMeta(slug, pmDir);
+      if (!meta) continue;
+      const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug);
+      const gradient = sanitizeGradient(meta.gradient);
+      const stale = stalenessInfo(meta.date);
+      const staleLabel = stale ? stale.label : '';
+      const verdictHtml = meta.verdictLabel
+        ? `<span class="badge badge-ready">${escHtml(String(meta.verdictLabel))}</span> `
+        : '';
+      const issueHtml = typeof meta.issueCount === 'number'
+        ? `<span class="badge">${meta.issueCount} issue${meta.issueCount !== 1 ? 's' : ''}</span>`
+        : '';
+      entries.push({
+        date: meta.date || '0000-00-00',
+        isDraft: false,
+        html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
+  <div class="card-gradient" style="background: ${gradient}"></div>
+  <h3>${escHtml(title)}</h3>
+  <p class="meta">${escHtml(staleLabel)}</p>
+  <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
+</a>`
+      });
+    }
+  }
+  const groomState = readGroomState(pmDir);
+  if (groomState) {
+    const topic = escHtml(groomState.topic);
+    const phase = escHtml(groomPhaseLabel(groomState.phase || ''));
+    const started = escHtml(groomState.started || '');
+    entries.push({
+      date: '9999-99-99',
+      isDraft: true,
+      html: `<div class="card proposal-card draft">
+  <div class="card-gradient draft-gradient"></div>
+  <h3>${topic}</h3>
+  <p class="meta">Grooming since ${started}</p>
+  <div class="card-footer"><span class="badge badge-draft">Draft — ${phase}</span></div>
+  <p class="action-hint">Resume with <code>/pm:groom</code></p>
+</div>`
+    });
+  }
+  entries.sort((a, b) => b.date.localeCompare(a.date));
+  const totalCount = entries.length;
+  const limited = limit ? entries.slice(0, limit) : entries;
+  const cardsHtml = limited.map(e => e.html).join('\n');
+  return { cardsHtml, totalCount };
 }
 
 function normalizeSourceOrigin(value) {
@@ -1287,16 +1367,72 @@ function handleDashboardHome(res, pmDir) {
 </div>`;
   }
 
+  // Proposal cards section
+  let proposalsHtml = '';
+  const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6);
+  if (proposalCount > 0) {
+    const viewAllText = proposalCount > 6
+      ? `View all ${proposalCount} proposals →`
+      : 'View all proposals →';
+    proposalsHtml = `
+<div class="content-section">
+  <div class="proposals-header">
+    <h2>Recent Proposals</h2>
+    <a href="/proposals" class="proposals-view-all">${viewAllText}</a>
+  </div>
+  <div class="card-grid">${proposalCards}</div>
+</div>`;
+  }
+
   const body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
 ${groomBannerHtml}
+${proposalsHtml}
 <div class="card-grid">${sections}</div>
 ${suggestedHtml}`;
 
   const html = dashboardPage('Home', '/', body, projectName);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleProposalDetail(res, pmDir, slug) {
+  if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    return;
+  }
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const htmlPath = path.resolve(proposalsDir, slug + '.html');
+  if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    return;
+  }
+  const html = fs.readFileSync(htmlPath, 'utf-8');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleProposalsPage(res, pmDir) {
+  const { cardsHtml, totalCount } = buildProposalCards(pmDir, null);
+  let body;
+  if (totalCount === 0) {
+    body = `<div class="page-header"><h1>Proposals</h1></div>
+<div class="empty-state">
+  <h2>No proposals yet</h2>
+  <p>Run <code>/pm:groom</code> to create your first proposal.</p>
+</div>`;
+  } else {
+    body = `<div class="page-header"><h1>Proposals</h1>
+  <p class="subtitle">${totalCount} proposal${totalCount !== 1 ? 's' : ''}</p>
+</div>
+<div class="card-grid">${cardsHtml}</div>`;
+  }
+  const html = dashboardPage('Proposals', '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2974,5 +3110,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards,
 };
