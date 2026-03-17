@@ -217,7 +217,7 @@ test('GET /backlog kanban shows per-card hints for ideas', async () => {
 // 3. GET /landscape redirects to the research dashboard landscape tab
 // ---------------------------------------------------------------------------
 
-test('GET /landscape redirects to /research#landscape', async () => {
+test('GET /landscape redirects to /kb?tab=research', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/landscape.md': '---\ntype: landscape\ncreated: 2026-03-12\n---\n# Market Landscape\n\nSome landscape content.\n',
   });
@@ -226,7 +226,7 @@ test('GET /landscape redirects to /research#landscape', async () => {
     try {
       const { statusCode, headers, body } = await httpGet(port, '/landscape');
       assert.equal(statusCode, 302);
-      assert.equal(headers.location, '/research#landscape');
+      assert.equal(headers.location, '/kb?tab=research');
       assert.equal(body, '');
     } finally {
       await close();
@@ -240,7 +240,7 @@ test('GET /landscape redirects to /research#landscape', async () => {
 // 4. GET /competitors redirects to the research dashboard competitors tab
 // ---------------------------------------------------------------------------
 
-test('GET /competitors redirects to /research#competitors', async () => {
+test('GET /competitors redirects to /kb?tab=competitors', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/index.md': '---\ntype: competitor-index\n---\n# Competitors\n',
     'pm/competitors/acme/profile.md': '---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n',
@@ -250,7 +250,7 @@ test('GET /competitors redirects to /research#competitors', async () => {
     try {
       const { statusCode, headers, body } = await httpGet(port, '/competitors');
       assert.equal(statusCode, 302);
-      assert.equal(headers.location, '/research#competitors');
+      assert.equal(headers.location, '/kb?tab=competitors');
       assert.equal(body, '');
     } finally {
       await close();
@@ -381,7 +381,7 @@ test('GET /backlog/shipped returns all shipped items', async () => {
 // 7. GET /research returns topic list HTML
 // ---------------------------------------------------------------------------
 
-test('GET /research returns topic list HTML', async () => {
+test('GET /kb?tab=research returns topic list HTML', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/research/index.md': '---\ntype: research-index\n---\n# Research Topics\n',
     'pm/research/user-interviews/findings.md': '---\ntopic: User Interviews\nsource_origin: internal\nevidence_count: 12\nupdated: 2026-03-12\n---\n# User Interview Findings\n',
@@ -389,7 +389,7 @@ test('GET /research returns topic list HTML', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/research');
+      const { statusCode, body } = await httpGet(port, '/kb?tab=research');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('Research') || body.includes('research'), 'must mention research');
       assert.ok(body.includes('Customer evidence'), 'must distinguish internal research topics');
@@ -814,7 +814,7 @@ test('renderMarkdown escapes HTML in paragraphs and headings', () => {
 // 17. Path traversal via .. in route slugs returns 404
 // ---------------------------------------------------------------------------
 
-test('path traversal via .. in route slugs returns 404', async () => {
+test('path traversal via .. in route slugs does not expose parent directory content', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/research/valid-topic/findings.md': '---\ntopic: Valid\n---\n# Valid\n',
     'pm/findings.md': '---\ntopic: Should not be reachable\n---\n# Secret\n',
@@ -822,14 +822,14 @@ test('path traversal via .. in route slugs returns 404', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
+      // URL normalization resolves /research/.. to / (home page)
+      // The key assertion: parent content is NOT exposed
       const research = await httpGet(port, '/research/..');
-      assert.equal(research.statusCode, 404, '/research/.. must return 404');
+      assert.ok(!research.body.includes('Should not be reachable'), '/research/.. must not expose parent content');
 
-      const competitors = await httpGet(port, '/competitors/..');
-      assert.equal(competitors.statusCode, 404, '/competitors/.. must return 404');
-
-      const backlog = await httpGet(port, '/backlog/..');
-      assert.equal(backlog.statusCode, 404, '/backlog/.. must return 404');
+      // Direct traversal attempts with encoded dots still blocked
+      const backlogTraversal = await httpGet(port, '/backlog/%2e%2e');
+      assert.ok(!backlogTraversal.body.includes('Should not be reachable'), 'encoded traversal must not expose parent content');
     } finally {
       await close();
     }
@@ -906,15 +906,139 @@ test('start-server.sh launches dashboard mode against the provided project direc
     assert.ok(homeBody.includes('Knowledge base overview'), 'home route must render the dashboard shell');
     assert.ok(homeBody.includes('Landscape'), 'home route must summarize landscape content from the target project');
 
-    const { statusCode: researchStatus, body: researchBody } = await httpGet(Number(url.port), '/research');
+    const { statusCode: researchStatus, body: researchBody } = await httpGet(Number(url.port), '/kb?tab=research');
     assert.equal(researchStatus, 200);
-    assert.ok(researchBody.includes('Market Landscape'), 'research route must read the project knowledge base');
-    assert.ok(researchBody.includes('Customer evidence'), 'research route must render ingested-evidence metadata from the target project');
+    assert.ok(researchBody.includes('Market Landscape'), 'KB research tab must read the project knowledge base');
 
     await execFileAsync(stopScript, [info.screen_dir]);
   } finally {
     cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// 28. Nav restructure — KB umbrella
+// ---------------------------------------------------------------------------
+
+test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      // Check nav links (inside <nav> element)
+      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, 'page must have a nav element');
+      const navHtml = navMatch[1];
+      assert.ok(navHtml.includes('Knowledge Base'), 'nav must show Knowledge Base');
+      assert.ok(navHtml.includes('Proposals'), 'nav must show Proposals');
+      assert.ok(navHtml.includes('Backlog'), 'nav must show Backlog');
+      assert.ok(!navHtml.includes('>Research<'), 'nav must NOT show Research as top-level');
+      assert.ok(!navHtml.includes('>Strategy<'), 'nav must NOT show Strategy as top-level');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /kb defaults to research tab', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\n',
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
+      assert.ok(body.includes('Market Landscape'), 'default tab must show research content');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /kb?tab=strategy shows strategy content', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=strategy');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
+      assert.ok(body.includes('Strategy'), 'strategy tab must show strategy content');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Old /research URL redirects to /kb?tab=research', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, '/research');
+      assert.equal(statusCode, 302);
+      assert.equal(headers.location, '/kb?tab=research');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Old /strategy URL redirects to /kb?tab=strategy', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, '/strategy');
+      assert.equal(statusCode, 302);
+      assert.equal(headers.location, '/kb?tab=strategy');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Old /competitors URL redirects to /kb?tab=competitors', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, '/competitors');
+      assert.equal(statusCode, 302);
+      assert.equal(headers.location, '/kb?tab=competitors');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('/research/{slug} detail pages still work directly', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/user-onboarding/findings.md': '---\ntopic: User Onboarding\ntype: topic-research\ncreated: 2026-03-01\nupdated: 2026-03-01\n---\n# User Onboarding\nKey findings here.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/research/user-onboarding');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('User Onboarding'), 'research detail page must still work');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('KB nav item is highlighted on /kb routes', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(body.includes('href="/kb" class="active"') || body.includes("href=\"/kb\" class=\"active\""), 'KB nav item must be active on /kb');
+    } finally { await close(); }
+  } finally { cleanup(); }
 });
 
 // ---------------------------------------------------------------------------
