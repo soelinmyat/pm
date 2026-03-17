@@ -1095,6 +1095,10 @@ test('GET /proposals/{slug} rejects path traversal', async () => {
     try {
       const r1 = await httpGet(port, '/proposals/..%2F..%2Fetc%2Fpasswd');
       assert.equal(r1.statusCode, 404);
+
+      // Malformed percent-encoding returns 400 instead of crashing
+      const r2 = await httpGet(port, '/proposals/%zz');
+      assert.equal(r2.statusCode, 400, 'malformed URI must return 400, not crash');
     } finally { await close(); }
   } finally { cleanup(); }
 });

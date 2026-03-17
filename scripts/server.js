@@ -972,7 +972,9 @@ function routeDashboard(req, res, pmDir) {
   } else if (url === '/proposals') {
     handleProposalsPage(res, pmDir);
   } else if (url.startsWith('/proposals/')) {
-    const slug = decodeURIComponent(url.slice('/proposals/'.length)).replace(/\/$/, '');
+    let slug;
+    try { slug = decodeURIComponent(url.slice('/proposals/'.length)).replace(/\/$/, ''); }
+    catch { res.writeHead(400); res.end('Bad request'); return; }
     handleProposalDetail(res, pmDir, slug);
   } else {
     res.writeHead(404); res.end('Not found');
