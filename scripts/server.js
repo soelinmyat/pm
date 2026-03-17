@@ -1168,16 +1168,19 @@ function readGroomState(pmDir) {
   }
 }
 
+const VALID_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
+
+function safePriority(value) {
+  return VALID_PRIORITIES.has(value) ? value : 'medium';
+}
+
 function buildBacklogGrouped(pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
-  if (!fs.existsSync(backlogDir)) {
-    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
-  }
+  const emptyHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  if (!fs.existsSync(backlogDir)) return emptyHtml;
 
   const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
-  if (files.length === 0) {
-    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
-  }
+  if (files.length === 0) return emptyHtml;
 
   // Build items map
   const items = {};
@@ -1214,13 +1217,25 @@ function buildBacklogGrouped(pmDir) {
     if (ancestor) {
       if (!groups[ancestor]) groups[ancestor] = [];
       groups[ancestor].push(items[slug]);
-    } else if (items[slug].parent && !items[items[slug].parent]) {
-      // Parent references a non-existent backlog item — treat as dead proposal group
-      const deadSlug = items[slug].parent;
-      if (!groups[deadSlug]) groups[deadSlug] = [];
-      groups[deadSlug].push(items[slug]);
     } else {
-      standalone.push(items[slug]);
+      // No proposal ancestor found — check if the chain ends at a non-existent parent (dead proposal)
+      let deadSlug = null;
+      let walk = slug;
+      const walkVisited = new Set();
+      for (let d = 0; d < 10; d++) {
+        if (walkVisited.has(walk)) break;
+        walkVisited.add(walk);
+        const w = items[walk];
+        if (!w || !w.parent) break;
+        if (!items[w.parent]) { deadSlug = w.parent; break; }
+        walk = w.parent;
+      }
+      if (deadSlug) {
+        if (!groups[deadSlug]) groups[deadSlug] = [];
+        groups[deadSlug].push(items[slug]);
+      } else {
+        standalone.push(items[slug]);
+      }
     }
   }
 
@@ -1284,7 +1299,7 @@ function buildBacklogGrouped(pmDir) {
     for (const { item, isChild } of ordered) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
       const childClass = isChild ? ' child-item' : '';
-      html += `<a class="kanban-item priority-${item.priority}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
     }
 
     html += '</div></div>\n';
