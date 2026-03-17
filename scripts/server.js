@@ -1104,7 +1104,7 @@ function buildProposalCards(pmDir, limit) {
   const entries = [];
 
   // Scan completed proposals
-  const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   if (fs.existsSync(proposalsDir)) {
     const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
     for (const file of files) {
@@ -1124,7 +1124,7 @@ function buildProposalCards(pmDir, limit) {
       entries.push({
         date: meta.date || '0000-00-00',
         isDraft: false,
-        html: `<a href="/proposals/${escHtml(slug)}" class="card proposal-card">
+        html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
   <div class="card-gradient" style="background: ${gradient}"></div>
   <h3>${escHtml(title)}</h3>
   <p class="meta">${escHtml(staleLabel)}</p>
@@ -1323,7 +1323,7 @@ function handleDashboardHome(res, pmDir) {
   // Proposal cards section
   let proposalsHtml = '';
   const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6);
-  if (proposalCards) {
+  if (proposalCount > 0) {
     const viewAllText = proposalCount > 6
       ? `View all ${proposalCount} proposals →`
       : 'View all proposals →';
