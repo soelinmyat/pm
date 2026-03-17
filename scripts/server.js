@@ -1030,6 +1030,7 @@ const PROPOSAL_GRADIENTS = [
 ];
 
 function proposalGradient(slug) {
+  if (!slug) return PROPOSAL_GRADIENTS[0];
   let hash = 5381;
   for (let i = 0; i < slug.length; i++) {
     hash = ((hash << 5) + hash + slug.charCodeAt(i)) >>> 0;
@@ -1039,12 +1040,14 @@ function proposalGradient(slug) {
 
 function readProposalMeta(slug, pmDir) {
   if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) return null;
-  const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   const metaPath = path.resolve(proposalsDir, slug + '.meta.json');
   if (!metaPath.startsWith(proposalsDir + path.sep)) return null;
   try {
     const raw = fs.readFileSync(metaPath, 'utf-8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
   } catch {
     return null;
   }
