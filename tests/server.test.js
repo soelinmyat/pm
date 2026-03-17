@@ -1057,6 +1057,49 @@ test('GET /proposals empty shows groom hint', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 31. GET /proposals/{slug} detail handler
+// ---------------------------------------------------------------------------
+
+test('GET /proposals/{slug} serves raw proposal HTML', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.html': '<html><body><h1>My Feature Proposal</h1></body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/my-feature');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('My Feature Proposal'), 'must serve the proposal HTML');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} returns 404 for missing proposal', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/nonexistent');
+      assert.equal(statusCode, 404);
+      assert.ok(body.includes('/proposals'), 'must have back link');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} rejects path traversal', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/legit.html': '<html>legit</html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const r1 = await httpGet(port, '/proposals/..%2F..%2Fetc%2Fpasswd');
+      assert.equal(r1.statusCode, 404);
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
 // 28. readProposalMeta reads JSON sidecar and returns parsed data
 // ---------------------------------------------------------------------------
 

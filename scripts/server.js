@@ -971,6 +971,9 @@ function routeDashboard(req, res, pmDir) {
     }
   } else if (url === '/proposals') {
     handleProposalsPage(res, pmDir);
+  } else if (url.startsWith('/proposals/')) {
+    const slug = decodeURIComponent(url.slice('/proposals/'.length)).replace(/\/$/, '');
+    handleProposalDetail(res, pmDir, slug);
   } else {
     res.writeHead(404); res.end('Not found');
   }
@@ -1326,6 +1329,24 @@ function handleDashboardHome(res, pmDir) {
 ${suggestedHtml}`;
 
   const html = dashboardPage('Home', '/', body, projectName);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleProposalDetail(res, pmDir, slug) {
+  if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    return;
+  }
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const htmlPath = path.resolve(proposalsDir, slug + '.html');
+  if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    return;
+  }
+  const html = fs.readFileSync(htmlPath, 'utf-8');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
