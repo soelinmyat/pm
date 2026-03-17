@@ -1055,7 +1055,7 @@ function readGroomState(pmDir) {
   try {
     const raw = fs.readFileSync(statePath, 'utf-8');
     const { data } = parseFrontmatter(raw);
-    if (!data.topic) return null;
+    if (typeof data.topic !== 'string' || data.topic.trim() === '') return null;
     return data;
   } catch {
     return null;
