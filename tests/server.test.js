@@ -1221,3 +1221,164 @@ test('groomPhaseLabel maps raw phase strings to human-readable labels', () => {
   assert.equal(mod.groomPhaseLabel('link'), 'Linking Issues');
   assert.equal(mod.groomPhaseLabel('unknown-phase'), 'Unknown Phase', 'unmapped phases use humanizeSlug');
 });
+
+// ---------------------------------------------------------------------------
+// Proposal gallery (PM-028)
+// ---------------------------------------------------------------------------
+
+test('sanitizeGradient returns valid gradients and falls back for invalid', () => {
+  const mod = loadServer();
+  assert.equal(mod.sanitizeGradient('linear-gradient(135deg, #667eea 0%, #764ba2 100%)'), 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 'valid gradient passes through');
+  assert.equal(mod.sanitizeGradient(null), '#e5e7eb', 'null falls back');
+  assert.equal(mod.sanitizeGradient(undefined), '#e5e7eb', 'undefined falls back');
+  assert.equal(mod.sanitizeGradient(''), '#e5e7eb', 'empty falls back');
+  assert.equal(mod.sanitizeGradient('url(javascript:alert(1))'), '#e5e7eb', 'XSS falls back');
+  assert.equal(mod.sanitizeGradient('linear-gradient(135deg, url(javascript:alert(1)))'), '#e5e7eb', 'nested url() rejected');
+});
+
+test('buildProposalCards returns cards sorted newest first', () => {
+  const meta1 = { title: 'Feature A', date: '2026-03-15', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 5, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const meta2 = { title: 'Feature B', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 3, gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feature-a.meta.json': JSON.stringify(meta1),
+    'pm/backlog/proposals/feature-b.meta.json': JSON.stringify(meta2),
+  });
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 2);
+    assert.ok(cardsHtml.indexOf('Feature B') < cardsHtml.indexOf('Feature A'), 'sorted newest first');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards includes draft card pinned first with resume hint', () => {
+  const meta = { title: 'Completed', date: '2026-03-10', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 2, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/completed.meta.json': JSON.stringify(meta),
+    '.pm/.groom-state.md': '---\ntopic: "In Progress Feature"\nphase: research\nstarted: 2026-03-17\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 2);
+    assert.ok(cardsHtml.includes('In Progress Feature'), 'draft card must appear');
+    assert.ok(cardsHtml.includes('draft'), 'must have draft class');
+    assert.ok(cardsHtml.includes('/pm:groom'), 'must have resume hint');
+    assert.ok(cardsHtml.indexOf('In Progress Feature') < cardsHtml.indexOf('Completed'), 'draft pinned first');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards returns empty when no proposals exist', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null);
+    assert.equal(totalCount, 0);
+    assert.equal(cardsHtml, '');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards respects limit', () => {
+  const metas = {};
+  for (let i = 1; i <= 8; i++) {
+    metas[`pm/backlog/proposals/feat-${i}.meta.json`] = JSON.stringify({
+      title: `Feature ${i}`, date: `2026-03-${String(i).padStart(2, '0')}`, verdict: 'ready',
+      verdictLabel: 'Ready', phase: 'completed', issueCount: 1,
+      gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: []
+    });
+  }
+  const { pmDir, cleanup } = withPmDir(metas);
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, 3);
+    assert.equal(totalCount, 8, 'totalCount pre-limit');
+    assert.ok(cardsHtml.includes('Feature 8'), 'newest must appear');
+    assert.ok(!cardsHtml.includes('Feature 1'), 'oldest excluded');
+  } finally { cleanup(); }
+});
+
+test('GET /proposals with proposals returns card grid', async () => {
+  const meta = { title: 'Test Proposal', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 3, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/test-proposal.meta.json': JSON.stringify(meta),
+    'pm/backlog/proposals/test-proposal.html': '<html><body>Proposal content</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Test Proposal'), 'must show title');
+      assert.ok(body.includes('card-gradient'), 'must render gradient');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals empty shows groom hint', async () => {
+  const { pmDir, cleanup } = withPmDir({ 'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n' });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('/pm:groom'), 'empty state must mention /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} serves raw proposal HTML', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.html': '<html><body><h1>My Feature Proposal</h1></body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals/my-feature');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('My Feature Proposal'), 'must serve proposal HTML');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals/{slug} returns 404 for missing and rejects traversal', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const r1 = await httpGet(port, '/proposals/nonexistent');
+      assert.equal(r1.statusCode, 404);
+      assert.ok(r1.body.includes('/proposals'), 'must have back link');
+      const r2 = await httpGet(port, '/proposals/%zz');
+      assert.equal(r2.statusCode, 400, 'malformed URI must return 400');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Home page shows proposal cards with View all link', async () => {
+  const meta = { title: 'My Proposal', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 4, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('My Proposal'), 'must show proposal card');
+      assert.ok(body.includes('Recent Proposals'), 'must have section heading');
+      assert.ok(body.includes('View all proposals'), 'must have View all link');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Home page has no proposal section when no proposals exist', async () => {
+  const { pmDir, cleanup } = withPmDir({ 'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n' });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('Recent Proposals'), 'must not show proposal section');
+      assert.ok(!body.includes('View all proposals'), 'must not have View all link text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
