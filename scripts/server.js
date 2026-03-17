@@ -1078,6 +1078,7 @@ const GROOM_PHASE_LABELS = {
 };
 
 function groomPhaseLabel(phase) {
+  if (!phase) return 'Unknown';
   return GROOM_PHASE_LABELS[phase] || humanizeSlug(phase);
 }
 
