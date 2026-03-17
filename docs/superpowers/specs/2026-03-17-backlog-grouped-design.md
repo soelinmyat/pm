@@ -19,6 +19,7 @@ PM-030 from the Dashboard Proposal-Centric Redesign initiative. The backlog page
 
 Returns grouped HTML string. Steps:
 
+0. If backlog directory is empty or missing, return the existing empty-state HTML immediately (no grouping logic)
 1. Scan `pm/backlog/*.md` — build `items` map: `slug → { data, parent, children }`
 2. Scan `pm/backlog/proposals/*.meta.json` — build `proposals` set of known proposal slugs
 3. For each item, walk parent chain (max depth 10):
@@ -27,7 +28,8 @@ Returns grouped HTML string. Steps:
    - If chain ends without proposal → "Standalone"
 4. Build groups: `{ proposalSlug → [items] }` + standalone array
 5. For each proposal group: read meta via `readProposalMeta()` for gradient + title
-6. Render groups as collapsible sections, standalone at bottom
+6. Render groups as always-expanded sections (not collapsible — link headers navigate to proposal), standalone at bottom
+7. Within each group: render root-level items first, then direct children sorted immediately after their parent (parent → children ordering)
 
 ### Group rendering
 
@@ -67,7 +69,7 @@ Standalone section:
 </div>
 ```
 
-Server-side: `handleBacklog` checks `?view=` param. Default is `proposals`. `kanban` renders the existing kanban code unchanged.
+Server-side: `handleBacklog` checks `?view=` param. Default is `proposals`. `kanban` renders the existing kanban code unchanged. Both `view=proposals` and no `view` param are treated as the proposals-active state (toggle highlights correctly on initial load). Priority legend is shown only in kanban view (not in grouped view).
 
 ### Route change
 
