@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Product discovery, competitive intelligence, and feature grooming for Product Managers",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "author": { "name": "Soe Lin Myat" },
   "homepage": "https://github.com/soelinmyat/pm",
   "repository": "https://github.com/soelinmyat/pm",
