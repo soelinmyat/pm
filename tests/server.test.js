@@ -1005,6 +1005,58 @@ test('buildProposalCards respects limit', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 30. GET /proposals gallery route
+// ---------------------------------------------------------------------------
+
+test('GET /proposals with proposals returns card grid', async () => {
+  const meta = { title: 'Test Proposal', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 3, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/test-proposal.meta.json': JSON.stringify(meta),
+    'pm/backlog/proposals/test-proposal.html': '<html><body>Proposal content</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Test Proposal'), 'must show proposal title');
+      assert.ok(body.includes('card-gradient'), 'must render gradient strip');
+      assert.ok(body.includes('Ready'), 'must show verdict badge');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals with active groom state shows draft card', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/.groom-state.md': '---\ntopic: "Active Feature"\nphase: research\nstarted: 2026-03-10\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Active Feature'), 'draft card must appear in gallery');
+      assert.ok(body.includes('draft'), 'must have draft CSS class');
+      assert.ok(body.includes('/pm:groom'), 'must have resume hint');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /proposals empty shows groom hint', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('/pm:groom'), 'empty state must mention /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
 // 28. readProposalMeta reads JSON sidecar and returns parsed data
 // ---------------------------------------------------------------------------
 

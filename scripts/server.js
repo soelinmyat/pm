@@ -969,6 +969,8 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  } else if (url === '/proposals') {
+    handleProposalsPage(res, pmDir);
   } else {
     res.writeHead(404); res.end('Not found');
   }
@@ -1324,6 +1326,28 @@ function handleDashboardHome(res, pmDir) {
 ${suggestedHtml}`;
 
   const html = dashboardPage('Home', '/', body, projectName);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleProposalsPage(res, pmDir) {
+  const { cardsHtml, totalCount } = buildProposalCards(pmDir, null);
+
+  let body;
+  if (totalCount === 0) {
+    body = `<div class="page-header"><h1>Proposals</h1></div>
+<div class="empty-state">
+  <h2>No proposals yet</h2>
+  <p>Run <code>/pm:groom</code> to create your first proposal.</p>
+</div>`;
+  } else {
+    body = `<div class="page-header"><h1>Proposals</h1>
+  <p class="subtitle">${totalCount} proposal${totalCount !== 1 ? 's' : ''}</p>
+</div>
+<div class="card-grid">${cardsHtml}</div>`;
+  }
+
+  const html = dashboardPage('Proposals', '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
