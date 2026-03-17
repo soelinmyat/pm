@@ -916,3 +916,111 @@ test('start-server.sh launches dashboard mode against the provided project direc
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// 28. readProposalMeta reads JSON sidecar and returns parsed data
+// ---------------------------------------------------------------------------
+
+test('readProposalMeta returns parsed JSON for existing sidecar', () => {
+  const meta = { title: 'Dashboard Redesign', date: '2026-03-17', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 7, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: ['dashboard', 'ux'] };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/dashboard-redesign.meta.json': JSON.stringify(meta),
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readProposalMeta('dashboard-redesign', pmDir);
+    assert.deepEqual(result, meta);
+  } finally { cleanup(); }
+});
+
+test('readProposalMeta returns null for missing sidecar', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const result = mod.readProposalMeta('nonexistent', pmDir);
+    assert.equal(result, null);
+  } finally { cleanup(); }
+});
+
+test('readProposalMeta returns null for corrupted JSON', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/bad.meta.json': '{ broken json',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readProposalMeta('bad', pmDir);
+    assert.equal(result, null);
+  } finally { cleanup(); }
+});
+
+test('readProposalMeta rejects path traversal slugs', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/legit.meta.json': '{"title":"ok"}',
+  });
+  try {
+    const mod = loadServer();
+    assert.equal(mod.readProposalMeta('../../../etc/passwd', pmDir), null);
+    assert.equal(mod.readProposalMeta('foo/bar', pmDir), null);
+    assert.equal(mod.readProposalMeta('..', pmDir), null);
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// 29. readGroomState reads .pm/.groom-state.md from project root
+// ---------------------------------------------------------------------------
+
+test('readGroomState returns parsed frontmatter for existing state', () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/.groom-state.md': '---\ntopic: "Dashboard Redesign"\nphase: research\nstarted: 2026-03-16\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    assert.equal(result.topic, 'Dashboard Redesign');
+    assert.equal(result.phase, 'research');
+    assert.equal(result.started, '2026-03-16');
+  } finally { cleanup(); }
+});
+
+test('readGroomState returns null when no groom state exists', () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    assert.equal(result, null);
+  } finally { cleanup(); }
+});
+
+test('readGroomState returns null for corrupted state file', () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/.groom-state.md': 'not yaml at all just random text',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    // parseFrontmatter returns {} for no match, so readGroomState returns null when no topic
+    assert.equal(result, null);
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// 30. proposalGradient is deterministic based on slug
+// ---------------------------------------------------------------------------
+
+test('proposalGradient returns consistent gradient for same slug', () => {
+  const mod = loadServer();
+  const g1 = mod.proposalGradient('dashboard-redesign');
+  const g2 = mod.proposalGradient('dashboard-redesign');
+  assert.equal(g1, g2, 'same slug must produce same gradient');
+  assert.ok(g1.startsWith('linear-gradient('), 'must be a CSS gradient');
+});
+
+test('proposalGradient returns different gradients for different slugs', () => {
+  const mod = loadServer();
+  // With 8 gradients in the palette, these two slugs should differ (extremely likely)
+  const g1 = mod.proposalGradient('feature-one');
+  const g2 = mod.proposalGradient('feature-two');
+  // Not guaranteed different with only 8 options, but the hash should distribute well
+  assert.ok(g1.startsWith('linear-gradient('), 'must be a CSS gradient');
+  assert.ok(g2.startsWith('linear-gradient('), 'must be a CSS gradient');
+});

@@ -1016,6 +1016,55 @@ function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ========== Proposal Metadata Helpers ==========
+
+const PROPOSAL_GRADIENTS = [
+  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+  'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+  'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+  'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+  'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+  'linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)',
+  'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+];
+
+function proposalGradient(slug) {
+  if (!slug) return PROPOSAL_GRADIENTS[0];
+  let hash = 5381;
+  for (let i = 0; i < slug.length; i++) {
+    hash = ((hash << 5) + hash + slug.charCodeAt(i)) >>> 0;
+  }
+  return PROPOSAL_GRADIENTS[hash % PROPOSAL_GRADIENTS.length];
+}
+
+function readProposalMeta(slug, pmDir) {
+  if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) return null;
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const metaPath = path.resolve(proposalsDir, slug + '.meta.json');
+  if (!metaPath.startsWith(proposalsDir + path.sep)) return null;
+  try {
+    const raw = fs.readFileSync(metaPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function readGroomState(pmDir) {
+  const statePath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
+  try {
+    const raw = fs.readFileSync(statePath, 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    if (typeof data.topic !== 'string' || data.topic.trim() === '') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSourceOrigin(value) {
   const origin = String(value || 'external').toLowerCase();
   return origin === 'internal' || origin === 'mixed' || origin === 'external'
@@ -2756,4 +2805,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
+  readProposalMeta, readGroomState, proposalGradient,
 };
