@@ -919,7 +919,8 @@ function getProjectName(pmDir) {
 
 function routeDashboard(req, res, pmDir) {
   touchActivity();
-  const url = req.url.split('?')[0];
+  const rawUrl = req.url;
+  const url = rawUrl.split('?')[0];
   const pmExists = fs.existsSync(pmDir);
   const projectName = pmExists ? getProjectName(pmDir) : 'PM';
 
@@ -935,8 +936,8 @@ function routeDashboard(req, res, pmDir) {
     return;
   }
 
-  // Parse query params
-  const urlObj = new URL(url, 'http://localhost');
+  // Parse query params from the full URL (before ? stripping)
+  const urlObj = new URL(rawUrl, 'http://localhost');
   const urlPath = urlObj.pathname;
   const tab = urlObj.searchParams.get('tab');
 
@@ -2184,7 +2185,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
           const meta = buildTopicMeta(t.name, data, findingsPath);
           return `<div class="card">
             <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
-            <p class="meta">${meta.subtitle}</p>
+            <p class="meta">${escHtml(meta.subtitle)}</p>
             <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View →</a></div>
           </div>`;
         }).join('');
@@ -2266,7 +2267,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
 
   const body = `
 <div class="page-header">
-  <p class="breadcrumb"><a href="/research#competitors">&larr; Competitors</a></p>
+  <p class="breadcrumb"><a href="/kb?tab=competitors">&larr; Competitors</a></p>
   <h1>${escHtml(name)}</h1>
 </div>
 <div class="tabs" role="tablist">${tabHeaders.join('')}</div>
@@ -2306,7 +2307,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const meta = buildTopicMeta(topic, data, findingsPath);
   const html = dashboardPage(meta.label, '/research', `
 <div class="page-header">
-  <p class="breadcrumb"><a href="/research#topics">&larr; Research</a></p>
+  <p class="breadcrumb"><a href="/kb?tab=research">&larr; Research</a></p>
   <h1>${escHtml(meta.label)}</h1>
   <p class="subtitle">${escHtml(meta.subtitle)}</p>
   <div class="topic-badges">${meta.badgesHtml}</div>
