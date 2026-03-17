@@ -7,8 +7,9 @@ PM-028 from the Dashboard Proposal-Centric Redesign initiative. The proposal gal
 ## Scope
 
 - New `/proposals` route showing all proposals as a card grid
-- Modified home page showing 6 most recent proposals above KB stats
-- Draft proposal cards from active groom state
+- Minimal `/proposals/{slug}` handler serving raw proposal HTML files (lightweight, PM-031 upgrades to iframe-in-dashboard)
+- Modified home page showing 6 most recent proposals above KB stats with persistent "View all" link
+- Draft proposal cards from active groom state with resume hint
 - Empty state when no proposals exist
 
 ## Architecture
@@ -50,6 +51,7 @@ Draft card:
   <div class="card-footer">
     <span class="badge badge-draft">Draft — {phaseLabel}</span>
   </div>
+  <p class="action-hint">Resume with <code>/pm:groom</code></p>
 </div>
 ```
 
@@ -70,7 +72,7 @@ calls buildProposalCards(pmDir, 6)
 if cardsHtml is not empty:
   render "Recent Proposals" section heading
   render cards
-  if totalCount > 6: render "View all N proposals →" link to /proposals
+  always render "View all proposals →" link to /proposals (persistent entry point)
 ```
 
 ### CSS additions to DASHBOARD_CSS
@@ -85,16 +87,36 @@ if cardsHtml is not empty:
 .badge-draft { background: #dbeafe; color: #1d4ed8; }
 ```
 
-### Routing addition
+### Minimal detail handler: `handleProposalDetail(res, pmDir, slug)`
 
-In `routeDashboard()`, add before the 404 fallback:
+Serves the raw proposal HTML file at `/proposals/{slug}`. No dashboard chrome — just the standalone HTML. PM-031 will upgrade this to an iframe-in-dashboard experience.
+
+```
+GET /proposals/{slug} → 200 (serve raw HTML) or 404
+  validate slug (no .., no /, no \)
+  resolve path: pm/backlog/proposals/{slug}.html
+  path.resolve + startsWith containment check (matches readProposalMeta pattern)
+  if file exists → serve with Content-Type text/html
+  if not → 404 with back link to /proposals
+```
+
+This ensures completed proposal cards are always navigable, even before PM-031 ships.
+
+### Routing additions
+
+In `routeDashboard()`:
 ```javascript
 } else if (urlPath === '/proposals') {
   handleProposalsPage(res, pmDir);
+} else if (urlPath.startsWith('/proposals/')) {
+  const slug = urlPath.slice('/proposals/'.length).replace(/\/$/, '');
+  handleProposalDetail(res, pmDir, slug);
 }
 ```
 
-Note: `/proposals/{slug}` detail view is PM-031 (out of scope). For now, completed cards link to `/proposals/{slug}` which will 404 until PM-031 ships. This is acceptable — the gallery ships independently.
+### Home page "View all" link
+
+Always show "View all proposals →" link below the proposal card grid on the home page (not just when >6). This provides a persistent entry point to `/proposals` for users with ≤6 proposals, addressing the nav discoverability gap until PM-029 merges and adds the Proposals nav item.
 
 ## Error Handling
 
@@ -110,28 +132,35 @@ Note: `/proposals/{slug}` detail view is PM-031 (out of scope). For now, complet
 ## Security
 
 - All user-controlled content (title, verdictLabel, topic) escaped with `escHtml()` before interpolation
-- Gradient values from `.meta.json` injected into `style=` attribute — must sanitize (strip anything that's not a valid CSS gradient pattern)
+- Gradient values from `.meta.json` injected into `style=` attribute — validate with regex (`/^linear-gradient\(/`). If null/undefined/invalid, fall back to a neutral gray (`#e5e7eb`)
 - Slug validation via `readProposalMeta()` path traversal checks (already implemented in PM-026)
 
 ## Testing Plan
 
 1. **GET /proposals with proposals** — returns 200, cards rendered with title, gradient, badges
 2. **GET /proposals empty** — returns 200, empty state with `/pm:groom` hint
-3. **GET /proposals with draft** — draft card shown with dashed border class, phase badge
+3. **GET /proposals with draft** — draft card shown with dashed border class, phase badge, resume hint
 4. **GET /proposals sort order** — newest first
-5. **Home page with proposals** — shows proposal cards section above KB stats
-6. **Home page caps at 6** — shows "View all" link when > 6 proposals
-7. **Home page without proposals** — no proposal section rendered
-8. **buildProposalCards exported** — function is available for testing
-9. **Gradient sanitization** — reject non-gradient values in style attribute
+5. **GET /proposals/{slug} serves proposal HTML** — returns 200 with file content
+6. **GET /proposals/{slug} with path traversal** — returns 404 or null
+7. **GET /proposals/{slug} for missing file** — returns 404 with back link
+8. **Home page with proposals** — shows proposal cards section above KB stats, "View all" link always present
+9. **Home page caps at 6** — only 6 cards when more exist
+10. **Home page without proposals** — no proposal section rendered
+11. **Gradient sanitization** — reject non-gradient values, fallback to neutral gray
 
 ## Files Modified
 
-- `scripts/server.js` — add CSS, `buildProposalCards()`, `handleProposalsPage()`, modify `handleDashboardHome()`, add route, update exports
-- `tests/server.test.js` — 7-9 new tests
+- `scripts/server.js` — add CSS, `buildProposalCards()`, `handleProposalsPage()`, `handleProposalDetail()`, modify `handleDashboardHome()`, add routes, update exports
+- `tests/server.test.js` — 9-11 new tests
 
 ## Out of Scope
 
-- `/proposals/{slug}` detail view (PM-031)
+- Full `/proposals/{slug}` detail view with dashboard chrome + iframe (PM-031 — this PR adds minimal raw file serve)
 - Proposal status workflow
 - Real-time updates via WebSocket
+
+## Dependencies
+
+- **PM-026** (merged) — provides `readProposalMeta()`, `readGroomState()`, `proposalGradient()`
+- **PM-029** (PR open) — adds Proposals nav item. Until merged, `/proposals` is reachable via home page "View all" link
