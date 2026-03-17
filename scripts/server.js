@@ -706,6 +706,17 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   text-transform: uppercase; letter-spacing: 0.05em; }
 .positioning-map .map-container { position: relative; }
 
+/* Active groom session banner */
+.groom-session { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius);
+  padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem; }
+.groom-session-dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%;
+  flex-shrink: 0; animation: pulse 2s ease-in-out infinite; }
+.groom-session-topic { font-weight: 600; font-size: 0.9375rem; color: var(--text); }
+.groom-session-meta { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
+.groom-session-label { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1053,6 +1064,24 @@ function readProposalMeta(slug, pmDir) {
   }
 }
 
+const GROOM_PHASE_LABELS = {
+  'intake': 'Intake',
+  'strategy-check': 'Strategy Check',
+  'research': 'Research',
+  'scope': 'Scoping',
+  'scope-review': 'Scope Review',
+  'groom': 'Drafting Issues',
+  'team-review': 'Team Review',
+  'bar-raiser': 'Bar Raiser',
+  'present': 'Presentation',
+  'link': 'Linking Issues',
+};
+
+function groomPhaseLabel(phase) {
+  if (!phase) return 'Unknown';
+  return GROOM_PHASE_LABELS[phase] || humanizeSlug(phase);
+}
+
 function readGroomState(pmDir) {
   const statePath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
   try {
@@ -1222,11 +1251,30 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
+  // Active groom session banner
+  let groomBannerHtml = '';
+  const groomState = readGroomState(pmDir);
+  if (groomState) {
+    const topic = escHtml(groomState.topic);
+    const phase = escHtml(groomPhaseLabel(groomState.phase || ''));
+    const started = escHtml(groomState.started || '');
+    groomBannerHtml = `
+<div class="groom-session-label">Currently grooming</div>
+<div class="groom-session">
+  <div class="groom-session-dot"></div>
+  <div>
+    <div class="groom-session-topic">${topic}</div>
+    <div class="groom-session-meta">Phase: ${phase} · Started ${started}</div>
+  </div>
+</div>`;
+  }
+
   const body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
+${groomBannerHtml}
 <div class="card-grid">${sections}</div>
 ${suggestedHtml}`;
 
@@ -2805,5 +2853,5 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient,
+  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel,
 };

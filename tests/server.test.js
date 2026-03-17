@@ -1024,3 +1024,67 @@ test('proposalGradient returns different gradients for different slugs', () => {
   assert.ok(g1.startsWith('linear-gradient('), 'must be a CSS gradient');
   assert.ok(g2.startsWith('linear-gradient('), 'must be a CSS gradient');
 });
+
+// ---------------------------------------------------------------------------
+// 31. Active session indicator on dashboard home
+// ---------------------------------------------------------------------------
+
+test('Dashboard home shows active session banner when groom state exists', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/.groom-state.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Dashboard Redesign'), 'must show topic name in banner');
+      assert.ok(body.includes('Scope Review'), 'must show human-readable phase name');
+      assert.ok(body.includes('2026-03-16'), 'must show start date');
+      assert.ok(body.includes('Currently grooming'), 'must have Currently grooming label');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home has no session banner when groom state is absent', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('Currently grooming'), 'must not show grooming label when no state');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home has no session banner when groom state is corrupted', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/.groom-state.md': 'this is not yaml frontmatter',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('Currently grooming'), 'corrupted state must not show banner');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('groomPhaseLabel maps raw phase strings to human-readable labels', () => {
+  const mod = loadServer();
+  assert.equal(mod.groomPhaseLabel('intake'), 'Intake');
+  assert.equal(mod.groomPhaseLabel('strategy-check'), 'Strategy Check');
+  assert.equal(mod.groomPhaseLabel('research'), 'Research');
+  assert.equal(mod.groomPhaseLabel('scope'), 'Scoping');
+  assert.equal(mod.groomPhaseLabel('scope-review'), 'Scope Review');
+  assert.equal(mod.groomPhaseLabel('groom'), 'Drafting Issues');
+  assert.equal(mod.groomPhaseLabel('team-review'), 'Team Review');
+  assert.equal(mod.groomPhaseLabel('bar-raiser'), 'Bar Raiser');
+  assert.equal(mod.groomPhaseLabel('present'), 'Presentation');
+  assert.equal(mod.groomPhaseLabel('link'), 'Linking Issues');
+  assert.equal(mod.groomPhaseLabel('unknown-phase'), 'Unknown Phase', 'unmapped phases use humanizeSlug');
+});
