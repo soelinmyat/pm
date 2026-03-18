@@ -7,6 +7,23 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Wait up to $2 seconds for background PID $1 to finish, then kill it.
+wait_or_kill() {
+  local pid=$1 max=${2:-5}
+  local n=0
+  while [ "$n" -lt "$max" ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+    n=$(( n + 1 ))
+  done
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
 # First-run detection
 # ---------------------------------------------------------------------------
 
@@ -46,19 +63,35 @@ if [ -z "$INSTALLED_VERSION" ]; then
   exit 0
 fi
 
-# Fetch latest tag from remote (background + kill to avoid blocking on macOS)
+# ---------------------------------------------------------------------------
+# Start both network operations concurrently to minimize wall-clock time.
+# Each gets up to 5 seconds before being killed.
+# ---------------------------------------------------------------------------
+
 REPO_URL="https://github.com/soelinmyat/pm.git"
-LATEST_TAG=""
+
+# 1. Fetch latest tag from remote
 TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
 git ls-remote --tags --sort=-v:refname "$REPO_URL" > "$TMPFILE" 2>/dev/null &
 GIT_PID=$!
-sleep 0 # yield
-for i in 1 2 3 4 5; do
-  if ! kill -0 "$GIT_PID" 2>/dev/null; then break; fi
-  sleep 1
-done
-kill "$GIT_PID" 2>/dev/null
-wait "$GIT_PID" 2>/dev/null
+
+# 2. Sync marketplace clone so /plugin sees the correct latest version.
+#    Claude Code reads version from this local clone but never git-pulls it,
+#    causing /plugin to report "already at latest" on stale clones.
+MARKETPLACE_DIR="$HOME/.claude/plugins/marketplaces/pm"
+PULL_PID=""
+if [ -d "$MARKETPLACE_DIR/.git" ]; then
+  git -C "$MARKETPLACE_DIR" pull --ff-only origin main >/dev/null 2>&1 &
+  PULL_PID=$!
+fi
+
+# Wait for both (pull runs in parallel while we wait for ls-remote)
+wait_or_kill "$GIT_PID" 5
+[ -n "$PULL_PID" ] && [ "$PULL_PID" -gt 0 ] 2>/dev/null && wait_or_kill "$PULL_PID" 5
+
+# Process ls-remote result
+LATEST_TAG=""
 if [ -s "$TMPFILE" ]; then
   LATEST_TAG=$(head -1 "$TMPFILE" | sed 's/.*refs\/tags\///' | sed 's/\^{}//')
 fi
