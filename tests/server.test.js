@@ -1646,3 +1646,57 @@ test('GET /backlog toggle highlights active view correctly', async () => {
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// PM-026 — Legacy proposal fallback (HTML-only, no meta.json)
+// ---------------------------------------------------------------------------
+
+test('buildProposalCards shows legacy proposal (HTML only, no meta.json)', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/legacy-feature.html': '<html><body>Legacy</body></html>',
+  });
+  try {
+    const mod = loadServer();
+    const { cardsHtml, totalCount } = mod.buildProposalCards(pmDir, null, []);
+    assert.equal(totalCount, 1, 'must count the legacy proposal');
+    assert.ok(cardsHtml.includes('Legacy Feature'), 'must derive title from slug (kebab → title case)');
+    assert.ok(cardsHtml.includes('proposal-card'), 'must render as a proposal card');
+    assert.ok(cardsHtml.includes('#e5e7eb'), 'must use neutral gray gradient');
+    assert.ok(!cardsHtml.includes('badge-ready'), 'must not show verdict badge');
+  } finally { cleanup(); }
+});
+
+test('buildProposalCards does not double-count proposal with both meta.json and html', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-z.meta.json': JSON.stringify({
+      title: 'Feature Z', date: '2026-03-18', verdict: 'ready',
+      verdictLabel: 'Ready', phase: 'completed', issueCount: 3,
+      gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      labels: ['mvp'],
+    }),
+    'pm/backlog/proposals/feat-z.html': '<html><body>Feature Z</body></html>',
+  });
+  try {
+    const mod = loadServer();
+    const { totalCount } = mod.buildProposalCards(pmDir, null, []);
+    assert.equal(totalCount, 1, 'must not double-count');
+  } finally { cleanup(); }
+});
+
+test('buildBacklogGrouped discovers legacy HTML-only proposals', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/legacy-proj.html': '<html><body>Legacy</body></html>',
+    'pm/backlog/legacy-proj.md': '---\ntitle: "Legacy Project"\nstatus: drafted\nparent: null\nid: "PM-100"\n---\n',
+    'pm/backlog/child-task.md': '---\ntitle: "Child Task"\nstatus: idea\nparent: "legacy-proj"\nid: "PM-101"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    // The legacy proposal should appear as a group header (not a dead proposal)
+    assert.ok(html.includes('proposal-group'), 'must render as proposal group');
+    assert.ok(html.includes('Child Task'), 'must show child under legacy proposal group');
+    // Legacy proposals without meta.json render as standalone-header (no gradient)
+    // but are still recognized as proposal groups
+    assert.ok(html.includes('group-title'), 'must have group title');
+  } finally { cleanup(); }
+});
