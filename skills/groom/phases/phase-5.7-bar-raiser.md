@@ -7,7 +7,7 @@ The bar raiser must NOT read team review findings — independent assessment is 
 
 After the team review converges (no blocking issues or max iterations reached), dispatch a single bar raiser agent for a senior-level holistic review. The bar raiser has not been involved in the iterative process and brings fresh eyes.
 
-Dispatch **1 agent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"`.
+Dispatch **1 agent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "opus"`. The bar raiser performs the most judgment-heavy assessment in the pipeline — narrative coherence, ambition calibration, cross-cutting concerns — and benefits from stronger reasoning. If `.pm/config.json` has `agents.bar_raiser_model` set, use that model instead.
 
 **Agent: Product Director — Bar Raiser**
 
@@ -21,7 +21,7 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 **Read before reviewing:**
 - pm/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - pm/landscape.md — market context
-- .pm/.groom-state.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
+- .pm/groom-sessions/{slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
 - All drafted issue files (pm/backlog/{slug}.md) — the complete proposal
 - pm/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
 - pm/research/{topic}/ — the underlying research
@@ -59,7 +59,7 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 
 **Output format:**
 ## Bar Raiser Review
-**Verdict:** Ready to present | Send back to team | Pause initiative
+**Verdict:** Ready to present | Ready if {condition} | Send back to team | Pause initiative
 **Rationale:** {2-3 sentences summarizing your overall assessment}
 **Blocking issues:** (must address before presenting to the decision-maker)
 - {issue} — {why this would get pushback and what needs to change}
@@ -72,20 +72,21 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 **Handling bar raiser findings:**
 
 1. If verdict is **"Ready to present"**: proceed to Phase 5.8.
-2. If verdict is **"Send back to team"**:
+2. If verdict is **"Ready if {condition}"**: persist the condition in `bar_raiser.conditions` in the state file. If the bar raiser also lists blocking issues, those must be fixed first (treat as "Send back" until resolved, then re-assess). If no blocking issues, treat as "Ready to present" and surface the condition to the user in Phase 5.8 as an open item requiring acknowledgment before approval.
+3. If verdict is **"Send back to team"**:
    - Address the bar raiser's blocking issues by revising the affected issues
    - Re-run Phase 5.5 (Team Review) with the revised issues — the team must validate the fixes
    - After team review converges, re-run the bar raiser
    - Max **2 bar raiser iterations**. If iteration 2 still returns "Send back," present to the user with unresolved concerns flagged.
-3. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
+4. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
    > "The bar raiser recommends pausing this initiative. Rationale: {rationale}. How would you like to proceed?"
    Wait for user decision before continuing.
-4. Update state:
+5. Update state:
 
 ```yaml
 phase: bar-raiser
 bar_raiser:
-  verdict: ready | send-back | pause
+  verdict: ready | ready-if | send-back | pause
   iterations: {count}
   blocking_issues_fixed: {count}
 ```

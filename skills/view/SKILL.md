@@ -12,7 +12,7 @@ Open the PM dashboard in a browser so the user can review the current landscape,
 ## Flow
 
 1. Check whether `pm/` exists in the current project.
-2. If it does not exist, explain that there is no PM knowledge base yet and suggest `$pm-setup` or `$pm-research landscape` first.
+2. If it does not exist, explain that there is no PM knowledge base yet and suggest `/pm:setup` or `/pm:research landscape` first.
 3. If it exists, resolve the bundled `scripts/start-server.sh` helper relative to this skill directory, then run it with dashboard mode and the current project as the data root:
 
 ```bash

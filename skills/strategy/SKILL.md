@@ -15,7 +15,7 @@ Check if `pm/landscape.md` exists.
 
 If it does NOT exist, say:
 
-> "Consider running $pm-research landscape first. Strategy interviews are more
+> "Consider running /pm:research landscape first. Strategy interviews are more
 > productive with landscape context — knowing the key players and market segments
 > sharpens your positioning answers. This is a recommendation, not a requirement."
 
@@ -129,8 +129,8 @@ Leading indicators preferred over lagging.
 After writing, say:
 
 > "Strategy doc written to pm/strategy.md. Recommended next steps:
-> $pm-research competitors -> $pm-ideate -> $pm-groom [feature idea]
-> If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
+> /pm:research competitors -> /pm:ideate -> /pm:groom [feature idea]
+> If you have un-ingested customer evidence, run /pm:ingest <path> before making bigger prioritization calls."
 
 ## Visual Companion
 

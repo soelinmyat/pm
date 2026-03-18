@@ -21,7 +21,7 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 ## Prerequisite Check
 
 1. Check if `pm/strategy.md` exists. If not:
-   > "No strategy doc found. Ideation without strategy is just brainstorming. Run $pm-strategy first?"
+   > "No strategy doc found. Ideation without strategy is just brainstorming. Run /pm:strategy first?"
    Wait for response. Do not block — proceed if the user insists.
 
 2. Check if `pm/landscape.md` exists. Note its presence for signal mining. Not required.
@@ -78,6 +78,8 @@ Before generating ideas, understand what's already built. This prevents suggesti
 3. **Explore the project codebase (if one exists)** — scan the project's source code structure to catalog existing capabilities. Look at top-level directories, key source files, and any documentation that describes current features. If no codebase exists (greenfield product, standalone knowledge base, or pre-development planning), skip this step — rely on strategy and the feature matrix instead.
 
 Build a mental inventory: "The product already does X, Y, Z." Every idea generated in Step 2 must be checked against this inventory.
+
+**Comprehension check:** Before proceeding to Step 2, state: (a) the top 3 priorities from strategy, (b) the 3 most relevant competitive gaps from the feature matrix, and (c) 1 customer evidence signal if available. If you cannot recall these, re-read the source files. This prevents context loss from propagating into idea generation.
 
 ### Step 2: Mine signals
 
@@ -217,7 +219,7 @@ updated: YYYY-MM-DD
 ```
 
 After writing, report:
-> "Wrote {N} ideas to pm/backlog/. Run $pm-groom {slug} to promote any idea to a fully scoped issue."
+> "Wrote {N} ideas to pm/backlog/. Run /pm:groom {slug} to promote any idea to a fully scoped issue."
 
 ---
 
@@ -238,7 +240,7 @@ When `pm/backlog/` already contains `status: idea` items:
 When the user picks an idea to groom:
 
 1. Say:
-   > "Starting grooming for '{idea name}'. Running $pm-groom {idea-slug}."
+   > "Starting grooming for '{idea name}'. Running /pm:groom {idea-slug}."
 2. Invoke `$pm-groom` with the idea context pre-loaded — the groom skill's Phase 1 (Intake) can be partially pre-filled from the idea's outcome, signal sources, and competitor context.
 3. The groom skill promotes the status from `idea` to `drafted` during Phase 5, and to `created` or `linked` in Phase 6.
 
@@ -252,6 +254,6 @@ When the user picks an idea to groom:
 4. Do not duplicate ideas already in `pm/backlog/`. Reference existing backlog items instead.
 5. Scope signals are rough estimates, not commitments. Groom refines scope.
 6. If no knowledge base exists (no strategy, no landscape, no competitors), say:
-   > "Not enough data to generate evidence-based ideas. Run $pm-research and $pm-strategy first to build the knowledge base."
+   > "Not enough data to generate evidence-based ideas. Run /pm:research and /pm:strategy first to build the knowledge base."
    Do not generate ideas from thin air.
 7. Show what was filtered out and why. Transparency builds trust in the remaining ideas.

@@ -19,14 +19,25 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 
 ## Resume Check
 
-Before doing anything else, check if `.pm/.groom-state.md` exists.
+Before doing anything else, scan `.pm/groom-sessions/` for any `.md` files.
 
-If it does, read it and say:
+**If a slug argument was provided** (e.g., `/pm:groom bulk-editing`):
+- Check if `.pm/groom-sessions/{slug}.md` exists.
+- If it does, read it and say:
+  > "Found an in-progress grooming session for '{topic}' (last updated: {updated}, current phase: {phase}).
+  > Resume from {phase}, or start fresh?"
+- If it doesn't, start Phase 1 for the given topic.
 
-> "Found an in-progress grooming session for '{topic}' (last updated: {updated}, current phase: {phase}).
-> Resume from {phase}, or start fresh?"
+**If no argument was provided:**
+- If one or more session files exist, list them:
+  > "You have {N} in-progress grooming session(s):
+  > 1. {topic} — Phase: {phase}, started {started}
+  > 2. {topic} — Phase: {phase}, started {started}
+  >
+  > Resume one (pick a number), or start a new topic?"
+- If no sessions exist, start Phase 1.
 
-Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the state file, then begin Phase 1.
+Wait for the user's answer. If resuming: read the selected session file, skip completed phases. If starting fresh on an existing slug: delete that session file, then begin Phase 1.
 
 ---
 
@@ -80,9 +91,19 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 ---
 
-## State File Schema (.pm/.groom-state.md)
+## Context Preservation
 
-Only one state file at a time. If one exists when starting fresh, overwrite it.
+Grooming sessions span many phases and can exceed context limits. To prevent state loss:
+
+1. **Re-read critical files at each phase boundary.** At the start of each phase, re-read `.pm/groom-sessions/{slug}.md` (the current session's state file) and `pm/strategy.md` §6-7 (priorities and non-goals). Do not rely on earlier conversation context for these — it may have been compressed.
+2. **State file is the source of truth.** What has been completed, what verdicts were given, and what blocking issues were fixed — all of this lives in the state file, not in conversation history.
+3. **Graceful context exhaustion.** If a phase file cannot be fully loaded or you notice missing context from earlier phases, stop and tell the user: "Context is getting full. The state file preserves your progress. Continue in a new session by running `/pm:groom` — it will detect the state file and offer to resume from {current phase}."
+
+---
+
+## State File Schema (.pm/groom-sessions/{slug}.md)
+
+Each grooming session has its own state file at `.pm/groom-sessions/{slug}.md`, where `{slug}` is the topic slug derived in Phase 1. Multiple sessions can coexist.
 
 ```yaml
 ---
@@ -109,22 +130,26 @@ scope:
   filter_result: 10x | parity | gap-fill | null
 
 scope_review:
-  pm_verdict: ship-it | rethink-scope | wrong-priority | null
-  competitive_verdict: strengthens | neutral | weakens | null
+  pm_verdict: ship-it | ship-if | rethink-scope | wrong-priority | null
+  competitive_verdict: strengthens | strengthens-if | neutral | weakens | null
   em_verdict: feasible | feasible-with-caveats | needs-rearchitecting | null
   blocking_issues_fixed: 0
   iterations: 1
 
 team_review:
-  pm_verdict: ready | needs-revision | significant-gaps | null
-  competitive_verdict: sharp | adequate | undifferentiated | null
-  em_verdict: ready | needs-restructuring | missing-prerequisites | null
-  design_verdict: complete | gaps | inconsistencies | null
+  pm_verdict: ready | ready-if | needs-revision | significant-gaps | null
+  competitive_verdict: sharp | sharp-if | adequate | undifferentiated | null
+  em_verdict: ready | ready-if | needs-restructuring | missing-prerequisites | null
+  design_verdict: complete | complete-if | gaps | inconsistencies | null
+  conditions:
+    - "{reviewer}: {condition text}"
   blocking_issues_fixed: 0
   iterations: 1
 
 bar_raiser:
-  verdict: ready | send-back | pause | null
+  verdict: ready | ready-if | send-back | pause | null
+  conditions:
+    - "{condition text}"
   iterations: 1
   blocking_issues_fixed: 0
 
@@ -141,7 +166,7 @@ issues:
 ## Error Handling
 
 **Corrupted state file** (unparseable YAML, missing required fields):
-> "The state file at .pm/.groom-state.md appears corrupted. Options:
+> "The state file at .pm/groom-sessions/{slug}.md appears corrupted. Options:
 > (a) Show me the file so I can fix it manually
 > (b) Start fresh (deletes the state file)"
 
@@ -151,9 +176,6 @@ Warn the user. Offer to re-run Phase 3 before continuing. Do not silently procee
 **Strategy drift** (pm/strategy.md modified since strategy_check was recorded):
 On every phase after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
 > "pm/strategy.md was updated after the strategy check. Re-run the check before scoping?"
-
-**Parallel sessions** (state file already exists when starting):
-Never silently overwrite an existing state file. Always ask resume vs. fresh. Starting fresh requires explicit user confirmation before deleting.
 
 ---
 

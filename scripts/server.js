@@ -1157,15 +1157,48 @@ function groomPhaseLabel(phase) {
 }
 
 function readGroomState(pmDir) {
-  const statePath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
+  // Support both new multi-session directory and legacy single file
+  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'groom-sessions');
+  const legacyPath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
+  const sessions = [];
+
+  // Read from groom-sessions/ directory (new format)
   try {
-    const raw = fs.readFileSync(statePath, 'utf-8');
-    const { data } = parseFrontmatter(raw);
-    if (typeof data.topic !== 'string' || data.topic.trim() === '') return null;
-    return data;
-  } catch {
-    return null;
+    const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(sessionsDir, file), 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        if (typeof data.topic === 'string' && data.topic.trim() !== '') {
+          sessions.push({ ...data, _slug: file.replace('.md', '') });
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // Fall back to legacy single file
+  if (sessions.length === 0) {
+    try {
+      const raw = fs.readFileSync(legacyPath, 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      if (typeof data.topic === 'string' && data.topic.trim() !== '') {
+        sessions.push(data);
+      }
+    } catch {}
   }
+
+  return sessions;
+}
+
+function groomSessionDisplay(session) {
+  const slug = session._slug ? escHtml(session._slug) : '';
+  return {
+    topic: escHtml(session.topic),
+    phase: escHtml(groomPhaseLabel(session.phase || '')),
+    started: escHtml(session.started || ''),
+    slug,
+    resumeHint: slug ? `/pm:groom ${slug}` : '/pm:groom',
+  };
 }
 
 const VALID_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
@@ -1315,7 +1348,7 @@ function buildBacklogGrouped(pmDir) {
   <div class="group-items">`;
     for (const item of standalone) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-      html += `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      html += `<a class="kanban-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
     }
     html += '</div></div>\n';
   }
@@ -1338,11 +1371,11 @@ function findProposalAncestor(slug, items, proposalSlugs) {
 }
 
 function sanitizeGradient(value) {
-  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(')) return value;
+  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(') && !value.includes(';')) return value;
   return '#e5e7eb';
 }
 
-function buildProposalCards(pmDir, limit) {
+function buildProposalCards(pmDir, limit, preloadedSessions) {
   const entries = [];
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   if (fs.existsSync(proposalsDir)) {
@@ -1373,20 +1406,18 @@ function buildProposalCards(pmDir, limit) {
       });
     }
   }
-  const groomState = readGroomState(pmDir);
-  if (groomState) {
-    const topic = escHtml(groomState.topic);
-    const phase = escHtml(groomPhaseLabel(groomState.phase || ''));
-    const started = escHtml(groomState.started || '');
+  const groomSessions = preloadedSessions || readGroomState(pmDir);
+  for (const session of groomSessions) {
+    const d = groomSessionDisplay(session);
     entries.push({
       date: '9999-99-99',
       isDraft: true,
       html: `<div class="card proposal-card draft">
   <div class="card-gradient draft-gradient"></div>
-  <h3>${topic}</h3>
-  <p class="meta">Grooming since ${started}</p>
-  <div class="card-footer"><span class="badge badge-draft">Draft — ${phase}</span></div>
-  <p class="action-hint">Resume with <code>/pm:groom</code></p>
+  <h3>${d.topic}</h3>
+  <p class="meta">Grooming since ${d.started}</p>
+  <div class="card-footer"><span class="badge badge-draft">Draft — ${d.phase}</span></div>
+  <p class="action-hint">Resume with <code>${d.resumeHint}</code></p>
 </div>`
     });
   }
@@ -1554,27 +1585,27 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
-  // Active groom session banner
+  // Active groom session banner(s) — read once and reuse for proposal cards
+  const groomSessions = readGroomState(pmDir);
   let groomBannerHtml = '';
-  const groomState = readGroomState(pmDir);
-  if (groomState) {
-    const topic = escHtml(groomState.topic);
-    const phase = escHtml(groomPhaseLabel(groomState.phase || ''));
-    const started = escHtml(groomState.started || '');
-    groomBannerHtml = `
-<div class="groom-session-label">Currently grooming</div>
-<div class="groom-session">
+  if (groomSessions.length > 0) {
+    const label = groomSessions.length === 1 ? 'Currently grooming' : `Currently grooming (${groomSessions.length} sessions)`;
+    const sessionItems = groomSessions.map(s => {
+      const d = groomSessionDisplay(s);
+      return `<div class="groom-session">
   <div class="groom-session-dot"></div>
   <div>
-    <div class="groom-session-topic">${topic}</div>
-    <div class="groom-session-meta">Phase: ${phase} · Started ${started}</div>
+    <div class="groom-session-topic">${d.topic}</div>
+    <div class="groom-session-meta">Phase: ${d.phase} · Started ${d.started}</div>
   </div>
 </div>`;
+    }).join('\n');
+    groomBannerHtml = `\n<div class="groom-session-label">${label}</div>\n${sessionItems}`;
   }
 
-  // Proposal cards section
+  // Proposal cards section — pass pre-loaded sessions to avoid redundant I/O
   let proposalsHtml = '';
-  const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6);
+  const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6, groomSessions);
   if (proposalCount > 0) {
     const viewAllText = proposalCount > 6
       ? `View all ${proposalCount} proposals →`

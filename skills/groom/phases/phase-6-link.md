@@ -32,8 +32,8 @@ issues:
     linear_id: "{ID}" | null
 ```
 
-Delete `.pm/.groom-state.md` after successful link. Grooming is complete.
+Delete `.pm/groom-sessions/{slug}.md` after successful link. Grooming for this topic is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
-> Recommended next: $pm-ideate for more ideas, $pm-groom {next-idea}, or update priorities in pm/strategy.md."
+> Recommended next: /pm:ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
