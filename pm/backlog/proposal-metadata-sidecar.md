@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-026"
 title: "Proposal Metadata Sidecar"
 outcome: "The dashboard can reliably read proposal metadata (title, date, verdict, phase, issue count) without parsing freeform HTML"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:

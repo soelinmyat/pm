@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-031"
 title: "Proposal Detail View"
 outcome: "Users can view a full proposal embedded within the dashboard frame — with back navigation and a link to open the standalone HTML"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:

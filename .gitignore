@@ -5,3 +5,5 @@ node_modules/
 .pm/
 pm/*.local.md
 .worktrees/
+.dev-epic-state-*.md
+.dev-state-*.md

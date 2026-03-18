@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-029"
 title: "Navigation Restructure — Knowledge Base Umbrella"
 outcome: "Dashboard navigation reflects PM's workflow hierarchy with four primary sections: Home, Proposals, Backlog, Knowledge Base — where KB groups Research, Competitors, and Strategy as sub-tabs"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:
