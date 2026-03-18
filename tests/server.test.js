@@ -950,33 +950,51 @@ test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () =>
   } finally { cleanup(); }
 });
 
-test('GET /kb defaults to research tab', async () => {
+test('GET /kb with no tab param defaults to research content', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\n',
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/research/pricing/findings.md': '---\ntopic: Pricing\ntype: topic-research\ncreated: 2026-03-12\nupdated: 2026-03-12\n---\n# Pricing Research\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { statusCode, body } = await httpGet(port, '/kb');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
-      assert.ok(body.includes('Market Landscape'), 'default tab must show research content');
+      assert.ok(body.includes('Research'), 'must show Research heading');
+      assert.ok(body.includes('kb-tab active') || body.includes('class="kb-tab active"'), 'research tab must be active');
+      assert.ok(body.includes('Pricing'), 'must show research topic');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('GET /kb?tab=strategy shows strategy content', async () => {
+test('GET /kb?tab=competitors renders competitor cards', async () => {
   const { pmDir, cleanup } = withPmDir({
-    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/competitors/acme/profile.md': '---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=competitors');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Competitors'), 'must show Competitors heading');
+      assert.ok(body.includes('Acme Corp'), 'must show competitor name');
+      assert.ok(body.includes('/competitors/acme'), 'must link to competitor detail');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET /kb?tab=strategy renders strategy content', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Product Strategy\n\nOur north star is quality.\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { statusCode, body } = await httpGet(port, '/kb?tab=strategy');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
-      assert.ok(body.includes('Strategy'), 'strategy tab must show strategy content');
+      assert.ok(body.includes('Strategy'), 'must show Strategy heading');
+      assert.ok(body.includes('north star'), 'must render strategy markdown content');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1046,6 +1064,33 @@ test('KB nav item is highlighted on /kb routes', async () => {
     try {
       const { body } = await httpGet(port, '/kb');
       assert.ok(body.includes('href="/kb" class="active"') || body.includes("href=\"/kb\" class=\"active\""), 'KB nav item must be active on /kb');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Competitor detail page highlights Knowledge Base nav item', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on competitor detail');
+      assert.ok(!body.includes('href="/" class="active"'), 'Home must not be highlighted');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Research topic page highlights Knowledge Base nav item', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/pricing/findings.md': '---\ntopic: Pricing\ntype: topic-research\ncreated: 2026-03-12\nupdated: 2026-03-12\n---\n# Pricing Research\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/research/pricing');
+      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on research topic');
     } finally { await close(); }
   } finally { cleanup(); }
 });

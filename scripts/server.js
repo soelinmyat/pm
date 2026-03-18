@@ -2581,6 +2581,11 @@ function handleCompetitorsList(res, pmDir) {
   res.end(html);
 }
 
+function parseCompetitorSummary(raw) {
+  const { data } = parseFrontmatter(raw);
+  return { company: data.name || '', category: data.category || '' };
+}
+
 function handleKnowledgeBasePage(res, pmDir, tab) {
   const validTabs = ['research', 'competitors', 'strategy'];
   const activeTab = validTabs.includes(tab) ? tab : 'research';
