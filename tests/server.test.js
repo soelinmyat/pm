@@ -1636,6 +1636,26 @@ test('buildBacklogGrouped shows dead proposal as plain text', () => {
   } finally { cleanup(); }
 });
 
+test('buildBacklogGrouped shows status badges on individual items', () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-z.meta.json': JSON.stringify({
+      title: 'Feature Z', date: '2026-03-18',
+      gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      verdictLabel: 'Ready', issueCount: 3
+    }),
+    'pm/backlog/feat-z.md': '---\ntitle: "Feature Z"\nstatus: drafted\nparent: null\nid: "PM-040"\n---\n',
+    'pm/backlog/task-a.md': '---\ntitle: "Task A"\nstatus: in-progress\nparent: "feat-z"\nid: "PM-041"\n---\n',
+    'pm/backlog/task-b.md': '---\ntitle: "Task B"\nstatus: idea\nparent: "feat-z"\nid: "PM-042"\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const html = mod.buildBacklogGrouped(pmDir);
+    assert.ok(html.includes('status-badge'), 'must show status badges on items');
+    assert.ok(html.includes('badge-in-progress'), 'must show in-progress badge');
+    assert.ok(html.includes('badge-drafted'), 'must show drafted badge');
+  } finally { cleanup(); }
+});
+
 test('GET /backlog defaults to proposal-grouped view', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/proposals/feat-y.meta.json': JSON.stringify({ title: 'Feature Y', date: '2026-03-17', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', verdictLabel: 'Ready', issueCount: 1 }),
