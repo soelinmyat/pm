@@ -37,7 +37,7 @@ Skip to step 3 after confirmation.
 
 5. Derive a topic slug from the idea (kebab-case, max 4 words).
 
-5. Write initial state to `.pm/.groom-state.md`:
+6. Create `.pm/groom-sessions/` if it doesn't exist. Write initial state to `.pm/groom-sessions/{slug}.md`:
 
 ```yaml
 topic: "{topic}"

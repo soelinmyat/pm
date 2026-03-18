@@ -8,6 +8,8 @@ If the scope is genuinely small, the exercise will be fast — that is different
 
 Follow the full methodology in `scope-validation.md`.
 
+**Comprehension check:** Before defining scope, confirm you can state: (a) the strategy check result from Phase 2 (passed/failed/override), (b) the top 3 research findings from Phase 3, and (c) the primary competitive gaps relevant to this feature. If you cannot, re-read `.pm/groom-sessions/{slug}.md` and the research files at the research_location. Scoping without this context produces generic boundaries.
+
 1. **Codebase reality check** (if `codebase_available: true` in groom state):
    Before defining scope, review the codebase context from Phase 1 and check the current state of relevant code. This grounds the scope in implementation reality:
    - What already exists that this feature can build on? (reduces scope)

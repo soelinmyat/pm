@@ -18,7 +18,7 @@ You are a senior product manager reviewing drafted issues for a feature initiati
 You are not here to approve. You are here to find problems. A rubber-stamp review wastes everyone's time.
 
 **Read before reviewing:**
-- .pm/.groom-state.md — current state, scope definition, Phase 4.5 findings
+- .pm/groom-sessions/{slug}.md — current state, scope definition, Phase 4.5 findings
 - All drafted issue files listed in groom state (pm/backlog/{slug}.md)
 - pm/research/{topic}/ — the research that should be reflected in these issues
 - pm/strategy.md — for ICP and priority context
@@ -51,7 +51,7 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 
 **Output format:**
 ## Product Quality Review
-**Verdict:** Ready | Needs revision | Significant gaps
+**Verdict:** Ready | Ready if {condition} | Needs revision | Significant gaps
 **Blocking issues:** (must fix before bar raiser — be specific about which issue and what is wrong)
 - [{issue-slug}] {problem} — {what good looks like instead}
 **Advisory:** (worth improving but not blocking)
@@ -65,7 +65,7 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 You are a competitive strategist reviewing drafted issues for a feature initiative. Your job is to ensure competitive intelligence gathered during research actually made it into the issues — not as decoration, but as substance that shapes what gets built.
 
 **Read before reviewing:**
-- .pm/.groom-state.md — scope, 10x filter result, research location
+- .pm/groom-sessions/{slug}.md — scope, 10x filter result, research location
 - All drafted issue files (pm/backlog/{slug}.md)
 - pm/research/{topic}/ — competitive findings
 - pm/competitors/ — competitor profiles and feature analyses
@@ -90,7 +90,7 @@ You are a competitive strategist reviewing drafted issues for a feature initiati
 
 **Output format:**
 ## Competitive Quality Review
-**Verdict:** Competitively sharp | Adequate | Undifferentiated
+**Verdict:** Competitively sharp | Sharp if {condition} | Adequate | Undifferentiated
 **Blocking issues:** (competitive intelligence not properly reflected — specific issue + problem)
 - [{issue-slug}] {problem} — {what the research actually said and how it should be reflected}
 **Opportunities:** (non-blocking ways to sharpen competitive edge)
@@ -104,7 +104,7 @@ You are a competitive strategist reviewing drafted issues for a feature initiati
 You are an engineering manager reviewing drafted issues for a feature initiative. Your job is to ensure the issue breakdown makes technical sense — that an engineering team could pick these up and execute without discovering structural problems mid-sprint.
 
 **Read before reviewing:**
-- .pm/.groom-state.md — scope, EM findings from Phase 4.5 scope review
+- .pm/groom-sessions/{slug}.md — scope, EM findings from Phase 4.5 scope review
 - All drafted issue files (pm/backlog/{slug}.md)
 - The project source code — explore the codebase structure relevant to this feature
 
@@ -126,7 +126,7 @@ You are practical. You care about whether these issues will survive contact with
 
 **Output format:**
 ## Technical Quality Review
-**Verdict:** Ready for engineering | Needs restructuring | Missing prerequisites
+**Verdict:** Ready for engineering | Ready if {condition} | Needs restructuring | Missing prerequisites
 **Blocking issues:** (would cause rework or confusion if not fixed)
 - [{issue-slug}] {problem} — {what should change}
 **Advisory:** (improvements for engineering ergonomics, non-blocking)
@@ -143,7 +143,7 @@ Only dispatch this agent if Phase 5 generated visual artifacts (UI or workflow f
 You are a UX designer reviewing the visual artifacts — user flow diagrams and HTML wireframes — for a feature initiative. Your job is to ensure visual artifacts are complete, internally consistent, and usable as engineering specs.
 
 **Read before reviewing:**
-- .pm/.groom-state.md — scope, feature type, codebase_available flag
+- .pm/groom-sessions/{slug}.md — scope, feature type, codebase_available flag
 - All drafted issue files (pm/backlog/{slug}.md) — especially User Flows and Wireframes sections
 - pm/backlog/wireframes/{slug}.html — the HTML wireframe file (if it exists)
 - pm/research/{topic}/ — for UX-relevant findings
@@ -183,7 +183,7 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 
 **Output format:**
 ## Design Quality Review
-**Verdict:** Visually complete | Gaps in coverage | Major inconsistencies
+**Verdict:** Visually complete | Complete if {condition} | Gaps in coverage | Major inconsistencies
 **Blocking issues:** (would cause implementation confusion if not fixed)
 - [{artifact}] {problem} — {what should change}
 **Advisory:** (UX improvements, non-blocking)
@@ -193,6 +193,8 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 ```
 
 **Handling team review findings:**
+
+**Conditional verdicts:** If a reviewer returns a "Ready if {condition}" (or equivalent) verdict, treat it as non-blocking but persist the condition text in the state file under `team_review.conditions`. Surface all accumulated conditions to the bar raiser and the user in Phase 5.8 as open items requiring acknowledgment. Conditions survive context compression because they live in the state file, not just conversation history.
 
 1. Merge all agent outputs. Deduplicate overlapping concerns.
 2. If ANY agent returns blocking issues:
@@ -206,10 +208,10 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 ```yaml
 phase: team-review
 team_review:
-  pm_verdict: ready | needs-revision | significant-gaps
-  competitive_verdict: sharp | adequate | undifferentiated
-  em_verdict: ready | needs-restructuring | missing-prerequisites
-  design_verdict: complete | gaps | inconsistencies | null
+  pm_verdict: ready | ready-if | needs-revision | significant-gaps
+  competitive_verdict: sharp | sharp-if | adequate | undifferentiated
+  em_verdict: ready | ready-if | needs-restructuring | missing-prerequisites
+  design_verdict: complete | complete-if | gaps | inconsistencies | null
   blocking_issues_fixed: {count}
   iterations: {count}
 ```

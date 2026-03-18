@@ -1099,40 +1099,90 @@ test('readProposalMeta rejects path traversal slugs', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 29. readGroomState reads .pm/.groom-state.md from project root
+// 29. readGroomState reads .pm/groom-sessions/*.md from project root
 // ---------------------------------------------------------------------------
 
-test('readGroomState returns parsed frontmatter for existing state', () => {
+test('readGroomState returns array with single session', () => {
   const { pmDir, cleanup } = withPmDir({
-    '.pm/.groom-state.md': '---\ntopic: "Dashboard Redesign"\nphase: research\nstarted: 2026-03-16\n---\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: research\nstarted: 2026-03-16\n---\n',
   });
   try {
     const mod = loadServer();
     const result = mod.readGroomState(pmDir);
-    assert.equal(result.topic, 'Dashboard Redesign');
-    assert.equal(result.phase, 'research');
-    assert.equal(result.started, '2026-03-16');
+    assert.ok(Array.isArray(result), 'must always return array');
+    assert.equal(result.length, 1);
+    assert.equal(result[0].topic, 'Dashboard Redesign');
+    assert.equal(result[0].phase, 'research');
+    assert.equal(result[0].started, '2026-03-16');
+    assert.equal(result[0]._slug, 'dashboard-redesign');
   } finally { cleanup(); }
 });
 
-test('readGroomState returns null when no groom state exists', () => {
+test('readGroomState returns array with multiple sessions', () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: research\nstarted: 2026-03-16\n---\n',
+    '.pm/groom-sessions/bulk-editing.md': '---\ntopic: "Bulk Editing"\nphase: scope\nstarted: 2026-03-17\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    assert.ok(Array.isArray(result), 'must return array');
+    assert.equal(result.length, 2);
+    const topics = result.map(s => s.topic).sort();
+    assert.deepEqual(topics, ['Bulk Editing', 'Dashboard Redesign']);
+    const slugs = result.map(s => s._slug).sort();
+    assert.deepEqual(slugs, ['bulk-editing', 'dashboard-redesign']);
+  } finally { cleanup(); }
+});
+
+test('readGroomState returns empty array when no groom state exists', () => {
   const { pmDir, cleanup } = withPmDir({});
   try {
     const mod = loadServer();
     const result = mod.readGroomState(pmDir);
-    assert.equal(result, null);
+    assert.ok(Array.isArray(result), 'must return array even when empty');
+    assert.equal(result.length, 0);
   } finally { cleanup(); }
 });
 
-test('readGroomState returns null for corrupted state file', () => {
+test('readGroomState returns empty array for corrupted state file', () => {
   const { pmDir, cleanup } = withPmDir({
-    '.pm/.groom-state.md': 'not yaml at all just random text',
+    '.pm/groom-sessions/broken.md': 'not yaml at all just random text',
   });
   try {
     const mod = loadServer();
     const result = mod.readGroomState(pmDir);
-    // parseFrontmatter returns {} for no match, so readGroomState returns null when no topic
-    assert.equal(result, null);
+    assert.ok(Array.isArray(result), 'must return array');
+    assert.equal(result.length, 0, 'corrupted file should be skipped');
+  } finally { cleanup(); }
+});
+
+test('readGroomState falls back to legacy .pm/.groom-state.md', () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/.groom-state.md': '---\ntopic: "Legacy Session"\nphase: intake\nstarted: 2026-03-15\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    assert.ok(Array.isArray(result), 'must return array');
+    assert.equal(result.length, 1);
+    assert.equal(result[0].topic, 'Legacy Session');
+    assert.equal(result[0].phase, 'intake');
+    assert.equal(result[0]._slug, undefined, 'legacy sessions have no slug');
+  } finally { cleanup(); }
+});
+
+test('readGroomState ignores legacy when groom-sessions/ has files', () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/groom-sessions/new-feature.md': '---\ntopic: "New Feature"\nphase: scope\nstarted: 2026-03-17\n---\n',
+    '.pm/.groom-state.md': '---\ntopic: "Legacy Stale"\nphase: intake\nstarted: 2026-03-10\n---\n',
+  });
+  try {
+    const mod = loadServer();
+    const result = mod.readGroomState(pmDir);
+    assert.equal(result.length, 1, 'new format takes precedence');
+    assert.equal(result[0].topic, 'New Feature');
+    assert.equal(result[0]._slug, 'new-feature');
   } finally { cleanup(); }
 });
 
@@ -1165,7 +1215,7 @@ test('proposalGradient returns different gradients for different slugs', () => {
 test('Dashboard home shows active session banner when groom state exists', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
-    '.pm/.groom-state.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -1176,6 +1226,23 @@ test('Dashboard home shows active session banner when groom state exists', async
       assert.ok(body.includes('Scope Review'), 'must show human-readable phase name');
       assert.ok(body.includes('2026-03-16'), 'must show start date');
       assert.ok(body.includes('Currently grooming'), 'must have Currently grooming label');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home shows multiple session banners', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+    '.pm/groom-sessions/bulk-editing.md': '---\ntopic: "Bulk Editing"\nphase: research\nstarted: 2026-03-17\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Dashboard Redesign'), 'must show first session topic');
+      assert.ok(body.includes('Bulk Editing'), 'must show second session topic');
+      assert.ok(body.includes('Currently grooming (2 sessions)'), 'must show pluralized label');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1196,7 +1263,7 @@ test('Dashboard home has no session banner when groom state is absent', async ()
 test('Dashboard home has no session banner when groom state is corrupted', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
-    '.pm/.groom-state.md': 'this is not yaml frontmatter',
+    '.pm/groom-sessions/broken.md': 'this is not yaml frontmatter',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -1234,6 +1301,7 @@ test('sanitizeGradient returns valid gradients and falls back for invalid', () =
   assert.equal(mod.sanitizeGradient(''), '#e5e7eb', 'empty falls back');
   assert.equal(mod.sanitizeGradient('url(javascript:alert(1))'), '#e5e7eb', 'XSS falls back');
   assert.equal(mod.sanitizeGradient('linear-gradient(135deg, url(javascript:alert(1)))'), '#e5e7eb', 'nested url() rejected');
+  assert.equal(mod.sanitizeGradient('linear-gradient(135deg, #000 0%, #fff 100%); color: red'), '#e5e7eb', 'semicolon CSS injection rejected');
 });
 
 test('buildProposalCards returns cards sorted newest first', () => {
@@ -1255,7 +1323,7 @@ test('buildProposalCards includes draft card pinned first with resume hint', () 
   const meta = { title: 'Completed', date: '2026-03-10', verdict: 'ready', verdictLabel: 'Ready', phase: 'completed', issueCount: 2, gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', labels: [] };
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/proposals/completed.meta.json': JSON.stringify(meta),
-    '.pm/.groom-state.md': '---\ntopic: "In Progress Feature"\nphase: research\nstarted: 2026-03-17\n---\n',
+    '.pm/groom-sessions/in-progress-feature.md': '---\ntopic: "In Progress Feature"\nphase: research\nstarted: 2026-03-17\n---\n',
   });
   try {
     const mod = loadServer();
@@ -1263,7 +1331,7 @@ test('buildProposalCards includes draft card pinned first with resume hint', () 
     assert.equal(totalCount, 2);
     assert.ok(cardsHtml.includes('In Progress Feature'), 'draft card must appear');
     assert.ok(cardsHtml.includes('draft'), 'must have draft class');
-    assert.ok(cardsHtml.includes('/pm:groom'), 'must have resume hint');
+    assert.ok(cardsHtml.includes('/pm:groom in-progress-feature'), 'must have resume hint with slug');
     assert.ok(cardsHtml.indexOf('In Progress Feature') < cardsHtml.indexOf('Completed'), 'draft pinned first');
   } finally { cleanup(); }
 });

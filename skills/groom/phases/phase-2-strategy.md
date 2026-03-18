@@ -9,7 +9,7 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
 
    If it does NOT exist:
    > "No strategy doc found. Strategy check requires one. Options:
-   > (a) Run $pm-strategy now to create it, then continue grooming
+   > (a) Run /pm:strategy now to create it, then continue grooming
    > (b) Skip strategy check and proceed at your own risk"
    Wait for selection. If (a): invoke pm:strategy, then return here when complete.
 

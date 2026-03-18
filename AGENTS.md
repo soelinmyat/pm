@@ -122,7 +122,7 @@ This overwrites the cache with your local source. It will be overwritten again o
 
 ### Editing dogfooded data (pm/)
 
-When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/.groom-state.md`).
+When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/groom-sessions/`).
 
 ### Dashboard testing
 
