@@ -72,6 +72,7 @@ REPO_URL="https://github.com/soelinmyat/pm.git"
 
 # 1. Fetch latest tag from remote
 TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
 git ls-remote --tags --sort=-v:refname "$REPO_URL" > "$TMPFILE" 2>/dev/null &
 GIT_PID=$!
 
@@ -87,7 +88,7 @@ fi
 
 # Wait for both (pull runs in parallel while we wait for ls-remote)
 wait_or_kill "$GIT_PID" 5
-[ -n "$PULL_PID" ] && wait_or_kill "$PULL_PID" 5
+[ -n "$PULL_PID" ] && [ "$PULL_PID" -gt 0 ] 2>/dev/null && wait_or_kill "$PULL_PID" 5
 
 # Process ls-remote result
 LATEST_TAG=""
