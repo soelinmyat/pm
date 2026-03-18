@@ -1235,6 +1235,10 @@ function buildBacklogGrouped(pmDir) {
     for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'))) {
       proposalSlugs.add(f.replace('.meta.json', ''));
     }
+    // Also discover HTML-only proposals (legacy, no sidecar)
+    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.html'))) {
+      proposalSlugs.add(f.replace('.html', ''));
+    }
   }
 
   // Also treat any backlog item whose slug matches a proposal as a proposal parent
@@ -1402,6 +1406,30 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
   <h3>${escHtml(title)}</h3>
   <p class="meta">${escHtml(staleLabel)}</p>
   <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
+</a>`
+      });
+    }
+  }
+  // Scan for legacy HTML-only proposals (no .meta.json sidecar)
+  if (fs.existsSync(proposalsDir)) {
+    const metaSlugs = new Set(
+      fs.readdirSync(proposalsDir)
+        .filter(f => f.endsWith('.meta.json'))
+        .map(f => f.replace('.meta.json', ''))
+    );
+    const htmlFiles = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.html'));
+    for (const file of htmlFiles) {
+      const slug = file.replace('.html', '');
+      if (metaSlugs.has(slug)) continue; // already handled by meta.json path
+      const title = humanizeSlug(slug);
+      entries.push({
+        date: '0000-00-00', // unknown date — sort to end
+        isDraft: false,
+        html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
+  <div class="card-gradient" style="background: #e5e7eb"></div>
+  <h3>${escHtml(title)}</h3>
+  <p class="meta">Legacy proposal</p>
+  <div class="card-footer"><div></div><span class="view-link">View →</span></div>
 </a>`
       });
     }
