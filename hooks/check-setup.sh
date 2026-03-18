@@ -68,6 +68,23 @@ rm -f "$TMPFILE"
 mkdir -p "$PROJECT_DIR/.pm"
 echo "$NOW" > "$STAMP_FILE"
 
+# ---------------------------------------------------------------------------
+# Sync marketplace clone so /plugin sees the correct latest version.
+# Claude Code reads version from this local clone but never git-pulls it,
+# causing /plugin to report "already at latest" on stale clones.
+# ---------------------------------------------------------------------------
+MARKETPLACE_DIR="$HOME/.claude/plugins/marketplaces/pm"
+if [ -d "$MARKETPLACE_DIR/.git" ]; then
+  git -C "$MARKETPLACE_DIR" pull --ff-only origin main >/dev/null 2>&1 &
+  PULL_PID=$!
+  for j in 1 2 3 4 5; do
+    if ! kill -0 "$PULL_PID" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  kill "$PULL_PID" 2>/dev/null
+  wait "$PULL_PID" 2>/dev/null
+fi
+
 if [ -z "$LATEST_TAG" ]; then
   exit 0
 fi
