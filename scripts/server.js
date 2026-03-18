@@ -1335,8 +1335,9 @@ function buildBacklogGrouped(pmDir) {
 
     for (const { item, isChild } of ordered) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+      const badgeHtml = item.status ? `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>` : '';
       const childClass = isChild ? ' child-item' : '';
-      html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}${badgeHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
     }
 
     html += '</div></div>\n';
@@ -1352,7 +1353,8 @@ function buildBacklogGrouped(pmDir) {
   <div class="group-items">`;
     for (const item of standalone) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-      html += `<a class="kanban-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      const badgeHtml = item.status ? `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>` : '';
+      html += `<a class="kanban-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}${badgeHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
     }
     html += '</div></div>\n';
   }
