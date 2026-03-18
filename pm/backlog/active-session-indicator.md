@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-027"
 title: "Active Session Indicator on Dashboard Home"
 outcome: "Users see their current groom session status immediately on the dashboard home page — topic name, human-readable phase, and start date"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:

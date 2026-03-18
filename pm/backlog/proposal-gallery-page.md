@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-028"
 title: "Proposal Gallery Page"
 outcome: "Users can browse all their proposals — completed and in-progress — as a visual card gallery, making the proposal the hero artifact of the PM dashboard"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:

@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-030"
 title: "Backlog Grouped by Proposal"
 outcome: "Users see their backlog issues organized under their parent proposal — giving every issue context about why it exists"
-status: drafted
+status: done
 parent: "dashboard-proposal-hero"
 children: []
 labels:

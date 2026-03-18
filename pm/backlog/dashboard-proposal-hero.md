@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-025"
 title: "Dashboard Proposal-Centric Redesign"
 outcome: "Users open the PM dashboard and immediately see their proposals as the hero artifact — active groom session at top, proposal gallery as centerpiece, backlog grouped by proposal, knowledge base as reference shelf"
-status: drafted
+status: done
 parent: null
 children:
   - "proposal-metadata-sidecar"
