@@ -1765,3 +1765,126 @@ test('buildBacklogGrouped discovers legacy HTML-only proposals', () => {
     assert.ok(html.includes('group-title'), 'must have group title');
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// hashProjectPort — determinism and range
+// ---------------------------------------------------------------------------
+
+test('hashProjectPort returns the same port for the same directory', () => {
+  const mod = loadServer();
+  const port1 = mod.hashProjectPort('/Users/alice/Projects/my-app');
+  const port2 = mod.hashProjectPort('/Users/alice/Projects/my-app');
+  assert.strictEqual(port1, port2, 'same input must produce same port');
+});
+
+test('hashProjectPort returns different ports for different directories', () => {
+  const mod = loadServer();
+  const portA = mod.hashProjectPort('/Users/alice/Projects/app-a');
+  const portB = mod.hashProjectPort('/Users/alice/Projects/app-b');
+  // Technically could collide, but MD5 makes it astronomically unlikely for these inputs
+  assert.notStrictEqual(portA, portB, 'different inputs should produce different ports');
+});
+
+test('hashProjectPort returns port in 3000-9999 range', () => {
+  const mod = loadServer();
+  const paths = [
+    '/Users/alice/Projects/foo',
+    '/home/bob/code/bar',
+    '/tmp/test-project',
+    'C:\\Users\\charlie\\code\\baz',
+    '/a/very/deeply/nested/project/path/that/is/quite/long',
+  ];
+  for (const p of paths) {
+    const port = mod.hashProjectPort(p);
+    assert.ok(port >= 3000, `port ${port} for "${p}" must be >= 3000`);
+    assert.ok(port <= 9999, `port ${port} for "${p}" must be <= 9999`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// isPortAvailable — basic availability check
+// ---------------------------------------------------------------------------
+
+test('isPortAvailable returns true for an unused port', async () => {
+  const mod = loadServer();
+  // Port 0 trick: find an available port by binding, then releasing
+  const net = require('net');
+  const srv = net.createServer();
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const freePort = srv.address().port;
+  await new Promise(r => srv.close(r));
+
+  const available = await mod.isPortAvailable(freePort, '127.0.0.1');
+  assert.strictEqual(available, true, 'recently freed port should be available');
+});
+
+test('isPortAvailable returns false for an occupied port', async () => {
+  const mod = loadServer();
+  const net = require('net');
+  const srv = net.createServer();
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const occupiedPort = srv.address().port;
+
+  try {
+    const available = await mod.isPortAvailable(occupiedPort, '127.0.0.1');
+    assert.strictEqual(available, false, 'occupied port should not be available');
+  } finally {
+    await new Promise(r => srv.close(r));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// resolvePort — collision fallback
+// ---------------------------------------------------------------------------
+
+test('resolvePort uses PM_PORT when set', async () => {
+  const origPort = process.env.PM_PORT;
+  const origDir = process.env.PM_PROJECT_DIR;
+  try {
+    process.env.PM_PORT = '4567';
+    process.env.PM_PROJECT_DIR = '/tmp/test';
+    const mod = loadServer();
+    const result = await mod.resolvePort('127.0.0.1');
+    assert.strictEqual(result.port, 4567);
+    assert.strictEqual(result.hashed, null);
+    assert.strictEqual(result.shifted, false);
+  } finally {
+    if (origPort !== undefined) process.env.PM_PORT = origPort;
+    else delete process.env.PM_PORT;
+    if (origDir !== undefined) process.env.PM_PROJECT_DIR = origDir;
+    else delete process.env.PM_PROJECT_DIR;
+  }
+});
+
+test('resolvePort falls back to next port when hashed port is occupied', async () => {
+  const origPort = process.env.PM_PORT;
+  const origDir = process.env.PM_PROJECT_DIR;
+  try {
+    delete process.env.PM_PORT;
+    process.env.PM_PROJECT_DIR = '/tmp/collision-test';
+    const mod = loadServer();
+
+    // Determine what port would be hashed
+    const expectedPort = mod.hashProjectPort('/tmp/collision-test');
+
+    // Occupy that port
+    const net = require('net');
+    const blocker = net.createServer();
+    await new Promise(r => blocker.listen(expectedPort, '127.0.0.1', r));
+
+    try {
+      const result = await mod.resolvePort('127.0.0.1');
+      assert.notStrictEqual(result.port, 0, 'resolvePort should not fall back to OS-assigned port in test');
+      assert.ok(result.port > expectedPort, `resolved port ${result.port} should be > hashed port ${expectedPort}`);
+      assert.strictEqual(result.hashed, expectedPort);
+      assert.strictEqual(result.shifted, true);
+    } finally {
+      await new Promise(r => blocker.close(r));
+    }
+  } finally {
+    if (origPort !== undefined) process.env.PM_PORT = origPort;
+    else delete process.env.PM_PORT;
+    if (origDir !== undefined) process.env.PM_PROJECT_DIR = origDir;
+    else delete process.env.PM_PROJECT_DIR;
+  }
+});

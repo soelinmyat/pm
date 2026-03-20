@@ -2,7 +2,7 @@
 # Start the PM companion server and output connection info
 # Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--mode <companion|dashboard>] [--foreground] [--background]
 #
-# Starts server on a random high port, outputs JSON with URL.
+# Starts server on a stable port derived from the project directory, outputs JSON with URL.
 # Each session gets its own directory to avoid conflicts.
 #
 # Options:
@@ -111,13 +111,17 @@ if [[ -z "$OWNER_PID" || "$OWNER_PID" == "1" ]]; then
   OWNER_PID="$PPID"
 fi
 
+# Resolve the project directory for stable port hashing.
+# Use --project-dir if provided, otherwise use the caller's working directory.
+RESOLVED_PROJECT_DIR="${PROJECT_DIR:-$CALLER_DIR}"
+
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
   echo "$$" > "$PID_FILE"
   if [[ "$MODE" == "dashboard" ]]; then
-    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR"
+    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR"
   else
-    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE"
+    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE"
   fi
   exit $?
 fi
@@ -125,9 +129,9 @@ fi
 # Start server, capturing output to log file
 # Use nohup to survive shell exit; disown to remove from job table
 if [[ "$MODE" == "dashboard" ]]; then
-  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
+  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
 else
-  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE" > "$LOG_FILE" 2>&1 &
+  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" > "$LOG_FILE" 2>&1 &
 fi
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
