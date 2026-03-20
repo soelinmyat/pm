@@ -180,6 +180,13 @@
   .section p, .section li {
     font-size: 0.95rem;
     color: #444;
+    max-width: 65ch;
+  }
+  .section-lead {
+    font-weight: 600;
+    color: #111;
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
   }
   .section ul, .section ol {
     padding-left: 1.25rem;
@@ -301,10 +308,13 @@
   }
   .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
   .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  details { margin-top: 0.5rem; }
+  summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; }
   .ac-list {
     font-size: 0.88rem;
     padding-left: 1.25rem;
     color: #555;
+    margin-top: 0.5rem;
   }
   .ac-list li { margin-bottom: 0.25rem; }
   .ac-list li::marker { color: #2563eb; }
@@ -364,8 +374,9 @@
     letter-spacing: 0.04em;
   }
   .comp-table td { color: #444; }
-  .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 500; }
-  .comp-table td.competitor-weak { color: #9ca3af; }
+  .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 600; }
+  .comp-table td.competitor-weak { background: #fef2f2; color: #991b1b; }
+  .comp-table td.competitor-partial { background: #fffbeb; color: #92400e; }
   .comp-table tr:last-child td { border-bottom: none; }
 
   /* ===== FEASIBILITY ===== */
@@ -501,6 +512,10 @@
     font-size: 0.83rem;
     color: #777;
     line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   /* ===== OPEN QUESTIONS ===== */
@@ -653,7 +668,8 @@
        ============================================ -->
   <div class="section" id="problem">
     <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
-    <p>Team leads currently rely on engineering to create custom SQL queries when they need filtered views of dashboard data. This creates a 2-3 day turnaround for what should be a self-service operation, consuming ~15% of engineering support time.</p>
+    <p class="section-lead">Team leads wait 2-3 days for filtered views that should be self-service.</p>
+    <p>They rely on engineering to create custom SQL queries, consuming ~15% of engineering support time. This is a self-service gap, not a missing feature.</p>
     <div class="callout">
       <strong>Research signal:</strong> 8 of 12 team leads interviewed have requested filtered views in the past quarter. Both FilterCo and DashPro offer self-service filtering, making this a switching motivator for prospects evaluating alternatives.
     </div>
@@ -664,6 +680,7 @@
        ============================================ -->
   <div class="section" id="scope">
     <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
+    <p class="section-lead">Five filter capabilities in scope; custom metrics and export deferred.</p>
     <div class="scope-grid">
       <div class="scope-column in-scope">
         <h4>&#10003; In Scope</h4>
@@ -693,6 +710,7 @@
        ============================================ -->
   <div class="section" id="flows">
     <h2 class="section-title"><span class="icon">&#8644;</span> User Flows</h2>
+    <p class="section-lead">Filters load from URL first, then localStorage, then defaults.</p>
     <div class="mermaid-container">
       <pre class="mermaid">
 graph TD
@@ -726,6 +744,7 @@ graph TD
        ============================================ -->
   <div class="section" id="wireframes">
     <h2 class="section-title"><span class="icon">&#9633;</span> Wireframes</h2>
+    <p class="section-lead">Filter bar sits above dashboard widgets; collapses to a toggle on mobile.</p>
     <div class="wireframe-embed">
       <iframe src="../wireframes/dashboard-filtering-system.html" title="Dashboard Filtering Wireframe"></iframe>
     </div>
@@ -737,6 +756,7 @@ graph TD
        ============================================ -->
   <div class="section" id="competitive">
     <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
+    <p class="section-lead">No competitor offers single-step filtering with URL sharing.</p>
     <div class="comp-table-wrap">
       <table class="comp-table">
         <thead>
@@ -750,33 +770,33 @@ graph TD
         <tbody>
           <tr>
             <td>Filter application</td>
-            <td class="competitor-weak">3 screens (select, configure, apply)</td>
-            <td class="competitor-weak">Sidebar panel, requires "Apply" click</td>
-            <td class="us"><strong>Inline filter bar, instant apply on selection</strong></td>
+            <td class="competitor-weak">3-screen flow</td>
+            <td class="competitor-weak">Sidebar + Apply click</td>
+            <td class="us">Inline, instant apply</td>
           </tr>
           <tr>
             <td>URL sharing</td>
             <td class="competitor-weak">Not supported</td>
-            <td class="competitor-weak">Manual "share" button generates link</td>
-            <td class="us"><strong>Automatic URL encoding, copy-paste ready</strong></td>
+            <td class="competitor-weak">Manual share button</td>
+            <td class="us">Auto URL encoding</td>
           </tr>
           <tr>
             <td>Session persistence</td>
-            <td class="competitor-weak">Server-side, requires login</td>
-            <td class="competitor-weak">Cookie-based, clears on logout</td>
-            <td class="us"><strong>localStorage + URL, works across devices via link</strong></td>
+            <td class="competitor-weak">Login required</td>
+            <td class="competitor-weak">Cookie, clears on logout</td>
+            <td class="us">localStorage + URL</td>
           </tr>
           <tr>
             <td>Custom date ranges</td>
             <td class="competitor-weak">Presets only</td>
-            <td>Full date picker</td>
-            <td class="us"><strong>Presets + date picker (best of both)</strong></td>
+            <td class="competitor-partial">Date picker only</td>
+            <td class="us">Presets + picker</td>
           </tr>
         </tbody>
       </table>
     </div>
     <div class="callout">
-      <strong>Key differentiator:</strong> Single-step filtering with instant feedback vs competitors' multi-step workflows. URL-based sharing is a capability gap in both competitors that creates a meaningful collaboration advantage.
+      <strong>Key differentiator:</strong> Single-step filtering + URL sharing. Both competitors lack shareable filter links.
     </div>
   </div>
 
@@ -785,6 +805,7 @@ graph TD
        ============================================ -->
   <div class="section" id="feasibility">
     <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
+    <p class="section-lead">Feasible as scoped — builds on existing API and component patterns.</p>
     <p style="margin-bottom: 1rem;"><strong>Verdict:</strong> <span class="verdict-badge ready">&#10003; Feasible as scoped</span></p>
     <div class="feasibility-grid">
       <div class="feasibility-box build-on">
@@ -829,6 +850,7 @@ graph TD
        ============================================ -->
   <div class="section" id="issues">
     <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
+    <p class="section-lead">1 parent + 4 child issues covering API, UI, persistence, and date range.</p>
 
     <div class="issue-group">
       <!-- Parent issue -->
@@ -843,6 +865,7 @@ graph TD
           <span class="label">dashboard</span>
           <span class="label priority-high">high priority</span>
         </div>
+        <details><summary>Show acceptance criteria (5)</summary>
         <ol class="ac-list">
           <li>Dashboard renders a filter bar above the main content area with date, team, and metric type controls.</li>
           <li>Applying any filter updates all dashboard widgets within 2 seconds for datasets up to 100k rows.</li>
@@ -850,6 +873,7 @@ graph TD
           <li>Filtered state is encoded in URL query params; sharing the URL reproduces the exact filtered view.</li>
           <li>Clearing all filters restores the default unfiltered dashboard in under 500ms.</li>
         </ol>
+        </details>
       </div>
 
       <!-- Child issue 1 -->
@@ -863,12 +887,14 @@ graph TD
           <span class="label">frontend</span>
           <span class="label priority-high">high priority</span>
         </div>
+        <details><summary>Show acceptance criteria (4)</summary>
         <ol class="ac-list">
           <li>Filter bar renders horizontally above dashboard widgets on screens >= 768px; collapses to a toggle drawer on mobile.</li>
           <li>Each filter control has a visible label, current selection indicator, and clear button.</li>
           <li>Filter bar consumes no more than 64px of vertical space in its default state.</li>
           <li>All filter controls are keyboard-navigable and announce state changes to screen readers.</li>
         </ol>
+        </details>
       </div>
 
       <!-- Child issue 2 -->
@@ -882,12 +908,14 @@ graph TD
           <span class="label">backend</span>
           <span class="label priority-high">high priority</span>
         </div>
+        <details><summary>Show acceptance criteria (4)</summary>
         <ol class="ac-list">
           <li>GET /api/dashboard?date_from=X&amp;date_to=Y&amp;teams=A,B&amp;metrics=C returns filtered widget data.</li>
           <li>Query response time &lt; 500ms for datasets up to 100k rows (p95, measured at API layer).</li>
           <li>Invalid filter combinations return a 400 response with a human-readable error message, not a 500.</li>
           <li>API follows existing auth pattern in <code>src/middleware/auth.ts</code> — no new auth mechanism.</li>
         </ol>
+        </details>
       </div>
 
       <!-- Child issue 3 -->
@@ -901,12 +929,14 @@ graph TD
           <span class="label">frontend</span>
           <span class="label priority-medium">medium priority</span>
         </div>
+        <details><summary>Show acceptance criteria (4)</summary>
         <ol class="ac-list">
           <li>On filter change, URL query params update without a page reload (history.replaceState).</li>
           <li>On page load, filters initialize from URL params first; fall back to localStorage; fall back to defaults.</li>
           <li>localStorage key follows existing pattern: <code>dashboard:filters:{userId}</code>.</li>
           <li>Copying the URL and opening in a new tab reproduces the identical filtered view.</li>
         </ol>
+        </details>
       </div>
 
       <!-- Child issue 4 -->
@@ -920,12 +950,14 @@ graph TD
           <span class="label">frontend</span>
           <span class="label priority-medium">medium priority</span>
         </div>
+        <details><summary>Show acceptance criteria (4)</summary>
         <ol class="ac-list">
           <li>Preset options: Today, Last 7 days, Last 30 days, Last quarter, Year to date, Custom range.</li>
           <li>Custom range opens a date picker; selecting an invalid range (end before start) shows inline error.</li>
           <li>Selecting a preset visually highlights it; selecting custom deselects all presets.</li>
           <li>Default selection on first visit: Last 30 days.</li>
         </ol>
+        </details>
       </div>
     </div>
   </div>
@@ -935,6 +967,7 @@ graph TD
        ============================================ -->
   <div class="section" id="review">
     <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
+    <p class="section-lead">All four reviewers passed; bar raiser approved with no blocking items.</p>
 
     <!-- Review pipeline stepper -->
     <div class="review-pipeline">
@@ -966,44 +999,44 @@ graph TD
           <span class="review-card-role">Product Manager</span>
           <span class="verdict-badge ready">&#10003; Ready</span>
         </div>
-        <p class="review-card-note">All 5 scope items covered. ACs testable.</p>
+        <p class="review-card-note">All 5 scope items covered, ACs testable</p>
       </div>
       <div class="review-card">
         <div class="review-card-header">
           <span class="review-card-role">Competitive Strategist</span>
           <span class="verdict-badge ready">&#10003; Sharp</span>
         </div>
-        <p class="review-card-note">URL sharing gap well-exploited. Differentiation encoded in ACs.</p>
+        <p class="review-card-note">URL sharing gap exploited in ACs</p>
       </div>
       <div class="review-card">
         <div class="review-card-header">
           <span class="review-card-role">Engineering Manager</span>
           <span class="verdict-badge ready">&#10003; Ready</span>
         </div>
-        <p class="review-card-note">Clean decomposition. PM-027 is the critical path.</p>
+        <p class="review-card-note">Clean decomposition, PM-027 is critical path</p>
       </div>
       <div class="review-card">
         <div class="review-card-header">
           <span class="review-card-role">Design Reviewer</span>
           <span class="verdict-badge ready">&#10003; Complete</span>
         </div>
-        <p class="review-card-note">Wireframe-flow alignment confirmed. Mobile collapse consistent with existing nav.</p>
+        <p class="review-card-note">Wireframe-flow aligned, mobile collapse matches nav</p>
       </div>
       <div class="review-card">
         <div class="review-card-header">
           <span class="review-card-role">Bar Raiser</span>
           <span class="verdict-badge ready">&#10003; Present</span>
         </div>
-        <p class="review-card-note">Narrative is tight. Scope is right-sized for the problem.</p>
+        <p class="review-card-note">Scope right-sized, narrative tight</p>
       </div>
     </div>
 
     <div class="advisory-card">
       <h3>&#128161; Advisory (non-blocking)</h3>
       <ul class="advisory-list">
-        <li><strong>[PM-026]</strong> Consider adding a "filter active" indicator badge on the collapsed mobile toggle so users know filters are applied.</li>
-        <li><strong>[PM-027]</strong> Add query plan analysis before launch to confirm index usage on production data volumes.</li>
-        <li><strong>[PM-029]</strong> Fiscal quarter presets may be more useful than calendar quarters for enterprise users — validate with 2-3 customers post-launch.</li>
+        <li><strong>[PM-026]</strong> Add "filter active" badge on collapsed mobile toggle.</li>
+        <li><strong>[PM-027]</strong> Run query plan analysis before launch to confirm index usage.</li>
+        <li><strong>[PM-029]</strong> Validate fiscal vs calendar quarter presets with 2-3 customers post-launch.</li>
       </ul>
     </div>
   </div>
@@ -1013,8 +1046,8 @@ graph TD
        ============================================ -->
   <div class="section" id="questions">
     <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
+    <p class="section-lead">Four questions for the decision-maker before approving.</p>
     <div class="questions-card">
-      <p>Questions the decision-maker should be prepared to discuss:</p>
       <ul class="question-list">
         <li>What is the expected reduction in engineering support requests? (Currently ~15% of support time goes to custom query requests.)</li>
         <li>Why prioritize this over the CSV export feature that was also requested? (Filtering enables self-service for the common case; export is a power-user feature with lower demand signal.)</li>
