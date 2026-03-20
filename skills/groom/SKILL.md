@@ -15,6 +15,19 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
+## Output Formatting
+
+Verdict first. Max 3 bullets before asking. No walls of text.
+
+When presenting parallel agent results (scope review, team review), collapse to a summary table:
+
+| Reviewer | Verdict | Key note |
+|----------|---------|----------|
+
+List only blocking items as bullets. Advisory items come after the user acknowledges blockers.
+
+For full rules, jargon ban list, and examples: read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md`.
+
 ---
 
 ## Resume Check
@@ -55,6 +68,8 @@ Before starting work, check for user instructions:
 3. If neither file exists, proceed normally.
 
 **Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+
+Before starting any phase, also read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` for output formatting rules.
 
 ---
 
