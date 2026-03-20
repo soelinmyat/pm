@@ -1,5 +1,9 @@
 ### Phase 5: Groom
 
+Read the splitting patterns reference before starting this phase:
+
+`Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/references/splitting-patterns.md`
+
 #### Step 1: Feature-type detection
 
 Before drafting issues, classify the feature type to determine which visual artifacts to generate:
@@ -72,9 +76,51 @@ If the feature type is UI, generate a standalone HTML wireframe file:
 
 The HTML wireframe file also works standalone — users can open it directly in any browser. The PM dashboard embeds it via iframe on the backlog detail page.
 
-#### Step 3: Draft issues
+#### Step 3: Decompose
 
-Draft a structured issue set: one parent issue + child issues for discrete work.
+Before drafting issues, determine how to split the feature into discrete, deliverable pieces.
+
+1. **Identify candidate patterns.** Using the splitting patterns reference and the accumulated context (scope definition, research findings, feature type, codebase analysis from Phase 4.5), select 2-3 splitting patterns that fit the feature's shape.
+
+2. **Evaluate each candidate.** For each pattern, assess:
+   - Does it produce vertical slices (end-to-end user value per issue)?
+   - Does each slice align with natural implementation boundaries in the codebase?
+   - Can the thinnest slice serve as an MVP?
+
+3. **Show your reasoning.** Present the evaluation to the user:
+
+   > **Decomposition approach:**
+   >
+   > | Pattern | Fit | Verdict |
+   > |---------|-----|---------|
+   > | {Pattern 1} | {Why it fits or doesn't} | **Selected** / Rejected |
+   > | {Pattern 2} | {Why it fits or doesn't} | **Selected** / Rejected |
+   > | {Pattern 3} | {Why it fits or doesn't} | **Selected** / Rejected |
+   >
+   > **Rationale:** {1-2 sentences on why the selected pattern best fits this feature, citing specific findings from prior phases. If prior phases are absent, note which context is missing and explain the choice based on available information.}
+
+4. **Apply the selected pattern** to produce the issue breakdown. Then run the boundary quality check on every issue:
+   - **Standalone clarity:** Can each issue be understood without reading the others?
+   - **Independent change:** Can one issue be modified, delayed, or dropped without breaking another?
+
+   If any issue fails, re-split or combine until all pass.
+
+5. **MVP slicing.** Verify the first issue is the thinnest vertical slice delivering end-to-end value. If the first issue could be split further while still delivering user value, split it.
+
+#### Step 4: Draft issues
+
+Draft a structured issue set: one parent issue + child issues for discrete work, following the decomposition from Step 3.
+
+**Outcome statements** — each issue's outcome must describe what changes for the user, not what the team builds:
+- BAD: "Implement the notification system" (task description, not a user outcome)
+- BAD: "Add email notifications" (feature label, not what changes for the user)
+- GOOD: "Users learn about time-sensitive updates within minutes, without checking the app"
+
+**Acceptance criteria** — each AC must be specific enough that two engineers would independently agree on pass/fail:
+- BAD: "Notifications work correctly" (untestable — what does "correctly" mean?)
+- BAD: "Performance is acceptable" (unmeasurable — acceptable to whom?)
+- GOOD: "When a task is assigned, the assignee receives an email within 60 seconds containing the task title and a direct link"
+- GOOD: "If email delivery fails, the system retries twice with exponential backoff and logs the failure"
 
 Each issue must contain:
    - **Outcome statement:** What changes for the user when this ships? (not a task description)
@@ -83,11 +129,12 @@ Each issue must contain:
    - **Customer evidence:** Include internal evidence count, affected segment, or source theme when available.
    - **Competitor context:** How competitors handle this, with specific references from Phase 3.
    - **Scope note:** Which in-scope items this issue covers.
+   - **Decomposition rationale:** Which splitting pattern was applied and why (from Step 3). If prior phases were not completed, note which context is missing and explain the rationale based on available information.
    - **User Flows:** Mermaid flowchart (if generated in Step 2a), or "N/A — no user-facing workflow for this feature type"
    - **Wireframes:** Link to the HTML wireframe file (if generated in Step 2b), or "N/A — no user-facing workflow for this feature type"
    - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If no EM review was conducted, note "No codebase context available."
 
-#### Step 4: Update state
+#### Step 5: Update state
 
 Do NOT present issues to the user yet. Proceed directly to Phase 5.5.
 
