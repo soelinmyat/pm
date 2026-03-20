@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Groom Phase 5 — Decomposition Methodology &amp; Issue Quality</title>
+<style>
+  /* ===== RESET & BASE ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: #1a1a1a;
+    background: #f8f9fa;
+    line-height: 1.6;
+  }
+
+  /* ===== HERO HEADER ===== */
+  .hero {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%);
+    color: #fff;
+    padding: 3rem 1.5rem 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 0.5rem;
+  }
+  .hero h1 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.85);
+    max-width: 640px;
+    margin-bottom: 1.5rem;
+  }
+
+  /* ===== KEY METRICS STRIP ===== */
+  .metrics-strip {
+    display: flex;
+    gap: 0;
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .metric {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.1);
+  }
+  .metric:last-child { border-right: none; }
+  .metric-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    display: block;
+    line-height: 1.2;
+  }
+  .metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* ===== STICKY TOC ===== */
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toc-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    gap: 0;
+    padding: 0 1rem;
+  }
+  .toc a {
+    display: block;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #777;
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .toc a:hover { color: #2563eb; border-bottom-color: #2563eb; }
+
+  /* ===== LAYOUT ===== */
+  .proposal {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  /* ===== SECTIONS ===== */
+  .section {
+    margin-bottom: 3rem;
+    opacity: 0;
+    transform: translateY(16px);
+    animation: fadeUp 0.5s ease forwards;
+  }
+  .section:nth-child(1) { animation-delay: 0.05s; }
+  .section:nth-child(2) { animation-delay: 0.1s; }
+  .section:nth-child(3) { animation-delay: 0.15s; }
+  .section:nth-child(4) { animation-delay: 0.2s; }
+  .section:nth-child(5) { animation-delay: 0.25s; }
+  .section:nth-child(6) { animation-delay: 0.3s; }
+  .section:nth-child(7) { animation-delay: 0.35s; }
+  .section:nth-child(8) { animation-delay: 0.4s; }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+  }
+  .section p, .section li {
+    font-size: 0.95rem;
+    color: #444;
+  }
+  .section ul, .section ol {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .section li { margin-bottom: 0.35rem; }
+
+  /* ===== CALLOUT ===== */
+  .callout {
+    background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%);
+    border-left: 4px solid #2563eb;
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    font-size: 0.93rem;
+    color: #1e40af;
+  }
+  .callout strong { color: #1e3a8a; }
+
+  /* ===== SCOPE GRID ===== */
+  .scope-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .scope-column {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .scope-column h4 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+  }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; }
+  .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; }
+  .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; }
+  .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    margin-top: 0.75rem;
+  }
+
+  /* ===== ISSUE CARDS ===== */
+  .issue-group { margin-bottom: 1.5rem; }
+  .issue-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .issue-id {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    background: #2563eb;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+  .issue-outcome {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+    font-style: italic;
+    padding-left: 0.75rem;
+    border-left: 2px solid #e5e7eb;
+  }
+  .issue-labels {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #555;
+    border: 1px solid #e5e7eb;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  .ac-list {
+    font-size: 0.88rem;
+    padding-left: 1.25rem;
+    color: #555;
+  }
+  .ac-list li { margin-bottom: 0.25rem; }
+  .ac-list li::marker { color: #2563eb; }
+
+  /* ===== COMPETITIVE TABLE ===== */
+  .comp-table-wrap {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  .comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .comp-table th, .comp-table td {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .comp-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .comp-table td { color: #444; }
+  .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 500; }
+  .comp-table td.competitor-weak { color: #9ca3af; }
+  .comp-table tr:last-child td { border-bottom: none; }
+
+  /* ===== FEASIBILITY ===== */
+  .feasibility-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .feasibility-box {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .feasibility-box h4 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.6rem;
+  }
+  .feasibility-box.build-on h4 { color: #16a34a; }
+  .feasibility-box.build-new h4 { color: #2563eb; }
+  .feasibility-box.risks h4 { color: #d97706; }
+  .feasibility-box.sequencing h4 { color: #7c3aed; }
+  .feasibility-box ul { padding-left: 1.1rem; }
+  .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.25rem; color: #555; }
+
+  /* ===== REVIEW PIPELINE ===== */
+  .review-pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    padding: 0.5rem 0;
+  }
+  .pipeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-width: 120px;
+    position: relative;
+  }
+  .pipeline-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    border: 2px solid #e5e7eb;
+    background: #fff;
+    color: #aaa;
+  }
+  .pipeline-step.passed .pipeline-dot {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: #fff;
+  }
+  .pipeline-step.current .pipeline-dot {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
+  }
+  .pipeline-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .pipeline-step.passed .pipeline-label { color: #16a34a; }
+  .pipeline-step.current .pipeline-label { color: #2563eb; }
+  .pipeline-connector {
+    flex: 1;
+    height: 2px;
+    background: #e5e7eb;
+    min-width: 24px;
+    margin-bottom: 1.2rem;
+  }
+  .pipeline-connector.done { background: #16a34a; }
+
+  /* ===== VERDICT BADGES ===== */
+  .verdict-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+  }
+  .verdict-badge.ready { background: #dcfce7; color: #166534; }
+  .verdict-badge.caution { background: #fef3c7; color: #92400e; }
+
+  .review-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .review-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .review-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+  }
+  .review-card-role { font-size: 0.85rem; font-weight: 600; color: #333; }
+  .review-card-note { font-size: 0.83rem; color: #777; line-height: 1.4; }
+
+  /* ===== OPEN QUESTIONS ===== */
+  .questions-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+  .questions-card > p { font-size: 0.9rem; color: #555; margin-bottom: 1rem; }
+  .question-list {
+    list-style: none;
+    padding: 0;
+    counter-reset: question;
+  }
+  .question-list li {
+    counter-increment: question;
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.4rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.93rem;
+    color: #444;
+  }
+  .question-list li:last-child { border-bottom: none; padding-bottom: 0; }
+  .question-list li::before {
+    content: counter(question);
+    font-weight: 800;
+    color: #fff;
+    background: #2563eb;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  /* ===== ADVISORY ===== */
+  .advisory-card {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-top: 1rem;
+  }
+  .advisory-card h3 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+  }
+  .advisory-list {
+    padding-left: 1.25rem;
+    font-size: 0.88rem;
+    color: #78350f;
+  }
+  .advisory-list li { margin-bottom: 0.3rem; }
+
+  /* ===== PRINT ===== */
+  @media print {
+    body { background: #fff; }
+    .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toc { display: none; }
+    .proposal { max-width: 100%; padding: 1rem 0; }
+    .section { opacity: 1 !important; transform: none !important; animation: none !important; }
+    .issue-card, .scope-column, .feasibility-box, .review-card { break-inside: avoid; box-shadow: none; }
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.5rem; }
+    .metrics-strip { flex-wrap: wrap; }
+    .metric { min-width: 50%; }
+    .scope-grid, .feasibility-grid { grid-template-columns: 1fr; }
+    .issue-card.child { margin-left: 1rem; }
+    .review-cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Feature Proposal</div>
+    <h1>Groom Phase 5: Decomposition Methodology &amp; Issue Quality</h1>
+    <p class="subtitle">PMs receive issue sets with visible decomposition reasoning &mdash; the drafter shows which splitting patterns it considered and why &mdash; so structural problems are caught before engineering picks up the work.</p>
+    <div class="metrics-strip">
+      <div class="metric">
+        <span class="metric-value">2</span>
+        <span class="metric-label">Issues</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">2 Rounds</span>
+        <span class="metric-label">Team Reviews</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">Ready</span>
+        <span class="metric-label">Bar Raiser</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">10x</span>
+        <span class="metric-label">Differentiator</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">High</span>
+        <span class="metric-label">Priority</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#problem">Problem</a>
+    <a href="#scope">Scope</a>
+    <a href="#competitive">Competitive</a>
+    <a href="#feasibility">Feasibility</a>
+    <a href="#issues">Issues</a>
+    <a href="#review">Review</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<main class="proposal">
+
+  <!-- 1. PROBLEM & CONTEXT -->
+  <section class="section" id="problem">
+    <h2 class="section-title">Problem &amp; Context</h2>
+    <p>Phase 5 (Groom) is the weakest link in a pipeline where the review phases are already strong. The current issue drafting step is a template checklist &mdash; it tells the drafter <em>what fields to fill in</em> but provides no guidance on <em>how to think</em> about decomposition, quality, or slicing.</p>
+    <div class="callout">
+      <strong>The irony:</strong> Phase 5.5 reviewers have detailed BAD/GOOD examples for outcomes, ACs, and decomposition &mdash; but the drafter in Phase 5 has none. The person writing the issues has less guidance than the person critiquing them.
+    </div>
+    <p>This means structural defects (horizontal slicing, missing dependencies, vague ACs, task-descriptions-as-outcomes) are systematically produced in Phase 5 and caught in Phase 5.5 &mdash; wasting review iterations on problems that should never have been drafted.</p>
+    <p style="margin-top: 0.75rem;"><strong>Research sources:</strong> 9 established story splitting patterns (Humanizing Work), INVEST criteria (Agile Alliance), vertical slicing consensus (Scrum.org), superpowers brainstorming skill (2-3 approach proposals), dev-epic plugin (layer-aware decomposition).</p>
+  </section>
+
+  <!-- 2. SCOPE -->
+  <section class="section" id="scope">
+    <h2 class="section-title">Scope Overview</h2>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>In Scope</h4>
+        <ul>
+          <li>Decomposition step (new Step 3) &mdash; explore 2-3 approaches, apply splitting patterns, boundary quality test</li>
+          <li>Story splitting patterns reference file &mdash; 9 patterns + vertical slicing guidance</li>
+          <li>INVEST validation with evidence trails &mdash; forcing function during decomposition, not post-hoc</li>
+          <li>Good/bad examples for the drafter &mdash; match Phase 5.5 reviewer quality</li>
+          <li>MVP slicing guidance &mdash; thinnest vertical slice per issue</li>
+          <li>Dependency mapping &mdash; conditional (4+ issues), with sequencing rationale</li>
+        </ul>
+        <div class="filter-badge">10x Differentiator</div>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>Out of Scope</h4>
+        <ul>
+          <li>Size-based ceremony scaling (XS-XL) &mdash; changes overall pipeline</li>
+          <li>Confidence tiers on review findings &mdash; improves review phases, not drafting</li>
+          <li>Changes to review agent prompts (5.5, 5.7) &mdash; already strong</li>
+          <li>Visual companion for decomposition &mdash; separate initiative</li>
+          <li>New feature types &mdash; current 5 types are adequate</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. COMPETITIVE CONTEXT -->
+  <section class="section" id="competitive">
+    <h2 class="section-title">Competitive Context</h2>
+    <div class="comp-table-wrap">
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>PM Skills Marketplace</th>
+            <th>ChatPRD</th>
+            <th>Productboard Spark</th>
+            <th>PM (Ours)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Decomposition alternatives</td>
+            <td class="competitor-weak">None &mdash; single output</td>
+            <td class="competitor-weak">None &mdash; single PRD</td>
+            <td class="competitor-weak">None &mdash; single brief</td>
+            <td class="us">2-3 approaches with trade-offs, visible to user</td>
+          </tr>
+          <tr>
+            <td>INVEST validation</td>
+            <td>Static checklist, no evidence</td>
+            <td class="competitor-weak">Not offered</td>
+            <td class="competitor-weak">Not offered</td>
+            <td class="us">Per-dimension evidence trails grounded in prior phases</td>
+          </tr>
+          <tr>
+            <td>Context grounding</td>
+            <td class="competitor-weak">Stateless &mdash; each session starts fresh</td>
+            <td class="competitor-weak">Session-scoped only</td>
+            <td>Credit-based, isolated sessions</td>
+            <td class="us">Stateful pipeline: research + EM feasibility + codebase</td>
+          </tr>
+          <tr>
+            <td>Dependency mapping</td>
+            <td class="competitor-weak">Not offered</td>
+            <td class="competitor-weak">Not offered</td>
+            <td class="competitor-weak">Not offered</td>
+            <td class="us">Auto-generated during grooming with sequencing rationale</td>
+          </tr>
+          <tr>
+            <td>Splitting methodology</td>
+            <td class="competitor-weak">No patterns</td>
+            <td class="competitor-weak">No patterns</td>
+            <td class="competitor-weak">No patterns</td>
+            <td class="us">9 established patterns + vertical slicing + meta-pattern</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Key differentiator:</strong> PM is the only tool that chains strategy &rarr; research &rarr; groom into a stateful pipeline where decomposition decisions cite prior-phase findings. The output is visibly grounded, not generic &mdash; and that grounding is the moat competitors cannot replicate without rebuilding their architecture.
+    </div>
+  </section>
+
+  <!-- 4. TECHNICAL FEASIBILITY -->
+  <section class="section" id="feasibility">
+    <h2 class="section-title">Technical Feasibility</h2>
+    <div class="feasibility-grid">
+      <div class="feasibility-box build-on">
+        <h4>Build On</h4>
+        <ul>
+          <li><code>phase-5-groom.md</code> &mdash; clean step structure accepts insertion</li>
+          <li><code>phase-5.5-team-review.md</code> &mdash; BAD/GOOD example pattern to replicate</li>
+          <li><code>SKILL.md</code> line 90 &mdash; <code>Read $PLUGIN_ROOT/...</code> pattern established</li>
+          <li><code>templates/</code> directory &mdash; reference file precedent</li>
+        </ul>
+      </div>
+      <div class="feasibility-box build-new">
+        <h4>Build New</h4>
+        <ul>
+          <li><code>references/splitting-patterns.md</code> &mdash; new reference file (~80 lines)</li>
+          <li>Decomposition step in Phase 5 (~40 lines)</li>
+          <li>INVEST validation gate (~30 lines)</li>
+          <li>Good/bad examples for drafter (~15 lines)</li>
+        </ul>
+      </div>
+      <div class="feasibility-box risks">
+        <h4>Risks</h4>
+        <ul>
+          <li>Context window growth &mdash; Phase 5 is already heaviest phase</li>
+          <li>INVEST "Independent" vs. dependency tension &mdash; resolved in AC 3</li>
+          <li>LLM may produce superficial decomposition reasoning</li>
+          <li>Reference file read timing must be explicit</li>
+        </ul>
+      </div>
+      <div class="feasibility-box sequencing">
+        <h4>Sequencing</h4>
+        <ul>
+          <li>1. Reference file (standalone, testable)</li>
+          <li>2. Decomposition step + MVP slicing</li>
+          <li>3. Good/bad examples</li>
+          <li>4. INVEST validation + dependency mapping</li>
+        </ul>
+      </div>
+    </div>
+    <p><span class="verdict-badge ready">Feasible as scoped</span> &mdash; total budget: ~150 lines in phase-5-groom.md + ~80 line reference file loaded on demand.</p>
+  </section>
+
+  <!-- 5. ISSUE BREAKDOWN -->
+  <section class="section" id="issues">
+    <h2 class="section-title">Issue Breakdown</h2>
+
+    <div class="issue-group">
+      <div class="issue-card parent">
+        <div class="issue-header">
+          <span class="issue-id">PM-032</span>
+          <span class="issue-title">Add Decomposition Methodology with Splitting Patterns</span>
+        </div>
+        <div class="issue-outcome">PMs receive an issue set with visible decomposition reasoning &mdash; the drafter shows which splitting patterns it considered and why it chose one &mdash; so they can catch structural problems before engineering picks up the work.</div>
+        <div class="issue-labels">
+          <span class="label priority-high">High</span>
+          <span class="label">grooming-quality</span>
+          <span class="label">infrastructure</span>
+        </div>
+        <ol class="ac-list">
+          <li>New reference file at <code>skills/groom/references/splitting-patterns.md</code> encoding 9 Humanizing Work patterns + vertical slicing + meta-pattern</li>
+          <li>New Step 3 ("Decompose") with explicit <code>Read</code> instruction, 2-3 candidate approaches evaluated against accumulated context</li>
+          <li style="padding-left: 0.5rem; list-style-type: lower-alpha;">User sees eliminated approaches with rejection reasons &mdash; visible interaction, primary differentiator</li>
+          <li>Boundary quality test: "Can each issue be understood alone? Can one change without breaking another?"</li>
+          <li>MVP slicing woven in: "thinnest vertical slice delivering end-to-end value" per issue</li>
+          <li>Good/bad decomposition examples (horizontal slice BAD, no-split BAD, vertical slices GOOD)</li>
+          <li>Decomposition rationale cites prior phases with fallback for absent phases</li>
+          <li>Good/bad examples added for outcome statements and ACs in drafting step</li>
+          <li>Consistent step renumbering with Read instruction in single implementation</li>
+          <li>New <code>references/</code> directory (distinct from <code>templates/</code>)</li>
+          <li>Total new content &le;150 lines; reference file loaded on demand</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-033</span>
+          <span class="issue-title">Add INVEST Validation Gate and Dependency Mapping</span>
+        </div>
+        <div class="issue-outcome">PMs can trust that every drafted issue is independently scoped, valuable, and testable &mdash; with visible evidence for each INVEST dimension &mdash; so they spend review time on strategic judgment rather than catching structural defects.</div>
+        <div class="issue-labels">
+          <span class="label priority-high">High</span>
+          <span class="label">grooming-quality</span>
+          <span class="label">infrastructure</span>
+        </div>
+        <ol class="ac-list">
+          <li>INVEST validation step inserted between "Decompose" and "Draft issues" (by name, not number)</li>
+          <li>Per-dimension evidence trails: Independent, Negotiable, Valuable, Estimable, Small, Testable &mdash; each grounded in prior-phase context</li>
+          <li>"Independent" handles dependency tension: "can be understood independently, not has zero dependencies"</li>
+          <li>Conditional dependency mapping (4+ issues): dependency list, sequencing rationale, parallelization</li>
+          <li>Skip condition: "3 or fewer issues &mdash; sequencing is implicit"</li>
+          <li>Dependency output feeds Technical Feasibility section of each issue</li>
+          <li>Bare pass/fail without evidence citation is explicitly rejected; fallback for absent phases</li>
+          <li>Total new content &le;50 lines in phase-5-groom.md</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. REVIEW SUMMARY -->
+  <section class="section" id="review">
+    <h2 class="section-title">Review Summary</h2>
+
+    <div class="review-pipeline">
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">1</div>
+        <span class="pipeline-label">Scope Review</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">2</div>
+        <span class="pipeline-label">Team Review</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">3</div>
+        <span class="pipeline-label">Bar Raiser</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step current">
+        <div class="pipeline-dot">4</div>
+        <span class="pipeline-label">Decision</span>
+      </div>
+    </div>
+
+    <div class="review-cards">
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Scope: PM</span>
+          <span class="verdict-badge ready">Ship it</span>
+        </div>
+        <div class="review-card-note">Directly maps to Priority #2. ICP fit is strong &mdash; small squads doing PM + engineering need every ticket implementation-ready.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Scope: Competitive</span>
+          <span class="verdict-badge ready">Strengthens</span>
+        </div>
+        <div class="review-card-note">Context-grounded decomposition is inimitable without PM's persistence layer. Encode the differentiator as visible, auditable output.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Scope: EM</span>
+          <span class="verdict-badge ready">Feasible</span>
+        </div>
+        <div class="review-card-note">Clean step structure accepts insertion. Reference file loaded on demand. Context window managed via line budgets.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Team: PM</span>
+          <span class="verdict-badge ready">Ready</span>
+        </div>
+        <div class="review-card-note">6/6 scope items covered. Outcomes rewritten as user-centric. Success metric deferred to measurement task.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Team: Competitive</span>
+          <span class="verdict-badge ready">Sharp</span>
+        </div>
+        <div class="review-card-note">Differentiation encoded as testable ACs. Visible alternatives + evidence trails are the competitive moat.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Team: EM</span>
+          <span class="verdict-badge ready">Ready</span>
+        </div>
+        <div class="review-card-note">Step numbering merged with Read instruction. Dependency tension resolved. AC 7 fallback added.</div>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Bar Raiser</span>
+          <span class="verdict-badge ready">Ready to present</span>
+        </div>
+        <div class="review-card-note">High conviction. Well-scoped, low risk, direct strategic alignment. No backlog overlap. The drafter is the weakest link &mdash; this fixes it at the source.</div>
+      </div>
+    </div>
+
+    <div class="advisory-card">
+      <h3>Advisory Items</h3>
+      <ul class="advisory-list">
+        <li>Monitor for superficial "show your work" reasoning &mdash; LLM theater risk if decomposition rationales become boilerplate</li>
+        <li>Splitting patterns reference file needs an ownership/update plan for long-term maintenance</li>
+        <li>Consider tightening ChatPRD comparison &mdash; it's Adjacent, not Direct; PM Skills Marketplace is the sharper foil</li>
+        <li>Success metric baseline (Phase 5.5 iteration count) should be measured across 3-5 sessions before shipping</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 7. OPEN QUESTIONS -->
+  <section class="section" id="questions">
+    <h2 class="section-title">Open Questions</h2>
+    <div class="questions-card">
+      <p>Questions a decision-maker should be prepared to discuss before approving:</p>
+      <ul class="question-list">
+        <li>How will we detect low-quality decomposition reasoning versus genuine analysis? What does "LLM theater" look like in practice, and what is the intervention?</li>
+        <li>Who owns the splitting patterns reference file long-term? Is it a snapshot or a living document? What triggers an update?</li>
+        <li>The success metric (Phase 5.5 iteration reduction) requires a pre-ship baseline. Who observes the next 3-5 sessions to establish it, and does that delay shipping?</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>
