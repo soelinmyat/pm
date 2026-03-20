@@ -107,10 +107,10 @@ function hashProjectPort(dir) {
 function isPortAvailable(port, host) {
   return new Promise((resolve) => {
     const srv = net.createServer();
-    srv.once('error', () => srv.close(() => resolve(false)));
-    srv.listen(port, host, () => {
-      srv.close(() => resolve(true));
-    });
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    srv.once('error', () => srv.close(() => finish(false)));
+    srv.listen(port, host, () => srv.close(() => finish(true)));
   });
 }
 
@@ -122,7 +122,15 @@ function isPortAvailable(port, host) {
  */
 async function resolvePort(host) {
   if (process.env.PM_PORT) {
-    return { port: Number(process.env.PM_PORT), hashed: null, shifted: false };
+    const port = Number(process.env.PM_PORT);
+    if (port === 0) {
+      // PM_PORT=0 means "let OS pick" (used in tests)
+      return { port: 0, hashed: null, shifted: false };
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid PM_PORT: "${process.env.PM_PORT}"`);
+    }
+    return { port, hashed: null, shifted: false };
   }
 
   const projectDir = process.env.PM_PROJECT_DIR || process.cwd();
@@ -3371,7 +3379,9 @@ const debounceTimers = new Map();
 
 async function startServer() {
   const { port: PORT, hashed, shifted } = await resolvePort(HOST);
-  if (shifted && hashed !== null) {
+  if (PORT === 0) {
+    console.error(`All ports in range ${hashed}–${hashed + 99} occupied; letting OS assign a port`);
+  } else if (shifted && hashed !== null) {
     console.error(`Port ${hashed} occupied, using ${PORT} instead`);
   }
 

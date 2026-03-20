@@ -1874,6 +1874,7 @@ test('resolvePort falls back to next port when hashed port is occupied', async (
 
     try {
       const result = await mod.resolvePort('127.0.0.1');
+      assert.notStrictEqual(result.port, 0, 'resolvePort should not fall back to OS-assigned port in test');
       assert.ok(result.port > expectedPort, `resolved port ${result.port} should be > hashed port ${expectedPort}`);
       assert.strictEqual(result.hashed, expectedPort);
       assert.strictEqual(result.shifted, true);
