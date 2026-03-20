@@ -51,6 +51,16 @@ Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Wor
 - Verdicts colored: `.verdict-ready` green, `.verdict-caution` amber, `.verdict-blocked` red.
 - Print-friendly: `@media print` styles. Responsive: `@media (max-width: 640px)` collapses grids.
 
+#### Step 1.5: Scannability check
+
+Before opening the proposal, verify these three things:
+
+1. **Section leads.** Every section after the hero opens with exactly one bold or `.section-lead` sentence. If any section lead is longer than one sentence, shorten it.
+2. **Collapsible ACs.** All acceptance criteria lists are inside `<details><summary>` tags. None are expanded by default.
+3. **One-line review notes.** Each review card note is a single short phrase (under ~60 characters). Truncate or rephrase any that wrap to two lines.
+
+If any check fails, fix it before proceeding.
+
 #### Step 2: Open in browser and notify
 
 ```bash
