@@ -1,5 +1,11 @@
 # Learnings
 
+## 2026-03-20 — PM-034/035 Epic (Readable Output Foundation)
+
+- **Agents may jump ahead:** PM-035 agent implemented before receiving "go implement" — harmless but required re-applying in the correct worktree. Monitor for this with sequential dependencies.
+- **Style guide + proposal template are a clean pair:** Both S-sized, no conflicts, and the template naturally follows the style guide. Good decomposition boundary.
+- **Concurrent session activity creates dirty working trees:** Other groom/dev sessions left untracked files that complicated git operations. Keep working tree clean between epics.
+
 ## 2026-03-20 — PM-032/033 Epic (Groom Phase 5 Decomposition Methodology)
 
 - **Groomed issues are fast:** Both S-sized issues went from plan to merged PR in ~10 min each. Detailed ACs from pm:groom eliminated brainstorming/spec review overhead.
