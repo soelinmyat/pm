@@ -115,10 +115,10 @@ The new step 6 content:
    | 4 | Scope tightened during review | `scope_review.iterations` > 1 AND `scope.out_of_scope` is non-empty | "Scope tightened: {comma-separated out_of_scope items}" | `scope` |
    | 5 | Clean session | `scope_review.iterations` === 1 AND `bar_raiser.verdict` === `"ready"` | "Clean session — scope and reviews passed first iteration" | `quality` |
 
-   **Write logic** (same as retro step):
+   **Write logic** (same as retro step, using the **golden serialization format** from PM-039):
    1. If `pm/memory.md` does not exist, create it with the PM-039 schema.
    2. Read `pm/memory.md`, parse the frontmatter.
-   3. Append each generated entry to the `entries` array:
+   3. Append each generated entry to the `entries` array (2-space indent + dash for entry start, 4-space indent for continuation fields, quote values containing colons):
       ```yaml
       - date: {today YYYY-MM-DD}
         source: {session-slug}
@@ -128,7 +128,12 @@ The new step 6 content:
    4. Update the `updated` field to today's date.
    5. Write the file back.
 
-   This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 5.
+   **AC6 guard — zero-entry warning:** After both the retro step (5) and extraction step (6) complete, count total entries written in this session. If zero entries were written (user skipped all retro questions AND no extraction conditions met), log a warning:
+   > "No learnings captured this session — retro was skipped and no notable signals in the state file."
+
+   This satisfies PM-038 AC6: "Phase 6 completion always results in at least one memory entry, or a logged warning if writing fails."
+
+   This step is otherwise completely silent — produce no user-facing output beyond the zero-entry warning. Entries are appended after any retro entries from step 5.
 ```
 
 ### Task 2: Update step 7 (deletion) numbering

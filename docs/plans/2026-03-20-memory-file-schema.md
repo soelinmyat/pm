@@ -69,6 +69,8 @@ Port the array-of-objects parsing from `server.js` into the existing `parseFront
 - When a `- key: value` pattern is encountered inside an array, create an object and collect continuation lines (indented `key: value` without a leading `-`).
 - Keep backward compatibility: flat arrays (`- scalar`) must still work for existing backlog `children` fields.
 
+**Handle inline empty array:** The parser must also handle `entries: []` on a single line — treat it as an empty JavaScript array, not the string `"[]"`. This is critical because PM-040/041 create the file with `entries: []` when it doesn't exist.
+
 The upgraded parser should turn:
 ```yaml
 entries:
@@ -142,8 +144,28 @@ Add test cases:
 5. Entry count > 50 produces warning (not error)
 6. memory.md with no frontmatter reports error
 7. memory.md with wrong type reports error
-8. memory.md with empty entries array passes validation
+8. memory.md with empty entries array (`entries: []` inline) passes validation
 9. Real pm/ directory still passes validation (existing test covers this — just ensure new file doesn't break it)
+10. **Round-trip integration test:** Write a multi-entry memory file using the golden serialization format (below), read it back through parseFrontmatter(), and verify all fields survive. This validates the write → validate → read pipeline end-to-end.
+
+### Golden Serialization Format (for PM-040/041 skill instructions)
+
+When PM-040 or PM-041 write entries to pm/memory.md, they MUST use this exact YAML format (2-space indent for `- `, 4-space indent for continuation fields, no quotes unless value contains colons):
+
+```yaml
+entries:
+  - date: 2026-03-20
+    source: retro
+    category: quality
+    learning: Research phase was thorough and well-targeted
+  - date: 2026-03-20
+    source: memory-improvement-loop
+    category: scope
+    learning: "Scope needed 2 iterations — blocking issue: missing success criteria"
+    detail: "PM reviewer flagged no measurable 90-day outcome. Added 3 success criteria."
+```
+
+Rules: values containing colons must be quoted. One blank line between the last entry and the `---` closing delimiter. This format is tested in test case 10 above.
 
 ### Task 6: Run tests, verify
 
