@@ -107,7 +107,36 @@ Before drafting issues, determine how to split the feature into discrete, delive
 
 5. **MVP slicing.** Verify the first issue is the thinnest vertical slice delivering end-to-end value. If the first issue could be split further while still delivering user value, split it.
 
-#### Step 4: Draft issues
+#### Step 4: INVEST validation
+
+Before drafting issues, validate that every issue from the decomposition passes all six INVEST dimensions with grounding evidence — not just pass/fail.
+
+For each issue, produce an evidence row per dimension:
+
+| Dimension | Evidence | Source |
+|-----------|----------|--------|
+| **Independent** | "{Issue A} and {Issue B} can be implemented by different engineers without coordination" OR flag as explicit dependency: "{Issue A} requires {Issue B}'s API surface" | Step 3 decomposition |
+| **Negotiable** | Verified: outcome statement describes user value, not a locked implementation | Outcome statement |
+| **Valuable** | Delivers end-user value OR explicitly marked as enabling prerequisite: "Enables {Issue X} by providing {capability}" | Scope definition, research findings |
+| **Estimable** | Grounded in EM feasibility findings: "{File/pattern} exists, estimated touch points: {N}" | Phase 4.5 findings (if absent, state: "No EM review — assumed feasible based on {reasoning}") |
+| **Small** | Completable within a sprint: single splitting pattern applied, bounded scope | Step 3 boundary check |
+| **Testable** | Every AC has clear pass/fail condition — cite the AC number | Draft ACs |
+
+**"Independent" means understandable independently, not zero dependencies.** Two issues may have a sequencing dependency and still pass — the key test is whether each can be *understood, reviewed, and estimated* by different engineers without reading the other. Flag issues that cannot be understood alone as failing Independent.
+
+**Reject and re-evaluate** if any dimension produces only pass/fail without a grounding citation. If a prior phase (e.g., Phase 4.5 EM review) was not completed, state which phase was absent and what was assumed — the drafter must re-evaluate these assumptions before proceeding.
+
+**Conditional dependency mapping** (4+ issues only; skip if 3 or fewer — sequencing is implicit):
+
+If the decomposition produced 4 or more issues, add a dependency sub-step:
+
+1. **Dependency list:** For each issue, list issues it depends on (if any) and issues that depend on it.
+2. **Sequencing rationale:** Explain why the proposed order is correct — cite technical constraints from Phase 4.5 or logical prerequisites from the decomposition.
+3. **Parallelization:** Identify which issues can be worked in parallel by different engineers, and which must be sequential.
+
+The dependency mapping output feeds the **Technical Feasibility** section of each drafted issue in the next step.
+
+#### Step 5: Draft issues
 
 Draft a structured issue set: one parent issue + child issues for discrete work, following the decomposition from Step 3.
 
@@ -132,9 +161,9 @@ Each issue must contain:
    - **Decomposition rationale:** Which splitting pattern was applied and why (from Step 3). If prior phases were not completed, note which context is missing and explain the rationale based on available information.
    - **User Flows:** Mermaid flowchart (if generated in Step 2a), or "N/A — no user-facing workflow for this feature type"
    - **Wireframes:** Link to the HTML wireframe file (if generated in Step 2b), or "N/A — no user-facing workflow for this feature type"
-   - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If no EM review was conducted, note "No codebase context available."
+   - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If dependency mapping was produced (Step 4), include sequencing constraints and parallelization notes. If no EM review was conducted, note "No codebase context available."
 
-#### Step 5: Update state
+#### Step 6: Update state
 
 Do NOT present issues to the user yet. Proceed directly to Phase 5.5.
 
