@@ -1,0 +1,10 @@
+{
+  "title": "Simple, Readable Output",
+  "date": "2026-03-20",
+  "verdict": "ready",
+  "verdictLabel": "Ready",
+  "phase": "completed",
+  "issueCount": 2,
+  "gradient": "linear-gradient(135deg, #0f172a 0%, #1e40af 50%, #2563eb 100%)",
+  "labels": ["output-quality", "infrastructure"]
+}

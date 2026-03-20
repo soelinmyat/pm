@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Simple, Readable Output</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
+
+  .hero { background: linear-gradient(135deg, #0f172a 0%, #1e40af 50%, #2563eb 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+  .hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
+  .hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
+  .hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
+  .hero h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  .hero .subtitle { font-size: 1.1rem; color: rgba(255,255,255,0.85); max-width: 640px; margin-bottom: 1.5rem; }
+  .metrics-strip { display: flex; gap: 0; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); }
+  .metric { flex: 1; padding: 0.75rem 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+  .metric:last-child { border-right: none; }
+  .metric-value { font-size: 1.5rem; font-weight: 800; display: block; line-height: 1.2; }
+  .metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
+
+  .toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; }
+  .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
+  .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .toc a:hover { color: #2563eb; border-bottom-color: #2563eb; }
+
+  .proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  .section { margin-bottom: 3rem; opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+  .section:nth-child(1) { animation-delay: 0.05s; } .section:nth-child(2) { animation-delay: 0.1s; } .section:nth-child(3) { animation-delay: 0.15s; } .section:nth-child(4) { animation-delay: 0.2s; } .section:nth-child(5) { animation-delay: 0.25s; } .section:nth-child(6) { animation-delay: 0.3s; } .section:nth-child(7) { animation-delay: 0.35s; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+  .section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; }
+  .section p, .section li { font-size: 0.95rem; color: #444; max-width: 65ch; }
+  .section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .section li { margin-bottom: 0.35rem; }
+  .section-lead { font-weight: 600; color: #111; font-size: 1rem; margin-bottom: 0.75rem; }
+
+  .callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
+  .callout strong { color: #1e3a8a; }
+
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+  .scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; } .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; } .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; } .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+
+  .issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+  .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
+  .issue-labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .label { font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; background: #f3f4f6; color: #555; border: 1px solid #e5e7eb; text-transform: uppercase; letter-spacing: 0.03em; }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  details { margin-top: 0.5rem; }
+  summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; }
+  .ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; margin-top: 0.5rem; }
+  .ac-list li { margin-bottom: 0.25rem; } .ac-list li::marker { color: #2563eb; }
+
+  .review-pipeline { display: flex; align-items: center; gap: 0; margin-bottom: 1.5rem; overflow-x: auto; padding: 0.5rem 0; }
+  .pipeline-step { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 120px; }
+  .pipeline-dot { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 700; margin-bottom: 0.4rem; border: 2px solid #e5e7eb; background: #fff; color: #aaa; }
+  .pipeline-step.passed .pipeline-dot { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .pipeline-step.current .pipeline-dot { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,0.15); }
+  .pipeline-label { font-size: 0.7rem; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pipeline-step.passed .pipeline-label { color: #16a34a; } .pipeline-step.current .pipeline-label { color: #2563eb; }
+  .pipeline-connector { flex: 1; height: 2px; background: #e5e7eb; min-width: 24px; margin-bottom: 1.2rem; }
+  .pipeline-connector.done { background: #16a34a; }
+
+  .verdict-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 999px; }
+  .verdict-badge.ready { background: #dcfce7; color: #166534; }
+  .verdict-badge.caution { background: #fef3c7; color: #92400e; }
+  .review-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }
+  .review-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+  .review-card-role { font-size: 0.85rem; font-weight: 600; color: #333; }
+  .review-card-note { font-size: 0.83rem; color: #777; line-height: 1.4; }
+
+  .questions-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; }
+  .questions-card > p { font-size: 0.9rem; color: #555; margin-bottom: 1rem; }
+  .question-list { list-style: none; padding: 0; counter-reset: question; }
+  .question-list li { counter-increment: question; display: grid; grid-template-columns: 2rem 1fr; gap: 0.4rem; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; font-size: 0.93rem; color: #444; }
+  .question-list li:last-child { border-bottom: none; }
+  .question-list li::before { content: counter(question); font-weight: 800; color: #fff; background: #2563eb; width: 1.6rem; height: 1.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0; }
+
+  .advisory-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 1rem 1.25rem; margin-top: 1rem; }
+  .advisory-card h3 { font-size: 0.8rem; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+  .advisory-list { padding-left: 1.25rem; font-size: 0.88rem; color: #78350f; }
+  .advisory-list li { margin-bottom: 0.3rem; }
+
+  @media print { body { background: #fff; } .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .toc { display: none; } .proposal { max-width: 100%; padding: 1rem 0; } .section { opacity: 1 !important; transform: none !important; animation: none !important; } .issue-card, .scope-column, .review-card { break-inside: avoid; box-shadow: none; } }
+  @media (max-width: 640px) { .hero h1 { font-size: 1.5rem; } .metrics-strip { flex-wrap: wrap; } .metric { min-width: 50%; } .scope-grid { grid-template-columns: 1fr; } .issue-card.child { margin-left: 1rem; } .review-cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Feature Proposal</div>
+    <h1>Simple, Readable Output</h1>
+    <p class="subtitle">Every message scannable in 5 seconds. Verdicts first. Bullets, not paragraphs. Plain language a 16-year-old gets at a glance.</p>
+    <div class="metrics-strip">
+      <div class="metric"><span class="metric-value">2</span><span class="metric-label">Issues</span></div>
+      <div class="metric"><span class="metric-value">2 Rounds</span><span class="metric-label">Team Reviews</span></div>
+      <div class="metric"><span class="metric-value">Ready</span><span class="metric-label">Bar Raiser</span></div>
+      <div class="metric"><span class="metric-value">10x</span><span class="metric-label">Differentiator</span></div>
+      <div class="metric"><span class="metric-value">High</span><span class="metric-label">Priority</span></div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="toc-inner">
+  <a href="#problem">Problem</a><a href="#scope">Scope</a><a href="#competitive">Competitive</a><a href="#issues">Issues</a><a href="#review">Review</a><a href="#questions">Questions</a>
+</div></nav>
+
+<main class="proposal">
+
+  <section class="section" id="problem">
+    <h2 class="section-title">Problem</h2>
+    <p class="section-lead">Users skip reading plugin output because it's too dense.</p>
+    <p>The plugin creator reports saying "yes" to review gates without reading them &mdash; because scanning paragraphs of jargon-heavy analysis is exhausting. If the person making product decisions bypasses review gates, the gates aren't working.</p>
+    <div class="callout"><strong>Root cause:</strong> The skill prompts don't constrain output density. Scripted messages are short, but the AI's analysis paragraphs (scope reviews, team reviews, strategy checks) are uncontrolled walls of text.</div>
+  </section>
+
+  <section class="section" id="scope">
+    <h2 class="section-title">Scope</h2>
+    <p class="section-lead">Style guide + scannable proposal template. Visual companion deferred.</p>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>In Scope</h4>
+        <ul>
+          <li>Writing style guide (grade 8, plain language, before/after examples)</li>
+          <li>SKILL.md formatting rules (verdict first, max 3 bullets, no walls of text)</li>
+          <li>Proposal template rewrite (one-sentence summaries, collapsible ACs)</li>
+          <li>TL;DR-first pattern for review outputs</li>
+          <li>Max-density rule + parallel agent output collapsing</li>
+        </ul>
+        <div class="filter-badge">10x Differentiator</div>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>Out of Scope</h4>
+        <ul>
+          <li>Visual companion (PM-036, own initiative)</li>
+          <li>Dashboard server changes</li>
+          <li>Review agent prompt rewrites</li>
+          <li>Pipeline structure changes</li>
+          <li>Internationalization</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="competitive">
+    <h2 class="section-title">Competitive Context</h2>
+    <p class="section-lead">No competitor constrains AI output to a readability standard. PM would be first.</p>
+    <p>ChatPRD recognized this pain &mdash; users complained about verbosity, so they added a concise/balanced/detailed toggle (Dec 2025). That's a user-controlled bandaid. PM solves it structurally: formatting rules enforced at the prompt layer, not a toggle. Productboard Spark users cite "overwhelming interface" as a top complaint. PM Skills Marketplace has no readability controls at all.</p>
+  </section>
+
+  <section class="section" id="issues">
+    <h2 class="section-title">Issues</h2>
+    <p class="section-lead">2 issues: foundation rules, then scannable template.</p>
+
+    <div class="issue-card parent">
+      <div class="issue-header">
+        <span class="issue-id">PM-034</span>
+        <span class="issue-title">Readable Output Foundation</span>
+      </div>
+      <div class="issue-outcome">Users scan every terminal message in under 5 seconds &mdash; verdicts lead, bullets replace paragraphs, jargon becomes plain language.</div>
+      <div class="issue-labels"><span class="label priority-high">High</span><span class="label">output-quality</span></div>
+      <details><summary>Show acceptance criteria (6)</summary>
+        <ol class="ac-list">
+          <li>Style guide at <code>skills/groom/references/style-guide.md</code>: grade &le;8, max 20-word sentences, 2-line paragraphs, jargon ban list, before/after examples</li>
+          <li>SKILL.md "Output Formatting" section: verdict first, max 3 bullets, no walls of text, parallel agent collapsing, read the style guide</li>
+          <li>3 before/after examples from real groom output (scope review, team review, strategy check)</li>
+          <li>Style guide Read instruction in Custom Instructions section after lines 51-57</li>
+          <li>SKILL.md additions &le;20 lines</li>
+          <li>Style guide &le;80 lines, most important rules in first 10</li>
+        </ol>
+      </details>
+    </div>
+
+    <div class="issue-card child">
+      <div class="issue-header">
+        <span class="issue-id">PM-035</span>
+        <span class="issue-title">Scannable Proposal Template</span>
+      </div>
+      <div class="issue-outcome">Users grasp what, why, and whether to approve within 10 seconds of opening a proposal &mdash; without scrolling past the first screen.</div>
+      <div class="issue-labels"><span class="label priority-high">High</span><span class="label">output-quality</span></div>
+      <details><summary>Show acceptance criteria (9)</summary>
+        <ol class="ac-list">
+          <li>Proposal reference template at <code>skills/groom/templates/proposal-reference.html</code> (verify/create)</li>
+          <li>Every section opens with one-sentence summary in callout or bold</li>
+          <li>AC cards use <code>&lt;details&gt;&lt;summary&gt;</code> for collapsible ACs (CSS-only)</li>
+          <li>Body text max-width: 65ch</li>
+          <li>Section spacing increased (margin-bottom &ge;2rem)</li>
+          <li>Competitive table: color-coded cells, short phrases</li>
+          <li>Review card notes capped at one line</li>
+          <li>Follows PM-034 style guide if available</li>
+          <li>Phase-5.8 updated with scannability check step</li>
+        </ol>
+      </details>
+    </div>
+  </section>
+
+  <section class="section" id="review">
+    <h2 class="section-title">Review Summary</h2>
+    <div class="review-pipeline">
+      <div class="pipeline-step passed"><div class="pipeline-dot">1</div><span class="pipeline-label">Scope</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">2</div><span class="pipeline-label">Team</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">3</div><span class="pipeline-label">Bar Raiser</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step current"><div class="pipeline-dot">4</div><span class="pipeline-label">Decision</span></div>
+    </div>
+    <div class="review-cards">
+      <div class="review-card"><div class="review-card-header"><span class="review-card-role">PM</span><span class="verdict-badge ready">Ready</span></div><div class="review-card-note">6/6 scope items covered. Outcomes user-centric.</div></div>
+      <div class="review-card"><div class="review-card-header"><span class="review-card-role">Competitive</span><span class="verdict-badge ready">Sharp</span></div><div class="review-card-note">ChatPRD toggle cited as evidence. Grade 8 is unclaimed territory.</div></div>
+      <div class="review-card"><div class="review-card-header"><span class="review-card-role">EM</span><span class="verdict-badge ready">Ready</span></div><div class="review-card-note">References/ dir exists. SKILL.md hook established. Low risk.</div></div>
+      <div class="review-card"><div class="review-card-header"><span class="review-card-role">Bar Raiser</span><span class="verdict-badge ready">Ready</span></div><div class="review-card-note">PM-034 + PM-035 are a clean, shippable unit. PM-036 descoped to own initiative.</div></div>
+    </div>
+    <div class="advisory-card">
+      <h3>Advisory</h3>
+      <ul class="advisory-list">
+        <li>Style guide is a prompt instruction, not a mechanical guard &mdash; monitor for regression</li>
+        <li>"Grade 8 by design" positioning: validate in practice, then add to strategy.md</li>
+        <li>PM-036 (visual companion) is a strong follow-up once the style guide proves its value</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="questions">
+    <h2 class="section-title">Open Questions</h2>
+    <div class="questions-card">
+      <ul class="question-list">
+        <li>How will we validate the style guide reduces density in practice? What if the LLM ignores it under context pressure?</li>
+        <li>Does the proposal-reference.html template exist today or not? Needs verification before implementation.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>
