@@ -107,7 +107,7 @@ function hashProjectPort(dir) {
 function isPortAvailable(port, host) {
   return new Promise((resolve) => {
     const srv = net.createServer();
-    srv.once('error', () => resolve(false));
+    srv.once('error', () => srv.close(() => resolve(false)));
     srv.listen(port, host, () => {
       srv.close(() => resolve(true));
     });
