@@ -41,7 +41,7 @@ ln -s ~/Projects/pm/skills ~/.config/opencode/skills/pm
 Start an OpenCode session in your project directory and run:
 
 ```
-/pm:setup
+Set up my project with PM
 ```
 
 You should see the PM setup wizard. The plugin injects setup instructions or the available skills list into every system prompt depending on whether `.pm/config.json` exists in your project.
