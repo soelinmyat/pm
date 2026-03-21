@@ -57,11 +57,11 @@ The `pm/` directory contains Product Memory's own knowledge base — landscape r
 /pm:strategy                           # synthesize positioning and priorities
 /pm:ideate                             # generate ranked feature ideas
 /pm:groom                              # full grooming: research → scope → review → issues
-/dev                                   # implement with TDD, review, PR, merge
-/dev-epic PM-044                       # orchestrate a multi-issue epic end-to-end
+/pm:dev                                # implement with TDD, review, PR, merge
+/pm:dev-epic PM-044                    # orchestrate a multi-issue epic end-to-end
 ```
 
-When a groomed issue reaches `/dev` or `/dev-epic`, the dev workflow detects the grooming artifacts and skips brainstorming and spec review — going straight to implementation planning.
+When a groomed issue reaches `/pm:dev` or `/pm:dev-epic`, the dev workflow detects the grooming artifacts and skips brainstorming and spec review — going straight to implementation planning.
 
 ### Codex
 
@@ -71,8 +71,8 @@ $pm-research landscape
 $pm-strategy
 $pm-ideate
 $pm-groom
-$dev-dev
-$dev-dev-epic PM-044
+$pm-dev
+$pm-dev-epic PM-044
 ```
 
 ---
@@ -97,17 +97,17 @@ $dev-dev-epic PM-044
 
 | Command | Description |
 |---------|-------------|
-| `/dev` | Full lifecycle: brainstorm → plan → TDD → review → PR → merge |
-| `/dev-epic <id>` | Orchestrate a multi-issue epic with parallel agents |
-| `/pr` | PR preparation: review, push, create PR, CI monitor |
-| `/review` | Multi-perspective code review (code + PM + design + edge-cases) |
-| `/merge-watch` | Poll PR readiness gates, auto-merge when ready |
-| `/merge` | Merge a PR, delete branch, clean up |
-| `/bug-fix` | Batch bug triage and resolution |
+| `/pm:dev` | Full lifecycle: brainstorm → plan → TDD → review → PR → merge |
+| `/pm:dev-epic <id>` | Orchestrate a multi-issue epic with parallel agents |
+| `/pm:pr` | PR preparation: review, push, create PR, CI monitor |
+| `/pm:review` | Multi-perspective code review (code + PM + design + edge-cases) |
+| `/pm:merge-watch` | Poll PR readiness gates, auto-merge when ready |
+| `/pm:merge` | Merge a PR, delete branch, clean up |
+| `/pm:bug-fix` | Batch bug triage and resolution |
 
 ### Internal Skills (invoked by workflows, not directly)
 
-brainstorming, debugging, design-critique, receiving-review, subagent-dev, tdd, using-dev, writing-plans
+brainstorming, debugging, design-critique, receiving-review, subagent-dev, tdd, using-pm, writing-plans
 
 ---
 
