@@ -1,5 +1,34 @@
 ### Phase 1: Intake
 
+**Config bootstrap (silent).** Before anything else in this phase:
+
+1. If `.pm/config.json` does not exist:
+   a. Create `.pm/` directory if it doesn't exist.
+   b. Create `.pm/groom-sessions/` directory if it doesn't exist.
+   c. Create `pm/` directory if it doesn't exist.
+   d. Write `.pm/config.json` with default config:
+      ```json
+      {
+        "config_schema": 1,
+        "integrations": {
+          "linear": { "enabled": false },
+          "seo": { "provider": "none" }
+        },
+        "preferences": {
+          "visual_companion": true,
+          "backlog_format": "markdown"
+        }
+      }
+      ```
+   e. Do NOT print any message, warning, or prompt to run /pm:setup. Proceed silently.
+2. If `.pm/config.json` exists but contains malformed JSON (parse error): warn the user ("Config file exists but has invalid JSON — proceeding with defaults.") and use the default config values in-memory for this session. Do NOT overwrite the file.
+3. If `.pm/config.json` exists and is valid JSON: no-op. Do not overwrite, merge, or modify.
+4. If `.pm/` directory exists but `config.json` does not (partial state): create `config.json` without touching other `.pm/` contents.
+
+After the bootstrap, proceed with the normal intake flow below.
+
+---
+
 **If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
 > "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
 
