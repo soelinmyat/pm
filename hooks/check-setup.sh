@@ -62,7 +62,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ ! -f "$PROJECT_DIR/.pm/config.json" ]; then
-  WARNINGS="${WARNINGS}PM plugin is not configured for this project. Run /pm:setup to bootstrap the knowledge base and configure integrations (Linear, Ahrefs). Skip this if you only need /pm:view (read-only over committed files).\n"
+  WARNINGS="${WARNINGS}Hint: /pm:setup is available to configure integrations (Linear, Ahrefs) — this is optional. You can start right away with /pm:groom or /pm:research.\n"
 fi
 
 # Print accumulated warnings

@@ -6,9 +6,18 @@ Structured workflows for the product engineer — from discovery and strategy th
 
 ## Bootstrap Instructions
 
-### First-time setup
+### Get started
 
-Run setup to configure your product context, integrations, and knowledge base folder structure:
+Start grooming an idea or researching your market — no setup required:
+
+```
+/pm:groom                                # turn an idea into ready-to-build issues
+/pm:research landscape                   # research your market
+```
+
+### Optional: configure integrations
+
+Run `/pm:setup` to connect Linear, Ahrefs, and other integrations:
 
 ```
 /pm:setup
@@ -23,14 +32,15 @@ Setup configures:
 ### Recommended workflow
 
 ```
-/pm:setup
-/pm:ingest ~/path/to/customer-evidence   # optional, when you already have support/interview/sales data
-/pm:research landscape
-/pm:strategy
-/pm:research competitors
-/pm:groom
+/pm:groom                                # start with an idea — PM bootstraps automatically
+/pm:research landscape                   # map your market
+/pm:strategy                             # define positioning and bets
+/pm:research competitors                 # deep-dive key competitors
+/pm:groom                                # groom more ideas into issues
 /dev:dev PM-123                           # implement a groomed issue end-to-end
 ```
+
+> `/pm:setup` and `/pm:ingest` can be run at any point to add integrations or import customer evidence.
 
 ---
 
@@ -40,15 +50,15 @@ Setup configures:
 
 | Command | Description |
 |---------|-------------|
-| `/pm:setup` | First-time configuration: product context, market, integrations |
-| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
-| `/pm:strategy` | Generate and refine product positioning and strategic bets |
+| `/pm:groom` | Turn ideas into sprint-ready issues — the primary PM entry point |
 | `/pm:research <topic>` | Landscape mapping, competitor deep-dives, user signal analysis |
-| `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
+| `/pm:strategy` | Generate and refine product positioning and strategic bets |
+| `/pm:ideate` | Brainstorm feature ideas from research and strategy |
 | `/pm:dig <question>` | Ad-hoc deep research on a specific question or topic |
+| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
 | `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
 | `/pm:view` | Browse and search accumulated research and strategy artifacts |
-| `/pm:ideate` | Brainstorm feature ideas from research and strategy |
+| `/pm:setup` | Optional — configure integrations (Linear, Ahrefs) and bootstrap the knowledge base |
 
 ### Development Lifecycle
 

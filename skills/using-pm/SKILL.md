@@ -36,16 +36,16 @@ This plugin provides structured workflows for the product engineer — from disc
 
 | Trigger | Skill | Why |
 |---------|-------|-----|
-| First-time project configuration | `pm:setup` | Bootstrap knowledge base and integrations |
-| Research a topic or competitor | `pm:research` | Landscape mapping, competitor deep-dives |
+| **Groom backlog issues (primary entry point)** | `pm:groom` | Convert ideas into sprint-ready issues — start here for product work |
+| **Research a topic or competitor (primary entry point)** | `pm:research` | Landscape mapping, competitor deep-dives |
 | Product strategy work | `pm:strategy` | Positioning, strategic bets, GTM |
 | Generate feature ideas | `pm:ideate` | Idea generation from strategy + research |
-| Groom backlog issues | `pm:groom` | Convert strategy into sprint-ready issues |
 | Ad-hoc deep research question | `pm:dig` | Focused research on a specific question |
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback |
 | Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
 | Open dashboard / browse accumulated artifacts | `pm:view` | Launch the PM knowledge base dashboard to browse landscape, strategy, competitors, and backlog |
 | Sync source to cache for testing | `pm:sync` | Immediate dev loop without publish cycle |
+| First-time project configuration (optional) | `pm:setup` | Bootstrap knowledge base and integrations |
 
 ## The Rule
 
@@ -55,15 +55,16 @@ This plugin provides structured workflows for the product engineer — from disc
 
 When multiple skills could apply:
 
-1. **Process skills first** (brainstorming, debugging, writing-plans) — these determine HOW to approach the task
-2. **Implementation skills second** (tdd, subagent-dev) — these guide execution
-3. **Lifecycle skills third** (pr, review, merge-watch) — these handle shipping
-4. **Product skills** (research, strategy, groom) — these handle discovery and planning
+1. **Product entry points first** (groom, research) — these are the primary starting points for product work
+2. **Process skills second** (brainstorming, debugging, writing-plans) — these determine HOW to approach the task
+3. **Implementation skills third** (tdd, subagent-dev) — these guide execution
+4. **Lifecycle skills fourth** (pr, review, merge-watch) — these handle shipping
 
+"I have an idea" → groom first, then dev for implementation.
+"Research Y" → research for landscape, dig for a focused question.
 "Build X" → brainstorming first, then tdd for implementation.
 "Fix this bug" → debugging first, then tdd for the fix.
 "Ship it" → pr for the full push + review flow.
-"Research Y" → research for landscape, dig for a focused question.
 
 ## Red Flags
 
