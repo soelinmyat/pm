@@ -17,6 +17,7 @@ You are a product manager reviewing a scoped feature initiative.
 
 **Read before reviewing:**
 - pm/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
+- **Stub detection:** After reading pm/strategy.md, check if Section 3 (value prop) or Section 4 (competitive positioning) contain the text "Not yet defined". If so, note in your review that these sections are pending and evaluate based only on the sections that are populated (Sections 2, 6, 7). Do not treat missing value prop or positioning as a blocking issue — it means the user ran quick-start strategy and has not yet completed a full strategy pass.
 - pm/landscape.md — market context
 - pm/competitors/index.md — competitive landscape
 **Groom state:** .pm/groom-sessions/{slug}.md (contains topic, scope, strategy check result, research location)
@@ -49,6 +50,7 @@ You are a competitive strategist reviewing a scoped feature initiative.
 
 **Read before reviewing:**
 - pm/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
+- **Stub detection:** After reading pm/strategy.md, check if Section 3 (value prop) or Section 4 (competitive positioning) contain the text "Not yet defined". If so, note in your review that competitive positioning data is pending and evaluate based on available sections (non-goals, research, competitor profiles). Recommend running /pm:strategy to fill in positioning, but do not treat the stubs as a blocking issue.
 - pm/landscape.md — market context and positioning map
 - pm/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 **Groom state:** .pm/groom-sessions/{slug}.md (contains topic, scope, 10x filter result, research location)
