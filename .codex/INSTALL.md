@@ -49,7 +49,7 @@ ln -sfn ~/.agents/vendor/pm/skills/receiving-review ~/.agents/skills/dev-receivi
 ln -sfn ~/.agents/vendor/pm/skills/review ~/.agents/skills/dev-review
 ln -sfn ~/.agents/vendor/pm/skills/subagent-dev ~/.agents/skills/dev-subagent-dev
 ln -sfn ~/.agents/vendor/pm/skills/tdd ~/.agents/skills/dev-tdd
-ln -sfn ~/.agents/vendor/pm/skills/using-dev ~/.agents/skills/dev-using-dev
+ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
 ln -sfn ~/.agents/vendor/pm/skills/writing-plans ~/.agents/skills/dev-writing-plans
 ```
 

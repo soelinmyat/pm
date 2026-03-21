@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # SessionStart hook for pm plugin
-# Preloads the using-dev skill into session context
+# Preloads the using-pm skill into session context
 
 set -euo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-SKILL_FILE="${PLUGIN_ROOT}/skills/using-dev/SKILL.md"
+SKILL_FILE="${PLUGIN_ROOT}/skills/using-pm/SKILL.md"
 
 if [ ! -f "$SKILL_FILE" ]; then
-  echo "Warning: using-dev/SKILL.md not found at ${SKILL_FILE}. Skill routing unavailable."
+  echo "Warning: using-pm/SKILL.md not found at ${SKILL_FILE}. Skill routing unavailable."
   exit 0
 fi
 
-# Read using-dev skill content
-using_dev_content=$(cat "$SKILL_FILE" 2>&1 || echo "Error reading using-dev skill")
+# Read using-pm skill content
+using_dev_content=$(cat "$SKILL_FILE" 2>&1 || echo "Error reading using-pm skill")
 
 # Escape string for JSON embedding using bash parameter substitution
 escape_for_json() {
@@ -27,7 +27,7 @@ escape_for_json() {
 }
 
 using_dev_escaped=$(escape_for_json "$using_dev_content")
-session_context="<EXTREMELY_IMPORTANT>\nYou have plugin skills.\n\n**Below is the full content of your 'using-dev' skill — your guide to using plugin skills. For all other skills, use the 'Skill' tool:**\n\n${using_dev_escaped}\n</EXTREMELY_IMPORTANT>"
+session_context="<EXTREMELY_IMPORTANT>\nYou have plugin skills.\n\n**Below is the full content of your 'using-pm' skill — your guide to using plugin skills. For all other skills, use the 'Skill' tool:**\n\n${using_dev_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON
 # Claude Code expects hookSpecificOutput.additionalContext

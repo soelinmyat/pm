@@ -1,5 +1,5 @@
 ---
-name: using-dev
+name: using-pm
 description: Use at session start — establishes how to find and use all plugin skills, requiring Skill tool invocation before implementation
 ---
 
