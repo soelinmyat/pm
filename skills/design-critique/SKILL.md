@@ -32,7 +32,7 @@ Three parallel designer sub-agents plus a Fresh Eyes reviewer examine screenshot
 
 ```
 MODE detection:
-  .dev-state-*.md exists in repo root  ->  "embedded"
+  .pm/dev-sessions/*.md exists (or legacy .dev-state-*.md at repo root)  ->  "embedded"
   Otherwise                            ->  "standalone"
 
 PLATFORM detection:
@@ -58,13 +58,13 @@ PLATFORM detection:
 
 No engineer agent. Returns findings to the calling agent.
 
-**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, page context from `.dev-state-*.md`.
+**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, page context from `.pm/dev-sessions/{slug}.md`.
 **Output:** Consolidated findings (P0/P1/P2) + Design Score + AI Slop Score.
 
 ### Flow
 
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
-2. **Read page context** from `.dev-state-*.md` in the repo root.
+2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
 4. **PM Framing** (M+ only). Dispatch PM sub-agent per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md`.
 5. **Dispatch 3 designer sub-agents in parallel** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md`. Each receives: all screenshots (via Read tool), manifest, CLAUDE.md design principles, PM brief (if available).

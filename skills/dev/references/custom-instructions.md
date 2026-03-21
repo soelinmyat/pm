@@ -50,7 +50,7 @@ At the start of every `/dev` or `/dev-epic` session, check for instruction files
 2. If `dev/instructions.local.md` exists, read it. Apply personal overrides (takes precedence on conflict).
 3. If neither exists, proceed with defaults. No error.
 
-Store active overrides in the session state file (`.dev-state-{slug}.md`) under `## Custom Instructions`:
+Store active overrides in the session state file (`.pm/dev-sessions/{slug}.md`) under `## Custom Instructions`:
 
 ```markdown
 ## Custom Instructions

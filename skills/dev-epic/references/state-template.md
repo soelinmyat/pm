@@ -1,6 +1,6 @@
-# State File Template (.dev-epic-state-{parent-slug}.md)
+# State File Template (.pm/dev-sessions/epic-{parent-slug}.md)
 
-Single source of truth for session state. Updated at every stage transition. Deleted after retro. Namespaced by parent slug to allow concurrent epics.
+Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updated at every stage transition. Deleted after retro. Namespaced by parent slug to allow concurrent epics.
 
 ```markdown
 # Dev Epic Session State

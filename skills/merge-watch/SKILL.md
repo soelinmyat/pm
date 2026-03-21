@@ -5,7 +5,7 @@ description: "Monitor PR readiness gates in a separate context, then merge and c
 
 # /merge-watch [PR#]
 
-**State file convention:** The session state file is `.dev-state-{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.dev-state-add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no branch (detached HEAD), glob `.dev-state-*.md` and use the most recently modified. References to `.dev-state.md` below mean `.dev-state-{slug}.md`.
+**State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no branch (detached HEAD), glob `.pm/dev-sessions/*.md` (+ legacy `.dev-state-*.md`) and use the most recently modified. References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
 Continuously poll and fix a PR until all readiness gates pass, then auto-merge. **Do not stop and wait for the user.** Fix what you can, wait for external checks, and merge when ready.
 
@@ -85,7 +85,7 @@ Merge-Watch Status:
   Action:   [what merge-watch will do next]
 ```
 
-Update `.dev-state.md` with current merge-watch status at each check.
+Update `.pm/dev-sessions/{slug}.md` with current merge-watch status at each check.
 
 ### CI Monitoring
 
@@ -233,7 +233,7 @@ git fetch --prune
 
 ## State file during merge-watch
 
-`.dev-state.md` must include:
+`.pm/dev-sessions/{slug}.md` must include:
 
 ```markdown
 ## Merge-Watch
@@ -260,7 +260,7 @@ git fetch --prune
 - NEVER force-merge. If `gh pr merge` fails, STOP and report.
 - NEVER skip Gate 4 (unresolved comments). Every comment from Claude review, Codex, or human reviewers must be addressed.
 - After 3 CI fix attempts, ask user before continuing.
-- Update `.dev-state.md` at every gate-check cycle.
+- Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle.
 
 ---
 
