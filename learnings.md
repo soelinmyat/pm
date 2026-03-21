@@ -1,5 +1,11 @@
 # Learnings
 
+## 2026-03-21 — PM-044 Epic (Merge PM + Dev Plugins)
+
+- **4-wave parallelism works for infrastructure epics:** 7 sub-issues across 4 waves (2+3+1+1), all groomed. Zero merge conflicts despite touching overlapping skill files — wave ordering solved this. Total: 7 PRs (#38-#44), ~143 files changed.
+- **Epic review catches real cross-plan issues:** PM-046 was incorrectly in Wave 1 (needed PM-047+PM-048 first). Gitignore splitting would have inverted safety model. INSTALL.md duplication between PM-046 and PM-051. All caught and fixed before implementation.
+- **Groom-to-epic handoff is now validated:** This epic was the first to be groomed through the full pm:groom pipeline (bar_raiser verdict: ready-if) then implemented via dev-epic. The reduced ceremony (skip brainstorm+spec for all 7 issues) worked — no rework, no ambiguity.
+
 ## 2026-03-21 — PM-038 Epic (Project Memory System)
 
 - **Groom-to-ship pipeline works end-to-end:** Full cycle from /pm:groom (research, scope, 3 review rounds, bar raiser) through /dev-epic (4 sequential S-sized issues) completed in one session. Groomed ACs eliminated ambiguity — zero rework during implementation.
