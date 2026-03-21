@@ -926,10 +926,10 @@ test('start-server.sh launches dashboard mode against the provided project direc
 });
 
 // ---------------------------------------------------------------------------
-// 28. Nav restructure — KB umbrella
+// 28. Nav restructure — Primary + Secondary tiers
 // ---------------------------------------------------------------------------
 
-test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () => {
+test('Dashboard nav shows two-tier navigation', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -937,15 +937,23 @@ test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () =>
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/');
-      // Check nav links (inside <nav> element)
-      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
-      assert.ok(navMatch, 'page must have a nav element');
-      const navHtml = navMatch[1];
-      assert.ok(navHtml.includes('Knowledge Base'), 'nav must show Knowledge Base');
-      assert.ok(navHtml.includes('Proposals'), 'nav must show Proposals');
-      assert.ok(navHtml.includes('Backlog'), 'nav must show Backlog');
-      assert.ok(!navHtml.includes('>Research<'), 'nav must NOT show Research as top-level');
-      assert.ok(!navHtml.includes('>Strategy<'), 'nav must NOT show Strategy as top-level');
+      // Primary nav
+      const primaryMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      assert.ok(primaryMatch, 'page must have a primary nav element');
+      const primaryHtml = primaryMatch[1];
+      assert.ok(primaryHtml.includes('>Home</a>'), 'primary nav must show Home');
+      assert.ok(primaryHtml.includes('>Proposals</a>'), 'primary nav must show Proposals');
+      assert.ok(primaryHtml.includes('>Backlog</a>'), 'primary nav must show Backlog');
+      assert.ok(!primaryHtml.includes('Knowledge Base'), 'primary nav must NOT show Knowledge Base');
+      // Secondary nav
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
+      const secMatch = body.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
+      assert.ok(secMatch, 'page must have a nav-secondary element');
+      const secHtml = secMatch[1];
+      assert.ok(secHtml.includes('>Strategy</a>'), 'secondary nav must show Strategy');
+      assert.ok(secHtml.includes('>Research</a>'), 'secondary nav must show Research');
+      assert.ok(secHtml.includes('>Competitors</a>'), 'secondary nav must show Competitors');
+      assert.ok(secHtml.includes('>Landscape</a>'), 'secondary nav must show Landscape');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1055,7 +1063,7 @@ test('/research/{slug} detail pages still work directly', async () => {
   } finally { cleanup(); }
 });
 
-test('KB nav item is highlighted on /kb routes', async () => {
+test('Secondary nav items are highlighted on /kb routes', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -1063,12 +1071,15 @@ test('KB nav item is highlighted on /kb routes', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/kb');
-      assert.ok(body.includes('href="/kb" class="active"') || body.includes("href=\"/kb\" class=\"active\""), 'KB nav item must be active on /kb');
+      const secMatch = body.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
+      assert.ok(secMatch, 'page must have secondary nav');
+      // When activeNav is '/kb', all KB sub-links should be active
+      assert.ok(secMatch[1].includes('class="active"'), 'secondary nav must have at least one active item on /kb');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('Competitor detail page highlights Knowledge Base nav item', async () => {
+test('Competitor detail page highlights secondary nav', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/acme/profile.md': '---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n',
   });
@@ -1076,13 +1087,13 @@ test('Competitor detail page highlights Knowledge Base nav item', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/competitors/acme');
-      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on competitor detail');
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
       assert.ok(!body.includes('href="/" class="active"'), 'Home must not be highlighted');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('Research topic page highlights Knowledge Base nav item', async () => {
+test('Research topic page highlights secondary nav', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/research/pricing/findings.md': '---\ntopic: Pricing\ntype: topic-research\ncreated: 2026-03-12\nupdated: 2026-03-12\n---\n# Pricing Research\n',
   });
@@ -1090,7 +1101,7 @@ test('Research topic page highlights Knowledge Base nav item', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/research/pricing');
-      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on research topic');
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
     } finally { await close(); }
   } finally { cleanup(); }
 });

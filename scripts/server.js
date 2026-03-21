@@ -462,6 +462,14 @@ nav a { color: rgba(255,255,255,0.6); font-size: 0.8125rem; padding: 0 0.875rem;
 nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
 nav a.active { color: #fff; border-bottom-color: var(--accent); }
 nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Secondary nav */
+nav.nav-secondary { background: #2a2a42; padding: 0 1.5rem; display: flex; gap: 0;
+  align-items: stretch; min-height: 36px; border-top: 1px solid rgba(255,255,255,0.08); }
+nav.nav-secondary a { color: rgba(255,255,255,0.45); font-size: 0.75rem; padding: 0 0.75rem;
+  display: flex; align-items: center; border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition); text-decoration: none; }
+nav.nav-secondary a:hover { color: rgba(255,255,255,0.75); text-decoration: none; }
+nav.nav-secondary a.active { color: rgba(255,255,255,0.9); border-bottom-color: var(--accent); }
 
 /* Layout */
 .container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
@@ -842,15 +850,25 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 
 function dashboardPage(title, activeNav, bodyContent, projectName) {
   projectName = projectName || _cachedProjectName || 'PM';
-  const navLinks = [
+  const primaryLinks = [
     { href: '/', label: 'Home' },
     { href: '/proposals', label: 'Proposals' },
     { href: '/backlog', label: 'Backlog' },
-    { href: '/kb', label: 'Knowledge Base' },
   ];
-  const navHtml = navLinks.map(l =>
+  const secondaryLinks = [
+    { href: '/kb?tab=research', label: 'Landscape' },
+    { href: '/kb?tab=strategy', label: 'Strategy' },
+    { href: '/kb?tab=competitors', label: 'Competitors' },
+    { href: '/research', label: 'Research' },
+  ];
+  const primaryHtml = primaryLinks.map(l =>
     `<a href="${l.href}"${activeNav === l.href ? ' class="active"' : ''}>${l.label}</a>`
   ).join('');
+  const isKbActive = activeNav === '/kb' || (typeof activeNav === 'string' && activeNav.startsWith('/kb?'));
+  const secondaryHtml = secondaryLinks.map(l => {
+    const active = activeNav === l.href || (isKbActive && l.href.startsWith('/kb?') && activeNav === '/kb');
+    return `<a href="${l.href}"${active ? ' class="active"' : ''}>${l.label}</a>`;
+  }).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -865,7 +883,10 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <body>
 <nav>
   <span class="brand">${escHtml(projectName)}</span>
-  ${navHtml}
+  ${primaryHtml}
+</nav>
+<nav class="nav-secondary">
+  ${secondaryHtml}
 </nav>
 <div class="container">
 ${bodyContent}
