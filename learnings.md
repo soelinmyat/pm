@@ -1,5 +1,11 @@
 # Learnings
 
+## 2026-03-21 — PM-038 Epic (Project Memory System)
+
+- **Groom-to-ship pipeline works end-to-end:** Full cycle from /pm:groom (research, scope, 3 review rounds, bar raiser) through /dev-epic (4 sequential S-sized issues) completed in one session. Groomed ACs eliminated ambiguity — zero rework during implementation.
+- **Epic review catches real cross-cutting gaps:** Serialization format mismatch (write vs read YAML) and missing AC6 guard were caught by architect + integration reviewers. Golden serialization format in plans prevented runtime parsing failures.
+- **Idle-without-result detection works:** PM-040 agent went idle without reporting — status check ping recovered it immediately. The heartbeat pattern from learnings is now validated.
+
 ## 2026-03-20 — PM-034/035 Epic (Readable Output Foundation)
 
 - **Agents may jump ahead:** PM-035 agent implemented before receiving "go implement" — harmless but required re-applying in the correct worktree. Monitor for this with sequential dependencies.

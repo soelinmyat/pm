@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-040"
 title: "Retro Prompt at Groom Session End"
 outcome: "Users reflect on what worked and what didn't at the end of each groom session, and those learnings are written to pm/memory.md automatically"
-status: approved
+status: done
 parent: "project-memory-system"
 children: []
 labels:

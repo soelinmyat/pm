@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-038"
 title: "Project Memory System"
 outcome: "The PM plugin remembers what it learned from past grooming sessions and surfaces relevant context at the start of future sessions, so each session starts smarter instead of from scratch"
-status: approved
+status: done
 parent: null
 children:
   - "memory-file-schema"

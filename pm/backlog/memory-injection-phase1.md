@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-042"
 title: "Memory Injection at Phase 1 Session Start"
 outcome: "New groom sessions surface relevant learnings from past sessions at Phase 1, so the user and the plugin start with accumulated project context instead of from scratch"
-status: approved
+status: done
 parent: "project-memory-system"
 children: []
 labels:
