@@ -66,7 +66,7 @@ Restart Codex so it reloads the newly installed skills.
 Start a new Codex session and invoke one PM skill and one dev skill:
 
 ```text
-$pm-setup
+$pm-groom
 $dev-dev
 ```
 

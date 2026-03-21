@@ -37,29 +37,35 @@ claude plugin install pm@pm
 ## Get Started
 
 ```
-/pm:setup                    # set up your project
-/pm:research landscape       # research your market
-/pm:strategy                 # define your product strategy
 /pm:groom                    # turn an idea into ready-to-build issues
-/pm:dev                      # build a feature end-to-end
-/pm:dev-epic PM-001          # build multiple related features at once
+/pm:research landscape       # research your market
+/pm:dev PM-001               # build a groomed issue end-to-end
 ```
 
-That's the full loop: research what matters, plan it properly, build it right.
+That's the core loop: **groom it, research it, build it.**
+
+> **Optional:** Run `/pm:setup` first to configure integrations (Linear, Ahrefs). PM works without it — setup just unlocks advanced features.
 
 ---
 
 ## All Commands
 
-### Thinking Commands
+### Core Commands
 
 | Command | What it does |
 |---------|-------------|
-| `/pm:setup` | Set up your project — context, market, integrations |
+| `/pm:groom` | Turn an idea into well-defined, ready-to-build issues — the primary PM entry point |
 | `/pm:research <topic>` | Research a topic — competitors, market trends, anything |
+| `/pm:dev` | Build a feature: plan, test, code, review, PR, merge |
+| `/pm:dev-epic <id>` | Build a whole epic with parallel agents |
+
+### Supporting Commands
+
+| Command | What it does |
+|---------|-------------|
+| `/pm:setup` | Optional — configure integrations (Linear, Ahrefs) and bootstrap the knowledge base |
 | `/pm:strategy` | Create or update your product strategy |
 | `/pm:ideate` | Generate feature ideas based on your research and strategy |
-| `/pm:groom` | Take an idea through full review and turn it into issues |
 | `/pm:dig <question>` | Quick research for a specific question |
 | `/pm:ingest <path>` | Import customer feedback, interviews, or support data |
 | `/pm:refresh` | Update stale research |
@@ -69,8 +75,6 @@ That's the full loop: research what matters, plan it properly, build it right.
 
 | Command | What it does |
 |---------|-------------|
-| `/pm:dev` | Build a feature: plan, test, code, review, PR, merge |
-| `/pm:dev-epic <id>` | Build a whole epic with parallel agents |
 | `/pm:pr` | Push code and create a PR |
 | `/pm:review` | Run a multi-perspective code review |
 | `/pm:bug-fix` | Find and fix bugs in batch |
