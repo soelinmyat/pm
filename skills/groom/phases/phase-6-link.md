@@ -82,7 +82,41 @@ issues:
 
    If all questions were skipped (user skipped on question 1), say nothing about retro and proceed to step 7.
 
-7. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro completes (or is skipped). Grooming for this topic is complete.
+7. **Automated learning extraction.** Silently extract quantitative learnings from the state file. No user interaction.
+
+   Read `.pm/groom-sessions/{slug}.md` and parse the frontmatter. If the file is missing or the frontmatter cannot be parsed, log a warning:
+   > "Could not read session state for learning extraction — skipping."
+
+   and proceed to step 8.
+
+   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 8 with no output.
+
+   | # | Check | Threshold | Learning text | Category |
+   |---|-------|-----------|---------------|----------|
+   | 1 | `scope_review.iterations` | > 1 | "Scope needed {N} iterations — blocking issues: {summary of scope_review issues}" | `scope` |
+   | 2 | `team_review.conditions` | array has ≥1 entry | "Team review required: {comma-separated conditions}" | `review` |
+   | 3 | `bar_raiser.verdict` | === `"send-back"` | "Bar raiser sent back: {bar_raiser.conditions[0] or 'no reason given'}" | `review` |
+   | 4 | Scope tightened during review | `scope_review.iterations` > 1 AND `scope.out_of_scope` is non-empty | "Scope tightened: {comma-separated out_of_scope items}" | `scope` |
+   | 5 | Clean session | `scope_review.iterations` === 1 AND `bar_raiser.verdict` === `"ready"` | "Clean session — scope and reviews passed first iteration" | `quality` |
+
+   **Missing fields:** If `scope_review`, `team_review`, or `bar_raiser` sections are missing from the state file, treat their values as null — the condition is not met and no entry is generated.
+
+   **Write logic** (same as retro step, using the **golden serialization format** from PM-039):
+   1. If `pm/memory.md` does not exist, create it with the PM-039 schema.
+   2. Read `pm/memory.md`, parse the frontmatter.
+   3. Append each generated entry to the `entries` array (2-space indent + dash for entry start, 4-space indent for continuation fields, quote values containing colons):
+      ```yaml
+        - date: {today YYYY-MM-DD}
+          source: {session-slug}
+          category: {category from table}
+          learning: "{generated text}"
+      ```
+   4. Update the `updated` field to today's date.
+   5. Write the file back.
+
+   This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 6.
+
+8. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
