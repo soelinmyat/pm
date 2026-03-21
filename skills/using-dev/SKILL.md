@@ -1,17 +1,19 @@
 ---
 name: using-dev
-description: Use at session start — establishes how to find and use dev plugin skills, requiring Skill tool invocation before implementation
+description: Use at session start — establishes how to find and use all plugin skills, requiring Skill tool invocation before implementation
 ---
 
 <SUBAGENT-STOP>
 If you were dispatched as a subagent to execute a specific task, skip this skill.
 </SUBAGENT-STOP>
 
-# Using Dev Skills
+# Using Plugin Skills
 
-The dev plugin provides a full development lifecycle through composable skills. **Always invoke the relevant skill via the `Skill` tool before acting** — even if you think you know what to do.
+This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Always invoke the relevant skill via the `Skill` tool before acting** — even if you think you know what to do.
 
 ## When to Invoke Which Skill
+
+### Development Skills
 
 | Trigger | Skill | Why |
 |---------|-------|-----|
@@ -29,6 +31,20 @@ The dev plugin provides a full development lifecycle through composable skills. 
 | PR readiness monitoring | `dev:merge-watch` | Polls gates, auto-merges when ready |
 | Batch bug resolution from cycle | `dev:bug-fix` | Triage all bugs, get approval, fix sequentially |
 
+### Product Skills
+
+| Trigger | Skill | Why |
+|---------|-------|-----|
+| First-time project configuration | `pm:setup` | Bootstrap knowledge base and integrations |
+| Research a topic or competitor | `pm:research` | Landscape mapping, competitor deep-dives |
+| Product strategy work | `pm:strategy` | Positioning, strategic bets, GTM |
+| Generate feature ideas | `pm:ideate` | Idea generation from strategy + research |
+| Groom backlog issues | `pm:groom` | Convert strategy into sprint-ready issues |
+| Ad-hoc deep research question | `pm:dig` | Focused research on a specific question |
+| Import customer evidence | `pm:ingest` | Import files, transcripts, feedback |
+| Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
+| Browse accumulated artifacts | `pm:view` | Search and navigate research/strategy |
+
 ## The Rule
 
 **Invoke relevant skills BEFORE any response or action.** If there's even a chance a skill applies, invoke it. If it turns out to be wrong for the situation, you don't need to follow it.
@@ -40,10 +56,12 @@ When multiple skills could apply:
 1. **Process skills first** (brainstorming, debugging, writing-plans) — these determine HOW to approach the task
 2. **Implementation skills second** (tdd, subagent-dev) — these guide execution
 3. **Lifecycle skills third** (pr, review, merge-watch) — these handle shipping
+4. **Product skills** (research, strategy, groom) — these handle discovery and planning
 
 "Build X" → brainstorming first, then tdd for implementation.
 "Fix this bug" → debugging first, then tdd for the fix.
 "Ship it" → pr for the full push + review flow.
+"Research Y" → research for landscape, dig for a focused question.
 
 ## Red Flags
 
@@ -59,8 +77,8 @@ These thoughts mean STOP — you're skipping discipline:
 
 ## Instruction Priority
 
-Dev plugin skills override default behavior, but **user instructions always take precedence**:
+Plugin skills override default behavior, but **user instructions always take precedence**:
 
 1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
-2. **Dev plugin skills** — override defaults where they conflict
+2. **Plugin skills** — override defaults where they conflict
 3. **Default system prompt** — lowest priority

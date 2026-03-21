@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# SessionStart hook for pm plugin.
-# 1. Advisory message if .pm/config.json is missing (first-run detection).
-# 2. Once-per-day update check via git ls-remote --tags.
+# Merged SessionStart hook for pm plugin.
+# Execution order:
+#   1. Advisory checks (CLAUDE.md, AGENTS.md, .gitignore) — never exit early
+#   2. First-run detection (.pm/config.json absent → advisory only)
+#   3. Daily update check (git ls-remote + marketplace sync)
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
@@ -23,21 +25,53 @@ wait_or_kill() {
   wait "$pid" 2>/dev/null
 }
 
+WARNINGS=""
+
 # ---------------------------------------------------------------------------
-# First-run detection
+# 1. Advisory checks — never exit early
 # ---------------------------------------------------------------------------
 
-if [ ! -f "$PROJECT_DIR/.pm/config.json" ]; then
-  cat <<'EOF'
-PM plugin is not configured for this project. Run /pm:setup to bootstrap
-the knowledge base and configure integrations (Linear, Ahrefs).
-Skip this if you only need /pm:view (read-only over committed files).
-EOF
-  exit 0
+# Check for CLAUDE.md
+if [ ! -f "$PROJECT_DIR/CLAUDE.md" ]; then
+  WARNINGS="${WARNINGS}No CLAUDE.md found. Review agents will have limited product context.\n"
+else
+  LINE_COUNT=$(wc -l < "$PROJECT_DIR/CLAUDE.md" 2>/dev/null | tr -d ' ')
+  if [ "$LINE_COUNT" -lt 20 ]; then
+    WARNINGS="${WARNINGS}CLAUDE.md is minimal (${LINE_COUNT} lines). Review agents work best with user personas, scale expectations, and design principles documented.\n"
+  fi
+fi
+
+# Check for AGENTS.md
+if [ ! -f "$PROJECT_DIR/AGENTS.md" ]; then
+  WARNINGS="${WARNINGS}No AGENTS.md found. Will fall back to convention-based detection for test/build commands.\n"
+fi
+
+# Check for .gitignore coverage of state files
+if [ -f "$PROJECT_DIR/.gitignore" ]; then
+  MISSING_IGNORES=""
+  grep -q '\.dev-state-\*\.md' "$PROJECT_DIR/.gitignore" 2>/dev/null || MISSING_IGNORES="${MISSING_IGNORES}.dev-state-*.md "
+  grep -q '\.dev-epic-state-\*\.md' "$PROJECT_DIR/.gitignore" 2>/dev/null || MISSING_IGNORES="${MISSING_IGNORES}.dev-epic-state-*.md "
+  grep -q 'dev/instructions\.local\.md' "$PROJECT_DIR/.gitignore" 2>/dev/null || MISSING_IGNORES="${MISSING_IGNORES}dev/instructions.local.md "
+  if [ -n "$MISSING_IGNORES" ]; then
+    WARNINGS="${WARNINGS}Consider adding to .gitignore: ${MISSING_IGNORES}\n"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# Update check (at most once per day)
+# 2. First-run detection — advisory only, no early exit
+# ---------------------------------------------------------------------------
+
+if [ ! -f "$PROJECT_DIR/.pm/config.json" ]; then
+  WARNINGS="${WARNINGS}PM plugin is not configured for this project. Run /pm:setup to bootstrap the knowledge base and configure integrations (Linear, Ahrefs). Skip this if you only need /pm:view (read-only over committed files).\n"
+fi
+
+# Print accumulated warnings
+if [ -n "$WARNINGS" ]; then
+  printf "Plugin advisory:\n${WARNINGS}"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Update check (at most once per day)
 # ---------------------------------------------------------------------------
 
 STAMP_FILE="$PROJECT_DIR/.pm/.update_check"
