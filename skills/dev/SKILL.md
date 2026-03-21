@@ -169,8 +169,9 @@ If the same root-cause error repeats twice (path missing, branch exists, permiss
 |---|---|---|---|---|---|
 | Issue tracking | — | — | Yes | Yes | Yes |
 | Worktree | — | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
-| Brainstorm | — | — | `dev:brainstorming` | `dev:brainstorming` | `dev:brainstorming` |
-| Spec review | — | — | UX only (from groom) or full (3 agents) | UX only (from groom) or full (3 agents) | UX only (from groom) or full (3 agents) |
+| Groom detection | — | — | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
+| Brainstorm | — | — | Skip (from groom) or `dev:brainstorming` | Skip (from groom) or `dev:brainstorming` | Skip (from groom) or `dev:brainstorming` |
+| Spec review | — | — | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) |
 | Written plan | — | — | `dev:writing-plans` | `dev:writing-plans` + design doc | `dev:writing-plans` + design doc |
 | Plan review | — | — | Engineering RFC (3 agents) | Engineering RFC (3 agents) | Engineering RFC (3 agents) |
 | Implement | TDD | TDD | Inside-out TDD | Inside-out TDD | Inside-out TDD |
@@ -233,6 +234,30 @@ fi
 
 Never proceed to implementation without a clean workspace checkpoint.
 
+## Stage 2.5: Groom Detection (M/L/XL)
+
+Before brainstorming, check if this issue was groomed:
+
+1. Glob `.pm/groom-sessions/*.md` for a file whose slug matches the current issue slug or topic (normalize: lowercase, spaces to hyphens).
+2. If found, parse YAML frontmatter. Read `bar_raiser.verdict`.
+3. If verdict is `"ready"` or `"ready-if"`:
+   - Log in state file: `Groom detection: groomed (session: {filename}, verdict: {verdict})`
+   - Log: `Skipped phases: brainstorming, spec-review`
+   - Read `research_location` from the session frontmatter. Store the path for research injection in Stage 4.
+   - **Skip Stage 3 (brainstorming) and Stage 3.5 (spec review).** Proceed directly to Stage 4 (writing-plans).
+4. If verdict is `"send-back"`, `"pause"`, missing, or parse fails: proceed to Stage 3 as normal.
+
+**Ambiguity fallback:** If the slug match is uncertain (multiple partial matches, no exact match), fall back to full ceremony. Never reduce ceremony on ambiguous detection.
+
+**Multiple groom sessions:** Match by exact issue slug first. If no exact match, normalize the session's `topic` field to slug form (lowercase, spaces to hyphens) and compare. If still ambiguous, fall back to full ceremony.
+
+Log the decision in `.dev-state-{slug}.md` under Decisions:
+```
+- Groom detection: groomed (session: {slug}.md, verdict: {verdict}) | not-groomed (reason: {reason})
+- Skipped phases: brainstorming, spec-review | none
+- Research location: {path} | none
+```
+
 ## Stage 3: Brainstorm (M/L/XL)
 
 Invoke `dev:brainstorming` via the Skill tool. It handles context exploration, clarifying questions, approach proposals, design presentation, spec writing, and its own single-agent spec review loop.
@@ -245,20 +270,18 @@ After brainstorming writes the spec, review it. The scope depends on whether `/p
 
 ### Source detection
 
-Check the ticket or intake context:
-- **From groom** (issue has research refs, or `.pm/.groom-state.md` completed for this topic): Product and competitive review already happened in groom Phase 4.5. Run **UX & User Flow review only** (1 agent).
-- **From conversation** (no prior grooming): Run **full review** (3 agents: PM + UX & User Flow + Competitive Strategist).
+This stage only runs if Stage 2.5 determined the issue is **not groomed**. If groomed, both brainstorming and spec review were skipped entirely.
 
-Log the decision in `.dev-state.md`:
+Run **full review** (3 agents: PM + UX & User Flow + Competitive Strategist).
+
+Log the decision in `.dev-state-{slug}.md`:
 ```
-- Spec review: from-groom (UX only) | full (3 agents)
+- Spec review: full (3 agents) — not from groom
 ```
 
 ```dot
 digraph spec_review {
     "Brainstorm done\n(spec written)" [shape=box];
-    "From groom?" [shape=diamond];
-    "Dispatch UX reviewer only\n(1 agent)" [shape=box, style=filled, fillcolor="#ffffcc"];
     "Dispatch 3 reviewers\n(parallel)" [shape=box, style=filled, fillcolor="#ffffcc"];
     "Merge findings" [shape=box];
     "Real issues?" [shape=diamond];
@@ -268,10 +291,7 @@ digraph spec_review {
     "Surface to user" [shape=box];
     "Proceed to Plan" [shape=box, style=filled, fillcolor="#ccffcc"];
 
-    "Brainstorm done\n(spec written)" -> "From groom?";
-    "From groom?" -> "Dispatch UX reviewer only\n(1 agent)" [label="yes"];
-    "From groom?" -> "Dispatch 3 reviewers\n(parallel)" [label="no"];
-    "Dispatch UX reviewer only\n(1 agent)" -> "Merge findings";
+    "Brainstorm done\n(spec written)" -> "Dispatch 3 reviewers\n(parallel)";
     "Dispatch 3 reviewers\n(parallel)" -> "Merge findings";
     "Merge findings" -> "Real issues?";
     "Real issues?" -> "Fix issues in spec" [label="yes"];
@@ -381,7 +401,7 @@ Categories to stress-test:
 
 ### PM + Competitive Strategist (only when NOT from groom)
 
-These only run when the work did NOT come through `/pm:groom`. If groom already ran, its Phase 4.5 covered these concerns.
+These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both brainstorming and spec review are skipped entirely — this section is never reached.
 
 Dispatch both as sub-agents in parallel alongside the UX reviewer (subagent_type: general-purpose, model: sonnet):
 
@@ -460,6 +480,18 @@ Review from these angles:
 ## Stage 4: Plan (M/L/XL)
 
 Invoke `dev:writing-plans` via the Skill tool. It handles task decomposition, file structure, TDD steps, and its own single-agent plan chunk review loop.
+
+**If groomed (from Stage 2.5):** Pass the groom context to writing-plans so it can inject upstream research:
+
+```
+**Groom context:**
+- Session: .pm/groom-sessions/{slug}.md
+- Research location: {research_location from session frontmatter}
+- Bar raiser verdict: {verdict}
+- Conditions: {list of bar_raiser.conditions and team_review.conditions}
+```
+
+writing-plans will use this to produce a `## Upstream Context` section in the plan.
 
 After the plan is written and committed, proceed to Stage 4.5.
 

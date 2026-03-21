@@ -63,6 +63,39 @@ This structure informs the task decomposition. Each task should produce self-con
 ---
 ```
 
+## Upstream Context (groomed issues only)
+
+When the invoking skill (dev or dev-epic) passes a groom context with a `research_location` path:
+
+1. Read `research_location` from the groom context passed by the invoking skill.
+2. Read the findings file at that path (e.g., `pm/research/pm-dev-merge/findings.md`).
+3. Extract key findings: competitor landscape summary, market signals, and any decision rationale.
+4. Inject as `## Upstream Context` in the plan document, after the header block and before the first task.
+
+**Format:**
+
+```markdown
+## Upstream Context
+
+> Injected from groom session `{session-slug}` — research at `{research_location}`.
+
+### Key Findings
+- {finding 1}
+- {finding 2}
+- ...
+
+### Groom Conditions
+- {bar_raiser condition 1}
+- {team_review condition relevant to this sub-issue}
+
+---
+```
+
+**Rules:**
+- If `research_location` is missing or the file doesn't exist, skip injection — do not error.
+- Keep the section concise (max ~20 lines). Summarize, don't paste the full findings file.
+- The `## Upstream Context` section MUST be non-empty when processing a groomed issue that has a valid `research_location`. This is a verifiable AC.
+
 ## Task Structure
 
 ````markdown

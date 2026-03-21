@@ -65,12 +65,31 @@ Accept a manual issue list from the user. Format: markdown with titles, descript
 
 ### 1.2 Source detection (groomed vs raw)
 
+For each sub-issue, detect groomed status by reading the groom session file:
+
+1. Glob `.pm/groom-sessions/*.md` for a file whose slug matches the sub-issue slug or topic name (normalize: lowercase, spaces to hyphens).
+2. If found, parse YAML frontmatter and read `bar_raiser.verdict`.
+3. **Groomed** = verdict is `"ready"` or `"ready-if"`. Mark sub-issue as groomed in state file.
+4. **Raw** = no matching file, verdict is `"send-back"` / `"pause"` / missing, or parse error. Mark as raw.
+
 | Signal | Verdict |
 |--------|---------|
-| 3+ numbered, testable ACs AND (research refs OR EM feasibility notes with file paths) | **Groomed** (from pm:groom) |
-| Just titles or thin descriptions | **Raw** |
+| Groom session exists with `bar_raiser.verdict` = `"ready"` or `"ready-if"` | **Groomed** |
+| No matching session, or verdict is `"send-back"` / `"pause"` / missing | **Raw** |
+
+**Ambiguity fallback:** If slug matching is uncertain (multiple partial matches, no exact match), classify as Raw. Never reduce ceremony on ambiguous detection.
+
+**Multiple groom sessions:** When the parent issue maps to a single groom session (e.g., an epic groomed as one initiative), all sub-issues inherit the groomed status from the parent session. When individual sub-issues have their own groom sessions, match per sub-issue.
 
 Groomed issues get reduced ceremony (skip brainstorming + spec review). This is the pm -> dev handoff.
+
+Log per sub-issue in `.dev-epic-state.md` under Decisions:
+```
+- Groom detection:
+  - {slug} -> groomed (session: {file}, verdict: {verdict}) | raw (reason: {reason})
+- Skipped phases ({slug}): brainstorming, spec-review, individual-rfc | none
+- Research location: {path from session frontmatter} | none
+```
 
 ### 1.3 Auto-classify size
 
