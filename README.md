@@ -146,9 +146,9 @@ Ideas, bug reports, and workflow suggestions are welcome.
 
 PM draws inspiration from several excellent Claude Code plugins:
 
-- [Superpowers](https://github.com/ryanmac/claude-superpowers-plugin) — pioneered many patterns for plugin skill design
-- [Impeccable](https://github.com/impeccable-dev/impeccable) — raised the bar for design-aware development workflows
-- [gstack](https://github.com/gstack-tech/gstack) — headless browser tooling and QA automation
+- [Superpowers](https://github.com/obra/superpowers) — pioneered many patterns for plugin skill design
+- [Impeccable](https://github.com/pbakaus/impeccable) — raised the bar for design-aware development workflows
+- [gstack](https://github.com/garrytan/gstack) — headless browser tooling and QA automation
 
 ## License
 
