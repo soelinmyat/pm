@@ -10,6 +10,5 @@
     "product-management", "competitive-intelligence", "grooming", "research", "discovery",
     "development", "lifecycle", "tdd", "code-review", "orchestration", "workflow"
   ],
-  "skills": "./skills/",
-  "commands": "./commands/"
+  "skills": "./skills/"
 }
