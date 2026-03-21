@@ -1,6 +1,6 @@
 # PM Plugin
 
-A cross-platform AI plugin that gives Product Managers structured workflows for product discovery, competitive intelligence, and feature grooming. It turns raw ideas and market signals into well-researched strategies and ready-to-build Linear issues, all without leaving your editor.
+Structured workflows for the product engineer — from discovery and strategy through implementation and merge. A cross-platform AI plugin that turns raw ideas and market signals into well-researched strategies and ready-to-build issues, then ships them through a structured development lifecycle, all without leaving your editor.
 
 ---
 
@@ -29,11 +29,14 @@ Setup configures:
 /pm:strategy
 /pm:research competitors
 /pm:groom
+/dev:dev PM-123                           # implement a groomed issue end-to-end
 ```
 
 ---
 
 ## Available Skills
+
+### Product Discovery
 
 | Command | Description |
 |---------|-------------|
@@ -45,6 +48,20 @@ Setup configures:
 | `/pm:dig <question>` | Ad-hoc deep research on a specific question or topic |
 | `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
 | `/pm:view` | Browse and search accumulated research and strategy artifacts |
+| `/pm:ideate` | Brainstorm feature ideas from research and strategy |
+
+### Development Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `/dev:dev <issue>` | End-to-end feature implementation from issue to merge-ready PR |
+| `/dev:dev-epic <epic>` | Multi-issue epic orchestration with teammate agents |
+| `/dev:review` | Code review with structured critique |
+| `/dev:pr` | Create pull request with summary and test plan |
+| `/dev:merge-watch` | Monitor PR checks and merge when ready |
+| `/dev:bug-fix` | Structured bug investigation and fix workflow |
+| `/dev:merge` | Merge a PR after checks pass |
+| `/dev:sync` | Sync plugin source to cache for testing |
 
 ---
 
@@ -68,12 +85,12 @@ The PM plugin is written for Claude Code but runs on Gemini CLI with the followi
 
 ## Subagent Limitation
 
-Gemini CLI does not support multiagent spawning. The PM plugin uses parallel researcher agents in `/pm:research` on Claude Code. On Gemini CLI, use sequential fallback instead:
+Gemini CLI does not support multiagent spawning. The PM plugin uses parallel agents in `/pm:research` and `/dev:dev-epic` on Claude Code. On Gemini CLI, use sequential fallback instead:
 
 ```
 Claude Code (parallel):
-  - Spawn Agent 1 -> research competitor A
-  - Spawn Agent 2 -> research competitor B
+  - Spawn Agent 1 -> research competitor A / implement sub-issue 1
+  - Spawn Agent 2 -> research competitor B / implement sub-issue 2
   - Coordinate results
 
 Gemini CLI (sequential):
@@ -82,7 +99,7 @@ Gemini CLI (sequential):
   - Merge results in the next prompt turn
 ```
 
-All other skills (setup, strategy, groom, dig, view) work identically on Gemini CLI because they do not use parallel agents.
+All other skills (setup, strategy, groom, dig, view, dev, review, pr, bug-fix) work identically on Gemini CLI because they do not use parallel agents.
 
 ---
 
