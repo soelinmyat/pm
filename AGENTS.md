@@ -18,7 +18,6 @@ The plugin codebase that gets published and installed by users.
 
 | Directory | Contents |
 |---|---|
-| `commands/` | User-facing command surface |
 | `skills/` | Workflow behavior and output expectations |
 | `agents/` | Delegated/subagent behavior |
 | `scripts/` | Runtime utilities (dashboard server, helpers) |
@@ -97,7 +96,7 @@ git config core.hooksPath .githooks
 
 ## Development Flow
 
-### Editing source code (skills, scripts, commands, agents)
+### Editing source code (skills, scripts, agents)
 
 1. **Edit** files in this repo (`/Users/.../Projects/pm/`)
 2. **Sync to cache** to test immediately (see sync command below)
@@ -122,7 +121,7 @@ This overwrites the cache with your local source. It will be overwritten again o
 
 ### Editing dogfooded data (pm/)
 
-When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/groom-sessions/`).
+When using PM workflows (groom, research, ideate, etc.), the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/groom-sessions/`).
 
 ### Dashboard testing
 
@@ -136,7 +135,6 @@ node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
 ## Source Of Truth
 
 Runtime behavior lives in:
-- `commands/`
 - `skills/`
 - `agents/`
 - `scripts/`
@@ -152,12 +150,19 @@ Planning notes live in:
 
 ## Change Rules
 
-- If command behavior changes, update the corresponding file in `commands/`.
 - If workflow behavior changes, update the relevant `skills/` file.
 - If delegated agent behavior changes, update the relevant file in `agents/`.
 - If code changes affect the published UX, update `README.md` and any affected install docs.
-- Keep command names and examples aligned across `README.md`, `commands/`, and `skills/`.
+- Keep skill descriptions aligned across `README.md` and `skills/`.
 - **After editing scripts or skills, sync to cache before testing.** Do not edit the cache directly.
+
+## Skill-Only Architecture
+
+This plugin uses skills as the sole runtime surface. There is no `commands/` directory — it was intentionally removed.
+
+**Do not recreate command files.** Commands were thin wrappers around skills that only worked on Claude Code. Skills are the universal cross-platform format — they work on Claude Code, Cursor, Codex, and Gemini CLI. Recreating commands would break cross-platform compatibility.
+
+Users invoke workflows through natural language. The `using-pm` skill (preloaded at session start) routes user intent to the correct skill automatically.
 
 ## Version Bump Rules
 

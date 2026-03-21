@@ -6,22 +6,9 @@ Structured workflows for the product engineer — from discovery and strategy th
 
 ## Bootstrap Instructions
 
-### Get started
+### First-time setup
 
-Start grooming an idea or researching your market — no setup required:
-
-```
-/pm:groom                                # turn an idea into ready-to-build issues
-/pm:research landscape                   # research your market
-```
-
-### Optional: configure integrations
-
-Run `/pm:setup` to connect Linear, Ahrefs, and other integrations:
-
-```
-/pm:setup
-```
+Tell PM about your project and it will configure your product context, integrations, and knowledge base folder structure automatically.
 
 Setup configures:
 - Product context and target market
@@ -31,16 +18,16 @@ Setup configures:
 
 ### Recommended workflow
 
-```
-/pm:groom                                # start with an idea — PM bootstraps automatically
-/pm:research landscape                   # map your market
-/pm:strategy                             # define positioning and bets
-/pm:research competitors                 # deep-dive key competitors
-/pm:groom                                # groom more ideas into issues
-/dev:dev PM-123                           # implement a groomed issue end-to-end
-```
+Start by grooming a feature idea — PM will research the market, scope the work, and produce ready-to-build issues. Or start with research if you want to explore first.
 
-> `/pm:setup` and `/pm:ingest` can be run at any point to add integrations or import customer evidence.
+A typical progression:
+1. Set up your project context
+2. Import any existing customer evidence (optional)
+3. Research your market landscape
+4. Define your product strategy
+5. Research specific competitors
+6. Groom ideas into sprint-ready issues
+7. Implement groomed issues end-to-end
 
 ---
 
@@ -48,30 +35,30 @@ Setup configures:
 
 ### Product Discovery
 
-| Command | Description |
-|---------|-------------|
-| `/pm:groom` | Turn ideas into sprint-ready issues — the primary PM entry point |
-| `/pm:research <topic>` | Landscape mapping, competitor deep-dives, user signal analysis |
-| `/pm:strategy` | Generate and refine product positioning and strategic bets |
-| `/pm:ideate` | Brainstorm feature ideas from research and strategy |
-| `/pm:dig <question>` | Ad-hoc deep research on a specific question or topic |
-| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
-| `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
-| `/pm:view` | Browse and search accumulated research and strategy artifacts |
-| `/pm:setup` | Optional — configure integrations (Linear, Ahrefs) and bootstrap the knowledge base |
+| Capability | Description |
+|-----------|-------------|
+| Setup | First-time configuration: product context, market, integrations |
+| Ingest | Import customer evidence from local files or folders and update shared research artifacts |
+| Strategy | Generate and refine product positioning and strategic bets |
+| Research | Landscape mapping, competitor deep-dives, user signal analysis |
+| Groom | Convert strategy into groomed issues ready for sprint |
+| Dig | Ad-hoc deep research on a specific question or topic |
+| Refresh | Audit research for staleness and missing data, then patch without losing existing content |
+| View | Browse and search accumulated research and strategy artifacts |
+| Ideate | Brainstorm feature ideas from research and strategy |
 
 ### Development Lifecycle
 
-| Command | Description |
-|---------|-------------|
-| `/dev:dev <issue>` | End-to-end feature implementation from issue to merge-ready PR |
-| `/dev:dev-epic <epic>` | Multi-issue epic orchestration with teammate agents |
-| `/dev:review` | Code review with structured critique |
-| `/dev:pr` | Create pull request with summary and test plan |
-| `/dev:merge-watch` | Monitor PR checks and merge when ready |
-| `/dev:bug-fix` | Structured bug investigation and fix workflow |
-| `/dev:merge` | Merge a PR after checks pass |
-| `/dev:sync` | Sync plugin source to cache for testing |
+| Capability | Description |
+|-----------|-------------|
+| Dev | End-to-end feature implementation from issue to merge-ready PR |
+| Dev-epic | Multi-issue epic orchestration with teammate agents |
+| Review | Code review with structured critique |
+| PR | Create pull request with summary and test plan |
+| Merge-watch | Monitor PR checks and merge when ready |
+| Bug-fix | Structured bug investigation and fix workflow |
+| Merge | Merge a PR manually without polling (uses the merge section of merge-watch) |
+| Sync | Sync plugin source to cache for testing |
 
 ---
 
@@ -95,7 +82,7 @@ The PM plugin is written for Claude Code but runs on Gemini CLI with the followi
 
 ## Subagent Limitation
 
-Gemini CLI does not support multiagent spawning. The PM plugin uses parallel agents in `/pm:research` and `/dev:dev-epic` on Claude Code. On Gemini CLI, use sequential fallback instead:
+Gemini CLI does not support multiagent spawning. The PM plugin uses parallel agents in research and dev-epic workflows on Claude Code. On Gemini CLI, use sequential fallback instead:
 
 ```
 Claude Code (parallel):
@@ -117,14 +104,14 @@ All other skills (setup, strategy, groom, dig, view, dev, review, pr, bug-fix) w
 
 ```
 pm/                   # Committed knowledge base
-  competitors/        # Competitor profiles written by /pm:research competitors
-  research/           # Shared topic research written by /pm:research and /pm:ingest
+  competitors/        # Competitor profiles from research
+  research/           # Shared topic research from research and ingest workflows
   backlog/            # Markdown issues (used only if Linear is unavailable)
 .pm/                  # Gitignored runtime/config
   config.json         # Integration settings (Linear, SEO provider)
-  imports/            # Import manifest for /pm:ingest
+  imports/            # Import manifest for ingest workflow
   evidence/           # Normalized customer evidence records
   sessions/           # Visual companion session state
 ```
 
-Skills read from and write to this layout. `/pm:view` browses accumulated artifacts. `/pm:strategy` synthesizes whatever research exists in `pm/`.
+Skills read from and write to this layout. The view skill browses accumulated artifacts. The strategy skill synthesizes whatever research exists in `pm/`.

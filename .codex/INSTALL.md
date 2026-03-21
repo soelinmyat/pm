@@ -55,7 +55,7 @@ ln -sfn ~/.agents/vendor/pm/skills/writing-plans ~/.agents/skills/dev-writing-pl
 
 > **Note:** `dev-dev` and `dev-dev-epic` are correct — the `dev-` prefix plus the skill name `dev` / `dev-epic`.
 
-The skill folders in this repo already include symlinks to the shared `agents/`, `commands/`, `hooks/`, `scripts/`, and `templates/` directories that Codex may read while following the workflows.
+The skill folders in this repo already include symlinks to the shared `agents/`, `hooks/`, `scripts/`, and `templates/` directories that Codex may read while following the workflows.
 
 ### 3. Restart Codex
 

@@ -6,6 +6,8 @@ Most tools help you write code faster. PM helps you write the *right* code — b
 
 Works with Claude Code, Cursor, Codex, and Gemini CLI.
 
+PM activates the right workflow automatically — no commands to memorize.
+
 ---
 
 ## What It Does
@@ -36,58 +38,43 @@ claude plugin install pm@pm
 
 ## Get Started
 
-```
-/pm:groom                    # turn an idea into ready-to-build issues
-/pm:research landscape       # research your market
-/pm:dev PM-001               # build a groomed issue end-to-end
-```
+**Start with what you want to build.** Tell PM your feature idea and it will research the market, scope the work, and produce ready-to-build issues — all in one conversation.
 
-That's the core loop: **groom it, research it, build it.**
+**Or start with what you want to learn.** Ask PM to research a topic, map competitors, or analyze your market. The research accumulates in your knowledge base and informs future planning.
 
-> **Optional:** Run `/pm:setup` first to configure integrations (Linear, Ahrefs). PM works without it — setup just unlocks advanced features.
+Everything else — setup, strategy, ideation, ingestion — happens on-demand when the workflow needs it. You don't need to memorize anything.
 
 ---
 
-## All Commands
+## What You Can Do
 
-### Core Commands
+### Think
 
-| Command | What it does |
-|---------|-------------|
-| `/pm:groom` | Turn an idea into well-defined, ready-to-build issues — the primary PM entry point |
-| `/pm:research <topic>` | Research a topic — competitors, market trends, anything |
-| `/pm:dev` | Build a feature: plan, test, code, review, PR, merge |
-| `/pm:dev-epic <id>` | Build a whole epic with parallel agents |
+- **Research** a topic, competitor, or market trend
+- **Build a strategy** with product positioning and strategic bets
+- **Generate ideas** based on your research and strategy
+- **Groom** an idea through research, scoping, and review into ready-to-build issues
+- **Dig** into a specific question for quick answers
+- **Import** customer feedback, interviews, or support data
+- **Refresh** stale research without losing existing content
+- **Browse** your knowledge base in a local dashboard
 
-### Supporting Commands
+### Build
 
-| Command | What it does |
-|---------|-------------|
-| `/pm:setup` | Optional — configure integrations (Linear, Ahrefs) and bootstrap the knowledge base |
-| `/pm:strategy` | Create or update your product strategy |
-| `/pm:ideate` | Generate feature ideas based on your research and strategy |
-| `/pm:dig <question>` | Quick research for a specific question |
-| `/pm:ingest <path>` | Import customer feedback, interviews, or support data |
-| `/pm:refresh` | Update stale research |
-| `/pm:view` | Open the knowledge base dashboard |
-
-### Building Commands
-
-| Command | What it does |
-|---------|-------------|
-| `/pm:pr` | Push code and create a PR |
-| `/pm:review` | Run a multi-perspective code review |
-| `/pm:bug-fix` | Find and fix bugs in batch |
-| `/pm:merge-watch` | Watch a PR and auto-merge when ready |
-| `/pm:merge` | Merge a PR and clean up |
+- **Develop** a feature end-to-end: plan, test, code, review, PR
+- **Run an epic** with multiple related issues in parallel
+- **Review** code from multiple perspectives
+- **Create a PR** with summary and test plan
+- **Fix bugs** in batch with structured triage
+- **Watch a PR** and auto-merge when checks pass
 
 ---
 
 ## How the Handoff Works
 
-When you use `/pm:groom` to plan a feature, it goes through research, scoping, and review. The output includes detailed acceptance criteria and competitive context.
+When you groom a feature, PM takes it through research, scoping, and review. The output includes detailed acceptance criteria and competitive context.
 
-When you then use `/pm:dev` or `/pm:dev-epic` on that same feature, the dev workflow sees the grooming work and skips straight to implementation — no redundant brainstorming or spec review. The research context flows into the implementation plan automatically.
+When you then build that same feature, the dev workflow sees the grooming work and skips straight to implementation — no redundant brainstorming or spec review. The research context flows into the implementation plan automatically.
 
 This is the main idea: **think once, build fast.**
 
@@ -95,7 +82,7 @@ This is the main idea: **think once, build fast.**
 
 ## The `pm/` Directory
 
-You'll notice a `pm/` folder in this repo. That's PM dogfooding itself — we use the plugin to manage its own development. When you install PM in your project, you'll get your own fresh `pm/` folder via `/pm:setup`.
+You'll notice a `pm/` folder in this repo. That's PM dogfooding itself — we use the plugin to manage its own development. When you install PM in your project, you'll get your own fresh `pm/` folder the first time you start a workflow.
 
 ---
 

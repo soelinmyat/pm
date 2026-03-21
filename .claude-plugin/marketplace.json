@@ -7,8 +7,8 @@
   "plugins": [
     {
       "name": "pm",
-      "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-      "version": "1.1.1",
+      "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
+      "version": "1.1.2",
       "author": {
         "name": "Soe Lin Myat"
       },
