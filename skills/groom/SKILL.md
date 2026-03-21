@@ -100,7 +100,7 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 | 5.5. Team Review | `phases/phase-5.5-team-review.md` | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
 | 5.7. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
 | 5.8. Present | `phases/phase-5.8-present.md` | Generate HTML proposal, open in browser, get user approval |
-| 6. Link | `phases/phase-6-link.md` | Create issues in Linear or local backlog, validate, retro prompt, clean up |
+| 6. Link | `phases/phase-6-link.md` | Create issues in Linear or local backlog, validate, retro prompt, learning extraction, clean up |
 
 **How to use:** At the start of each phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
