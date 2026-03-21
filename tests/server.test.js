@@ -145,18 +145,18 @@ test('GET / uses project_name from .pm/config.json in header and title', async (
 // ---------------------------------------------------------------------------
 
 test('GET / shows suggested next action based on knowledge base state', async () => {
-  // No strategy → suggest /pm:strategy
+  // No strategy → suggest /pm:groom (groom bootstraps strategy via quick-start)
   const { pmDir: pmDir1, cleanup: cleanup1 } = withPmDir({});
   try {
     const { port, close } = await startDashboardServer(pmDir1);
     try {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('Suggested next'), 'must show suggested next section');
-      assert.ok(body.includes('/pm:strategy'), 'must suggest strategy when none exists');
+      assert.ok(body.includes('/pm:groom'), 'must suggest groom when no strategy exists');
     } finally { await close(); }
   } finally { cleanup1(); }
 
-  // Has strategy + landscape + competitors + ideas → suggest grooming
+  // Has strategy + landscape + competitors + ideas → suggest grooming first (idea slug)
   const { pmDir: pmDir2, cleanup: cleanup2 } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
     'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',
@@ -926,10 +926,10 @@ test('start-server.sh launches dashboard mode against the provided project direc
 });
 
 // ---------------------------------------------------------------------------
-// 28. Nav restructure — KB umbrella
+// 28. Nav restructure — Primary + Secondary tiers
 // ---------------------------------------------------------------------------
 
-test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () => {
+test('Dashboard nav shows two-tier navigation', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -937,15 +937,23 @@ test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () =>
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/');
-      // Check nav links (inside <nav> element)
-      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
-      assert.ok(navMatch, 'page must have a nav element');
-      const navHtml = navMatch[1];
-      assert.ok(navHtml.includes('Knowledge Base'), 'nav must show Knowledge Base');
-      assert.ok(navHtml.includes('Proposals'), 'nav must show Proposals');
-      assert.ok(navHtml.includes('Backlog'), 'nav must show Backlog');
-      assert.ok(!navHtml.includes('>Research<'), 'nav must NOT show Research as top-level');
-      assert.ok(!navHtml.includes('>Strategy<'), 'nav must NOT show Strategy as top-level');
+      // Primary nav
+      const primaryMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      assert.ok(primaryMatch, 'page must have a primary nav element');
+      const primaryHtml = primaryMatch[1];
+      assert.ok(primaryHtml.includes('>Home</a>'), 'primary nav must show Home');
+      assert.ok(primaryHtml.includes('>Proposals</a>'), 'primary nav must show Proposals');
+      assert.ok(primaryHtml.includes('>Backlog</a>'), 'primary nav must show Backlog');
+      assert.ok(!primaryHtml.includes('Knowledge Base'), 'primary nav must NOT show Knowledge Base');
+      // Secondary nav
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
+      const secMatch = body.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
+      assert.ok(secMatch, 'page must have a nav-secondary element');
+      const secHtml = secMatch[1];
+      assert.ok(secHtml.includes('>Strategy</a>'), 'secondary nav must show Strategy');
+      assert.ok(secHtml.includes('>Research</a>'), 'secondary nav must show Research');
+      assert.ok(secHtml.includes('>Competitors</a>'), 'secondary nav must show Competitors');
+      assert.ok(secHtml.includes('>Landscape</a>'), 'secondary nav must show Landscape');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1055,7 +1063,7 @@ test('/research/{slug} detail pages still work directly', async () => {
   } finally { cleanup(); }
 });
 
-test('KB nav item is highlighted on /kb routes', async () => {
+test('Secondary nav items are highlighted on /kb routes', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -1063,12 +1071,15 @@ test('KB nav item is highlighted on /kb routes', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/kb');
-      assert.ok(body.includes('href="/kb" class="active"') || body.includes("href=\"/kb\" class=\"active\""), 'KB nav item must be active on /kb');
+      const secMatch = body.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
+      assert.ok(secMatch, 'page must have secondary nav');
+      // When activeNav is '/kb', all KB sub-links should be active
+      assert.ok(secMatch[1].includes('class="active"'), 'secondary nav must have at least one active item on /kb');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('Competitor detail page highlights Knowledge Base nav item', async () => {
+test('Competitor detail page highlights secondary nav', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/acme/profile.md': '---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n',
   });
@@ -1076,13 +1087,13 @@ test('Competitor detail page highlights Knowledge Base nav item', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/competitors/acme');
-      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on competitor detail');
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
       assert.ok(!body.includes('href="/" class="active"'), 'Home must not be highlighted');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('Research topic page highlights Knowledge Base nav item', async () => {
+test('Research topic page highlights secondary nav', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/research/pricing/findings.md': '---\ntopic: Pricing\ntype: topic-research\ncreated: 2026-03-12\nupdated: 2026-03-12\n---\n# Pricing Research\n',
   });
@@ -1090,7 +1101,7 @@ test('Research topic page highlights Knowledge Base nav item', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/research/pricing');
-      assert.ok(body.includes('href="/kb" class="active"'), 'KB nav item must be highlighted on research topic');
+      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -1332,6 +1343,84 @@ test('groomPhaseLabel maps raw phase strings to human-readable labels', () => {
   assert.equal(mod.groomPhaseLabel('present'), 'Presentation');
   assert.equal(mod.groomPhaseLabel('link'), 'Linking Issues');
   assert.equal(mod.groomPhaseLabel('unknown-phase'), 'Unknown Phase', 'unmapped phases use humanizeSlug');
+});
+
+// ---------------------------------------------------------------------------
+// PM-056: Empty-state CTA, KB reference, and suggestedNext ordering
+// ---------------------------------------------------------------------------
+
+test('GET / shows Start Grooming CTA when pm/ exists but no proposals or groom sessions', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('class="empty-state-cta"'), 'must use CTA styling class');
+      assert.ok(body.includes('Ready to build'), 'must show CTA heading');
+      assert.ok(body.includes('/pm:groom'), 'CTA must mention /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / does not show empty-state CTA when proposals exist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.meta.json': '{"title":"My Feature","gradient":"linear-gradient(135deg,#667eea,#764ba2)","date":"2026-03-20"}',
+    'pm/backlog/proposals/my-feature.html': '<html><body>Proposal</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="empty-state-cta"'), 'must not show CTA element when proposals exist');
+      assert.ok(body.includes('My Feature'), 'must show proposal gallery');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / does not show empty-state CTA when groom session is active', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/groom-sessions/in-progress.md': '---\ntopic: "In Progress"\nphase: research\nstarted: 2026-03-20\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="empty-state-cta"'), 'must not show CTA element when groom session active');
+      assert.ok(body.includes('Currently grooming'), 'must show groom banner');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / shows collapsible knowledge base reference with status badges', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-03-20\n---\n# Strategy\n',
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',
+    'pm/backlog/proposals/feat.meta.json': '{"title":"Feat","gradient":"#ccc","date":"2026-03-20"}',
+    'pm/backlog/proposals/feat.html': '<html></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('kb-reference'), 'must have KB reference section');
+      assert.ok(body.includes('<details'), 'KB reference must be collapsible');
+      assert.ok(body.includes('badge-ready'), 'must show Ready badges for populated sections');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / suggestedNext prioritizes groomable ideas over strategy/research suggestions', async () => {
+  // Has ideas but no strategy — should still suggest grooming the idea first
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/my-idea.md': '---\nstatus: idea\ntitle: My Idea\n---\n# My Idea\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('/pm:groom my-idea'), 'must suggest grooming the idea, not strategy setup');
+    } finally { await close(); }
+  } finally { cleanup(); }
 });
 
 // ---------------------------------------------------------------------------
