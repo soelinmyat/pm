@@ -145,18 +145,18 @@ test('GET / uses project_name from .pm/config.json in header and title', async (
 // ---------------------------------------------------------------------------
 
 test('GET / shows suggested next action based on knowledge base state', async () => {
-  // No strategy → suggest /pm:strategy
+  // No strategy → suggest /pm:groom (groom bootstraps strategy via quick-start)
   const { pmDir: pmDir1, cleanup: cleanup1 } = withPmDir({});
   try {
     const { port, close } = await startDashboardServer(pmDir1);
     try {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('Suggested next'), 'must show suggested next section');
-      assert.ok(body.includes('/pm:strategy'), 'must suggest strategy when none exists');
+      assert.ok(body.includes('/pm:groom'), 'must suggest groom when no strategy exists');
     } finally { await close(); }
   } finally { cleanup1(); }
 
-  // Has strategy + landscape + competitors + ideas → suggest grooming
+  // Has strategy + landscape + competitors + ideas → suggest grooming first (idea slug)
   const { pmDir: pmDir2, cleanup: cleanup2 } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
     'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',

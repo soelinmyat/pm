@@ -614,6 +614,26 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .empty-state p { max-width: 420px; margin-left: auto; margin-right: auto; }
 .empty-state code { background: var(--accent-subtle); padding: 0.2em 0.5em; border-radius: 4px;
   font-size: 0.85rem; color: var(--accent); }
+/* Empty-state CTA */
+.empty-state-cta { text-align: center; padding: 4rem 2rem; margin: 2rem 0;
+  background: var(--accent-subtle); border: 2px dashed var(--accent); border-radius: var(--radius); }
+.empty-state-cta h2 { color: var(--text); margin-bottom: 0.75rem; font-size: 1.5rem; }
+.empty-state-cta p { max-width: 480px; margin-left: auto; margin-right: auto; color: var(--text-muted); }
+.empty-state-cta code { background: var(--accent); color: #fff; padding: 0.5em 1.25em;
+  border-radius: var(--radius-sm); font-size: 1.125rem; font-weight: 600;
+  display: inline-block; margin-top: 0.75rem; }
+/* Knowledge base reference (collapsible) */
+.kb-reference { margin-top: 2rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); }
+.kb-reference summary { padding: 0.875rem 1.25rem; font-weight: 600; font-size: 0.875rem;
+  cursor: pointer; user-select: none; color: var(--text); }
+.kb-reference summary:hover { color: var(--accent); }
+.kb-ref-body { padding: 0.5rem 1.25rem 1rem; }
+.kb-ref-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0;
+  font-size: 0.875rem; border-bottom: 1px solid var(--border); }
+.kb-ref-item:last-child { border-bottom: none; }
+.kb-ref-item a { font-weight: 500; min-width: 80px; }
+.kb-ref-desc { color: var(--text-muted); font-size: 0.8125rem; margin-left: auto; }
 
 /* Page header */
 .page-header { margin-bottom: 2rem; }
@@ -1646,29 +1666,47 @@ function handleDashboardHome(res, pmDir) {
   const researchHasContent = researchParts.length > 0;
   const researchDesc = researchHasContent ? researchParts.join(' · ') : 'Landscape, competitors, and topic research';
 
-  const sections = [
-    { href: '/research', title: 'Research', desc: researchDesc, hasContent: researchHasContent, key: 'research' },
-    { href: '/strategy', title: 'Strategy', desc: 'Product strategy and roadmap direction', hasContent: !!stats.strategy, key: 'strategy' },
-    { href: '/backlog', title: 'Backlog', desc: `${stats.backlog} backlog item${stats.backlog !== 1 ? 's' : ''}`, hasContent: stats.backlog > 0, key: 'backlog' },
-  ].map(s => {
-    const badge = s.hasContent
+  // Collapsible knowledge base reference section
+  const kbItems = [
+    { href: '/kb?tab=research', label: 'Research', hasContent: researchHasContent, desc: researchDesc, key: 'research' },
+    { href: '/kb?tab=strategy', label: 'Strategy', hasContent: !!stats.strategy, desc: 'Product strategy and roadmap', key: 'strategy' },
+    { href: '/backlog', label: 'Backlog', hasContent: stats.backlog > 0, desc: `${stats.backlog} item${stats.backlog !== 1 ? 's' : ''}`, key: 'backlog' },
+  ].map(item => {
+    const badge = item.hasContent
       ? '<span class="badge badge-ready">Ready</span>'
       : '<span class="badge badge-empty">Empty</span>';
-    const stale = s.hasContent ? stalenessInfo(updatedDates[s.key]) : null;
-    const footerRight = stale
-      ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
+    const stale = item.hasContent ? stalenessInfo(updatedDates[item.key]) : null;
+    const staleBadge = stale
+      ? ` <span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
       : '';
-    return `<div class="card">
-      <h3><a href="${s.href}">${s.title}</a> ${badge}</h3>
-      <p class="meta">${s.desc}</p>
-      <div class="card-footer"><span></span>${footerRight}</div>
-    </div>`;
-  }).join('');
+    return `<div class="kb-ref-item">
+    <a href="${item.href}">${item.label}</a> ${badge}${staleBadge}
+    <span class="kb-ref-desc">${escHtml(item.desc)}</span>
+  </div>`;
+  }).join('\n');
 
-  // Suggested next action based on knowledge base state
+  const kbReferenceHtml = `
+<details class="kb-reference">
+  <summary>Knowledge Base</summary>
+  <div class="kb-ref-body">${kbItems}</div>
+</details>`;
+
+  // Suggested next action — groom-first priority chain
   let suggestedNext = '';
-  if (!stats.strategy) {
-    suggestedNext = 'Run <code>/pm:strategy</code> to define your product strategy';
+  // 1. Check for groomable ideas first
+  let firstIdea = null;
+  if (fs.existsSync(backlogDir)) {
+    const ideaFiles = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    for (const file of ideaFiles) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data: d } = parseFrontmatter(raw);
+      if (d.status === 'idea') { firstIdea = file.replace('.md', ''); break; }
+    }
+  }
+  if (firstIdea) {
+    suggestedNext = `Run <code>/pm:groom ${escHtml(firstIdea)}</code> to scope your next idea`;
+  } else if (!stats.strategy) {
+    suggestedNext = 'Run <code>/pm:groom</code> to start grooming &mdash; it will help you set up strategy along the way';
   } else if (!stats.landscape) {
     suggestedNext = 'Run <code>/pm:research landscape</code> to map your market';
   } else if (stats.competitors === 0) {
@@ -1676,22 +1714,7 @@ function handleDashboardHome(res, pmDir) {
   } else if (stats.backlog === 0) {
     suggestedNext = 'Run <code>/pm:ideate</code> to generate feature ideas from your knowledge base';
   } else {
-    // Find first idea-status item to suggest grooming
-    const backlogDir = path.join(pmDir, 'backlog');
-    let firstIdea = null;
-    if (fs.existsSync(backlogDir)) {
-      const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
-      for (const file of files) {
-        const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
-        const { data: d } = parseFrontmatter(raw);
-        if (d.status === 'idea') { firstIdea = file.replace('.md', ''); break; }
-      }
-    }
-    if (firstIdea) {
-      suggestedNext = `Run <code>/pm:groom ${escHtml(firstIdea)}</code> to scope your next idea`;
-    } else {
-      suggestedNext = 'Run <code>/pm:ideate</code> to discover new opportunities';
-    }
+    suggestedNext = 'Run <code>/pm:ideate</code> to discover new opportunities';
   }
 
   const suggestedHtml = `<div class="suggested-next">
@@ -1736,15 +1759,33 @@ function handleDashboardHome(res, pmDir) {
 </div>`;
   }
 
-  const body = `
+  let body;
+  if (proposalCount === 0 && groomSessions.length === 0) {
+    // Empty state — prominent "Start Grooming" CTA
+    body = `
+<div class="page-header">
+  <h1>${escHtml(projectName)}</h1>
+  <p class="subtitle">Knowledge base overview</p>
+</div>
+<div class="empty-state-cta">
+  <h2>Ready to build?</h2>
+  <p>Start grooming your first feature to create a structured proposal with research, strategy alignment, and scoped issues.</p>
+  <p><code>/pm:groom</code></p>
+</div>
+${suggestedHtml}
+${kbReferenceHtml}`;
+  } else {
+    // Active state — groom banner, proposal gallery hero, KB reference
+    body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
 ${groomBannerHtml}
 ${proposalsHtml}
-<div class="card-grid">${sections}</div>
-${suggestedHtml}`;
+${suggestedHtml}
+${kbReferenceHtml}`;
+  }
 
   const html = dashboardPage('Home', '/', body, projectName);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
