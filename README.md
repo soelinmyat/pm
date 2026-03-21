@@ -1,16 +1,17 @@
 # PM — Product Memory
 
-PM (Product Memory) is a Claude Code plugin for product discovery, competitive research, strategy, and backlog grooming.
+Structured workflows for the product engineer, on top of whatever AI coding assistant you already use.
 
-LLMs and coding agents changed the cost of building. What used to take a team weeks now takes hours. But the bottleneck did not disappear. It moved upstream.
+PM is a free, open-source plugin that gives product engineers end-to-end workflows from idea through shipped code. Research compounds over time instead of getting lost. Strategy is checked before anyone writes code. Groomed issues flow into implementation with reduced ceremony. The tool remembers so you don't have to.
 
-Knowing what to build is now the hard part. Not the code. The research, the strategy, the scoping, and the "should we even do this?" conversations. Most teams still do this manually: scattered notes, ad hoc web searches, gut-feel prioritization, and tribal knowledge that lives in someone's head.
+**Three goals:**
+1. **Build valuable products** — research, strategy, competitive analysis, and customer evidence ensure you build the right thing.
+2. **Build efficiently** — ceremony calibration, TDD, one-shot implementation, auto-merge. Faster and more autonomous.
+3. **Manage cognitive load** — external memory that surfaces the right context at the right time.
 
-PM gives product managers, founders, and builders structured workflows for that upstream work, inside the editor. Research compounds over time instead of getting lost. Strategy is checked before anyone writes code. Ideas are validated against competitors and market signals before they become issues.
+Built for Claude Code. Also works with Cursor, Codex, and Gemini CLI.
 
-Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
-
-> **Early release.** Strong on competitive research, customer evidence ingest, strategy, and grooming. Not yet focused on product analytics integration, A/B test planning, or several other things a PM does in a given week. If you have ideas for what should come next, open a [discussion](https://github.com/soelinmyat/pm/discussions).
+> **v1.1.0** merges PM (product discovery) and Dev (development lifecycle) into a single plugin. 23 skills, 17 commands, one install. Groomed issues automatically skip redundant brainstorming and spec review in the dev workflow.
 
 ---
 
@@ -48,66 +49,87 @@ The `pm/` directory contains Product Memory's own knowledge base — landscape r
 
 ## Quick Start
 
-The fastest path from zero to a groomed backlog depends on the client:
-
-### Command-Based Clients
+### Product Discovery → Implementation
 
 ```
-/pm:setup
-/pm:ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
-/pm:research landscape
-/pm:strategy
-/pm:ideate
-/pm:research competitors
-/pm:research <topic>
-/pm:groom
+/pm:setup                              # configure product context and integrations
+/pm:research landscape                 # map the competitive landscape
+/pm:strategy                           # synthesize positioning and priorities
+/pm:ideate                             # generate ranked feature ideas
+/pm:groom                              # full grooming: research → scope → review → issues
+/dev                                   # implement with TDD, review, PR, merge
+/dev-epic PM-044                       # orchestrate a multi-issue epic end-to-end
 ```
+
+When a groomed issue reaches `/dev` or `/dev-epic`, the dev workflow detects the grooming artifacts and skips brainstorming and spec review — going straight to implementation planning.
 
 ### Codex
 
 ```text
 $pm-setup
-$pm-ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
 $pm-research landscape
 $pm-strategy
 $pm-ideate
-$pm-research competitors
-$pm-research <topic>
 $pm-groom
-$pm-view
+$dev-dev
+$dev-dev-epic PM-044
 ```
-
-**`/pm:setup`** configures your product context, target market, and integrations (Linear, SEO providers).
-
-**`/pm:research landscape`** maps the competitive landscape: key players, categories, and whitespace in your market.
-
-**`/pm:strategy`** synthesizes research into a positioning strategy. Defines your differentiated angle and strategic bets.
-
-**`/pm:research competitors`** deep-dives on specific competitors. Tracks features, pricing, messaging, and recent moves.
-
-**`/pm:research <topic>`** investigates a specific area — pricing models, API standards, regulatory requirements, or any question that needs grounded answers before building.
-
-**`/pm:groom`** converts strategy and research into groomed Linear issues with acceptance criteria, effort estimates, and priority scores.
-
-In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, `pm-refresh`, and `pm-view`.
 
 ---
 
-## Commands (Command-Based Clients)
+## Commands
 
-Codex uses the `pm-*` skills shown above instead of these slash commands.
+### Product Discovery (PM)
 
 | Command | Description |
 |---------|-------------|
 | `/pm:setup` | First-time configuration: product context, market, integrations |
-| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
+| `/pm:ingest <path>` | Import customer evidence from local files or folders |
 | `/pm:strategy` | Generate and refine product positioning and strategic bets |
 | `/pm:research <topic>` | Landscape mapping, competitor deep-dives, market signal analysis |
 | `/pm:ideate` | Generate ranked feature ideas from your knowledge base |
-| `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
-| `/pm:dig <question>` | Quick inline research for mid-work decisions. No state, no issues. |
-| `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
+| `/pm:groom` | Full grooming pipeline: research → scope → review → bar raiser → issues |
+| `/pm:dig <question>` | Quick inline research for mid-work decisions |
+| `/pm:refresh [scope]` | Audit research for staleness and patch without losing content |
 | `/pm:view` | Open the knowledge base dashboard in your browser |
+
+### Development Lifecycle (Dev)
+
+| Command | Description |
+|---------|-------------|
+| `/dev` | Full lifecycle: brainstorm → plan → TDD → review → PR → merge |
+| `/dev-epic <id>` | Orchestrate a multi-issue epic with parallel agents |
+| `/pr` | PR preparation: review, push, create PR, CI monitor |
+| `/review` | Multi-perspective code review (code + PM + design + edge-cases) |
+| `/merge-watch` | Poll PR readiness gates, auto-merge when ready |
+| `/merge` | Merge a PR, delete branch, clean up |
+| `/bug-fix` | Batch bug triage and resolution |
+
+### Internal Skills (invoked by workflows, not directly)
+
+brainstorming, debugging, design-critique, receiving-review, subagent-dev, tdd, using-dev, writing-plans
+
+---
+
+## How It Works
+
+```
+Research → Strategy → Groom → Dev → Ship
+   │          │         │       │
+   │          │         │       ├── TDD + implementation
+   │          │         │       ├── Code review (multi-perspective)
+   │          │         │       └── PR + auto-merge
+   │          │         │
+   │          │         ├── Scope review (3 agents: PM, Competitive, EM)
+   │          │         ├── Team review (3-4 agents)
+   │          │         └── Bar raiser (Product Director)
+   │          │
+   │          └── Goals, non-goals, ICP, competitive positioning
+   │
+   └── Landscape, competitors, customer evidence, market signals
+```
+
+Context compounds at every stage. Research informs grooming. Grooming shapes implementation. Implementation references competitive analysis. The 100th groomed ticket is dramatically better than the first.
 
 ---
 
