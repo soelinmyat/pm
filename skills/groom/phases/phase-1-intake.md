@@ -3,7 +3,7 @@
 **If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
 > "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
 
-Skip to step 3 after confirmation.
+Skip to step 3 after confirmation. (Steps 3, 3.5, 4, 5, 6 run normally.)
 
 **Otherwise:**
 
@@ -18,6 +18,30 @@ Skip to step 3 after confirmation.
 
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
+
+3.5. **Memory injection.** Check `pm/memory.md` for past session learnings.
+
+   If `pm/memory.md` does not exist, or exists but has no entries, or frontmatter cannot be parsed — skip this step silently. Do not print any message.
+
+   If entries exist:
+   1. Read `pm/memory.md` and parse the frontmatter.
+   2. Sort the `entries` array by `date` descending (most recent first).
+   3. Take the first 5 entries (or all if fewer than 5).
+   4. Surface them as one-line summaries:
+
+      > "From past sessions:
+      > - {entry1.learning}
+      > - {entry2.learning}
+      > - {entry3.learning}
+      > Want detail on any of these before we proceed?"
+
+   5. If the user asks for detail on a specific entry:
+      - Show the `detail` field (if it exists) as a fenced blockquote below the summary line.
+      - If no `detail` field exists for that entry, say: "No additional detail recorded for that entry."
+      - Then ask: "Ready to proceed with intake?"
+   6. If the user says no detail is needed (or gives any response that isn't a detail request), proceed to step 4.
+
+   **Token budget:** Only surface the `learning` field (one-line summaries). Never inject the `detail` field automatically. Full detail is on-demand only. Max 5 entries ~ 500 tokens.
 
 4. **Codebase scan** (if `codebase_available: true` in groom state):
    Explore the project source code for existing implementation related to this idea. Look for:
