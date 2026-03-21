@@ -3,7 +3,7 @@ node_modules/
 .env
 .env.*
 .pm/
+!.pm/dev-sessions/
 pm/*.local.md
 .worktrees/
-.dev-epic-state-*.md
-.dev-state-*.md
+dev/instructions.local.md

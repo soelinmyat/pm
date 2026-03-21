@@ -31,15 +31,19 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 
 ## State File Naming
 
-State files are namespaced by parent issue slug: `.dev-epic-state-{parent-slug}.md`. This allows concurrent epics on the same repo.
+State files live under `.pm/dev-sessions/`, namespaced by parent issue slug: `.pm/dev-sessions/epic-{parent-slug}.md`. This allows concurrent epics on the same repo.
 
-When referencing the state file in subsequent sections, `.dev-epic-state.md` means `.dev-epic-state-{parent-slug}.md`.
+When referencing the state file in subsequent sections, `.dev-epic-state.md` means `.pm/dev-sessions/epic-{parent-slug}.md`.
+
+**Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.
+
+**Legacy migration:** On resume detection, also check the legacy path (`.dev-epic-state-{parent-slug}.md` at repo root). If found at legacy path but not at new path, read from legacy. New writes always go to `.pm/dev-sessions/`.
 
 ## Resume Detection
 
 **Runs FIRST on every invocation.**
 
-Glob for `.dev-epic-state-*.md` in the repo root.
+Glob for `.pm/dev-sessions/epic-*.md` (and legacy `.dev-epic-state-*.md` at repo root).
 
 **If one match:** Read it. Announce stage/progress/next action. Continue from Resume Instructions.
 
@@ -83,7 +87,7 @@ For each sub-issue, detect groomed status by reading the groom session file:
 
 Groomed issues get reduced ceremony (skip brainstorming + spec review). This is the pm -> dev handoff.
 
-Log per sub-issue in `.dev-epic-state.md` under Decisions:
+Log per sub-issue in `.pm/dev-sessions/epic-{parent-slug}.md` under Decisions:
 ```
 - Groom detection:
   - {slug} -> groomed (session: {file}, verdict: {verdict}) | raw (reason: {reason})
@@ -113,7 +117,7 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 ### 1.6 Write initial state
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/state-template.md` for the template. Write `.dev-epic-state.md`. Verify it's in `.gitignore`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
 ### 1.7 Merge strategy detection
 
@@ -177,7 +181,7 @@ In autonomous mode (after Stage 3.3 approval), do NOT pause for confirmation. An
 
 No user interaction. For each sub-issue in dependency order.
 
-**Before dispatching any agent:** Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.dev-epic-state.md`. Build the `{PROJECT_CONTEXT}` block and pass it to every dispatched agent.
+**Before dispatching any agent:** Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.pm/dev-sessions/epic-{parent-slug}.md`. Build the `{PROJECT_CONTEXT}` block and pass it to every dispatched agent.
 
 ### 2.1 Groomed sub-issues
 
@@ -271,11 +275,11 @@ When dispatching plan agents, pass previous plan summaries (not full plans). The
 
 ### 2.4 Size reconciliation
 
-After each plan agent returns, check if the plan's task count suggests a different size than the intake classification. If the plan sizes differently (e.g., intake said S but plan has 10+ tasks across 5 chunks, suggesting M), update the size in `.dev-epic-state.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
+After each plan agent returns, check if the plan's task count suggests a different size than the intake classification. If the plan sizes differently (e.g., intake said S but plan has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
 
 ### 2.5 State updates
 
-After each plan agent returns, update `.dev-epic-state.md` with plan path and commit SHA.
+After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA.
 
 ---
 
@@ -526,11 +530,16 @@ Note: Teammates for fully-implemented sub-issues (0 tasks) should already have b
 **5.3.2 Remove state files:**
 ```bash
 # Remove this epic's state file
-rm -f .dev-epic-state-{parent-slug}.md
+rm -f .pm/dev-sessions/epic-{parent-slug}.md
 
 # Also scan for any OTHER stale state files from completed epics/sessions
-for f in .dev-epic-state-*.md .dev-state-*.md; do
+for f in .pm/dev-sessions/*.md; do
   [ -f "$f" ] && echo "WARN: Found stale state file: $f" && rm -f "$f"
+done
+
+# Clean up any legacy state files at repo root
+for f in .dev-epic-state-*.md .dev-state-*.md; do
+  [ -f "$f" ] && echo "WARN: Removing legacy state file: $f" && rm -f "$f"
 done
 ```
 

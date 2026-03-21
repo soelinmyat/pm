@@ -42,7 +42,7 @@ Skills inlined into this document (no separate invocation needed):
 
 At intake, run the context discovery protocol defined in `context-discovery.md` (same directory).
 This reads CLAUDE.md, AGENTS.md, package manifests, and MCP tools to build the project context.
-Store results in `.dev-state.md` under `## Project Context`.
+Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
 
 See `context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
 All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
@@ -62,32 +62,36 @@ At intake, verify CLAUDE.md contains the minimum context needed for review agent
 If CLAUDE.md is minimal (< 20 lines, no user/design sections), warn the user:
 > "CLAUDE.md has limited product context. Review agents work best with user personas, scale expectations, and design principles documented. Want to add these now, or proceed with what's available?"
 
-**Do not block on this.** Proceed with available context, but log the gap in `.dev-state.md`.
+**Do not block on this.** Proceed with available context, but log the gap in `.pm/dev-sessions/{slug}.md`.
 
 ## State File Naming
 
-State files are namespaced by feature slug to allow concurrent sessions:
+State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
 
-- **`/dev`:** `.dev-state-{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.dev-state-add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
-- **`/dev-epic`:** `.dev-epic-state-{parent-slug}.md`
-- **`.gitignore`:** Use patterns: `.dev-state-*.md`, `.dev-epic-state-*.md`
+- **`/dev`:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.pm/dev-sessions/add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
+- **`/dev-epic`:** `.pm/dev-sessions/epic-{parent-slug}.md`
+- **`.gitignore`:** `.pm/` covers all state files (no separate pattern needed).
 
-When referencing the state file in subsequent sections, `.dev-state.md` means `.dev-state-{slug}.md` — the slug is determined at intake.
+When referencing the state file in subsequent sections, `.dev-state.md` means `.pm/dev-sessions/{slug}.md` — the slug is determined at intake.
+
+**Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.
+
+**Legacy migration:** On resume detection or any state file read, also check the legacy path (`.dev-state-{slug}.md` at repo root). If found at legacy path but not at new path, read from legacy. New writes always go to `.pm/dev-sessions/`.
 
 ## Resume Detection
 
 ```dot
 digraph resume {
     "dev invoked" [shape=box];
-    "Glob .dev-state-*.md" [shape=diamond];
+    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" [shape=diamond];
     "One found: read it, resume" [shape=box];
     "Multiple found: list, ask user" [shape=box];
     "None found: fresh start" [shape=box];
 
-    "dev invoked" -> "Glob .dev-state-*.md";
-    "Glob .dev-state-*.md" -> "One found: read it, resume" [label="1 match"];
-    "Glob .dev-state-*.md" -> "Multiple found: list, ask user" [label="2+ matches"];
-    "Glob .dev-state-*.md" -> "None found: fresh start" [label="0 matches"];
+    "dev invoked" -> "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md";
+    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "One found: read it, resume" [label="1 match"];
+    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "Multiple found: list, ask user" [label="2+ matches"];
+    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "None found: fresh start" [label="0 matches"];
 }
 ```
 
@@ -105,7 +109,7 @@ S:       INTAKE → WORKSPACE → IMPLEMENT → SIMPLIFY → [DESIGN CRITIQUE] �
 M/L/XL:  INTAKE → WORKSPACE → BRAINSTORM → SPEC REVIEW → PLAN → PLAN REVIEW → IMPLEMENT → SIMPLIFY → [DESIGN CRITIQUE] → [QA] → REVIEW → PR → MERGE-WATCH → RETRO
 ```
 
-**WORKSPACE comes immediately after INTAKE** (S+). All artifacts (`.dev-state.md`, plan docs, capture scripts) live in the worktree and are cleaned up with it. Only XS skips worktree.
+**WORKSPACE comes immediately after INTAKE** (S+). All artifacts (`.pm/dev-sessions/{slug}.md`, plan docs, capture scripts) live in the worktree and are cleaned up with it. Only XS skips worktree.
 
 **Design Critique** (`/design-critique`) is the single visual quality stage for UI changes. Its designer agents incorporate the full evaluation frameworks (UX quality, copy, resilience, accessibility, visual polish, design system) and review against real app screenshots (not Storybook). No separate Impeccable skill pipeline needed.
 - **S (UI):** Lightweight design critique (1 round, 3 designers)
@@ -116,7 +120,7 @@ M/L/XL:  INTAKE → WORKSPACE → BRAINSTORM → SPEC REVIEW → PLAN → PLAN R
 
 ### Workspace checkpoint format
 
-At stage start/end, print this block and mirror the same fields in `.dev-state.md`:
+At stage start/end, print this block and mirror the same fields in `.pm/dev-sessions/{slug}.md`:
 
 ```
 Checkpoint
@@ -161,7 +165,7 @@ If the same root-cause error repeats twice (path missing, branch exists, permiss
 6. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-7. **Create state file.** Derive the slug from the task (for XS: topic slug like `fix-typo`; for S+: will become the branch name slug after workspace setup). Create `.dev-state-{slug}.md` with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
+7. **Create state file.** Derive the slug from the task (for XS: topic slug like `fix-typo`; for S+: will become the branch name slug after workspace setup). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -198,7 +202,7 @@ Set up an isolated git worktree. Make setup idempotent:
 4. If branch/worktree already exists:
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
-5. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.dev-state.md`.
+5. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
 
 ### Worktree environment prep
 
@@ -251,7 +255,7 @@ Before brainstorming, check if this issue was groomed:
 
 **Multiple groom sessions:** Match by exact issue slug first. If no exact match, normalize the session's `topic` field to slug form (lowercase, spaces to hyphens) and compare. If still ambiguous, fall back to full ceremony.
 
-Log the decision in `.dev-state-{slug}.md` under Decisions:
+Log the decision in `.pm/dev-sessions/{slug}.md` under Decisions:
 ```
 - Groom detection: groomed (session: {slug}.md, verdict: {verdict}) | not-groomed (reason: {reason})
 - Skipped phases: brainstorming, spec-review | none
@@ -274,7 +278,7 @@ This stage only runs if Stage 2.5 determined the issue is **not groomed**. If gr
 
 Run **full review** (3 agents: PM + UX & User Flow + Competitive Strategist).
 
-Log the decision in `.dev-state-{slug}.md`:
+Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
 - Spec review: full (3 agents) — not from groom
 ```
@@ -475,7 +479,7 @@ Review from these angles:
 4. If blocking issues were fixed, re-dispatch reviewers on the updated spec (max 2 iterations).
 5. If iteration 3 still has blocking issues, present to user for decision.
 6. Commit spec updates before proceeding.
-7. Update `.dev-state.md` with `Spec review: passed (commit <sha>)`.
+7. Update `.pm/dev-sessions/{slug}.md` with `Spec review: passed (commit <sha>)`.
 
 ## Stage 4: Plan (M/L/XL)
 
@@ -633,7 +637,7 @@ Review from these angles:
 6. **ADR extraction (M/L/XL only).** Scan the approved plan for non-obvious technical choices (library selections, architectural patterns, data modeling decisions, tradeoff resolutions). For each, write an ADR to `docs/decisions/NNNN-slug.md`. See ADR conventions below. Commit ADRs with the plan.
 7. Present the final plan to the user: "Plan reviewed by 3 RFC agents. [N] blocking issues found and fixed. Here's the final plan: `{PLAN_FILE_PATH}`. Approve to begin continuous execution through to merge?"
 8. Wait for user approval. This is the **last interactive gate**.
-8. Update `.dev-state.md` with `Plan review: passed (commit <sha>)` and `Continuous execution: authorized`.
+8. Update `.pm/dev-sessions/{slug}.md` with `Plan review: passed (commit <sha>)` and `Continuous execution: authorized`.
 
 ## Continuous Execution (after Plan Review)
 
@@ -693,7 +697,7 @@ Classify the change:
 
 For monorepos, map to specific app directories. For single-app projects, classify by file type (controllers/models vs components/pages).
 
-Log in `.dev-state.md`:
+Log in `.pm/dev-sessions/{slug}.md`:
 ```
 - Platform: <detected platform>
 - Contract gate: <required | skipped (reason)>
@@ -777,7 +781,7 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ## Stage 5.5: Simplify — `/simplify`
 
-**Conditional availability:** `/simplify` is an external skill. Before invoking, check if the command is available. If not available, log "Simplify: skipped (command not available)" in `.dev-state.md` and proceed.
+**Conditional availability:** `/simplify` is an external skill. Before invoking, check if the command is available. If not available, log "Simplify: skipped (command not available)" in `.pm/dev-sessions/{slug}.md` and proceed.
 
 **When available:** Runs after every implement stage, all sizes. Reviews changed code for reuse, quality, and efficiency. Launches 3 parallel review agents (Code Reuse, Code Quality, Efficiency) against the current diff.
 
@@ -799,7 +803,7 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ## Stage 6: Design Critique — `/design-critique`
 
-**Conditional availability:** `/design-critique` is a skill in the dev plugin. Before invoking, verify the skill exists via the Skill tool. If not available, log "Design critique: skipped (skill not available)" in `.dev-state.md` and proceed to QA.
+**Conditional availability:** `/design-critique` is a skill in the dev plugin. Before invoking, verify the skill exists via the Skill tool. If not available, log "Design critique: skipped (skill not available)" in `.pm/dev-sessions/{slug}.md` and proceed to QA.
 
 **When compulsory:** Any task that changes UI files (tsx/jsx/css in diff). Skipped for XS, backend-only, config-only, pure refactor.
 
@@ -831,7 +835,7 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ## Stage 6.5: QA — `/qa`
 
-**Conditional availability:** `/qa` is a separate plugin command (not included in dev plugin v1). Before invoking, check if the command is available. If not available, log "QA: skipped (command not available)" in `.dev-state.md` and proceed to Review/Code Scan.
+**Conditional availability:** `/qa` is a separate plugin command (not included in dev plugin v1). Before invoking, check if the command is available. If not available, log "QA: skipped (command not available)" in `.pm/dev-sessions/{slug}.md` and proceed to Review/Code Scan.
 
 **When available:** Runs after simplify and design critique for any task that changes UI. Invokes `/qa` to behave like a senior human QA: understand the feature, design a risk-based coverage plan, execute exploratory and scripted testing, and issue a ship verdict.
 
@@ -840,7 +844,7 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 ### Skip conditions
 
 - **Backend-only, config-only, docs-only:** skip
-- **Dev servers can't start** (e.g. DB not running): skip, log reason in `.dev-state.md`
+- **Dev servers can't start** (e.g. DB not running): skip, log reason in `.pm/dev-sessions/{slug}.md`
 
 ### How to invoke
 
@@ -871,9 +875,9 @@ When invoking `/qa` from `/dev`, pass this context:
 | QA Verdict | `/dev` action |
 |------------|---------------|
 | **Pass** | Proceed to Review / Code Scan |
-| **Pass with concerns** | Proceed to Review / Code Scan. Low/Medium issues noted in `.dev-state.md` for backlog. |
+| **Pass with concerns** | Proceed to Review / Code Scan. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
 | **Fail** | Return to Implement. Fix the issues `/qa` found, re-run affected tests, then re-run `/qa`. |
-| **Blocked** | Stop. Log reason in `.dev-state.md`. Ask user for guidance. |
+| **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
 
 **Shipping does not continue after QA Fail.** The engineer must fix the issues and `/qa` re-tests the affected areas. No silent downgrades of the verdict.
 
@@ -881,12 +885,12 @@ When invoking `/qa` from `/dev`, pass this context:
 
 - **Critical/High bugs:** Fix immediately, re-run tests, re-run `/qa` on affected areas.
 - **Medium bugs in core flow:** Fix before proceeding (likely a Fail verdict).
-- **Medium bugs in edge flows:** Note in `.dev-state.md`, create backlog items after merge.
-- **Low bugs:** Note in `.dev-state.md`, do not fix in this session.
+- **Medium bugs in edge flows:** Note in `.pm/dev-sessions/{slug}.md`, create backlog items after merge.
+- **Low bugs:** Note in `.pm/dev-sessions/{slug}.md`, do not fix in this session.
 
 ### State file update
 
-After QA completes, update `.dev-state.md`:
+After QA completes, update `.pm/dev-sessions/{slug}.md`:
 ```
 ## QA
 - QA verdict: Pass | Pass with concerns | Fail | Blocked
@@ -1006,7 +1010,7 @@ Never "fix" merge issues with destructive resets.
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
 This runs up to 5 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
-If you are about to run `/pr` or `git push` and `.dev-state.md` does not show `Review gate: passed`,
+If you are about to run `/pr` or `git push` and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
 
@@ -1018,7 +1022,7 @@ digraph review_gate {
     "Fix all issues" [shape=box];
     "Re-run tests" [shape=box];
     "Run verification-before-completion" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "Update .dev-state.md: Review gate: passed" [shape=box, style=filled, fillcolor="#ccffcc"];
+    "Update .pm/dev-sessions/{slug}.md: Review gate: passed" [shape=box, style=filled, fillcolor="#ccffcc"];
     "Proceed to PR" [shape=box];
 
     "Design critique done (or skipped)" -> "Run /review";
@@ -1027,19 +1031,19 @@ digraph review_gate {
     "Fix all issues" -> "Re-run tests";
     "Re-run tests" -> "Run /review" [label="re-review"];
     "Issues found?" -> "Run verification-before-completion" [label="no"];
-    "Run verification-before-completion" -> "Update .dev-state.md: Review gate: passed";
-    "Update .dev-state.md: Review gate: passed" -> "Proceed to PR";
+    "Run verification-before-completion" -> "Update .pm/dev-sessions/{slug}.md: Review gate: passed";
+    "Update .pm/dev-sessions/{slug}.md: Review gate: passed" -> "Proceed to PR";
 }
 ```
 
 **Fix ALL findings from ALL active agents.** `/review` runs up to 5 agents:
 1. `code-review:code-review` — posts >= 80 confidence issues to the PR
 2. **Code Fix Review** — finds ALL genuine bugs with NO confidence threshold. Catches silent no-ops, swallowed errors, race conditions.
-3. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.dev-state.md` shows `Spec review: passed` (Spec Review already ran PM reviewer).
-4. **Design Review** — design system compliance. **Conditionally skipped** when `.dev-state.md` shows Design Critique completed (Design Critique already ran 3 enriched designer agents with screenshots).
+3. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed` (Spec Review already ran PM reviewer).
+4. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed (Design Critique already ran 3 enriched designer agents with screenshots).
 5. **Input Edge-Case Review** — untested edge cases
 
-Agents 3 and 4 are skipped when upstream gates already covered their concerns. This is not optional: `/review` checks `.dev-state.md` automatically. When skipped, it logs the reason.
+Agents 3 and 4 are skipped when upstream gates already covered their concerns. This is not optional: `/review` checks `.pm/dev-sessions/{slug}.md` automatically. When skipped, it logs the reason.
 
 You MUST fix every real finding from all active agents, not just the ones agent 1 posts to the PR. Agent 1's >= 80 threshold is for PR comments only. Agent 2 is the one that catches the bugs you actually need to fix. If any agent finds a real issue, fix it.
 
@@ -1048,9 +1052,9 @@ You MUST fix every real finding from all active agents, not just the ones agent 
 - [ ] All real issues fixed from all active agents (not just PR-posted ones)
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (fresh test run executed, output read, 0 failures confirmed)
-- [ ] `.dev-state.md` updated with `Review gate: passed (commit <sha>)`
+- [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
 
-**State file enforcement:** When transitioning to PR stage, `.dev-state.md` MUST contain:
+**State file enforcement:** When transitioning to PR stage, `.pm/dev-sessions/{slug}.md` MUST contain:
 ```
 ## Review
 - Review gate: passed (commit <sha>)
@@ -1128,7 +1132,7 @@ When an issue tracker is detected:
 
 If no issue tracker is configured, skip these updates.
 
-## State File (.dev-state-{slug}.md)
+## State File (.pm/dev-sessions/{slug}.md)
 
 The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
 

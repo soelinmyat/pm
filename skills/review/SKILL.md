@@ -5,7 +5,7 @@ description: "Multi-perspective code review (code + PM + design + input edge-cas
 
 # /review [PR#]
 
-**State file convention:** The session state file is `.dev-state-{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.dev-state-add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no state file matches, proceed without upstream gate data (all agents run). References to `.dev-state.md` below mean `.dev-state-{slug}.md`.
+**State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no state file matches, check legacy path `.dev-state-{slug}.md`. If neither exists, proceed without upstream gate data (all agents run). References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
 Multi-perspective code review with auto-fix. Runs up to five review agents in parallel:
 - **Code Reviewer** (official code-review skill) — posts PR comment for high-confidence bugs
@@ -37,7 +37,7 @@ Before reviewing, ensure the branch is up to date with main:
 
 ### Build project context
 
-Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.dev-state.md`. Build the `{PROJECT_CONTEXT}` block for agent prompts.
+Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.pm/dev-sessions/{slug}.md`. Build the `{PROJECT_CONTEXT}` block for agent prompts.
 
 ### Determine review target
 
@@ -68,7 +68,7 @@ Save the diff content and file list — you'll pass them to review agents.
 
 ## Phase 2: Parallel Reviews (3-5 agents)
 
-Launch all active reviews simultaneously using the Agent tool. Each runs as an independent agent. Check `.dev-state.md` (if it exists) to determine which agents to skip.
+Launch all active reviews simultaneously using the Agent tool. Each runs as an independent agent. Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which agents to skip.
 
 ### Agent 1: Code Review (official skill — PR comment only)
 
@@ -128,7 +128,7 @@ Max 5 findings (highest leverage only).
 
 ### Agent 3: PM Review (sub-agent)
 
-**Conditional skip:** If `.dev-state.md` exists and contains `Spec review: passed`, skip this agent. The Spec Review stage already ran a PM reviewer against the spec. Log: "PM Review: skipped (Spec Review passed upstream)."
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Spec review: passed`, skip this agent. The Spec Review stage already ran a PM reviewer against the spec. Log: "PM Review: skipped (Spec Review passed upstream)."
 
 Spawn via Agent tool (subagent_type: general-purpose):
 
@@ -169,7 +169,7 @@ Max 5 findings (highest leverage only).
 
 ### Agent 4: Design Review (sub-agent)
 
-**Conditional skip:** If `.dev-state.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream)."
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream)."
 
 Spawn via Agent tool (subagent_type: general-purpose):
 
@@ -299,7 +299,7 @@ For each finding (P0 first, then P1, then P2):
 
 1. Read the target file
 2. Apply the fix as described in the finding
-3. Run tests using the test command from the context injection contract (`.dev-state.md` `## Project Context` or context-discovery.md fallback)
+3. Run tests using the test command from the context injection contract (`.pm/dev-sessions/{slug}.md` `## Project Context` or context-discovery.md fallback)
 4. If tests fail: fix the regression before moving to the next finding
 5. Continue until all findings are fixed
 

@@ -5,7 +5,7 @@ description: "PR preparation lifecycle: review, push, create PR, code review, CI
 
 # /pr
 
-**State file convention:** The session state file is `.dev-state-{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.dev-state-add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. References to `.dev-state.md` below mean `.dev-state-{slug}.md`.
+**State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If not found, check legacy path `.dev-state-{slug}.md`. References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
 PR preparation lifecycle in one command. Reviews, pushes, creates a PR, monitors CI, and hands off to `/merge-watch`.
 
@@ -218,7 +218,7 @@ This posts findings as GitHub PR comments. No auto-fix needed — the findings a
 
 After CI passes:
 
-1. Update `.dev-state.md` with a self-contained handoff block:
+1. Update `.pm/dev-sessions/{slug}.md` with a self-contained handoff block:
 
 ```markdown
 ## Merge-Watch
@@ -236,7 +236,7 @@ After CI passes:
 - Command: /merge-watch N
 ```
 
-2. If `.dev-state.md` does not exist, create it with the block above.
+2. If `.pm/dev-sessions/{slug}.md` does not exist, create it (run `mkdir -p .pm/dev-sessions` first) with the block above.
 3. Invoke `/merge-watch N` immediately (unless the user explicitly asks to stop after PR creation).
 
 ## Final Report
