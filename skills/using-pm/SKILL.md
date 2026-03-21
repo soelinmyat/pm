@@ -29,6 +29,7 @@ This plugin provides structured workflows for the product engineer — from disc
 | Multi-perspective code review | `dev:review` | Code + PM + design + edge-case review |
 | Design quality check on running app | `dev:design-critique` | Multi-agent visual critique with screenshots |
 | PR readiness monitoring | `dev:merge-watch` | Polls gates, auto-merges when ready |
+| Merge a PR manually (no polling) | `dev:merge-watch` | Manual merge without polling loop — merge a PR, delete remote branch, clean up local branch and worktree. Follow the `# /merge` section |
 | Batch bug resolution from cycle | `dev:bug-fix` | Triage all bugs, get approval, fix sequentially |
 
 ### Product Skills
@@ -43,7 +44,8 @@ This plugin provides structured workflows for the product engineer — from disc
 | Ad-hoc deep research question | `pm:dig` | Focused research on a specific question |
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback |
 | Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
-| Browse accumulated artifacts | `pm:view` | Search and navigate research/strategy |
+| Open dashboard / browse accumulated artifacts | `pm:view` | Launch the PM knowledge base dashboard to browse landscape, strategy, competitors, and backlog |
+| Sync source to cache for testing | `pm:sync` | Immediate dev loop without publish cycle |
 
 ## The Rule
 
