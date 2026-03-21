@@ -82,8 +82,7 @@ function parseFrontmatter(content) {
           const cont = lines[i];
           const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
           if (contMatch && !cont.match(/^[ \t]+-\s/)) {
-            contMatch[2] = contMatch[2].trim();
-            obj[contMatch[1]] = contMatch[2].replace(/^["'](.*)["']$/, '$1');
+            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
             i++;
           } else {
             break;
