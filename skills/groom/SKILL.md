@@ -91,7 +91,7 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 | Phase | File | Summary |
 |-------|------|---------|
-| 1. Intake | `phases/phase-1-intake.md` | Capture the idea, clarify, derive slug, write initial state |
+| 1. Intake | `phases/phase-1-intake.md` | Capture the idea, clarify, surface past learnings, derive slug, write initial state |
 | 2. Strategy Check | `phases/phase-2-strategy.md` | Validate against priorities, non-goals, ICP |
 | 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
 | 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
