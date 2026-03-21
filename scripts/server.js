@@ -884,7 +884,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
   const primaryHtml = primaryLinks.map(l =>
     `<a href="${l.href}"${activeNav === l.href ? ' class="active"' : ''}>${l.label}</a>`
   ).join('');
-  const isKbActive = activeNav === '/kb' || (typeof activeNav === 'string' && activeNav.startsWith('/kb?'));
+  const isKbActive = activeNav === '/kb' || (activeNav && activeNav.startsWith('/kb?'));
   const secondaryHtml = secondaryLinks.map(l => {
     const active = activeNav === l.href || (isKbActive && l.href.startsWith('/kb?') && activeNav === '/kb');
     return `<a href="${l.href}"${active ? ' class="active"' : ''}>${l.label}</a>`;
@@ -1666,7 +1666,6 @@ function handleDashboardHome(res, pmDir) {
   const researchHasContent = researchParts.length > 0;
   const researchDesc = researchHasContent ? researchParts.join(' · ') : 'Landscape, competitors, and topic research';
 
-  // Collapsible knowledge base reference section
   const kbItems = [
     { href: '/kb?tab=research', label: 'Research', hasContent: researchHasContent, desc: researchDesc, key: 'research' },
     { href: '/kb?tab=strategy', label: 'Strategy', hasContent: !!stats.strategy, desc: 'Product strategy and roadmap', key: 'strategy' },
@@ -1691,9 +1690,7 @@ function handleDashboardHome(res, pmDir) {
   <div class="kb-ref-body">${kbItems}</div>
 </details>`;
 
-  // Suggested next action — groom-first priority chain
   let suggestedNext = '';
-  // 1. Check for groomable ideas first
   let firstIdea = null;
   if (fs.existsSync(backlogDir)) {
     const ideaFiles = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
