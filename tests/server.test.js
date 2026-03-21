@@ -1346,6 +1346,84 @@ test('groomPhaseLabel maps raw phase strings to human-readable labels', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PM-056: Empty-state CTA, KB reference, and suggestedNext ordering
+// ---------------------------------------------------------------------------
+
+test('GET / shows Start Grooming CTA when pm/ exists but no proposals or groom sessions', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('class="empty-state-cta"'), 'must use CTA styling class');
+      assert.ok(body.includes('Ready to build'), 'must show CTA heading');
+      assert.ok(body.includes('/pm:groom'), 'CTA must mention /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / does not show empty-state CTA when proposals exist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-feature.meta.json': '{"title":"My Feature","gradient":"linear-gradient(135deg,#667eea,#764ba2)","date":"2026-03-20"}',
+    'pm/backlog/proposals/my-feature.html': '<html><body>Proposal</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="empty-state-cta"'), 'must not show CTA element when proposals exist');
+      assert.ok(body.includes('My Feature'), 'must show proposal gallery');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / does not show empty-state CTA when groom session is active', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    '.pm/groom-sessions/in-progress.md': '---\ntopic: "In Progress"\nphase: research\nstarted: 2026-03-20\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="empty-state-cta"'), 'must not show CTA element when groom session active');
+      assert.ok(body.includes('Currently grooming'), 'must show groom banner');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / shows collapsible knowledge base reference with status badges', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-03-20\n---\n# Strategy\n',
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',
+    'pm/backlog/proposals/feat.meta.json': '{"title":"Feat","gradient":"#ccc","date":"2026-03-20"}',
+    'pm/backlog/proposals/feat.html': '<html></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('kb-reference'), 'must have KB reference section');
+      assert.ok(body.includes('<details'), 'KB reference must be collapsible');
+      assert.ok(body.includes('badge-ready'), 'must show Ready badges for populated sections');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('GET / suggestedNext prioritizes groomable ideas over strategy/research suggestions', async () => {
+  // Has ideas but no strategy — should still suggest grooming the idea first
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/my-idea.md': '---\nstatus: idea\ntitle: My Idea\n---\n# My Idea\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('/pm:groom my-idea'), 'must suggest grooming the idea, not strategy setup');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
 // Proposal gallery (PM-028)
 // ---------------------------------------------------------------------------
 
