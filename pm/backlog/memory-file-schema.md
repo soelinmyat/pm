@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-039"
 title: "Define Project Memory File Schema"
 outcome: "pm/memory.md has a defined, validated schema so learnings are structured consistently and retrievable by future sessions"
-status: approved
+status: done
 parent: "project-memory-system"
 children: []
 labels:

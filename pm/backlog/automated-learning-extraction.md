@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-041"
 title: "Automated Learning Extraction from Groom State"
 outcome: "Structured learnings are automatically extracted from the groom session state file at Phase 6, capturing quantitative signals the retro prompt misses"
-status: approved
+status: done
 parent: "project-memory-system"
 children: []
 labels:
