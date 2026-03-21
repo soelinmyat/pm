@@ -13,6 +13,9 @@ const VALID_EVIDENCE = ['strong', 'moderate', 'weak'];
 const VALID_SCOPE = ['small', 'medium', 'large'];
 const VALID_GAP = ['unique', 'partial', 'parity', 'behind'];
 
+const VALID_MEMORY_CATEGORIES = ['scope', 'research', 'review', 'process', 'quality'];
+const REQUIRED_MEMORY_ENTRY_FIELDS = ['date', 'source', 'category', 'learning'];
+
 const REQUIRED_BACKLOG_FIELDS = ['type', 'id', 'title', 'outcome', 'status', 'priority', 'created', 'updated'];
 const REQUIRED_STRATEGY_FIELDS = ['type'];
 
@@ -23,35 +26,81 @@ function parseFrontmatter(content) {
   if (!match) return null;
   const lines = match[1].split('\n');
   const data = {};
-  let currentKey = null;
-  let currentArray = null;
+  let i = 0;
 
-  for (const line of lines) {
-    // Array item
-    if (/^\s+-\s+/.test(line) && currentKey) {
-      const val = line.replace(/^\s+-\s+/, '').replace(/^["']|["']$/g, '');
-      if (!currentArray) currentArray = [];
-      currentArray.push(val);
-      data[currentKey] = currentArray;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Skip empty lines
+    if (line.trim() === '') { i++; continue; }
+
+    // Top-level key-value
+    const kv = line.match(/^(\w[\w_-]*):\s*(.*)/);
+    if (!kv) { i++; continue; }
+
+    const key = kv[1];
+    const inlineVal = kv[2].trim();
+
+    // Inline empty array
+    if (inlineVal === '[]') {
+      data[key] = [];
+      i++;
       continue;
     }
-    // Key-value
-    const kv = line.match(/^(\w[\w_-]*):\s*(.*)/);
-    if (kv) {
-      // Save previous array
-      currentKey = kv[1];
-      currentArray = null;
-      let val = kv[2].trim().replace(/^["']|["']$/g, '');
-      if (val === '' || val === 'null') {
-        data[currentKey] = null;
+
+    // Flat scalar value
+    if (inlineVal !== '') {
+      const val = inlineVal.replace(/^["'](.*)["']$/, '$1');
+      if (val === 'null') {
+        data[key] = null;
       } else if (val === 'true') {
-        data[currentKey] = true;
+        data[key] = true;
       } else if (val === 'false') {
-        data[currentKey] = false;
+        data[key] = false;
       } else {
-        data[currentKey] = val;
+        data[key] = val;
+      }
+      i++;
+      continue;
+    }
+
+    // No inline value — collect array items (scalar or object)
+    const items = [];
+    i++;
+    while (i < lines.length) {
+      const next = lines[i];
+      const objItemMatch = next.match(/^[ \t]+-\s+([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+      const scalarItemMatch = next.match(/^[ \t]+-\s+([^:\n]+)$/);
+
+      if (objItemMatch) {
+        // Start of an object item
+        const obj = {};
+        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
+        i++;
+        // Collect continuation lines for this object
+        while (i < lines.length) {
+          const cont = lines[i];
+          const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
+          if (contMatch && !cont.match(/^[ \t]+-\s/)) {
+            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
+            i++;
+          } else {
+            break;
+          }
+        }
+        items.push(obj);
+      } else if (scalarItemMatch) {
+        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, '$1'));
+        i++;
+      } else {
+        break;
       }
     }
+
+    if (items.length > 0) {
+      data[key] = items;
+    }
+    // If no items and no inline value, key stays unset (null)
   }
   return data;
 }
@@ -122,6 +171,63 @@ function validateStrategy(filePath, data, errors) {
 
   if (data.type && data.type !== 'strategy') {
     errors.push({ file: rel, field: 'type', msg: `expected "strategy", got "${data.type}"` });
+  }
+}
+
+function validateMemory(filePath, data, errors, warnings) {
+  const rel = path.basename(filePath);
+
+  // Type check
+  if (data.type !== 'project-memory') {
+    errors.push({ file: rel, field: 'type', msg: `expected "project-memory", got "${data.type}"` });
+  }
+
+  // Required top-level date fields
+  for (const field of ['created', 'updated']) {
+    if (!data[field]) {
+      errors.push({ file: rel, field, msg: `missing required field "${field}"` });
+    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(data[field])) {
+      errors.push({ file: rel, field, msg: `invalid date format "${data[field]}" — expected YYYY-MM-DD` });
+    }
+  }
+
+  // Entries must be an array
+  if (!Array.isArray(data.entries)) {
+    errors.push({ file: rel, field: 'entries', msg: 'missing or invalid "entries" — expected an array' });
+    return;
+  }
+
+  // Validate each entry
+  for (let idx = 0; idx < data.entries.length; idx++) {
+    const entry = data.entries[idx];
+    const label = `entry[${idx}]`;
+
+    if (typeof entry !== 'object' || entry === null) {
+      errors.push({ file: rel, field: label, msg: 'entry is not an object' });
+      continue;
+    }
+
+    // Required fields
+    for (const field of REQUIRED_MEMORY_ENTRY_FIELDS) {
+      if (!entry[field]) {
+        errors.push({ file: rel, field: `${label}.${field}`, msg: `missing required field "${field}"` });
+      }
+    }
+
+    // Date format
+    if (entry.date && !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) {
+      errors.push({ file: rel, field: `${label}.date`, msg: `invalid date format "${entry.date}" — expected YYYY-MM-DD` });
+    }
+
+    // Category enum
+    if (entry.category && !VALID_MEMORY_CATEGORIES.includes(entry.category)) {
+      errors.push({ file: rel, field: `${label}.category`, msg: `invalid category "${entry.category}" — valid: ${VALID_MEMORY_CATEGORIES.join(', ')}` });
+    }
+  }
+
+  // Warn if too many entries
+  if (data.entries.length > 50) {
+    warnings.push({ file: rel, field: 'entries', msg: `memory.md has ${data.entries.length} entries — consider archiving older entries` });
   }
 }
 
@@ -207,6 +313,18 @@ function validate(pmDir) {
       errors.push({ file: 'strategy.md', field: '-', msg: 'no YAML frontmatter found' });
     } else {
       validateStrategy(strategyPath, data, errors);
+    }
+  }
+
+  // --- Memory validation ---
+  const memoryPath = path.join(pmDir, 'memory.md');
+  if (fs.existsSync(memoryPath)) {
+    const content = fs.readFileSync(memoryPath, 'utf8');
+    const data = parseFrontmatter(content);
+    if (!data) {
+      errors.push({ file: 'memory.md', field: '-', msg: 'no YAML frontmatter found' });
+    } else {
+      validateMemory(memoryPath, data, errors, warnings);
     }
   }
 

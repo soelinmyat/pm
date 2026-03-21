@@ -138,7 +138,7 @@ The retro step instructions should specify:
       Learnings captured from grooming sessions, retros, and manual observations.
       ```
    2. Read `pm/memory.md`. Parse the frontmatter.
-   3. Append a new entry to the `entries` array:
+   3. Append a new entry to the `entries` array using the **golden serialization format** (2-space indent for `- `, 4-space indent for continuation fields, quote values containing colons):
       ```yaml
       - date: {today YYYY-MM-DD}
         source: retro
@@ -147,6 +147,8 @@ The retro step instructions should specify:
       ```
    4. Update the `updated` field to today's date.
    5. Write the file back.
+
+   **Serialization rules:** Use exactly 2-space indent + dash for entry start, 4-space indent for continuation fields. Quote any value containing a colon. This matches the parseFrontmatter() format validated in PM-039's round-trip test.
 
    After all 3 questions are answered (or a skip ends the retro), say:
    > "Retro captured — {N} learning(s) saved to pm/memory.md."

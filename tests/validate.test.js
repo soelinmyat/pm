@@ -245,6 +245,165 @@ test('no frontmatter reports error', (t) => {
   assert.ok(err);
 });
 
+// ---------------------------------------------------------------------------
+// Memory validation tests
+// ---------------------------------------------------------------------------
+
+function makeMemoryFile(entriesYaml, opts = {}) {
+  const type = opts.type || 'project-memory';
+  const created = opts.created || '2026-03-20';
+  const updated = opts.updated || '2026-03-20';
+  let fm = `---\ntype: ${type}\ncreated: ${created}\nupdated: ${updated}\n`;
+  fm += entriesYaml;
+  fm += '\n---\n\n# Project Memory\n';
+  return fm;
+}
+
+test('valid memory.md passes validation', (t) => {
+  const entries = `entries:
+  - date: 2026-03-20
+    source: retro
+    category: process
+    learning: Test learning
+    detail: Some extra context`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entries),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `unexpected errors: ${JSON.stringify(result.details)}`);
+});
+
+test('memory: missing required entry field reports error', (t) => {
+  const entries = `entries:
+  - date: 2026-03-20
+    source: retro
+    learning: Missing category`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entries),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  const err = result.details.find(d => d.field === 'entry[0].category');
+  assert.ok(err, 'should report missing category');
+});
+
+test('memory: invalid category enum reports error', (t) => {
+  const entries = `entries:
+  - date: 2026-03-20
+    source: manual
+    category: yolo
+    learning: Bad category`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entries),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  const err = result.details.find(d => d.field === 'entry[0].category');
+  assert.ok(err);
+  assert.ok(err.message.includes('yolo'));
+});
+
+test('memory: invalid date format in entry reports error', (t) => {
+  const entries = `entries:
+  - date: March 20
+    source: manual
+    category: scope
+    learning: Bad date`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entries),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  const err = result.details.find(d => d.field === 'entry[0].date');
+  assert.ok(err);
+  assert.ok(err.message.includes('March 20'));
+});
+
+test('memory: >50 entries produces warning not error', (t) => {
+  let entriesYaml = 'entries:\n';
+  for (let i = 0; i < 51; i++) {
+    entriesYaml += `  - date: 2026-03-20\n    source: manual\n    category: scope\n    learning: Entry ${i}\n`;
+  }
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entriesYaml),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, 'should be ok — 50+ is a warning, not error');
+  const warn = result.details.find(d => d.level === 'warning' && d.message.includes('51 entries'));
+  assert.ok(warn, 'should warn about >50 entries');
+});
+
+test('memory: no frontmatter reports error', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': '# Memory\n\nNo frontmatter here.\n',
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  const err = result.details.find(d => d.file === 'memory.md' && d.message.includes('no YAML frontmatter'));
+  assert.ok(err);
+});
+
+test('memory: wrong type reports error', (t) => {
+  const entries = `entries:
+  - date: 2026-03-20
+    source: manual
+    category: scope
+    learning: Test`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(entries, { type: 'wrong-type' }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  const err = result.details.find(d => d.file === 'memory.md' && d.field === 'type');
+  assert.ok(err);
+  assert.ok(err.message.includes('wrong-type'));
+});
+
+test('memory: empty entries array passes validation', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile('entries: []'),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `unexpected errors: ${JSON.stringify(result.details)}`);
+});
+
+test('memory: round-trip multi-entry golden format', (t) => {
+  const golden = `entries:
+  - date: 2026-03-20
+    source: retro
+    category: quality
+    learning: Research phase was thorough and well-targeted
+  - date: 2026-03-20
+    source: memory-improvement-loop
+    category: scope
+    learning: "Scope needed 2 iterations — blocking issue: missing success criteria"
+    detail: "PM reviewer flagged no measurable 90-day outcome. Added 3 success criteria."`;
+  const { pmDir, cleanup } = withPmDir({
+    'pm/memory.md': makeMemoryFile(golden),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `golden format failed: ${JSON.stringify(result.details)}`);
+  assert.equal(result.errors, 0);
+});
+
 test('real pm/ directory passes validation', (t) => {
   const realPmDir = path.join(__dirname, '..', 'pm');
   if (!fs.existsSync(realPmDir)) {
