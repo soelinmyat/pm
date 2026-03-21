@@ -1,12 +1,17 @@
 ---
+name: sync
 description: "Sync plugin source to Claude Code cache for immediate testing"
 ---
 
-Sync the plugin source code to the Claude Code plugin cache so changes take effect immediately.
+# pm:sync
 
-## Steps
+## Purpose
 
-1. Read the current version from `${CLAUDE_PLUGIN_ROOT}/../../../plugin.json` (the cache manifest) or detect it:
+Copy the plugin source code to the Claude Code plugin cache so changes take effect immediately without waiting for a publish cycle.
+
+## Flow
+
+1. Detect the current cached version:
 
 ```bash
 VERSION=$(cat ~/.claude/plugins/cache/pm/pm/*/plugin.json 2>/dev/null | grep '"version"' | head -1 | sed 's/.*"version": *"//;s/".*//' || echo "1.0.0")
@@ -18,7 +23,7 @@ echo "Detected cache version: $VERSION"
    - Otherwise try `~/Projects/pm`
    - If neither works, ask the user for the source path
 
-3. Read the source version from the source `plugin.json` and compare with cache version. Warn if they differ.
+3. Read the source version from the source `.claude-plugin/plugin.json` and compare with cache version. Warn if they differ.
 
 4. Run the sync:
 
@@ -36,7 +41,7 @@ rsync -av --delete \
   "$CACHE_DIR/"
 ```
 
-5. If the source version differs from the cache version, also rename the cache directory:
+5. If the source version differs from the cache version, rename the cache directory:
 
 ```bash
 NEW_VERSION=$(grep '"version"' "$SOURCE_DIR/.claude-plugin/plugin.json" | sed 's/.*"version": *"//;s/".*//')
@@ -48,5 +53,3 @@ fi
 ```
 
 6. Report success: which files changed, new version if bumped, and remind the user to restart any active Claude Code sessions to pick up the changes.
-
-ARGUMENTS: $ARGUMENTS
