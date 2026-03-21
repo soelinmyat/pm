@@ -184,6 +184,16 @@ A typical progression:
 7. Implement groomed issues end-to-end
 ```
 
+- [ ] **Step 3.5: Verify PM-058 prerequisites exist**
+
+Before adding new skills to GEMINI.md, verify PM-058 created the sync skill:
+
+```bash
+test -f skills/sync/SKILL.md && echo "sync skill exists" || echo "ERROR: sync skill missing — PM-058 not merged"
+```
+
+If the sync skill is missing, do NOT add the Sync row to the GEMINI.md table. This guards against out-of-order execution.
+
 - [ ] **Step 4: Rewrite "Available Skills" tables**
 
 Replace both tables (Product Discovery lines 43-51, Development Lifecycle lines 57-64) with natural-language capability descriptions. Remove all `/pm:*` and `/dev:*` syntax.
@@ -217,7 +227,7 @@ New content:
 | PR | Create pull request with summary and test plan |
 | Merge-watch | Monitor PR checks and merge when ready |
 | Bug-fix | Structured bug investigation and fix workflow |
-| Merge | Merge a PR after checks pass |
+| Merge | Merge a PR manually without polling (uses the merge section of merge-watch) |
 | Sync | Sync plugin source to cache for testing |
 ```
 
@@ -386,37 +396,22 @@ git commit -m "docs: remove commands/ from Codex INSTALL.md symlink reference"
 
 ---
 
-### Task 5: Update marketplace.json description
+### Task 5: Verify marketplace.json description (already updated by PM-058)
 
 **Files:**
-- Modify: `.claude-plugin/marketplace.json`
+- Read: `.claude-plugin/marketplace.json`
 
-AC6 requires the auto-activation claim in the marketplace description.
+The marketplace.json description edit was absorbed into PM-058 Task 9 (version bump commit) to ensure the git tag includes the description change. This task only verifies it was done correctly.
 
-- [ ] **Step 1: Update the description field**
-
-Current (line 11):
-```json
-"description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-```
-
-New:
-```json
-"description": "Structured workflows for the product engineer — PM activates the right workflow automatically, no commands to memorize. From discovery and strategy through implementation and merge.",
-```
-
-- [ ] **Step 2: Validate JSON**
+- [ ] **Step 1: Verify the auto-activation claim exists**
 
 ```bash
-node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json', 'utf8')); console.log('OK')"
+grep "no commands to memorize" .claude-plugin/marketplace.json
 ```
 
-- [ ] **Step 3: Commit**
+Expected: one match in the description field. If missing, PM-058 did not apply the fix — add it now and commit.
 
-```bash
-git add .claude-plugin/marketplace.json
-git commit -m "docs: add auto-activation claim to marketplace description"
-```
+No commit needed if verification passes.
 
 ---
 

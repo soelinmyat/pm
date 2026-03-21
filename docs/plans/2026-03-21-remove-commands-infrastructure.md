@@ -543,7 +543,21 @@ Current version: `1.1.0`. Bump to: `1.1.1` (patch — infrastructure cleanup, no
 grep '"version"' /Users/soelinmyat/Projects/pm/.claude-plugin/plugin.json
 ```
 
-- [ ] **Step 2: Update all 4 manifests**
+- [ ] **Step 2: Update marketplace.json description (absorb PM-059 Task 5)**
+
+Before bumping version, update the marketplace.json description to include the auto-activation claim. This is done here (not in PM-059) so the git tag includes the description change.
+
+Current `.claude-plugin/marketplace.json` description:
+```json
+"description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
+```
+
+New:
+```json
+"description": "Structured workflows for the product engineer — PM activates the right workflow automatically, no commands to memorize. From discovery and strategy through implementation and merge.",
+```
+
+- [ ] **Step 3: Update version in all 4 manifests**
 
 Update `"version": "1.1.0"` to `"version": "1.1.1"` in:
 1. `.claude-plugin/plugin.json`
@@ -551,7 +565,7 @@ Update `"version": "1.1.0"` to `"version": "1.1.1"` in:
 3. `.claude-plugin/marketplace.json`
 4. `gemini-extension.json`
 
-- [ ] **Step 3: Validate JSON and version consistency**
+- [ ] **Step 4: Validate JSON and version consistency**
 
 ```bash
 bash /Users/soelinmyat/Projects/pm/.githooks/pre-commit
@@ -559,20 +573,20 @@ bash /Users/soelinmyat/Projects/pm/.githooks/pre-commit
 
 Expected: passes — all 4 manifests show `1.1.1`.
 
-- [ ] **Step 4: Commit the version bump**
+- [ ] **Step 5: Commit the version bump + marketplace description**
 
 ```bash
 git add .claude-plugin/plugin.json .cursor-plugin/plugin.json .claude-plugin/marketplace.json gemini-extension.json
-git commit -m "chore: bump version to 1.1.1"
+git commit -m "chore: bump version to 1.1.1, add auto-activation claim to marketplace"
 ```
 
-- [ ] **Step 5: Create git tag**
+- [ ] **Step 6: Create git tag**
 
 ```bash
 git tag v1.1.1
 ```
 
-- [ ] **Step 6: Verify tag**
+- [ ] **Step 7: Verify tag**
 
 ```bash
 git tag -l "v1.1.1"
