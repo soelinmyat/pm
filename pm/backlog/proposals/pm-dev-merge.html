@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Merge PM + Dev into Unified Product Engineer Plugin</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
+  .hero { background: linear-gradient(135deg, #1e3a5f 0%, #7c3aed 50%, #2563eb 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+  .hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
+  .hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
+  .hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
+  .hero h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  .hero .subtitle { font-size: 1.1rem; color: rgba(255,255,255,0.85); max-width: 640px; margin-bottom: 1.5rem; }
+  .metrics-strip { display: flex; gap: 0; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); }
+  .metric { flex: 1; padding: 0.75rem 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+  .metric:last-child { border-right: none; }
+  .metric-value { font-size: 1.5rem; font-weight: 800; display: block; line-height: 1.2; }
+  .metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
+  .toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
+  .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .toc a:hover, .toc a.active { color: #2563eb; border-bottom-color: #2563eb; }
+  .proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  .section { margin-bottom: 3rem; opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+  .section:nth-child(1) { animation-delay: 0.05s; } .section:nth-child(2) { animation-delay: 0.1s; } .section:nth-child(3) { animation-delay: 0.15s; } .section:nth-child(4) { animation-delay: 0.2s; } .section:nth-child(5) { animation-delay: 0.25s; } .section:nth-child(6) { animation-delay: 0.3s; } .section:nth-child(7) { animation-delay: 0.35s; } .section:nth-child(8) { animation-delay: 0.4s; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 0.5rem; }
+  .section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+  .section p, .section li { font-size: 0.95rem; color: #444; }
+  .section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .section li { margin-bottom: 0.35rem; }
+  .callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
+  .callout strong { color: #1e3a8a; }
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+  .scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; } .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; } .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; } .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+  .issue-group { margin-bottom: 1.5rem; }
+  .issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+  .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
+  .issue-labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .label { font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; background: #f3f4f6; color: #555; border: 1px solid #e5e7eb; text-transform: uppercase; letter-spacing: 0.03em; }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  .label.priority-critical { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+  .label.priority-low { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+  .ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; }
+  .ac-list li { margin-bottom: 0.25rem; } .ac-list li::marker { color: #2563eb; }
+  .comp-table-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 1rem; }
+  .comp-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .comp-table th, .comp-table td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; }
+  .comp-table th { background: #f9fafb; font-weight: 600; color: #555; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .comp-table td { color: #444; } .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 500; }
+  .comp-table td.competitor-weak { color: #9ca3af; } .comp-table tr:last-child td { border-bottom: none; }
+  .feasibility-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .feasibility-box { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .feasibility-box h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.35rem; }
+  .feasibility-box.build-on h4 { color: #16a34a; } .feasibility-box.build-new h4 { color: #2563eb; }
+  .feasibility-box.risks h4 { color: #d97706; } .feasibility-box.sequencing h4 { color: #7c3aed; }
+  .feasibility-box ul { padding-left: 1.1rem; } .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.25rem; color: #555; }
+  .review-pipeline { display: flex; align-items: center; gap: 0; margin-bottom: 1.5rem; overflow-x: auto; padding: 0.5rem 0; }
+  .pipeline-step { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 120px; position: relative; }
+  .pipeline-dot { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 700; margin-bottom: 0.4rem; border: 2px solid #e5e7eb; background: #fff; color: #aaa; }
+  .pipeline-step.passed .pipeline-dot { background: #16a34a; border-color: #16a34a; color: #fff; }
+  .pipeline-step.current .pipeline-dot { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,0.15); }
+  .pipeline-label { font-size: 0.7rem; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pipeline-step.passed .pipeline-label { color: #16a34a; } .pipeline-step.current .pipeline-label { color: #2563eb; }
+  .pipeline-connector { flex: 1; height: 2px; background: #e5e7eb; min-width: 24px; margin-bottom: 1.2rem; }
+  .pipeline-connector.done { background: #16a34a; }
+  .verdict-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 999px; }
+  .verdict-badge.ready { background: #dcfce7; color: #166534; } .verdict-badge.caution { background: #fef3c7; color: #92400e; } .verdict-badge.blocked { background: #fee2e2; color: #991b1b; }
+  .review-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }
+  .review-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+  .review-card-role { font-size: 0.85rem; font-weight: 600; color: #333; }
+  .review-card-note { font-size: 0.83rem; color: #777; line-height: 1.4; }
+  .questions-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; }
+  .questions-card > p { font-size: 0.9rem; color: #555; margin-bottom: 1rem; }
+  .question-list { list-style: none; padding: 0; counter-reset: question; }
+  .question-list li { counter-increment: question; display: grid; grid-template-columns: 2rem 1fr; gap: 0.4rem; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; font-size: 0.93rem; color: #444; }
+  .question-list li:last-child { border-bottom: none; padding-bottom: 0; }
+  .question-list li::before { content: counter(question); font-weight: 800; color: #fff; background: #2563eb; width: 1.6rem; height: 1.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0; }
+  .advisory-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 1rem 1.25rem; margin-top: 1rem; }
+  .advisory-card h3 { font-size: 0.8rem; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+  .advisory-list { padding-left: 1.25rem; font-size: 0.88rem; color: #78350f; } .advisory-list li { margin-bottom: 0.3rem; }
+  @media print { body { background: #fff; } .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .toc { display: none; } .proposal { max-width: 100%; padding: 1rem 0; } .section { opacity: 1 !important; transform: none !important; animation: none !important; } .issue-card, .scope-column, .feasibility-box, .review-card { break-inside: avoid; box-shadow: none; } }
+  @media (max-width: 640px) { .hero h1 { font-size: 1.5rem; } .metrics-strip { flex-wrap: wrap; } .metric { min-width: 50%; } .scope-grid, .feasibility-grid { grid-template-columns: 1fr; } .issue-card.child { margin-left: 1rem; } .review-cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Feature Proposal</div>
+    <h1>Merge PM + Dev into Unified Product Engineer Plugin</h1>
+    <p class="subtitle">A single installable plugin gives product engineers end-to-end structured workflows from idea through shipped code, with zero manual handoff between stages.</p>
+    <div class="metrics-strip">
+      <div class="metric"><span class="metric-value">High</span><span class="metric-label">Priority</span></div>
+      <div class="metric"><span class="metric-value">10x</span><span class="metric-label">Differentiator</span></div>
+      <div class="metric"><span class="metric-value">Fewer Steps</span><span class="metric-label">Success Metric</span></div>
+      <div class="metric"><span class="metric-value">Product Engineer</span><span class="metric-label">ICP</span></div>
+      <div class="metric"><span class="metric-value">7 issues</span><span class="metric-label">Scope Size</span></div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#problem">Problem</a>
+    <a href="#scope">Scope</a>
+    <a href="#competitive">Competitive</a>
+    <a href="#feasibility">Feasibility</a>
+    <a href="#issues">Issues</a>
+    <a href="#review">Review</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<div class="proposal">
+
+  <div class="section" id="problem">
+    <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
+    <p>Product engineers currently use two separate plugins (PM and Dev) that don't share state. The handoff from groomed idea to implementation is implicit &mdash; each plugin guesses at the other's state. Research validated through pm:groom produces rich ACs, competitive context, and EM feasibility notes, but dev:dev-epic can't detect or leverage any of it. The result: redundant ceremony (re-brainstorming, re-reviewing) and lost context.</p>
+    <div class="callout">
+      <strong>Market signal:</strong> The "product engineer" role is real and growing. Anthropic's Head of Product (Cat Wu): "Designers ship code, engineers make product decisions, PMs build prototypes." Gibson Consultants (March 2026) predicts a "messy middle" where PMs increasingly build with AI tools. No competitor offers integrated research&rarr;grooming&rarr;implementation&rarr;merge &mdash; this is unoccupied whitespace.
+    </div>
+    <p style="margin-top: 1rem;"><strong>Strategy override:</strong> This conflicts with Non-Goal #1 ("PM ends at the groomed ticket"), overridden because agentic coding is blurring PM/engineer roles. The new positioning: <em>"Structured workflows for the product engineer, on top of whatever AI coding assistant they already use."</em></p>
+    <p style="margin-top: 0.75rem;"><strong>Three goals:</strong> (1) Build valuable products, (2) Build efficiently, (3) Manage cognitive load.</p>
+  </div>
+
+  <div class="section" id="scope">
+    <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>&#10003; In Scope</h4>
+        <ul>
+          <li>Single plugin manifest with unified name/version</li>
+          <li>All 23 skills coexisting under one skills/ directory</li>
+          <li>All 17 commands under one commands/ directory</li>
+          <li>Merged SessionStart hook (setup + dev preloading)</li>
+          <li>Unified .pm/ state directory</li>
+          <li>Shared Linear config</li>
+          <li>Formalized groom&rarr;dev handoff (bar_raiser.verdict gate)</li>
+          <li>Multi-platform: Claude Code + Cursor + Codex</li>
+          <li>Single marketplace entry</li>
+          <li>Strategy.md rewrite with new positioning</li>
+        </ul>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>&#10007; Out of Scope</h4>
+        <ul>
+          <li>Rewriting existing skills <span style="color:#999;">(work as-is)</span></li>
+          <li>New bridging skills <span style="color:#999;">(future work)</span></li>
+          <li>Unified memory system <span style="color:#999;">(premature)</span></li>
+          <li>Cloud/SaaS features <span style="color:#999;">(separate initiative)</span></li>
+          <li>Removing standalone skill usage <span style="color:#999;">(backward compat)</span></li>
+          <li>Enterprise team features <span style="color:#999;">(Non-Goal #2)</span></li>
+        </ul>
+      </div>
+    </div>
+    <span class="filter-badge">&#9889; 10x &mdash; first production tool closing the full research&rarr;merge loop</span>
+  </div>
+
+  <div class="section" id="competitive">
+    <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
+    <div class="comp-table-wrap">
+      <table class="comp-table">
+        <thead><tr><th>Capability</th><th>Kiro (AWS)</th><th>Compound Eng.</th><th>PM Skills Mkt</th><th>Our Approach</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Upstream PM work</td>
+            <td class="competitor-weak">Assumes specs exist (Fowler)</td>
+            <td class="competitor-weak">Deliberately excluded</td>
+            <td>65+ PM skills, no pipeline</td>
+            <td class="us"><strong>Full research &rarr; strategy &rarr; grooming pipeline</strong></td>
+          </tr>
+          <tr>
+            <td>Spec quality detection</td>
+            <td class="competitor-weak">Cannot detect</td>
+            <td class="competitor-weak">Always full ceremony</td>
+            <td class="competitor-weak">N/A</td>
+            <td class="us"><strong>bar_raiser.verdict gate &rarr; skip redundant phases</strong></td>
+          </tr>
+          <tr>
+            <td>Persistent state</td>
+            <td class="competitor-weak">Per-session only</td>
+            <td class="competitor-weak">Per-session, no PM state</td>
+            <td class="competitor-weak">No persistence</td>
+            <td class="us"><strong>Version-controlled .pm/ in the repo</strong></td>
+          </tr>
+          <tr>
+            <td>Multi-platform</td>
+            <td class="competitor-weak">AWS-only</td>
+            <td class="competitor-weak">Claude Code only</td>
+            <td class="competitor-weak">Claude Code only</td>
+            <td class="us"><strong>Claude Code + Cursor + Codex + Gemini CLI</strong></td>
+          </tr>
+          <tr>
+            <td>Research &rarr; Dev context</td>
+            <td class="competitor-weak">Not connected</td>
+            <td class="competitor-weak">Not connected</td>
+            <td class="competitor-weak">Not connected</td>
+            <td class="us"><strong>Research injected into implementation plans</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Key differentiator:</strong> Martin Fowler's analysis of Kiro: spec-driven tools assume "a developer would do all this analysis" without making explicit who does the upstream product work. The groom&rarr;dev handoff (PM-050) is the structural answer &mdash; it provides, detects, and adapts to upstream context. No competitor can replicate this without building both a PM and dev pipeline.
+    </div>
+  </div>
+
+  <div class="section" id="feasibility">
+    <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
+    <p style="margin-bottom: 1rem;"><strong>Verdict:</strong> <span class="verdict-badge caution">Feasible with caveats</span></p>
+    <div class="feasibility-grid">
+      <div class="feasibility-box build-on">
+        <h4>&#9654; Build On</h4>
+        <ul>
+          <li>Zero naming collisions across 23 skills and 17 commands</li>
+          <li>Identical <code>${CLAUDE_PLUGIN_ROOT}</code> dispatch pattern</li>
+          <li>Dev already reads pm/strategy.md and pm/competitors/</li>
+          <li>PM's multi-manifest infrastructure (4 platforms)</li>
+          <li>Groom session schema already records bar_raiser.verdict</li>
+          <li>Dev's sequential SessionStart hook chain pattern</li>
+        </ul>
+      </div>
+      <div class="feasibility-box build-new">
+        <h4>&#10010; Build New</h4>
+        <ul>
+          <li>Merged plugin.json + cursor + gemini manifests</li>
+          <li>Merged check-setup.sh (5 checks from 2 scripts)</li>
+          <li>State migration: dev files from root to .pm/dev-sessions/</li>
+          <li>Groom handoff detection in dev + dev-epic SKILL.md</li>
+          <li>Research injection into writing-plans prompts</li>
+          <li>Updated Codex install guide (14 new symlinks)</li>
+        </ul>
+      </div>
+      <div class="feasibility-box risks">
+        <h4>&#9888; Risks</h4>
+        <ul>
+          <li>State migration touches 8-9 dev skill files (not 5)</li>
+          <li>PM's check-setup.sh early-exits if no .pm/config.json</li>
+          <li>dev/SKILL.md line 249 also needs handoff update</li>
+          <li>Context size: combined ~36K lines may affect quality</li>
+          <li>brainstorming/scripts/ has real content (don't overwrite with symlink)</li>
+        </ul>
+      </div>
+      <div class="feasibility-box sequencing">
+        <h4>&#8594; Sequencing</h4>
+        <ul>
+          <li>1. PM-045: Strategy rewrite (foundation for all)</li>
+          <li>2. PM-050: Groom handoff (core value, checkpoint gate)</li>
+          <li>3. PM-046: Manifest unification</li>
+          <li>4. PM-047: Skill/command colocation</li>
+          <li>5. PM-048: Hook merge</li>
+          <li>6. PM-049: State unification</li>
+          <li>7. PM-051: Codex install update</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="issues">
+    <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
+    <div class="issue-group">
+      <div class="issue-card parent">
+        <div class="issue-header"><span class="issue-id">PM-044</span><span class="issue-title">Merge PM and Dev plugins into a unified product engineer workflow tool</span></div>
+        <p class="issue-outcome">A single installable plugin gives product engineers end-to-end structured workflows from idea through shipped code, with zero manual handoff between stages.</p>
+        <div class="issue-labels"><span class="label">epic</span><span class="label">infrastructure</span><span class="label">product-engineer</span><span class="label priority-high">high priority</span></div>
+        <ol class="ac-list">
+          <li>A single plugin.json manifest installs all 23 skills and 17 commands on Claude Code.</li>
+          <li>Cursor and Codex manifests/install guides cover the same skill set.</li>
+          <li>Groomed issues (bar_raiser.verdict == "ready" or "ready-if") automatically skip brainstorm and spec review.</li>
+          <li>SessionStart hook runs both PM setup checks and dev context preloading.</li>
+          <li>Dev state lives under .pm/ alongside groom sessions and research state.</li>
+          <li>Strategy.md reflects new positioning with updated goals and non-goals.</li>
+          <li>No existing skill behavior is broken &mdash; verified by 3 representative invocations before/after.</li>
+          <li>Baseline measurement established before merge ships.</li>
+          <li>Upgrade path documented for existing standalone PM users.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-045</span><span class="issue-title">Rewrite strategy.md for product engineer positioning</span></div>
+        <p class="issue-outcome">Any contributor or automated strategy check reading strategy.md understands this tool serves the product engineer's end-to-end workflow.</p>
+        <div class="issue-labels"><span class="label">strategy</span><span class="label priority-high">high priority</span></div>
+        <ol class="ac-list">
+          <li>Product Identity: "Structured workflows for the product engineer."</li>
+          <li>ICP: product engineer named with market evidence (Cat Wu, ~$165K signal, Gibson 2026).</li>
+          <li>Value prop: three goals (build valuable, build fast, manage cognitive load).</li>
+          <li>Competitive positioning: names Compound Engineering's PM exclusion and Kiro's spec-blindness.</li>
+          <li>Non-Goal #1: workflow layer, not platform/model/infra.</li>
+          <li>Non-Goal #2: scales to squad, not org.</li>
+          <li>Success metrics: fewer steps, one-session shipping rate.</li>
+          <li>Audit existing backlog items for alignment with updated strategy.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-046</span><span class="issue-title">Unify plugin manifests for Claude Code, Cursor, and Codex</span></div>
+        <p class="issue-outcome">One plugin, three platforms. Same workflow capabilities everywhere.</p>
+        <div class="issue-labels"><span class="label">infrastructure</span><span class="label">multi-platform</span><span class="label priority-high">high priority</span></div>
+        <ol class="ac-list">
+          <li>claude-plugin/plugin.json lists all 23 skills, 17 commands, 1 agent, merged hooks.</li>
+          <li>cursor-plugin/plugin.json mirrors with Cursor-specific fields.</li>
+          <li>marketplace.json updated with unified name/version.</li>
+          <li>gemini-extension.json + GEMINI.md updated for merged skill set.</li>
+          <li>codex/INSTALL.md updated with all 23 skill symlinks.</li>
+          <li>All manifests share same version number.</li>
+          <li>Plugin name decision applied consistently.</li>
+          <li>Dev's stale marketplace.json resolved before merge.</li>
+          <li>Repository decision: target repo, URL, git history strategy.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-047</span><span class="issue-title">Colocate all 23 skills and 17 commands</span></div>
+        <p class="issue-outcome">All skills and commands resolve correctly in a single plugin tree.</p>
+        <div class="issue-labels"><span class="label">infrastructure</span><span class="label">merge</span><span class="label priority-high">high priority</span></div>
+        <ol class="ac-list">
+          <li>All 14 dev skills copied into skills/.</li>
+          <li>All 8 dev commands copied into commands/.</li>
+          <li>Every command's CLAUDE_PLUGIN_ROOT reference resolves.</li>
+          <li>Cross-plugin references verified (design-critique, context-discovery).</li>
+          <li>PM symlinks continue to work.</li>
+          <li>Dev skills get symlink infrastructure (audit brainstorming/scripts/ first).</li>
+          <li>ls shows all 23 skills and 17 commands.</li>
+          <li>End-to-end smoke test: cross-plugin skill chain resolves.</li>
+          <li>Dev docs/ reviewed and merged or excluded.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-048</span><span class="issue-title">Merge SessionStart hooks</span></div>
+        <p class="issue-outcome">Product engineer gets both PM and dev capabilities from the first prompt.</p>
+        <div class="issue-labels"><span class="label">infrastructure</span><span class="label">hooks</span><span class="label priority-medium">medium priority</span></div>
+        <ol class="ac-list">
+          <li>Single hooks.json with one SessionStart matcher.</li>
+          <li>Merged check-setup.sh: advisory checks first (never exit early), then setup, then update.</li>
+          <li>session-start preloads using-dev covering all 23 skills. Missing file = visible warning.</li>
+          <li>Combined hook output &le; 4,000 characters.</li>
+          <li>Update check points to merged repo URL.</li>
+          <li>All scripts use CLAUDE_PLUGIN_ROOT.</li>
+          <li>Preloading verified: routing content appears in session context.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-049</span><span class="issue-title">Unify dev state files into .pm/</span></div>
+        <p class="issue-outcome">Full lifecycle state is version-controlled in the repo, not siloed.</p>
+        <div class="issue-labels"><span class="label">infrastructure</span><span class="label">state-management</span><span class="label priority-medium">medium priority</span></div>
+        <ol class="ac-list">
+          <li>Dev state writes to .pm/dev-sessions/{slug}.md.</li>
+          <li>Dev epic state writes to .pm/dev-sessions/epic-{slug}.md.</li>
+          <li>All 8-9 dev skill files referencing state paths updated (full audit list documented).</li>
+          <li>.gitignore updated for .pm/ + dev/instructions.local.md.</li>
+          <li>Graceful migration: read from both locations during transition.</li>
+          <li>.pm/config.json remains shared config.</li>
+          <li>State files committed alongside code (version-controlled, no external silo).</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-050</span><span class="issue-title">Formalize groom&rarr;dev handoff</span></div>
+        <p class="issue-outcome">Groomed issues skip redundant ceremony and ship in one session with full research context.</p>
+        <div class="issue-labels"><span class="label">workflow</span><span class="label">handoff</span><span class="label priority-critical">critical priority</span></div>
+        <ol class="ac-list">
+          <li>Detect groomed: bar_raiser.verdict == "ready" or "ready-if" (not just non-null).</li>
+          <li>Both dev:dev-epic and dev:dev skip brainstorm + spec review when groomed.</li>
+          <li>Detection updated in both dev-epic/SKILL.md and dev/SKILL.md.</li>
+          <li>Multiple groom sessions: match by slug or topic.</li>
+          <li>Skipped phases logged in state.</li>
+          <li>Ambiguous detection falls back to full ceremony.</li>
+          <li>Research injection: writing-plans reads groom session, injects ## Upstream Context.</li>
+          <li>Follow-on: publish handoff schema as open protocol.</li>
+        </ol>
+      </div>
+
+      <div class="issue-card child">
+        <div class="issue-header"><span class="issue-id">PM-051</span><span class="issue-title">Update Codex install guide</span></div>
+        <p class="issue-outcome">Codex users install all 23 skills with a single setup process.</p>
+        <div class="issue-labels"><span class="label">infrastructure</span><span class="label">codex</span><span class="label priority-low">low priority</span></div>
+        <ol class="ac-list">
+          <li>INSTALL.md updated with 14 dev-* symlink commands.</li>
+          <li>Dev skill directories get symlink infrastructure for Codex.</li>
+          <li>codex-tools.md tool mapping verified for dev skills.</li>
+          <li>Verification section tests both PM and dev skills.</li>
+          <li>dev-* prefix avoids namespace collision.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="review">
+    <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
+    <div class="review-pipeline">
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Scope Review</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Team Review</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed"><div class="pipeline-dot">&#10003;</div><span class="pipeline-label">Bar Raiser</span></div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step current"><div class="pipeline-dot">&#9654;</div><span class="pipeline-label">Decision</span></div>
+    </div>
+    <div class="review-cards">
+      <div class="review-card">
+        <div class="review-card-header"><span class="review-card-role">Product Manager</span><span class="verdict-badge caution">Ready if</span></div>
+        <p class="review-card-note">Core value is the handoff (PM-050), not the merger itself. ACs tightened after review: deterministic detection, measurable injection.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header"><span class="review-card-role">Competitive Strategist</span><span class="verdict-badge caution">Sharp if</span></div>
+        <p class="review-card-note">Differentiation encoded in ACs. Handoff protocol is the moat. Context size and bundling risks need monitoring.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header"><span class="review-card-role">Engineering Manager</span><span class="verdict-badge caution">Ready if</span></div>
+        <p class="review-card-note">Architecturally clean. State migration is highest effort. Hook early-exit and handoff path fixes applied.</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header"><span class="review-card-role">Bar Raiser</span><span class="verdict-badge caution">Ready if</span></div>
+        <p class="review-card-note">Narrative coherent, ambition calibrated. Sequence PM-050 first with checkpoint gate. 7 conditions tracked.</p>
+      </div>
+    </div>
+    <div class="advisory-card">
+      <h3>Bar Raiser Conditions (must acknowledge)</h3>
+      <ul class="advisory-list">
+        <li>Sequence PM-050 (handoff) as first deliverable after PM-045 with checkpoint gate</li>
+        <li>Establish baseline measurement for groomed vs ungroomed issue steps before merge</li>
+        <li>Document upgrade path for existing standalone PM users</li>
+        <li>Verify merged plugin does not degrade skill invocation quality (3 representative tests)</li>
+        <li>Unify instruction file conventions (pm/instructions.md vs dev/instructions.local.md)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section" id="questions">
+    <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
+    <div class="questions-card">
+      <p>Questions the decision-maker should be prepared to discuss:</p>
+      <ul class="question-list">
+        <li>What is the upgrade path for existing PM-only users? Does the merged plugin ship under the same name, or is it a new install?</li>
+        <li>Why do the full merger now vs. shipping the handoff integration first (which the research itself recommends as the primary value)?</li>
+        <li>How do you measure success without a baseline? What is the current step count for groomed vs ungroomed issues?</li>
+        <li>What happens if context size degrades skill quality? Is there a rollback plan?</li>
+        <li>What are we NOT doing because we are doing this? (PostHog integration, Google Docs, analytics ingestion are all on the priority list.)</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  function updateToc() {
+    const scrollY = window.scrollY + 100;
+    const pageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+    let current = sections[0];
+    if (pageBottom) { current = sections[sections.length - 1]; }
+    else { sections.forEach(s => { if (s.offsetTop <= scrollY) current = s; }); }
+    tocLinks.forEach(l => l.classList.remove('active'));
+    const active = document.querySelector(`.toc a[href="#${current.id}"]`);
+    if (active) active.classList.add('active');
+  }
+  window.addEventListener('scroll', updateToc, { passive: true });
+  updateToc();
+</script>
+
+</body>
+</html>
