@@ -103,3 +103,23 @@ PM closes both gaps: it provides the upstream product work (research, strategy, 
 - Community contributions (PRs, issues, discussions)
 - Organic traffic to productmemory.io (pre-cloud interest)
 - Conversion from plugin users to cloud waitlist (when available)
+
+## 9. Backlog Alignment Notes (PM-045 Audit)
+
+Audit of `pm/backlog/*.md` for alignment with updated strategy (2026-03-21):
+
+**Items referencing old Non-Goal #1 ("PM ends at the groomed ticket"):**
+- `prd-grade-output.md` (PM-001, done): Excludes API contracts/data models citing "non-goal #1." Under the new strategy, this exclusion is still reasonable — API contracts are implementation detail, not product workflow — but the rationale should reference new Non-Goal #1 (workflow layer, not platform tool) rather than the retired boundary. No action needed since the item is shipped.
+- `groom-em-feasibility-review.md` (PM-003, done): EM feasibility language "stays on the PM side of non-goal #1." Under the merged plugin, the PM/dev boundary no longer exists — feasibility review can now inform implementation directly. No action needed since the item is shipped, but future feasibility review enhancements should not self-limit to observational language.
+
+**Items referencing strategy section numbers:**
+- `notion-import.md`, `google-docs-ingestion.md`, `github-issues-ingestion.md`, `slack-feedback-ingestion.md`: Reference "§ 6 Priority 1" for input source expansion. This is now Priority 2 in the updated numbering, but the priority itself (depth of product context) is unchanged. Cosmetic — no action needed.
+- `dashboard-proposal-hero.md`: References "strategy non-goal #3" (no product analytics). Unchanged — still Non-Goal #3.
+
+**Items fully aligned with no changes needed:**
+- All `pm-dev-*.md` items (PM-044 siblings): Written against the merged plugin identity by design.
+- All memory system items (PM-038 through PM-042): Independent of the PM/dev boundary.
+- All UI/dashboard items: Independent of strategy positioning.
+- All instruction system items: Reference strategy.md for override hierarchy, which is unchanged.
+
+**No backlog items conflict with the updated strategy.**
