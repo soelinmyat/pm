@@ -54,38 +54,29 @@ templates -> ../../templates
 
 ## Implementation Steps
 
-### Task 1: Add internal symlinks to dev skill directories
+### Task 1: Verify internal symlinks in dev skill directories (VERIFICATION ONLY)
 
-After PM-047 copies the 14 dev skills into `skills/`, each needs the standard symlinks so Codex can resolve references to shared directories.
-
-For 13 skills (all except brainstorming):
+PM-047 creates internal symlinks for all 14 dev skill directories. This task **verifies** they exist — it does NOT create them. If any are missing, report to orchestrator rather than re-creating (PM-047 should have handled it).
 
 ```bash
 cd /Users/soelinmyat/Projects/pm
 
-SYMLINKS="agents:../../agents commands:../../commands hooks:../../hooks scripts:../../scripts templates:../../templates"
-
+# Verify 13 skills have 5 symlinks each
 for skill in bug-fix debugging design-critique dev dev-epic \
   merge-watch pr receiving-review review subagent-dev tdd using-dev writing-plans; do
-  for pair in $SYMLINKS; do
-    name="${pair%%:*}"
-    target="${pair##*:}"
-    ln -sfn "$target" "skills/$skill/$name"
+  for name in agents commands hooks scripts templates; do
+    [ -L "skills/$skill/$name" ] || echo "MISSING: skills/$skill/$name"
   done
 done
-```
 
-For brainstorming (4 symlinks, skip scripts):
-
-```bash
-for pair in agents:../../agents commands:../../commands hooks:../../hooks templates:../../templates; do
-  name="${pair%%:*}"
-  target="${pair##*:}"
-  ln -sfn "$target" "skills/brainstorming/$name"
+# Verify brainstorming has 4 symlinks (scripts/ is real content, not a symlink)
+for name in agents commands hooks templates; do
+  [ -L "skills/brainstorming/$name" ] || echo "MISSING: skills/brainstorming/$name"
 done
-```
 
-**Note:** If PM-047 already creates these symlinks, this task becomes a verification-only step. Check PM-047 output before duplicating work.
+# Verify brainstorming/scripts is NOT a symlink
+[ ! -L "skills/brainstorming/scripts" ] || echo "ERROR: brainstorming/scripts should be real content, not a symlink"
+```
 
 ### Task 2: Update INSTALL.md section 2 — add dev skill symlinks
 

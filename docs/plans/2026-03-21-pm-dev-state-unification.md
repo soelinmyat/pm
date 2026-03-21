@@ -334,24 +334,21 @@ dev/instructions.local.md
 
 **Rationale:** `.pm/` already covers `.pm/dev-sessions/`, so the separate `.dev-state-*` and `.dev-epic-state-*` patterns are no longer needed. The legacy patterns are removed because legacy files should no longer be created. Add `dev/instructions.local.md` per AC #4.
 
-**Wait — AC #7 says state files in `.pm/dev-sessions/` are version-controlled.** This conflicts with `.pm/` being in `.gitignore`. Resolution: split `.pm/` gitignore to be more granular:
+**Wait — AC #7 says state files in `.pm/dev-sessions/` are version-controlled.** This conflicts with `.pm/` being in `.gitignore`. Resolution: use a **negation pattern** to keep the blanket ignore safe while selectively tracking dev-sessions:
 
 **Revised new .gitignore:**
 ```
-.pm/sessions/
-.pm/groom-sessions/
-.pm/evidence/
-.pm/config.json
+.pm/
+!.pm/dev-sessions/
+.pm/imports/
 pm/*.local.md
 .worktrees/
 dev/instructions.local.md
 ```
 
-This keeps `.pm/dev-sessions/` **tracked** (version-controlled per AC #7) while still ignoring PM runtime state. The `.pm/dev-sessions/` directory is intentionally NOT in .gitignore so dev state is committed alongside code.
+**How this works:** `.pm/` ignores everything. `!.pm/dev-sessions/` un-ignores that specific subdirectory. `.pm/imports/` re-ignores imports (customer evidence, must stay private). This preserves the safety model: any new `.pm/` subdirectory added in the future is ignored by default. Only `.pm/dev-sessions/` is explicitly opted-in to version control. No audit of future `.pm/` contents needed.
 
-**Important:** This requires auditing what other `.pm/` contents should remain gitignored. Current `.pm/` structure includes: `sessions/`, `groom-sessions/`, `evidence/`, `config.json`, `dev-sessions/` (new). Per AC #7, `dev-sessions/` is tracked. Per AGENTS.md line 44, `.pm/` is gitignored for "private runtime state like groom sessions and config." So the split is:
-- **Gitignored:** `.pm/sessions/`, `.pm/groom-sessions/`, `.pm/evidence/`, `.pm/config.json`
-- **Tracked:** `.pm/dev-sessions/`
+**Why not granular splitting:** Splitting `.pm/` into individual subdirectory ignores inverts the safety model — new subdirectories would be tracked by default, risking accidental exposure of private data. The negation pattern keeps ignore-by-default.
 
 ### Task 11: Update PM-050's state logging references
 
@@ -377,7 +374,8 @@ This is handled as part of Tasks 2 and 3 (mechanical find-replace), but called o
 | 4. .gitignore updated | `.pm/dev-sessions/` NOT in .gitignore; `dev/instructions.local.md` IS in .gitignore |
 | 5. Graceful migration | dev/SKILL.md and dev-epic/SKILL.md resume detection checks both new and legacy paths |
 | 6. .pm/config.json unchanged | config.json path not modified in any file |
-| 7. State files version-controlled | `.pm/dev-sessions/` not covered by any .gitignore pattern |
+| 7. State files version-controlled | `.pm/dev-sessions/` un-ignored via `!.pm/dev-sessions/` negation pattern |
+| **Integration test (PM-050+PM-049)** | After PM-049 completes, grep across ALL skill files: `grep -r '\.dev-state-\|\.dev-epic-state-' skills/ --include='*.md' \| grep -v 'legacy'` must return 0 matches. This confirms PM-050's insertions were also updated by PM-049's mechanical replacement. |
 
 ---
 
@@ -394,7 +392,7 @@ This is handled as part of Tasks 2 and 3 (mechanical find-replace), but called o
 | 7 | `skills/dev/references/custom-instructions.md` | Update state file storage path |
 | 8 | `skills/review/SKILL.md`, `skills/pr/SKILL.md`, `skills/merge-watch/SKILL.md` | Update state file convention + interior references |
 | 9 | `skills/design-critique/SKILL.md` | Update mode detection + embedded flow paths |
-| 10 | `.gitignore` | Split `.pm/` into granular ignores; remove `.dev-state-*` patterns; add `dev/instructions.local.md` |
+| 10 | `.gitignore` | Keep `.pm/` blanket ignore + add `!.pm/dev-sessions/` negation + add `.pm/imports/` + remove `.dev-state-*` patterns + add `dev/instructions.local.md` |
 | 11 | `skills/dev/SKILL.md`, `skills/dev-epic/SKILL.md` | Update PM-050-written groom detection paths (part of Tasks 2-3) |
 
 ## Task Count: 10 tasks

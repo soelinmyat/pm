@@ -209,40 +209,7 @@ Note: Some dev skills (subagent-dev, using-dev, tdd, receiving-review, debugging
 
 ### F. `.codex/INSTALL.md`
 
-Add 14 dev-* symlinks after the existing 9 pm-* symlinks:
-
-```bash
-# Existing PM skills (9)
-ln -sfn ~/.agents/vendor/pm/skills/setup ~/.agents/skills/pm-setup
-ln -sfn ~/.agents/vendor/pm/skills/research ~/.agents/skills/pm-research
-ln -sfn ~/.agents/vendor/pm/skills/strategy ~/.agents/skills/pm-strategy
-ln -sfn ~/.agents/vendor/pm/skills/ideate ~/.agents/skills/pm-ideate
-ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
-ln -sfn ~/.agents/vendor/pm/skills/dig ~/.agents/skills/pm-dig
-ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
-ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
-ln -sfn ~/.agents/vendor/pm/skills/view ~/.agents/skills/pm-view
-
-# Dev skills (14)
-ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/dev-dev
-ln -sfn ~/.agents/vendor/pm/skills/dev-epic ~/.agents/skills/dev-dev-epic
-ln -sfn ~/.agents/vendor/pm/skills/subagent-dev ~/.agents/skills/dev-subagent-dev
-ln -sfn ~/.agents/vendor/pm/skills/using-dev ~/.agents/skills/dev-using-dev
-ln -sfn ~/.agents/vendor/pm/skills/tdd ~/.agents/skills/dev-tdd
-ln -sfn ~/.agents/vendor/pm/skills/review ~/.agents/skills/dev-review
-ln -sfn ~/.agents/vendor/pm/skills/receiving-review ~/.agents/skills/dev-receiving-review
-ln -sfn ~/.agents/vendor/pm/skills/pr ~/.agents/skills/dev-pr
-ln -sfn ~/.agents/vendor/pm/skills/merge-watch ~/.agents/skills/dev-merge-watch
-ln -sfn ~/.agents/vendor/pm/skills/bug-fix ~/.agents/skills/dev-bug-fix
-ln -sfn ~/.agents/vendor/pm/skills/debugging ~/.agents/skills/dev-debugging
-ln -sfn ~/.agents/vendor/pm/skills/brainstorming ~/.agents/skills/dev-brainstorming
-ln -sfn ~/.agents/vendor/pm/skills/design-critique ~/.agents/skills/dev-design-critique
-ln -sfn ~/.agents/vendor/pm/skills/writing-plans ~/.agents/skills/dev-writing-plans
-```
-
-The vendor clone path stays `~/.agents/vendor/pm` (matches repo name). The `dev-` prefix prevents namespace collision (e.g., `dev-review` vs `pm-review` if PM ever adds a review skill).
-
-Update the intro paragraph to mention both PM and dev capabilities. Update the verification section to show both `$pm-setup` and `$dev-dev` examples.
+**DEFERRED TO PM-051.** The Codex install guide update (14 dev-* symlinks, intro, verification) is fully owned by PM-051 to avoid duplication. PM-046 does NOT touch `.codex/INSTALL.md`.
 
 ---
 
@@ -280,6 +247,6 @@ All 4 manifests must show `1.1.0` after this task:
 3. Update `.claude-plugin/marketplace.json` (description, version)
 4. Update `gemini-extension.json` (version)
 5. Update `GEMINI.md` (title, skills table, subagent note)
-6. Update `.codex/INSTALL.md` (add 14 dev-* symlinks, update intro/verification)
+6. ~~Update .codex/INSTALL.md~~ — deferred to PM-051
 7. Verify all 4 manifests share version `1.1.0`
 8. Run validation
