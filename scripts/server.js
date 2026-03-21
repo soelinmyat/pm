@@ -463,7 +463,7 @@ nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
 nav a.active { color: #fff; border-bottom-color: var(--accent); }
 nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* Secondary nav */
-nav.nav-secondary { background: #2a2a42; padding: 0 1.5rem; display: flex; gap: 0;
+nav.nav-secondary { background: var(--dark); padding: 0 1.5rem; display: flex; gap: 0;
   align-items: stretch; min-height: 36px; border-top: 1px solid rgba(255,255,255,0.08); }
 nav.nav-secondary a { color: rgba(255,255,255,0.45); font-size: 0.75rem; padding: 0 0.75rem;
   display: flex; align-items: center; border-bottom: 2px solid transparent;
