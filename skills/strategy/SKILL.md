@@ -1,6 +1,6 @@
 ---
 name: pm-strategy
-description: "Use when creating or maintaining a product strategy document. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction.'"
+description: "Use when creating or maintaining a product strategy document, or generating a strategy deck/presentation. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction,' 'strategy deck,' 'strategy presentation,' 'generate deck.'"
 ---
 
 # pm:strategy

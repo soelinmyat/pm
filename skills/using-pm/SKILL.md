@@ -38,7 +38,7 @@ This plugin provides structured workflows for the product engineer — from disc
 |---------|-------|-----|
 | **Groom backlog issues (primary entry point)** | `pm:groom` | Convert ideas into sprint-ready issues — start here for product work |
 | **Research a topic or competitor (primary entry point)** | `pm:research` | Landscape mapping, competitor deep-dives |
-| Product strategy work | `pm:strategy` | Positioning, strategic bets, GTM |
+| Product strategy work or generate strategy deck | `pm:strategy` | Positioning, strategic bets, GTM, strategy presentation |
 | Generate feature ideas | `pm:ideate` | Idea generation from strategy + research |
 | Ad-hoc deep research question | `pm:dig` | Focused research on a specific question |
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback |
