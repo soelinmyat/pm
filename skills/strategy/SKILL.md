@@ -158,6 +158,16 @@ Say: "Generating strategy deck..."
    - §6 Priorities + §7 Non-Goals → `{{DECK_PRIORITIES_TITLE}}`, `{{DECK_PRIORITIES_CONTENT}}`, `{{DECK_NONGOALS_CONTENT}}`
    - §8 Metrics → `{{DECK_METRICS_TITLE}}`, `{{DECK_METRICS_CONTENT}}`
 3. **Write action titles** for each `*_TITLE` token — a complete sentence asserting a specific claim. "Our ICP" fails. "We serve product engineers who own both product decisions and implementation" passes.
+
+**Slide content rules (critical for readability):**
+- **Max 3 bullets per slide.** If the source has more, distill to the 3 most important.
+- **Each bullet: max 15 words.** One line, no wrapping. Cut ruthlessly.
+- **No paragraphs.** Bullets only. The action title carries the message — bullets are supporting evidence.
+- **Numbers over prose.** Prefer "80% use no software" over "The majority of operators do not use any booking software."
+- **Competitive gaps: max 4 items.** Pick the sharpest ones.
+- **Positioning slide: bullets only, no sub-explanations.** The positioning map speaks for itself.
+- **Title slide subtitle: max 20 words.**
+- Think investor pitch, not reference doc. If you can say it shorter, say it shorter.
 4. **Check optional sources** and populate conditional slide tokens:
    - If `pm/landscape.md` exists: parse `<!-- stat: {value}, {label} -->` for `{{DECK_MARKET_STATS}}` + `{{DECK_MARKET_STATS_TITLE}}`; parse Key Players table (first 6 rows) for `{{DECK_KEY_PLAYERS}}` + `{{DECK_KEY_PLAYERS_TITLE}}`; parse `<!-- positioning: ... -->` for `{{DECK_POSITIONING_MAP}}`.
    - If `pm/competitors/` exists: read Market Gaps from `index.md` or `matrix.md` for `{{DECK_COMPETITIVE_GAPS}}` + `{{DECK_COMPETITIVE_GAPS_TITLE}}`.
