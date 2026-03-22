@@ -145,16 +145,27 @@ Generate using the positioning-map template if accepted.
 
 If the user has `visual_companion: true` in `.pm/config.json`, after offering the positioning map, also offer:
 
-> "Want a strategy slide deck? I can generate a narrative presentation from your strategy — 7 slides, keyboard-navigable, works offline."
+> "Want a strategy slide deck? I can generate a narrative presentation from your strategy, market landscape, and competitive research — up to 10 slides, keyboard-navigable, works offline."
 
 If accepted:
-1. Read `pm/strategy.md` and extract data for each slide.
-2. For each slide, write an action title — a complete sentence that asserts a specific claim about the product. Titles that merely name a topic ("Our ICP", "Competitive Positioning") fail. Titles that assert a claim pass ("We serve ops managers at mid-market cleaning companies who track jobs on WhatsApp").
-3. Fill the template placeholders in `templates/strategy-deck.html` and write to `pm/strategy-deck.html`.
-4. Open the file in the browser automatically.
+1. Read `pm/strategy.md` and extract data for the 7 base slides.
+2. For each slide, write an action title — a complete sentence that asserts a specific claim about the product. Titles that merely name a topic ("Our ICP", "Competitive Positioning") fail. Titles that assert a claim pass ("We serve ops managers at mid-market cleaning companies who track jobs on WhatsApp"). Action titles on data-enriched slides must reference specific numbers or findings (e.g., "78% of PM teams use AI tools but none cover the full lifecycle").
+3. Check if `pm/landscape.md` exists. If it does:
+   - Parse `<!-- stat: {value}, {label} -->` comments for the Market Stats slide. If no stat comments exist, skip this slide.
+   - Parse the Key Players table (first 6 rows) for the Key Players slide. If no Key Players section exists, skip this slide.
+   - Parse `<!-- positioning: company, x, y, traffic, segment-color -->` comments for the Positioning Map enhancement on the base positioning slide. If no positioning comments exist, skip the map.
+   - Read "X-axis: ..." and "Y-axis: ..." lines after the positioning comments for axis labels.
+4. Check if `pm/competitors/` exists. If it does:
+   - Read `pm/competitors/index.md` Market Gaps section for the Competitive Gaps slide.
+   - Fallback: if no Market Gaps section, read `pm/competitors/matrix.md` and summarize capabilities where Product Memory has "Yes" and all competitors have "No".
+   - If neither has usable data, skip this slide.
+5. For each conditional slide block (`<!-- BEGIN:X -->...<!-- END:X -->`), strip the block if the data source is unavailable or contains no relevant data.
+6. For each included enriched slide, generate a provenance footer: `Source: {filename} · {count} {items} · Updated {date}` where date comes from the source file's `updated:` frontmatter field.
+7. Fill remaining placeholder tokens and write to `pm/strategy-deck.html`.
+8. Open the file in the browser automatically.
+
+The deck synthesizes from `pm/strategy.md` (required), `pm/landscape.md` (optional), and `pm/competitors/` (optional). Missing optional sources result in fewer slides, not errors.
 
 **On-demand regeneration:** The user can invoke `/pm:strategy deck` at any time.
 - If `pm/strategy.md` does not exist, respond: "No strategy doc found. Run /pm:strategy first to create one."
 - If `pm/strategy.md` exists, regenerate the deck and open it.
-
-The deck uses only `pm/strategy.md` as its data source (PM-065 scope). Future enhancement (PM-066) will synthesize landscape and competitor data.
