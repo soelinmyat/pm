@@ -21,7 +21,7 @@ Create a self-contained HTML slide deck template that presents strategy data as 
 
 ## Placeholder Schema (Interface Contract for PM-066)
 
-These are the exact token names that PM-066 will inject content into. Each token maps to a specific slide and strategy.md section.
+15 tokens total. These are the exact token names that PM-066 will inject content into. Each token maps to a specific slide and strategy.md section.
 
 | Token | Slide | Source Section | Content Type |
 |---|---|---|---|

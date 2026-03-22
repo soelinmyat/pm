@@ -20,16 +20,18 @@ The deck conditionally includes slides based on available data sources. The base
 | 4 | Who We Serve (ICP) | SITUATION | strategy.md §2 | No (base) |
 | 5 | The Problem | COMPLICATION | strategy.md §3 | No (base) |
 | 6 | Competitive Gaps | COMPLICATION | competitors/index.md Market Gaps or competitors/matrix.md | Yes — requires competitors/ directory |
-| 7 | Positioning Map | COMPLICATION | landscape.md `<!-- positioning: -->` comments | Yes — requires positioning comments in landscape.md |
+| 7 | How We Position | COMPLICATION | strategy.md §4 + §5 (base text) + landscape.md positioning comments (conditional map) | No (base) — positioning map enhances this slide when data exists |
 | 8 | Differentiation | RESOLUTION | strategy.md §3 | No (base) |
 | 9 | Where We're Going | RESOLUTION | strategy.md §6 + §7 | No (base) |
 | 10 | How We'll Know | RESOLUTION | strategy.md §8 | No (base) |
 
-**Slide ordering rule:** Conditional slides are inserted at their SCR-appropriate position. When a conditional slide is absent, subsequent slides shift up. The JS-rendered progress dots and counter from PM-065 auto-adjust since they derive from actual slide count.
+**Key structural decision (epic review fix):** PM-065's base slide 5 "How We Position" (text from §4+§5) is preserved as a base slide. The positioning map from landscape.md is rendered WITHIN this same slide as a conditional enhancement — below the text content in a split layout. This keeps all 7 PM-065 base slides intact. When positioning data exists, the slide shows both text positioning and the visual map. When it doesn't, it shows text only (PM-065 baseline). The positioning map is NOT a separate conditional slide.
+
+**Slide ordering rule:** Conditional slides (Market Stats, Key Players, Competitive Gaps) are inserted at their SCR-appropriate position. When a conditional slide is absent, subsequent slides shift up. The JS-rendered progress dots and counter from PM-065 auto-adjust since they derive from actual slide count. Total: 7 base + 3 conditional = 10 max, 7 min.
 
 ## New Placeholder Tokens
 
-PM-065 defines 14 tokens for the 7 base slides. PM-066 adds 8 new tokens for the 3 conditional slides:
+PM-065 defines 15 tokens for the 7 base slides. PM-066 adds 7 new tokens for the 3 conditional slides + positioning map enhancement:
 
 | Token | Slide | Content Type |
 |---|---|---|
@@ -39,14 +41,16 @@ PM-065 defines 14 tokens for the 7 base slides. PM-066 adds 8 new tokens for the
 | `{{DECK_KEY_PLAYERS_TITLE}}` | Key Players | Action title referencing player count or category |
 | `{{DECK_COMPETITIVE_GAPS}}` | Competitive Gaps | HTML list: key gaps from competitors/index.md |
 | `{{DECK_COMPETITIVE_GAPS_TITLE}}` | Competitive Gaps | Action title referencing a specific gap or count |
-| `{{DECK_POSITIONING_MAP}}` | Positioning Map | HTML block: 2x2 CSS plot with positioned dots |
-| `{{DECK_POSITIONING_MAP_TITLE}}` | Positioning Map | Action title referencing positioning insight |
+| `{{DECK_POSITIONING_MAP}}` | How We Position (enhancement) | HTML block: 2x2 CSS plot rendered below text content on the base positioning slide |
 
-Plus one global token for data provenance:
+Plus per-slide provenance tokens (each enriched slide gets its own provenance string):
 
-| Token | Scope | Content Type |
+| Token | Slide | Content Type |
 |---|---|---|
-| `{{DECK_PROVENANCE_FOOTER}}` | Enriched slides only | Source name, artifact count, `updated:` date |
+| `{{DECK_PROVENANCE_MARKET_STATS}}` | Market Stats | "Source: landscape.md · 4 stats · Updated 2026-03-13" |
+| `{{DECK_PROVENANCE_KEY_PLAYERS}}` | Key Players | "Source: landscape.md · 6 players · Updated 2026-03-13" |
+| `{{DECK_PROVENANCE_COMPETITIVE_GAPS}}` | Competitive Gaps | "Source: competitors/index.md · 5 gaps · Updated 2026-03-21" |
+| `{{DECK_PROVENANCE_POSITIONING_MAP}}` | Positioning Map (in base slide) | "Source: landscape.md · N competitors plotted · Updated 2026-03-13" |
 
 ## Template Extension Approach
 
@@ -58,7 +62,7 @@ The template (`templates/strategy-deck.html`) uses conditional HTML blocks wrapp
   <div class="slide-content">
     <h2>{{DECK_MARKET_STATS_TITLE}}</h2>
     <div class="stat-grid">{{DECK_MARKET_STATS}}</div>
-    <div class="provenance">{{DECK_PROVENANCE_FOOTER}}</div>
+    <div class="provenance">{{DECK_PROVENANCE_MARKET_STATS}}</div>
   </div>
 </div>
 <!-- END:MARKET_STATS -->
@@ -90,6 +94,24 @@ Produces stat cards:
 ```
 
 **Edge case:** If `landscape.md` exists but contains no `<!-- stat: -->` comments, skip the Market Stats slide without error (strip the BEGIN/END block).
+
+### Positioning Map Enhancement (within base positioning slide)
+
+The positioning map is embedded within PM-065's base "How We Position" slide (DECK_POSITIONING_TITLE/CONTENT from §4+§5). When landscape.md contains positioning comments, the `{{DECK_POSITIONING_MAP}}` token is replaced with the CSS map below the text content. When no positioning data exists, the token is replaced with empty string — the slide shows text only (PM-065 baseline).
+
+The template structure for this slide:
+```html
+<div class="slide">
+  <div class="slide-content">
+    <h2>{{DECK_POSITIONING_TITLE}}</h2>
+    <div class="positioning-text">{{DECK_POSITIONING_CONTENT}}</div>
+    <!-- BEGIN:POSITIONING_MAP -->
+    <div class="positioning-map-container">{{DECK_POSITIONING_MAP}}</div>
+    <div class="provenance">{{DECK_PROVENANCE_POSITIONING_MAP}}</div>
+    <!-- END:POSITIONING_MAP -->
+  </div>
+</div>
+```
 
 ### Key Players (from landscape.md)
 
@@ -140,7 +162,7 @@ Parse `<!-- positioning: company, x, y, traffic, segment-color -->` comments. Pr
 
 ## Data Provenance Footer
 
-Enriched slides (those sourced from landscape.md or competitors/) display a provenance footer:
+Each enriched slide has its own provenance token (e.g., `{{DECK_PROVENANCE_MARKET_STATS}}`). The skill generates a unique string per slide:
 
 ```html
 <div class="provenance">
