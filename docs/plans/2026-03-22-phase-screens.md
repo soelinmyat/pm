@@ -47,6 +47,7 @@ The template must include:
 | 5.5 - Team Review | Team reviewed | Team reviewing... | Team Review |
 | 5.7 - Bar Raiser | Bar raiser done | Bar raising... | Bar Raiser |
 | 5.8 - Present | Presented | Presenting... | Presentation |
+| 6 - Link | Issues linked | Linking issues... | Link Issues |
 
 **Template format in the reference file:** The file should contain the full HTML as a fenced code block inside a markdown document. Phase write steps will be instructed to "use the template from `companion-template.md`" — the LLM reads the template, fills in the stepper state and content slot, and writes the result.
 
@@ -85,7 +86,7 @@ The template must include:
 
 **What to do:**
 
-Add a new step 7 (after step 6 — state update) that writes the companion screen.
+Add a new step 8 (after PM-060's step 7 — opt-in prompt) that writes the companion screen. This step must come AFTER the opt-in check so the companion directory only gets content when visual_companion is true.
 
 ```markdown
 7. **Companion screen** (if `visual_companion: true` in `.pm/config.json`):
@@ -152,7 +153,7 @@ Add a new step at the end (after step 5 — state update) that writes the compan
 Add a new step after Step 6 (state update) that writes the companion screen.
 
 ```markdown
-#### Step 7: Companion screen
+#### Step 8: Companion screen
 
 If `visual_companion: true` in `.pm/config.json`:
 
@@ -382,12 +383,12 @@ Tasks 2-8 are independent of each other (each modifies a different file) and cou
 | File | Change |
 |---|---|
 | `skills/groom/references/companion-template.md` | New file: HTML template with stepper, header, content slot, footer |
-| `skills/groom/phases/phase-1-intake.md` | Add step 7: placeholder companion screen |
+| `skills/groom/phases/phase-1-intake.md` | Add step 8: placeholder companion screen |
 | `skills/groom/phases/phase-2-strategy.md` | Add step 5: placeholder companion screen |
 | `skills/groom/phases/phase-3-research.md` | Add step 5: placeholder companion screen |
-| `skills/groom/phases/phase-4-scope.md` | Add step 7: scope grid companion screen |
+| `skills/groom/phases/phase-4-scope.md` | Add step 8: scope grid companion screen |
 | `skills/groom/phases/phase-4.5-scope-review.md` | Add step 6: verdict table companion screen |
-| `skills/groom/phases/phase-5-groom.md` | Add Step 7: decomposition + issue previews + Mermaid |
+| `skills/groom/phases/phase-5-groom.md` | Add Step 8: decomposition + issue previews + Mermaid |
 | `skills/groom/phases/phase-5.5-team-review.md` | Add step 6: verdict table companion screen |
 | `skills/groom/phases/phase-5.7-bar-raiser.md` | Add step 6: verdict badge companion screen |
 | `skills/groom/phases/phase-5.8-present.md` | Add Step 1.7: proposal link + session summary |
