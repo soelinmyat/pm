@@ -140,3 +140,21 @@ If the user has `visual_companion: true` in `.pm/config.json`, offer:
 > (e.g., price vs. breadth, SMB vs. enterprise)."
 
 Generate using the positioning-map template if accepted.
+
+## Slide Deck
+
+If the user has `visual_companion: true` in `.pm/config.json`, after offering the positioning map, also offer:
+
+> "Want a strategy slide deck? I can generate a narrative presentation from your strategy — 7 slides, keyboard-navigable, works offline."
+
+If accepted:
+1. Read `pm/strategy.md` and extract data for each slide.
+2. For each slide, write an action title — a complete sentence that asserts a specific claim about the product. Titles that merely name a topic ("Our ICP", "Competitive Positioning") fail. Titles that assert a claim pass ("We serve ops managers at mid-market cleaning companies who track jobs on WhatsApp").
+3. Fill the template placeholders in `templates/strategy-deck.html` and write to `pm/strategy-deck.html`.
+4. Open the file in the browser automatically.
+
+**On-demand regeneration:** The user can invoke `/pm:strategy deck` at any time.
+- If `pm/strategy.md` does not exist, respond: "No strategy doc found. Run /pm:strategy first to create one."
+- If `pm/strategy.md` exists, regenerate the deck and open it.
+
+The deck uses only `pm/strategy.md` as its data source (PM-065 scope). Future enhancement (PM-066) will synthesize landscape and competitor data.
