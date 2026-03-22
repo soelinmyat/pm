@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-021
 title: "Create pm:example command and skill files"
 outcome: "The /pm:example command exists, prints a terminal orientation, and opens PM's dogfooded dashboard"
-status: drafted
+status: done
 parent: "public-demo-dashboard"
 children: []
 labels:

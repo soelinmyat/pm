@@ -1,72 +1,97 @@
 ---
 type: backlog-issue
 id: "PM-036"
-title: "Groom Session Visual Companion: Live Browser View per Phase"
-outcome: "Users who opt in see the current grooming phase rendered as a clean, scannable web page — the terminal becomes a lightweight conversation channel while the browser shows the substance"
-status: idea
+title: "Groom Session Visual Companion"
+outcome: "Users who opt in see each grooming phase rendered as a clean, scannable web page — the terminal stays lightweight for conversation while the browser carries the substance"
+status: drafted
 parent: null
-children: []
+children:
+  - "groom-companion-session-route"
+  - "groom-companion-phase-screens"
+  - "groom-companion-dashboard-cleanup"
 labels:
   - "output-quality"
   - "feature"
 priority: high
 research_refs:
-  - pm/competitors/index.md
+  - pm/research/groom-visual-companion/findings.md
 created: 2026-03-20
-updated: 2026-03-20
+updated: 2026-03-22
 ---
 
 ## Outcome
 
-After this ships, users can opt into a browser companion at the start of any groom session. The browser shows a clean, formatted view of the current phase — scope grid, review verdicts, issue cards — that updates as the session progresses. The terminal becomes a lightweight channel for questions and approvals ("yes/no, pick A/B/C") while the browser carries the rich content. Multiple concurrent groom sessions each get their own URL at `/session/{slug}`.
+After this ships, users can opt into a browser companion at the start of any groom session. The browser shows a clean, formatted view of the current phase — scope grid, review verdicts, issue cards — that updates as the session progresses. The terminal becomes a lightweight channel for questions and approvals while the browser carries the rich content. Multiple concurrent groom sessions each get their own URL at `/session/{slug}`.
 
 ## Acceptance Criteria
 
-1. After Phase 1 completes and `.pm/groom-sessions/{slug}.md` is written (before Phase 2 begins), the skill checks `.pm/config.json` for `visual_companion`. If unset, it asks: "Want a visual companion in the browser? I'll show each phase as a clean web page." and persists the answer. If already set, it uses the stored value silently. If yes, the skill ensures the dashboard server is running and opens `localhost:{PORT}/session/{slug}`. PORT is discovered from the running dashboard server (default 3456, configurable via `.pm/config.json` `dashboard_port` key).
-2. A new `/session/{slug}` route is added to the **dashboard server** (`createDashboardServer` in `scripts/server.js`), not the companion mode server. The route:
-   - Serves the current phase HTML from `.pm/sessions/{slug}/current.html`
-   - The dashboard server calls `watchDirectoryTree` a second time for `.pm/sessions/` as a separate watched root. The `server.close` patch is updated to call `closeWatchersUnder` on both `pmDir` and `sessionsDir` to prevent watcher leaks on shutdown.
-   - Uses the existing WebSocket `broadcastDashboard({ type: 'reload' })` mechanism to push updates when the file changes
-   - Returns a "Session not found" page if the slug doesn't exist
-   - The existing companion mode server is NOT used for this feature
-3. Each groom phase file includes a companion screen generation step (conditional on visual companion being active): write a self-contained HTML file to `.pm/sessions/{slug}/current.html` summarizing the phase's key output in scannable format.
-4. Companion screens follow the style guide from PM-034: one-sentence summary at top, bullets not prose, max 3 content blocks per screen.
-5. Multiple concurrent groom sessions are supported: each writes to `.pm/sessions/{slug}/` and is served at `/session/{slug}`. The dashboard home shows a list of active sessions.
-6. The `current.html` file is overwritten each phase (not accumulated). When the groom session completes (Phase 6), the companion shows the final proposal with a link to the full HTML proposal file. The `.pm/sessions/{slug}/` directory is cleaned up after the user dismisses the session or after 24 hours — not immediately on Phase 6 completion, so users can re-open the companion to review the final state.
-7. The `.pm/sessions/` directory is gitignored.
-8. The opt-in preference persists in `.pm/config.json` under `visual_companion: true|false` so returning users don't need to answer every session. The key already exists in `.pm/config.json` (confirmed: line 8, currently set to `true`).
-9. Companion screens are generated for phases with meaningful visual output: Phase 4 (scope grid), Phase 4.5 (scope review verdicts), Phase 5 (decomposition + issue preview), Phase 5.5 (team review verdicts), Phase 5.7 (bar raiser verdict), Phase 5.8 (final proposal link). Phases 1-3 and 6 produce minimal structured content and do not generate companion screens — the browser shows a "Phase in progress..." placeholder.
+1. At the start of a groom session (after Phase 1), the skill checks `.pm/config.json` for `visual_companion`. If unset, asks once and persists the answer. If already set, uses the stored value silently.
+2. When enabled, the dashboard server serves a `/session/{slug}` route showing the current phase output as formatted HTML.
+3. Phases 4, 4.5, 5, 5.5, 5.7, and 5.8 write a `current.html` file to `.pm/sessions/groom-{slug}/` summarizing that phase's key output.
+4. Non-visual phases (1-3, 6) show a "Phase in progress..." placeholder in the browser.
+5. Multiple concurrent groom sessions are supported — each at its own `/session/{slug}` URL.
+6. Dashboard home shows active groom sessions with links to their companion pages.
+7. Phase 6 cleans up `.pm/sessions/groom-{slug}/` after issue creation completes.
+8. `.pm/sessions/` is gitignored.
 
 ## User Flows
 
-N/A — infrastructure feature, no user-facing workflow diagram needed. The interaction is: opt-in prompt → browser opens → phase screens auto-update → session ends → cleanup.
+```mermaid
+graph TD
+    A[Phase 1 complete] --> B{visual_companion in config?}
+    B -->|Not set| C[Ask: Want a visual companion?]
+    B -->|true| E[Ensure dashboard server running]
+    B -->|false| D[Terminal-only]
+    C -->|Yes| F[Save true to config]
+    C -->|No| G[Save false to config]
+    G --> D
+    F --> E
+    E --> H[Open /session/slug in browser]
+    H --> I[Placeholder: Phase in progress]
+    I --> J{Phase 4-5.8?}
+    J -->|Yes| K[Write current.html]
+    K --> L[WebSocket reload]
+    L --> M[Browser renders phase summary]
+    M --> J
+    J -->|Phase 6| N[Show final proposal link]
+    N --> O[Clean up session directory]
+    %% Source: pm/research/groom-visual-companion/findings.md — Playwright --ui opt-in pattern
+```
 
 ## Wireframes
 
-N/A — no wireframes for this feature type. The companion screens are generated per-phase by the groom skill, not from a static wireframe.
+N/A — the companion screens are generated per-phase by the groom skill, not designed as static wireframes.
 
 ## Competitor Context
 
-No competitor offers a live visual companion during product grooming sessions. ChatPRD is a chat interface only. PM Skills Marketplace is terminal-only. Productboard Spark has a web UI but it's the primary surface, not a companion to a terminal workflow. PM's approach — terminal for conversation, browser for substance — is unique and plays to the editor-native positioning.
-
-The superpowers brainstorming skill in Claude Code has a visual companion pattern, but it's dev-focused (mockups, diagrams) and doesn't persist across a multi-phase pipeline. PM's version is purpose-built for the groom lifecycle.
+No competitor offers a live visual companion during product grooming. ChatPRD is browser-only. Productboard Spark is browser-only. Kiro is IDE-only. Compound Engineering is terminal-only. MetaGPT X has agent workflow visualization but targets orchestration, not product grooming output. PM's terminal-for-conversation, browser-for-substance approach is unique.
 
 ## Technical Feasibility
 
-**Feasible as scoped.** The EM review found that `scripts/server.js` already has a companion mode with WebSocket live-reload serving HTML files from a screen directory. The `watchDirectoryTree()` + `broadcastDashboard({ type: 'reload' })` pattern is proven. The `/session/{slug}` route is a new dynamic route but follows the same serving pattern as existing dashboard pages.
+**Verdict: Feasible with caveats.**
 
-**Risk:** The `/session/{slug}` route is added to the dashboard server (`createDashboardServer`), requiring it to watch both `pm/` (knowledge base) and `.pm/sessions/` (companion screens). A second `watchDirectoryTree` call handles the sessions directory. The `server.close` patch (line 3141) currently only calls `closeWatchersUnder(pmDir)` — it must be updated to also close watchers under the sessions directory to prevent file handle leaks. The companion mode server (`createCompanionServer`) is NOT used and remains unchanged.
+**Build-on:**
+- `scripts/server.js` — `routeDashboard()` URL dispatch pattern, `watchDirectoryTree()` + `broadcastDashboard()` WebSocket live-reload, `readGroomState()` already parses `.pm/groom-sessions/*.md`
+- `scripts/server.js` — `GROOM_PHASE_LABELS` map for all 10 phases, `parseFrontmatter()` + `renderMarkdown()` inline renderer
+- `.pm/config.json` — `visual_companion` key already referenced in Phase 4 scope grid
 
-**Risk:** Per-phase companion screen generation adds a write step to every phase file. If the LLM skips it under context pressure, the browser shows stale content. Mitigation: the write step should be at the top of each phase (before heavy work), not at the end.
+**Build-new:**
+- `/session/{slug}` route handler in `routeDashboard()`
+- `watchDirectoryTree()` extension to cover `.pm/sessions/`
+- Per-phase HTML write steps in 6 phase files
+- Opt-in prompt in Phase 1 intake
+
+**Key risks:**
+- File path convention must be resolved: phases write to `.pm/sessions/groom-{slug}/current.html`, watcher must cover `.pm/sessions/`
+- WebSocket reload is broadcast to all clients — session A's update also reloads session B's tab. Acceptable for v1.
+- Per-phase HTML quality depends on LLM output consistency. Mitigation: write step at top of each phase, not end.
 
 ## Research Links
 
-- Plugin analysis: superpowers brainstorming visual companion pattern
-- EM scope review: scripts/server.js companion mode already exists with WebSocket
-- Web: CLI Guidelines — "concise by default, verbose when requested"
+- [Groom Visual Companion Patterns](pm/research/groom-visual-companion/findings.md)
 
 ## Notes
 
-- The companion is opt-in, not default — experienced users who prefer terminal-only are not disrupted.
-- The `.pm/config.json` `visual_companion` key is already anticipated by Phase 4's scope grid offer, so the config schema needs no new fields.
-- Cleanup is deferred until user dismissal or 24 hours after Phase 6, so the final companion view remains accessible for review.
+- Companion is opt-in, not default — terminal-only users are not disrupted.
+- Companion mode deprecation is a separate follow-on issue (not in this scope).
+- Success criteria (directional — PM has no product analytics per non-goal #3): companion is the default choice for new users after first exposure (observable via `.pm/config.json` audits across community projects); no companion-related bug reports or friction complaints in the first 30 days post-ship.

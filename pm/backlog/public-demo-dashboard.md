@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-013
 title: "pm:example Onboarding Command"
 outcome: "New users who just installed PM can run /pm:example to see PM's own populated knowledge base dashboard, understand what PM produces, and start their first workflow confidently"
-status: drafted
+status: done
 parent: null
 children:
   - "pm-example-command-skill"

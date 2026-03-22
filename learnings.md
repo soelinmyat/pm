@@ -1,5 +1,22 @@
 # Learnings
 
+## 2026-03-22 — PM-064 Epic (Strategy Narrative Slide Deck)
+
+- **Groom-to-epic pipeline validated again:** Full cycle from groom (research, scope, 3+3 review rounds, bar raiser) through dev-epic (2 sequential S-sized issues) completed smoothly. Reduced ceremony for groomed issues worked — zero rework.
+- **Two-issue sequential epics are fast:** PM-065 and PM-066 went from plan to merged PR in one pass each. Clean dependency chain — PM-066 extended PM-065's template without conflicts.
+- **Epic review catches real contract issues:** Reviewer found PM-066 silently dropped a PM-065 base slide (positioning text), breaking the 7-slide baseline guarantee. Fixed by merging the positioning map into the existing base slide as a conditional enhancement.
+
+## 2026-03-21 — PM-057 Epic (Remove Commands)
+
+- **Cross-epic rebase conflicts are manageable:** PM-059 branch was behind main (missing PM-055/PM-056 from a concurrent epic). Rebase had 3 README.md conflicts where both epics rewrote the same sections — resolved cleanly by taking the skill-only version.
+- **Two-issue epics are fast:** One issue already shipped from a prior session. Remaining documentation issue went from dispatch to merged PR in one pass — 6 commits, 10 files, no blockers.
+
+## 2026-03-21 — PM-052 Epic (Groom-Centric Entry Point)
+
+- **3-wave execution with parallel final wave works cleanly:** 4 sub-issues across 3 waves (1+1+2 parallel). PM-055 [docs] and PM-056 [scripts] ran in parallel with zero merge conflicts — different file sets. Total: 4 PRs (#52-#56), ~14 files changed.
+- **Epic review catches cross-plan messaging gaps:** Architect and Integration reviewers both flagged that server.js pm-not-found guards still said "/pm:setup" while all other surfaces led with "/pm:groom". Fixed in PM-056 plan before implementation.
+- **Groom-to-epic handoff continues to validate:** Second consecutive epic groomed through full pm:groom pipeline then implemented via dev-epic. Reduced ceremony (skip brainstorm+spec) worked again — zero rework.
+
 ## 2026-03-21 — PM-044 Epic (Merge PM + Dev Plugins)
 
 - **4-wave parallelism works for infrastructure epics:** 7 sub-issues across 4 waves (2+3+1+1), all groomed. Zero merge conflicts despite touching overlapping skill files — wave ordering solved this. Total: 7 PRs (#38-#44), ~143 files changed.
