@@ -462,14 +462,7 @@ nav a { color: rgba(255,255,255,0.6); font-size: 0.8125rem; padding: 0 0.875rem;
 nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
 nav a.active { color: #fff; border-bottom-color: var(--accent); }
 nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* Secondary nav */
-nav.nav-secondary { background: var(--dark); padding: 0 1.5rem; display: flex; gap: 0;
-  align-items: stretch; min-height: 36px; border-top: 1px solid rgba(255,255,255,0.08); }
-nav.nav-secondary a { color: rgba(255,255,255,0.45); font-size: 0.75rem; padding: 0 0.75rem;
-  display: flex; align-items: center; border-bottom: 2px solid transparent;
-  transition: color var(--transition), border-color var(--transition); text-decoration: none; }
-nav.nav-secondary a:hover { color: rgba(255,255,255,0.75); text-decoration: none; }
-nav.nav-secondary a.active { color: rgba(255,255,255,0.9); border-bottom-color: var(--accent); }
+.nav-divider { width: 1px; background: rgba(255,255,255,0.15); margin: 0.625rem 0.5rem; align-self: stretch; }
 
 /* Layout */
 .container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
@@ -877,16 +870,14 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
   ];
   const secondaryLinks = [
     { href: '/kb?tab=research', label: 'Landscape' },
-    { href: '/kb?tab=strategy', label: 'Strategy' },
     { href: '/kb?tab=competitors', label: 'Competitors' },
-    { href: '/research', label: 'Research' },
+    { href: '/kb?tab=strategy', label: 'Strategy' },
+    { href: '/kb?tab=topics', label: 'Topics' },
   ];
-  const primaryHtml = primaryLinks.map(l =>
-    `<a href="${l.href}"${activeNav === l.href ? ' class="active"' : ''}>${l.label}</a>`
-  ).join('');
-  const isKbActive = activeNav === '/kb' || (activeNav && activeNav.startsWith('/kb?'));
-  const secondaryHtml = secondaryLinks.map(l => {
-    const active = activeNav === l.href || (isKbActive && l.href.startsWith('/kb?') && activeNav === '/kb');
+  const allLinks = [...primaryLinks, { divider: true }, ...secondaryLinks];
+  const linksHtml = allLinks.map(l => {
+    if (l.divider) return '<span class="nav-divider"></span>';
+    const active = activeNav === l.href;
     return `<a href="${l.href}"${active ? ' class="active"' : ''}>${l.label}</a>`;
   }).join('');
 
@@ -903,10 +894,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <body>
 <nav>
   <span class="brand">${escHtml(projectName)}</span>
-  ${primaryHtml}
-</nav>
-<nav class="nav-secondary">
-  ${secondaryHtml}
+  ${linksHtml}
 </nav>
 <div class="container">
 ${bodyContent}
@@ -1105,6 +1093,15 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === '/strategy') {
     // Redirect old route to KB
     res.writeHead(302, { 'Location': '/kb?tab=strategy' }); res.end();
+  } else if (urlPath === '/strategy-deck') {
+    const deckPath = path.join(pmDir, 'strategy-deck.html');
+    if (fs.existsSync(deckPath)) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(fs.readFileSync(deckPath, 'utf-8'));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(dashboardPage('Not Found', '/kb?tab=strategy', '<div class="empty-state"><p>No strategy deck found.</p><p>Run <code>/pm:strategy deck</code> to generate one.</p></div>'));
+    }
   } else if (urlPath.startsWith('/competitors/')) {
     const slug = urlPath.slice('/competitors/'.length).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
@@ -1667,8 +1664,10 @@ function handleDashboardHome(res, pmDir) {
   const researchDesc = researchHasContent ? researchParts.join(' · ') : 'Landscape, competitors, and topic research';
 
   const kbItems = [
-    { href: '/kb?tab=research', label: 'Research', hasContent: researchHasContent, desc: researchDesc, key: 'research' },
+    { href: '/kb?tab=research', label: 'Landscape', hasContent: !!stats.landscape, desc: stats.landscape ? 'Market landscape overview' : 'Run /pm:research landscape', key: 'research' },
+    { href: '/kb?tab=competitors', label: 'Competitors', hasContent: stats.competitors > 0, desc: stats.competitors > 0 ? `${stats.competitors} competitor${stats.competitors !== 1 ? 's' : ''} profiled` : 'Run /pm:research competitors', key: 'research' },
     { href: '/kb?tab=strategy', label: 'Strategy', hasContent: !!stats.strategy, desc: 'Product strategy and roadmap', key: 'strategy' },
+    { href: '/kb?tab=topics', label: 'Topics', hasContent: stats.research > 0, desc: stats.research > 0 ? `${stats.research} topic${stats.research !== 1 ? 's' : ''} researched` : 'Run /pm:research <topic>', key: 'research' },
     { href: '/backlog', label: 'Backlog', hasContent: stats.backlog > 0, desc: `${stats.backlog} item${stats.backlog !== 1 ? 's' : ''}`, key: 'backlog' },
   ].map(item => {
     const badge = item.hasContent
@@ -2713,9 +2712,8 @@ function parseCompetitorSummary(raw) {
 }
 
 function handleKnowledgeBasePage(res, pmDir, tab) {
-  const validTabs = ['research', 'competitors', 'strategy'];
+  const validTabs = ['research', 'competitors', 'strategy', 'topics'];
   const activeTab = validTabs.includes(tab) ? tab : 'research';
-  const subTabs = buildKbSubTabs(activeTab);
 
   let contentHtml = '';
   let title = 'Knowledge Base';
@@ -2738,30 +2736,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
       landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
     }
 
-    // Topics
-    let topicsHtml = '';
-    const researchDir = path.join(pmDir, 'research');
-    if (fs.existsSync(researchDir)) {
-      const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-        .filter(e => e.isDirectory());
-      if (topics.length > 0) {
-        const cards = topics.map(t => {
-          const findingsPath = path.join(researchDir, t.name, 'findings.md');
-          if (!fs.existsSync(findingsPath)) return '';
-          const raw = fs.readFileSync(findingsPath, 'utf-8');
-          const { data } = parseFrontmatter(raw);
-          const meta = buildTopicMeta(t.name, data, findingsPath);
-          return `<div class="card">
-            <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
-            <p class="meta">${escHtml(meta.subtitle)}</p>
-            <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View →</a></div>
-          </div>`;
-        }).join('');
-        topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
-      }
-    }
-
-    contentHtml = '<div class="page-header"><h1>Research</h1></div>' + landscapeHtml + topicsHtml;
+    contentHtml = '<div class="page-header"><h1>Landscape</h1></div>' + landscapeHtml;
   } else if (activeTab === 'strategy') {
     title = 'Knowledge Base — Strategy';
     const filePath = path.join(pmDir, 'strategy.md');
@@ -2772,7 +2747,11 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = parseFrontmatter(raw);
       const rendered = renderStrategyWithViz(parsed.body);
-      contentHtml = '<div class="page-header"><h1>Strategy</h1></div>' +
+      const deckExists = fs.existsSync(path.join(pmDir, 'strategy-deck.html'));
+      const deckBtn = deckExists
+        ? '<a href="/strategy-deck" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;background:var(--accent,#2563eb);color:#fff;border-radius:8px;text-decoration:none;font-size:0.85rem;font-weight:600;">&#9654; View as Presentation</a>'
+        : '';
+      contentHtml = '<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;"><h1>Strategy</h1>' + deckBtn + '</div>' +
         '<div class="markdown-body">' + rendered + '</div>';
     }
   } else if (activeTab === 'competitors') {
@@ -2796,10 +2775,36 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     }
     contentHtml = '<div class="page-header"><h1>Competitors</h1></div>' +
       (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to profile competitors.</p></div>');
+  } else if (activeTab === 'topics') {
+    title = 'Knowledge Base — Topics';
+    let topicsHtml = '';
+    const researchDir = path.join(pmDir, 'research');
+    if (fs.existsSync(researchDir)) {
+      const topics = fs.readdirSync(researchDir, { withFileTypes: true })
+        .filter(e => e.isDirectory());
+      if (topics.length > 0) {
+        const cards = topics.map(t => {
+          const findingsPath = path.join(researchDir, t.name, 'findings.md');
+          if (!fs.existsSync(findingsPath)) return '';
+          const raw = fs.readFileSync(findingsPath, 'utf-8');
+          const { data } = parseFrontmatter(raw);
+          const meta = buildTopicMeta(t.name, data, findingsPath);
+          return `<div class="card">
+            <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
+            <p class="meta">${escHtml(meta.subtitle)}</p>
+            <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
+          </div>`;
+        }).join('');
+        topicsHtml = '<div class="card-grid">' + cards + '</div>';
+      }
+    }
+    contentHtml = '<div class="page-header"><h1>Topics</h1><p class="subtitle">Deep-dive research on specific areas</p></div>' +
+      (topicsHtml || '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>');
   }
 
-  const body = subTabs + contentHtml;
-  const html = dashboardPage(title, '/kb', body);
+  const body = contentHtml;
+  const activeSecondaryNav = '/kb?tab=' + activeTab;
+  const html = dashboardPage(title, activeSecondaryNav, body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }

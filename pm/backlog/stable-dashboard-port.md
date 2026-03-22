@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-043"
 title: "Stable dashboard port via project-path hashing"
 outcome: "Users can bookmark and return to the PM dashboard without reconfiguring it after each session"
-status: approved
+status: done
 parent: null
 children: []
 labels:

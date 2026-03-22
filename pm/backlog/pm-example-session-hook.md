@@ -3,7 +3,7 @@ type: backlog-issue
 id: PM-022
 title: "Surface pm:example in SessionStart hook"
 outcome: "Users who haven't configured PM see /pm:example suggested in the session start message"
-status: drafted
+status: done
 parent: "public-demo-dashboard"
 children: []
 labels:
