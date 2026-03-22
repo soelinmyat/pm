@@ -143,7 +143,7 @@ Generate using the positioning-map template if accepted.
 
 ## Slide Deck
 
-If the user has `visual_companion: true` in `.pm/config.json`, automatically generate the strategy deck after writing `pm/strategy.md`. No need to ask — just generate it and open it.
+Always generate the strategy deck after writing or updating `pm/strategy.md`. The deck is a persistent artifact viewable from the dashboard — no config gate needed.
 
 Say: "Generating strategy deck..."
 
