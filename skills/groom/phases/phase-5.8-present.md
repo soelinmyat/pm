@@ -61,14 +61,14 @@ Before opening the proposal, verify these three things:
 
 If any check fails, fix it before proceeding.
 
-#### Step 2: Open in browser and notify
+#### Step 2: Open in dashboard and notify
 
-```bash
-open pm/backlog/proposals/{topic-slug}.html
-```
+Follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md`:
+- Ensure dashboard is running
+- Open `http://localhost:{port}/proposals/{topic-slug}`
 
 Tell the user:
-> "Proposal for '{topic}' is ready — opening in your browser now.
+> "Proposal for '{topic}' ready — opening in dashboard.
 > File: `pm/backlog/proposals/{topic-slug}.html`
 >
 > Ready to create these issues, or would you like changes?"

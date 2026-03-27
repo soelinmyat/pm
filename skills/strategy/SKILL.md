@@ -172,7 +172,7 @@ Say: "Generating strategy deck..."
    - Generate per-slide provenance footers for enriched slides (`{{DECK_PROVENANCE_*}}`).
 5. **Strip conditional blocks** — remove `<!-- BEGIN:X -->...<!-- END:X -->` blocks for unavailable data sources.
 6. **Replace all `{{...}}` tokens** in the template with generated content.
-7. **Write** the final HTML to `pm/strategy-deck.html` and open in the browser.
+7. **Write** the final HTML to `pm/strategy-deck.html` and open in the dashboard. Follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md` — open `http://localhost:{port}/strategy-deck`.
 
 The deck synthesizes from `pm/strategy.md` (required), `pm/landscape.md` (optional), and `pm/competitors/` (optional). Missing optional sources result in fewer slides, not errors.
 

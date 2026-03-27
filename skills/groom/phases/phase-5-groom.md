@@ -67,14 +67,12 @@ If the feature type is UI, generate a standalone HTML wireframe file:
    [Wireframe preview](pm/backlog/wireframes/{issue-slug}.html)
    ```
 
-6. **Open the wireframe in the browser** immediately after writing it:
-   ```bash
-   open pm/backlog/wireframes/{parent-issue-slug}.html
-   ```
-   Tell the user:
-   > "Wireframe created at `pm/backlog/wireframes/{parent-issue-slug}.html` — opening in your browser now."
-
-The HTML wireframe file also works standalone — users can open it directly in any browser. The PM dashboard embeds it via iframe on the backlog detail page.
+6. **Open the wireframe in the dashboard** immediately after writing it. Follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md`:
+   - Ensure dashboard is running
+   - Open `http://localhost:{port}/backlog/wireframes/{parent-issue-slug}`
+   - Tell the user:
+     > "Wireframe ready — opening in dashboard."
+     > File: `pm/backlog/wireframes/{parent-issue-slug}.html`
 
 #### Step 3: Decompose
 

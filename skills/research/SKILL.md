@@ -112,7 +112,7 @@ First research activity in a new project. Produces the market overview that make
 
 4. **Write `pm/landscape.md`** (see structure below). Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
 
-5. **Visual companion.** If `visual_companion: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the landscape and positioning map visually.
+5. **Open dashboard.** If `visual_companion: true` in `.pm/config.json`: follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md` — open `http://localhost:{port}/kb?tab=research` so the user can review the landscape and positioning map.
 
 ### Landscape Document Structure
 
@@ -276,7 +276,7 @@ Only proceed to synthesis after all files are present.
    - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `updated:` date in frontmatter.
-5. **Launch dashboard.** If `visual_companion: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the updated landscape, positioning map, and competitor profiles visually.
+5. **Open dashboard.** If `visual_companion: true` in `.pm/config.json`: follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md` — open `http://localhost:{port}/kb?tab=competitors` so the user can review the updated profiles and positioning map.
 
 ### Cost Guardrail
 
