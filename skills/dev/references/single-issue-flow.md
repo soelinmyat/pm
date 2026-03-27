@@ -805,24 +805,26 @@ Max 5 findings.
 
 ### Auto-Merge (XS/S)
 
-After code scan passes, automatically commit, merge to main, and clean up. **No user prompt, no options menu.**
+After code scan passes, automatically commit and merge. **No user prompt, no options menu.**
+
+**Repo policy check:** If the repo requires PRs (branch protection detected at intake, or pre-push hooks reject direct pushes), use the M/L/XL PR flow instead of direct merge. Log: "XS/S: branch protection detected, using PR flow."
 
 **Verification gate (mandatory before every merge):** Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely on recalled test results from earlier in the session. Evidence before claims, always. No "should pass" or "looks correct" -- run it, read it, then merge.
 
-#### XS path (no worktree, no branch — working directly on main)
+#### XS path (no worktree, no branch — working directly on default branch)
 
 ```bash
-# 1. Run tests on main (verification-before-completion)
+# 1. Run tests (verification-before-completion)
 <project-test-command>
 
-# 2. Commit if there are real changes
+# 2. Commit if there are real changes (stage specific files, never git add -A)
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add -A
+  git add <specific-files>
   git commit -m "<type>: <description>"
 fi
 
-# 3. Push main
-git push origin main
+# 3. Push
+git push origin $(git branch --show-current)
 ```
 
 #### S path (worktree + feature branch)
@@ -832,28 +834,28 @@ git push origin main
 cd <feature-worktree>
 <project-test-command>
 
-# 2. Commit only if there are real changes
+# 2. Commit only if there are real changes (stage specific files, never git add -A)
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add -A
+  git add <specific-files>
   git commit -m "<type>: <description>"
 fi
 
 # 3. Switch to main repo and update
 cd <main-repo>
 git fetch origin
-git checkout main
-git pull --ff-only origin main
+git checkout {DEFAULT_BRANCH}
+git pull --ff-only origin {DEFAULT_BRANCH}
 
 # 4. Merge feature branch
-if ! git merge-base --is-ancestor <feature-branch> main; then
+if ! git merge-base --is-ancestor <feature-branch> {DEFAULT_BRANCH}; then
   git merge --no-ff <feature-branch>
 fi
 
-# 5. Verify on merged main
+# 5. Verify on merged default branch
 <project-test-command>
 
-# 6. Push main
-git push origin main
+# 6. Push
+git push origin {DEFAULT_BRANCH}
 
 # 7. Clean up worktree + branch
 git worktree remove <feature-worktree> 2>/dev/null || \

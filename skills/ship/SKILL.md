@@ -65,10 +65,12 @@ Run: `git fetch origin main && git log HEAD..origin/main --oneline`
 
 ## Step 3: Review
 
-Run the `/review` command in branch mode (no PR number argument):
+**Skip if already reviewed:** Check `.pm/dev-sessions/*.md` for the current branch. If the state file shows `Review gate: passed` and no new commits exist since that review (compare commit SHA), skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
+
+**Otherwise:** Run the `/review` command in branch mode (no PR number argument):
 
 ```
-Invoke /review (no arguments — it will diff current branch against main)
+Invoke /review (no arguments — it will diff current branch against the default branch)
 ```
 
 This runs review agents in parallel, auto-fixes all findings, and commits fixes.

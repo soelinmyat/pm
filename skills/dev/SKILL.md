@@ -22,7 +22,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
 - No PR without passing the review gate (M/L/XL) — `/review` MUST run before push
 - No auto-merge without passing the code scan gate (XS/S) — lightweight bug scan before merge
-- XS/S auto-merge to main after implementation (no PR, no manual merge)
+- XS/S auto-merge to the default branch after implementation — unless the repo requires PRs (branch protection), in which case use the PR flow
 - M/L/XL gets full PR + review flow + auto-merge after readiness gates pass
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
@@ -164,6 +164,18 @@ Before running multi-step commands:
 - Confirm target paths exist (`test -d`, `test -f`)
 - Confirm branch/worktree context (`git branch --show-current`, `git worktree list`)
 - Prefer idempotent commands (`pull --ff-only`, guarded `git branch -d`)
+
+### Default branch detection (all flows)
+
+Never hardcode `main` as the default branch. Detect it at intake:
+
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
+```
+
+Store in the state file and use `{DEFAULT_BRANCH}` everywhere instead of literal `main`. Pass to subagents in their prompts.
 
 ### Pre-commit validation (all flows)
 
