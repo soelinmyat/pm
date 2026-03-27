@@ -58,6 +58,38 @@ Glob for `.pm/dev-sessions/epic-*.md` (and legacy `.dev-epic-state-*.md` at repo
 
 ---
 
+## Stage 0: Preflight Check
+
+Run before any epic work begins. Takes ~30 seconds, prevents hours of wasted work.
+
+```bash
+# 1. Git state — must be clean
+git status --porcelain
+# If output is non-empty: STOP. List dirty files, ask user to resolve.
+
+# 2. Branch — should be on main with latest
+git branch --show-current  # Should be main
+git fetch origin
+git log HEAD..origin/main --oneline  # Should be empty (up to date)
+# If behind: run `git pull --ff-only origin main`
+
+# 3. Stale worktrees — from prior failed epics
+git worktree list
+# If worktrees other than main exist: list them, ask user whether to remove
+
+# 4. GitHub auth — needed for PRs
+gh auth status 2>&1
+# If not authenticated: STOP, tell user to run `gh auth login`
+
+# 5. Stale state files — from prior sessions
+ls .pm/dev-sessions/epic-*.md 2>/dev/null
+# If found: list with last-modified date, ask user whether to resume or discard
+```
+
+If any check fails, report all issues together (don't stop at the first one) and ask the user to resolve before proceeding.
+
+---
+
 ## Stage 1: Intake
 
 ### 1.1 Fetch issues
