@@ -21,7 +21,7 @@ Review (or code scan) -> Verification -> Push + PR ->
 
 These apply to every commit you make:
 - NEVER use `git add -A` or `git add .` — always stage specific files by name
-- NEVER commit to main — verify you're on the correct branch: `git branch --show-current`
+- NEVER commit to {DEFAULT_BRANCH} — verify you're on the correct branch: `git branch --show-current`
 - NEVER commit without running tests first
 - Commit often, commit small — one logical change per commit
 - If you see untracked files you didn't create, leave them alone
@@ -51,7 +51,7 @@ Invoke `/simplify` via the Skill tool. Fix real findings. Run tests. Commit.
 
 ## Step 4: Design Critique (if UI changes)
 
-Check: `git diff main...HEAD --name-only | grep -E '\.(tsx|jsx|css)$'`
+Check: `git diff {DEFAULT_BRANCH}...HEAD --name-only | grep -E '\.(tsx|jsx|css)$'`
 
 If matches found:
 
@@ -87,7 +87,7 @@ If `/design-critique` is not available: log "Design critique: skipped (not avail
 ```
 You are a Code Reviewer scanning for genuine bugs.
 
-**Diff:** {git diff main...HEAD}
+**Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
 **Changed files:** {list}
 
 Read AGENTS.md for conventions. Check:
@@ -107,14 +107,14 @@ Fix findings. Commit.
 ## Step 6: Push + PR
 
 ```bash
-# Merge latest main
-git fetch origin main && git merge origin/main --no-edit
+# Merge latest {DEFAULT_BRANCH}
+git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 
 # Push
 git push origin {BRANCH}
 
 # Create PR
-gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base main
+gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```
 
 ### Parallel mode: STOP here
@@ -125,7 +125,7 @@ SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N}
 ```
 
 The orchestrator will send a "Merge now" message when it's your turn. When you receive it:
-1. Rebase on latest main: `git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}`
+1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}`
 2. Squash merge: `gh api repos/{OWNER}/{REPO}/pulls/{PR}/merge -X PUT -f merge_method=squash -f commit_title="feat({ISSUE_ID}): {slug} (#{PR})"`
 3. Continue to Step 7 (Cleanup) and Step 8 (report "Merged.").
 
@@ -141,10 +141,10 @@ gh api repos/{OWNER}/{REPO}/pulls/{PR}/merge -X PUT -f merge_method=squash \
 **XS/S sub-issues (auto-merge, no branch protection):**
 ```bash
 cd {REPO_ROOT}
-git checkout main
-git pull --ff-only origin main
+git checkout {DEFAULT_BRANCH}
+git pull --ff-only origin {DEFAULT_BRANCH}
 git merge {BRANCH} --no-ff -m "feat({ISSUE_ID}): {title}"
-git push origin main
+git push origin {DEFAULT_BRANCH}
 ```
 
 **XS/S with branch protection:** use the PR flow above.
@@ -153,7 +153,7 @@ git push origin main
 
 ```bash
 cd {REPO_ROOT}
-git checkout -B main origin/main
+git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
 git worktree remove {CWD}
 git branch -D {BRANCH}
 git fetch --prune
