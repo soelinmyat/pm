@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-063"
 title: "Reduce groom retro to a single question"
 outcome: "Users finish groom sessions without unnecessary ceremony — one retro question instead of three"
-status: approved
+status: done
 parent: null
 children: []
 labels:
@@ -12,7 +12,7 @@ labels:
 priority: medium
 research_refs: []
 created: 2026-03-22
-updated: 2026-03-22
+updated: 2026-03-27
 ---
 
 ## Outcome
