@@ -792,16 +792,38 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   text-transform: uppercase; letter-spacing: 0.05em; }
 .positioning-map .map-container { position: relative; }
 
-/* Active groom session banner */
+/* Active session banners */
+a.groom-session { text-decoration: none; display: flex; }
+a.groom-session:hover { background: #dbeafe; }
 .groom-session { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: var(--radius);
-  padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem; }
-.groom-session-dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%;
+  padding: 1rem 1.25rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 1rem;
+  transition: background var(--transition); }
+.groom-session-dot { width: 10px; height: 10px; border-radius: 50%;
   flex-shrink: 0; animation: pulse 2s ease-in-out infinite; }
 .groom-session-topic { font-weight: 600; font-size: 0.9375rem; color: var(--text); }
 .groom-session-meta { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
 .groom-session-label { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; }
+  letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; margin-top: 1.5rem; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Session hub page */
+.session-status { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.session-status-row { margin-bottom: 0.375rem; font-size: 0.875rem; }
+.session-status-row:last-child { margin-bottom: 0; }
+.session-artifact { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1.25rem; margin-bottom: 1rem; }
+.session-artifact h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+.session-artifact a { color: var(--accent); text-decoration: none; }
+.session-artifact a:hover { text-decoration: underline; }
+.session-issue { padding: 0.375rem 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+.session-issue:last-child { border-bottom: none; }
+.verdicts-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.verdicts-table td { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--border); }
+.back-link { color: var(--text-muted); text-decoration: none; font-size: 0.8125rem; }
+.back-link:hover { color: var(--accent); }
+.badge-groom { background: #dbeafe; color: #1d4ed8; }
+.badge-dev { background: #dcfce7; color: #15803d; }
 
 /* KB sub-tabs */
 .kb-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
@@ -1130,6 +1152,13 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  } else if (urlPath.startsWith('/session/')) {
+    const slug = decodeURIComponent(urlPath.slice('/session/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleSessionPage(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
   } else if (urlPath.startsWith('/proposals/')) {
@@ -1293,6 +1322,51 @@ function readGroomState(pmDir) {
   return sessions;
 }
 
+function readDevState(pmDir) {
+  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'dev-sessions');
+  const sessions = [];
+
+  try {
+    const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(sessionsDir, file), 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        // Dev state files use a table format, not frontmatter — parse the table
+        const stageMatch = raw.match(/\|\s*Stage\s*\|\s*(.+?)\s*\|/i);
+        const sizeMatch = raw.match(/\|\s*Size\s*\|\s*(.+?)\s*\|/i);
+        const ticketMatch = raw.match(/\|\s*Ticket\s*\|\s*(.+?)\s*\|/i);
+        const branchMatch = raw.match(/\|\s*Branch\s*\|\s*(.+?)\s*\|/i);
+        const slug = file.replace('.md', '');
+        const stat = fs.statSync(path.join(sessionsDir, file));
+        sessions.push({
+          _slug: slug,
+          _type: 'dev',
+          _mtime: stat.mtimeMs,
+          topic: data.topic || slug.replace(/-/g, ' '),
+          stage: stageMatch ? stageMatch[1].trim() : (data.stage || ''),
+          size: sizeMatch ? sizeMatch[1].trim() : (data.size || ''),
+          ticket: ticketMatch ? ticketMatch[1].trim() : (data.ticket || ''),
+          branch: branchMatch ? branchMatch[1].trim() : (data.branch || ''),
+        });
+      } catch {}
+    }
+  } catch {}
+
+  return sessions;
+}
+
+function readAllActiveSessions(pmDir) {
+  const groomSessions = readGroomState(pmDir).map(s => {
+    const sessionsDir = path.resolve(pmDir, '..', '.pm', 'groom-sessions');
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(sessionsDir, (s._slug || '') + '.md')).mtimeMs; } catch {}
+    return { ...s, _type: 'groom', _mtime: mtime };
+  });
+  const devSessions = readDevState(pmDir);
+  return [...groomSessions, ...devSessions].sort((a, b) => (b._mtime || 0) - (a._mtime || 0));
+}
+
 function groomSessionDisplay(session) {
   const slug = session._slug ? escHtml(session._slug) : '';
   return {
@@ -1301,6 +1375,18 @@ function groomSessionDisplay(session) {
     started: escHtml(session.started || ''),
     slug,
     resumeHint: slug ? `/pm:groom ${slug}` : '/pm:groom',
+  };
+}
+
+function devSessionDisplay(session) {
+  const slug = session._slug ? escHtml(session._slug) : '';
+  return {
+    topic: escHtml(session.topic || slug.replace(/-/g, ' ')),
+    stage: escHtml(session.stage || 'unknown'),
+    size: escHtml(session.size || ''),
+    ticket: escHtml(session.ticket || ''),
+    branch: escHtml(session.branch || ''),
+    slug,
   };
 }
 
@@ -1708,9 +1794,9 @@ function handleDashboardHome(res, pmDir) {
   } else if (stats.competitors === 0) {
     suggestedNext = 'Run <code>/pm:research competitors</code> to profile competitors';
   } else if (stats.backlog === 0) {
-    suggestedNext = 'Run <code>/pm:ideate</code> to generate feature ideas from your knowledge base';
+    suggestedNext = 'Run <code>/pm:groom ideate</code> to generate feature ideas from your knowledge base';
   } else {
-    suggestedNext = 'Run <code>/pm:ideate</code> to discover new opportunities';
+    suggestedNext = 'Run <code>/pm:groom ideate</code> to discover new opportunities';
   }
 
   const suggestedHtml = `<div class="suggested-next">
@@ -1720,22 +1806,36 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
-  // Active groom session banner(s) — read once and reuse for proposal cards
+  // Active sessions (groom + dev) — read once and reuse for proposal cards
   const groomSessions = readGroomState(pmDir);
-  let groomBannerHtml = '';
-  if (groomSessions.length > 0) {
-    const label = groomSessions.length === 1 ? 'Currently grooming' : `Currently grooming (${groomSessions.length} sessions)`;
-    const sessionItems = groomSessions.map(s => {
-      const d = groomSessionDisplay(s);
-      return `<div class="groom-session">
-  <div class="groom-session-dot"></div>
+  const allSessions = readAllActiveSessions(pmDir);
+  let sessionBannerHtml = '';
+  if (allSessions.length > 0) {
+    const label = allSessions.length === 1 ? 'Active Session' : `Active Sessions (${allSessions.length})`;
+    const sessionItems = allSessions.map(s => {
+      const slug = s._slug || '';
+      const link = slug ? `/session/${encodeURIComponent(slug)}` : '#';
+      if (s._type === 'groom') {
+        const d = groomSessionDisplay(s);
+        return `<a href="${link}" class="groom-session">
+  <div class="groom-session-dot" style="background:#2563eb"></div>
   <div>
     <div class="groom-session-topic">${d.topic}</div>
-    <div class="groom-session-meta">Phase: ${d.phase} · Started ${d.started}</div>
+    <div class="groom-session-meta">Grooming · Phase: ${d.phase} · Started ${d.started}</div>
   </div>
-</div>`;
+</a>`;
+      } else {
+        const d = devSessionDisplay(s);
+        return `<a href="${link}" class="groom-session">
+  <div class="groom-session-dot" style="background:#16a34a"></div>
+  <div>
+    <div class="groom-session-topic">${d.topic}</div>
+    <div class="groom-session-meta">Dev · Stage: ${d.stage}${d.size ? ' · ' + d.size : ''}${d.branch ? ' · ' + d.branch : ''}</div>
+  </div>
+</a>`;
+      }
     }).join('\n');
-    groomBannerHtml = `\n<div class="groom-session-label">${label}</div>\n${sessionItems}`;
+    sessionBannerHtml = `\n<div class="groom-session-label">${label}</div>\n${sessionItems}`;
   }
 
   // Proposal cards section — pass pre-loaded sessions to avoid redundant I/O
@@ -1756,7 +1856,7 @@ function handleDashboardHome(res, pmDir) {
   }
 
   let body;
-  if (proposalCount === 0 && groomSessions.length === 0) {
+  if (proposalCount === 0 && allSessions.length === 0) {
     // Empty state — prominent "Start Grooming" CTA
     body = `
 <div class="page-header">
@@ -1777,13 +1877,198 @@ ${kbReferenceHtml}`;
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
-${groomBannerHtml}
+${sessionBannerHtml}
 ${proposalsHtml}
 ${suggestedHtml}
 ${kbReferenceHtml}`;
   }
 
   const html = dashboardPage('Home', '/', body, projectName);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleSessionPage(res, pmDir, slug) {
+  const projectName = getProjectName(pmDir);
+  const rootDir = path.resolve(pmDir, '..');
+  const pmRoot = path.resolve(rootDir, '.pm');
+
+  // Find the session — check groom first, then dev
+  let sessionType = null;
+  let sessionData = null;
+  let sessionRaw = '';
+
+  const groomPath = path.join(pmRoot, 'groom-sessions', slug + '.md');
+  const devPath = path.join(pmRoot, 'dev-sessions', slug + '.md');
+
+  if (fs.existsSync(groomPath)) {
+    sessionType = 'groom';
+    sessionRaw = fs.readFileSync(groomPath, 'utf-8');
+    const { data } = parseFrontmatter(sessionRaw);
+    sessionData = data;
+  } else if (fs.existsSync(devPath)) {
+    sessionType = 'dev';
+    sessionRaw = fs.readFileSync(devPath, 'utf-8');
+    const { data } = parseFrontmatter(sessionRaw);
+    sessionData = data;
+  }
+
+  if (!sessionType) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Session Not Found', '/', `
+<div class="empty-state">
+  <p>No session found for <code>${escHtml(slug)}</code>.</p>
+  <p><a href="/">&larr; Back to Home</a></p>
+</div>`, projectName));
+    return;
+  }
+
+  const title = escHtml(sessionData.topic || slug.replace(/-/g, ' '));
+  const typeBadge = sessionType === 'groom'
+    ? '<span class="badge badge-groom">Grooming</span>'
+    : '<span class="badge badge-dev">Development</span>';
+
+  // Build artifact sections
+  const sections = [];
+
+  // --- Session status ---
+  if (sessionType === 'groom') {
+    const phase = groomPhaseLabel(sessionData.phase || '');
+    const started = sessionData.started || '';
+    sections.push(`<div class="session-status">
+  <div class="session-status-row"><strong>Phase:</strong> ${escHtml(phase)}</div>
+  <div class="session-status-row"><strong>Started:</strong> ${escHtml(started)}</div>
+  <div class="session-status-row"><strong>Resume:</strong> <code>/pm:groom ${escHtml(slug)}</code></div>
+</div>`);
+  } else {
+    const stageMatch = sessionRaw.match(/\|\s*Stage\s*\|\s*(.+?)\s*\|/i);
+    const sizeMatch = sessionRaw.match(/\|\s*Size\s*\|\s*(.+?)\s*\|/i);
+    const branchMatch = sessionRaw.match(/\|\s*Branch\s*\|\s*(.+?)\s*\|/i);
+    const ticketMatch = sessionRaw.match(/\|\s*Ticket\s*\|\s*(.+?)\s*\|/i);
+    sections.push(`<div class="session-status">
+  <div class="session-status-row"><strong>Stage:</strong> ${escHtml(stageMatch ? stageMatch[1].trim() : 'unknown')}</div>
+  <div class="session-status-row"><strong>Size:</strong> ${escHtml(sizeMatch ? sizeMatch[1].trim() : '')}</div>
+  ${branchMatch ? `<div class="session-status-row"><strong>Branch:</strong> <code>${escHtml(branchMatch[1].trim())}</code></div>` : ''}
+  ${ticketMatch ? `<div class="session-status-row"><strong>Ticket:</strong> ${escHtml(ticketMatch[1].trim())}</div>` : ''}
+</div>`);
+  }
+
+  // --- Research findings ---
+  const researchLocation = sessionData.research_location;
+  if (researchLocation) {
+    const findingsPath = path.join(rootDir, researchLocation, 'findings.md');
+    if (fs.existsSync(findingsPath)) {
+      const raw = fs.readFileSync(findingsPath, 'utf-8');
+      const { body } = parseFrontmatter(raw);
+      const summaryMatch = body.match(/## Summary\s*\n([\s\S]*?)(?=\n##|\n$)/);
+      const summary = summaryMatch ? renderMarkdown(summaryMatch[1].trim()) : '<em>No summary</em>';
+      const topicSlug = researchLocation.replace(/.*\//, '');
+      sections.push(`<div class="session-artifact">
+  <h3>Research</h3>
+  ${summary}
+  <a href="/research/${encodeURIComponent(topicSlug)}">View full findings &rarr;</a>
+</div>`);
+    }
+  }
+
+  // --- Wireframes ---
+  const wireframesDir = path.join(pmDir, 'backlog', 'wireframes');
+  if (fs.existsSync(wireframesDir)) {
+    const wfFiles = fs.readdirSync(wireframesDir).filter(f => f.endsWith('.html') && f.includes(slug));
+    if (wfFiles.length > 0) {
+      const wfLinks = wfFiles.map(f => {
+        const wfSlug = f.replace('.html', '');
+        return `<a href="/backlog/wireframes/${encodeURIComponent(wfSlug)}">${escHtml(wfSlug)}</a>`;
+      }).join(', ');
+      sections.push(`<div class="session-artifact">
+  <h3>Wireframes</h3>
+  <p>${wfLinks}</p>
+</div>`);
+    }
+  }
+
+  // --- Proposal ---
+  const proposalPath = path.join(pmDir, 'backlog', 'proposals', slug + '.html');
+  if (fs.existsSync(proposalPath)) {
+    sections.push(`<div class="session-artifact">
+  <h3>Proposal</h3>
+  <a href="/proposals/${encodeURIComponent(slug)}">View proposal &rarr;</a>
+</div>`);
+  }
+
+  // --- Backlog issues ---
+  const backlogDir = path.join(pmDir, 'backlog');
+  if (fs.existsSync(backlogDir)) {
+    const issueFiles = fs.readdirSync(backlogDir)
+      .filter(f => f.endsWith('.md'))
+      .filter(f => {
+        const raw = fs.readFileSync(path.join(backlogDir, f), 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        return data.parent === slug || f.replace('.md', '') === slug;
+      });
+    if (issueFiles.length > 0) {
+      const issueLinks = issueFiles.map(f => {
+        const iSlug = f.replace('.md', '');
+        const raw = fs.readFileSync(path.join(backlogDir, f), 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        const statusBadge = `<span class="badge badge-${data.status || 'idea'}">${escHtml(data.status || 'idea')}</span>`;
+        return `<div class="session-issue"><a href="/backlog/${encodeURIComponent(iSlug)}">${escHtml(data.title || iSlug)}</a> ${statusBadge}</div>`;
+      }).join('\n');
+      sections.push(`<div class="session-artifact">
+  <h3>Issues (${issueFiles.length})</h3>
+  ${issueLinks}
+</div>`);
+    }
+  }
+
+  // --- Review verdicts (from groom state) ---
+  if (sessionType === 'groom') {
+    const verdicts = [];
+    if (sessionData.scope_review) {
+      const sr = sessionData.scope_review;
+      verdicts.push(`<tr><td>Scope Review</td><td>PM: ${escHtml(sr.pm_verdict || '—')}</td><td>Competitive: ${escHtml(sr.competitive_verdict || '—')}</td><td>EM: ${escHtml(sr.em_verdict || '—')}</td></tr>`);
+    }
+    if (sessionData.team_review) {
+      const tr = sessionData.team_review;
+      verdicts.push(`<tr><td>Team Review</td><td>PM: ${escHtml(tr.pm_verdict || '—')}</td><td>Competitive: ${escHtml(tr.competitive_verdict || '—')}</td><td>EM: ${escHtml(tr.em_verdict || '—')}</td></tr>`);
+    }
+    if (sessionData.bar_raiser) {
+      const br = sessionData.bar_raiser;
+      verdicts.push(`<tr><td>Bar Raiser</td><td colspan="3">${escHtml(br.verdict || '—')}</td></tr>`);
+    }
+    if (verdicts.length > 0) {
+      sections.push(`<div class="session-artifact">
+  <h3>Review Verdicts</h3>
+  <table class="verdicts-table"><tbody>${verdicts.join('\n')}</tbody></table>
+</div>`);
+    }
+  }
+
+  // --- Dev review/CI status (from dev state raw text) ---
+  if (sessionType === 'dev') {
+    const reviewMatch = sessionRaw.match(/Review gate:\s*(.+)/i);
+    const ciMatch = sessionRaw.match(/Gate 1 \(CI\):\s*(.+)/i);
+    const prMatch = sessionRaw.match(/PR:\s*(#\d+.+)/i);
+    const statusItems = [];
+    if (reviewMatch) statusItems.push(`<div class="session-status-row"><strong>Review:</strong> ${escHtml(reviewMatch[1].trim())}</div>`);
+    if (prMatch) statusItems.push(`<div class="session-status-row"><strong>PR:</strong> ${escHtml(prMatch[1].trim())}</div>`);
+    if (ciMatch) statusItems.push(`<div class="session-status-row"><strong>CI:</strong> ${escHtml(ciMatch[1].trim())}</div>`);
+    if (statusItems.length > 0) {
+      sections.push(`<div class="session-artifact">
+  <h3>Ship Status</h3>
+  ${statusItems.join('\n')}
+</div>`);
+    }
+  }
+
+  const body = `
+<div class="page-header">
+  <div><a href="/" class="back-link">&larr; Home</a></div>
+  <h1>${title} ${typeBadge}</h1>
+</div>
+${sections.join('\n')}`;
+
+  const html = dashboardPage(`Session: ${sessionData.topic || slug}`, '/session/' + slug, body, projectName);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
