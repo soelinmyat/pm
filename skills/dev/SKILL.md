@@ -165,6 +165,31 @@ Before running multi-step commands:
 - Confirm branch/worktree context (`git branch --show-current`, `git worktree list`)
 - Prefer idempotent commands (`pull --ff-only`, guarded `git branch -d`)
 
+### Pre-commit validation (all flows)
+
+Before EVERY `git commit`:
+1. Verify you're on the correct branch: `git branch --show-current` — must match the expected feature branch
+2. Verify cwd is in the correct worktree: `git rev-parse --show-toplevel` — must match expected worktree path
+3. Run the project test command (from AGENTS.md) on changed files — if tests fail, fix before committing
+4. Check for untracked files that shouldn't be staged: `git status --porcelain` — review any `??` files
+
+If any check fails, fix before committing. Do not commit broken code and hope the push hook catches it.
+
+### Git state guard (all flows)
+
+Before starting ANY implementation work:
+1. Check for uncommitted changes: `git status --porcelain`
+2. If dirty state from a prior failed attempt: read the state file to understand what happened, then decide whether to commit the partial work or reset it
+3. Never start fresh work on a dirty worktree — resolve the state first
+
+### Subagent git context (all flows)
+
+Every subagent prompt MUST include:
+- Explicit repo root path
+- Current branch name
+- Worktree path (if applicable)
+- Instruction: "Verify you are on branch {branch} before making changes"
+
 ### Repeated error handling
 
 If the same root-cause error repeats twice (path missing, branch exists, permission denied):
