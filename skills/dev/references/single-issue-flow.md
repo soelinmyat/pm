@@ -691,11 +691,9 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 - Backend-only, config-only, pure refactor (no tsx/jsx/css in diff)
 - Skill not available
 
-## Stage 6.5: QA — `/qa`
+## Stage 6.5: QA — `pm:qa`
 
-**Conditional availability:** `/qa` is a separate plugin command (not included in dev plugin v1). Before invoking, check if the command is available. If not available, log "QA: skipped (command not available)" in `.pm/dev-sessions/{slug}.md` and proceed to Review/Code Scan.
-
-**When available:** Runs after simplify and design critique for any task that changes UI. Invokes `/qa` to behave like a senior human QA: understand the feature, design a risk-based coverage plan, execute exploratory and scripted testing, and issue a ship verdict.
+Runs after simplify and design critique for any task that changes UI. Invokes `pm:qa` to test the feature like a senior human QA: generate a risk-based test charter, execute exploratory and scripted testing via Playwright CLI (web) or Maestro (mobile), and issue a ship verdict with health score.
 
 **Why here (after simplify and design critique, before review):** QA tests the final state of the code. Simplify and Design Critique both modify code and UI. Running QA after them means the verdict applies to what will actually ship, not an intermediate build. This is how real teams work: QA tests the release candidate.
 
@@ -706,13 +704,13 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ### How to invoke
 
-`/qa` receives context from the dev session automatically. Pass the relevant flags:
+`pm:qa` reads context from the dev session automatically. Pass the relevant flags:
 
 | Size | Invocation | What `/qa` does |
 |------|------------|-----------------|
-| **XS** (UI) | `/qa --quick --page <affected-route>` | Smoke check: navigate, render, console. Phases 1-2 (charter) are minimal. Skips Phase 4 (critique rounds). ~1 min. |
-| **S** (UI) | `/qa --page <affected-route> --diff` | Focused QA on the affected route. Builds test charter from diff. Skips Phase 4 (critique rounds). ~2-3 min. |
-| **M/L/XL** (UI) | `/qa --feature "<description>" --diff` | Full QA with test charter, coverage design, critique rounds, exploratory + scripted testing. ~5-8 min. |
+| **XS** (UI) | `pm:qa --quick --page <affected-route>` | Smoke check: navigate, render, console. ~1 min. |
+| **S** (UI) | `pm:qa --page <affected-route> --diff` | Focused QA on affected route. Builds test charter from diff. ~2-3 min. |
+| **M/L/XL** (UI) | `pm:qa --feature "<description>" --diff` | Full QA with test charter, exploratory + scripted testing, health score. ~5-8 min. |
 
 For mobile tasks, add `--mobile` and use `--screen` instead of `--page`.
 
@@ -724,11 +722,11 @@ When invoking `/qa` from `/dev`, pass this context:
 - **Acceptance criteria:** from the ticket or spec
 - **Platform:** web or mobile (from platform detection in implement stage)
 
-`/qa` will use this to build its test charter (Phase 2) without needing to re-discover context.
+`pm:qa` uses this to build its test charter (Phase 2) without needing to re-discover context.
 
 ### Gate behavior
 
-`/qa` returns a structured verdict. This is a **ship gate**:
+`pm:qa` returns a structured verdict. This is a **ship gate**:
 
 | QA Verdict | `/dev` action |
 |------------|---------------|
@@ -737,11 +735,11 @@ When invoking `/qa` from `/dev`, pass this context:
 | **Fail** | Return to Implement. Fix the issues `/qa` found, re-run affected tests, then re-run `/qa`. |
 | **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
 
-**Shipping does not continue after QA Fail.** The engineer must fix the issues and `/qa` re-tests the affected areas. No silent downgrades of the verdict.
+**Shipping does not continue after QA Fail.** The engineer must fix the issues and `pm:qa --re-verify` re-tests the affected areas. No silent downgrades of the verdict.
 
 ### Handling issues found
 
-- **Critical/High bugs:** Fix immediately, re-run tests, re-run `/qa` on affected areas.
+- **Critical/High bugs:** Fix immediately, re-run tests, re-run `pm:qa --re-verify` on affected areas.
 - **Medium bugs in core flow:** Fix before proceeding (likely a Fail verdict).
 - **Medium bugs in edge flows:** Note in `.pm/dev-sessions/{slug}.md`, create backlog items after merge.
 - **Low bugs:** Note in `.pm/dev-sessions/{slug}.md`, do not fix in this session.

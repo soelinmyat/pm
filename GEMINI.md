@@ -58,6 +58,7 @@ A typical progression:
 | Receiving-review | Technical rigor — verify before implementing review suggestions |
 | Review | Multi-perspective code review |
 | Design-critique | Multi-agent visual critique with screenshots |
+| QA | Ship gate — test charter, Playwright/Maestro testing, health score verdict |
 | Ship | Review, push, PR, CI monitor + auto-fix |
 | Sync | Sync plugin source to cache for testing |
 
