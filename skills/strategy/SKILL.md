@@ -138,12 +138,13 @@ After writing, say:
 
 ## Visual Companion
 
-If the user has `visual_companion: true` in `.pm/config.json`, offer:
+At the start of strategy work (before writing or updating strategy.md), offer:
+> "Want me to show the strategy visually in the browser? (Positioning maps, competitor grids, priority charts)"
 
-> "Want a positioning map? I can plot key competitors on two axes you choose
-> (e.g., price vs. breadth, SMB vs. enterprise)."
+- **Yes:** Start the visual companion server. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md` for setup. Use the browser for positioning maps, competitor grids, and any visual strategy output.
+- **No:** Text-only. Do not ask again.
 
-Generate using the positioning-map template if accepted.
+If accepted, proactively use the browser for visual content — don't wait for the user to ask for each chart.
 
 ## Slide Deck
 

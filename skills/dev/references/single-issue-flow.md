@@ -20,10 +20,15 @@ This reference is loaded on-demand by the dev skill router when handling a singl
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
 5. **Confirm size with user** before proceeding.
-6. **Issue tracking (M/L/XL only):**
+6. **Visual companion offer (M/L/XL with UI changes):** If the task involves frontend/UI work:
+   > "Want me to show specs, wireframes, and review results in the browser?"
+   - Yes: Start the visual companion. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md`.
+   - No: Text-only. Do not ask again.
+   - XS/S or backend-only: Skip this step entirely.
+7. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-7. **Create state file.** Derive the slug from the task (for XS: topic slug like `fix-typo`; for S+: will become the branch name slug after workspace setup). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
+8. **Create state file.** Derive the slug from the task (for XS: topic slug like `fix-typo`; for S+: will become the branch name slug after workspace setup). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 

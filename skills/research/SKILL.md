@@ -61,6 +61,16 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any researc
 
 ---
 
+## Visual Companion Offer
+
+After config bootstrap and before mode routing, offer the browser-based companion:
+> "Want me to show research results visually in the browser? (Charts, positioning maps, competitor comparisons)"
+
+- **Yes:** Start the visual companion server. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md` for setup. Use the browser for landscape charts, positioning maps, competitor cards, and any visual output.
+- **No:** Text-only. Do not ask again.
+
+---
+
 ## Mode Routing
 
 | Argument | Mode |

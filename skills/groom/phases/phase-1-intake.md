@@ -45,6 +45,15 @@ Skip to step 3 after confirmation. (Steps 3, 3.5, 4, 5, 6 run normally.)
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
+2.5. **Visual companion offer.** After capturing the idea, offer the browser-based visual companion:
+   > "Want me to use the browser to show research, wireframes, and diagrams visually? (Recommended for UI features)"
+
+   Wait for response.
+   - **Yes:** Start the visual companion server immediately. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md` for setup. Use the browser for all visual content throughout the session.
+   - **No:** Proceed text-only. Do not ask again during this session.
+
+   This is a session-level decision, not per-question. If accepted, default to showing content in the browser whenever it's visual (mockups, diagrams, comparisons, wireframes). If declined, stay in terminal for everything.
+
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
 
