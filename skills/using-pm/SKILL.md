@@ -13,26 +13,24 @@ This plugin provides structured workflows for the product engineer — from disc
 
 ## Entry Points (start here)
 
-These are the skills you invoke directly. Most other skills are called internally by these.
+These are the skills you invoke directly. Most other capabilities are built into these as phases or references.
 
 | Trigger | Skill | What it does |
 |---------|-------|--------------|
 | Any new feature, bug fix, refactor, or test backfill | `pm:dev` | Master orchestrator — full lifecycle from intake to merge |
 | Multiple related issues / epic | `pm:dev-epic` | Orchestrates sub-issues with parallel dispatch |
-| Groom backlog issues / product discovery | `pm:groom` | Convert ideas into sprint-ready issues |
-| Research a topic, competitor, or market | `pm:research` | Landscape mapping, competitor deep-dives, quick questions |
+| Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. Use `pm:groom ideate` for idea generation |
+| Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
 | Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
 | Batch bug resolution from cycle | `pm:bug-fix` | Triage all bugs, get approval, fix sequentially |
 
 ## Sub-Skills (called by orchestrators)
 
-These are rarely invoked directly — they're called by `dev`, `ship`, or `groom` at the right stage.
+Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right stage.
 
 | Skill | Called by | Purpose |
 |-------|----------|---------|
-| `pm:brainstorming` | dev (M/L/XL) | Explores intent and design before code |
-| `pm:writing-plans` | dev (M/L/XL) | Creates implementation plan from spec |
 | `pm:tdd` | dev (all sizes) | Test-first discipline |
 | `pm:subagent-dev` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
@@ -44,12 +42,20 @@ These are rarely invoked directly — they're called by `dev`, `ship`, or `groom
 
 | Trigger | Skill | What it does |
 |---------|-------|--------------|
-| Generate feature ideas | `pm:ideate` | Mines knowledge base for ranked opportunities |
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback into pm/ |
 | Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
 | Open dashboard | `pm:view` | Launch PM knowledge base dashboard |
 | Sync source to cache | `pm:sync` | Dev loop without publish cycle |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
+
+## Shared References (consulted by skills, never invoked)
+
+| Reference | What it covers |
+|-----------|---------------|
+| `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
+| `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
+| `references/visual.md` | Dashboard-first UI invocation standard |
+| `references/templates/` | Strategy deck and proposal HTML templates |
 
 ## The Rule
 
@@ -60,13 +66,13 @@ These are rarely invoked directly — they're called by `dev`, `ship`, or `groom
 | User says | Invoke |
 |-----------|--------|
 | "I have an idea" | `pm:groom` → then `pm:dev` for implementation |
+| "What should we build?" | `pm:groom ideate` |
 | "Research Y" | `pm:research` (use `quick` mode for fast inline questions) |
-| "Build X" | `pm:dev` (triggers brainstorming internally for M/L/XL) |
+| "Should we do X?" | `pm:research quick` |
+| "Build X" | `pm:dev` (triggers design exploration internally for M/L/XL) |
 | "Fix this bug" | `pm:dev` (triggers debugging internally) |
 | "Ship it" / "Push this" | `pm:ship` |
 | "Merge this PR" | `pm:ship` (invoke with `/merge` for manual merge without polling) |
-| "Should we do X?" | `pm:research quick` |
-| "What should we build?" | `pm:ideate` |
 
 ## Red Flags
 
@@ -78,7 +84,7 @@ These thoughts mean STOP — you're skipping discipline:
 | "I'll just write the code first" | TDD means test first. Always. |
 | "I know the fix already" | Debugging skill exists to prevent wrong fixes |
 | "Let me just push this" | /ship runs review gates before push |
-| "I'll skip brainstorming, it's obvious" | Obvious features have unexamined assumptions |
+| "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
 
 ## Instruction Priority
 
