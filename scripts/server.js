@@ -3104,12 +3104,25 @@ function switchTab(el, panelId) {
   el.classList.add('active');
   el.setAttribute('aria-selected','true');
   document.getElementById(panelId).classList.add('active');
+  var tabName = panelId.replace('tab-', '');
+  var url = new URL(window.location);
+  url.searchParams.set('tab', tabName);
+  history.replaceState(null, '', url);
 }
 function tabKey(e, el, panelId) {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
   if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
   if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
 }
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  if (tab) {
+    var panel = document.getElementById('tab-' + tab);
+    var tabEl = document.querySelector('.tab[onclick*="tab-' + tab + '"]');
+    if (panel && tabEl) switchTab(tabEl, 'tab-' + tab);
+  }
+})();
 </script>`;
 
   const html = dashboardPage(name, '/kb?tab=competitors', body);
