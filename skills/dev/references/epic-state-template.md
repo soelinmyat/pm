@@ -16,11 +16,11 @@ Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updat
 
 ## Sub-Issues
 
-| # | ID | Title | Size | Dependency | Plan | Status |
-|---|----|-------|------|------------|------|--------|
-| 1 | ISSUE-001 | First sub-issue | S | none | docs/plans/YYYY-MM-DD-slug.md | Merged (PR #312) |
-| 2 | ISSUE-002 | Second sub-issue | M | ISSUE-001 | docs/plans/YYYY-MM-DD-slug.md | Implementing (review) |
-| 3 | ISSUE-003 | Third sub-issue | S | ISSUE-002 | pending | Pending |
+| # | ID | Title | Size | Dependency | Plan | Status | Retries |
+|---|----|-------|------|------------|------|--------|---------|
+| 1 | ISSUE-001 | First sub-issue | S | none | docs/plans/YYYY-MM-DD-slug.md | Merged (PR #312) | 0 |
+| 2 | ISSUE-002 | Second sub-issue | M | ISSUE-001 | docs/plans/YYYY-MM-DD-slug.md | Implementing (review) | 1 |
+| 3 | ISSUE-003 | Third sub-issue | S | ISSUE-002 | pending | Pending | 0 |
 
 ## Decisions
 - Source: groomed
@@ -37,6 +37,11 @@ Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updat
 - [x] ISSUE-001: Merged (PR #312, commit abc123)
 - [ ] ISSUE-002: Implementing... (Stage: review)
 - [ ] ISSUE-003: Pending
+
+## Resilience Summary
+- Sub-issues completed: 1/3
+- Agent failures: 1 (retries: 1)
+- Failed sub-issues: none
 
 ## Resume Instructions
 - Stage: implementing sub-issue 2 of 3

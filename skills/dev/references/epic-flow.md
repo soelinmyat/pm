@@ -472,18 +472,59 @@ SendMessage({
 })
 ```
 
-### 4.4 Agent failure detection
+### 4.4 Checkpoint after each sub-issue
 
 <HARD-RULE>
-API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST detect this.
+After each sub-issue is merged (or fails), update the state file IMMEDIATELY. Do not batch updates. A crash between sub-issues must not lose progress.
 </HARD-RULE>
 
-After sending "go implement", if the teammate goes idle **without** sending a result message ("Merged...", "Ready to merge...", or "Blocked..."):
-- **First idle without result:** Send a status check ping: `SendMessage({ to: "agent-{slug}", message: "Status check — send your result or blocked reason" })`
-- **Second idle without result:** Agent is dead. Implement directly in the orchestrator session or dispatch a fresh teammate with the same prompt (include the plan path so it can pick up where the dead agent left off).
-- Log the failure in the state file for the retro.
+After a teammate reports "Merged" or "Failed":
+1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA
+2. Update `## Implementation Progress` with the result
+3. Update `## Resume Instructions` with the next sub-issue
+4. Write the state file to disk before dispatching the next agent
 
-### 4.5 Why layer-aware parallelism works
+On resume (session crash/restart): read the state file, skip sub-issues marked "Merged", restart from the first non-merged sub-issue.
+
+### 4.5 Agent failure detection and retry
+
+<HARD-RULE>
+API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST detect this and retry with exponential backoff.
+</HARD-RULE>
+
+**Detection:** After sending "go implement", if the teammate goes idle **without** sending a result message ("Merged...", "Ready to merge...", or "Blocked..."):
+
+**Retry with exponential backoff:**
+
+| Attempt | Action | Backoff |
+|---------|--------|---------|
+| 1 | Send status check ping via SendMessage | — |
+| 2 | Wait 30s, spawn fresh teammate with same prompt + plan path | 30s |
+| 3 | Wait 60s, spawn fresh teammate | 60s |
+| 4 | Wait 120s, spawn fresh teammate | 120s |
+| 5 | Agent is dead. Log failure, mark sub-issue as "Failed" in state file, continue to next sub-issue | — |
+
+**Fresh teammate prompt must include:**
+- The plan file path (so it picks up where the dead agent left off)
+- The current git state (`git status`, `git log --oneline -3`)
+- The sub-issue description and acceptance criteria
+- Instruction: "A previous agent failed on this task. Check what was already done before starting."
+
+**State file tracking:** Add retry count to sub-issue table:
+
+```
+| # | ID | Title | Size | Dependency | Plan | Status | Retries |
+```
+
+After all sub-issues complete, log a summary:
+```
+## Resilience Summary
+- Sub-issues completed: N/M
+- Agent failures: K (retries: R)
+- Failed sub-issues: [list or "none"]
+```
+
+### 4.6 Why layer-aware parallelism works
 
 - **No simulator conflicts:** Only one mobile agent runs at a time. Mobile pre-push hooks (Metro, e2e smoke) never contend.
 - **No test DB conflicts:** Only one API agent runs at a time. Rails test suites don't corrupt each other.
