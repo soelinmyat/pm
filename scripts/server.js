@@ -526,6 +526,7 @@ a.stat-card-link .label { color: var(--accent, #2563eb); }
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
 .badge-in-progress { background: #dbeafe; color: #1d4ed8; }
 .badge-approved { background: #dcfce7; color: #15803d; }
+.badge-archived { background: #f1f5f9; color: #64748b; }
 .kanban-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem;
   font-size: 0.875rem; transition: box-shadow var(--transition); border-left: 3px solid var(--border); }
 .kanban-item.priority-critical { border-left-color: #dc2626; }
@@ -1137,6 +1138,8 @@ function routeDashboard(req, res, pmDir) {
     handleBacklog(res, pmDir, view);
   } else if (urlPath === '/backlog/shipped') {
     handleShipped(res, pmDir);
+  } else if (urlPath === '/backlog/archived') {
+    handleArchived(res, pmDir);
   } else if (urlPath.startsWith('/backlog/wireframes/')) {
     const slug = decodeURIComponent(urlPath.slice('/backlog/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
@@ -3084,17 +3087,17 @@ function handleBacklog(res, pmDir, view) {
     }
   }
 
-  const totalCount = items.length;
   const ideaCount = items.filter(i => i.status === 'idea').length;
-  const readyCount = items.filter(i => i.status !== 'idea' && i.status !== 'done').length;
+  const readyCount = items.filter(i => i.status !== 'idea' && i.status !== 'done' && i.status !== 'archived').length;
   const doneCount = items.filter(i => i.status === 'done').length;
+  const archivedCount = items.filter(i => i.status === 'archived').length;
 
   // Summary stats
   const statsHtml = `<div class="backlog-stats">
   <div class="stat-card"><div class="value">${readyCount}</div><div class="label">Ready to Build</div></div>
   <div class="stat-card"><div class="value">${ideaCount}</div><div class="label">Ideas</div></div>
   <a href="/backlog/shipped" class="stat-card stat-card-link"><div class="value">${doneCount}</div><div class="label">Shipped →</div></a>
-  <div class="stat-card"><div class="value">${totalCount}</div><div class="label">Total Issues</div></div>
+  <a href="/backlog/archived" class="stat-card stat-card-link"><div class="value">${archivedCount}</div><div class="label">Archived →</div></a>
 </div>`;
 
   // Proposal cards — these ARE the backlog's primary view
@@ -3164,33 +3167,45 @@ ${ideasHtml}`;
 
 function handleShipped(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
-  const STATUS_MAP = { 'done': true };
-  const items = [];
+  const allItems = {};
+  const childCount = {};
 
   if (fs.existsSync(backlogDir)) {
     const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
       const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
       const { data } = parseFrontmatter(raw);
-      if (!STATUS_MAP[data.status]) continue;
-      items.push({
-        slug: file.replace('.md', ''),
-        title: data.title || file.replace('.md', ''),
-        id: data.id || null,
+      const slug = file.replace('.md', '');
+      allItems[slug] = {
+        slug, title: data.title || slug, status: data.status || 'idea',
+        id: data.id || null, parent: data.parent || null,
         priority: data.priority || 'medium',
         labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
         updated: data.updated || data.created || '',
-      });
+      };
     }
   }
 
-  items.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+  // Build child counts
+  for (const item of Object.values(allItems)) {
+    if (item.parent && item.parent !== 'null' && allItems[item.parent]) {
+      childCount[item.parent] = (childCount[item.parent] || 0) + 1;
+    }
+  }
 
-  const rows = items.map(item => {
+  // Filter to done root items only
+  const roots = Object.values(allItems).filter(i =>
+    i.status === 'done' && (!i.parent || i.parent === 'null' || !allItems[i.parent])
+  );
+  roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+
+  const rows = roots.map(item => {
     const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+    const subCount = childCount[item.slug] || 0;
+    const subBadge = subCount > 0 ? `<span class="badge">${subCount} sub-issue${subCount !== 1 ? 's' : ''}</span> ` : '';
     const labelHtml = item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join(' ');
-    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">
-  <div class="kanban-item-ids">${idHtml}</div>
+    return `<a class="kanban-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
+  <div class="kanban-item-ids">${idHtml}${subBadge}</div>
   <div class="kanban-item-title">${escHtml(item.title)}</div>
   <div class="kanban-item-meta">${labelHtml}<span class="shipped-date">${escHtml(item.updated)}</span></div>
 </a>`;
@@ -3198,10 +3213,62 @@ function handleShipped(res, pmDir) {
 
   const body = `
 <p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
-<div class="page-header"><h1>Shipped</h1><span class="col-count" style="font-size:1rem;margin-left:0.5rem">${items.length} items</span></div>
+<div class="page-header"><h1>Shipped</h1><span class="col-count" style="font-size:1rem;margin-left:0.5rem">${roots.length} items</span></div>
 <div class="shipped-list">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
 
   const html = dashboardPage('Shipped', '/backlog', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleArchived(res, pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  const allItems = {};
+  const childCount = {};
+
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const slug = file.replace('.md', '');
+      allItems[slug] = {
+        slug, title: data.title || slug, status: data.status || 'idea',
+        id: data.id || null, parent: data.parent || null,
+        priority: data.priority || 'medium',
+        updated: data.updated || data.created || '',
+      };
+    }
+  }
+
+  for (const item of Object.values(allItems)) {
+    if (item.parent && item.parent !== 'null' && allItems[item.parent]) {
+      childCount[item.parent] = (childCount[item.parent] || 0) + 1;
+    }
+  }
+
+  const roots = Object.values(allItems).filter(i =>
+    i.status === 'archived' && (!i.parent || i.parent === 'null' || !allItems[i.parent])
+  );
+  roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+
+  const rows = roots.map(item => {
+    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+    const subCount = childCount[item.slug] || 0;
+    const subBadge = subCount > 0 ? `<span class="badge">${subCount} sub-issue${subCount !== 1 ? 's' : ''}</span> ` : '';
+    return `<a class="kanban-item done-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
+  <div class="kanban-item-ids">${idHtml}${subBadge}<span class="status-badge badge-archived">archived</span></div>
+  <div class="kanban-item-title">${escHtml(item.title)}</div>
+  <div class="kanban-item-meta"><span class="shipped-date">${escHtml(item.updated)}</span></div>
+</a>`;
+  }).join('');
+
+  const body = `
+<p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
+<div class="page-header"><h1>Archived</h1><span class="col-count" style="font-size:1rem;margin-left:0.5rem">${roots.length} items</span></div>
+<div class="shipped-list">${rows || '<div class="empty-state"><p>No archived items.</p></div>'}</div>`;
+
+  const html = dashboardPage('Archived', '/backlog', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
