@@ -17,10 +17,21 @@ Review (or code scan) -> Verification -> Push + PR ->
   [parallel]   STOP -> "Ready to merge."  -> (wait) -> Merge -> Cleanup -> "Merged."
 ```
 
+## Git Hygiene (HARD RULES)
+
+These apply to every commit you make:
+- NEVER use `git add -A` or `git add .` — always stage specific files by name
+- NEVER commit to main — verify you're on the correct branch: `git branch --show-current`
+- NEVER commit without running tests first
+- Commit often, commit small — one logical change per commit
+- If you see untracked files you didn't create, leave them alone
+- Before your first commit, verify: `git rev-parse --show-toplevel` matches your worktree path
+
 ## Step 1: Setup
 
 ```bash
 cd {CWD}  # worktree path
+git branch --show-current  # verify correct branch
 ```
 
 Install dependencies using the project's install command (read from AGENTS.md, or infer: `pnpm install` if pnpm-lock.yaml exists, `npm install` if package-lock.json, `yarn` if yarn.lock, `bundle install` if Gemfile, `pip install` if requirements.txt).

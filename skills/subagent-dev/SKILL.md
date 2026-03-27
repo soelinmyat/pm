@@ -105,9 +105,21 @@ This monorepo has strict layer constraints:
 **Implementer prompt additions:**
 Always include in every implementer subagent prompt:
 - `**CWD:** {worktree path}`
+- `**Branch:** {feature branch name}`
 - `**App:** {apps/api | apps/web-client | apps/mobile | apps/display}`
 - `**Test command:** {app-specific test command}`
 - `**Core rules:** Tokens only. Generated types only. Locales only. Contract first.`
+
+**Git hygiene rules (include in every implementer prompt):**
+```
+Git rules — violations will break the pipeline:
+- NEVER use `git add -A` or `git add .` — always stage specific files by name
+- NEVER commit to main — you should be on branch {branch}. Verify: `git branch --show-current`
+- NEVER commit without running tests first: {test command}
+- Commit often, commit small — one logical change per commit
+- If you see untracked files you didn't create, leave them alone
+- Before your first commit, verify: `git rev-parse --show-toplevel` matches {worktree path}
+```
 
 ## Model Selection
 
