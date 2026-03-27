@@ -3258,8 +3258,28 @@ function handleBacklog(res, pmDir, view) {
     proposalsHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
   }
 
+  const searchHtml = `<div style="margin-bottom:1rem;">
+<input type="text" id="backlog-search" placeholder="Filter backlog..."
+  style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.875rem;background:var(--surface);color:var(--text);outline:none;"
+  onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
+</div>
+<script>
+(function(){
+  var input = document.getElementById('backlog-search');
+  if (!input) return;
+  input.addEventListener('input', function() {
+    var q = this.value.toLowerCase();
+    document.querySelectorAll('.card-grid .card, .backlog-list .kanban-item').forEach(function(el) {
+      var text = el.textContent.toLowerCase();
+      el.style.display = text.includes(q) ? '' : 'none';
+    });
+  });
+})();
+</script>`;
+
   const body = `<div class="page-header"><h1>Backlog</h1></div>
 ${statsHtml}
+${searchHtml}
 ${proposalsHtml}
 ${ideasHtml}`;
 
