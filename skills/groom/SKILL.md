@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when doing product discovery, feature grooming, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for.'"
+description: "Use when doing product discovery, feature grooming, generating feature ideas, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for,' 'ideate,' 'feature ideas,' 'what should we build,' 'opportunities.'"
 ---
 
 # pm:groom
@@ -20,6 +20,16 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output. All groom output must follow those shared rules.
 
 For groom-specific examples (scope review tables, team review collapse): read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md`.
+
+---
+
+## Mode Routing
+
+**If the argument is `ideate`** (e.g., `/pm:groom ideate`):
+- Skip the normal groom lifecycle. Follow `${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/ideate.md` instead.
+- Ideate mines the knowledge base and generates ranked feature ideas as `status: idea` backlog items.
+
+**Otherwise**, proceed with the normal groom lifecycle below.
 
 ---
 

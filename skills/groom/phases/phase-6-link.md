@@ -120,4 +120,4 @@ issues:
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
-> Recommended next: /pm:ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
+> Recommended next: /pm:groom ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
