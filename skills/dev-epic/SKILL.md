@@ -85,13 +85,13 @@ For each sub-issue, detect groomed status by reading the groom session file:
 
 **Multiple groom sessions:** When the parent issue maps to a single groom session (e.g., an epic groomed as one initiative), all sub-issues inherit the groomed status from the parent session. When individual sub-issues have their own groom sessions, match per sub-issue.
 
-Groomed issues get reduced ceremony (skip brainstorming + spec review). This is the pm -> dev handoff.
+Groomed issues get reduced ceremony (skip design exploration + spec review). This is the pm -> dev handoff.
 
 Log per sub-issue in `.pm/dev-sessions/epic-{parent-slug}.md` under Decisions:
 ```
 - Groom detection:
   - {slug} -> groomed (session: {file}, verdict: {verdict}) | raw (reason: {reason})
-- Skipped phases ({slug}): brainstorming, spec-review, individual-rfc | none
+- Skipped phases ({slug}): design-exploration, spec-review, individual-rfc | none
 - Research location: {path from session frontmatter} | none
 ```
 
@@ -234,15 +234,15 @@ The orchestrator waits for the teammate's message. Only the message content ente
 
 **Raw M/L/XL:** Three-step process:
 
-1. **Dispatch brainstorming teammate** to generate a spec:
+1. **Dispatch design exploration teammate** to generate a spec:
 
 ```
 Agent({
-  description: "Brainstorm {ISSUE_ID}",
-  name: "brainstorm-{slug}",
+  description: "Design {ISSUE_ID}",
+  name: "design-{slug}",
   team_name: "epic-{parent-slug}",
   subagent_type: "general-purpose",
-  prompt: `You are a brainstorming teammate on the "epic-{parent-slug}" team.
+  prompt: `You are a design exploration teammate on the "epic-{parent-slug}" team.
 
 ## Project Context (pre-extracted by orchestrator)
 
@@ -257,8 +257,8 @@ Agent({
 {PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
 
 **Instructions:**
-1. Invoke dev:brainstorming via the Skill tool
-2. It will explore the codebase, ask clarifying questions (answer from the issue description), propose approaches, and write a spec
+1. Read and follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md
+2. Explore the codebase, ask clarifying questions (answer from the issue description), propose approaches, and write a spec
 3. Save the spec to docs/specs/{DATE}-{SLUG}.md
 4. Commit: git add docs/specs/{file} && git commit -m "docs: add spec for {ISSUE_ID} - {TITLE}"
 5. Send result to orchestrator: SendMessage({ to: "team-lead", message: "Spec complete. Path: docs/specs/{file}. Summary: {2-line summary}", summary: "{ISSUE_ID} spec done" })`

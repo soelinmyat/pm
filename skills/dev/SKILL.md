@@ -24,14 +24,14 @@ Master orchestrator for project development. Manages the full lifecycle with bun
 
 All workflow skills are self-contained within this plugin. No external skill dependencies.
 
-| Skill | Used in stage |
-|-------|--------------|
-| `dev:brainstorming` | Brainstorm (M/L/XL) |
-| `dev:writing-plans` | Plan (M/L/XL) |
-| `dev:tdd` | Implement (all) |
-| `dev:subagent-dev` | Implement (all) |
-| `dev:debugging` | Debug (when tests fail) |
-| `dev:receiving-review` | Merge-Watch (M/L/XL) |
+| Skill / Reference | Used in stage |
+|-------------------|--------------|
+| `groom/phases/phase-3.5-design.md` (reference) | Design Exploration (M/L/XL) |
+| `pm:writing-plans` | Plan (M/L/XL) |
+| `pm:tdd` | Implement (all) |
+| `pm:subagent-dev` | Implement (all) |
+| `pm:debugging` | Debug (when tests fail) |
+| `pm:receiving-review` | Ship (M/L/XL) |
 
 Skills inlined into this document (no separate invocation needed):
 - **Verification gate** — see Pre-merge sections (XS/S auto-merge, M/L/XL review gate)
@@ -174,7 +174,7 @@ If the same root-cause error repeats twice (path missing, branch exists, permiss
 | Issue tracking | — | — | Yes | Yes | Yes |
 | Worktree | — | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
 | Groom detection | — | — | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
-| Brainstorm | — | — | Skip (from groom) or `dev:brainstorming` | Skip (from groom) or `dev:brainstorming` | Skip (from groom) or `dev:brainstorming` |
+| Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
 | Spec review | — | — | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) |
 | Written plan | — | — | `dev:writing-plans` | `dev:writing-plans` + design doc | `dev:writing-plans` + design doc |
 | Plan review | — | — | Engineering RFC (3 agents) | Engineering RFC (3 agents) | Engineering RFC (3 agents) |
@@ -246,9 +246,9 @@ Before brainstorming, check if this issue was groomed:
 2. If found, parse YAML frontmatter. Read `bar_raiser.verdict`.
 3. If verdict is `"ready"` or `"ready-if"`:
    - Log in state file: `Groom detection: groomed (session: {filename}, verdict: {verdict})`
-   - Log: `Skipped phases: brainstorming, spec-review`
+   - Log: `Skipped phases: design-exploration, spec-review`
    - Read `research_location` from the session frontmatter. Store the path for research injection in Stage 4.
-   - **Skip Stage 3 (brainstorming) and Stage 3.5 (spec review).** Proceed directly to Stage 4 (writing-plans).
+   - **Skip Stage 3 (design exploration) and Stage 3.5 (spec review).** Proceed directly to Stage 4 (writing-plans).
 4. If verdict is `"send-back"`, `"pause"`, missing, or parse fails: proceed to Stage 3 as normal.
 
 **Ambiguity fallback:** If the slug match is uncertain (multiple partial matches, no exact match), fall back to full ceremony. Never reduce ceremony on ambiguous detection.
@@ -258,23 +258,23 @@ Before brainstorming, check if this issue was groomed:
 Log the decision in `.pm/dev-sessions/{slug}.md` under Decisions:
 ```
 - Groom detection: groomed (session: {slug}.md, verdict: {verdict}) | not-groomed (reason: {reason})
-- Skipped phases: brainstorming, spec-review | none
+- Skipped phases: design-exploration, spec-review | none
 - Research location: {path} | none
 ```
 
-## Stage 3: Brainstorm (M/L/XL)
+## Stage 3: Design Exploration (M/L/XL)
 
-Invoke `dev:brainstorming` via the Skill tool. It handles context exploration, clarifying questions, approach proposals, design presentation, spec writing, and its own single-agent spec review loop.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md`. This handles context discovery, clarifying questions, approach proposals, design presentation, spec writing, and the spec review loop.
 
-After brainstorming completes and the spec is written, proceed to Stage 3.5.
+After the design is approved and the spec is written, proceed to Stage 3.5.
 
 ## Stage 3.5: Spec Review (M/L/XL)
 
-After brainstorming writes the spec, review it. The scope depends on whether `/pm:groom` already ran for this work.
+After design exploration writes the spec, review it. The scope depends on whether `/pm:groom` already ran for this work.
 
 ### Source detection
 
-This stage only runs if Stage 2.5 determined the issue is **not groomed**. If groomed, both brainstorming and spec review were skipped entirely.
+This stage only runs if Stage 2.5 determined the issue is **not groomed**. If groomed, both design exploration and spec review were skipped entirely.
 
 Run **full review** (3 agents: PM + UX & User Flow + Competitive Strategist).
 
@@ -405,7 +405,7 @@ Categories to stress-test:
 
 ### PM + Competitive Strategist (only when NOT from groom)
 
-These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both brainstorming and spec review are skipped entirely — this section is never reached.
+These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both design exploration and spec review are skipped entirely — this section is never reached.
 
 Dispatch both as sub-agents in parallel alongside the UX reviewer (subagent_type: general-purpose, model: sonnet):
 

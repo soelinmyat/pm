@@ -57,7 +57,7 @@ Wait for the user's answer. If resuming: read the selected session file, skip co
 
 ---
 
-## Lifecycle: intake -> strategy check -> research -> scope -> scope review -> groom -> team review -> bar raiser -> present -> link
+## Lifecycle: intake -> strategy check -> research -> design (optional) -> scope -> scope review -> groom -> team review -> bar raiser -> present -> link
 
 ---
 
@@ -97,6 +97,7 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 | 1. Intake | `phases/phase-1-intake.md` | Capture the idea, clarify, surface past learnings, derive slug, write initial state |
 | 2. Strategy Check | `phases/phase-2-strategy.md` | Validate against priorities, non-goals, ICP |
 | 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
+| 3.5. Design | `phases/phase-3.5-design.md` | Optional: collaborative design exploration, spec writing, visual companion |
 | 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
 | 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | 3 parallel agents (PM, Competitive, EM) challenge the scope |
 | 5. Groom | `phases/phase-5-groom.md` | Detect feature type, generate flows/wireframes, draft issues |
