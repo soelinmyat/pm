@@ -356,18 +356,18 @@ if [ -n "$LOCAL_ONLY" ]; then
   echo "WARN: local main has commits not on origin/main:"
   echo "$LOCAL_ONLY"
   echo "Rebasing local main onto origin/main..."
-  HAS_LOCAL_CHANGES=false
+  HAS_WIP=false
   if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-    HAS_LOCAL_CHANGES=true
-    git stash push --include-untracked -m "ship-cleanup-$(date +%s)"
+    HAS_WIP=true
+    git add -A
+    git commit -m "WIP: ship-cleanup temp commit"
   fi
   if ! git rebase origin/main; then
     echo "Rebase conflict while syncing local main. Resolve conflicts manually, then rerun cleanup."
     exit 1
   fi
-  if [ "$HAS_LOCAL_CHANGES" = true ] && ! git stash pop; then
-    echo "Could not re-apply stashed changes cleanly. Resolve stash conflicts manually, then rerun cleanup."
-    exit 1
+  if [ "$HAS_WIP" = true ]; then
+    git reset --soft HEAD~1
   fi
 else
   git merge --ff-only origin/main
