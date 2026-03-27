@@ -173,7 +173,7 @@ Push all commits: `git push`
 
 - NEVER fix bugs without user approval (Step 3 is a hard gate)
 - NEVER mark issues as Done vs Canceled without user confirmation
-- Fix on main directly (no feature branches, no PRs)
+- Respect the project's branch/PR policy: if the repo requires PRs (check CLAUDE.md, AGENTS.md, or branch protection), create a branch and PR. Otherwise fix on main directly.
 - One sub-agent per bug fix, run sequentially to avoid git conflicts
 - One commit per bug fix for clean git history
 - ALWAYS run `/simplify` after fixes before pushing (Step 5), unless fewer than 3 fixes

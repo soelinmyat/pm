@@ -105,13 +105,13 @@ Parse the hook error output generically — do NOT rely on hardcoded hook names.
 **First: check if failures are pre-existing on main.**
 
 ```bash
-# Stash current work, check out main, run the failing command
-git stash
-git checkout main
+# Use a temporary worktree to check main without stashing (avoids blind stash recovery)
+git worktree add /tmp/check-main-$$ main --quiet
+cd /tmp/check-main-$$
 # Run the same command that failed in the hook (test suite, lint, etc.)
 # If it ALSO fails on main: these are pre-existing failures, not caused by this branch
-git checkout -  # return to feature branch
-git stash pop
+cd -
+git worktree remove /tmp/check-main-$$ --force 2>/dev/null || true
 ```
 
 **If failures are pre-existing (also fail on main):**

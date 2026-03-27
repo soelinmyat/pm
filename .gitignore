@@ -7,3 +7,7 @@ node_modules/
 pm/*.local.md
 .worktrees/
 dev/instructions.local.md
+tools/swe-bench/venv/
+tools/swe-bench/repos/
+tools/swe-bench/results/
+tools/swe-bench/logs/

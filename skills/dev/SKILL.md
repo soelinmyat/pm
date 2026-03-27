@@ -141,22 +141,7 @@ If multiple state files exist: list them with their stage and last-updated time.
 
 **Context recovery:** At the start of every turn, if you're unsure which stage you're in or what decisions were made, read the state file first. The state file is the single source of truth — not conversation history.
 
-## Lifecycle
-
-```
-XS:      INTAKE → IMPLEMENT → SIMPLIFY → [QA] → CODE SCAN → AUTO-MERGE → RETRO
-S:       INTAKE → WORKSPACE → IMPLEMENT → SIMPLIFY → [DESIGN CRITIQUE] → [QA] → CODE SCAN → AUTO-MERGE → RETRO
-M/L/XL:  INTAKE → WORKSPACE → BRAINSTORM → SPEC REVIEW → PLAN → PLAN REVIEW → IMPLEMENT → SIMPLIFY → [DESIGN CRITIQUE] → [QA] → REVIEW → PR → MERGE-WATCH → RETRO
-```
-
-**WORKSPACE comes immediately after INTAKE** (S+). All artifacts (`.pm/dev-sessions/{slug}.md`, plan docs, capture scripts) live in the worktree and are cleaned up with it. Only XS skips worktree.
-
-**Design Critique** (`/design-critique`) is the single visual quality stage for UI changes. Its designer agents incorporate the full evaluation frameworks (UX quality, copy, resilience, accessibility, visual polish, design system) and review against real app screenshots (not Storybook). No separate Impeccable skill pipeline needed.
-- **S (UI):** Lightweight design critique (1 round, 3 designers)
-- **M/L/XL (UI):** Full design critique (up to 3 rounds, 3 designers + Fresh Eyes + PM bar-raiser)
-- **Backend-only, config, refactor:** Skip design critique entirely
-
-## Execution Defaults (all stages)
+## Execution Defaults (all flows)
 
 ### Workspace checkpoint format
 
