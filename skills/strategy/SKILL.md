@@ -138,8 +138,12 @@ After writing, say:
 
 ## Visual Companion
 
-At the start of strategy work (before writing or updating strategy.md), offer:
-> "Want me to show the strategy visually in the browser? (Positioning maps, competitor grids, priority charts)"
+<HARD-GATE>
+You MUST offer the visual companion BEFORE any strategy work begins. Do not skip this step. Do not proceed to writing or updating strategy.md until you have asked and received an answer.
+</HARD-GATE>
+
+At the start of strategy work, ask:
+> "I can show positioning maps, competitor grids, and charts in the browser as we go. Open the dashboard?"
 
 - **Yes:** Start the visual companion server. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md` for setup. Use the browser for positioning maps, competitor grids, and any visual strategy output.
 - **No:** Text-only. Do not ask again.
