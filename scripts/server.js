@@ -1930,32 +1930,60 @@ function handleDashboardHome(res, pmDir) {
 </div>`;
   }
 
+  // Build stat cards for control tower
+  const strategyStale = updatedDates.strategy ? stalenessInfo(updatedDates.strategy) : null;
+  const strategyBadge = stats.strategy
+    ? (strategyStale ? `<span class="badge badge-${strategyStale.level}">${escHtml(strategyStale.label)}</span>` : '<span class="badge badge-fresh">Current</span>')
+    : '<span class="badge badge-empty">Not set</span>';
+
+  const controlCards = `<div class="stat-grid">
+  <a href="/backlog" class="stat-card stat-card-link">
+    <div class="value">${stats.backlog}</div>
+    <div class="label">Backlog Items</div>
+  </a>
+  <a href="/kb?tab=competitors" class="stat-card stat-card-link">
+    <div class="value">${stats.competitors}</div>
+    <div class="label">Competitors</div>
+  </a>
+  <a href="/kb?tab=topics" class="stat-card stat-card-link">
+    <div class="value">${stats.research}</div>
+    <div class="label">Research Topics</div>
+  </a>
+  <div class="stat-card">
+    <div class="value">${allSessions.length}</div>
+    <div class="label">Active Sessions</div>
+  </div>
+</div>
+<div style="text-align:center;margin:-0.5rem 0 1.5rem;">
+  <span style="font-size:0.8125rem;color:var(--text-muted);">Strategy: ${strategyBadge}</span>
+  ${researchHasContent ? `<span style="font-size:0.8125rem;color:var(--text-muted);margin-left:1rem;">Research: ${escHtml(researchDesc)}</span>` : ''}
+</div>`;
+
   let body;
-  if (proposalCount === 0 && allSessions.length === 0) {
+  if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0) {
     // Empty state — prominent "Start Grooming" CTA
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Knowledge base overview</p>
+  <p class="subtitle">Product command center</p>
 </div>
 <div class="empty-state-cta">
   <h2>Ready to build?</h2>
   <p>Start grooming your first feature to create a structured proposal with research, strategy alignment, and scoped issues.</p>
   <p><code>/pm:groom</code></p>
 </div>
-${suggestedHtml}
-${kbReferenceHtml}`;
+${suggestedHtml}`;
   } else {
-    // Active state — groom banner, proposal gallery hero, KB reference
+    // Active state — control tower
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Knowledge base overview</p>
+  <p class="subtitle">Product command center</p>
 </div>
+${controlCards}
 ${sessionBannerHtml}
 ${proposalsHtml}
-${suggestedHtml}
-${kbReferenceHtml}`;
+${suggestedHtml}`;
   }
 
   const html = dashboardPage('Home', '/', body, projectName);
