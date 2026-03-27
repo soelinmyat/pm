@@ -42,7 +42,7 @@ pm:qa --diff
 | `--quick` | Force Quick tier regardless of session size |
 | `--page <route>` | Test a specific route |
 | `--feature <desc>` | Test by feature description |
-| `--diff` | Build charter from `git diff main...HEAD` |
+| `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` |
 | `--mobile` | Force mobile platform (Maestro MCP) |
 | `--re-verify` | Re-test only previous failures, update verdict |
 
@@ -57,6 +57,20 @@ pm:qa --diff
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md` | Seed data conventions | Phase 3 (when seed data needed) |
 
 **Read on-demand, not upfront.** Each reference is needed in exactly one phase.
+
+---
+
+## Default Branch
+
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
+```
+
+All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
 
 ---
 
@@ -121,7 +135,7 @@ No further analysis needed.
 
 ### Focused
 
-1. Run `git diff main...HEAD --name-only` to get changed files
+1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` to get changed files
 2. Map changed files to routes/screens:
    - Component files -> their parent page routes
    - API endpoints -> pages that call them
@@ -145,7 +159,7 @@ No further analysis needed.
 ### Full
 
 1. Read acceptance criteria from session state or `--feature` description
-2. Run `git diff main...HEAD --name-only` for changed files
+2. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` for changed files
 3. Build comprehensive charter:
 
 ```markdown

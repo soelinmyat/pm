@@ -14,21 +14,35 @@ Multi-perspective code review with auto-fix. Runs up to five review agents in pa
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
+## Default Branch
+
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
+```
+
+All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
+
+---
+
 ## Phase 0: Check & Fix Conflicts
 
-Before reviewing, ensure the branch is up to date with main:
+Before reviewing, ensure the branch is up to date with {DEFAULT_BRANCH}:
 
-1. Run: `git fetch origin main && git log HEAD..origin/main --oneline`
+1. Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH} --oneline`
 2. **If no output:** Branch is up to date. Continue to Phase 1.
-3. **If commits behind:** Merge main:
+3. **If commits behind:** Merge {DEFAULT_BRANCH}:
    ```bash
-   git merge origin/main
+   git merge origin/{DEFAULT_BRANCH}
    ```
    - If merge succeeds cleanly, continue to Phase 1.
    - If conflicts exist:
      - Run `git diff --name-only --diff-filter=U` to list conflicted files
      - Resolve each conflict preserving the intent of both sides
-     - Stage resolved files and commit: `git commit -m "merge: resolve conflicts with main"`
+     - Stage resolved files and commit: `git commit -m "merge: resolve conflicts with {DEFAULT_BRANCH}"`
      - Run relevant verification commands for resolved files (see AGENTS.md)
 
 ---
@@ -48,7 +62,7 @@ If `$ARGUMENTS` contains a number, treat it as a PR number:
 
 If no argument, review the current branch:
 - Run `git branch --show-current` to get current branch
-- Run `git diff main...HEAD` to get the diff against main
+- Run `git diff {DEFAULT_BRANCH}...HEAD` to get the diff against {DEFAULT_BRANCH}
 - If no diff, report "No changes to review" and stop
 
 ### Identify changed files
@@ -309,7 +323,7 @@ For each finding (P0 first, then P1, then P2):
 
 ### Verify branch
 
-Run `git branch --show-current` and confirm you are NOT on main.
+Run `git branch --show-current` and confirm you are NOT on {DEFAULT_BRANCH}.
 
 ### Commit fixes
 

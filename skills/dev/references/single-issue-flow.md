@@ -777,7 +777,7 @@ Spawn a single sub-agent (subagent_type: general-purpose, model: opus) with this
 ```
 You are a Code Reviewer scanning for genuine bugs to auto-fix.
 
-**Diff:** {paste git diff main...HEAD or git diff of uncommitted changes}
+**Diff:** {paste git diff {DEFAULT_BRANCH}...HEAD or git diff of uncommitted changes}
 **Changed files:** {list}
 
 **First:** Read AGENTS.md for project conventions and anti-patterns. If a review checklist exists (e.g., `.claude/references/review-checklist.md`), read it and check sections matching the changed files.

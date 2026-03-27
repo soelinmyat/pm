@@ -9,6 +9,18 @@ description: "Ship workflow: review, push, create PR, code review, CI monitor + 
 
 Complete shipping lifecycle in one command: review, push, create PR, monitor CI, poll readiness gates, and auto-merge.
 
+## Default Branch
+
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
+```
+
+All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
+
 ---
 
 # Phase 1: PR Preparation
@@ -17,8 +29,8 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 
 ### Verify branch
 
-Run `git branch --show-current`. If on `main` or `master`:
-- STOP. Report: "You are on main. Create a feature branch first."
+Run `git branch --show-current`. If on `{DEFAULT_BRANCH}`:
+- STOP. Report: "You are on {DEFAULT_BRANCH}. Create a feature branch first."
 
 ### Check for uncommitted changes
 
@@ -35,17 +47,17 @@ If working tree is clean, continue.
 
 ## Step 2: Check & Fix Conflicts
 
-### Check if branch is behind main
+### Check if branch is behind {DEFAULT_BRANCH}
 
-Run: `git fetch origin main && git log HEAD..origin/main --oneline`
+Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH} --oneline`
 
-**If no output:** Branch is up to date with main. Continue to Step 3.
+**If no output:** Branch is up to date with {DEFAULT_BRANCH}. Continue to Step 3.
 
 **If there are commits behind:**
 
-1. Merge main into the branch:
+1. Merge {DEFAULT_BRANCH} into the branch:
    ```bash
-   git merge origin/main
+   git merge origin/{DEFAULT_BRANCH}
    ```
 
 2. **If merge succeeds cleanly:** Continue to Step 3.
@@ -57,7 +69,7 @@ Run: `git fetch origin main && git log HEAD..origin/main --oneline`
      - Read the file and understand both sides of the conflict
      - Resolve the conflict preserving the intent of both changes
      - Stage the resolved file: `git add [file]`
-   - Commit the merge: `git commit -m "merge: resolve conflicts with main"`
+   - Commit the merge: `git commit -m "merge: resolve conflicts with {DEFAULT_BRANCH}"`
    - Run relevant verification commands for the resolved files (see AGENTS.md)
    - If tests fail after resolution, fix and amend the merge commit
 
@@ -104,24 +116,24 @@ Run `git push`. If no upstream tracking branch exists, use `git push -u origin H
 
 Parse the hook error output generically — do NOT rely on hardcoded hook names. Diagnose from the error message.
 
-**First: check if failures are pre-existing on main.**
+**First: check if failures are pre-existing on {DEFAULT_BRANCH}.**
 
 ```bash
-# Use a temporary worktree to check main without stashing (avoids blind stash recovery)
-git worktree add /tmp/check-main-$$ main --quiet
-cd /tmp/check-main-$$
+# Use a temporary worktree to check {DEFAULT_BRANCH} without stashing (avoids blind stash recovery)
+git worktree add /tmp/check-default-$$ {DEFAULT_BRANCH} --quiet
+cd /tmp/check-default-$$
 # Run the same command that failed in the hook (test suite, lint, etc.)
-# If it ALSO fails on main: these are pre-existing failures, not caused by this branch
+# If it ALSO fails on {DEFAULT_BRANCH}: these are pre-existing failures, not caused by this branch
 cd -
-git worktree remove /tmp/check-main-$$ --force 2>/dev/null || true
+git worktree remove /tmp/check-default-$$ --force 2>/dev/null || true
 ```
 
-**If failures are pre-existing (also fail on main):**
+**If failures are pre-existing (also fail on {DEFAULT_BRANCH}):**
 1. Fix them in a separate commit with message: `fix: resolve pre-existing {test/lint/spec} failures`
 2. This is not optional. Pre-existing failures still block the push and must be fixed.
 3. Check AGENTS.md for common pre-push setup (e.g., `bin/sync-api --spec` for API spec generation, `pnpm build` for shared packages in monorepos). Run these first as they often resolve pre-existing issues.
 
-**If failures are new (pass on main, fail on branch):**
+**If failures are new (pass on {DEFAULT_BRANCH}, fail on branch):**
 - Fix the issue (missing build artifact, failing test, lint error)
 - Re-commit if needed: `git commit --amend` or new fix commit
 
@@ -148,8 +160,8 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 **If no PR exists:**
 
 1. Get context for PR description:
-   - `git log main..HEAD --oneline` for commit summary
-   - `git diff main...HEAD --stat` for files changed
+   - `git log {DEFAULT_BRANCH}..HEAD --oneline` for commit summary
+   - `git diff {DEFAULT_BRANCH}...HEAD --stat` for files changed
 
 2. Create the PR:
    ```
@@ -232,7 +244,7 @@ All active gates must be true simultaneously before auto-merge:
 | 2 | **Claude review done** | Verify `code-review:code-review` posted comments to PR | If not present, re-invoke `code-review:code-review`. |
 | 3 | **Codex review done** | **Default: SKIP** unless `codex_review: true` in `dev/instructions.md`. When enabled: check for Codex bot comment (bot name configurable via `codex_bot_name` in instructions, default: `chatgpt-codex-connector[bot]`). 5-minute cooldown after @codex comment. | Poll both cooldown and bot response. After 15 min total, ask user: proceed without or keep waiting. |
 | 4 | **No unresolved comments** | GraphQL `reviewThreads` check - zero unresolved threads | For each unresolved thread: read the comment, fix the code issue, reply explaining the fix, resolve the thread. Push fixes and re-trigger CI if code changed. |
-| 5 | **No merge conflicts** | `gh pr view --json mergeStateStatus --jq .mergeStateStatus` - not `DIRTY` | Fetch and merge main: `git fetch origin main && git merge origin/main`. Resolve conflicts, run tests, commit, push. |
+| 5 | **No merge conflicts** | `gh pr view --json mergeStateStatus --jq .mergeStateStatus` - not `DIRTY` | Fetch and merge {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH}`. Resolve conflicts, run tests, commit, push. |
 
 ---
 
@@ -350,29 +362,29 @@ if [ "$GIT_COMMON" != "$GIT_DIR" ]; then
   cd "$MAIN_REPO"
 fi
 
-# Update main (handle divergence from other sessions)
-git fetch origin main
-git checkout main
-LOCAL_ONLY=$(git log --oneline origin/main..main)
+# Update {DEFAULT_BRANCH} (handle divergence from other sessions)
+git fetch origin {DEFAULT_BRANCH}
+git checkout {DEFAULT_BRANCH}
+LOCAL_ONLY=$(git log --oneline origin/{DEFAULT_BRANCH}..{DEFAULT_BRANCH})
 if [ -n "$LOCAL_ONLY" ]; then
-  echo "WARN: local main has commits not on origin/main:"
+  echo "WARN: local {DEFAULT_BRANCH} has commits not on origin/{DEFAULT_BRANCH}:"
   echo "$LOCAL_ONLY"
-  echo "Rebasing local main onto origin/main..."
+  echo "Rebasing local {DEFAULT_BRANCH} onto origin/{DEFAULT_BRANCH}..."
   HAS_WIP=false
   if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
     HAS_WIP=true
     git add -A
     git commit -m "WIP: ship-cleanup temp commit"
   fi
-  if ! git rebase origin/main; then
-    echo "Rebase conflict while syncing local main. Resolve conflicts manually, then rerun cleanup."
+  if ! git rebase origin/{DEFAULT_BRANCH}; then
+    echo "Rebase conflict while syncing local {DEFAULT_BRANCH}. Resolve conflicts manually, then rerun cleanup."
     exit 1
   fi
   if [ "$HAS_WIP" = true ]; then
     git reset --soft HEAD~1
   fi
 else
-  git merge --ff-only origin/main
+  git merge --ff-only origin/{DEFAULT_BRANCH}
 fi
 
 # Remove worktree if applicable
@@ -425,7 +437,7 @@ git fetch --prune
 **Review:** [N issues found and fixed by review agents]
 **Code Review:** [posted to PR]
 **CI:** [passed after N rounds]
-**Merged to:** main ([short sha])
+**Merged to:** {DEFAULT_BRANCH} ([short sha])
 **Remote branch:** [branch] — deleted
 **Local branch:** [branch] — deleted
 **Worktree:** [removed at path / n/a]
@@ -486,7 +498,7 @@ mutation {
 ## Critical Rules
 
 - NEVER use `--no-verify`. All hook failures must be fixed, no exceptions.
-- NEVER commit to main directly
+- NEVER commit to {DEFAULT_BRANCH} directly
 - NEVER force-merge. If `gh pr merge` fails, STOP and report.
 - NEVER merge while CI checks are in progress or failing. Wait for all checks to complete, investigate failures, and confirm they are pre-existing/unrelated before merging. Flag failures to the user.
 - NEVER skip Gate 4 (unresolved comments). Every comment from Claude review, Codex, or human reviewers must be addressed.
@@ -509,8 +521,8 @@ Manual merge + cleanup. Use when you want to merge without the full gate monitor
 
 ### Verify branch
 
-Run `git branch --show-current`. If on `main` or `master`:
-- STOP. "You are on main. Switch to the feature branch to merge."
+Run `git branch --show-current`. If on `{DEFAULT_BRANCH}`:
+- STOP. "You are on {DEFAULT_BRANCH}. Switch to the feature branch to merge."
 
 ### Check for uncommitted changes
 
@@ -564,7 +576,7 @@ If still exists: `git push origin --delete "$FEATURE_BRANCH"`. If that fails too
 
 ## Step 5: Local cleanup
 
-Same cleanup procedure as Phase 2 (detect worktree, switch to main, pull, remove worktree, delete branch, prune).
+Same cleanup procedure as Phase 2 (detect worktree, switch to {DEFAULT_BRANCH}, pull, remove worktree, delete branch, prune).
 
 ---
 
@@ -580,7 +592,7 @@ If the PR title or branch name contains an issue identifier and an issue tracker
 ## Merged
 
 **PR:** #N — [title]
-**Merged to:** main ([short sha])
+**Merged to:** {DEFAULT_BRANCH} ([short sha])
 **Remote branch:** [branch] — deleted / failed
 **Local branch:** [branch] — deleted
 **Worktree:** [removed at path / n/a]
@@ -595,6 +607,6 @@ If the PR title or branch name contains an issue identifier and an issue tracker
 - NEVER force-remove a worktree without asking the user
 - Always `cd` to main repo BEFORE removing a worktree
 - Always verify the remote branch was actually deleted after merge
-- Always pull main after merge
+- Always pull {DEFAULT_BRANCH} after merge
 - Always prune remote tracking refs
 - If merge fails, do NOT proceed to cleanup

@@ -172,7 +172,7 @@ const MIME_TYPES = {
 
 const WAITING_PAGE = `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>PM Companion</title>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PM Companion</title>
 <style>body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; }
 h1 { color: #333; } p { color: #666; }</style>
 </head>
@@ -881,6 +881,68 @@ a.groom-session:hover { background: #dbeafe; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ========== Responsive ========== */
+
+/* Tablet (<=900px) */
+@media (max-width: 900px) {
+  .container { padding: 1.5rem 1rem; }
+  .kanban { grid-template-columns: 1fr; gap: 0; }
+  .kanban-col { border-right: none; border-bottom: 1px solid var(--border); }
+  .kanban-col:last-child { border-bottom: none; }
+  .backlog-stats { grid-template-columns: repeat(2, 1fr); }
+  .quadrant-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .scatter-container { padding: 1.5rem 1rem 1.5rem 2rem; }
+  .timeline-track { flex-direction: column; }
+  .timeline-phase:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+  .timeline-phase:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+  .timeline-phase:not(:first-child) { border-left: 1px solid var(--border); border-top: none; }
+  .timeline-labels { flex-direction: column; }
+  .bar-row-label { width: 80px; }
+  .heatmap-table { font-size: 0.75rem; }
+  .heatmap-table th, .heatmap-table td { padding: 0.375rem 0.5rem; }
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .proposal-iframe { height: 500px; }
+  .wireframe-iframe { height: 350px; }
+}
+
+/* Mobile (<=600px) */
+@media (max-width: 600px) {
+  .container { padding: 1rem 0.75rem; }
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1rem; }
+  nav { flex-wrap: wrap; padding: 0 0.75rem; min-height: auto; }
+  nav .brand { padding: 0.625rem 0; margin-right: auto; }
+  nav a { padding: 0.5rem 0.625rem; font-size: 0.75rem; }
+  .kb-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  .kb-tab { white-space: nowrap; flex-shrink: 0; }
+  .kb-sub-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .kb-sub-tab { white-space: nowrap; flex-shrink: 0; }
+  .backlog-stats { grid-template-columns: 1fr 1fr; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .card-grid { grid-template-columns: 1fr; }
+  .swot-grid { grid-template-columns: 1fr; }
+  .scatter-container { aspect-ratio: auto; min-height: 280px; padding: 1rem 0.75rem 1rem 1.5rem; }
+  .scatter-axis-y { left: -1.5rem; }
+  .scatter-label { font-size: 0.5625rem; }
+  .groom-session { flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 0.75rem 1rem; }
+  .proposal-iframe { height: 400px; }
+  .wireframe-iframe { height: 280px; }
+  .empty-state { padding: 2rem 1rem; }
+  .empty-state-cta { padding: 2rem 1rem; }
+  .group-header { padding: 0.5rem 0.75rem; }
+  .proposals-header { flex-direction: column; gap: 0.25rem; }
+  .view-toggle { width: 100%; }
+  .toggle-btn { flex: 1; text-align: center; }
+}
+
+/* Small mobile (<=400px) */
+@media (max-width: 400px) {
+  .backlog-stats { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: 1fr; }
+  nav a { padding: 0.5rem 0.5rem; font-size: 0.6875rem; }
+  .stat-card .value { font-size: 1.5rem; }
 }
 `;
 
@@ -1868,32 +1930,60 @@ function handleDashboardHome(res, pmDir) {
 </div>`;
   }
 
+  // Build stat cards for control tower
+  const strategyStale = updatedDates.strategy ? stalenessInfo(updatedDates.strategy) : null;
+  const strategyBadge = stats.strategy
+    ? (strategyStale ? `<span class="badge badge-${strategyStale.level}">${escHtml(strategyStale.label)}</span>` : '<span class="badge badge-fresh">Current</span>')
+    : '<span class="badge badge-empty">Not set</span>';
+
+  const controlCards = `<div class="stat-grid">
+  <a href="/backlog" class="stat-card stat-card-link">
+    <div class="value">${stats.backlog}</div>
+    <div class="label">Backlog Items</div>
+  </a>
+  <a href="/kb?tab=competitors" class="stat-card stat-card-link">
+    <div class="value">${stats.competitors}</div>
+    <div class="label">Competitors</div>
+  </a>
+  <a href="/kb?tab=topics" class="stat-card stat-card-link">
+    <div class="value">${stats.research}</div>
+    <div class="label">Research Topics</div>
+  </a>
+  <div class="stat-card">
+    <div class="value">${allSessions.length}</div>
+    <div class="label">Active Sessions</div>
+  </div>
+</div>
+<div style="text-align:center;margin:-0.5rem 0 1.5rem;">
+  <span style="font-size:0.8125rem;color:var(--text-muted);">Strategy: ${strategyBadge}</span>
+  ${researchHasContent ? `<span style="font-size:0.8125rem;color:var(--text-muted);margin-left:1rem;">Research: ${escHtml(researchDesc)}</span>` : ''}
+</div>`;
+
   let body;
-  if (proposalCount === 0 && allSessions.length === 0) {
+  if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0) {
     // Empty state — prominent "Start Grooming" CTA
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Knowledge base overview</p>
+  <p class="subtitle">Product command center</p>
 </div>
 <div class="empty-state-cta">
   <h2>Ready to build?</h2>
   <p>Start grooming your first feature to create a structured proposal with research, strategy alignment, and scoped issues.</p>
   <p><code>/pm:groom</code></p>
 </div>
-${suggestedHtml}
-${kbReferenceHtml}`;
+${suggestedHtml}`;
   } else {
-    // Active state — groom banner, proposal gallery hero, KB reference
+    // Active state — control tower
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Knowledge base overview</p>
+  <p class="subtitle">Product command center</p>
 </div>
+${controlCards}
 ${sessionBannerHtml}
 ${proposalsHtml}
-${suggestedHtml}
-${kbReferenceHtml}`;
+${suggestedHtml}`;
   }
 
   const html = dashboardPage('Home', '/', body, projectName);
@@ -3014,12 +3104,25 @@ function switchTab(el, panelId) {
   el.classList.add('active');
   el.setAttribute('aria-selected','true');
   document.getElementById(panelId).classList.add('active');
+  var tabName = panelId.replace('tab-', '');
+  var url = new URL(window.location);
+  url.searchParams.set('tab', tabName);
+  history.replaceState(null, '', url);
 }
 function tabKey(e, el, panelId) {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
   if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
   if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
 }
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  if (tab) {
+    var panel = document.getElementById('tab-' + tab);
+    var tabEl = document.querySelector('.tab[onclick*="tab-' + tab + '"]');
+    if (panel && tabEl) switchTab(tabEl, 'tab-' + tab);
+  }
+})();
 </script>`;
 
   const html = dashboardPage(name, '/kb?tab=competitors', body);
@@ -3155,8 +3258,28 @@ function handleBacklog(res, pmDir, view) {
     proposalsHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
   }
 
+  const searchHtml = `<div style="margin-bottom:1rem;">
+<input type="text" id="backlog-search" placeholder="Filter backlog..."
+  style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.875rem;background:var(--surface);color:var(--text);outline:none;"
+  onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
+</div>
+<script>
+(function(){
+  var input = document.getElementById('backlog-search');
+  if (!input) return;
+  input.addEventListener('input', function() {
+    var q = this.value.toLowerCase();
+    document.querySelectorAll('.card-grid .card, .backlog-list .kanban-item').forEach(function(el) {
+      var text = el.textContent.toLowerCase();
+      el.style.display = text.includes(q) ? '' : 'none';
+    });
+  });
+})();
+</script>`;
+
   const body = `<div class="page-header"><h1>Backlog</h1></div>
 ${statsHtml}
+${searchHtml}
 ${proposalsHtml}
 ${ideasHtml}`;
 
