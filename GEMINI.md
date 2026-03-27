@@ -42,10 +42,8 @@ A typical progression:
 | Strategy | Generate and refine product positioning and strategic bets |
 | Research | Landscape mapping, competitor deep-dives, user signal analysis |
 | Groom | Convert strategy into groomed issues ready for sprint |
-| Dig | Ad-hoc deep research on a specific question or topic |
 | Refresh | Audit research for staleness and missing data, then patch without losing existing content |
 | View | Browse and search accumulated research and strategy artifacts |
-| Ideate | Brainstorm feature ideas from research and strategy |
 
 ### Development Lifecycle
 
@@ -53,11 +51,16 @@ A typical progression:
 |-----------|-------------|
 | Dev | End-to-end feature implementation from issue to merge-ready PR |
 | Dev-epic | Multi-issue epic orchestration with teammate agents |
-| Review | Code review with structured critique |
-| PR | Create pull request with summary and test plan |
-| Merge-watch | Monitor PR checks and merge when ready |
+| Brainstorming | Explore intent and design before code for creative work |
+| Writing-plans | Produce an implementation plan before code for multi-step tasks |
+| TDD | Test-first discipline — write test, watch fail, implement |
+| Subagent-dev | Dispatch parallel agents for plan execution |
+| Debugging | Root cause investigation before any fix |
+| Receiving-review | Technical rigor — verify before implementing review suggestions |
+| Review | Multi-perspective code review |
+| Design-critique | Multi-agent visual critique with screenshots |
+| Ship | Review, push, PR, CI monitor + auto-fix |
 | Bug-fix | Structured bug investigation and fix workflow |
-| Merge | Merge a PR manually without polling (uses the merge section of merge-watch) |
 | Sync | Sync plugin source to cache for testing |
 
 ---
@@ -96,7 +99,7 @@ Gemini CLI (sequential):
   - Merge results in the next prompt turn
 ```
 
-All other skills (setup, strategy, groom, dig, view, dev, review, pr, bug-fix) work identically on Gemini CLI because they do not use parallel agents.
+All other skills work identically on Gemini CLI because they do not use parallel agents.
 
 ---
 

@@ -462,7 +462,11 @@ nav a { color: rgba(255,255,255,0.6); font-size: 0.8125rem; padding: 0 0.875rem;
 nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
 nav a.active { color: #fff; border-bottom-color: var(--accent); }
 nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.nav-divider { width: 1px; background: rgba(255,255,255,0.15); margin: 0.625rem 0.5rem; align-self: stretch; }
+.kb-sub-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
+.kb-sub-tab { padding: 0.625rem 1rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
+  text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s; }
+.kb-sub-tab:hover { color: var(--text); }
+.kb-sub-tab.active { color: var(--accent, #2563eb); border-bottom-color: var(--accent, #2563eb); }
 
 /* Layout */
 .container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
@@ -491,6 +495,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .stat-card .value { font-size: 2rem; font-weight: 700; color: var(--accent); line-height: 1; }
 .stat-card .label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;
   text-transform: uppercase; letter-spacing: 0.05em; }
+a.stat-card-link { text-decoration: none; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+a.stat-card-link:hover { border-color: var(--accent, #2563eb); box-shadow: var(--shadow-sm); }
+a.stat-card-link .label { color: var(--accent, #2563eb); }
+.backlog-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.backlog-section-title { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+.backlog-list { display: flex; flex-direction: column; gap: 0.5rem; }
 
 /* Card grid */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
@@ -523,9 +533,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-item.priority-medium { border-left-color: #3b82f6; }
 .kanban-item.priority-low { border-left-color: #9ca3af; }
 .kanban-item:hover { box-shadow: var(--shadow-sm); }
+.kanban-item.done-item { opacity: 0.6; }
 a.kanban-item { color: var(--text); text-decoration: none; display: block; cursor: pointer; }
+.done-collapse { margin-top: 0.25rem; }
+.done-toggle { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 0.375rem; width: 100%; }
+.done-toggle:hover { background: var(--bg); }
+.done-arrow { display: inline-block; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-muted); transition: transform 0.15s; }
+.done-arrow.open { transform: rotate(180deg); }
+.done-items { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.375rem; }
 .kanban-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
-.kanban-parent { font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
+.kanban-parent { font-size: 0.6875rem; color: var(--accent, #2563eb); white-space: nowrap; cursor: pointer; }
+.kanban-parent:hover { text-decoration: underline; }
 .backlog-item-id { font-size: 0.75em; font-weight: 600; color: var(--accent); }
 .issue-relations { margin-top: 0.75rem; padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; }
 .issue-relation { font-size: 0.875rem; margin-bottom: 0.375rem; }
@@ -760,22 +780,6 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 
 /* Coverage matrix */
-.coverage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
-.coverage-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  overflow: hidden; }
-.coverage-group-header { padding: 0.75rem 1rem; font-weight: 600; font-size: 0.8125rem;
-  text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
-.coverage-group-body { padding: 0.5rem; }
-.coverage-topic { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.5rem;
-  font-size: 0.8125rem; border-radius: var(--radius-sm); }
-.coverage-topic:hover { background: var(--bg); }
-.coverage-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.coverage-dot-fresh { background: #16a34a; }
-.coverage-dot-aging { background: #eab308; }
-.coverage-dot-stale { background: #dc2626; }
-.coverage-topic-name { flex: 1; }
-.coverage-topic-subtitle { font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
-.coverage-topic-badges { display: flex; gap: 0.25rem; }
 
 /* Positioning map */
 .positioning-map { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -835,11 +839,10 @@ a.groom-session:hover { background: #dbeafe; }
 
 /* Proposal cards */
 .proposal-card { position: relative; overflow: hidden; }
-.proposal-card .card-gradient { height: 48px; border-radius: var(--radius) var(--radius) 0 0; }
-.proposal-card h3 { margin: 0.5rem 0 0.25rem; }
+.proposal-card h3 { margin-top: 0; }
+.proposal-card h3 { margin: 0 0 0.25rem; }
 .proposal-card.draft { border-style: dashed; border-color: #b8d4f0; cursor: default; opacity: 0.85; }
 .proposal-card.draft:hover { box-shadow: var(--shadow-sm); transform: none; }
-.draft-gradient { background: repeating-linear-gradient(45deg, #e8e8e8, #e8e8e8 10px, #f0f0f0 10px, #f0f0f0 20px); }
 .badge-draft { background: #dbeafe; color: #1d4ed8; }
 .proposals-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
 .proposals-header h2 { margin: 0; }
@@ -861,7 +864,6 @@ a.groom-session:hover { background: #dbeafe; }
   padding: 0.625rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border);
   text-decoration: none; color: var(--text); }
 .group-header:hover { background: #f0f2f5; }
-.group-gradient { width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; }
 .group-title { font-weight: 600; font-size: 0.875rem; flex: 1; }
 .group-count { font-size: 0.75rem; color: var(--text-muted); }
 .group-items { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
@@ -885,21 +887,14 @@ a.groom-session:hover { background: #dbeafe; }
 
 function dashboardPage(title, activeNav, bodyContent, projectName) {
   projectName = projectName || _cachedProjectName || 'PM';
-  const primaryLinks = [
+  const navLinks = [
     { href: '/', label: 'Home' },
-    { href: '/proposals', label: 'Proposals' },
     { href: '/backlog', label: 'Backlog' },
+    { href: '/kb', label: 'Research' },
   ];
-  const secondaryLinks = [
-    { href: '/kb?tab=research', label: 'Landscape' },
-    { href: '/kb?tab=competitors', label: 'Competitors' },
-    { href: '/kb?tab=strategy', label: 'Strategy' },
-    { href: '/kb?tab=topics', label: 'Topics' },
-  ];
-  const allLinks = [...primaryLinks, { divider: true }, ...secondaryLinks];
-  const linksHtml = allLinks.map(l => {
-    if (l.divider) return '<span class="nav-divider"></span>';
-    const active = activeNav === l.href;
+  const isKbPage = activeNav && activeNav.startsWith('/kb');
+  const linksHtml = navLinks.map(l => {
+    const active = l.href === '/kb' ? isKbPage : activeNav === l.href;
     return `<a href="${l.href}"${active ? ' class="active"' : ''}>${l.label}</a>`;
   }).join('');
 
@@ -1160,7 +1155,10 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (urlPath === '/proposals') {
-    handleProposalsPage(res, pmDir);
+    res.writeHead(301, { 'Location': '/backlog' }); res.end();
+  } else if (urlPath.startsWith('/proposals/wireframes/')) {
+    const slug = decodeURIComponent(urlPath.slice('/proposals/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
+    handleWireframe(res, pmDir, slug);
   } else if (urlPath.startsWith('/proposals/')) {
     const remainder = urlPath.slice('/proposals/'.length).replace(/\/$/, '');
     const isRaw = remainder.endsWith('/raw');
@@ -1235,25 +1233,6 @@ function humanizeSlug(slug) {
 
 // ========== Proposal Metadata Helpers ==========
 
-const PROPOSAL_GRADIENTS = [
-  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-  'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-  'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-  'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-  'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
-  'linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)',
-  'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
-];
-
-function proposalGradient(slug) {
-  if (!slug) return PROPOSAL_GRADIENTS[0];
-  let hash = 5381;
-  for (let i = 0; i < slug.length; i++) {
-    hash = ((hash << 5) + hash + slug.charCodeAt(i)) >>> 0;
-  }
-  return PROPOSAL_GRADIENTS[hash % PROPOSAL_GRADIENTS.length];
-}
 
 function readProposalMeta(slug, pmDir) {
   if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) return null;
@@ -1465,10 +1444,18 @@ function buildBacklogGrouped(pmDir) {
     }
   }
 
-  // Render groups
+  // Render groups — active work first, fully-done groups last
   let html = '';
 
-  for (const proposalSlug of Object.keys(groups)) {
+  const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+    const aHasActive = groups[a].some(i => i.status !== 'done');
+    const bHasActive = groups[b].some(i => i.status !== 'done');
+    if (aHasActive && !bHasActive) return -1;
+    if (!aHasActive && bHasActive) return 1;
+    return 0;
+  });
+
+  for (const proposalSlug of sortedGroupKeys) {
     const groupItems = groups[proposalSlug];
     const meta = readProposalMeta(proposalSlug, pmDir);
 
@@ -1502,12 +1489,14 @@ function buildBacklogGrouped(pmDir) {
     }
 
     if (meta) {
-      const gradient = sanitizeGradient(meta.gradient);
       const title = escHtml(meta.title || humanizeSlug(proposalSlug));
+      const verdictBadge = meta.verdictLabel
+        ? `<span class="badge badge-ready">${escHtml(String(meta.verdictLabel))}</span>`
+        : '';
       html += `<div class="proposal-group">
   <a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="group-header">
-    <div class="group-gradient" style="background: ${gradient}"></div>
     <div class="group-title">${title}</div>
+    ${verdictBadge}
     <div class="group-count">${escHtml(countText)}</div>
   </a>
   <div class="group-items">`;
@@ -1522,11 +1511,29 @@ function buildBacklogGrouped(pmDir) {
   <div class="group-items">`;
     }
 
-    for (const { item, isChild } of ordered) {
+    const activeItems = ordered.filter(o => o.item.status !== 'done');
+    const doneItems = ordered.filter(o => o.item.status === 'done');
+
+    for (const { item, isChild } of activeItems) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
       const badgeHtml = item.status ? `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>` : '';
       const childClass = isChild ? ' child-item' : '';
       html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}${badgeHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+
+    if (doneItems.length > 0) {
+      const doneId = 'done-' + escHtml(proposalSlug);
+      html += `<div class="done-collapse">
+  <button class="done-toggle" onclick="var el=document.getElementById('${doneId}');el.style.display=el.style.display==='none'?'flex':'none';this.querySelector('.done-arrow').classList.toggle('open')" type="button">
+    <span class="done-arrow"></span> ${doneItems.length} shipped
+  </button>
+  <div id="${doneId}" class="done-items" style="display:none">`;
+      for (const { item, isChild } of doneItems) {
+        const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+        const childClass = isChild ? ' child-item' : '';
+        html += `<a class="kanban-item done-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="status-badge badge-done">done</span><span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      }
+      html += '</div></div>';
     }
 
     html += '</div></div>\n';
@@ -1534,16 +1541,30 @@ function buildBacklogGrouped(pmDir) {
 
   // Standalone section
   if (standalone.length > 0) {
+    const saActive = standalone.filter(i => i.status !== 'done');
+    const saDone = standalone.filter(i => i.status === 'done');
     html += `<div class="proposal-group">
   <div class="group-header standalone-header">
     <div class="group-title">Standalone Issues</div>
     <div class="group-count">${standalone.length} issue${standalone.length !== 1 ? 's' : ''}</div>
   </div>
   <div class="group-items">`;
-    for (const item of standalone) {
+    for (const item of saActive) {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
       const badgeHtml = item.status ? `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>` : '';
       html += `<a class="kanban-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}${badgeHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+    }
+    if (saDone.length > 0) {
+      html += `<div class="done-collapse">
+  <button class="done-toggle" onclick="var el=document.getElementById('done-standalone');el.style.display=el.style.display==='none'?'flex':'none';this.querySelector('.done-arrow').classList.toggle('open')" type="button">
+    <span class="done-arrow"></span> ${saDone.length} shipped
+  </button>
+  <div id="done-standalone" class="done-items" style="display:none">`;
+      for (const item of saDone) {
+        const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
+        html += `<a class="kanban-item done-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="status-badge badge-done">done</span><span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+      }
+      html += '</div></div>';
     }
     html += '</div></div>\n';
   }
@@ -1565,11 +1586,6 @@ function findProposalAncestor(slug, items, proposalSlugs) {
   return null;
 }
 
-function sanitizeGradient(value) {
-  if (typeof value === 'string' && /^linear-gradient\(/.test(value) && !value.includes('url(') && !value.includes(';')) return value;
-  return '#e5e7eb';
-}
-
 function buildProposalCards(pmDir, limit, preloadedSessions) {
   const entries = [];
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
@@ -1580,7 +1596,6 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
       const meta = readProposalMeta(slug, pmDir);
       if (!meta) continue;
       const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug);
-      const gradient = sanitizeGradient(meta.gradient);
       const stale = stalenessInfo(meta.date);
       const staleLabel = stale ? stale.label : '';
       const verdictHtml = meta.verdictLabel
@@ -1593,7 +1608,6 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
         date: meta.date || '0000-00-00',
         isDraft: false,
         html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
-  <div class="card-gradient" style="background: ${gradient}"></div>
   <h3>${escHtml(title)}</h3>
   <p class="meta">${escHtml(staleLabel)}</p>
   <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
@@ -1617,7 +1631,6 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
         date: '0000-00-00', // unknown date — sort to end
         isDraft: false,
         html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
-  <div class="card-gradient" style="background: #e5e7eb"></div>
   <h3>${escHtml(title)}</h3>
   <p class="meta">Legacy proposal</p>
   <div class="card-footer"><div></div><span class="view-link">View →</span></div>
@@ -1632,7 +1645,6 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
       date: '9999-99-99',
       isDraft: true,
       html: `<div class="card proposal-card draft">
-  <div class="card-gradient draft-gradient"></div>
   <h3>${d.topic}</h3>
   <p class="meta">Grooming since ${d.started}</p>
   <div class="card-footer"><span class="badge badge-draft">Draft — ${d.phase}</span></div>
@@ -1806,9 +1818,10 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
-  // Active sessions (groom + dev) — read once and reuse for proposal cards
+  // Active sessions (groom + dev) — filter out stale sessions (>24h since last modified)
   const groomSessions = readGroomState(pmDir);
-  const allSessions = readAllActiveSessions(pmDir);
+  const staleMs = 24 * 60 * 60 * 1000;
+  const allSessions = readAllActiveSessions(pmDir).filter(s => s._mtime && (Date.now() - s._mtime) < staleMs);
   let sessionBannerHtml = '';
   if (allSessions.length > 0) {
     const label = allSessions.length === 1 ? 'Active Session' : `Active Sessions (${allSessions.length})`;
@@ -1842,14 +1855,11 @@ function handleDashboardHome(res, pmDir) {
   let proposalsHtml = '';
   const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6, groomSessions);
   if (proposalCount > 0) {
-    const viewAllText = proposalCount > 6
-      ? `View all ${proposalCount} proposals →`
-      : 'View all proposals →';
     proposalsHtml = `
 <div class="content-section">
   <div class="proposals-header">
     <h2>Recent Proposals</h2>
-    <a href="/proposals" class="proposals-view-all">${viewAllText}</a>
+    <a href="/backlog" class="proposals-view-all">View backlog →</a>
   </div>
   <div class="card-grid">${proposalCards}</div>
 </div>`;
@@ -2099,21 +2109,21 @@ function handleProposalDetailRaw(res, pmDir, slug) {
 function handleProposalDetail(res, pmDir, slug) {
   if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    res.end(dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/backlog">&larr; Back to Backlog</a></p></div>'));
     return;
   }
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   const htmlPath = path.resolve(proposalsDir, slug + '.html');
   if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
+    res.end(dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/backlog">&larr; Back to Backlog</a></p></div>'));
     return;
   }
   const encodedSlug = encodeURIComponent(slug);
   const title = humanizeSlug(slug);
   const body = `
 <div class="page-header">
-  <p class="breadcrumb"><a href="/proposals">&larr; Back to Proposals</a></p>
+  <p class="breadcrumb"><a href="/backlog">&larr; Back to Backlog</a></p>
   <h1>${escHtml(title)}</h1>
 </div>
 <div class="proposal-embed">
@@ -2123,7 +2133,7 @@ function handleProposalDetail(res, pmDir, slug) {
   </div>
   <iframe src="/proposals/${encodedSlug}/raw" class="proposal-iframe"></iframe>
 </div>`;
-  const html = dashboardPage(title, '/proposals', body);
+  const html = dashboardPage(title, '/backlog', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2148,20 +2158,9 @@ function handleProposalsPage(res, pmDir) {
   res.end(html);
 }
 
-function buildKbSubTabs(activeTab) {
-  const tabs = [
-    { id: 'research', label: 'Research', href: '/kb?tab=research' },
-    { id: 'competitors', label: 'Competitors', href: '/kb?tab=competitors' },
-    { id: 'strategy', label: 'Strategy', href: '/kb?tab=strategy' },
-  ];
-  return '<div class="kb-tabs">' + tabs.map(t =>
-    `<a href="${t.href}" class="kb-tab${t.id === activeTab ? ' active' : ''}">${t.label}</a>`
-  ).join('') + '</div>';
-}
+// ========== Shared Research Content Builders ==========
 
-function handleResearchPage(res, pmDir) {
-  // --- Landscape tab ---
-  let landscapeHtml = '';
+function buildLandscapeContent(pmDir) {
   const landscapePath = path.join(pmDir, 'landscape.md');
   if (fs.existsSync(landscapePath)) {
     const raw = fs.readFileSync(landscapePath, 'utf-8');
@@ -2169,17 +2168,16 @@ function handleResearchPage(res, pmDir) {
     const statsData = parseStatsData(body);
     const statsHtml = renderStatsCards(statsData);
     var rendered = renderLandscapeWithViz(body);
-    // Inject stats right after the first h1
     if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-    landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
+    return '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
-  } else {
-    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
   }
+  return '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+}
 
-  // --- Competitors tab ---
-  let competitorsHtml = '';
+function buildCompetitorsContent(pmDir) {
   const compDir = path.join(pmDir, 'competitors');
+  let competitorsHtml = '';
   if (fs.existsSync(compDir)) {
     const slugs = fs.readdirSync(compDir, { withFileTypes: true })
       .filter(e => e.isDirectory()).map(e => e.name);
@@ -2242,119 +2240,44 @@ function handleResearchPage(res, pmDir) {
   if (!competitorsHtml) {
     competitorsHtml = '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to start profiling.</p></div>';
   }
+  return competitorsHtml;
+}
 
-  // --- Topics tab ---
-  let topicsHtml = '';
+function buildTopicsContent(pmDir) {
   const researchDir = path.join(pmDir, 'research');
-  if (fs.existsSync(researchDir)) {
-    const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-      .filter(e => e.isDirectory()).map(e => e.name);
+  if (!fs.existsSync(researchDir)) {
+    return '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>';
+  }
 
-    if (topics.length > 0) {
-      // Try to parse pillar groupings from index.md
-      const indexMdPath = path.join(researchDir, 'index.md');
-      let pillarGroups = null;
-      if (fs.existsSync(indexMdPath)) {
-        const indexRaw = fs.readFileSync(indexMdPath, 'utf-8');
-        const pillarRe = /<!-- pillar: ([^,]+), ([^>]+) -->/g;
-        let pm;
-        const groups = [];
-        const grouped = new Set();
-        while ((pm = pillarRe.exec(indexRaw)) !== null) {
-          const pillarName = pm[1].trim();
-          const pillarTopics = pm[2].trim().split('|').map(function(s) { return s.trim(); });
-          groups.push({ name: pillarName, topics: pillarTopics });
-          pillarTopics.forEach(function(t) { grouped.add(t); });
-        }
-        // Add ungrouped topics
-        const ungrouped = topics.filter(function(t) { return !grouped.has(t); });
-        if (ungrouped.length > 0) groups.push({ name: 'Other', topics: ungrouped });
-        if (groups.length > 0) pillarGroups = groups;
-      }
+  const topics = fs.readdirSync(researchDir, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name);
 
-      if (pillarGroups) {
-        // Render coverage grid grouped by pillar
-        const pillarColors = {
-          'Operational Replacement': '#dcfce7',
-          'Payroll-Readiness': '#dbeafe',
-          'Exception-First Ops': '#fef3c7',
-          'AI & Platform': '#e0e7ff',
-          'UX & Design': '#fce7f3',
-          'Infrastructure': '#e5e7eb',
-          'Other': '#f3f4f6'
-        };
+  if (topics.length === 0) {
+    return '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>';
+  }
 
-        const groupsHtml = pillarGroups.map(function(g) {
-          const headerColor = pillarColors[g.name] || '#eef0f4';
-          const topicItems = g.topics.map(function(t) {
-            const findingsPath = path.join(researchDir, t, 'findings.md');
-            const compPath = path.join(researchDir, t, 'comparison.md');
-            const hasFindings = fs.existsSync(findingsPath);
-            const hasComparison = fs.existsSync(compPath);
-            if (!hasFindings && !fs.existsSync(path.join(researchDir, t))) return '';
-
-            let dotClass = 'coverage-dot-stale';
-            if (hasFindings) {
-              const stale = stalenessInfo(getUpdatedDate(findingsPath));
-              if (stale) dotClass = 'coverage-dot-' + stale.level;
-            }
-
-            const badges = [];
-            if (hasComparison) badges.push('<span class="badge" style="font-size:0.5625rem">+comparison</span>');
-
-            let meta = null;
-            if (hasFindings) {
-              const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
-              meta = buildTopicMeta(t, parsed.data, findingsPath);
-            }
-
-            const topicLabel = meta ? meta.label : humanizeSlug(t);
-            const subtitleHtml = meta && meta.subtitle ? '<span class="coverage-topic-subtitle">' + escHtml(meta.subtitle) + '</span>' : '';
-
-            return '<a href="/research/' + escHtml(t) + '" class="coverage-topic">' +
-              '<span class="coverage-dot ' + dotClass + '"></span>' +
-              '<span class="coverage-topic-name">' + escHtml(topicLabel) + '</span>' +
-              subtitleHtml +
-              '<span class="coverage-topic-badges">' + (meta ? meta.badgesHtml : '') + badges.join('') + '</span>' +
-              '</a>';
-          }).filter(Boolean).join('');
-
-          return '<div class="coverage-group">' +
-            '<div class="coverage-group-header" style="background:' + headerColor + '">' + escHtml(g.name) + ' <span class="badge">' + g.topics.length + '</span></div>' +
-            '<div class="coverage-group-body">' + topicItems + '</div>' +
-            '</div>';
-        }).join('');
-
-        const legendHtml = '<div style="display:flex;gap:1rem;font-size:0.75rem;color:var(--text-muted);margin-bottom:1rem">' +
-          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-fresh"></span> Fresh (&lt;7d)</span>' +
-          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-aging"></span> Aging (7-30d)</span>' +
-          '<span style="display:flex;align-items:center;gap:0.25rem"><span class="coverage-dot coverage-dot-stale"></span> Stale (&gt;30d)</span>' +
-          '</div>';
-
-        topicsHtml = '<h2 style="margin-top:0">Research Coverage Matrix</h2>' + legendHtml +
-          '<div class="coverage-grid">' + groupsHtml + '</div>';
-      } else {
-        // Fallback: flat card grid
-        const topicCards = topics.map(t => {
-          const findingsPath = path.join(researchDir, t, 'findings.md');
-          let meta = { label: humanizeSlug(t), subtitle: 'External research', badgesHtml: '' };
-          if (fs.existsSync(findingsPath)) {
-            const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
-            meta = buildTopicMeta(t, parsed.data, findingsPath);
-          }
-          return '<div class="card">' +
-            '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
-            '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
-            '<div class="card-footer"><span>' + meta.badgesHtml + '</span><a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
-            '</div>';
-        }).join('');
-        topicsHtml = '<div class="card-grid">' + topicCards + '</div>';
-      }
+  const topicCards = topics.map(t => {
+    const findingsPath = path.join(researchDir, t, 'findings.md');
+    let meta = { label: humanizeSlug(t), subtitle: 'External research', badgesHtml: '' };
+    if (fs.existsSync(findingsPath)) {
+      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+      meta = buildTopicMeta(t, parsed.data, findingsPath);
     }
-  }
-  if (!topicsHtml) {
-    topicsHtml = '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>';
-  }
+    return '<div class="card">' +
+      '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
+      '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
+      '<div class="card-footer"><div>' + meta.badgesHtml + '</div>' +
+      '<a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
+      '</div>';
+  }).join('');
+
+  return '<div class="card-grid">' + topicCards + '</div>';
+}
+
+function handleResearchPage(res, pmDir) {
+  const landscapeHtml = buildLandscapeContent(pmDir);
+  const competitorsHtml = buildCompetitorsContent(pmDir);
+  const topicsHtml = buildTopicsContent(pmDir);
 
   const tabs = [
     { id: 'landscape', label: 'Landscape', content: landscapeHtml },
@@ -2400,7 +2323,7 @@ function tabKey(e, el, panelId) {
 })();
 </script>`;
 
-  const html = dashboardPage('Research', '/kb', body);
+  const html = dashboardPage('Research', '/kb?tab=research', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2630,7 +2553,7 @@ function renderStrategyWithViz(body) {
 function handleStrategyPage(res, pmDir) {
   var filePath = path.join(pmDir, 'strategy.md');
   if (!fs.existsSync(filePath)) {
-    var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
+    var html = dashboardPage('Strategy', '/kb?tab=strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
       '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
@@ -2641,7 +2564,7 @@ function handleStrategyPage(res, pmDir) {
   var parsed = parseFrontmatter(raw);
   var rendered = renderStrategyWithViz(parsed.body);
 
-  var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
+  var html = dashboardPage('Strategy', '/kb?tab=strategy', '<div class="page-header"><h1>Strategy</h1></div>' +
     '<div class="markdown-body">' + rendered + '</div>');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -2986,14 +2909,21 @@ function handleCompetitorsList(res, pmDir) {
     (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p></div>') +
     matrixContent + indexContent;
 
-  var html = dashboardPage('Competitors', '/kb', body);
+  var html = dashboardPage('Competitors', '/kb?tab=competitors', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
 
-function parseCompetitorSummary(raw) {
-  const { data } = parseFrontmatter(raw);
-  return { company: data.name || '', category: data.category || '' };
+function buildKbSubTabs(activeTab) {
+  const tabs = [
+    { id: 'research', label: 'Landscape' },
+    { id: 'competitors', label: 'Competitors' },
+    { id: 'strategy', label: 'Strategy' },
+    { id: 'topics', label: 'Topics' },
+  ];
+  return '<div class="kb-sub-tabs">' + tabs.map(t =>
+    `<a href="/kb?tab=${t.id}" class="kb-sub-tab${t.id === activeTab ? ' active' : ''}">${t.label}</a>`
+  ).join('') + '</div>';
 }
 
 function handleKnowledgeBasePage(res, pmDir, tab) {
@@ -3001,33 +2931,18 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   const activeTab = validTabs.includes(tab) ? tab : 'research';
 
   let contentHtml = '';
-  let title = 'Knowledge Base';
+  let title = 'Research';
+
+  const subTabs = buildKbSubTabs(activeTab);
 
   if (activeTab === 'research') {
-    title = 'Knowledge Base — Research';
-    // Reuse research page content building
-    let landscapeHtml = '';
-    const landscapePath = path.join(pmDir, 'landscape.md');
-    if (fs.existsSync(landscapePath)) {
-      const raw = fs.readFileSync(landscapePath, 'utf-8');
-      const { body } = parseFrontmatter(raw);
-      const statsData = parseStatsData(body);
-      const statsHtml = renderStatsCards(statsData);
-      var rendered = renderLandscapeWithViz(body);
-      if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-      landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
-        '<div class="markdown-body">' + rendered + '</div>';
-    } else {
-      landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
-    }
-
-    contentHtml = '<div class="page-header"><h1>Landscape</h1></div>' + landscapeHtml;
+    title = 'Research — Landscape';
+    contentHtml = buildLandscapeContent(pmDir);
   } else if (activeTab === 'strategy') {
-    title = 'Knowledge Base — Strategy';
+    title = 'Research — Strategy';
     const filePath = path.join(pmDir, 'strategy.md');
     if (!fs.existsSync(filePath)) {
-      contentHtml = '<div class="page-header"><h1>Strategy</h1></div>' +
-        '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>';
+      contentHtml = '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>';
     } else {
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = parseFrontmatter(raw);
@@ -3036,60 +2951,19 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
       const deckBtn = deckExists
         ? '<a href="/strategy-deck" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.5rem 1rem;background:var(--accent,#2563eb);color:#fff;border-radius:8px;text-decoration:none;font-size:0.85rem;font-weight:600;">&#9654; View as Presentation</a>'
         : '';
-      contentHtml = '<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;"><h1>Strategy</h1>' + deckBtn + '</div>' +
+      contentHtml = (deckBtn ? '<div style="margin-bottom:1rem;text-align:right">' + deckBtn + '</div>' : '') +
         '<div class="markdown-body">' + rendered + '</div>';
     }
   } else if (activeTab === 'competitors') {
-    title = 'Knowledge Base — Competitors';
-    const compDir = path.join(pmDir, 'competitors');
-    let cardsHtml = '';
-    if (fs.existsSync(compDir)) {
-      const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
-      cardsHtml = dirs.map(d => {
-        const profilePath = path.join(compDir, d.name, 'profile.md');
-        if (!fs.existsSync(profilePath)) return '';
-        const summary = parseCompetitorSummary(fs.readFileSync(profilePath, 'utf-8'));
-        const stale = stalenessInfo(getUpdatedDate(profilePath));
-        const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
-        return `<div class="card">
-          <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
-          <p class="meta">${escHtml(summary.category || '')}</p>
-          <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View →</a></div>
-        </div>`;
-      }).join('');
-    }
-    contentHtml = '<div class="page-header"><h1>Competitors</h1></div>' +
-      (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to profile competitors.</p></div>');
+    title = 'Research — Competitors';
+    contentHtml = buildCompetitorsContent(pmDir);
   } else if (activeTab === 'topics') {
-    title = 'Knowledge Base — Topics';
-    let topicsHtml = '';
-    const researchDir = path.join(pmDir, 'research');
-    if (fs.existsSync(researchDir)) {
-      const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-        .filter(e => e.isDirectory());
-      if (topics.length > 0) {
-        const cards = topics.map(t => {
-          const findingsPath = path.join(researchDir, t.name, 'findings.md');
-          if (!fs.existsSync(findingsPath)) return '';
-          const raw = fs.readFileSync(findingsPath, 'utf-8');
-          const { data } = parseFrontmatter(raw);
-          const meta = buildTopicMeta(t.name, data, findingsPath);
-          return `<div class="card">
-            <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
-            <p class="meta">${escHtml(meta.subtitle)}</p>
-            <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
-          </div>`;
-        }).join('');
-        topicsHtml = '<div class="card-grid">' + cards + '</div>';
-      }
-    }
-    contentHtml = '<div class="page-header"><h1>Topics</h1><p class="subtitle">Deep-dive research on specific areas</p></div>' +
-      (topicsHtml || '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>');
+    title = 'Research — Topics';
+    contentHtml = buildTopicsContent(pmDir);
   }
 
-  const body = contentHtml;
-  const activeSecondaryNav = '/kb?tab=' + activeTab;
-  const html = dashboardPage(title, activeSecondaryNav, body);
+  const body = '<div class="page-header"><h1>Research</h1></div>' + subTabs + contentHtml;
+  const html = dashboardPage(title, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3097,7 +2971,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
 function handleCompetitorDetail(res, pmDir, slug) {
   const compDir = path.join(pmDir, 'competitors', slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb?tab=competitors', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3115,7 +2989,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
     if (!fs.existsSync(filePath)) return;
     const raw = fs.readFileSync(filePath, 'utf-8');
     const { data, body } = parseFrontmatter(raw);
-    if (idx === 0 && data.name) name = data.name;
+    if (idx === 0 && data.company) name = data.company;
     const label = TAB_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
     const isFirst = tabHeaders.length === 0;
     tabHeaders.push(`<div class="tab${isFirst ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${isFirst}" onclick="switchTab(this,'tab-${sec}')" onkeydown="tabKey(event,this,'tab-${sec}')">${label}</div>`);
@@ -3145,7 +3019,7 @@ function tabKey(e, el, panelId) {
 }
 </script>`;
 
-  const html = dashboardPage(name, '/kb', body);
+  const html = dashboardPage(name, '/kb?tab=competitors', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3155,7 +3029,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const findingsPath = path.join(topicDir, 'findings.md');
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb?tab=topics', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3163,7 +3037,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const raw = fs.readFileSync(findingsPath, 'utf-8');
   const { data, body } = parseFrontmatter(raw);
   const meta = buildTopicMeta(topic, data, findingsPath);
-  const html = dashboardPage(meta.label, '/kb', `
+  const html = dashboardPage(meta.label, '/kb?tab=topics', `
 <div class="page-header">
   <p class="breadcrumb"><a href="/kb?tab=research">&larr; Research</a></p>
   <h1>${escHtml(meta.label)}</h1>
@@ -3199,106 +3073,89 @@ function handleWireframe(res, pmDir, slug) {
 }
 
 function handleBacklog(res, pmDir, view) {
-  const isKanban = view === 'kanban';
-  const toggleHtml = `<div class="view-toggle">
-  <a href="/backlog?view=proposals" class="toggle-btn${!isKanban ? ' active' : ''}">By Proposal</a>
-  <a href="/backlog?view=kanban" class="toggle-btn${isKanban ? ' active' : ''}">Kanban</a>
-</div>`;
-
-  if (!isKanban) {
-    // Proposal-grouped view (default)
-    const groupedHtml = buildBacklogGrouped(pmDir);
-    const body = `<div class="page-header"><h1>Backlog</h1></div>${toggleHtml}${groupedHtml}`;
-    const html = dashboardPage('Backlog', '/backlog', body);
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
-    return;
-  }
-
-  // Kanban view (existing code below)
   const backlogDir = path.join(pmDir, 'backlog');
-  const columns = {};
-  const slugLookup = {};
-  const STATUS_ORDER = ['idea', 'groomed', 'shipped'];
-  const STATUS_MAP = { 'idea': 'idea', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'groomed', 'done': 'shipped' };
 
+  // Read all backlog items for stats
+  const items = [];
   if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
-    for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
-      const { data } = parseFrontmatter(raw);
-      const rawStatus = data.status || 'idea';
-      const status = STATUS_MAP[rawStatus] || rawStatus;
-      const title = data.title || file.replace('.md', '');
-      const slug = file.replace('.md', '');
-      const badge = (rawStatus === 'in-progress' || rawStatus === 'approved') ? rawStatus : null;
-      const priority = data.priority || 'medium';
-      const labels = Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [];
-      const scope = data.scope_signal || null;
-      const id = data.id || null;
-      const parent = data.parent || null;
-      if (!columns[status]) columns[status] = [];
-      slugLookup[slug] = { id, title };
-      const updated = data.updated || data.created || '';
-      columns[status].push({ slug, title, badge, priority, labels, scope, id, parent, updated });
+    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
+      const { data } = parseFrontmatter(fs.readFileSync(path.join(backlogDir, file), 'utf-8'));
+      items.push({ status: data.status || 'idea' });
     }
   }
 
-  const allStatuses = STATUS_ORDER;
+  const totalCount = items.length;
+  const ideaCount = items.filter(i => i.status === 'idea').length;
+  const readyCount = items.filter(i => i.status !== 'idea' && i.status !== 'done').length;
+  const doneCount = items.filter(i => i.status === 'done').length;
 
-  const SHIPPED_LIMIT = 10;
-
-  const renderItem = (item, status) => {
-    const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
-    const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
-    const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
-    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
-    const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
-    const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
-    const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
-    const hintHtml = status === 'idea'
-      ? `<div class="kanban-item-hint">/pm:groom ${escHtml(item.slug)}</div>`
-      : '';
-    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
-  };
-
-  const COL_HINTS = {
-    'idea': 'Run <code>/pm:groom &lt;slug&gt;</code> to scope an idea',
-    'groomed': 'Edit <code>pm/backlog/&lt;slug&gt;.md</code> to update status',
-  };
-
-  const cols = allStatuses.map(status => {
-    const allItems = columns[status] || [];
-    const isShipped = status === 'shipped';
-    const totalCount = allItems.length;
-    const displayItems = isShipped && totalCount > SHIPPED_LIMIT
-      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, SHIPPED_LIMIT)
-      : allItems;
-    const items = displayItems.map(item => renderItem(item, status)).join('');
-    const viewAllLink = isShipped && totalCount > SHIPPED_LIMIT
-      ? `<a href="/backlog/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
-      : '';
-    const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const countLabel = isShipped && totalCount > SHIPPED_LIMIT ? ` <span class="col-count">${totalCount}</span>` : '';
-    const emptyClass = totalCount === 0 ? ' col-empty' : '';
-    const colHint = COL_HINTS[status] && totalCount > 0 ? `<div class="col-hint">${COL_HINTS[status]}</div>` : '';
-    return `<div class="kanban-col${emptyClass}">
-  <div class="col-header">${label}${countLabel}</div>
-  ${colHint}
-  <div class="col-body">${items || '<div class="col-placeholder"></div>'}${viewAllLink}</div>
+  // Summary stats
+  const statsHtml = `<div class="backlog-stats">
+  <div class="stat-card"><div class="value">${readyCount}</div><div class="label">Ready to Build</div></div>
+  <div class="stat-card"><div class="value">${ideaCount}</div><div class="label">Ideas</div></div>
+  <a href="/backlog/shipped" class="stat-card stat-card-link"><div class="value">${doneCount}</div><div class="label">Shipped →</div></a>
+  <div class="stat-card"><div class="value">${totalCount}</div><div class="label">Total Issues</div></div>
 </div>`;
-  }).join('');
 
-  const legend = `<div class="backlog-legend">
-<span class="legend-item"><span class="legend-bar priority-critical"></span>Critical</span>
-<span class="legend-item"><span class="legend-bar priority-high"></span>High</span>
-<span class="legend-item"><span class="legend-bar priority-medium"></span>Medium</span>
-<span class="legend-item"><span class="legend-bar priority-low"></span>Low</span>
-</div>`;
-  const body = `
-<div class="page-header"><h1>Backlog</h1>${legend}</div>
-${toggleHtml}
-${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
+  // Proposal cards — these ARE the backlog's primary view
+  const { cardsHtml, totalCount: proposalCount } = buildProposalCards(pmDir, 0);
+  let proposalsHtml = '';
+  if (proposalCount > 0) {
+    proposalsHtml = `<h2 class="backlog-section-title">Proposals <span class="badge">${proposalCount}</span></h2>
+<div class="card-grid">${cardsHtml}</div>`;
+  }
+
+  // Ideas section — ungroomed items not attached to proposals
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const proposalSet = new Set();
+  if (fs.existsSync(proposalsDir)) {
+    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'))) {
+      proposalSet.add(f.replace('.meta.json', ''));
+    }
+    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.html'))) {
+      proposalSet.add(f.replace('.html', ''));
+    }
+  }
+
+  // Find idea items that don't belong to any proposal
+  let ideasHtml = '';
+  if (fs.existsSync(backlogDir)) {
+    const itemsMap = {};
+    const ideaItems = [];
+    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
+      const slug = file.replace('.md', '');
+      const { data } = parseFrontmatter(fs.readFileSync(path.join(backlogDir, file), 'utf-8'));
+      itemsMap[slug] = { slug, title: data.title || humanizeSlug(slug), status: data.status || 'idea', parent: data.parent || null, id: data.id || null };
+    }
+    for (const slug of Object.keys(itemsMap)) {
+      const item = itemsMap[slug];
+      if (item.status !== 'idea') continue;
+      const ancestor = findProposalAncestor(slug, itemsMap, proposalSet);
+      if (!ancestor) ideaItems.push(item);
+    }
+    if (ideaItems.length > 0) {
+      const rows = ideaItems.map(item => {
+        const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
+        return `<a class="kanban-item priority-medium" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
+  <div class="kanban-item-ids">${idHtml}<span class="status-badge badge-idea">idea</span></div>
+  <div class="kanban-item-title">${escHtml(item.title)}</div>
+  <div class="kanban-item-hint">Run <code>/pm:groom ${escHtml(item.slug)}</code></div>
+</a>`;
+      }).join('\n');
+      ideasHtml = `<h2 class="backlog-section-title" style="margin-top:1.5rem">Ungroomed Ideas <span class="badge">${ideaItems.length}</span></h2>
+<div class="backlog-list">${rows}</div>`;
+    }
+  }
+
+  // Empty state
+  if (proposalCount === 0 && !ideasHtml) {
+    proposalsHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  const body = `<div class="page-header"><h1>Backlog</h1></div>
+${statsHtml}
+${proposalsHtml}
+${ideasHtml}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3857,6 +3714,6 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient, groomPhaseLabel, sanitizeGradient, buildProposalCards, findProposalAncestor, buildBacklogGrouped,
+  readProposalMeta, readGroomState, groomPhaseLabel, buildProposalCards, findProposalAncestor, buildBacklogGrouped,
   hashProjectPort, isPortAvailable, resolvePort,
 };
