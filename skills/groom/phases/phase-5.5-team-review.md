@@ -1,5 +1,7 @@
 ### Phase 5.5: Team Review
 
+**Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
+
 <HARD-GATE>
 All applicable reviews are required before the bar raiser. Do NOT skip based on feature type, perceived quality, or time pressure.
 The user must NOT see drafted issues until both Team Review and Bar Raiser Review complete.

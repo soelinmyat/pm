@@ -4,7 +4,7 @@ Present the reviewed, iterated proposal as a self-contained HTML presentation in
 
 #### Step 1: Generate the proposal presentation
 
-**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/skills/groom/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
+**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
 
 **Note:** The reference template uses a fictional "Dashboard Filtering System" proposal as example content. The structure and 5 metrics slots (issues, team reviews, bar raiser, differentiator, priority) are always present — populate them from the actual groom state values.
 

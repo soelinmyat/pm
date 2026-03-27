@@ -27,6 +27,10 @@ The user should think: "I have customer evidence. Ingest it."
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
+## Output Formatting
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before writing research artifacts from ingested evidence.
+
 ---
 
 ## Setup Expectations

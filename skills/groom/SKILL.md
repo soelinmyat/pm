@@ -17,16 +17,9 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 
 ## Output Formatting
 
-Verdict first. Max 3 bullets before asking. No walls of text.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output. All groom output must follow those shared rules.
 
-When presenting parallel agent results (scope review, team review), collapse to a summary table:
-
-| Reviewer | Verdict | Key note |
-|----------|---------|----------|
-
-List only blocking items as bullets. Advisory items come after the user acknowledges blockers.
-
-For full rules, jargon ban list, and examples: read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md`.
+For groom-specific examples (scope review tables, team review collapse): read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md`.
 
 ---
 
@@ -69,7 +62,7 @@ Before starting work, check for user instructions:
 
 **Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
-Before starting any phase, also read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` for output formatting rules.
+Before starting any phase, read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for shared output rules and `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` for groom-specific examples.
 
 ---
 

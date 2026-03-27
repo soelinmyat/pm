@@ -123,15 +123,15 @@ digraph brainstorming {
 
 - Write the validated design (spec) to `docs/specs/YYYY-MM-DD-<topic>-design.md`
   - (User preferences for spec location override this default)
-- Use elements-of-style:writing-clearly-and-concisely skill if available
+- Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality and document structure
 - Commit the design document to git
 
 **Spec Review Loop:**
-After writing the spec document:
+After writing the spec document, follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
 
 1. Dispatch spec-document-reviewer subagent (see spec-document-reviewer-prompt.md)
-2. If Issues Found: fix, re-dispatch, repeat until Approved
-3. If loop exceeds 3 iterations, surface to human for guidance
+2. If Issues Found: fix, re-dispatch, repeat until Approved (max 3 iterations)
+3. If max iterations exceeded, surface to human for guidance
 
 **User Review Gate:**
 After the spec review loop passes, ask the user to review the written spec before proceeding:

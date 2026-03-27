@@ -1,5 +1,7 @@
 ### Phase 5.7: Bar Raiser Review
 
+**Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
+
 <HARD-GATE>
 The bar raiser review is required before presenting to the user. Do NOT skip based on team review results, time pressure, or perceived quality.
 The bar raiser must NOT read team review findings — independent assessment is the entire point.

@@ -18,6 +18,8 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
+**Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality. Plans are dense by nature but should still use short sentences, clear structure, and no jargon.
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
@@ -158,17 +160,13 @@ Each task must produce working, testable code. Never leave contract sync as a "l
 
 ## Plan Review Loop
 
-After writing the complete plan:
+After writing the complete plan, follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
 
-1. Dispatch a single plan-document-reviewer subagent (see plan-document-reviewer-prompt.md) with precisely crafted review context — never your session history. This keeps the reviewer focused on the plan, not your thought process.
+1. Dispatch a single plan-document-reviewer subagent (see plan-document-reviewer-prompt.md) with precisely crafted review context — never your session history.
    - Provide: path to the plan document, path to spec document
-2. If ❌ Issues Found: fix the issues, re-dispatch reviewer for the whole plan
-3. If ✅ Approved: proceed to execution handoff
-
-**Review loop guidance:**
-- Same agent that wrote the plan fixes it (preserves context)
-- If loop exceeds 3 iterations, surface to human for guidance
-- Reviewers are advisory — explain disagreements if you believe feedback is incorrect
+2. If Issues Found: fix the issues, re-dispatch reviewer for the whole plan (max 3 iterations)
+3. If Approved: proceed to execution handoff
+4. Reviewers are advisory — explain disagreements if you believe feedback is incorrect
 
 ## Execution Handoff
 

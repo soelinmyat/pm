@@ -26,6 +26,10 @@ Before starting work, check for user instructions:
 
 **Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
+## Output Formatting
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any research output (landscape, competitor profiles, findings, quick recommendations).
+
 ---
 
 ## Config Bootstrap

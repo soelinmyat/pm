@@ -1,5 +1,7 @@
 ### Phase 4.5: Scope Review
 
+**Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
+
 <HARD-GATE>
 All three reviews (PM, Competitive, EM) are required before drafting issues.
 Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
