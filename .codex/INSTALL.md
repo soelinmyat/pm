@@ -20,7 +20,7 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### Product management skills (8)
+#### Product management skills (7)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/setup ~/.agents/skills/pm-setup
@@ -30,10 +30,9 @@ ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/view ~/.agents/skills/pm-view
-ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
 ```
 
-#### Development skills (12)
+#### Development skills (11)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/bug-fix ~/.agents/skills/dev-bug-fix
@@ -47,12 +46,15 @@ ln -sfn ~/.agents/vendor/pm/skills/review ~/.agents/skills/dev-review
 ln -sfn ~/.agents/vendor/pm/skills/subagent-dev ~/.agents/skills/dev-subagent-dev
 ln -sfn ~/.agents/vendor/pm/skills/tdd ~/.agents/skills/dev-tdd
 ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
-ln -sfn ~/.agents/vendor/pm/skills/writing-plans ~/.agents/skills/dev-writing-plans
+```
+
+#### Shared (1)
+
+```bash
+ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
 ```
 
 > **Note:** `dev-dev` and `dev-dev-epic` are correct — the `dev-` prefix plus the skill name `dev` / `dev-epic`.
-
-The skill folders in this repo already include symlinks to the shared `agents/`, `hooks/`, `scripts/`, and `references/` directories that Codex may read while following the workflows.
 
 ### 3. Restart Codex
 
@@ -73,11 +75,11 @@ If Codex does not find a skill:
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all 20 skills
+### Quick check: all 19 skills
 
 ```bash
 ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 8 pm-* and 12 dev-* directories
+# Should list 8 pm-* and 11 dev-* directories
 ```
 
 ## Updating
