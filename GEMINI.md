@@ -49,8 +49,7 @@ A typical progression:
 
 | Capability | Description |
 |-----------|-------------|
-| Dev | End-to-end feature implementation from issue to merge-ready PR |
-| Dev-epic | Multi-issue epic orchestration with teammate agents |
+| Dev | Unified development — auto-detects single issue, epic, or batch bug triage |
 | Brainstorming | Explore intent and design before code for creative work |
 | Writing-plans | Produce an implementation plan before code for multi-step tasks |
 | TDD | Test-first discipline — write test, watch fail, implement |
@@ -60,7 +59,6 @@ A typical progression:
 | Review | Multi-perspective code review |
 | Design-critique | Multi-agent visual critique with screenshots |
 | Ship | Review, push, PR, CI monitor + auto-fix |
-| Bug-fix | Structured bug investigation and fix workflow |
 | Sync | Sync plugin source to cache for testing |
 
 ---

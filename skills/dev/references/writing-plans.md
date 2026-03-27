@@ -62,7 +62,7 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Upstream Context (groomed issues only)
 
-When the invoking skill (dev or dev-epic) passes a groom context with a `research_location` path:
+When the invoking skill (dev) passes a groom context with a `research_location` path:
 
 1. Read `research_location` from the groom context passed by the invoking skill.
 2. Read the findings file at that path (e.g., `pm/research/pm-dev-merge/findings.md`).

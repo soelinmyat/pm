@@ -107,7 +107,7 @@ cd apps/api && bin/rails design:teardown:{feature_slug}
 
 ## When to Create
 
-The seed task is created during implementation (in /dev or /dev-epic), not during design critique. The implementing agent:
+The seed task is created during implementation (in /dev), not during design critique. The implementing agent:
 
 1. Writes feature code
 2. Creates the seed task covering all visual states

@@ -1,6 +1,7 @@
----
-name: bug-fix
-description: "Parallel bug triage and batch resolution: investigate all cycle bugs, get user approval, fix sequentially, update tracker"
+# Bug Fix Flow (Batch Cycle Triage)
+
+This reference is loaded on-demand by the dev skill router when handling batch bug resolution from a cycle.
+
 ---
 
 # /bug-fix [cycle-name]
@@ -178,3 +179,31 @@ Push all commits: `git push`
 - ALWAYS run `/simplify` after fixes before pushing (Step 5), unless fewer than 3 fixes
 - NEVER use `--no-verify` on push
 - Keep main context lean: only store compact JSON results from agents
+
+---
+
+## State File
+
+Bug-fix sessions create a lightweight state file for resume detection:
+
+**Path:** `.pm/dev-sessions/bugfix-{cycle-slug}.md`
+
+**Created at:** Step 1 (after fetching bugs)
+**Deleted at:** After final report
+
+```markdown
+# Bug Fix Session State
+
+| Field | Value |
+|-------|-------|
+| Stage | investigating / reviewing / fixing / updating-tracker |
+| Cycle | {cycle-name} |
+| Bugs | {total count} |
+| Approved | {count or "pending"} |
+| Fixed | {count} |
+| Failed | {count} |
+
+## Resume Instructions
+- Next action: {next step}
+- Bugs remaining: {list of IDs not yet fixed}
+```

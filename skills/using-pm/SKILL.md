@@ -17,13 +17,11 @@ These are the skills you invoke directly. Most other capabilities are built into
 
 | Trigger | Skill | What it does |
 |---------|-------|--------------|
-| Any new feature, bug fix, refactor, or test backfill | `pm:dev` | Master orchestrator — full lifecycle from intake to merge |
-| Multiple related issues / epic | `pm:dev-epic` | Orchestrates sub-issues with parallel dispatch |
+| Any development work (feature, bug, refactor, epic, batch bugs) | `pm:dev` | Auto-detects scope: single issue lifecycle, epic orchestration, or batch bug triage |
 | Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. Use `pm:groom ideate` for idea generation |
 | Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
 | Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| Batch bug resolution from cycle | `pm:bug-fix` | Triage all bugs, get approval, fix sequentially |
 
 ## Sub-Skills (called by orchestrators)
 

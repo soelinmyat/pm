@@ -44,7 +44,7 @@ branch_prefix: feat/|fix/|chore/       # Branch naming convention
 
 ## Reading Instructions at Intake
 
-At the start of every `/dev` or `/dev-epic` session, check for instruction files:
+At the start of every `/dev` session, check for instruction files:
 
 1. If `dev/instructions.md` exists, read it. Apply shared overrides.
 2. If `dev/instructions.local.md` exists, read it. Apply personal overrides (takes precedence on conflict).

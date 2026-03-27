@@ -11,7 +11,7 @@ Three parallel designer sub-agents plus a Fresh Eyes reviewer examine screenshot
 
 **Two modes:**
 
-- **Embedded** (called from `/dev` or `/dev-epic`). Acts as a review service. Returns consolidated findings to the implementing agent, which applies fixes itself.
+- **Embedded** (called from `/dev`). Acts as a review service. Returns consolidated findings to the implementing agent, which applies fixes itself.
 - **Standalone** (invoked directly). Full self-contained flow with its own engineer agent that captures screenshots, applies fixes, and iterates.
 
 **Screenshot sources.** Always real servers with seed data in the database. Web pages are captured via Playwright CLI. Mobile screens are captured via Maestro MCP tools. Never Storybook, never MSW mocks.
@@ -54,7 +54,7 @@ PLATFORM detection:
 
 ---
 
-## Embedded Mode Flow (called from /dev or /dev-epic)
+## Embedded Mode Flow (called from /dev)
 
 No engineer agent. Returns findings to the calling agent.
 

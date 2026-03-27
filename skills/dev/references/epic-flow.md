@@ -1,6 +1,7 @@
----
-name: dev-epic
-description: "Multi-issue orchestrator: fetch parent issue, plan each sub-issue sequentially, run epic-level review, then autonomously implement/PR/merge all sub-issues one-shot"
+# Epic Flow (Multi-Issue Orchestration)
+
+This reference is loaded on-demand by the dev skill router when handling a parent issue with multiple sub-issues.
+
 ---
 
 # /dev-epic [parent-issue-id]
@@ -22,10 +23,10 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 7. After wrap-up, orchestrator shuts down all teammates via per-agent `SendMessage({ message: { type: "shutdown_request" } })`
 
 **Reference files (read on-demand, NOT upfront):**
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/rfc-reviewer-prompts.md` - RFC agent prompts (Stage 2, raw issues only)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/epic-review-prompts.md` - Epic review agent prompts (Stage 3)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/implementation-flow.md` - Sub-issue agent instructions (Stage 4)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/state-template.md` - State file template
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC agent prompts (Stage 2, raw issues only)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review agent prompts (Stage 3)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md` - Sub-issue agent instructions (Stage 4)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
 ---
 
@@ -117,7 +118,7 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 ### 1.6 Write initial state
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
 ### 1.7 Merge strategy detection
 
@@ -230,7 +231,7 @@ The orchestrator waits for the teammate's message. Only the message content ente
 
 **Raw XS:** Note "direct implementation, no plan needed" in state file. Skip planning.
 
-**Raw S:** Dispatch combined teammate (same prompt as 2.1), then dispatch RFC review sub-agents from `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/rfc-reviewer-prompts.md` (Agents 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
+**Raw S:** Dispatch combined teammate (same prompt as 2.1), then dispatch RFC review sub-agents from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (Agents 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
 
 **Raw M/L/XL:** Three-step process:
 
@@ -265,7 +266,7 @@ Agent({
 })
 ```
 
-2. **Dispatch UX spec review sub-agent** (prompt from `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/rfc-reviewer-prompts.md`, UX Spec Review section). Fix blocking issues in the spec.
+2. **Dispatch UX spec review sub-agent** (prompt from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md`, UX Spec Review section). Fix blocking issues in the spec.
 
 3. **Dispatch combined teammate** (same prompt as 2.1, but referencing the spec file instead of ACs). Then dispatch all 3 RFC review sub-agents. Fix blocking issues, commit.
 
@@ -287,7 +288,7 @@ After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` w
 
 After all plans are committed. Runs automatically.
 
-**Read `${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/epic-review-prompts.md`** for the agent prompts.
+**Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md`** for the agent prompts.
 
 ### 3.0 Scale review to remaining work
 
@@ -450,7 +451,7 @@ SendMessage({
   **Merge strategy:** {PR required | direct push allowed}
   **Mode:** {sequential | parallel}
 
-  Read ${CLAUDE_PLUGIN_ROOT}/skills/dev-epic/references/implementation-flow.md for the full
+  Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md for the full
   implementation lifecycle, then execute it:
 
   1. cd {WORKTREE_PATH}
