@@ -33,7 +33,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `pm:subagent-dev` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
 | `pm:review` | ship | Multi-perspective code review (code + PM + design + edge-cases) |
-| `pm:receiving-review` | ship | Verify feedback before implementing suggestions |
+| `pm:review` (handling-feedback ref) | dev, ship | Verify feedback before implementing suggestions |
 | `pm:design-critique` | dev (UI changes) | Multi-agent visual critique with screenshots |
 | `pm:qa` | dev (UI changes) | QA ship gate — test charter, Playwright/Maestro testing, health score verdict |
 

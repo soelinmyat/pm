@@ -76,7 +76,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `pm:subagent-dev` | Single: Implement (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
 | `pm:qa` | Single: QA ship gate (all sizes with UI) |
-| `pm:receiving-review` | Single: Ship (M/L/XL) |
+| `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery
 

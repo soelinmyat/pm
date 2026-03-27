@@ -345,3 +345,12 @@ Present a final summary:
 - If no issues found by any active agent, report clean and stop (no empty commit)
 - Run tests after EVERY fix, not just at the end
 - Max 5 findings per agent to keep scope manageable
+
+## Handling Review Feedback
+
+When review feedback is received (from human reviewers, Claude review, or external reviewers on a PR), read `${CLAUDE_PLUGIN_ROOT}/skills/review/references/handling-feedback.md` for the full protocol. Key rules:
+- Verify before implementing — check against codebase reality
+- No performative agreement ("You're absolutely right!", "Great point!")
+- If any item is unclear, stop and ask before implementing anything
+- Push back with technical reasoning when suggestions are wrong
+- Implement one item at a time, test each

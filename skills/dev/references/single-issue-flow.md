@@ -48,7 +48,7 @@ This reference is loaded on-demand by the dev skill router when handling a singl
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) |
 | Finish | Auto-merge | Auto-merge | PR → Merge-Watch → Auto-merge | PR → Merge-Watch → Auto-merge | PR → Merge-Watch → Auto-merge |
-| Review feedback | — | — | `dev:receiving-review` | `dev:receiving-review` | `dev:receiving-review` |
+| Review feedback | — | — | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` |
 | Retro | Yes | Yes | Yes | Yes | Yes |
 
 ## Stage 2: Workspace (S/M/L/XL)
@@ -523,7 +523,7 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 - Test failures that can't be resolved after 3 attempts
 - Merge conflicts
 - CI failures that require human intervention
-- Review feedback from human reviewers on the PR (use `dev:receiving-review`)
+- Review feedback from human reviewers on the PR (use `review/references/handling-feedback.md`)
 </HARD-RULE>
 
 ## Stage 5: Implement — Inside-Out TDD
@@ -945,7 +945,7 @@ See `/ship` for the full PR lifecycle: push, create PR, CI monitor, 5-gate readi
 
 ### Handling review feedback during ship
 
-When ship detects new review comments on the PR, use `dev:receiving-review` before acting:
+When ship detects new review comments on the PR, use `review/references/handling-feedback.md` before acting:
 1. Read the complete feedback before responding
 2. Evaluate technical soundness. Push back if the suggestion is wrong or YAGNI.
 3. Implement one item at a time, running tests after each fix

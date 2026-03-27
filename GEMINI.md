@@ -55,8 +55,7 @@ A typical progression:
 | TDD | Test-first discipline — write test, watch fail, implement |
 | Subagent-dev | Dispatch parallel agents for plan execution |
 | Debugging | Root cause investigation before any fix |
-| Receiving-review | Technical rigor — verify before implementing review suggestions |
-| Review | Multi-perspective code review |
+| Review | Multi-perspective code review + feedback handling protocol |
 | Design-critique | Multi-agent visual critique with screenshots |
 | QA | Ship gate — test charter, Playwright/Maestro testing, health score verdict |
 | Ship | Review, push, PR, CI monitor + auto-fix |
