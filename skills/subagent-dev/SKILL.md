@@ -282,7 +282,7 @@ Done!
 ## Integration
 
 **Required workflow skills (all bundled in dev plugin):**
-- **dev:writing-plans** - Creates the plan this skill executes
+- **dev/references/writing-plans.md** - Creates the plan this skill executes
 - **dev:tdd** - Subagents follow TDD for each task
 
 **Handled by dev orchestrator (not invoked separately):**

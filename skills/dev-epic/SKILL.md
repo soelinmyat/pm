@@ -213,7 +213,7 @@ Agent({
 **Phase 1 Instructions:**
 1. Read AGENTS.md and relevant app-specific AGENTS.md
 2. Explore the codebase to understand current state for this sub-issue
-3. Use the dev:writing-plans skill methodology
+3. Follow the writing-plans reference at ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md
 4. Save plan to docs/plans/{DATE}-{SLUG}.md
 5. Commit: git add docs/plans/{file} && git commit -m "docs: add plan for {ISSUE_ID} - {TITLE}"
 6. Send result to orchestrator: SendMessage({ to: "team-lead", message: "Plan complete. Path: docs/plans/{file}. Summary: {3-line summary}. Tasks: {N}", summary: "{ISSUE_ID} plan done" })

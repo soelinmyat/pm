@@ -27,7 +27,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | Skill / Reference | Used in stage |
 |-------------------|--------------|
 | `groom/phases/phase-3.5-design.md` (reference) | Design Exploration (M/L/XL) |
-| `pm:writing-plans` | Plan (M/L/XL) |
+| `dev/references/writing-plans.md` (reference) | Plan (M/L/XL) |
 | `pm:tdd` | Implement (all) |
 | `pm:subagent-dev` | Implement (all) |
 | `pm:debugging` | Debug (when tests fail) |
@@ -483,9 +483,9 @@ Review from these angles:
 
 ## Stage 4: Plan (M/L/XL)
 
-Invoke `dev:writing-plans` via the Skill tool. It handles task decomposition, file structure, TDD steps, and its own single-agent plan chunk review loop.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md`. It handles task decomposition, file structure, TDD steps, and the plan review loop.
 
-**If groomed (from Stage 2.5):** Pass the groom context to writing-plans so it can inject upstream research:
+**If groomed (from Stage 2.5):** Pass the groom context so the plan can inject upstream research:
 
 ```
 **Groom context:**
@@ -495,13 +495,13 @@ Invoke `dev:writing-plans` via the Skill tool. It handles task decomposition, fi
 - Conditions: {list of bar_raiser.conditions and team_review.conditions}
 ```
 
-writing-plans will use this to produce a `## Upstream Context` section in the plan.
+The writing-plans reference will use this to produce a `## Upstream Context` section in the plan.
 
 After the plan is written and committed, proceed to Stage 4.5.
 
 ## Stage 4.5: Plan Review — Engineering RFC Review (M/L/XL)
 
-The plan has been through writing-plans' built-in chunk reviewer. This stage is different: it's an **engineering RFC review**. Three senior engineers challenge architecture decisions, poke at risks, and push back on complexity. Their job is adversarial: find the problems before implementation discovers them the hard way.
+The plan has been through the writing-plans review loop. This stage is different: it's an **engineering RFC review**. Three senior engineers challenge architecture decisions, poke at risks, and push back on complexity. Their job is adversarial: find the problems before implementation discovers them the hard way.
 
 This is the last human-interactive gate. After this passes, the agent runs continuously through implementation, review, PR, merge, and cleanup without interruption.
 
