@@ -1010,7 +1010,7 @@ Never "fix" merge issues with destructive resets.
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
 This runs up to 5 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
-If you are about to run `/pr` or `git push` and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
+If you are about to run `/ship` or `git push` and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
 
@@ -1072,22 +1072,17 @@ If this field is missing, you are skipping the review. STOP and go back.
 ### PR Flow (M/L/XL)
 
 After review gate passes:
-1. `/pr` — push + create PR + Claude code review + CI monitor
-2. Proceed immediately to **Merge-Watch**
-
-## Stage 8: Merge-Watch (M/L/XL)
-
-After `/pr` completes, invoke `/merge-watch` to continuously poll and fix until the PR is mergeable, then auto-merge.
+1. `/ship` — push, create PR, code review, CI monitor, gate monitoring, and auto-merge
 
 ```
-Invoke the /merge-watch command with the PR number
+Invoke the /ship command
 ```
 
-See `/merge-watch` command for the full 5-gate readiness check, polling loop, and auto-merge flow.
+See `/ship` for the full PR lifecycle: push, create PR, CI monitor, 5-gate readiness check, polling loop, and auto-merge flow.
 
-### Handling review feedback during merge-watch
+### Handling review feedback during ship
 
-When merge-watch detects new review comments on the PR, use `dev:receiving-review` before acting:
+When ship detects new review comments on the PR, use `dev:receiving-review` before acting:
 1. Read the complete feedback before responding
 2. Evaluate technical soundness. Push back if the suggestion is wrong or YAGNI.
 3. Implement one item at a time, running tests after each fix

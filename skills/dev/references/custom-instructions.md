@@ -22,7 +22,7 @@ Projects can customize dev plugin behavior via instruction files without editing
 # dev/instructions.md
 
 ## Review Configuration
-codex_review: true          # Enable Codex review gate in /merge-watch (default: false)
+codex_review: true          # Enable Codex review gate in /ship (default: false)
 codex_bot_name: chatgpt-codex-connector[bot]  # Codex bot username (default)
 
 ## Review Agents

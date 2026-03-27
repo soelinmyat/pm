@@ -1,5 +1,5 @@
 ---
-name: pm-ideate
+name: ideate
 description: "Use when generating feature ideas from the product knowledge base. Scans strategy, landscape, competitors, research, customer evidence, and backlog to surface ranked opportunities. Triggers on 'ideate,' 'feature ideas,' 'what should we build,' 'opportunities,' 'brainstorm features.'"
 ---
 

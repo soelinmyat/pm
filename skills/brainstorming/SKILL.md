@@ -17,17 +17,15 @@ Do NOT invoke any implementation skill, write any code, scaffold any project, or
 
 Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
 
-## CleanLog Product Context (pre-loaded)
+## Product Context Discovery
 
-When brainstorming for this project, you already know:
-- **Users:** Building ops teams, facility managers, janitorial service providers managing multi-site operations under time pressure
-- **Core need:** Scan status at a glance. 50 work orders, not one. Progressive disclosure for detail.
-- **Voice:** "Competent relief." Direct, specific, operator-empathetic. No hedging, no marketing fluff.
-- **Design:** Linear-inspired. Earn every pixel. Content is the UI. Quiet confidence.
-- **Anti-patterns:** Enterprise bloatware, cheap SaaS templates, consumer/playful, over-designed/trendy
-- **Brand:** Deep teal (#044842), Plus Jakarta Sans, luminance-based depth, dual-layer shadows
+Before asking generic discovery questions, load existing product context:
 
-Skip generic "who are your users?" discovery. Start from this baseline and explore the specific feature domain.
+1. If `pm/strategy.md` exists, read it for ICP, value prop, positioning, priorities, and non-goals. Use this as your baseline — skip questions it already answers.
+2. If CLAUDE.md exists, check for design principles, brand guidelines, user personas, and voice/tone guidance.
+3. If `DESIGN.md` exists, check for design system, colors, typography, and aesthetic direction.
+
+Start from whatever baseline you find and explore the specific feature domain. Only ask discovery questions for gaps not covered by existing docs.
 
 ## Checklist
 

@@ -1,5 +1,5 @@
 ---
-name: pm-ingest
+name: ingest
 description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, or other local evidence. Normalizes records into .pm/ and updates shared research artifacts in pm/research/."
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: pm-setup
+name: setup
 description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding."
 ---
 
@@ -18,7 +18,7 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)
 - **Required** before skills that use integrations (research with SEO, groom with Linear)
-- **NOT required** for `$pm-view` (read-only over committed files) or `$pm-dig` (web search fallback)
+- **NOT required** for `$pm-view` (read-only over committed files) or `$pm-research quick` (web search fallback)
 
 Skills that need integrations check for config themselves and prompt setup if missing.
 

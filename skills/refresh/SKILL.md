@@ -1,5 +1,5 @@
 ---
-name: pm-refresh
+name: refresh
 description: "Use when updating existing research to backfill gaps from newly added tools or refresh stale data. Audits pm/ files for staleness and missing sections, patches without losing existing content. Triggers on 'refresh,' 'update research,' 'what's stale,' 'backfill.'"
 ---
 

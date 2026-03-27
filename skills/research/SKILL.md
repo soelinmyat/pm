@@ -1,6 +1,6 @@
 ---
-name: pm-research
-description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, or building the product knowledge base. Three modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview.'"
+name: research
+description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, quick product questions, or building the product knowledge base. Four modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation), quick (inline decision support, no state). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview,' 'quick question about,' 'should we,' 'how do competitors handle.'"
 ---
 
 # pm:research
@@ -63,6 +63,7 @@ Before starting work, check for user instructions:
 |---|---|
 | `landscape` | Landscape Mode |
 | `competitors` | Competitor Mode |
+| `quick` or `quick {question}` | Quick Mode — inline decision support, no state |
 | _(no arg, no `pm/landscape.md`)_ | Landscape Mode (first-time default) |
 | _(no arg, `pm/landscape.md` exists)_ | Present menu |
 | anything else | Topic Mode (argument is the topic name) |
@@ -72,7 +73,8 @@ When no argument is given and `pm/landscape.md` exists, present:
 > "What would you like to research?
 > (a) Update landscape overview
 > (b) Profile competitors
-> (c) Research a specific topic"
+> (c) Research a specific topic
+> (d) Quick question (no state, just a recommendation)"
 
 Wait for user selection before proceeding.
 
@@ -353,6 +355,104 @@ What this research did NOT answer.
 
 ---
 
+## Quick Mode (`$pm-research quick`)
+
+Inline decision support for mid-work questions. No ceremony, no state files, no issues — just frame the question, check existing knowledge, research gaps, and recommend.
+
+### When to Use
+
+- **Quick strategy questions:** "Should we prioritize this segment?"
+- **Competitive intelligence:** "How do competitors handle this?"
+- **Decision validation:** "Is this aligned with our positioning?"
+- **Feature viability checks:** "Do users ask for this?"
+
+Not for: big feature grooming (use `$pm-groom`), full market analysis (use landscape/competitor modes), or strategy rewrites (use `$pm-strategy`).
+If the user has raw support exports, interview notes, or other local evidence files, use `$pm-ingest` first.
+
+### Flow
+
+#### 1. Frame the Question
+
+Start with: "What decision are you trying to make?"
+
+Wait for the answer. Then, if the context is still unclear, follow up with ONE of these (whichever is most needed):
+- "Why does this matter right now?"
+- "What would change your answer?"
+
+Do not ask all at once. The user's first answer often covers the others.
+
+#### 2. Check Strategy Alignment
+
+If `pm/strategy.md` exists, quickly read it. Ask:
+- Does this align with ICP and value prop?
+- Does it support or conflict with current priorities?
+- Any explicit non-goals it might touch?
+
+Note conflicts explicitly.
+
+#### 3. Check Existing Knowledge
+
+Scan:
+- `pm/strategy.md` (positioning, ICP, priorities, non-goals)
+- `pm/research/` (related topic research)
+- `pm/competitors/` (competitor capabilities, market gaps)
+
+Do NOT duplicate what you already know. If the answer is in existing docs, cite it and skip research.
+
+#### 4. Research Gaps
+
+If the question is not already answered:
+- **Search demand check:** If ahrefs-mcp is configured in `.pm/config.json`, use `keywords-explorer-overview` with the topic as keyword to check volume, difficulty, and CPC. Skip if provider is `"none"`.
+- **Competitor research:** Check `pm/competitors/index.md` or profile specific competitors on features.
+- **Market research:** Quick web search for user behavior, adoption patterns, or industry norms.
+- **Raw evidence handoff:** If the user points to local files that have not been ingested yet, recommend `$pm-ingest <path>` instead of doing ad hoc file parsing.
+
+Keep it focused. One search round, then synthesize.
+
+#### 5. Save Discoveries
+
+If the research yields a finding worth keeping (new competitor capability, market signal, user need pattern), save it to the appropriate file:
+- New competitor data → `pm/competitors/{slug}/findings.md`
+- Topic research → `pm/research/{topic-slug}/findings.md`
+- Update `pm/research/index.md` with a one-line summary
+
+If the finding is trivial or already documented, skip file creation.
+
+#### 6. Recommend
+
+Present the recommendation in this format:
+
+```
+## Decision
+{The choice being made}
+
+## Recommendation
+{Your recommendation: YES, NO, MAYBE, or DEFER}
+
+## Reasoning
+- {Key finding 1}
+- {Key finding 2}
+- {Alignment with strategy / positioning}
+
+## Alternatives
+- {If applicable: other options considered and why not chosen}
+
+## Risk / Tradeoff
+- {If applicable: what could go wrong, or what we lose by not doing this}
+```
+
+Keep it tight. 3-5 bullets max.
+
+### Quick Mode Rules
+
+1. **No state file.** Each quick question is self-contained.
+2. **No issues.** Do not create Linear issues. If the user needs tracking, suggest `$pm-groom`.
+3. **Save significant discoveries.** Only write to `pm/` if the finding adds new knowledge.
+4. **Cite sources.** When you make a claim, provide the source file or URL.
+5. **Suggest escalation.** If the question reveals a bigger concern (e.g., "we need to rethink our ICP"), recommend `$pm-strategy` or `$pm-groom`.
+
+---
+
 ## SEO Provider Invocation
 
 Read `.pm/config.json` to determine the configured SEO provider. Route calls based on the provider:
@@ -399,7 +499,7 @@ Always call `mcp__ahrefs__doc` with the specific tool name before first use to g
 | Landscape | keywords-explorer-matching-terms, volume-by-country, organic-competitors | Market demand, geographic distribution, player discovery |
 | Competitor seo.md | batch-analysis or site-explorer-metrics + organic-keywords + top-pages + metrics-by-country | Domain strength, content strategy, geographic reach |
 | Topic research | keywords-explorer-overview, serp-overview | Search demand validation, content competition |
-| Dig (quick check) | keywords-explorer-overview | Fast demand signal |
+| Quick mode | keywords-explorer-overview | Fast demand signal |
 
 If an Ahrefs MCP tool call fails or returns an error, display the error to the user, note it in the output file under Sources, and continue research with web search.
 
