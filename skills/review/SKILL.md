@@ -213,7 +213,7 @@ Max 5 findings (highest leverage only).
 
 ### Agent 5: Input Edge-Case Review (sub-agent)
 
-Spawn via Agent tool (subagent_type: general-purpose, model: sonnet) **in parallel with Agents 1-4**:
+Spawn via Agent tool (subagent_type: general-purpose, model: opus) **in parallel with Agents 1-4**:
 
 ```
 You are an Input Edge-Case Reviewer.

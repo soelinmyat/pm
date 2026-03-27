@@ -10,7 +10,7 @@ If a reviewer's angle doesn't apply, the reviewer will say so — that is differ
 
 After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "sonnet"`.
+Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "opus"`.
 
 **Agent 1: Product Manager**
 

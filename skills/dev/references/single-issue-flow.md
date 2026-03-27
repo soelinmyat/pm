@@ -197,7 +197,7 @@ If any field can't be populated, write "Not documented" rather than omitting it.
 
 Walks through every user flow end-to-end, then stress-tests with edge cases. Not just "is the UI nice?" but "does this actually work under real-world pressure?"
 
-Dispatch as sub-agent (subagent_type: general-purpose, model: sonnet):
+Dispatch as sub-agent (subagent_type: general-purpose, model: opus):
 
 ```
 You are a UX designer and user flow analyst reviewing a feature spec.
@@ -265,7 +265,7 @@ Categories to stress-test:
 
 These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both design exploration and spec review are skipped entirely — this section is never reached.
 
-Dispatch both as sub-agents in parallel alongside the UX reviewer (subagent_type: general-purpose, model: sonnet):
+Dispatch both as sub-agents in parallel alongside the UX reviewer (subagent_type: general-purpose, model: opus):
 
 **Product Manager**
 
@@ -391,7 +391,7 @@ digraph plan_review {
 
 ### The 3 RFC reviewers
 
-Dispatch all 3 as sub-agents in parallel (subagent_type: general-purpose, model: sonnet):
+Dispatch all 3 as sub-agents in parallel (subagent_type: general-purpose, model: opus):
 
 **Agent 1: Senior Engineer — Architecture & Risk**
 
@@ -767,7 +767,7 @@ BEFORE auto-merging XS/S tasks, you MUST run a lightweight code scan.
 This catches bugs that tests alone miss: silent no-ops, swallowed errors, race conditions, missing error feedback.
 </HARD-GATE>
 
-Spawn a single sub-agent (subagent_type: general-purpose, model: sonnet) with this prompt:
+Spawn a single sub-agent (subagent_type: general-purpose, model: opus) with this prompt:
 
 ```
 You are a Code Reviewer scanning for genuine bugs to auto-fix.

@@ -10,7 +10,7 @@ If a reviewer's angle genuinely doesn't apply, the reviewer will say so — that
 
 After issues are drafted, dispatch parallel subagents to review the complete proposal — issues, acceptance criteria, visual artifacts, and research integration. This is not a scope check (Phase 4.5 handled that). This is a quality gate on the actual deliverables.
 
-Dispatch **3–4 parallel agents** (4 if visual artifacts were generated in Phase 5) using the Agent tool in a single message. Each agent must use `subagent_type: "general-purpose"` and `model: "sonnet"`.
+Dispatch **3–4 parallel agents** (4 if visual artifacts were generated in Phase 5) using the Agent tool in a single message. Each agent must use `subagent_type: "general-purpose"` and `model: "opus"`.
 
 **Agent 1: Product Manager — Issue Quality**
 

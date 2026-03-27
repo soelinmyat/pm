@@ -34,21 +34,13 @@ issues:
 
 6. **Retro prompt.** Before deleting the state file, run a short retrospective:
 
-   Say:
-   > "Quick retro before we wrap up — three short questions."
+   Ask ONE question:
+   > "Anything worth remembering from this session?"
 
-   Ask the following questions **one at a time**. Wait for the user's answer before asking the next.
-
-   | # | Question | Category |
-   |---|----------|----------|
-   | 1 | "What worked well in this session?" | quality |
-   | 2 | "What was slow or frustrating?" | process |
-   | 3 | "What should we do differently next time?" | process |
-
-   **After each answer:**
+   **After the answer:**
    - If the user skips (says "skip", "none", "nothing", "pass", "n/a", or "no"):
-     skip this question and all remaining questions. Do not write an entry for skipped questions.
-   - Otherwise: write the answer as an entry to `pm/memory.md` (see write logic below), then ask the next question.
+     skip the retro entirely. Do not write an entry.
+   - Otherwise: write the answer as an entry to `pm/memory.md` (see write logic below) with category `process`.
 
    **Write logic for each answered question:**
    1. If `pm/memory.md` does not exist, create it:
@@ -77,10 +69,10 @@ issues:
 
    **Serialization rules:** Use exactly 2-space indent + dash for entry start, 4-space indent for continuation fields. Quote any value containing a colon. This matches the parseFrontmatter() format validated in PM-039's round-trip test.
 
-   After all 3 questions are answered (or a skip ends the retro), say:
-   > "Retro captured — {N} learning(s) saved to pm/memory.md."
+   After the answer is captured, say:
+   > "Retro captured — saved to pm/memory.md."
 
-   If all questions were skipped (user skipped on question 1), say nothing about retro and proceed to step 7.
+   If skipped, say nothing about retro and proceed to step 7.
 
 7. **Automated learning extraction.** Silently extract quantitative learnings from the state file. No user interaction.
 

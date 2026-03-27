@@ -486,6 +486,7 @@ mutation {
 - NEVER use `--no-verify`. All hook failures must be fixed, no exceptions.
 - NEVER commit to main directly
 - NEVER force-merge. If `gh pr merge` fails, STOP and report.
+- NEVER merge while CI checks are in progress or failing. Wait for all checks to complete, investigate failures, and confirm they are pre-existing/unrelated before merging. Flag failures to the user.
 - NEVER skip Gate 4 (unresolved comments). Every comment from Claude review, Codex, or human reviewers must be addressed.
 - After 3 CI fix attempts, ask user before continuing.
 - Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle.

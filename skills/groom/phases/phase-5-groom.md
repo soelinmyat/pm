@@ -74,6 +74,11 @@ If the feature type is UI, generate a standalone HTML wireframe file:
      > "Wireframe ready — opening in dashboard."
      > File: `pm/backlog/wireframes/{parent-issue-slug}.html`
 
+7. **Wait for user review.** Do not proceed to decomposition until the user confirms the wireframe:
+   > "Wireframe is open in your browser. Any changes before I proceed?"
+
+   Wait for user response. If they request changes, update the wireframe and re-open. If they confirm, proceed.
+
 #### Step 3: Decompose
 
 Before drafting issues, determine how to split the feature into discrete, deliverable pieces.

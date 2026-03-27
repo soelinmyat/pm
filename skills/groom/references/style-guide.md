@@ -4,6 +4,17 @@ Groom-specific formatting supplement. For shared prose rules, jargon ban list, a
 
 ---
 
+## Interaction Rules
+
+**Yes/no questions only.** Every confirmation question must be answerable with a simple "yes" or "no." Do not ask compound either/or questions — answering "yes" is ambiguous. Ask one thing and let the user volunteer alternatives.
+
+Bad: "Keep the CLE-1374 implementation and proceed to CLE-1373? Or revert?"
+Good: "Keep the CLE-1374 implementation and proceed to CLE-1373?"
+
+**Verify before claiming.** During codebase scans (Phase 1, Phase 4), search using multiple terms, check both API and frontend code, and verify with the user before claiming a feature doesn't exist. Hallucinating gaps leads to wasted grooming effort. When in doubt, ask: "I couldn't find X — can you confirm it's not built?"
+
+---
+
 ## Parallel Agent Output
 
 Collapse parallel reviewer results into a summary table:

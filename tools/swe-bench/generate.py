@@ -27,13 +27,19 @@ RESULTS_DIR = Path(__file__).parent / "results"
 REPOS_DIR = Path(__file__).parent / "repos"
 
 # Claude Code configurations
+# "subscription" mode: no --bare, uses OAuth/subscription auth, all installed plugins load
+# "api" mode: --bare, uses ANTHROPIC_API_KEY, only specified plugins load
 CONFIGS = {
     "vanilla": {
         "label": "Vanilla Claude Code",
         "flags": ["--bare", "--no-session-persistence"],
     },
     "pm": {
-        "label": "PM Plugin",
+        "label": "PM Plugin (subscription)",
+        "flags": ["--no-session-persistence"],
+    },
+    "pm-api": {
+        "label": "PM Plugin (API, isolated)",
         "flags": [
             "--bare",
             "--no-session-persistence",
@@ -42,7 +48,6 @@ CONFIGS = {
     },
     "superpowers": {
         "label": "Superpowers",
-        # Detect installed path; skip if not found
         "flags": ["--bare", "--no-session-persistence"],
         "plugin_name": "superpowers",
     },
