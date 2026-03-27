@@ -1,13 +1,14 @@
 ---
 title: "Built-in QA skill for PM plugin"
-status: drafted
+status: done
 priority: high
 parent: null
-id: null
+id: "PM-067"
 labels:
   - dev-lifecycle
 created: 2026-03-27
 updated: 2026-03-27
+type: backlog-issue
 ---
 
 # Built-in QA Skill
