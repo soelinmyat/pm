@@ -11,25 +11,18 @@ Copy the plugin source code to the Claude Code plugin cache so changes take effe
 
 ## Flow
 
-1. Detect the current cached version:
-
-```bash
-VERSION=$(cat ~/.claude/plugins/cache/pm/pm/*/plugin.json 2>/dev/null | grep '"version"' | head -1 | sed 's/.*"version": *"//;s/".*//' || echo "1.0.0")
-echo "Detected cache version: $VERSION"
-```
-
-2. Determine the source directory. Check in order:
+1. Determine the source directory. Check in order:
    - If CWD is inside the plugin source (has `.claude-plugin/plugin.json` with `"name": "pm"`): use CWD
    - Otherwise try `~/Projects/pm`
    - If neither works, ask the user for the source path
 
-3. Read the source version from the source `.claude-plugin/plugin.json` and compare with cache version. Warn if they differ.
+2. Read the source version from `.claude-plugin/plugin.json`.
 
-4. Run the sync:
+3. Run the sync to the **cache root** (not a versioned subdirectory):
 
 ```bash
 SOURCE_DIR="${SOURCE_DIR}"  # determined above
-CACHE_DIR="$HOME/.claude/plugins/cache/pm/pm/${VERSION}"
+CACHE_DIR="$HOME/.claude/plugins/cache/pm/pm"
 
 rsync -av --delete \
   --exclude='.git' \
@@ -41,15 +34,6 @@ rsync -av --delete \
   "$CACHE_DIR/"
 ```
 
-5. If the source version differs from the cache version, rename the cache directory:
+**Important:** The cache target is `~/.claude/plugins/cache/pm/pm/` — the root, not a versioned subdirectory. Claude Code loads the plugin from this root path. Syncing to a subdirectory like `pm/pm/1.0.1/` will not be picked up.
 
-```bash
-NEW_VERSION=$(grep '"version"' "$SOURCE_DIR/.claude-plugin/plugin.json" | sed 's/.*"version": *"//;s/".*//')
-if [ "$NEW_VERSION" != "$VERSION" ]; then
-  NEW_CACHE="$HOME/.claude/plugins/cache/pm/pm/$NEW_VERSION"
-  mv "$CACHE_DIR" "$NEW_CACHE"
-  echo "Cache directory renamed: $VERSION → $NEW_VERSION"
-fi
-```
-
-6. Report success: which files changed, new version if bumped, and remind the user to restart any active Claude Code sessions to pick up the changes.
+4. Report success: version synced and remind the user to restart any active Claude Code sessions to pick up the changes.

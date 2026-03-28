@@ -50,7 +50,7 @@ Three copies of the plugin exist on disk. Understand which you're touching:
 
 ```
 Source (this repo)          Marketplace (git clone)           Cache (installed copy)
-/Users/.../Projects/pm/  →  ~/.claude/plugins/marketplaces/pm/  →  ~/.claude/plugins/cache/pm/pm/{version}/
+/Users/.../Projects/pm/  →  ~/.claude/plugins/marketplaces/pm/  →  ~/.claude/plugins/cache/pm/pm/
      ↑                              ↑                                      ↑
   You edit here              Auto-synced from GitHub             What actually runs
 ```
@@ -112,8 +112,10 @@ To copy source changes to the plugin cache for immediate testing:
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
   /Users/soelinmyat/Projects/pm/ \
-  ~/.claude/plugins/cache/pm/pm/{version}/
+  ~/.claude/plugins/cache/pm/pm/
 ```
+
+**Important:** Sync to the cache root (`pm/pm/`), not a versioned subdirectory. Claude Code loads the plugin from the root.
 
 This overwrites the cache with your local source. It will be overwritten again on the next official plugin update, which is fine — your changes should be committed to source before that happens.
 
@@ -128,7 +130,7 @@ When using PM workflows (groom, research, ideate, etc.), the plugin writes to `p
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
+node ~/.claude/plugins/cache/pm/pm/scripts/server.js \
   --mode dashboard --dir "$PWD/pm"
 ```
 
