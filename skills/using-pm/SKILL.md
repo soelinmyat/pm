@@ -72,6 +72,8 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | "Fix this bug" | `pm:dev` (triggers debugging internally) |
 | "Ship it" / "Push this" | `pm:ship` |
 | "Merge this PR" | `pm:ship` (invoke with `/merge` for manual merge without polling) |
+| "Fix the PR comments" / "Resolve CI" / "Get this PR merged" | `pm:ship` (detects existing PR, enters gate monitoring) |
+| "Handle PR #123" / "Fix review feedback on PR" | `pm:ship` (with PR number if provided) |
 
 ## Red Flags
 

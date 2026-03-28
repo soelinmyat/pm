@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Ship workflow: review, push, create PR, code review, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also includes /merge for manual merge + cleanup."
+description: "Ship workflow: review, push, create PR, code review, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship,' 'push,' 'merge,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
 ---
 
 # /ship
@@ -8,6 +8,8 @@ description: "Ship workflow: review, push, create PR, code review, CI monitor + 
 **State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If not found, check legacy path `.dev-state-{slug}.md`. References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
 Complete shipping lifecycle in one command: review, push, create PR, monitor CI, poll readiness gates, and auto-merge.
+
+**Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
 
 ## Default Branch
 
