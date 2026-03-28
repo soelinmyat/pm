@@ -1,126 +1,139 @@
 # PM — Product Memory
 
-A plugin for AI coding assistants that helps you figure out **what to build** and then **build it well**.
+PM is a cross-platform plugin for AI coding assistants that helps product engineers decide **what to build**, turn that into **well-defined work**, and then **ship it with structure**.
 
-Most tools help you write code faster. PM helps you write the *right* code — by researching your market, tracking competitors, planning features, and then implementing them with structured workflows. Everything stays in your editor. Nothing gets lost.
+It is built for people who own both product thinking and implementation: founders, engineers doing discovery, PMs who code, and small teams that want research, planning, and development to happen in one place.
 
-Works with Claude Code, Cursor, Codex, and Gemini CLI.
+## What PM Does
 
-PM activates the right workflow automatically — no commands to memorize.
+PM supports a simple lifecycle:
 
----
+- **Research** your market, competitors, and customer signals
+- **Strategy** to clarify ICP, positioning, and priorities
+- **Groom** ideas into sprint-ready issues with acceptance criteria, user flows, and context
+- **Build** with TDD, review, QA, and shipping workflows
 
-## What It Does
+The key idea is: **think once, build fast**.
 
-**Think** — Research your market, study competitors, and build a product strategy. PM saves everything so it gets smarter over time.
+## What Happens in Your Repo
 
-**Plan** — Turn ideas into well-defined issues. Each idea goes through research, scoping, and multiple rounds of review before becoming a ticket.
+PM creates two directories in your project:
 
-**Build** — Implement features with test-driven development, multi-perspective code review, QA ship gates, and PR workflows. If an issue was already planned through PM, the dev workflow skips redundant steps and goes straight to coding.
+```text
+pm/      # committed knowledge base
+.pm/     # gitignored runtime state and config
+```
 
----
+Typical artifacts include:
+
+- `pm/landscape.md` — market landscape research
+- `pm/strategy.md` — product strategy
+- `pm/competitors/` — competitor profiles
+- `pm/research/` — topic research and synthesized findings
+- `pm/backlog/` — markdown backlog items when Linear is not used
+- `.pm/config.json` — integration and preference settings
+- `.pm/evidence/` — normalized customer evidence records
+
+## Who PM Is For
+
+PM is a strong fit if you:
+
+- use an AI coding assistant and also make product decisions
+- want research and planning artifacts to persist between sessions
+- prefer editor-native workflows over jumping across many tools
+- want product context to flow directly into implementation
+
+PM is probably not the best fit if you only want a code-generation helper with no research or planning layer.
 
 ## Install
 
-**Claude Code:**
+### Claude Code
+
 ```bash
 claude plugin marketplace add soelinmyat/pm
 claude plugin install pm@pm
 ```
 
-**Cursor:** Copy `.cursor-plugin/` into your project root.
+### Cursor
 
-**Codex:** See [`.codex/INSTALL.md`](.codex/INSTALL.md).
+Copy `.cursor-plugin/` into your project root.
 
-**Gemini CLI:** See [`GEMINI.md`](GEMINI.md).
+### Codex
 
----
+See [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
-## Get Started
+### Gemini CLI
 
-**Start with what you want to build.** Tell PM your feature idea and it will research the market, scope the work, and produce ready-to-build issues — all in one conversation.
+See [`GEMINI.md`](GEMINI.md).
 
-**Or start with what you want to learn.** Ask PM to research a topic, map competitors, or analyze your market. The research accumulates in your knowledge base and informs future planning.
+## Quick Start
 
-Everything else — setup, strategy, ideation, ingestion — happens on-demand when the workflow needs it. You don't need to memorize anything.
+You do **not** need to memorize every workflow.
 
----
+Start with plain-English prompts like:
 
-## What You Can Do
+- "Set up PM for this repo."
+- "Research our market and key competitors."
+- "Turn this feature idea into sprint-ready issues."
+- "Build the groomed issue for bulk editing."
+- "Open the PM dashboard."
 
-### Think
+A common progression looks like this:
 
-- **Research** a topic, competitor, or market trend
-- **Build a strategy** with product positioning, ICP, and strategic bets — auto-generates a presentation deck
-- **Generate ideas** based on your research and strategy
-- **Groom** an idea through research, scoping, and multi-agent review into ready-to-build issues
-- **Dig** into a specific question for quick inline answers
-- **Import** customer feedback, interviews, or support data
-- **Refresh** stale research without losing existing content
-- **Browse** your knowledge base in a local dashboard with charts, positioning maps, and backlog views
+1. Set up project context
+2. Import customer evidence (optional)
+3. Research the landscape
+4. Define strategy
+5. Groom ideas into issues
+6. Implement and ship
 
-### Build
+## Workflows
 
-- **Develop** any work — single features, multi-issue epics, or batch bug triage. One unified workflow auto-detects scope and routes to the right flow.
-- **Test-first discipline** — TDD for all sizes, with parallel agent dispatch for independent tasks
-- **Multi-perspective review** — up to 5 agents (code, PM, design, input edge-cases, official code review) run in parallel
-- **QA ship gate** — automated exploratory and scripted testing with Playwright (web) or Maestro (mobile), health scoring, and pass/fail verdicts
-- **Design critique** — multi-agent visual review against real app screenshots
-- **Ship** — push, PR, CI monitoring, gate polling, and auto-merge in one command
+### Entry Points
 
----
+- **Research** — landscape, competitor, topic, and quick inline research
+- **Strategy** — ICP, positioning, priorities, and deck generation
+- **Groom** — turn ideas into ready-to-build issues through multi-agent review
+- **Dev** — implement features, refactors, bug triage, and epics (auto-detects scope)
+- **Ship** — review, PR, CI monitoring, gate polling, and auto-merge
 
-## How the Handoff Works
+### Utilities
 
-When you groom a feature, PM takes it through research, scoping, and review. The output includes detailed acceptance criteria, user flows, wireframes, and competitive context.
+- **Setup** — configure project context, integrations, and folder structure
+- **View** — open the local dashboard
+- **Ingest** — import support tickets, interview notes, and other evidence
+- **Refresh** — update stale research without losing accumulated knowledge
 
-When you then build that same feature, the dev workflow sees the grooming work and skips straight to implementation — no redundant brainstorming or spec review. The research context flows into the implementation plan automatically.
+## Optional Integrations
 
-This is the main idea: **think once, build fast.**
+PM works without external integrations, but can optionally use:
 
----
+- **Linear** for issue tracking instead of markdown backlog files
+- **Ahrefs MCP** for SEO-aware research
 
-## Visual Dashboard
+Without those, PM uses web research and writes backlog items to `pm/backlog/`.
 
-Every major workflow offers to open a browser-based dashboard alongside your editor. The dashboard shows:
+## Dashboard
+
+PM includes a local browser dashboard for browsing the knowledge base. It is read-only with no external services. It shows:
 
 - **Home** — control tower with backlog stats, active sessions, strategy health
-- **Backlog** — proposal cards, kanban board, search/filter, shipped and archived views
-- **Research** — landscape overview, competitor profiles with tabbed detail pages, topic cards with freshness indicators
-- **Strategy** — rendered strategy with positioning maps, SWOT grids, and a slide deck viewer
+- **Backlog** — proposal cards, search/filter, shipped and archived views
+- **Research** — landscape, competitor profiles with tabbed detail, topic cards with freshness indicators
+- **Strategy** — rendered strategy with positioning maps, SWOT grids, and slide deck viewer
 
-The dashboard is read-only and local — it renders your `pm/` knowledge base files with no external services.
+## Example Outputs
 
----
+This repository dogfoods PM on itself, so you can browse real outputs:
 
-## Skills
+- [`pm/strategy.md`](pm/strategy.md) — product strategy
+- [`pm/landscape.md`](pm/landscape.md) — market landscape
+- [`pm/competitors/`](pm/competitors/) — competitor profiles
+- [`pm/research/`](pm/research/) — topic research
 
-| Skill | What it does |
-|-------|-------------|
-| `pm:dev` | Unified development — auto-detects single issue, epic, or batch bug triage |
-| `pm:groom` | Convert ideas into sprint-ready issues through research and multi-agent review |
-| `pm:research` | Landscape mapping, competitor deep-dives, topic research, quick inline questions |
-| `pm:strategy` | Product positioning, ICP, competitive positioning, priorities, slide deck |
-| `pm:ship` | Push, PR, CI monitor, gate polling, auto-merge |
-| `pm:review` | Multi-perspective code review + feedback handling |
-| `pm:qa` | QA ship gate — test charter, Playwright/Maestro testing, health score verdict |
-| `pm:tdd` | Test-first discipline — write test, watch fail, implement |
-| `pm:subagent-dev` | Dispatch parallel agents for plan execution |
-| `pm:debugging` | Root cause investigation before any fix |
-| `pm:design-critique` | Multi-agent visual critique with screenshots |
-| `pm:brainstorming` | Explore intent and design before code |
-| `pm:ingest` | Import customer evidence from files or folders |
-| `pm:refresh` | Audit research for staleness and patch gaps |
-| `pm:view` | Open the knowledge base dashboard |
-| `pm:setup` | First-time configuration |
+## Why This Repo Contains a `pm/` Folder
 
-You rarely need to call these directly — PM routes to the right skill based on what you say.
-
----
-
-## The `pm/` Directory
-
-You'll notice a `pm/` folder in this repo. That's PM dogfooding itself — we use the plugin to manage its own development. When you install PM in your project, you'll get your own fresh `pm/` folder the first time you start a workflow.
+The `pm/` directory in this repository is PM using itself. It is **example product data**, not the plugin source code. The plugin source lives in `skills/`, `agents/`, `hooks/`, and `scripts/`.
 
 ---
 
