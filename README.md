@@ -131,7 +131,7 @@ You'll notice a `pm/` folder in this repo. That's PM dogfooding itself — we us
 
 ## Acknowledgments
 
-Inspired by [Superpowers](https://github.com/obra/superpowers), [Impeccable](https://github.com/pbakaus/impeccable), and [gstack](https://github.com/garrytan/gstack) (the multi-role virtual team approach).
+Inspired by [Superpowers](https://github.com/obra/superpowers), [Impeccable](https://github.com/pbakaus/impeccable), and [gstack](https://github.com/garrytan/gstack).
 
 ## License
 
