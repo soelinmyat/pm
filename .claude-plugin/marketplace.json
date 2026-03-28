@@ -8,7 +8,7 @@
     {
       "name": "pm",
       "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
-      "version": "1.2.10",
+      "version": "1.2.11",
       "author": {
         "name": "Soe Lin Myat"
       },
