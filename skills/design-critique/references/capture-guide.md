@@ -55,20 +55,20 @@ adb devices | grep -q "device$" || echo "No Android device connected"
 
 ## Authentication (Web)
 
-Playwright CLI logs in via the real login flow using the seed user credentials. No mock tokens.
+Playwright MCP logs in via the real login flow using the seed user credentials. No mock tokens.
 
 ```
-# Using Playwright CLI (mcp__playwright tool or CLI):
-1. Navigate to http://localhost:5173/login
-2. Fill email field with "design-review@example.com"
-3. Fill password field with "password123"
-4. Click submit / press Enter
-5. Wait for redirect to dashboard (confirms auth success)
+# Using Playwright MCP tools:
+1. browser_navigate to http://localhost:5173/login
+2. browser_type email field with "design-review@example.com"
+3. browser_type password field with "password123"
+4. browser_click submit button
+5. browser_navigate to authenticated route — verify not redirected to login
 ```
 
-The session persists across all subsequent screenshots in the same browser context. No need to re-authenticate between pages.
+The session persists across all subsequent interactions in the same browser context. No need to re-authenticate between pages.
 
-## Web Capture (Playwright CLI)
+## Web Capture (Playwright MCP)
 
 ### Capture sequence
 
@@ -77,12 +77,11 @@ The session persists across all subsequent screenshots in the same browser conte
 2. Run seed: cd apps/api && bin/rails design:seed:{feature_slug}
 3. Open browser, log in as seed user
 4. For each target page:
-   a. Navigate to URL
-   b. Wait for network idle (no pending requests)
-   c. Screenshot at desktop width (1440px)
-   d. Screenshot at tablet width (768px) - if responsive matters
-   e. Screenshot at mobile width (375px) - if responsive matters
-   f. Capture interactive states (open modals, expanded sections, hover states)
+   a. browser_navigate to URL
+   b. browser_screenshot at desktop width (1440px)
+   c. browser_resize to 768px → browser_screenshot (if responsive matters)
+   d. browser_resize to 375px → browser_screenshot (if responsive matters)
+   e. Capture interactive states (browser_click to open modals, expand sections)
 5. Save all screenshots to /tmp/design-review/{feature}/
 6. Write manifest
 ```
