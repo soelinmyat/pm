@@ -1,6 +1,6 @@
 ---
 name: view
-description: "Open the PM knowledge base dashboard in your browser. Starts the bundled dashboard server for the current project's pm directory and returns the local URL."
+description: "Open the PM knowledge base dashboard in your browser. Starts the bundled dashboard server for the current project's pm directory and returns the local URL. Triggers on 'view,' 'dashboard,' 'open dashboard,' 'show research,' 'show knowledge base,' 'open pm,' 'view pm.'"
 ---
 
 # pm:view

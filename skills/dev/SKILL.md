@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Use when starting any development work — single issues, multi-issue epics, or batch bug triage. Auto-detects scope and routes to the right flow. Triggers on 'build,' 'implement,' 'fix bugs,' 'epic,' 'cycle bugs,' 'dev,' 'feature,' 'refactor,' 'backfill tests.' Formerly /dev-epic and /bug-fix — both unified into /dev."
+description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Auto-detects scope and routes to the right flow. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.' Formerly /dev-epic and /bug-fix — both unified into /dev."
 ---
 
 # Dev — Development Lifecycle

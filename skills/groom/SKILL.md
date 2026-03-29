@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when doing product discovery, feature grooming, generating feature ideas, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for,' 'ideate,' 'feature ideas,' 'what should we build,' 'opportunities.'"
+description: "Use when doing product discovery, feature grooming, generating feature ideas, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom this,' 'let's groom,' 'I have an idea,' 'here's an idea,' 'feature idea,' 'product discovery,' 'scope this,' 'spec this out,' 'write a spec,' 'write a PRD,' 'break this down,' 'create issues for,' 'create tickets for,' 'plan this feature,' 'let's ideate,' 'what should we build,' 'what are the opportunities.'"
 ---
 
 # pm:groom

@@ -1400,6 +1400,53 @@ function readDevState(pmDir) {
   return sessions;
 }
 
+function readActiveDesignSessions(pmDir) {
+  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'sessions');
+  if (!fs.existsSync(sessionsDir)) return [];
+
+  const results = [];
+  const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const sessionDir = path.join(sessionsDir, entry.name);
+    const infoPath = path.join(sessionDir, '.server-info');
+    const stoppedPath = path.join(sessionDir, '.server-stopped');
+
+    // Must have .server-info and no .server-stopped
+    if (!fs.existsSync(infoPath) || fs.existsSync(stoppedPath)) continue;
+
+    try {
+      const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+      if (info.mode !== 'companion') continue;
+
+      // Verify the server process is still running
+      const pidPath = path.join(sessionDir, '.server.pid');
+      if (fs.existsSync(pidPath)) {
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+        try { process.kill(pid, 0); } catch { continue; } // process dead
+      }
+
+      // Get the newest HTML file to determine the session topic
+      const htmlFiles = fs.readdirSync(sessionDir).filter(f => f.endsWith('.html')).sort();
+      const newestFile = htmlFiles.length > 0 ? htmlFiles[htmlFiles.length - 1] : null;
+      const mtime = fs.statSync(infoPath).mtimeMs;
+
+      results.push({
+        id: entry.name,
+        url: info.url,
+        port: info.port,
+        screenDir: info.screen_dir || sessionDir,
+        currentScreen: newestFile ? newestFile.replace('.html', '').replace(/-/g, ' ') : null,
+        screenCount: htmlFiles.length,
+        mtime,
+      });
+    } catch { /* skip corrupted sessions */ }
+  }
+
+  return results.sort((a, b) => b.mtime - a.mtime);
+}
+
 function readAllActiveSessions(pmDir) {
   const groomSessions = readGroomState(pmDir).map(s => {
     const sessionsDir = path.resolve(pmDir, '..', '.pm', 'groom-sessions');
@@ -1916,6 +1963,25 @@ function handleDashboardHome(res, pmDir) {
     sessionBannerHtml = `\n<div class="groom-session-label">${label}</div>\n${sessionItems}`;
   }
 
+  // Active design sessions (visual companion instances)
+  const designSessions = readActiveDesignSessions(pmDir);
+  let designBannerHtml = '';
+  if (designSessions.length > 0) {
+    const dLabel = designSessions.length === 1 ? 'Design Session' : `Design Sessions (${designSessions.length})`;
+    const designItems = designSessions.map(ds => {
+      const screenLabel = ds.currentScreen || 'No screens yet';
+      const screenCount = ds.screenCount > 0 ? `${ds.screenCount} screen${ds.screenCount !== 1 ? 's' : ''}` : '';
+      return `<a href="${escHtml(ds.url)}" target="_blank" rel="noopener" class="groom-session">
+  <div class="groom-session-dot" style="background:#f59e0b"></div>
+  <div>
+    <div class="groom-session-topic">${escHtml(screenLabel)}</div>
+    <div class="groom-session-meta">Design · ${escHtml(screenCount)} · <span style="color:var(--text-muted);">${escHtml(ds.url)}</span></div>
+  </div>
+</a>`;
+    }).join('\n');
+    designBannerHtml = `\n<div class="groom-session-label">${dLabel}</div>\n${designItems}`;
+  }
+
   // Proposal cards section — pass pre-loaded sessions to avoid redundant I/O
   let proposalsHtml = '';
   const { cardsHtml: proposalCards, totalCount: proposalCount } = buildProposalCards(pmDir, 6, groomSessions);
@@ -1982,6 +2048,7 @@ ${suggestedHtml}`;
 </div>
 ${controlCards}
 ${sessionBannerHtml}
+${designBannerHtml}
 ${proposalsHtml}
 ${suggestedHtml}`;
   }

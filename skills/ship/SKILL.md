@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Ship workflow: review, push, create PR, code review, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship,' 'push,' 'merge,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
+description: "Ship workflow: review, push, create PR, code review, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
 ---
 
 # /ship

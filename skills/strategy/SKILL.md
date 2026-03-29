@@ -1,6 +1,6 @@
 ---
 name: strategy
-description: "Use when creating or maintaining a product strategy document, or generating a strategy deck/presentation. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction,' 'strategy deck,' 'strategy presentation,' 'generate deck.'"
+description: "Use when creating or maintaining a product strategy document, or generating a strategy deck/presentation. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'let's do strategy,' 'product strategy,' 'define our positioning,' 'who is our ICP,' 'what are our non-goals,' 'product direction,' 'build a roadmap,' 'product vision,' 'go-to-market plan,' 'who is our target audience,' 'what's our value proposition,' 'who is our customer,' 'create a strategy deck,' 'strategy presentation,' 'generate a deck.'"
 ---
 
 # pm:strategy

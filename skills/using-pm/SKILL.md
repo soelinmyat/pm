@@ -64,16 +64,19 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 | User says | Invoke |
 |-----------|--------|
-| "I have an idea" | `pm:groom` → then `pm:dev` for implementation |
-| "What should we build?" | `pm:groom ideate` |
-| "Research Y" | `pm:research` (use `quick` mode for fast inline questions) |
+| "I have an idea" / "spec this" / "write a PRD" / "break this down" | `pm:groom` → then `pm:dev` for implementation |
+| "What should we build?" / "create tickets" | `pm:groom ideate` |
+| "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
 | "Should we do X?" | `pm:research quick` |
 | "Build X" | `pm:dev` (triggers design exploration internally for M/L/XL) |
-| "Fix this bug" | `pm:dev` (triggers debugging internally) |
-| "Ship it" / "Push this" | `pm:ship` |
-| "Merge this PR" | `pm:ship` (invoke with `/merge` for manual merge without polling) |
+| "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally) |
+| "Ship it" / "Push this" / "deploy" / "create PR" / "ready for review" | `pm:ship` |
+| "Merge this PR" / "land this" | `pm:ship` (invoke with `/merge` for manual merge without polling) |
 | "Fix the PR comments" / "Resolve CI" / "Get this PR merged" | `pm:ship` (detects existing PR, enters gate monitoring) |
 | "Handle PR #123" / "Fix review feedback on PR" | `pm:ship` (with PR number if provided) |
+| "Show dashboard" / "open pm" / "view research" | `pm:view` |
+| "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
+| "What's outdated?" / "update research" / "stale data" | `pm:refresh` |
 
 ## Red Flags
 

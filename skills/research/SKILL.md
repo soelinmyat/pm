@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, quick product questions, or building the product knowledge base. Four modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation), quick (inline decision support, no state). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview,' 'quick question about,' 'should we,' 'how do competitors handle.'"
+description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, quick product questions, or building the product knowledge base. Four modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation), quick (inline decision support, no state). Triggers on 'research this,' 'let's research,' 'look into this,' 'analyze the market,' 'who are the competitors,' 'who competes with us,' 'competitive analysis,' 'do some market research,' 'how big is the market,' 'keyword research,' 'industry overview,' 'quick question about,' 'should we do,' 'how do competitors handle.'"
 ---
 
 # pm:research
