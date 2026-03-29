@@ -60,6 +60,41 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 **Invoke relevant skills BEFORE any response or action.** If there's even a chance a skill applies, invoke it. If it turns out to be wrong for the situation, you don't need to follow it.
 
+## Skill Bookends
+
+Every skill invocation MUST start with a plan and end with a summary.
+
+### Opening (before any work)
+
+After the skill is loaded but before doing anything, tell the user what's about to happen:
+
+```
+**[Skill Name]** — here's the plan:
+1. [Step 1 — what you'll do first]
+2. [Step 2 — what comes next]
+3. [Step 3 — etc.]
+
+I'll check in with you at [decision points]. Let's start.
+```
+
+Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery, visual companion), mention them as conditional: "If your project has a design system, I'll use it for mockups."
+
+### Closing (after all work is done)
+
+End every skill with a structured summary:
+
+```
+**Done.** Here's what happened:
+
+- **What:** [1-2 sentence summary of what was accomplished]
+- **Key decisions:** [Any choices made during the flow]
+- **Artifacts:** [Files created/modified, PRs opened, issues created — with paths/links]
+- **Gates:** [Which gates ran and their results — e.g., "Review: passed (B+)", "Design critique: skipped (no UI)", "TDD: 4 tests written"]
+- **Next steps:** [What the user should do next, if anything]
+```
+
+Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
+
 ## Quick Decision Guide
 
 | User says | Invoke |
