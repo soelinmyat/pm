@@ -12,9 +12,13 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function serializeJson(value) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  fs.writeFileSync(filePath, serializeJson(value));
 }
 
 function writeText(filePath, value) {
@@ -24,12 +28,10 @@ function writeText(filePath, value) {
 
 function listSkillDirs() {
   const skillsRoot = path.join(repoRoot, 'skills');
-  return fs.readdirSync(skillsRoot)
-    .filter((entry) => {
-      const entryPath = path.join(skillsRoot, entry);
-      return fs.statSync(entryPath).isDirectory()
-        && fs.existsSync(path.join(entryPath, 'SKILL.md'));
-    })
+  return fs.readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory()
+      && fs.existsSync(path.join(skillsRoot, entry.name, 'SKILL.md')))
+    .map((entry) => entry.name)
     .sort();
 }
 
@@ -275,7 +277,7 @@ function checkOrWriteFile(filePath, content, format) {
 
     const current = fs.readFileSync(filePath, 'utf8');
     const expected = format === 'json'
-      ? `${JSON.stringify(content, null, 2)}\n`
+      ? serializeJson(content)
       : content;
     if (current !== expected) {
       throw new Error(`Generated file is out of date: ${path.relative(repoRoot, filePath)}`);
