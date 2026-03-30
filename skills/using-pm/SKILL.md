@@ -23,6 +23,7 @@ These are the skills you invoke directly. Most other capabilities are built into
 | Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
 | Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
+| Deploy main to production | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
 | Self-heal a PR until merged | Merge workflow | Fix CI, resolve review comments, handle conflicts, merge. On platforms with command aliases, this is exposed as `/merge`. |
 
 ## Sub-Skills (called by orchestrators)
@@ -109,7 +110,8 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 | "Should we do X?" | `pm:research quick` |
 | "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
 | "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
-| "Ship it" / "Push this" / "deploy" / "create PR" / "ready for review" | `pm:ship` |
+| "Ship it" / "Push this" / "create PR" / "ready for review" | `pm:ship` |
+| "Deploy" / "deploy to production" / "release" / "push to production" | `pm:deploy` — create PR from main to production, self-heal, auto-merge |
 | "Merge this PR" / "land this" / "get this merged" | merge workflow — self-healing merge loop |
 | "Fix the PR comments" / "Resolve CI" / "fix review feedback" | merge workflow — fixes, replies, resolves threads, merges |
 | "Show dashboard" / "open pm" / "view research" | `pm:view` |
