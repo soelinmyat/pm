@@ -39,7 +39,7 @@ This reference is loaded on-demand by the dev skill router when handling a singl
 |---|---|---|---|---|---|
 | Issue tracking | — | — | Yes | Yes | Yes |
 | Worktree | — | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
-| Groom detection | — | — | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
+| Groom readiness | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
 | Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
 | Spec review | — | — | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) |
 | Written plan | — | — | `dev:writing-plans` | `dev:writing-plans` + design doc | `dev:writing-plans` + design doc |
@@ -104,26 +104,89 @@ fi
 
 Never proceed to implementation without a clean workspace checkpoint.
 
-## Stage 2.5: Groom Detection (M/L/XL)
+## Stage 2.5: Groom Readiness Check (all sizes)
 
-Before brainstorming, check if this issue was groomed:
+Before proceeding to design/planning/implementation, check whether this issue has been groomed — and if not, whether it needs grooming.
+
+### Step 1: Check for existing groom session
 
 1. Glob `.pm/groom-sessions/*.md` for a file whose slug matches the current issue slug or topic (normalize: lowercase, spaces to hyphens).
-2. If found, parse YAML frontmatter. Read `bar_raiser.verdict`.
+2. If found, parse YAML frontmatter. Read `effective_verdict` (or `bar_raiser.verdict` for legacy sessions without `effective_verdict`).
 3. If verdict is `"ready"` or `"ready-if"`:
-   - Log in state file: `Groom detection: groomed (session: {filename}, verdict: {verdict})`
-   - Log: `Skipped phases: design-exploration, spec-review`
+   - Log in state file: `Groom detection: groomed (session: {filename}, verdict: {verdict}, tier: {tier})`
    - Read `research_location` from the session frontmatter. Store the path for research injection in Stage 4.
-   - **Skip Stage 3 (design exploration) and Stage 3.5 (spec review).** Proceed directly to Stage 4 (writing-plans).
-4. If verdict is `"send-back"`, `"pause"`, missing, or parse fails: proceed to Stage 3 as normal.
+   - **For M/L/XL:** Skip Stage 3 (design exploration) and Stage 3.5 (spec review). Proceed directly to Stage 4 (writing-plans).
+   - **For XS/S:** Proceed directly to implementation.
+   - **Done — skip Step 2.**
+4. If verdict is `"send-back"`, `"pause"`, missing, or parse fails: continue to Step 2.
 
-**Ambiguity fallback:** If the slug match is uncertain (multiple partial matches, no exact match), fall back to full ceremony. Never reduce ceremony on ambiguous detection.
+**Ambiguity fallback:** If the slug match is uncertain (multiple partial matches, no exact match), continue to Step 2. Never skip grooming on ambiguous detection.
 
-**Multiple groom sessions:** Match by exact issue slug first. If no exact match, normalize the session's `topic` field to slug form (lowercase, spaces to hyphens) and compare. If still ambiguous, fall back to full ceremony.
+### Step 2: Assess issue readiness
+
+Inspect the issue content from Stage 1 intake (Linear issue body, user description, or conversation context). Check for these grooming signals:
+
+| Signal | Where to look |
+|--------|--------------|
+| Acceptance criteria | Numbered list of testable conditions |
+| Outcome statement | Description of what changes for the user |
+| Scope boundary | Explicit in-scope / out-of-scope |
+| User flows | Mermaid diagrams or step-by-step flow descriptions |
+
+**Scoring:**
+
+| Signals present | Readiness |
+|----------------|-----------|
+| 3-4 of 4 | **Groomed** — proceed without grooming |
+| 1-2 of 4 | **Thin** — needs grooming |
+| 0 of 4 | **Ungroomed** — needs grooming |
+
+### Step 3: Route based on readiness
+
+**If groomed (3-4 signals):** Proceed as normal. Log:
+```
+- Groom readiness: sufficient (signals: {list of present signals})
+```
+
+**If thin or ungroomed:** Determine the appropriate groom tier based on dev size, then invoke grooming.
+
+| Dev size | Groom tier | What happens |
+|----------|-----------|--------------|
+| XS | Quick | Inline quick groom: confirm scope boundary + draft 1-3 acceptance criteria with the user. No skill invocation — just a focused exchange right here. |
+| S | Quick | Invoke `pm:groom` with `groom_tier: quick, dev_size: S` and the issue context. Returns after intake → scope → groom → link. |
+| M | Standard | Invoke `pm:groom` with `groom_tier: standard, dev_size: M` and the issue context. |
+| L, XL | Full | Invoke `pm:groom` with `groom_tier: full, dev_size: {size}` and the issue context. |
+
+**XS inline quick groom** (no skill invocation):
+
+For XS issues, grooming is a single focused exchange — not a separate skill invocation:
+
+1. State what you understand the fix/change to be (one sentence).
+2. Ask: "Scope and acceptance criteria — does this look right?"
+   - Scope: {in-scope item} / Out: {anything excluded}
+   - AC1: {testable condition}
+   - AC2: {testable condition if applicable}
+3. User confirms or adjusts. Log the result in the state file.
+4. Proceed to implementation.
+
+**For S/M/L/XL skill invocation:**
+
+1. Tell the user: "This issue hasn't been groomed. Running {tier} groom to fill in the gaps."
+2. Invoke `pm:groom` with the issue context (title, description, any existing AC or scope).
+3. After groom completes, read the groom session state to confirm `effective_verdict`.
+4. Resume dev flow from Stage 3 (M/L/XL) or implementation (S).
+
+**User can skip:** If the user says "skip grooming" or "I'll groom later," respect it. Log:
+```
+- Groom readiness: skipped-by-user (signals: {list of present signals})
+```
+Proceed with whatever context is available. Do not block.
+
+### Logging
 
 Log the decision in `.pm/dev-sessions/{slug}.md` under Decisions:
 ```
-- Groom detection: groomed (session: {slug}.md, verdict: {verdict}) | not-groomed (reason: {reason})
+- Groom readiness: groomed (session: {slug}.md, verdict: {verdict}) | sufficient (signals: ...) | groomed-inline (XS) | invoked-groom (tier: {tier}) | skipped-by-user
 - Skipped phases: design-exploration, spec-review | none
 - Research location: {path} | none
 ```

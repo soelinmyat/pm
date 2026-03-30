@@ -18,10 +18,11 @@ These are the skills you invoke directly. Most other capabilities are built into
 | Trigger | Skill | What it does |
 |---------|-------|--------------|
 | Any development work (feature, bug, refactor, epic, batch bugs) | `pm:dev` | Auto-detects scope: single issue lifecycle, epic orchestration, or batch bug triage |
-| Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. Use `pm:groom ideate` for idea generation |
+| Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick (scope + issues), standard (+ strategy + research), full (all phases). Auto-detected or say "quick/standard/full groom". Use `pm:groom ideate` for idea generation |
 | Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
 | Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
+| Self-heal a PR until merged | `/merge` | Fix CI, resolve review comments, handle conflicts, merge |
 
 ## Sub-Skills (called by orchestrators)
 
@@ -52,6 +53,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | Reference | What it covers |
 |-----------|---------------|
 | `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
+| `references/merge-loop.md` | Self-healing merge loop — shared by `/merge` command and ship skill |
 | `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
 | `references/visual.md` | Dashboard-first UI invocation standard |
 | `references/templates/` | Strategy deck and proposal HTML templates |
@@ -103,12 +105,11 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 | "What should we build?" / "create tickets" | `pm:groom ideate` |
 | "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
 | "Should we do X?" | `pm:research quick` |
-| "Build X" | `pm:dev` (triggers design exploration internally for M/L/XL) |
-| "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally) |
+| "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
+| "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
 | "Ship it" / "Push this" / "deploy" / "create PR" / "ready for review" | `pm:ship` |
-| "Merge this PR" / "land this" | `pm:ship` (invoke with `/merge` for manual merge without polling) |
-| "Fix the PR comments" / "Resolve CI" / "Get this PR merged" | `pm:ship` (detects existing PR, enters gate monitoring) |
-| "Handle PR #123" / "Fix review feedback on PR" | `pm:ship` (with PR number if provided) |
+| "Merge this PR" / "land this" / "get this merged" | `/merge` — self-healing merge loop |
+| "Fix the PR comments" / "Resolve CI" / "fix review feedback" | `/merge` — fixes, replies, resolves threads, merges |
 | "Show dashboard" / "open pm" / "view research" | `pm:view` |
 | "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
 | "What's outdated?" / "update research" / "stale data" | `pm:refresh` |

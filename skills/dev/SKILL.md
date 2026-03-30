@@ -67,6 +67,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 | Skill / Reference | Used in |
 |-------------------|---------|
+| `pm:groom` | Single: Groom readiness check (S/M/L/XL — auto-invoked when issue is ungroomed) |
 | `groom/phases/phase-3.5-design.md` (reference) | Single: Design Exploration (M/L/XL) |
 | `dev/references/writing-plans.md` (reference) | Single: Plan (M/L/XL) |
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |

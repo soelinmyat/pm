@@ -108,25 +108,14 @@ DESIGN_TOKENS = {
 
 ### 0b. Start servers
 
-1. Check if dev server is already running (probe expected port with `curl -sf`)
-2. If not running: detect framework and start in background
+Read the project's CLAUDE.md, README, or dev setup scripts for the specific commands. The skill defines the **sequence**, not the stack-specific commands.
 
-```bash
-# Common patterns — adapt to project
-pgrep -f 'rails.*server' > /dev/null || (cd apps/api && bin/rails s -p 3000 &)
-pgrep -f 'vite' > /dev/null || (cd apps/web-client && pnpm dev --port 5173 &)
-```
-
-3. Health check — wait up to 30s for server ready:
-
-```bash
-for i in $(seq 1 30); do
-  curl -sf http://localhost:3000/healthz > /dev/null 2>&1 && break
-  sleep 1
-done
-```
-
-4. Record PIDs for cleanup.
+1. **Check if already running** — probe expected ports before starting anything
+2. **Start what's needed:**
+   - Web: API server + dev server (detect from package.json, Gemfile, etc.)
+   - Mobile: API server + simulator (boot one if none running) + build/install app
+3. **Health check** — wait up to 30s for each server to respond
+4. **Record PIDs** for cleanup
 
 <HARD-RULE>
 If servers won't start after 2 attempts: verdict = Blocked. Report the specific error. Do not proceed.

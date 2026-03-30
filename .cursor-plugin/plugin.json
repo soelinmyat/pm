@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "author": { "name": "Soe Lin Myat" },
   "homepage": "https://github.com/soelinmyat/pm",
   "repository": "https://github.com/soelinmyat/pm",
@@ -12,6 +12,7 @@
     "development", "lifecycle", "tdd", "code-review", "orchestration", "workflow"
   ],
   "skills": "./skills/",
+  "commands": "./commands/",
   "agents": "./agents/",
   "hooks": "./hooks/hooks.json"
 }
