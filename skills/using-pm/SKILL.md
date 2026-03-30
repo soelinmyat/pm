@@ -9,7 +9,7 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 # Using Plugin Skills
 
-This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Always invoke the relevant skill via the `Skill` tool before acting** — even if you think you know what to do.
+This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Always invoke the relevant skill before acting** — even if you think you know what to do.
 
 ## Entry Points (start here)
 
@@ -22,7 +22,7 @@ These are the skills you invoke directly. Most other capabilities are built into
 | Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
 | Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| Self-heal a PR until merged | `/merge` | Fix CI, resolve review comments, handle conflicts, merge |
+| Self-heal a PR until merged | Merge workflow | Fix CI, resolve review comments, handle conflicts, merge. On platforms with command aliases, this is exposed as `/merge`. |
 
 ## Sub-Skills (called by orchestrators)
 
@@ -53,7 +53,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | Reference | What it covers |
 |-----------|---------------|
 | `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
-| `references/merge-loop.md` | Self-healing merge loop — shared by `/merge` command and ship skill |
+| `references/merge-loop.md` | Self-healing merge loop — shared by the merge compatibility alias and ship skill |
 | `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
 | `references/visual.md` | Dashboard-first UI invocation standard |
 | `references/templates/` | Strategy deck and proposal HTML templates |
@@ -108,8 +108,8 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 | "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
 | "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
 | "Ship it" / "Push this" / "deploy" / "create PR" / "ready for review" | `pm:ship` |
-| "Merge this PR" / "land this" / "get this merged" | `/merge` — self-healing merge loop |
-| "Fix the PR comments" / "Resolve CI" / "fix review feedback" | `/merge` — fixes, replies, resolves threads, merges |
+| "Merge this PR" / "land this" / "get this merged" | merge workflow — self-healing merge loop |
+| "Fix the PR comments" / "Resolve CI" / "fix review feedback" | merge workflow — fixes, replies, resolves threads, merges |
 | "Show dashboard" / "open pm" / "view research" | `pm:view` |
 | "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
 | "What's outdated?" / "update research" / "stale data" | `pm:refresh` |

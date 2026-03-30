@@ -60,7 +60,7 @@ Copy `.cursor-plugin/` into your project root.
 
 ### Codex
 
-See [`.codex/INSTALL.md`](.codex/INSTALL.md).
+PM now ships a native `.codex-plugin/plugin.json` manifest alongside the generated fallback skill install flow in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
 ### Gemini CLI
 

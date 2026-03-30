@@ -1,0 +1,45 @@
+{
+  "name": "pm",
+  "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
+  "version": "1.0.8",
+  "author": {
+    "name": "Soe Lin Myat"
+  },
+  "homepage": "https://github.com/soelinmyat/pm",
+  "repository": "https://github.com/soelinmyat/pm",
+  "license": "MIT",
+  "keywords": [
+    "product-management",
+    "competitive-intelligence",
+    "grooming",
+    "research",
+    "discovery",
+    "development",
+    "lifecycle",
+    "tdd",
+    "code-review",
+    "orchestration",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "PM",
+    "shortDescription": "Product research, grooming, implementation, and shipping workflows.",
+    "longDescription": "PM helps product engineers research markets, define strategy, groom ideas into sprint-ready work, and ship with TDD, review, QA, and merge loops.",
+    "developerName": "Soe Lin Myat",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/soelinmyat/pm",
+    "privacyPolicyURL": "https://github.com/soelinmyat/pm",
+    "termsOfServiceURL": "https://github.com/soelinmyat/pm",
+    "defaultPrompt": [
+      "Research our market and key competitors.",
+      "Turn this feature idea into sprint-ready issues.",
+      "Build the groomed issue end-to-end."
+    ],
+    "brandColor": "#1D4ED8"
+  }
+}

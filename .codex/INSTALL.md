@@ -1,5 +1,9 @@
 # PM Plugin: Codex Installation
 
+PM now ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
+
+Until your Codex install loads this repository as a plugin directly, the generated skill-symlink flow below remains the compatible fallback. It uses the same canonical plugin metadata and current skill inventory as the other platform manifests.
+
 PM integrates with Codex as a set of skills across two domains: product management (`pm-*`) and development (`dev-*`). Codex discovers user-installed skills from `~/.agents/skills` and project-local skills from `<project>/.agents/skills`.
 
 The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
@@ -20,7 +24,7 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### Product management skills (7)
+#### Product management skills (8)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/setup ~/.agents/skills/pm-setup
@@ -30,31 +34,22 @@ ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/view ~/.agents/skills/pm-view
+ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
 ```
 
-#### Development skills (11)
+#### Development skills (9)
 
 ```bash
-ln -sfn ~/.agents/vendor/pm/skills/bug-fix ~/.agents/skills/dev-bug-fix
 ln -sfn ~/.agents/vendor/pm/skills/debugging ~/.agents/skills/dev-debugging
 ln -sfn ~/.agents/vendor/pm/skills/design-critique ~/.agents/skills/dev-design-critique
 ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/dev-dev
-ln -sfn ~/.agents/vendor/pm/skills/dev-epic ~/.agents/skills/dev-dev-epic
-ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/dev-ship
-ln -sfn ~/.agents/vendor/pm/skills/receiving-review ~/.agents/skills/dev-receiving-review
+ln -sfn ~/.agents/vendor/pm/skills/qa ~/.agents/skills/dev-qa
 ln -sfn ~/.agents/vendor/pm/skills/review ~/.agents/skills/dev-review
+ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/dev-ship
 ln -sfn ~/.agents/vendor/pm/skills/subagent-dev ~/.agents/skills/dev-subagent-dev
 ln -sfn ~/.agents/vendor/pm/skills/tdd ~/.agents/skills/dev-tdd
 ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
 ```
-
-#### Shared (1)
-
-```bash
-ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
-```
-
-> **Note:** `dev-dev` and `dev-dev-epic` are correct — the `dev-` prefix plus the skill name `dev` / `dev-epic`.
 
 ### 3. Restart Codex
 
@@ -75,11 +70,11 @@ If Codex does not find a skill:
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all 19 skills
+### Quick check: all 17 skills
 
 ```bash
 ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 8 pm-* and 11 dev-* directories
+# Should list 8 pm-* and 9 dev-* directories
 ```
 
 ## Updating
