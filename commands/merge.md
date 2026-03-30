@@ -14,6 +14,8 @@ allowed-tools:
 
 # /merge
 
+Compatibility alias for the shared PM merge workflow. Keep behavior in the shared merge references and ship flow; this file exists only for platforms that still expose command aliases.
+
 Take the current PR from whatever state it's in to merged. Fix CI failures, resolve review comments (reply + resolve threads), handle merge conflicts, and keep iterating until it's done.
 
 ## How

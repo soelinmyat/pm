@@ -1,5 +1,6 @@
 ---
 title: "Built-in QA skill for PM plugin"
+outcome: "PM ships a built-in QA skill so the dev lifecycle no longer depends on an external QA plugin."
 status: done
 priority: high
 parent: null
