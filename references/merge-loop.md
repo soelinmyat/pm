@@ -229,7 +229,32 @@ If merge fails: report the error and STOP. Do NOT force through.
 
 ---
 
-## Step 5: Cleanup
+## Step 5: Close the Loop (issue tracker + backlog)
+
+<HARD-GATE>
+This step runs IMMEDIATELY after merge is confirmed — before cleanup, before the final report. If the session dies during cleanup, the tracker is already updated. Do NOT skip this step. Do NOT defer it to "later."
+</HARD-GATE>
+
+**5a. Issue tracker (Linear/Jira)**
+
+If an issue tracker is configured (Linear/Jira via MCP) and the PR title or branch name contains an issue identifier (e.g., `CLE-1380`, `PM-044`):
+
+1. Set the issue status to **Done**
+2. Add a comment with the merge SHA and PR link
+3. If the issue has sub-issues, mark those Done too
+
+**5b. Backlog file**
+
+If a backlog file exists in `pm/backlog/` matching the issue slug:
+- No action needed — backlog files are specs, not status trackers
+
+**5c. Dev session file**
+
+Delete or archive the `.pm/dev-sessions/{slug}.md` file. The session is complete.
+
+---
+
+## Step 6: Cleanup
 
 ```bash
 FEATURE_BRANCH=$(git branch --show-current)
@@ -260,12 +285,6 @@ fi
 git branch -D "$FEATURE_BRANCH" 2>/dev/null || true
 git fetch --prune
 ```
-
----
-
-## Step 6: Update issue tracker
-
-If an issue tracker is configured (Linear/Jira via MCP) and the PR title or branch name contains an issue identifier: mark the issue as Done.
 
 ---
 

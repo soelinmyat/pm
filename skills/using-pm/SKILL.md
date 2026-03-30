@@ -17,6 +17,7 @@ These are the skills you invoke directly. Most other capabilities are built into
 
 | Trigger | Skill | What it does |
 |---------|-------|--------------|
+| Thinking through an idea, brainstorming, exploring options | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. No ceremony. Promotes to groom when ready |
 | Any development work (feature, bug, refactor, epic, batch bugs) | `pm:dev` | Auto-detects scope: single issue lifecycle, epic orchestration, or batch bug triage |
 | Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick (scope + issues), standard (+ strategy + research), full (all phases). Auto-detected or say "quick/standard/full groom". Use `pm:groom ideate` for idea generation |
 | Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
@@ -101,6 +102,7 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 
 | User says | Invoke |
 |-----------|--------|
+| "Let's think about X" / "What if we" / "How should we" / "I'm wondering" / "Brainstorm" | `pm:think` — structured thinking, promotes to groom when ready |
 | "I have an idea" / "spec this" / "write a PRD" / "break this down" | `pm:groom` → then `pm:dev` for implementation |
 | "What should we build?" / "create tickets" | `pm:groom ideate` |
 | "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
@@ -120,6 +122,7 @@ These thoughts mean STOP — you're skipping discipline:
 
 | Thought | Reality |
 |---------|---------|
+| "I'll just answer their question directly" | If the user is thinking aloud, invoke pm:think — don't freeform |
 | "This is too simple for /dev" | XS tasks still get TDD + auto-merge gates |
 | "I'll just write the code first" | TDD means test first. Always. |
 | "I know the fix already" | Debugging skill exists to prevent wrong fixes |
@@ -128,93 +131,24 @@ These thoughts mean STOP — you're skipping discipline:
 
 ## Activity Analytics (opt-in)
 
-When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, log significant actions during skill flows.
+When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, skill invocations are logged automatically via a `PostToolUse` hook on the `Skill` tool.
 
-**Check at session start:**
-```bash
-# Read analytics flag — silent if file doesn't exist
-PM_ANALYTICS=$(sed -n 's/^analytics: *//p' .claude/pm.local.md 2>/dev/null | head -1)
-```
+**How it works:** The hook (`hooks/analytics-log.sh`) fires after every `Skill` tool call, checks the analytics flag, and logs `pm:` skill invocations to `.pm/analytics/activity.jsonl`. No manual logging required — skills don't need to call `pm-log.sh` themselves.
 
-If `PM_ANALYTICS` is `true`, log events at every significant step using:
+**For milestone events within a skill** (e.g., review passed, TDD completed, PR merged), skills can still log directly:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh <skill> <event> [detail]
 ```
 
-**When to log (all skills):**
+Only do this after checking the flag:
+```bash
+ANALYTICS=$(sed -n 's/^analytics: *//p' .claude/pm.local.md 2>/dev/null | head -1)
+[ "$ANALYTICS" = "true" ] && ${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh dev review_passed "score=B+"
+```
 
-| Event | When | Example |
-|-------|------|---------|
-| `started` | Skill invoked | `pm-log.sh dev started` |
-| `completed` | Skill finished | `pm-log.sh dev completed "duration=1200s"` |
-| `blocked` | Cannot proceed | `pm-log.sh dev blocked "no test framework"` |
+**Log output:** `.pm/analytics/activity.jsonl` in the project root. Add `.pm/analytics/` to `.gitignore`.
 
-**dev-specific events:**
-
-| Event | When | Detail |
-|-------|------|--------|
-| `size_classified` | After sizing | `size=M` |
-| `tdd_started` | TDD phase begins | `test_count=4` |
-| `tdd_completed` | Tests written + passing | |
-| `design_system_discovered` | Design tokens found | `tailwind=true,tokens=true` |
-| `existing_page_captured` | Screenshot taken | `page=/settings` |
-| `implementation_started` | Coding begins | |
-| `implementation_completed` | Code done | |
-| `review_dispatched` | Code review launched | `agents=3` |
-| `review_passed` | Review gate passed | `score=B+` |
-| `review_skipped` | Review not run | `reason=XS_size` |
-| `design_critique_dispatched` | Design critique launched | |
-| `design_critique_passed` | Design gate passed | `score=A` |
-| `design_critique_skipped` | No UI changes | `reason=no_ui` |
-| `qa_dispatched` | QA gate launched | |
-| `qa_passed` | QA gate passed | `health=92` |
-| `qa_skipped` | QA not run | `reason=no_ui` |
-| `debugging_started` | Root cause investigation | |
-| `debugging_completed` | Fix verified | `hypotheses=2` |
-
-**groom-specific events:**
-
-| Event | When | Detail |
-|-------|------|--------|
-| `phase_entered` | Each groom phase | `phase=3.5-design` |
-| `strategy_check_passed` | Strategy exists | |
-| `strategy_check_missing` | No strategy.md | |
-| `research_dispatched` | Research sub-agent | `mode=landscape` |
-| `visual_companion_started` | Browser mockups active | `port=52341` |
-| `visual_companion_declined` | User said no | |
-| `design_system_discovered` | Tokens extracted | `tailwind=true` |
-| `existing_page_captured` | Live screenshot taken | `page=/settings` |
-| `mockup_generated` | High-fidelity mockup | `file=layout-v2.html` |
-| `design_review_passed` | Mockup review done | |
-| `spec_written` | Design doc saved | `path=docs/specs/...` |
-| `spec_review_passed` | Spec reviewer approved | `iterations=2` |
-| `scope_completed` | Issues created | `issue_count=5` |
-
-**ship-specific events:**
-
-| Event | When | Detail |
-|-------|------|--------|
-| `review_dispatched` | Code review launched | `agents=3` |
-| `review_passed` | Review approved | |
-| `pr_created` | PR opened | `pr=#42` |
-| `ci_passed` | CI green | |
-| `ci_failed` | CI red | `failures=2` |
-| `ci_fixed` | Auto-fix applied | `attempt=1` |
-| `auto_merge_triggered` | Merge initiated | |
-| `merged` | PR merged | |
-
-**research/strategy events:**
-
-| Event | When | Detail |
-|-------|------|--------|
-| `mode_selected` | Research mode chosen | `mode=competitors` |
-| `competitors_profiled` | Profiling done | `count=5` |
-| `strategy_written` | Strategy doc saved | |
-| `deck_generated` | Presentation created | |
-
-**Log output goes to:** `.pm/analytics/activity.jsonl` in the project root. Add `.pm/analytics/` to `.gitignore`.
-
-**When analytics is off:** Skip all logging. No overhead, no side effects.
+**When analytics is off:** Hook exits immediately. No overhead, no side effects.
 
 ## Instruction Priority
 
