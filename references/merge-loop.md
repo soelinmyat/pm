@@ -24,7 +24,7 @@ Merge Status — PR #{N}: {title}
   CI:          {passing / failing / pending}
   Reviews:     {approved / changes_requested / pending}
   Conflicts:   {clean / conflicted}
-  Threads:     {N unresolved}
+  Threads:     {N unresolved} (blocks merge if repo requires conversation resolution)
 ```
 
 ---
@@ -131,7 +131,29 @@ mutation {
 
 **IMPORTANT:** Use the `/replies` sub-endpoint on the comment ID. Do NOT use `-F in_reply_to_id=` on the top-level comments endpoint — it returns 422.
 
-**4. Review approval**
+**4. Unresolved conversations (branch protection blocker)**
+
+Many repos require all PR conversations to be resolved before merging. Unresolved threads block merge even when CI passes and reviews are approved.
+
+After resolving threads in Gate 3, verify the count:
+
+```bash
+# Count remaining unresolved threads
+gh api graphql -f query='
+query {
+  repository(owner: "{owner}", name: "{repo}") {
+    pullRequest(number: PR_NUMBER) {
+      reviewThreads(first: 100) {
+        nodes { isResolved }
+      }
+    }
+  }
+}' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
+```
+
+If count > 0: these are blocking merge. Loop back to Gate 3 to address remaining threads. Do NOT report "needs approval" when the actual blocker is unresolved conversations.
+
+**5. Review approval**
 
 ```bash
 gh pr view --json reviewDecision --jq .reviewDecision
@@ -150,6 +172,7 @@ Gate Check #{N}
   Conflicts:   ✓ clean
   CI:          ✗ failing (attempt 2 — fixing lint error)
   Threads:     ✓ 0 unresolved (3 resolved this cycle)
+  Conversations: ✓ all resolved
   Review:      ✓ approved
   Auto-merge:  armed (will merge when CI passes)
 ```
@@ -177,7 +200,10 @@ gh pr view --json state --jq .state
 # Must return "MERGED"
 ```
 
-If state is still `"OPEN"`: auto-merge is armed but blocked. New review comments, pending approvals, or failing checks arrived after Step 3 fixed the earlier ones. **Loop back to Step 3** — do not report success, do not proceed to cleanup. The most common cause is review comments arriving after the fix loop completed (e.g., from Codex review that was still in progress).
+If state is still `"OPEN"`: auto-merge is armed but blocked. **Loop back to Step 3** — do not report success, do not proceed to cleanup. Diagnose the blocker:
+1. **Unresolved conversations** — most common. Check thread count first.
+2. **New review comments** arrived after the fix loop completed (e.g., from Codex review that was still in progress).
+3. **Pending approvals** or **failing checks**.
 
 **If manual merge path:**
 
@@ -186,8 +212,12 @@ If state is still `"OPEN"`: auto-merge is armed but blocked. New review comments
 gh pr view --json mergeStateStatus --jq .mergeStateStatus
 # Must be CLEAN or UNSTABLE (not DIRTY or BLOCKED)
 
-# If BLOCKED: loop back to Step 3 — do NOT attempt merge
-# Common cause: new unresolved comments arrived since last gate check
+# If BLOCKED: diagnose WHY before looping back to Step 3
+# Common causes (check in order):
+#   1. Unresolved conversations — most frequent, check thread count first
+#   2. New review comments arrived since last gate check
+#   3. Missing review approval
+#   4. Failed/pending CI checks
 
 # Merge
 gh pr merge --squash --delete-branch
