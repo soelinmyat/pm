@@ -1340,17 +1340,16 @@ ${sidebarSlot || ''}
   }
 
   function dismissToast(entry) {
-    if (!entry || !entry.el || !entry.el.parentNode) {
-      activeToasts = activeToasts.filter(function(t) { return t !== entry; });
-      return;
-    }
+    if (!entry || !entry.el) return;
+    // Remove from active list immediately to prevent re-dismissal from queue loop
+    activeToasts = activeToasts.filter(function(t) { return t !== entry; });
     clearTimeout(entry.timer);
+    if (!entry.el.parentNode) return;
     entry.el.classList.add('toast-out');
     var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var removalDelay = reducedMotion ? 0 : 200;
     setTimeout(function() {
       if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
-      activeToasts = activeToasts.filter(function(t) { return t !== entry; });
     }, removalDelay);
   }
 
