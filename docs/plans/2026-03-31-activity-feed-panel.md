@@ -463,9 +463,10 @@ Insert before `</body>` (before line 1149), after the closing `</script>` of the
 
   function dotClass(type) {
     if (!type) return '';
+    // Check fail/error BEFORE test/pass — tests_failed contains 'test' but should be warning
+    if (type.indexOf('fail') !== -1 || type.indexOf('error') !== -1 || type.indexOf('warn') !== -1) return 'warning';
     if (type.indexOf('test') !== -1 || type.indexOf('pass') !== -1 || type.indexOf('merge') !== -1) return 'success';
     if (type.indexOf('pr_') !== -1 || type.indexOf('push') !== -1 || type.indexOf('commit') !== -1) return 'info';
-    if (type.indexOf('fail') !== -1 || type.indexOf('error') !== -1 || type.indexOf('warn') !== -1) return 'warning';
     return 'accent';
   }
 
@@ -559,6 +560,8 @@ Insert before `</body>` (before line 1149), after the closing `</script>` of the
 
   function connect() {
     es = new EventSource('/events');
+    // Expose shared EventSource for other consumers (e.g., toast notifications PM-092)
+    window.__pmEventSource = es;
 
     es.onopen = function() {
       setConnected(true);

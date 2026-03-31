@@ -179,13 +179,19 @@ Insert the following code after the theme toggle event listener (line 1146: `btn
     tests_passed: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
     pr_created: '<svg viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v8m0 0a2 2 0 104 0M12 14V6m0 0a2 2 0 10-4 0"/></svg>',
     review_done: '<svg viewBox="0 0 16 16" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8.5l2 2 3.5-4"/></svg>',
-    merged: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v4a4 4 0 004 4h4M8 10l4-4M8 10l4 4"/></svg>'
+    merged: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v4a4 4 0 004 4h4M8 10l4-4M8 10l4 4"/></svg>',
+    dev_started: '<svg viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>',
+    groom_started: '<svg viewBox="0 0 16 16" fill="none" stroke="#5e6ad2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h12M2 12h8"/></svg>',
+    groom_complete: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h12M2 12h8"/><path d="M11 11l2 2 3-3.5"/></svg>'
   };
   var TOAST_LABELS = {
     tests_passed: 'Tests passed',
     pr_created: 'PR created',
     review_done: 'Review done',
-    merged: 'Merged'
+    merged: 'Merged',
+    dev_started: 'Dev started',
+    groom_started: 'Groom started',
+    groom_complete: 'Groom complete'
   };
 
   var toastContainer = document.getElementById('toast-container');
@@ -248,20 +254,35 @@ Insert the following code after the theme toggle event listener (line 1146: `btn
     }, removalDelay);
   }
 
-  // Connect to SSE — independent EventSource, filters for milestone types
-  if (typeof EventSource !== 'undefined') {
-    var evtSource = new EventSource('/events');
-    evtSource.onmessage = function(e) {
-      try {
-        var data = JSON.parse(e.data);
-        if (TOAST_ICONS[data.type]) {
-          showToast(data);
+  // Connect to SSE — reuse PM-091's shared EventSource if available, else create own
+  // Only run toasts on pages that have the feed panel (Home page)
+  if (typeof EventSource !== 'undefined' && document.getElementById('feed-panel')) {
+    function attachToastListener(es) {
+      es.addEventListener('message', function(e) {
+        try {
+          var data = JSON.parse(e.data);
+          if (TOAST_ICONS[data.type]) {
+            showToast(data);
+          }
+        } catch(err) {}
+      });
+    }
+
+    // Wait briefly for PM-091's shared EventSource, fall back to own
+    if (window.__pmEventSource) {
+      attachToastListener(window.__pmEventSource);
+    } else {
+      // PM-091 not loaded yet or not present — check again after short delay
+      setTimeout(function() {
+        if (window.__pmEventSource) {
+          attachToastListener(window.__pmEventSource);
+        } else {
+          var es = new EventSource('/events');
+          window.__pmEventSource = es;
+          attachToastListener(es);
         }
-      } catch(err) {}
-    };
-    evtSource.onerror = function() {
-      // SSE auto-reconnects; no action needed
-    };
+      }, 100);
+    }
   }
 ```
 
