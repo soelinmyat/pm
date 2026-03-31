@@ -1326,7 +1326,7 @@ ${sidebarSlot || ''}
     var iconSpan = document.createElement('span');
     iconSpan.className = 'toast-icon';
     // Safe: TOAST_ICONS values are static trusted SVG strings, keyed by validated type
-    iconSpan.innerHTML = TOAST_ICONS[eventData.type]; // eslint-disable-line no-unsanitized/property
+    iconSpan.innerHTML = TOAST_ICONS[eventData.type];
     var textSpan = document.createElement('span');
     textSpan.textContent = msg;
     el.appendChild(iconSpan);
