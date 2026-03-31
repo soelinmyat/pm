@@ -2173,28 +2173,6 @@ test('POST /events returns 400 on invalid JSON', async () => {
   }
 });
 
-test('POST /events defaults source_type to terminal', async () => {
-  const { pmDir, cleanup } = withPmDir({
-    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { statusCode, body } = await httpPost(port, '/events', {
-        type: 'test.event',
-        source: 'terminal-1',
-        timestamp: Date.now(),
-      });
-      assert.equal(statusCode, 201);
-      // source_type defaults are verified via SSE stream in later tests
-    } finally {
-      await close();
-    }
-  } finally {
-    cleanup();
-  }
-});
-
 // ---------------------------------------------------------------------------
 // GET /events — SSE stream (PM-090 AC4-8)
 // ---------------------------------------------------------------------------

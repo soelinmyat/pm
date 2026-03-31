@@ -3773,8 +3773,12 @@ function createDashboardServer(pmDir) {
     return stored;
   }
 
+  function formatSSE(event) {
+    return `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
+  }
+
   function broadcastSSE(event) {
-    const data = `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
+    const data = formatSSE(event);
     for (const client of sseClients) {
       try { client.write(data); } catch { sseClients.delete(client); }
     }
@@ -3831,7 +3835,7 @@ function createDashboardServer(pmDir) {
       if (!isNaN(lastIdNum)) {
         for (const event of eventBuffer) {
           if (event.id > lastIdNum) {
-            res.write(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+            res.write(formatSSE(event));
           }
         }
       }
@@ -3846,11 +3850,6 @@ function createDashboardServer(pmDir) {
     }, 15000);
 
     req.on('close', () => {
-      clearInterval(heartbeat);
-      sseClients.delete(res);
-    });
-
-    res.socket.on('close', () => {
       clearInterval(heartbeat);
       sseClients.delete(res);
     });
