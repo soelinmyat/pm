@@ -1,7 +1,7 @@
 ---
 type: research-index
 created: 2026-03-13
-updated: 2026-03-30
+updated: 2026-03-31
 ---
 
 # Research Index
@@ -17,3 +17,4 @@ updated: 2026-03-30
 | [Shared Context — Team Knowledge Hub](shared-context/findings.md) | external | 26 sources | No AI tool shares product knowledge (only coding context); git + event sourcing beats CRDTs for async agent collaboration; per-seat $10-15/mo team tier; GitHub OAuth device flow for CLI auth; zero-config team detection from git remote is greenfield opportunity |
 | [Landing Page for productmemory.com](landing-page/findings.md) | external | 12 sources | Dev tool pages follow a narrow formula: centered hero, product screenshot, two CTAs, then social proof and features; dogfooding is a strong differentiator when shown concretely with real artifacts; low-KD SEO opportunity in "ai product discovery" via content hub structure |
 | [Automated Video Demo Recording](video-demo-recording/findings.md) | external | 30 sources | No tool orchestrates AC-to-video-demo end-to-end; Playwright recordVideo + playwright-record-mcp handles web recording; VHS tape files handle CLI demos; Playwright Agents (v1.56) generate tests from natural language; GitHub supports MP4 in PR comments (10 MB free / 100 MB paid); the orchestration gap (AC to script to recording to PR) is exactly what PM's ship workflow can fill |
+| [SSE Event Bus + Activity Feed Patterns](sse-event-bus/findings.md) | external | 11 sources | OpenCode validates SSE event bus pattern at production scale; activity feeds converge on actor-verb-object structure with event grouping; toast notifications for low-priority confirmations only (3-5s auto-dismiss); zero SEO demand (infrastructure feature) |

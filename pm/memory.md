@@ -1,7 +1,7 @@
 ---
 type: project-memory
 created: 2026-03-20
-updated: 2026-03-22
+updated: 2026-03-31
 entries:
   - date: 2026-03-20
     source: manual
@@ -64,6 +64,10 @@ entries:
     source: strategy-slide-deck
     category: review
     learning: "Team review required: on-demand /pm:strategy deck should handle missing strategy.md gracefully"
+  - date: 2026-03-31
+    source: sse-event-bus
+    category: review
+    learning: "Team review required: temporal fade magic number, phantom event type, success measurement gap, competitive messaging, issue lifecycle visualization, POST body size limit, EventSource client extraction"
 ---
 
 # Project Memory

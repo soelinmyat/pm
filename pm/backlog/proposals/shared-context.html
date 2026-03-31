@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: Shared Context — Remote Knowledge Base</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
+
+  .hero { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+  .hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
+  .hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
+  .hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
+  .hero h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  .hero .subtitle { font-size: 1.1rem; color: rgba(255,255,255,0.85); max-width: 640px; margin-bottom: 1.5rem; }
+  .metrics-strip { display: flex; gap: 0; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); }
+  .metric { flex: 1; padding: 0.75rem 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+  .metric:last-child { border-right: none; }
+  .metric-value { font-size: 1.5rem; font-weight: 800; display: block; line-height: 1.2; }
+  .metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
+
+  .toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; }
+  .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
+  .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .toc a:hover, .toc a.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+  .proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  .section { margin-bottom: 3rem; opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+  .section:nth-child(1) { animation-delay: 0.05s; } .section:nth-child(2) { animation-delay: 0.1s; } .section:nth-child(3) { animation-delay: 0.15s; } .section:nth-child(4) { animation-delay: 0.2s; } .section:nth-child(5) { animation-delay: 0.25s; } .section:nth-child(6) { animation-delay: 0.3s; } .section:nth-child(7) { animation-delay: 0.35s; } .section:nth-child(8) { animation-delay: 0.4s; } .section:nth-child(9) { animation-delay: 0.45s; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+  .section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 0.5rem; }
+  .section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+  .section p, .section li { font-size: 0.95rem; color: #444; max-width: 65ch; }
+  .section-lead { font-weight: 600; color: #111; font-size: 1rem; margin-bottom: 0.75rem; }
+  .section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .section li { margin-bottom: 0.35rem; }
+
+  .callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
+  .callout strong { color: #1e3a8a; }
+  .callout.amber { background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%); border-left-color: #f59e0b; color: #92400e; }
+  .callout.amber strong { color: #78350f; }
+
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+  .scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+  .scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; } .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; } .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; } .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+
+  .feasibility-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .feas-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; border-top: 3px solid #e5e7eb; }
+  .feas-card.green { border-top-color: #16a34a; } .feas-card.blue { border-top-color: #2563eb; } .feas-card.amber { border-top-color: #f59e0b; } .feas-card.purple { border-top-color: #7c3aed; }
+  .feas-card h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+  .feas-card.green h4 { color: #16a34a; } .feas-card.blue h4 { color: #2563eb; } .feas-card.amber h4 { color: #f59e0b; } .feas-card.purple h4 { color: #7c3aed; }
+  .feas-card li { font-size: 0.88rem; margin-bottom: 0.25rem; }
+
+  .issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+  .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
+  .issue-labels { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .label { font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 999px; }
+  .label.infra { background: #fef3c7; color: #92400e; } .label.feature { background: #dbeafe; color: #1e40af; } .label.high { background: #fee2e2; color: #991b1b; } .label.medium { background: #fef9c3; color: #854d0e; } .label.v0 { background: #d1fae5; color: #065f46; } .label.v1 { background: #e0e7ff; color: #3730a3; }
+  details { margin-top: 0.5rem; } summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; } details ol { padding-left: 1.25rem; margin-top: 0.5rem; } details li { font-size: 0.88rem; color: #444; margin-bottom: 0.25rem; }
+
+  .comp-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 1rem 0; }
+  .comp-table th { text-align: left; padding: 0.5rem 0.75rem; background: #f1f5f9; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+  .comp-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #f1f5f9; }
+  .comp-table tr.ours { background: #eff6ff; font-weight: 600; }
+  .comp-table .yes { color: #16a34a; } .comp-table .no { color: #dc2626; } .comp-table .partial { color: #f59e0b; }
+
+  .review-pipeline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .pipe-step { padding: 0.4rem 0.8rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+  .pipe-step.passed { background: #d1fae5; color: #065f46; } .pipe-step.warning { background: #fef3c7; color: #92400e; } .pipe-step.paused { background: #fee2e2; color: #991b1b; }
+  .pipe-arrow { color: #ccc; font-size: 0.9rem; }
+  .verdict-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem; }
+  .verdict-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; text-align: center; }
+  .verdict-card .role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #777; margin-bottom: 0.25rem; }
+  .verdict-card .verdict { font-size: 1rem; font-weight: 700; }
+  .verdict-card .verdict.ready { color: #16a34a; } .verdict-card .verdict.caution { color: #f59e0b; } .verdict-card .verdict.paused { color: #dc2626; }
+  .verdict-card .note { font-size: 0.8rem; color: #666; margin-top: 0.25rem; }
+
+  .pricing-table { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+  .price-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; text-align: center; }
+  .price-card.featured { border: 2px solid #2563eb; }
+  .price-card .tier { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #777; }
+  .price-card .price { font-size: 2rem; font-weight: 800; color: #111; margin: 0.5rem 0; }
+  .price-card .price span { font-size: 0.9rem; font-weight: 400; color: #777; }
+  .price-card .desc { font-size: 0.85rem; color: #666; }
+
+  @media (max-width: 640px) { .scope-grid, .feasibility-grid, .verdict-grid, .pricing-table { grid-template-columns: 1fr; } .issue-card.child { margin-left: 1rem; } .metrics-strip { flex-wrap: wrap; } .metric { min-width: 33%; } }
+  @media print { .toc { display: none; } .section { opacity: 1; transform: none; animation: none; } }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">PM-068 &middot; Feature Proposal</div>
+    <h1>Shared Context: Remote Knowledge Base</h1>
+    <p class="subtitle">Users can access their PM knowledge base from any machine, and share it with teammates &mdash; making every agent session smarter from day one.</p>
+    <div class="metrics-strip">
+      <div class="metric"><span class="metric-value">12</span><span class="metric-label">Issues</span></div>
+      <div class="metric"><span class="metric-value">10x</span><span class="metric-label">Differentiator</span></div>
+      <div class="metric"><span class="metric-value">Paused</span><span class="metric-label">Bar Raiser</span></div>
+      <div class="metric"><span class="metric-value">GTM &sect;5</span><span class="metric-label">Priority</span></div>
+      <div class="metric"><span class="metric-value">Squads</span><span class="metric-label">ICP Segment</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOC -->
+<nav class="toc"><div class="toc-inner">
+  <a href="#problem">Problem</a>
+  <a href="#scope">Scope</a>
+  <a href="#pricing">Pricing</a>
+  <a href="#competitive">Competitive</a>
+  <a href="#feasibility">Feasibility</a>
+  <a href="#issues">Issues</a>
+  <a href="#reviews">Reviews</a>
+  <a href="#questions">Open Questions</a>
+</div></nav>
+
+<div class="proposal">
+
+<!-- PROBLEM -->
+<div class="section" id="problem">
+  <h2 class="section-title"><span class="icon">1</span> Problem &amp; Context</h2>
+  <p class="section-lead">PM's knowledge base is local-only, limiting it to a solo tool and blocking monetization.</p>
+  <p>Research, strategy, competitive intel, and groomed issues live in each user's local <code>pm/</code> folder. Teammates can't benefit from each other's work. This blocks async product collaboration and limits PM's addressable market to individual product engineers.</p>
+  <div class="callout">
+    <strong>Research signal:</strong> No AI coding tool shares product knowledge today. Cursor, Windsurf, Copilot, and Claude Code all share coding context (rules files in git). None shares research, strategy, or groomed issues across a team. 26 sources across 5 research areas confirm the gap.
+  </div>
+  <p>The strategy (Section 5) explicitly positions this as the expansion path: "Free plugin is the acquisition engine; the cloud product is the monetization layer."</p>
+</div>
+
+<!-- SCOPE -->
+<div class="section" id="scope">
+  <h2 class="section-title"><span class="icon">2</span> Scope</h2>
+  <p class="section-lead">Phased v0 (single user remote) + v1 (team sharing), addressing scope review feedback that the original scope was too large.</p>
+  <div class="scope-grid">
+    <div class="scope-column in-scope">
+      <h4>In Scope</h4>
+      <ul>
+        <li><strong>v0:</strong> Storage abstraction for server.js</li>
+        <li><strong>v0:</strong> API server + GitHub OAuth device flow</li>
+        <li><strong>v0:</strong> S3 storage (versioned bucket)</li>
+        <li><strong>v0:</strong> Postgres metadata (3 tables)</li>
+        <li><strong>v0:</strong> CLI: pm login, pm push, pm pull, pm status</li>
+        <li><strong>v0:</strong> Project auto-detection from git remote</li>
+        <li><strong>v0:</strong> Project bootstrap + deployment</li>
+        <li><strong>v1:</strong> Team sharing + invite flow</li>
+        <li><strong>v1:</strong> Hosted dashboard (read-only)</li>
+        <li><strong>v1:</strong> Billing (Stripe)</li>
+        <li><strong>v1:</strong> Changelog + pm restore</li>
+      </ul>
+      <div class="filter-badge">10x &mdash; No competitor has this</div>
+    </div>
+    <div class="scope-column out-of-scope">
+      <h4>Out of Scope</h4>
+      <ul>
+        <li>Auto-sync (start with explicit push/pull)</li>
+        <li>Access controls (all-or-nothing for v1)</li>
+        <li>E2E encryption</li>
+        <li>Self-hosted option</li>
+        <li>Real-time collaboration (CRDTs)</li>
+        <li>Enterprise tier (SSO/SAML)</li>
+        <li>Dashboard writes (read-only only)</li>
+        <li>Cross-project shared strategy</li>
+        <li>Email/Gmail auth (GitHub only)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- PRICING -->
+<div class="section" id="pricing">
+  <h2 class="section-title"><span class="icon">3</span> Pricing</h2>
+  <p class="section-lead">Deliberately low for small teams. Flat rate per tier, not per-seat.</p>
+  <div class="pricing-table">
+    <div class="price-card">
+      <div class="tier">Solo</div>
+      <div class="price">Free</div>
+      <div class="desc">1 user, unlimited projects, all features, local only</div>
+    </div>
+    <div class="price-card featured">
+      <div class="tier">Team</div>
+      <div class="price">$10<span>/mo</span></div>
+      <div class="desc">Up to 5 members, unlimited projects, shared knowledge base</div>
+    </div>
+    <div class="price-card">
+      <div class="tier">Scale</div>
+      <div class="price">$100<span>/mo</span></div>
+      <div class="desc">Up to 20 members, unlimited projects, shared knowledge base</div>
+    </div>
+  </div>
+  <p style="font-size: 0.88rem; color: #666;">The entire team's shared product brain costs less than one Cursor seat ($20/mo). Infra cost per team: ~$2-5/mo (S3 + Neon free tiers). Healthy margin at every tier.</p>
+</div>
+
+<!-- COMPETITIVE -->
+<div class="section" id="competitive">
+  <h2 class="section-title"><span class="icon">4</span> Competitive Context</h2>
+  <p class="section-lead">Every AI tool shares coding context. None shares product knowledge.</p>
+  <table class="comp-table">
+    <thead><tr><th>Tool</th><th>Team $</th><th>Shares</th><th>Product KB</th></tr></thead>
+    <tbody>
+      <tr><td>Cursor</td><td>$40/user</td><td>Rules (git)</td><td class="no">No</td></tr>
+      <tr><td>GitHub Copilot</td><td>$19-39/user</td><td>Spaces + org rules</td><td class="partial">Partial</td></tr>
+      <tr><td>Claude Code</td><td>$150/user</td><td>CLAUDE.md (git)</td><td class="no">No</td></tr>
+      <tr><td>Windsurf</td><td>$40/user</td><td>Rules + 50 GDocs</td><td class="no">No</td></tr>
+      <tr><td>Tabnine</td><td>$39-59/user</td><td>Context Engine</td><td class="no">No</td></tr>
+      <tr class="ours"><td>PM (proposed)</td><td>$10 flat/5</td><td>Full pm/ KB</td><td class="yes">Yes</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <strong>Key differentiators:</strong> (1) Agent-as-merge-layer for conflict resolution &mdash; AI re-derives output against updated state, a capability no competitor has. (2) Zero-config team detection from git remote &mdash; no mainstream tool does this. (3) Dashboard is read-only, preserving editor-native positioning.
+  </div>
+</div>
+
+<!-- FEASIBILITY -->
+<div class="section" id="feasibility">
+  <h2 class="section-title"><span class="icon">5</span> Technical Feasibility</h2>
+  <p class="section-lead">Feasible with caveats. The storage abstraction is the critical path.</p>
+  <div class="feasibility-grid">
+    <div class="feas-card green">
+      <h4>Build-on</h4>
+      <ul>
+        <li>server.js dashboard (4,134 lines, full rendering pipeline)</li>
+        <li>createDashboardServer(pmDir) factory pattern</li>
+        <li>parseFrontmatter() YAML parser</li>
+        <li>pm/ file structure (each concern in own file)</li>
+        <li>analytics-log.sh append-only JSONL pattern</li>
+        <li>node:test infrastructure</li>
+      </ul>
+    </div>
+    <div class="feas-card blue">
+      <h4>Build-new</h4>
+      <ul>
+        <li>StorageProvider interface + S3 implementation</li>
+        <li>API server with auth middleware</li>
+        <li>GitHub OAuth (device flow + web flow)</li>
+        <li>Postgres schema + migrations</li>
+        <li>CLI commands (login, push, pull, status)</li>
+        <li>Stripe billing integration</li>
+        <li>Deployment infra (Dockerfile, CI/CD)</li>
+      </ul>
+    </div>
+    <div class="feas-card amber">
+      <h4>Risks</h4>
+      <ul>
+        <li>147 sync fs calls to convert to async (not 80+)</li>
+        <li>Zero-dependency posture breaks (S3 SDK, pg, jose)</li>
+        <li>server.js monolith (4,134 lines) needs splitting</li>
+        <li>Agent-merge logic is novel &mdash; no precedent</li>
+        <li>Two OAuth flows needed (device + web)</li>
+      </ul>
+    </div>
+    <div class="feas-card purple">
+      <h4>Sequencing</h4>
+      <ol>
+        <li>Project bootstrap (package.json, docker-compose)</li>
+        <li>Storage abstraction (foundational)</li>
+        <li>API server + auth</li>
+        <li>S3 backend + Postgres metadata (parallel)</li>
+        <li>CLI commands</li>
+        <li>Project auto-detection</li>
+        <li>Deployment</li>
+        <li>v1: Team, dashboard, billing, changelog</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ISSUES -->
+<div class="section" id="issues">
+  <h2 class="section-title"><span class="icon">6</span> Issue Breakdown</h2>
+  <p class="section-lead">1 epic + 12 children. v0 (7 issues) validates single-user demand. v1 (5 issues) adds team features.</p>
+
+  <div class="issue-card parent">
+    <div class="issue-header"><span class="issue-id">PM-068</span><span class="issue-title">Shared Context: Remote Knowledge Base</span></div>
+    <div class="issue-outcome">Users can access their PM knowledge base from any machine, and later share it with teammates</div>
+    <div class="issue-labels"><span class="label infra">epic</span><span class="label infra">infrastructure</span><span class="label feature">monetization</span></div>
+  </div>
+
+  <h3 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #16a34a; margin: 1.5rem 0 0.75rem 2rem;">v0: Single User Remote</h3>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-079</span><span class="issue-title">Project bootstrap: package.json, deps, local dev</span></div>
+    <div class="issue-outcome">Engineers can run the hub API, Postgres, and S3 locally and start building</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">infrastructure</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (8)</summary><ol>
+      <li>package.json initialized (CommonJS)</li>
+      <li>Core deps: jose, pg, @aws-sdk/client-s3, stripe</li>
+      <li>docker-compose.yml: local Postgres + MinIO</li>
+      <li>npm run dev starts API connected to local infra</li>
+      <li>npm test runs all tests</li>
+      <li>.env.example with all required vars</li>
+      <li>MinIO bucket auto-created with versioning on compose up</li>
+      <li>Postgres migrations run on startup</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-069</span><span class="issue-title">Storage abstraction layer for server.js</span></div>
+    <div class="issue-outcome">Dashboard works identically against local files or the cloud hub</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">refactor</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (7)</summary><ol>
+      <li>StorageProvider interface with typed listDir (dirent + mtime), stat, mkdirp</li>
+      <li>LocalStorageProvider wraps fs/promises</li>
+      <li>All dashboard handlers use provider</li>
+      <li>Zero sync fs in handler paths (startup/companion excluded)</li>
+      <li>createDashboardServer accepts storageProvider param</li>
+      <li>Existing tests pass with local provider</li>
+      <li>Mock provider contract test</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-070</span><span class="issue-title">API server + GitHub OAuth</span></div>
+    <div class="issue-outcome">Plugin can authenticate and make API calls to the hub</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">auth</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (13)</summary><ol>
+      <li>Node.js HTTP service with JSON endpoints</li>
+      <li>Device flow: POST /auth/device</li>
+      <li>Token exchange: POST /auth/token</li>
+      <li>JWT with user_id, github_id, username, exp</li>
+      <li>Auth middleware on /files/* (401 on invalid)</li>
+      <li>GET /files/{path}</li>
+      <li>PUT /files/{path}</li>
+      <li>LIST /files/?prefix=</li>
+      <li>DELETE /files/{path}</li>
+      <li>PM_TOKEN env var override</li>
+      <li>Token storage: PM_TOKEN > keychain > ~/.pm/credentials</li>
+      <li>HTTPS + CORS in production</li>
+      <li>Web flow for dashboard: GET /auth/login + /auth/callback</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-071</span><span class="issue-title">S3 storage backend (versioned)</span></div>
+    <div class="issue-outcome">Knowledge base files stored in S3 with rollback</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">storage</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (9)</summary><ol>
+      <li>S3StorageProvider implements full interface</li>
+      <li>Single bucket with versioning</li>
+      <li>users/{id}/projects/{id}/pm/{path} keys</li>
+      <li>Previous versions retained</li>
+      <li>listVersions(path) method</li>
+      <li>readVersion(path, versionId) method</li>
+      <li>90-day lifecycle policy</li>
+      <li>S3 + R2 compatible</li>
+      <li>Integration tests against real/localstack bucket</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-072</span><span class="issue-title">Postgres metadata</span></div>
+    <div class="issue-outcome">Hub tracks which users own which projects</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">database</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (7)</summary><ol>
+      <li>3 tables: users, projects, user_projects</li>
+      <li>GET /projects returns user's projects</li>
+      <li>POST /projects creates project</li>
+      <li>User upsert on first login</li>
+      <li>SQL migration files (no ORM)</li>
+      <li>Connection pooling for serverless</li>
+      <li>Parameterized queries (no SQL injection)</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-073</span><span class="issue-title">CLI: pm login, pm push, pm pull, pm status</span></div>
+    <div class="issue-outcome">Users sync their knowledge base to/from the hub</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label feature">cli</span><span class="label high">high</span></div>
+    <details><summary>Acceptance criteria (8)</summary><ol>
+      <li>pm login: device flow, stores JWT in keychain</li>
+      <li>pm push: uploads changed/new, deletes removed</li>
+      <li>pm pull: overwrites local with remote (v0, no merge)</li>
+      <li>pm status: shows sync state</li>
+      <li>Auto-detection from PM-074 or .pm/config.json</li>
+      <li>Graceful no-auth error</li>
+      <li>Graceful offline error</li>
+      <li>Implemented as skills or shell scripts</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-074</span><span class="issue-title">Project auto-detection from git remote</span></div>
+    <div class="issue-outcome">Plugin knows which project to sync with, no manual config</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label feature">dx</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (7)</summary><ol>
+      <li>Parse git remote get-url origin for org/repo</li>
+      <li>Handle HTTPS + SSH formats</li>
+      <li>Lookup project by slug in Postgres</li>
+      <li>Auto-create project if not found</li>
+      <li>Cache in .pm/config.json</li>
+      <li>Fallback for non-git repos</li>
+      <li>Handle GitLab/Bitbucket URLs</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-080</span><span class="issue-title">Hub deployment: Dockerfile, CI/CD, DNS</span></div>
+    <div class="issue-outcome">Hub API running in production at api.productmemory.io</div>
+    <div class="issue-labels"><span class="label v0">v0</span><span class="label infra">deployment</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (8)</summary><ol>
+      <li>Dockerfile builds hub server</li>
+      <li>Auto-deploy on push to main</li>
+      <li>Env vars configured (S3, Postgres, GitHub, JWT, Stripe)</li>
+      <li>DNS: api.productmemory.io</li>
+      <li>HTTPS via platform TLS</li>
+      <li>GET /health returns 200</li>
+      <li>Structured JSON logs</li>
+      <li>Tests gate deployment</li>
+    </ol></details>
+  </div>
+
+  <h3 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #3730a3; margin: 1.5rem 0 0.75rem 2rem;">v1: Team</h3>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-075</span><span class="issue-title">Team sharing + invite flow</span></div>
+    <div class="issue-outcome">Second user joins a project and accesses shared knowledge</div>
+    <div class="issue-labels"><span class="label v1">v1</span><span class="label feature">team</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (8)</summary><ol>
+      <li>pm invite generates one-time link</li>
+      <li>pm join {code} adds member</li>
+      <li>All members can push/pull</li>
+      <li>pm members lists members</li>
+      <li>Owner can remove members</li>
+      <li>No permission granularity</li>
+      <li>Agent-merge on pull with 6 testable behaviors</li>
+      <li>Auto-detect team from git remote + GitHub org</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-076</span><span class="issue-title">Hosted dashboard (read-only)</span></div>
+    <div class="issue-outcome">Team views shared knowledge in browser without local server</div>
+    <div class="issue-labels"><span class="label v1">v1</span><span class="label feature">dashboard</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (7)</summary><ol>
+      <li>Serves from S3 storage provider</li>
+      <li>GitHub OAuth web flow for browser login</li>
+      <li>Project picker for multi-project users</li>
+      <li>All dashboard pages work</li>
+      <li>Strictly read-only (no writes in UI)</li>
+      <li>Deployed with custom domain</li>
+      <li>Solo users keep localhost</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-077</span><span class="issue-title">Billing: Stripe integration</span></div>
+    <div class="issue-outcome">Team/Scale tiers enforced with payment</div>
+    <div class="issue-labels"><span class="label v1">v1</span><span class="label feature">billing</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (8)</summary><ol>
+      <li>3 tiers: Solo free, Team $10/mo (5), Scale $100/mo (20)</li>
+      <li>Stripe Checkout on 2nd member add</li>
+      <li>Webhook handlers for subscription events</li>
+      <li>billing_subscriptions table</li>
+      <li>Seat check on invite/join</li>
+      <li>Graceful degradation on lapse</li>
+      <li>pm billing command</li>
+      <li>Monthly billing only</li>
+    </ol></details>
+  </div>
+
+  <div class="issue-card child">
+    <div class="issue-header"><span class="issue-id">PM-078</span><span class="issue-title">Changelog + pm restore</span></div>
+    <div class="issue-outcome">Users see who changed what and restore previous versions</div>
+    <div class="issue-labels"><span class="label v1">v1</span><span class="label feature">safety</span><span class="label medium">medium</span></div>
+    <details><summary>Acceptance criteria (7)</summary><ol>
+      <li>Changelog row on every PUT</li>
+      <li>pm log {path} shows file history</li>
+      <li>pm log shows project history</li>
+      <li>pm restore {path} lists and restores versions</li>
+      <li>pm restore --version {id} direct restore</li>
+      <li>pm diff shows local vs remote</li>
+      <li>Restore creates new version (preserves history)</li>
+    </ol></details>
+  </div>
+</div>
+
+<!-- REVIEWS -->
+<div class="section" id="reviews">
+  <h2 class="section-title"><span class="icon">7</span> Review Summary</h2>
+  <div class="review-pipeline">
+    <span class="pipe-step passed">Scope Review</span><span class="pipe-arrow">&rarr;</span>
+    <span class="pipe-step passed">Team Review</span><span class="pipe-arrow">&rarr;</span>
+    <span class="pipe-step paused">Bar Raiser: Paused</span><span class="pipe-arrow">&rarr;</span>
+    <span class="pipe-step warning">Decision: Pending</span>
+  </div>
+
+  <h4 style="font-size: 0.85rem; margin-bottom: 0.75rem;">Scope Review</h4>
+  <div class="verdict-grid">
+    <div class="verdict-card"><div class="role">PM</div><div class="verdict caution">Rethink Scope</div><div class="note">Too large &rarr; fixed with v0/v1 split</div></div>
+    <div class="verdict-card"><div class="role">Competitive</div><div class="verdict ready">Strengthens if</div><div class="note">Dashboard stays read-only</div></div>
+    <div class="verdict-card"><div class="role">EM</div><div class="verdict caution">Feasible w/ caveats</div><div class="note">147 fs calls, zero-dep breaks</div></div>
+  </div>
+
+  <h4 style="font-size: 0.85rem; margin-bottom: 0.75rem;">Team Review (9 blocking issues fixed)</h4>
+  <div class="verdict-grid">
+    <div class="verdict-card"><div class="role">PM</div><div class="verdict ready">Ready if</div><div class="note">Pricing unambiguous (fixed)</div></div>
+    <div class="verdict-card"><div class="role">Competitive</div><div class="verdict ready">Sharp if</div><div class="note">Competitor Context added</div></div>
+    <div class="verdict-card"><div class="role">EM</div><div class="verdict ready">Ready if</div><div class="note">Hub code separate from plugin</div></div>
+  </div>
+
+  <h4 style="font-size: 0.85rem; margin-bottom: 0.75rem;">Bar Raiser</h4>
+  <div class="verdict-grid" style="grid-template-columns: 1fr;">
+    <div class="verdict-card"><div class="role">Product Director</div><div class="verdict paused">Pause Initiative</div><div class="note">No demand signal. Contradicts top-3 priorities. Build core product depth first.</div></div>
+  </div>
+
+  <div class="callout amber">
+    <strong>User override:</strong> Grooming completed for future use. Implementation timing deferred. The architecture, research, and issue specs are ready when demand materializes.
+  </div>
+</div>
+
+<!-- OPEN QUESTIONS -->
+<div class="section" id="questions">
+  <h2 class="section-title"><span class="icon">8</span> Open Questions</h2>
+  <p class="section-lead">Questions the bar raiser says the proposal must answer before implementation.</p>
+  <ol>
+    <li>What evidence do we have that any current user wants cloud sync?</li>
+    <li>What happens to the three stated priorities while this consumes bandwidth?</li>
+    <li>Why not validate with a smaller experiment (pm export, Gist-based sync) first?</li>
+    <li>PM-023 (Public Hosted Demo Dashboard) overlaps PM-076 &mdash; which gets built?</li>
+    <li>Server.js has 147 sync fs calls, not 80+. Has anyone audited PM-069's true scope?</li>
+    <li>The research recommends per-seat but we chose flat-rate. Document why.</li>
+  </ol>
+
+  <div class="callout">
+    <strong>Conditions to clear before implementation:</strong> (1) Demand signal &mdash; at least anecdotal evidence users want remote/shared access. (2) Strategy update to reflect monetization as a priority. (3) PM-023 relationship clarified.
+  </div>
+</div>
+
+</div>
+</body>
+</html>
