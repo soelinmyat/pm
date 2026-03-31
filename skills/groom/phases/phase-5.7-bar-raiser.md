@@ -83,7 +83,51 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 4. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
    > "The bar raiser recommends pausing this initiative. Rationale: {rationale}. How would you like to proceed?"
    Wait for user decision before continuing.
-5. Update state:
+5. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+   Write `.pm/sessions/groom-{slug}/current.html` with:
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Bar Raiser"
+   - `{STEPPER_HTML}`: `bar-raiser` as current; `intake` through `team-review` as completed
+   - `{CONTENT}`:
+
+     ```html
+     <h2>Bar Raiser Review</h2>
+     <p>Iteration {N} of 2</p>
+
+     <div class="verdict-row">
+       <div class="verdict-card" style="flex:none;min-width:200px;">
+         <div class="role">Product Director</div>
+         <div class="verdict">{verdict}</div>
+       </div>
+     </div>
+
+     <!-- Show conditions only if verdict is "Ready if {condition}" -->
+     <h3>Conditions</h3>
+     <ul>
+       <li>{condition text}</li>
+     </ul>
+
+     <!-- Show blocking issues if verdict is "Send back" or has blocking items -->
+     <h3>Blocking Issues</h3>
+     <ol>
+       <li>{issue} — {why}</li>
+       <!-- or <p>None</p> -->
+     </ol>
+
+     <h3>Conviction</h3>
+     <p>{bar raiser's honest assessment}</p>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+6. Update state:
 
 ```yaml
 phase: bar-raiser
