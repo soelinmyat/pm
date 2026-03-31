@@ -306,6 +306,13 @@ fi
 # Delete local feature branch + prune
 git branch -D "$FEATURE_BRANCH" 2>/dev/null || true
 git fetch --prune
+
+# Clean up all stale local branches whose remote is gone.
+# Catches branches from previous sessions: auto-merges that happened
+# after the session ended, PRs merged via GitHub UI, interrupted loops.
+git branch -vv | grep ': gone]' | awk '{print $1}' | while read -r branch; do
+  git branch -D "$branch" 2>/dev/null && echo "Cleaned up stale branch: $branch" || true
+done
 ```
 
 ---
