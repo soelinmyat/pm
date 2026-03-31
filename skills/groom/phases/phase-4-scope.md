@@ -34,7 +34,47 @@ Follow the full methodology in `scope-validation.md`.
 5. If `visual_companion: true` in `.pm/config.json`: offer the scope grid (impact/effort).
    > "Want a scope grid? I'll plot proposed scope items on impact vs. effort axes."
 
-6. Update state:
+6. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+   Write `.pm/sessions/groom-{slug}/current.html` with:
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Scope"
+   - `{STEPPER_HTML}`: `scope` as current phase; `intake`, `strategy-check`, `research` as completed
+   - `{CONTENT}`: Build this HTML using the actual scope data:
+
+     ```html
+     <h2>Scope Definition</h2>
+     <span class="badge badge-success">10x</span>
+     <!-- Use badge-success for 10x, badge-warning for parity, badge-info for gap-fill -->
+
+     <div class="scope-grid">
+       <div class="scope-col in-scope">
+         <h3>In Scope</h3>
+         <ul>
+           <li>{in-scope item 1}</li>
+           <li>{in-scope item 2}</li>
+           <!-- one <li> per in_scope item -->
+         </ul>
+       </div>
+       <div class="scope-col out-scope">
+         <h3>Out of Scope</h3>
+         <ul>
+           <li><strong>{item}</strong> — {reason}</li>
+           <!-- one <li> per out_of_scope item, with reason -->
+         </ul>
+       </div>
+     </div>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+7. Update state:
 
 ```yaml
 phase: scope
