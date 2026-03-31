@@ -3784,10 +3784,22 @@ function createDashboardServer(pmDir) {
     }
   }
 
+  const MAX_EVENT_BODY = 65536; // 64KB
+
   function handlePostEvent(req, res) {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let aborted = false;
+    req.on('data', chunk => {
+      body += chunk;
+      if (!aborted && body.length > MAX_EVENT_BODY) {
+        aborted = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        req.destroy();
+      }
+    });
     req.on('end', () => {
+      if (aborted) return;
       let parsed;
       try {
         parsed = JSON.parse(body);

@@ -21,9 +21,9 @@ PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)" || {
 }
 
 # Compute stable port using same hash as start-server.sh (lines 119-123)
-PORT=$(node -e "
+PORT=$(PM_HASH_DIR="$PROJECT_DIR" node -e "
   const crypto = require('crypto');
-  const hash = crypto.createHash('md5').update('$PROJECT_DIR').digest();
+  const hash = crypto.createHash('md5').update(process.env.PM_HASH_DIR).digest();
   console.log(3000 + (hash.readUInt32BE(0) % 7000));
 ")
 
