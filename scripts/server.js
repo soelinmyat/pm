@@ -2101,13 +2101,17 @@ function handleDashboardHome(res, pmDir) {
       const link = slug ? `/session/${encodeURIComponent(slug)}` : '#';
       if (s._type === 'groom') {
         const d = groomSessionDisplay(s);
-        return `<a href="${link}" class="groom-session">
+        const companionDir = path.resolve(pmDir, '..', '.pm', 'sessions', 'groom-' + (s._slug || ''));
+        const hasCompanion = s._slug && fs.existsSync(companionDir);
+        const tag = hasCompanion ? 'a' : 'div';
+        const hrefAttr = hasCompanion ? ` href="${link}"` : '';
+        return `<${tag}${hrefAttr} class="groom-session">
   <div class="groom-session-dot" style="background:#2563eb"></div>
   <div>
     <div class="groom-session-topic">${d.topic}</div>
     <div class="groom-session-meta">Grooming · Phase: ${d.phase} · Started ${d.started}</div>
   </div>
-</a>`;
+</${tag}>`;
       } else {
         const d = devSessionDisplay(s);
         return `<a href="${link}" class="groom-session">
