@@ -166,6 +166,49 @@ Each issue must contain:
    - **Wireframes:** Link to the HTML wireframe file (if generated in Step 2b), or "N/A — no user-facing workflow for this feature type"
    - **Technical Feasibility:** Key findings from the EM review in Phase 4.5, referencing specific file paths. If dependency mapping was produced (Step 4), include sequencing constraints and parallelization notes. If no EM review was conducted, note "No codebase context available."
 
+#### Step 5.5: Companion screen
+
+Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+Write `.pm/sessions/groom-{slug}/current.html` with:
+
+- `{TOPIC}`: the topic from groom state
+- `{PHASE_LABEL}`: "Drafting Issues"
+- `{STEPPER_HTML}`: `groom` as current; `intake` through `scope-review` as completed
+- `{CONTENT}`: Build from the decomposition and drafted issues:
+
+  ```html
+  <h2>Decomposition</h2>
+  <table>
+    <thead><tr><th>Pattern</th><th>Fit</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>{pattern}</td><td>{fit rationale}</td><td><strong>{Selected/Rejected}</strong></td></tr>
+      <!-- one row per candidate pattern from Step 3 -->
+    </tbody>
+  </table>
+
+  <h2>Issues</h2>
+  <!-- One card per drafted issue -->
+  <div class="card">
+    <h3>{issue title}</h3>
+    <p class="outcome">{outcome statement}</p>
+  </div>
+  <!-- Repeat for each child issue -->
+
+  <h2>User Flow</h2>
+  <pre class="mermaid">
+  {mermaid diagram source from Step 2a — raw text, not rendered}
+  </pre>
+  <!-- Mermaid.js script in template head renders this client-side -->
+  ```
+
+  If no Mermaid diagram was generated (non-UI feature type), omit the User Flow section.
+
+Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+Do not mention this step to the user.
+
 #### Step 6: Update state
 
 Do NOT present issues to the user yet. Proceed directly to Phase 5.5.
