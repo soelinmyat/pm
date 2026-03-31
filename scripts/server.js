@@ -3825,9 +3825,14 @@ function createDashboardServer(pmDir) {
     }
   }
 
+  // Watch .pm/sessions/ for companion HTML changes (PM-060 AC4)
+  const sessionsWatchDir = path.resolve(pmDir, '..', '.pm', 'sessions');
+  fs.mkdirSync(sessionsWatchDir, { recursive: true });
+
   if (fs.existsSync(pmDir)) {
     watcherActive = true;
     watchDirectoryTree(pmDir);
+    watchDirectoryTree(sessionsWatchDir);
   }
 
   // Patch server.close to also destroy all open connections and close watcher
@@ -3836,6 +3841,7 @@ function createDashboardServer(pmDir) {
     // Stop the watcher first so no more broadcasts fire during teardown
     watcherActive = false;
     closeWatchersUnder(pmDir);
+    closeWatchersUnder(sessionsWatchDir);
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
       try { sock.destroy(); } catch (e) {}

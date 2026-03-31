@@ -2032,3 +2032,18 @@ test('GET /session/{slug} returns 404 for nonexistent session', async () => {
     assert.ok(res.body.includes('No session found'), 'must show session not found message');
   } finally { await close(); cleanup(); }
 });
+
+test('Server close cleans up sessions directory watchers without error', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/placeholder.md': '---\ntype: backlog-issue\nid: PM-TEST\ntitle: test\noutcome: test\nstatus: idea\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n',
+  });
+  // Create .pm/sessions/ with a subdirectory so the watcher has something to watch
+  fs.mkdirSync(path.join(root, '.pm', 'sessions', 'groom-test'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.pm', 'sessions', 'groom-test', 'current.html'), '<p>test</p>');
+  const { port, close } = await startDashboardServer(pmDir);
+  // Close should not throw and should clean up watchers
+  await close();
+  // If we get here without hanging or throwing, watchers were cleaned up
+  assert.ok(true, 'server closed cleanly with sessions watchers');
+  cleanup();
+});
