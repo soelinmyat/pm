@@ -1,8 +1,8 @@
 ---
 type: backlog-issue
 id: "PM-060"
-title: "Session route and opt-in prompt for visual companion"
-outcome: "Users who opt in at groom start see a live browser page at /session/{slug} that shows the current phase state — the browser becomes the substance view while the terminal stays conversational"
+title: "Session route and dashboard-first groom output"
+outcome: "Every groom session automatically opens a live browser page at /session/{slug} showing the current phase state — the dashboard becomes the substance view while the terminal stays conversational"
 status: drafted
 parent: "groom-visual-companion"
 children: []
@@ -26,7 +26,7 @@ After this ships, any groom session can open a browser companion. The dashboard 
 2. If `.pm/sessions/groom-{slug}/current.html` exists, the route serves that file instead of the rendered state file. This allows per-phase HTML (PM-061) to override the default view without changes to the route handler.
 3. If the slug doesn't match any groom session, the route returns a "Session not found" page with a link back to the dashboard home.
 4. The dashboard server watches `.pm/sessions/` for file changes using the same `watchDirectoryTree()` pattern as `pmDir`. The sessions path is resolved as `path.resolve(pmDir, '..', '.pm', 'sessions')` — the same traversal pattern used by `readGroomState()`. When the server shuts down, no file watchers remain open on the `.pm/sessions/` directory.
-5. After Phase 1 completes in the groom skill (`phase-1-intake.md`), a new step checks `.pm/config.json` for the `visual_companion` key. If unset, it asks: "Want a visual companion in the browser? I'll show each phase as a clean web page. (yes/no)". A "yes" or "y" response writes `visual_companion: true`; any other response (including "no", "n", or empty) writes `visual_companion: false`. If `.pm/config.json` does not exist, it is created with `{ "visual_companion": true|false }`. If already set, the stored value is used silently.
+5. After Phase 1 completes in the groom skill (`phase-1-intake.md`), the dashboard opens automatically. If `.pm/config.json` exists and has `visual_companion: false`, the dashboard is skipped silently. In all other cases (key unset, file missing, or `true`), the dashboard opens — dashboard-first is the default, no prompt needed.
 6. When `visual_companion` is true, the skill ensures the dashboard server is running (using the existing `start-server.sh --mode dashboard`), reads the `url` field from the server's JSON output, and opens `{url}/session/{slug}` in the default browser.
 7. `.pm/sessions/` is added to `.gitignore` if not already present.
 8. Multiple concurrent groom sessions are supported — each writes to `.pm/sessions/groom-{slug}/` and is served at `/session/{slug}`. The route handler does not assume a single active session.
@@ -36,13 +36,9 @@ After this ships, any groom session can open a browser companion. The dashboard 
 
 ```mermaid
 graph TD
-    A[Phase 1 complete] --> B{visual_companion in config?}
-    B -->|Not set| C[Ask user]
-    B -->|true| E[Start dashboard server]
-    B -->|false| D[Terminal-only — skip]
-    C -->|Yes| F[Write true to .pm/config.json]
-    C -->|No| D
-    F --> E
+    A[Phase 1 complete] --> B{visual_companion: false in config?}
+    B -->|Yes| D[Terminal-only — skip]
+    B -->|No / unset / missing| E[Start dashboard server]
     E --> G[Open /session/slug in browser]
     G --> H[Route reads groom state file]
     H --> I[Renders phase state as HTML]
@@ -50,7 +46,7 @@ graph TD
     J --> K{State file changes?}
     K -->|Yes| L[WebSocket reload]
     L --> J
-    %% Source: pm/research/groom-visual-companion/findings.md — Playwright --ui opt-in pattern
+    %% Source: pm/research/groom-visual-companion/findings.md — dashboard-first default
 ```
 
 ## Wireframes

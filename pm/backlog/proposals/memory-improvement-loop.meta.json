@@ -1,10 +1,14 @@
 {
   "title": "Project Memory System",
+  "id": "P-02",
   "date": "2026-03-20",
   "verdict": "ready",
   "verdictLabel": "Ready",
   "phase": "completed",
   "issueCount": 4,
   "gradient": "linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #7c3aed 100%)",
-  "labels": ["memory", "core-loop"]
+  "labels": [
+    "memory",
+    "core-loop"
+  ]
 }

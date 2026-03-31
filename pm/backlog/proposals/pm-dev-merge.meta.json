@@ -1,10 +1,15 @@
 {
   "title": "Merge PM + Dev into Unified Product Engineer Plugin",
+  "id": "P-06",
   "date": "2026-03-21",
   "verdict": "ready-if",
   "verdictLabel": "Ready",
   "phase": "completed",
   "issueCount": 7,
   "gradient": "linear-gradient(135deg, #1e3a5f 0%, #7c3aed 50%, #2563eb 100%)",
-  "labels": ["epic", "infrastructure", "product-engineer"]
+  "labels": [
+    "epic",
+    "infrastructure",
+    "product-engineer"
+  ]
 }

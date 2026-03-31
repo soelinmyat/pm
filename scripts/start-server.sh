@@ -94,7 +94,7 @@ LOG_FILE="${SCREEN_DIR}/.server.log"
 # Create fresh session directory
 mkdir -p "$SCREEN_DIR"
 
-# Kill any existing server
+# Kill any existing server from this session
 if [[ -f "$PID_FILE" ]]; then
   old_pid=$(cat "$PID_FILE")
   kill "$old_pid" 2>/dev/null
@@ -114,6 +114,23 @@ fi
 # Resolve the project directory for stable port hashing.
 # Use --project-dir if provided, otherwise use the caller's working directory.
 RESOLVED_PROJECT_DIR="${PROJECT_DIR:-$CALLER_DIR}"
+
+# Kill any previous server occupying our stable port (from a prior session)
+STABLE_PORT=$(node -e "
+  const crypto = require('crypto');
+  const hash = crypto.createHash('md5').update('$RESOLVED_PROJECT_DIR').digest();
+  console.log(3000 + (hash.readUInt32BE(0) % 7000));
+")
+if [[ -n "$STABLE_PORT" ]]; then
+  old_pids=$(lsof -iTCP:"$STABLE_PORT" -sTCP:LISTEN -t 2>/dev/null)
+  if [[ -n "$old_pids" ]]; then
+    echo "$old_pids" | xargs kill -9 2>/dev/null
+    for i in {1..10}; do
+      lsof -iTCP:"$STABLE_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+  fi
+fi
 
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then

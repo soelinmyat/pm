@@ -1,10 +1,14 @@
 {
   "title": "Groom Phase 5: Decomposition Methodology & Issue Quality",
+  "id": "P-01",
   "date": "2026-03-20",
   "verdict": "ready",
   "verdictLabel": "Ready",
   "phase": "completed",
   "issueCount": 2,
   "gradient": "linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%)",
-  "labels": ["grooming-quality", "infrastructure"]
+  "labels": [
+    "grooming-quality",
+    "infrastructure"
+  ]
 }

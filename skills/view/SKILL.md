@@ -19,6 +19,8 @@ Open the PM dashboard in a browser so the user can review the current landscape,
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "$PWD" --mode dashboard
 ```
 
+The start script automatically kills any previous server on the project's stable port before launching, so the URL stays the same across restarts.
+
 4. Parse the returned JSON.
 5. Extract the `url` field and present it to the user.
 6. If the helper returns an error, summarize the error and tell the user what to check next.

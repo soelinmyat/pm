@@ -863,6 +863,7 @@ a.groom-session:hover { background: #1e2240; }
 .proposal-card { position: relative; overflow: hidden; }
 .proposal-card h3 { margin-top: 0; }
 .proposal-card h3 { margin: 0 0 0.25rem; }
+.proposal-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
 .proposal-card.draft { border-style: dashed; border-color: #2a3545; cursor: default; opacity: 0.85; }
 .proposal-card.draft:hover { box-shadow: var(--shadow-sm); transform: none; }
 .badge-draft { background: #1a2040; color: #818cf8; }
@@ -1878,7 +1879,7 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
         date: meta.date || '0000-00-00',
         isDraft: false,
         html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
-  <h3>${escHtml(title)}</h3>
+  <h3>${meta.id ? `<span class="proposal-id">${escHtml(meta.id)}</span>` : ''}${escHtml(title)}</h3>
   <p class="meta">${escHtml(staleLabel)}</p>
   <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
 </a>`
