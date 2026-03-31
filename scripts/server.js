@@ -906,7 +906,7 @@ a.groom-session:hover { background: #1e2240; }
 .activity-feed {
   width: 260px; flex-shrink: 0;
   background: #12141a; border-left: 1px solid var(--border);
-  display: flex; flex-direction: column; height: calc(100vh - 0px);
+  display: flex; flex-direction: column; height: 100vh;
   position: sticky; top: 0;
 }
 [data-theme="light"] .activity-feed {
@@ -1296,7 +1296,6 @@ ${sidebarSlot || ''}
 
   function refreshFade() {
     var events = feedBody.querySelectorAll('.feed-event');
-    var needSep = false;
     var sepInserted = false;
     var seps = feedBody.querySelectorAll('.feed-time-sep');
     for (var i = 0; i < seps.length; i++) seps[i].remove();
@@ -1308,14 +1307,13 @@ ${sidebarSlot || ''}
         events[j].classList.remove('muted');
       } else {
         events[j].classList.add('muted');
-        if (!sepInserted && !needSep) { needSep = true; }
-      }
-      if (needSep && !sepInserted) {
-        var sep = document.createElement('div');
-        sep.className = 'feed-time-sep';
-        sep.textContent = 'Earlier';
-        feedBody.insertBefore(sep, events[j]);
-        sepInserted = true;
+        if (!sepInserted) {
+          var sep = document.createElement('div');
+          sep.className = 'feed-time-sep';
+          sep.textContent = 'Earlier';
+          feedBody.insertBefore(sep, events[j]);
+          sepInserted = true;
+        }
       }
       var timeEl = events[j].querySelector('.feed-event-time');
       if (timeEl) timeEl.textContent = relativeTime(ts);
