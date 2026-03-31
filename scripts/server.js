@@ -899,6 +899,90 @@ a.groom-session:hover { background: #1e2240; }
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
 .proposal-iframe { width: 100%; height: 800px; border: none; background: var(--surface); }
 
+/* ========== Activity Feed Panel ========== */
+.main-with-feed { display: flex; gap: 0; }
+.main-with-feed > .container { flex: 1; min-width: 0; }
+
+.activity-feed {
+  width: 260px; flex-shrink: 0;
+  background: #12141a; border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; height: 100vh;
+  position: sticky; top: 0;
+}
+[data-theme="light"] .activity-feed {
+  background: #f0f1f4;
+}
+
+.feed-header {
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+.feed-status {
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.6875rem; font-weight: 500; text-transform: none;
+  letter-spacing: 0; color: var(--text-muted);
+}
+.feed-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success);
+}
+.feed-status-dot.live {
+  animation: feed-pulse 2s ease-in-out infinite;
+}
+.feed-status-dot.idle {
+  background: var(--text-muted);
+  animation: none;
+}
+@keyframes feed-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.feed-body { flex: 1; overflow-y: auto; }
+
+.feed-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; padding: 2rem 1rem; text-align: center;
+  font-size: 0.75rem; color: var(--text-muted); line-height: 1.5;
+}
+
+.feed-event {
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 0.5rem;
+}
+.feed-event.muted { opacity: 0.5; }
+
+.feed-event-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; margin-top: 5px;
+  background: var(--text-muted);
+}
+.feed-event-dot.success { background: var(--success); }
+.feed-event-dot.info { background: var(--info); }
+.feed-event-dot.warning { background: var(--warning); }
+.feed-event-dot.accent { background: var(--accent); }
+
+.feed-event-content { min-width: 0; }
+.feed-event-text {
+  font-size: 0.75rem; line-height: 1.4; color: var(--text);
+}
+.feed-event.muted .feed-event-text { color: var(--text-muted); }
+.feed-event-source { font-weight: 500; }
+.feed-event-time {
+  font-size: 0.625rem; color: var(--text-muted); margin-top: 1px;
+}
+
+.feed-time-sep {
+  font-size: 0.625rem; color: var(--text-muted); padding: 0.5rem 1rem 0.25rem;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+
+@media (max-width: 1024px) {
+  .activity-feed { display: none; }
+}
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1070,7 +1154,7 @@ a.groom-session:hover { background: #1e2240; }
 
 // ========== Dashboard HTML Shell ==========
 
-function dashboardPage(title, activeNav, bodyContent, projectName) {
+function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) {
   projectName = projectName || _cachedProjectName || 'PM';
   const navLinks = [
     { href: '/', label: 'Home', icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5L8 2l5.5 4.5V13a1 1 0 01-1 1h-3V10H6.5v4h-3a1 1 0 01-1-1V6.5z"/></svg>' },
@@ -1115,10 +1199,11 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       </button>
     </div>
   </aside>
-  <main class="main-content">
+  <main class="main-content${sidebarSlot ? ' main-with-feed' : ''}">
     <div class="container">
 ${bodyContent}
     </div>
+${sidebarSlot || ''}
   </main>
 </div>
 <script>
@@ -1144,6 +1229,144 @@ ${bodyContent}
   btn.addEventListener('click', function() {
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
+})();
+</script>
+<script>
+(function() {
+  var feedBody = document.getElementById('feed-body');
+  if (!feedBody) return;
+
+  var feedEmpty = document.getElementById('feed-empty');
+  var statusDot = document.getElementById('feed-status-dot');
+  var statusLabel = document.getElementById('feed-status-label');
+  var RECENT_MS = 3 * 60 * 1000;
+
+  function dotClass(type) {
+    if (!type) return '';
+    if (type.indexOf('fail') !== -1 || type.indexOf('error') !== -1 || type.indexOf('warn') !== -1) return 'warning';
+    if (type.indexOf('test') !== -1 || type.indexOf('pass') !== -1 || type.indexOf('merge') !== -1) return 'success';
+    if (type.indexOf('pr_') !== -1 || type.indexOf('push') !== -1 || type.indexOf('commit') !== -1) return 'info';
+    return 'accent';
+  }
+
+  function relativeTime(ts) {
+    var diff = Math.max(0, Date.now() - ts);
+    if (diff < 5000) return 'just now';
+    if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    return Math.floor(diff / 3600000) + 'h ago';
+  }
+
+  function isRecent(ts) {
+    return (Date.now() - ts) < RECENT_MS;
+  }
+
+  function createEventEl(event) {
+    var recent = isRecent(event.timestamp);
+    var div = document.createElement('div');
+    div.className = 'feed-event' + (recent ? '' : ' muted');
+    div.setAttribute('data-event-id', event.id);
+    div.setAttribute('data-timestamp', event.timestamp);
+
+    var dot = document.createElement('div');
+    dot.className = 'feed-event-dot ' + dotClass(event.type);
+    div.appendChild(dot);
+
+    var content = document.createElement('div');
+    content.className = 'feed-event-content';
+
+    var text = document.createElement('div');
+    text.className = 'feed-event-text';
+    var sourceSpan = document.createElement('span');
+    sourceSpan.className = 'feed-event-source';
+    sourceSpan.textContent = event.source;
+    text.appendChild(sourceSpan);
+    var desc = event.detail && event.detail.description ? event.detail.description : event.type.replace(/_/g, ' ');
+    text.appendChild(document.createTextNode(' ' + desc));
+    content.appendChild(text);
+
+    var time = document.createElement('div');
+    time.className = 'feed-event-time';
+    time.textContent = relativeTime(event.timestamp);
+    content.appendChild(time);
+
+    div.appendChild(content);
+    return div;
+  }
+
+  function refreshFade() {
+    var events = feedBody.querySelectorAll('.feed-event');
+    var sepInserted = false;
+    var seps = feedBody.querySelectorAll('.feed-time-sep');
+    for (var i = 0; i < seps.length; i++) seps[i].remove();
+
+    for (var j = 0; j < events.length; j++) {
+      var ts = parseInt(events[j].getAttribute('data-timestamp'), 10);
+      var recent = isRecent(ts);
+      if (recent) {
+        events[j].classList.remove('muted');
+      } else {
+        events[j].classList.add('muted');
+        if (!sepInserted) {
+          var sep = document.createElement('div');
+          sep.className = 'feed-time-sep';
+          sep.textContent = 'Earlier';
+          feedBody.insertBefore(sep, events[j]);
+          sepInserted = true;
+        }
+      }
+      var timeEl = events[j].querySelector('.feed-event-time');
+      if (timeEl) timeEl.textContent = relativeTime(ts);
+    }
+  }
+
+  function setConnected(connected) {
+    if (connected) {
+      statusDot.className = 'feed-status-dot live';
+      statusLabel.textContent = 'Live';
+    } else {
+      statusDot.className = 'feed-status-dot idle';
+      statusLabel.textContent = 'Idle';
+    }
+  }
+
+  var lastEventId = null;
+
+  function connect() {
+    var es = new EventSource('/events');
+    window.__pmEventSource = es;
+
+    es.onopen = function() {
+      setConnected(true);
+    };
+
+    es.onmessage = function(e) {
+      var event;
+      try { event = JSON.parse(e.data); } catch(err) { return; }
+
+      lastEventId = e.lastEventId || event.id;
+
+      if (feedBody.querySelector('[data-event-id="' + event.id + '"]')) return;
+
+      if (feedEmpty) feedEmpty.style.display = 'none';
+
+      var el = createEventEl(event);
+      var firstChild = feedBody.querySelector('.feed-event, .feed-time-sep');
+      if (firstChild) {
+        feedBody.insertBefore(el, firstChild);
+      } else {
+        feedBody.appendChild(el);
+      }
+
+      refreshFade();
+    };
+
+    es.onerror = function() {
+      setConnected(false);
+    };
+  }
+
+  connect();
 })();
 </script>
 </body>
@@ -2216,7 +2439,25 @@ ${proposalsHtml}
 ${suggestedHtml}`;
   }
 
-  const html = dashboardPage('Home', '/', body, projectName);
+  const feedPanelHtml = `
+    <aside class="activity-feed" id="activity-feed">
+      <div class="feed-header">
+        Activity
+        <div class="feed-status" id="feed-status">
+          <span class="feed-status-dot idle" id="feed-status-dot"></span>
+          <span id="feed-status-label">Idle</span>
+        </div>
+      </div>
+      <div class="feed-body" id="feed-body">
+        <div class="feed-empty" id="feed-empty">
+          No events yet.<br>
+          Activity appears here when<br>
+          terminal sessions are running.
+        </div>
+      </div>
+    </aside>`;
+
+  const html = dashboardPage('Home', '/', body, projectName, feedPanelHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }

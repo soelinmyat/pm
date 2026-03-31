@@ -2372,3 +2372,182 @@ test('find-dashboard-port.sh exits 1 with no arguments', () => {
   }
   assert.equal(exitCode, 1, 'must exit 1 with no arguments');
 });
+
+// ---------------------------------------------------------------------------
+// Activity Feed Panel — HTML structure (PM-091)
+// ---------------------------------------------------------------------------
+
+test('Dashboard home contains activity feed panel', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('activity-feed'), 'must contain activity-feed panel');
+      assert.ok(body.includes('feed-header'), 'must contain feed header');
+      assert.ok(body.includes('Activity'), 'must contain Activity label');
+      assert.ok(body.includes('feed-status'), 'must contain live/idle indicator');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Dashboard home shows empty state when no events', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('feed-empty'), 'must contain empty state');
+      assert.ok(body.includes('No events yet'), 'must show empty message');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Backlog page does NOT contain activity feed panel', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/backlog');
+      assert.ok(!body.includes('id="activity-feed"'), 'backlog must not contain feed panel');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('KB page does NOT contain activity feed panel', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(!body.includes('id="activity-feed"'), 'kb must not contain feed panel');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Activity Feed — layout regression (non-Home pages)
+// ---------------------------------------------------------------------------
+
+test('Backlog page does not use main-with-feed class on main element', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/backlog');
+      assert.ok(!body.includes('main-content main-with-feed'), 'backlog must not use feed layout');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('KB page does not use main-with-feed class on main element', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(!body.includes('main-content main-with-feed'), 'kb must not use feed layout');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Home page uses main-with-feed class on main element', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('main-content main-with-feed'), 'home page must use feed layout');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Activity Feed — EventSource client injection
+// ---------------------------------------------------------------------------
+
+test('Home page includes EventSource client script', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('EventSource'), 'must include EventSource client');
+      assert.ok(body.includes('/events'), 'must connect to /events endpoint');
+      assert.ok(body.includes('feed-body'), 'must reference feed-body element');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Activity Feed — end-to-end: verify feed panel features
+// ---------------------------------------------------------------------------
+
+test('Feed panel includes reconnect and temporal fade logic', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('lastEventId'), 'must track lastEventId for reconnect');
+      assert.ok(body.includes('data-event-id'), 'must set data-event-id for dedup');
+      assert.ok(body.includes('refreshFade'), 'must include fade refresh function');
+      assert.ok(body.includes('Earlier'), 'must include Earlier separator text');
+      assert.ok(body.includes('max-width: 1024px'), 'must include 1024px breakpoint');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
