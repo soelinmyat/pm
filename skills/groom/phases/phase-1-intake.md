@@ -45,20 +45,7 @@ Skip to step 3 after confirmation. (Steps 3, 3.5, 4, 5, 6 run normally.)
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
-2.5. **Visual companion offer.**
-
-   <HARD-GATE>
-   You MUST offer the visual companion after capturing the idea. Do not skip this step. Do not proceed to Phase 2 until you have asked and received an answer.
-   </HARD-GATE>
-
-   After capturing the idea, ask:
-   > "I can show research, wireframes, and diagrams in the browser as we go. Open the dashboard?"
-
-   Wait for response.
-   - **Yes:** Start the visual companion server immediately. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md` for setup. Use the browser for all visual content throughout the session.
-   - **No:** Proceed text-only. Do not ask again during this session.
-
-   This is a session-level decision, not per-question. If accepted, default to showing content in the browser whenever it's visual (mockups, diagrams, comparisons, wireframes). If declined, stay in terminal for everything.
+2.5. *(Reserved — visual companion is now auto-opened in step 8 below.)*
 
 3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
@@ -134,3 +121,28 @@ codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 
    Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
    Do not mention this step to the user.
+
+8. **Visual companion auto-open.**
+
+   <HARD-GATE>
+   You MUST execute this step. Do not skip it. Do not proceed to Phase 2 until this step completes.
+   </HARD-GATE>
+
+   1. Read `.pm/config.json` (already loaded by the bootstrap above).
+   2. Check `preferences.visual_companion`:
+      - If `false`: skip silently. Proceed to Phase 2.
+      - If `true`, unset, or file missing: open the dashboard (step 3 below).
+   3. Start the dashboard server (idempotent — skips if already running):
+      ```bash
+      bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "$PWD" --mode dashboard
+      ```
+      Parse the JSON output to get the `url` field.
+   4. Open `{url}/session/{slug}` in the default browser:
+      ```bash
+      open "{url}/session/{slug}"  # macOS
+      xdg-open "{url}/session/{slug}"  # Linux
+      ```
+   5. Tell the user:
+      > "Session view open in browser. It'll update as we go."
+
+   This is a session-level decision. If visual companion is active, use the browser for all visual content throughout the session (mockups, diagrams, comparisons, wireframes). The user can disable future auto-open by setting `visual_companion: false` in `.pm/config.json`.
