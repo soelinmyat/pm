@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>productmemory.com — Lo-fi Wireframe</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; padding: 24px; }
+
+    .wireframe-title-bar {
+      background: #e0e0e0; border: 1px solid #ccc; border-radius: 6px 6px 0 0;
+      padding: 8px 16px; font-size: 12px; font-weight: 600; color: #666;
+      display: flex; justify-content: space-between;
+    }
+    .wireframe-page {
+      max-width: 800px; margin: 0 auto; background: white;
+      border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px;
+    }
+
+    .section {
+      padding: 32px 40px; border-bottom: 1px dashed #ddd; position: relative;
+    }
+    .section:last-child { border-bottom: none; }
+    .section-label {
+      position: absolute; top: 8px; right: 12px;
+      font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    .placeholder {
+      background: #f0f0f0; border: 1px dashed #ccc; border-radius: 4px;
+      padding: 12px; text-align: center; color: #999; font-size: 12px;
+    }
+    .placeholder-wide { width: 100%; }
+
+    h2 { font-size: 14px; font-weight: 700; color: #333; margin-bottom: 8px; }
+    h3 { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; }
+    p.desc { font-size: 11px; color: #888; margin-bottom: 12px; }
+
+    .btn-row { display: flex; gap: 8px; margin: 12px 0; }
+    .btn {
+      padding: 8px 18px; border-radius: 6px; font-size: 11px; font-weight: 600;
+      border: 1px solid #ccc; background: #f5f5f5; color: #666;
+    }
+    .btn-primary { background: #444; color: white; border-color: #444; }
+
+    /* Nav */
+    .nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; border-bottom: 1px solid #eee; }
+    .nav-logo { font-size: 13px; font-weight: 700; color: #333; }
+    .nav-links { display: flex; gap: 16px; font-size: 11px; color: #888; }
+
+    /* Hero */
+    .hero-center { text-align: center; }
+    .badge-placeholder {
+      display: inline-block; background: #f0f0f0; border: 1px dashed #ccc;
+      border-radius: 20px; padding: 4px 14px; font-size: 10px; color: #999; margin-bottom: 16px;
+    }
+    .headline { font-size: 28px; font-weight: 800; color: #222; line-height: 1.15; margin-bottom: 8px; }
+    .subheadline { font-size: 13px; color: #888; max-width: 420px; margin: 0 auto 20px; }
+
+    /* Lifecycle */
+    .lifecycle-flow {
+      display: flex; align-items: flex-start; justify-content: center; gap: 0;
+      margin: 24px 0 8px; position: relative;
+    }
+    .lifecycle-node {
+      display: flex; flex-direction: column; align-items: center; flex: 1; gap: 6px;
+    }
+    .node-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: #f0f0f0; border: 1px dashed #ccc;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #999;
+    }
+    .node-label { font-size: 11px; font-weight: 600; color: #555; }
+    .node-desc { font-size: 9px; color: #aaa; text-align: center; max-width: 90px; }
+    .node-arrow { color: #ccc; font-size: 16px; padding-top: 12px; }
+
+    /* Platform bar */
+    .platform-bar {
+      display: flex; align-items: center; justify-content: center; gap: 20px;
+      padding: 16px 0; margin-top: 16px; border-top: 1px solid #f0f0f0;
+    }
+    .platform-bar span { font-size: 10px; color: #bbb; }
+
+    /* Features grid */
+    .features-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .feature-card {
+      background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 16px;
+    }
+    .feature-icon {
+      width: 32px; height: 32px; background: #f0f0f0; border: 1px dashed #ccc;
+      border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center;
+      justify-content: center; font-size: 9px; color: #bbb;
+    }
+    .feature-card h3 { margin-bottom: 4px; }
+    .feature-card p { font-size: 10px; color: #999; line-height: 1.4; }
+
+    /* Dogfooding */
+    .dogfood-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .dogfood-card {
+      background: #fafafa; border: 1px solid #eee; border-radius: 8px; overflow: hidden;
+    }
+    .dogfood-screenshot {
+      background: #e8e8e8; height: 80px; display: flex; align-items: center;
+      justify-content: center; font-size: 10px; color: #aaa; border-bottom: 1px solid #eee;
+    }
+    .dogfood-caption { padding: 8px 10px; font-size: 10px; color: #777; }
+
+    /* Footer */
+    .footer {
+      text-align: center; padding: 24px 40px; background: #fafafa;
+      border-top: 1px solid #eee; font-size: 10px; color: #bbb;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wireframe-title-bar">
+  <span>productmemory.com — Lo-fi Wireframe</span>
+  <span>Single Page</span>
+</div>
+
+<div class="wireframe-page">
+
+  <!-- Nav -->
+  <div class="nav">
+    <div class="nav-logo">Product Memory</div>
+    <div class="nav-links">
+      <span>Features</span>
+      <span>How it works</span>
+      <span>GitHub</span>
+      <span class="btn btn-primary" style="padding: 4px 12px;">Install</span>
+    </div>
+  </div>
+
+  <!-- Section 1: Hero -->
+  <!-- Source: pm/research/landing-page/findings.md — Evil Martians hero pattern -->
+  <div class="section hero-center">
+    <span class="section-label">Hero</span>
+    <div class="badge-placeholder">Open Source · Free Forever</div>
+    <div class="headline">From idea to merged PR.<br>One plugin.</div>
+    <div class="subheadline">Structured AI workflows for product engineers — research, groom, build, and ship without leaving your editor.</div>
+
+    <div class="lifecycle-flow">
+      <div class="lifecycle-node">
+        <div class="node-icon">[Icon]</div>
+        <div class="node-label">Research</div>
+        <div class="node-desc">Market & competitor intel</div>
+      </div>
+      <div class="node-arrow">→</div>
+      <div class="lifecycle-node">
+        <div class="node-icon">[Icon]</div>
+        <div class="node-label">Groom</div>
+        <div class="node-desc">Scope, spec, break down</div>
+      </div>
+      <div class="node-arrow">→</div>
+      <div class="lifecycle-node">
+        <div class="node-icon">[Icon]</div>
+        <div class="node-label">Build</div>
+        <div class="node-desc">TDD, review gates</div>
+      </div>
+      <div class="node-arrow">→</div>
+      <div class="lifecycle-node">
+        <div class="node-icon">[Icon]</div>
+        <div class="node-label">Ship</div>
+        <div class="node-desc">PR, CI, auto-merge</div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="justify-content: center;">
+      <div class="btn btn-primary">Get Started →</div>
+      <div class="btn">★ Star on GitHub</div>
+    </div>
+
+    <div style="font-size: 10px; color: #bbb; margin-top: 8px; font-family: monospace;">
+      or run: claude plugin add productmemory
+    </div>
+
+    <div class="platform-bar">
+      <span>Works with:</span>
+      <span>Claude Code</span>
+      <span>Cursor</span>
+      <span>Codex</span>
+      <span>Gemini CLI</span>
+    </div>
+  </div>
+
+  <!-- Section 2: How It Works -->
+  <!-- Source: pm/research/landing-page/findings.md — 3-step explanation pattern -->
+  <div class="section">
+    <span class="section-label">How It Works</span>
+    <h2 style="text-align: center;">Your product lifecycle, structured</h2>
+    <p class="desc" style="text-align: center;">Every session builds on the last. Knowledge compounds over time.</p>
+
+    <div style="display: flex; gap: 16px; margin-top: 16px;">
+      <div style="flex: 1; text-align: center;">
+        <div class="placeholder" style="height: 48px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center;">1</div>
+        <h3>Start with an idea</h3>
+        <p style="font-size: 10px; color: #999;">Run /pm:groom with your idea. PM researches the market, checks competitors, and scopes the work.</p>
+      </div>
+      <div style="flex: 1; text-align: center;">
+        <div class="placeholder" style="height: 48px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center;">2</div>
+        <h3>Build with context</h3>
+        <p style="font-size: 10px; color: #999;">Groomed issues flow into dev with zero handoff. Research and scope carry through to implementation.</p>
+      </div>
+      <div style="flex: 1; text-align: center;">
+        <div class="placeholder" style="height: 48px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center;">3</div>
+        <h3>Ship with confidence</h3>
+        <p style="font-size: 10px; color: #999;">Review gates, TDD, CI monitoring, auto-merge. From groomed issue to merged PR in one session.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 3: Features Grid -->
+  <div class="section">
+    <span class="section-label">Features</span>
+    <h2 style="text-align: center;">Everything a product engineer needs</h2>
+    <p class="desc" style="text-align: center;">Six skills. One compounding knowledge base.</p>
+
+    <div class="features-grid" style="margin-top: 16px;">
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Research</h3>
+        <p>Competitor profiling, market analysis, customer evidence. Persisted and indexed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Strategy</h3>
+        <p>ICP, positioning, priorities, non-goals. Your product compass.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Groom</h3>
+        <p>Turn ideas into scoped, researched, sprint-ready issues with acceptance criteria.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Build</h3>
+        <p>TDD, parallel agents, debugging. Context from grooming flows into implementation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Review</h3>
+        <p>Multi-perspective code review: quality, PM, design, edge-cases.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">[Icon]</div>
+        <h3>Ship</h3>
+        <p>Push, PR, CI monitoring, auto-merge. Self-healing merge loop.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 4: Dogfooding Showcase -->
+  <!-- Source: pm/research/landing-page/findings.md — PostHog dogfooding pattern -->
+  <div class="section">
+    <span class="section-label">Dogfooding</span>
+    <h2 style="text-align: center;">Built with Product Memory</h2>
+    <p class="desc" style="text-align: center;">This plugin manages its own product lifecycle. Here's what that looks like.</p>
+
+    <div class="dogfood-grid" style="margin-top: 16px;">
+      <div class="dogfood-card">
+        <div class="dogfood-screenshot">[Groom Proposal Screenshot]</div>
+        <div class="dogfood-caption"><strong>Groom proposal</strong> — A real feature spec generated by PM for PM</div>
+      </div>
+      <div class="dogfood-card">
+        <div class="dogfood-screenshot">[Dashboard Screenshot]</div>
+        <div class="dogfood-caption"><strong>Knowledge base</strong> — Research, strategy, competitors, all indexed</div>
+      </div>
+      <div class="dogfood-card">
+        <div class="dogfood-screenshot">[Research Screenshot]</div>
+        <div class="dogfood-caption"><strong>Research findings</strong> — This landing page was researched by PM</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 5: Social Proof -->
+  <div class="section" style="text-align: center;">
+    <span class="section-label">Social Proof</span>
+    <div class="placeholder" style="display: inline-block; padding: 8px 20px;">
+      [GitHub Stars Badge] · [Open Source] · [Free Forever]
+    </div>
+    <p class="desc" style="margin-top: 12px;">Trusted by product engineers building real products.</p>
+  </div>
+
+  <!-- Section 6: Closing CTA -->
+  <div class="section hero-center" style="background: #fafafa;">
+    <span class="section-label">Closing CTA</span>
+    <h2 style="font-size: 20px;">Stop guessing. Start shipping.</h2>
+    <p class="desc">Install Product Memory and groom your first feature in 5 minutes.</p>
+    <div class="btn-row" style="justify-content: center;">
+      <div class="btn btn-primary">Install Free →</div>
+      <div class="btn">Read the Docs</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    Product Memory · Open Source · MIT License · GitHub
+  </div>
+
+</div>
+
+</body>
+</html>

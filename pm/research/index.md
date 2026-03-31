@@ -1,7 +1,7 @@
 ---
 type: research-index
 created: 2026-03-13
-updated: 2026-03-22
+updated: 2026-03-30
 ---
 
 # Research Index
@@ -14,3 +14,5 @@ updated: 2026-03-22
 | [PM+Dev Plugin Merge](pm-dev-merge/findings.md) | external | 17 sources | No AI coding tool bundles PM and dev workflows; product engineer role is growing; tight integration at the groom→dev handoff is where value lives |
 | [Groom-Centric Entry Point](groom-hero/findings.md) | external | 11 sources | No competitor requires a linear setup pipeline; cc-sdd and Kiro use single hero entry points; progressive disclosure research validates on-demand bootstrapping over prerequisite chains |
 | [Strategy Slide Deck](strategy-slide-deck/findings.md) | external | 7 sources | No PM tool generates strategy as a narrative slide deck; self-contained HTML with pure CSS/JS is simplest; 4-act narrative arc and MBB 7-question framework both map well to strategy.md sections |
+| [Shared Context — Team Knowledge Hub](shared-context/findings.md) | external | 26 sources | No AI tool shares product knowledge (only coding context); git + event sourcing beats CRDTs for async agent collaboration; per-seat $10-15/mo team tier; GitHub OAuth device flow for CLI auth; zero-config team detection from git remote is greenfield opportunity |
+| [Landing Page for productmemory.com](landing-page/findings.md) | external | 12 sources | Dev tool pages follow a narrow formula: centered hero, product screenshot, two CTAs, then social proof and features; dogfooding is a strong differentiator when shown concretely with real artifacts; low-KD SEO opportunity in "ai product discovery" via content hub structure |
