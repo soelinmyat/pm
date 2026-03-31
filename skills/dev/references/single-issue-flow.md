@@ -43,14 +43,14 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 7. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-8. **Create state file.** Derive the slug from the task (for XS: topic slug like `fix-typo`; for S+: will become the branch name slug after workspace setup). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
+8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
 |  | XS | S | M | L | XL |
 |---|---|---|---|---|---|
 | Issue tracking | — | — | Yes | Yes | Yes |
-| Worktree | — | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
+| Worktree | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
 | Groom readiness | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
 | Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
 | Spec review | — | — | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) |
@@ -66,9 +66,9 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | Review feedback | — | — | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` |
 | Retro | Yes | Yes | Yes | Yes | Yes |
 
-## Stage 2: Workspace (S/M/L/XL)
+## Stage 2: Workspace (all sizes)
 
-Set up an isolated git worktree. Make setup idempotent:
+Set up an isolated git worktree for every task — including XS. Worktree isolation prevents agents from mixing up branches, committing to the wrong branch, or stepping on parallel work. The overhead is seconds; the cost of a wrong-branch commit is much higher.
 
 1. Resolve context:
    - `REPO_ROOT=$(git rev-parse --show-toplevel)`
@@ -897,23 +897,7 @@ After code scan passes, automatically commit and merge. **No user prompt, no opt
 
 **Verification gate (mandatory before every merge):** Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely on recalled test results from earlier in the session. Evidence before claims, always. No "should pass" or "looks correct" -- run it, read it, then merge.
 
-#### XS path (no worktree, no branch — working directly on default branch)
-
-```bash
-# 1. Run tests (verification-before-completion)
-<project-test-command>
-
-# 2. Commit if there are real changes (stage specific files, never git add -A)
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add <specific-files>
-  git commit -m "<type>: <description>"
-fi
-
-# 3. Push
-git push origin $(git branch --show-current)
-```
-
-#### S path (worktree + feature branch)
+#### XS/S path (worktree + feature branch)
 
 ```bash
 # 1. Verify tests in feature worktree (verification-before-completion)
