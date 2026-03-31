@@ -151,7 +151,7 @@ For each unresolved thread:
 | Question (why did you do X?) | Reply with the answer, resolve the thread |
 | Suggestion (consider doing X) | Evaluate: if it improves the code, apply it. If not, reply explaining why, resolve the thread |
 | Design/taste decision (should we use A or B?) | **Surface to user** — don't auto-respond to subjective feedback |
-| Bot noise (Linear, dependabot, CI bots) | Skip — don't resolve, don't reply |
+| Bot noise (Linear, dependabot, CI bots, Codex) | Resolve directly — no reply needed, just resolve the thread so it doesn't block merge |
 
 **Reply format:**
 ```bash
@@ -364,7 +364,7 @@ Merged
 
 - NEVER use `--no-verify` to bypass hooks
 - NEVER force-merge. If `gh pr merge` fails, STOP and report.
-- NEVER merge with unresolved review threads (except bot noise)
+- NEVER merge with unresolved review threads
 - NEVER auto-respond to subjective/design review comments — surface to user
 - NEVER commit to {DEFAULT_BRANCH} directly
 - Stop after 2 failed fixes for the same problem (3 total tries), not on total attempt count
