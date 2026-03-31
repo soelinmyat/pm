@@ -23,7 +23,8 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Discover dashboard port — silent exit if no server
 PORT=$("$SCRIPT_DIR/find-dashboard-port.sh" "$PROJECT_ROOT" 2>/dev/null) || exit 0
 
-TS=$(date +%s%3N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || date +%s)
+# Epoch milliseconds — portable across macOS (BSD date) and Linux (GNU date)
+TS=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || echo "$(date +%s)000")
 
 # Fire-and-forget POST — background + discard output
 curl -s -o /dev/null -X POST "http://127.0.0.1:${PORT}/events" \
