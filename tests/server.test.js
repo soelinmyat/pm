@@ -1977,3 +1977,58 @@ test('resolvePort falls back to next port when hashed port is occupied', async (
     else delete process.env.PM_PROJECT_DIR;
   }
 });
+
+// ---------------------------------------------------------------------------
+// PM-060: Session route — current.html override
+// ---------------------------------------------------------------------------
+
+test('GET /session/{slug} serves current.html override when present', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/placeholder.md': '---\ntype: backlog-issue\nid: PM-TEST\ntitle: test\noutcome: test\nstatus: idea\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n',
+    '.pm/groom-sessions/my-feature.md': '---\ntopic: "My Feature"\nphase: research\nstarted: 2026-03-20\n---\n',
+    '.pm/sessions/groom-my-feature/current.html': '<html><body>OVERRIDE CONTENT</body></html>',
+  });
+  const { port, close } = await startDashboardServer(pmDir);
+  try {
+    const res = await httpGet(port, '/session/my-feature');
+    assert.equal(res.statusCode, 200);
+    assert.ok(res.body.includes('OVERRIDE CONTENT'), 'must serve current.html content');
+    assert.ok(!res.body.includes('Phase:'), 'must not render state view when override exists');
+  } finally { await close(); cleanup(); }
+});
+
+test('GET /session/{slug} falls through to state view when no current.html', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/placeholder.md': '---\ntype: backlog-issue\nid: PM-TEST\ntitle: test\noutcome: test\nstatus: idea\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n',
+    '.pm/groom-sessions/my-feature.md': '---\ntopic: "My Feature"\nphase: research\nstarted: 2026-03-20\n---\n',
+  });
+  const { port, close } = await startDashboardServer(pmDir);
+  try {
+    const res = await httpGet(port, '/session/my-feature');
+    assert.equal(res.statusCode, 200);
+    assert.ok(res.body.includes('My Feature'), 'must render state view with topic');
+  } finally { await close(); cleanup(); }
+});
+
+test('GET /session/{slug} path traversal blocked', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/placeholder.md': '---\ntype: backlog-issue\nid: PM-TEST\ntitle: test\noutcome: test\nstatus: idea\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n',
+  });
+  const { port, close } = await startDashboardServer(pmDir);
+  try {
+    const res = await httpGet(port, '/session/..%2F..%2Fetc%2Fpasswd');
+    assert.equal(res.statusCode, 404);
+  } finally { await close(); cleanup(); }
+});
+
+test('GET /session/{slug} returns 404 for nonexistent session', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/placeholder.md': '---\ntype: backlog-issue\nid: PM-TEST\ntitle: test\noutcome: test\nstatus: idea\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n',
+  });
+  const { port, close } = await startDashboardServer(pmDir);
+  try {
+    const res = await httpGet(port, '/session/nonexistent');
+    assert.equal(res.statusCode, 404);
+    assert.ok(res.body.includes('No session found'), 'must show session not found message');
+  } finally { await close(); cleanup(); }
+});

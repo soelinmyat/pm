@@ -2222,6 +2222,16 @@ function handleSessionPage(res, pmDir, slug) {
   const rootDir = path.resolve(pmDir, '..');
   const pmRoot = path.resolve(rootDir, '.pm');
 
+  // AC2: Check for current.html override (enables PM-061 per-phase HTML)
+  const sessionsDir = path.resolve(pmRoot, 'sessions');
+  const overridePath = path.join(sessionsDir, 'groom-' + slug, 'current.html');
+  if (overridePath.startsWith(sessionsDir + path.sep) && fs.existsSync(overridePath)) {
+    const html = fs.readFileSync(overridePath, 'utf-8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
   // Find the session — check groom first, then dev
   let sessionType = null;
   let sessionData = null;
