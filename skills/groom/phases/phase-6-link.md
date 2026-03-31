@@ -1,6 +1,10 @@
 ### Phase 6: Link (optional)
 
-1. Check if Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available).
+1. Check if Linear is configured AND available:
+   - Read `.pm/config.json` for `linear: true`
+   - If configured, verify Linear MCP tools are available by checking if `mcp__plugin_linear_linear__list_teams` (or any Linear MCP tool) exists in the available tools
+   - If configured but MCP tools are not available, warn: "Linear is configured but Linear MCP server is not connected. Issues will be created as local backlog files instead. To enable Linear, install the Linear MCP plugin."
+   - Fall through to the local backlog path if Linear MCP is unavailable
 
 2. **If Linear configured:**
    - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL, producing broken links like `https://linear.app/.../pm/research/...`. Before constructing the issue description:

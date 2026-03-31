@@ -77,7 +77,9 @@ git log HEAD..origin/main --oneline  # Should be empty (up to date)
 git worktree list
 # If worktrees other than main exist: list them, ask user whether to remove
 
-# 4. GitHub auth — needed for PRs
+# 4. GitHub CLI — needed for PRs
+command -v gh >/dev/null 2>&1
+# If missing: STOP, tell user to install from https://cli.github.com
 gh auth status 2>&1
 # If not authenticated: STOP, tell user to run `gh auth login`
 

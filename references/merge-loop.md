@@ -4,6 +4,17 @@ Shared reference for the self-healing PR merge flow. Used by the `/merge` comman
 
 **Goal:** Take a PR from its current state to merged, fixing whatever comes up along the way.
 
+## Prerequisites
+
+Before entering the merge loop, verify `gh` is available and authenticated:
+
+```bash
+command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required for merge loop. Install: https://cli.github.com"; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "GitHub CLI not authenticated. Run: gh auth login"; exit 1; }
+```
+
+If either check fails, tell the user and stop. The merge loop cannot function without `gh`.
+
 ---
 
 ## Step 1: Orient

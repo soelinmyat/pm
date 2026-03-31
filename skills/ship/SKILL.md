@@ -25,6 +25,21 @@ All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
 
 ---
 
+## Prerequisites
+
+Before starting, verify required tools are available:
+
+```bash
+command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required for PR creation and merging. Install: https://cli.github.com"; exit 1; }
+command -v git >/dev/null 2>&1 || { echo "git is required."; exit 1; }
+```
+
+If `gh` is missing, tell the user: "Ship requires GitHub CLI. Install it from https://cli.github.com and run `gh auth login`."
+
+If `gh auth status` fails, tell the user: "GitHub CLI is not authenticated. Run `gh auth login` first."
+
+---
+
 # Phase 1: PR Preparation
 
 ## Step 1: Pre-flight

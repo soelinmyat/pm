@@ -4,6 +4,18 @@ This reference is loaded on-demand by the dev skill router when handling a singl
 
 ---
 
+## Stage 0.5: Tool Check
+
+For S+ tasks (which create branches and PRs), verify `gh` early:
+
+```bash
+command -v gh >/dev/null 2>&1 || echo "WARN: GitHub CLI (gh) not found. PR creation will fail. Install: https://cli.github.com"
+```
+
+This is a warning, not a blocker — XS tasks don't need `gh` (they push directly). For S+ tasks, if `gh` is missing, warn the user before starting work so they can install it rather than discovering at PR creation time.
+
+---
+
 ## Stage 1: Intake
 
 1. **Load learnings** — Read the learnings file. Default path: `learnings.md` at repo root. Configurable via `learnings_path` in `dev/instructions.md`. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.

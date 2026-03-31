@@ -11,6 +11,19 @@ This is the final step after `/ship` has merged work into `main`. No code review
 
 ---
 
+## Prerequisites
+
+Before starting, verify required tools:
+
+```bash
+command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required. Install: https://cli.github.com"; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "GitHub CLI not authenticated. Run: gh auth login"; exit 1; }
+```
+
+If `gh` is missing or not authenticated, tell the user and stop. Deploy cannot proceed without it.
+
+---
+
 ## Step 1: Sync Main
 
 Ensure local `main` matches remote before creating the PR.

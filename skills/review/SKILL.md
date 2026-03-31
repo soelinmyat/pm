@@ -14,6 +14,18 @@ Multi-perspective code review with auto-fix. Runs up to five review agents in pa
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
+## Prerequisites
+
+If the review needs to post PR comments (code-review agent), verify `gh`:
+
+```bash
+command -v gh >/dev/null 2>&1 || echo "WARN: GitHub CLI (gh) not found. PR comments will be skipped. Install: https://cli.github.com"
+```
+
+`gh` is optional for review — the review agents can still run and produce findings without it. PR commenting is the only feature that requires `gh`.
+
+---
+
 ## Default Branch
 
 Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:

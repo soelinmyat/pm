@@ -147,7 +147,7 @@ if [ "$INSTALLED_VERSION" != "$LATEST_VERSION" ]; then
   CACHE_DIR="$HOME/.claude/plugins/cache/pm/pm"
   UPDATED=false
 
-  if [ -d "$CACHE_DIR" ]; then
+  if [ -d "$CACHE_DIR" ] && command -v rsync >/dev/null 2>&1; then
     TMPDIR=$(mktemp -d)
     if git clone --depth 1 --branch "$LATEST_TAG" "$REPO_URL" "$TMPDIR" >/dev/null 2>&1; then
       rsync -a --delete \

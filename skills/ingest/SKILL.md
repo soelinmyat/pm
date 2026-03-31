@@ -5,6 +5,18 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 # pm:ingest
 
+## Prerequisites
+
+Ingest uses `node` for artifact validation at the end of the flow:
+
+```bash
+command -v node >/dev/null 2>&1 || echo "WARN: node not found. Artifact validation will be skipped."
+```
+
+Node is optional — ingest can still import evidence without it. Validation is a quality check, not a blocker.
+
+---
+
 ## Purpose
 
 Import customer evidence into PM.

@@ -9,6 +9,16 @@ description: "Sync plugin source to Claude Code cache for immediate testing"
 
 Copy the plugin source code to the Claude Code plugin cache so changes take effect immediately without waiting for a publish cycle.
 
+## Prerequisites
+
+```bash
+command -v rsync >/dev/null 2>&1 || { echo "rsync is required for plugin sync. Install: brew install rsync (macOS) or apt install rsync (Linux)"; exit 1; }
+```
+
+If `rsync` is missing, tell the user how to install it for their platform.
+
+---
+
 ## Flow
 
 1. Determine the source directory. Check in order:
