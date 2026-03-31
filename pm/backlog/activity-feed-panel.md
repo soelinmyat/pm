@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-091"
 title: "Activity Feed Panel on Dashboard Home"
 outcome: "The dashboard home page shows a live-updating activity feed in a right sidebar panel — the user sees what every terminal is doing at a glance"
-status: approved
+status: done
 parent: "sse-event-bus"
 children: []
 labels:

@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-088"
 title: "SSE Event Bus + Activity Feed"
 outcome: "The product engineer monitors all active terminal sessions from the dashboard without switching windows — key milestones are surfaced proactively so nothing is missed"
-status: approved
+status: done
 parent: null
 children:
   - "sse-event-bus-core"
