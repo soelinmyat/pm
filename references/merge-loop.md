@@ -13,11 +13,23 @@ Detect the PR and assess current state.
 ```bash
 # Find PR from current branch (or from arg)
 gh pr view --json number,url,title,state,mergeStateStatus,statusCheckRollup,reviewDecision
+
+# ALWAYS query thread count — this is the #1 reason PRs get stuck
+gh api graphql -f query='
+query {
+  repository(owner: "{owner}", name: "{repo}") {
+    pullRequest(number: PR_NUMBER) {
+      reviewThreads(first: 100) {
+        nodes { isResolved }
+      }
+    }
+  }
+}' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
 ```
 
 - If no PR exists: STOP. "No PR found for this branch."
 - If PR is closed/merged: STOP. "PR #N is already {state}."
-- Print current status summary:
+- Print current status summary with ALL blockers:
 
 ```
 Merge Status — PR #{N}: {title}
@@ -26,6 +38,16 @@ Merge Status — PR #{N}: {title}
   Conflicts:   {clean / conflicted}
   Threads:     {N unresolved} (blocks merge if repo requires conversation resolution)
 ```
+
+<HARD-GATE>
+When `mergeStateStatus` is `BLOCKED`, diagnose the ACTUAL blocker before reporting.
+Check in this order (most common first):
+1. Unresolved conversations (thread count > 0)
+2. New review comments since last check
+3. Missing review approval
+4. Failed or pending CI checks
+Do NOT guess — query each one. The most common blocker is unresolved conversations, not missing approval.
+</HARD-GATE>
 
 ---
 
