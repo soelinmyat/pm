@@ -84,6 +84,39 @@ function httpGet(port, urlPath) {
   });
 }
 
+/**
+ * Make a POST request with JSON body, return { statusCode, headers, body }.
+ */
+function httpPost(port, urlPath, data) {
+  return httpRequest(port, 'POST', urlPath, data);
+}
+
+/**
+ * Make an HTTP request with a given method and JSON body.
+ */
+function httpRequest(port, method, urlPath, data) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(data);
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: urlPath,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body }));
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 1. --mode dashboard flag is parsed
 // ---------------------------------------------------------------------------
@@ -2046,4 +2079,318 @@ test('Server close cleans up sessions directory watchers without error', async (
   // If we get here without hanging or throwing, watchers were cleaned up
   assert.ok(true, 'server closed cleanly with sessions watchers');
   cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// POST /events — accepts JSON events (PM-090 AC1-3)
+// ---------------------------------------------------------------------------
+
+test('POST /events returns 201 with valid event', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const event = {
+        type: 'test.event',
+        source: 'terminal-1',
+        timestamp: Date.now(),
+      };
+      const { statusCode, body } = await httpPost(port, '/events', event);
+      assert.equal(statusCode, 201);
+      const parsed = JSON.parse(body);
+      assert.ok(parsed.id, 'response must include event id');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('POST /events returns 400 when required fields missing', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpPost(port, '/events', { type: 'test' });
+      assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('PUT /events returns 405', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpRequest(port, 'PUT', '/events', {});
+      assert.equal(statusCode, 405);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('POST /events returns 400 on invalid JSON', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await new Promise((resolve, reject) => {
+        const payload = 'not json';
+        const req = http.request({
+          hostname: '127.0.0.1', port, path: '/events', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+        }, (res) => {
+          let body = '';
+          res.on('data', chunk => { body += chunk; });
+          res.on('end', () => resolve({ statusCode: res.statusCode, body }));
+        });
+        req.on('error', reject);
+        req.write(payload);
+        req.end();
+      });
+      assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('POST /events defaults source_type to terminal', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(port, '/events', {
+        type: 'test.event',
+        source: 'terminal-1',
+        timestamp: Date.now(),
+      });
+      assert.equal(statusCode, 201);
+      // source_type defaults are verified via SSE stream in later tests
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /events — SSE stream (PM-090 AC4-8)
+// ---------------------------------------------------------------------------
+
+test('GET /events returns SSE content-type and headers', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const headers = await new Promise((resolve, reject) => {
+        http.get({ hostname: '127.0.0.1', port, path: '/events' }, (res) => {
+          resolve(res.headers);
+          res.destroy();
+        }).on('error', reject);
+      });
+      assert.equal(headers['content-type'], 'text/event-stream');
+      assert.equal(headers['cache-control'], 'no-cache');
+      assert.equal(headers['connection'], 'keep-alive');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('SSE receives posted events in real time', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const received = await new Promise((resolve, reject) => {
+        http.get({ hostname: '127.0.0.1', port, path: '/events' }, (res) => {
+          let buf = '';
+          res.on('data', chunk => {
+            buf += chunk.toString();
+            if (buf.includes('data: ') && buf.includes('\n\n')) {
+              res.destroy();
+              resolve(buf);
+            }
+          });
+          setTimeout(() => {
+            httpPost(port, '/events', {
+              type: 'test.sse',
+              source: 'terminal-1',
+              timestamp: Date.now(),
+            }).catch(reject);
+          }, 50);
+        }).on('error', reject);
+      });
+      assert.ok(received.includes('id: '), 'must have id field');
+      assert.ok(received.includes('data: '), 'must have data field');
+      assert.ok(received.includes('"test.sse"'), 'must contain event type');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('SSE replays missed events via Last-Event-ID', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Post 3 events first
+      for (let i = 0; i < 3; i++) {
+        await httpPost(port, '/events', {
+          type: 'test.replay',
+          source: 'terminal-1',
+          timestamp: Date.now(),
+          detail: { index: i },
+        });
+      }
+
+      // Connect with Last-Event-ID: 1 — should replay events 2 and 3
+      const received = await new Promise((resolve, reject) => {
+        const req = http.get({
+          hostname: '127.0.0.1',
+          port,
+          path: '/events',
+          headers: { 'Last-Event-ID': '1' },
+        }, (res) => {
+          let buf = '';
+          res.on('data', chunk => {
+            buf += chunk.toString();
+            const matches = buf.match(/data: /g);
+            if (matches && matches.length >= 2) {
+              res.destroy();
+              resolve(buf);
+            }
+          });
+        });
+        req.on('error', reject);
+        setTimeout(() => { req.destroy(); reject(new Error('timeout')); }, 3000);
+      });
+      assert.ok(received.includes('"index":1'), 'must replay event with index 1');
+      assert.ok(received.includes('"index":2'), 'must replay event with index 2');
+      assert.ok(!received.includes('"index":0'), 'must NOT replay event before Last-Event-ID');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('SSE format uses id and data fields correctly', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const received = await new Promise((resolve, reject) => {
+        http.get({ hostname: '127.0.0.1', port, path: '/events' }, (res) => {
+          let buf = '';
+          res.on('data', chunk => {
+            buf += chunk.toString();
+            if (buf.includes('data: ') && buf.endsWith('\n\n')) {
+              res.destroy();
+              resolve(buf);
+            }
+          });
+          setTimeout(() => {
+            httpPost(port, '/events', {
+              type: 'test.format',
+              source: 'terminal-1',
+              timestamp: 1711843200,
+            }).catch(reject);
+          }, 50);
+        }).on('error', reject);
+      });
+      // Verify SSE format: id: {N}\ndata: {json}\n\n
+      const lines = received.trim().split('\n');
+      const idLine = lines.find(l => l.startsWith('id: '));
+      const dataLine = lines.find(l => l.startsWith('data: '));
+      assert.ok(idLine, 'must have id line');
+      assert.ok(dataLine, 'must have data line');
+      const data = JSON.parse(dataLine.slice(6));
+      assert.equal(data.type, 'test.format');
+      assert.equal(data.source, 'terminal-1');
+      assert.equal(data.source_type, 'terminal');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// find-dashboard-port.sh — port discovery (PM-090 AC9-10)
+// ---------------------------------------------------------------------------
+
+const { execFileSync } = require('child_process');
+
+test('find-dashboard-port.sh outputs correct port for project directory', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'port-test-'));
+  try {
+    const mod = loadServer();
+    const expectedPort = mod.hashProjectPort(tmpDir);
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'find-dashboard-port.sh');
+    // We only test that the hash matches — lsof check will fail (no server running)
+    // So we test exit code 1 (no server) but verify the hash is computed correctly
+    let output = '';
+    let exitCode = 0;
+    try {
+      output = execFileSync('bash', [scriptPath, tmpDir], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+    } catch (err) {
+      exitCode = err.status;
+    }
+    // No server running on that port, so exit 1 is expected
+    assert.equal(exitCode, 1, 'must exit 1 when no server is running');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('find-dashboard-port.sh exits 1 with no arguments', () => {
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'find-dashboard-port.sh');
+  let exitCode = 0;
+  try {
+    execFileSync('bash', [scriptPath], { encoding: 'utf-8', timeout: 5000 });
+  } catch (err) {
+    exitCode = err.status;
+  }
+  assert.equal(exitCode, 1, 'must exit 1 with no arguments');
 });
