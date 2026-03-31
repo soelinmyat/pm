@@ -1,5 +1,10 @@
 ### Phase 3: Research
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-groom-$$}" "{\"phase\":\"research\"}"
+```
+
 <HARD-GATE>
 Research is required before scoping. Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
 If the research yields "nothing relevant," that is a valid finding — it is different from never looking.
