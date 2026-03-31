@@ -214,15 +214,27 @@ The agent does NOT stop after an arbitrary number of attempts. It keeps going as
 
 ## Step 4: Merge
 
-**If auto-merge was armed in Step 2:** GitHub merges automatically when all gates pass. The agent must confirm the merge actually happened:
+**If auto-merge was armed in Step 2:** GitHub merges automatically when all gates pass. The agent MUST wait for the merge to complete — do NOT report "auto-merge armed" and exit.
+
+<HARD-GATE>
+Do NOT exit the merge loop until `gh pr view --json state --jq .state` returns `"MERGED"`.
+Reporting "auto-merge armed, gates green" without confirming the merge is the #1 cause of stale local branches — Steps 5-6 (issue tracker + cleanup) never run.
+</HARD-GATE>
 
 ```bash
-# Verify PR was merged
+# Poll until PR is merged (auto-merge typically completes within seconds)
+for i in $(seq 1 12); do
+  STATE=$(gh pr view --json state --jq .state)
+  if [ "$STATE" = "MERGED" ]; then break; fi
+  sleep 10
+done
+
+# Final check
 gh pr view --json state --jq .state
 # Must return "MERGED"
 ```
 
-If state is still `"OPEN"`: auto-merge is armed but blocked. **Loop back to Step 3** — do not report success, do not proceed to cleanup. Diagnose the blocker:
+If state is still `"OPEN"` after polling: auto-merge is armed but blocked. **Loop back to Step 3** — do not report success, do not proceed to cleanup. Diagnose the blocker:
 1. **Unresolved conversations** — most common. Check thread count first.
 2. **New review comments** arrived after the fix loop completed (e.g., from Codex review that was still in progress).
 3. **Pending approvals** or **failing checks**.
