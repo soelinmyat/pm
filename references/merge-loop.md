@@ -112,8 +112,14 @@ If any check failed:
 - Wait for new CI run to complete
 
 If checks are pending:
-- Watch in background: `gh run watch [run-id] --exit-status` (use `run_in_background: true`)
-- Continue checking other gates while CI runs
+- Use `gh pr checks --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
+- Continue checking other gates (threads, reviews) while CI runs in the background.
+
+<HARD-GATE>
+NEVER poll CI status in a loop. Do NOT repeatedly call `gh pr checks` with sleep between calls.
+Use `gh pr checks --watch` (background) or `gh run watch [run-id] --exit-status` (background) instead.
+Tight polling wastes tokens, floods the terminal, and provides no benefit over `--watch`.
+</HARD-GATE>
 
 **3. Review comments**
 
