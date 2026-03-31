@@ -165,8 +165,7 @@ if [ "$INSTALLED_VERSION" != "$LATEST_VERSION" ]; then
   if [ "$UPDATED" = true ]; then
     echo ""
     echo "⚡ PM plugin updated: v${INSTALLED_VERSION} → v${LATEST_VERSION}"
-    echo "   Run /reload-plugins now to apply."
-    echo "   ⚠️  Skills will not work until you reload."
+    echo "   ⚠️  Restart this session to apply. Skills will not work until you restart."
     echo ""
   else
     echo "PM plugin update available: v${INSTALLED_VERSION} → v${LATEST_VERSION}. Run /plugin to update."
