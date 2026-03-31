@@ -143,5 +143,32 @@ fi
 LATEST_VERSION="${LATEST_TAG#v}"
 
 if [ "$INSTALLED_VERSION" != "$LATEST_VERSION" ]; then
-  echo "PM plugin update available: v${INSTALLED_VERSION} → v${LATEST_VERSION}. Run /plugin to update."
+  # Auto-update the plugin cache
+  CACHE_DIR="$HOME/.claude/plugins/cache/pm/pm"
+  UPDATED=false
+
+  if [ -d "$CACHE_DIR" ]; then
+    TMPDIR=$(mktemp -d)
+    if git clone --depth 1 --branch "$LATEST_TAG" "$REPO_URL" "$TMPDIR" >/dev/null 2>&1; then
+      rsync -a --delete \
+        --exclude='.git' \
+        --exclude='pm/' \
+        --exclude='.pm/' \
+        --exclude='node_modules/' \
+        --exclude='.planning/' \
+        --exclude='.superpowers/' \
+        "$TMPDIR/" "$CACHE_DIR/" 2>/dev/null && UPDATED=true
+    fi
+    rm -rf "$TMPDIR"
+  fi
+
+  if [ "$UPDATED" = true ]; then
+    echo ""
+    echo "⚡ PM plugin updated: v${INSTALLED_VERSION} → v${LATEST_VERSION}"
+    echo "   Run /reload-plugins now to apply."
+    echo "   ⚠️  Skills will not work until you reload."
+    echo ""
+  else
+    echo "PM plugin update available: v${INSTALLED_VERSION} → v${LATEST_VERSION}. Run /plugin to update."
+  fi
 fi
