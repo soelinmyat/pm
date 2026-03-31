@@ -205,7 +205,61 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
    - Max **3 iterations** of the team review loop
 3. If iteration 3 still has blocking issues, escalate to the bar raiser with unresolved items flagged.
 4. Advisory findings are accumulated and surfaced to the user in Phase 5.8.
-5. Update state:
+5. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+   Write `.pm/sessions/groom-{slug}/current.html` with:
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Team Review"
+   - `{STEPPER_HTML}`: `team-review` as current; `intake` through `groom` as completed
+   - `{CONTENT}`:
+
+     ```html
+     <h2>Team Review</h2>
+     <p>Iteration {N} of 3</p>
+
+     <div class="verdict-row">
+       <div class="verdict-card">
+         <div class="role">Product Manager</div>
+         <div class="verdict">{pm_verdict}</div>
+       </div>
+       <div class="verdict-card">
+         <div class="role">Competitive Strategist</div>
+         <div class="verdict">{competitive_verdict}</div>
+       </div>
+       <div class="verdict-card">
+         <div class="role">Engineering Manager</div>
+         <div class="verdict">{em_verdict}</div>
+       </div>
+       <!-- Include Design card only if design reviewer was dispatched -->
+       <div class="verdict-card">
+         <div class="role">Design Reviewer</div>
+         <div class="verdict">{design_verdict}</div>
+       </div>
+     </div>
+
+     <h3>Blocking Issues</h3>
+     <ol>
+       <li>{blocking issue 1}</li>
+       <!-- or <p>None — all resolved</p> -->
+     </ol>
+
+     <details>
+       <summary>Advisory Items ({count})</summary>
+       <ul>
+         <li>{advisory 1}</li>
+       </ul>
+     </details>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+6. Update state:
 
 ```yaml
 phase: team-review
