@@ -195,7 +195,13 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 
 3. Report the PR URL
 
-4. **Request Codex review (if configured):**
+4. **Emit event — PR created:**
+   ```bash
+   SLUG=$(git branch --show-current | sed 's|^feat/||;s|^fix/||;s|^chore/||')
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "pr_created" "${SLUG:-ship-$$}" "{\"pr_number\":${PR_NUMBER},\"url\":\"${PR_URL}\"}"
+   ```
+
+5. **Request Codex review (if configured):**
    Check `dev/instructions.md` for `codex_review: true`. If enabled:
    ```bash
    gh pr comment $PR_NUMBER --body "@codex review"
@@ -214,6 +220,12 @@ Invoke the Skill tool: skill: "code-review:code-review", args: "[PR_NUMBER]"
 
 This posts findings as GitHub PR comments. No auto-fix needed — the findings are for the reviewer to see.
 
+After the code review completes, emit the review event:
+```bash
+SLUG=$(git branch --show-current | sed 's|^feat/||;s|^fix/||;s|^chore/||')
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "review_done" "${SLUG:-ship-$$}" "{\"pr_number\":${PR_NUMBER}}"
+```
+
 ---
 
 ## Step 7: Monitor CI + Auto-fix (Pre-Merge)
@@ -231,6 +243,16 @@ This posts findings as GitHub PR comments. No auto-fix needed — the findings a
 ### Handle CI result
 
 **If conclusion is "success":** Continue to Phase 2 (Gate Monitoring).
+
+After determining the CI result, emit the appropriate event:
+```bash
+SLUG=$(git branch --show-current | sed 's|^feat/||;s|^fix/||;s|^chore/||')
+if [ "$CI_CONCLUSION" = "success" ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "tests_passed" "${SLUG:-ship-$$}" "{\"pr_number\":${PR_NUMBER}}"
+else
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "tests_failed" "${SLUG:-ship-$$}" "{\"pr_number\":${PR_NUMBER},\"conclusion\":\"${CI_CONCLUSION}\"}"
+fi
+```
 
 **If conclusion is "failure", "timed_out", or "cancelled":**
 
@@ -277,6 +299,14 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 ## Resume Instructions
 - Next action: [single immediate step]
 - Context: [PR #, gate status, unresolved thread id/file:line]
+```
+
+### Emit merged event
+
+Before printing the final report, emit the merged event:
+```bash
+SLUG=$(git branch --show-current | sed 's|^feat/||;s|^fix/||;s|^chore/||')
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "merged" "${SLUG:-ship-$$}" "{\"pr_number\":${PR_NUMBER},\"target\":\"${DEFAULT_BRANCH}\"}"
 ```
 
 ### Final Report

@@ -46,6 +46,11 @@
    Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
    Do not mention this step to the user.
 
+5.5. **Emit event — groom complete:**
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "groom_complete" "${SLUG:-groom-$$}" "{\"issue_count\":${ISSUE_COUNT},\"topic\":\"${TOPIC}\"}"
+   ```
+
 6. **Update state:**
 
 ```yaml

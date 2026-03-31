@@ -1,5 +1,10 @@
 ### Phase 1: Intake
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-groom-$$}" "{\"phase\":\"intake\"}"
+```
+
 **Config bootstrap (silent).** Before anything else in this phase:
 
 1. If `.pm/config.json` does not exist:

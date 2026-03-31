@@ -90,6 +90,11 @@ Store the tier in the groom session state file:
 tier: quick | standard | full
 ```
 
+After storing the tier, emit the groom started event:
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "groom_started" "${SLUG:-groom-$$}" "{\"topic\":\"${TOPIC}\",\"tier\":\"${TIER}\"}"
+```
+
 ### Bar raiser verdict by tier
 
 Quick and standard tiers skip bar raiser, so the groom session ends without a `bar_raiser.verdict`. For downstream consumers (like `/dev` groom detection):

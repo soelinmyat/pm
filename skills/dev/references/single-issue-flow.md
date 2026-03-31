@@ -44,6 +44,10 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
 8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
+9. **Emit event — dev started:**
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "dev_started" "${SLUG:-dev-$$}" "{\"title\":\"${TASK_TITLE}\",\"size\":\"${SIZE}\"}"
+   ```
 
 ## Stage Routing by Size
 
@@ -614,6 +618,11 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 
 ## Stage 5: Implement — Inside-Out TDD
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-dev-$$}" "{\"phase\":\"implement\"}"
+```
+
 **Always use `dev:subagent-dev`** to execute plan tasks. Do not ask the user — dispatch agents for independent tasks automatically. Delegate unit-level RED-GREEN-REFACTOR to `dev:tdd`.
 
 ### Sub-agent parallelism budget
@@ -851,6 +860,11 @@ After QA completes, update `.pm/dev-sessions/{slug}.md`:
 
 ## Stage 7: Finish
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-dev-$$}" "{\"phase\":\"finish\"}"
+```
+
 ### Code Scan Gate (XS/S — HARD GATE)
 
 <HARD-GATE>
@@ -896,6 +910,15 @@ After code scan passes, automatically commit and merge. **No user prompt, no opt
 **Repo policy check:** If the repo requires PRs (branch protection detected at intake, or pre-push hooks reject direct pushes), use the M/L/XL PR flow instead of direct merge. Log: "XS/S: branch protection detected, using PR flow."
 
 **Verification gate (mandatory before every merge):** Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely on recalled test results from earlier in the session. Evidence before claims, always. No "should pass" or "looks correct" -- run it, read it, then merge.
+
+After the verification test run, emit the result:
+```bash
+if [ $TEST_EXIT_CODE -eq 0 ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "tests_passed" "${SLUG:-dev-$$}" "{\"phase\":\"verification\"}"
+else
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "tests_failed" "${SLUG:-dev-$$}" "{\"phase\":\"verification\"}"
+fi
+```
 
 #### XS/S path (worktree + feature branch)
 
