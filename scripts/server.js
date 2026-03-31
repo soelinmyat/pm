@@ -1150,6 +1150,67 @@ a.groom-session:hover { background: #1e2240; }
   .main-content { margin-left: 0; }
   .app-layout { flex-direction: column; }
 }
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 0.625rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+  max-width: 320px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: toast-in 300ms ease-out forwards;
+  pointer-events: auto;
+}
+.toast-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.toast-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.toast.toast-out {
+  animation: toast-out 200ms ease-in forwards;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .toast.toast-out {
+    animation: none;
+    opacity: 0;
+  }
+}
 `;
 
 // ========== Dashboard HTML Shell ==========
@@ -1205,6 +1266,7 @@ ${bodyContent}
     </div>
 ${sidebarSlot || ''}
   </main>
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
 </div>
 <script>
 (function() {
@@ -1229,6 +1291,79 @@ ${sidebarSlot || ''}
   btn.addEventListener('click', function() {
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
+
+  // ---- Toast Notifications (PM-092) ----
+  // Static trusted SVG icons per milestone type (safe for innerHTML — not user input)
+  var TOAST_ICONS = {
+    tests_passed: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+    pr_created: '<svg viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v8m0 0a2 2 0 104 0M12 14V6m0 0a2 2 0 10-4 0"/></svg>',
+    review_done: '<svg viewBox="0 0 16 16" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8.5l2 2 3.5-4"/></svg>',
+    merged: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v4a4 4 0 004 4h4M8 10l4-4M8 10l4 4"/></svg>'
+  };
+  var TOAST_LABELS = {
+    tests_passed: 'Tests passed',
+    pr_created: 'PR created',
+    review_done: 'Review done',
+    merged: 'Merged'
+  };
+
+  var toastContainer = document.getElementById('toast-container');
+  var activeToasts = [];
+  var MAX_TOASTS = 3;
+
+  function showToast(eventData) {
+    if (!TOAST_ICONS[eventData.type]) return;
+    var msg = (eventData.detail && eventData.detail.message) || TOAST_LABELS[eventData.type];
+    var words = msg.split(/\\s+/).slice(0, 10);
+    msg = words.join(' ');
+
+    while (activeToasts.length >= MAX_TOASTS) {
+      dismissToast(activeToasts[0]);
+    }
+
+    var el = document.createElement('div');
+    el.className = 'toast';
+    var iconSpan = document.createElement('span');
+    iconSpan.className = 'toast-icon';
+    // Safe: TOAST_ICONS values are static trusted SVG strings, keyed by validated type
+    iconSpan.innerHTML = TOAST_ICONS[eventData.type];
+    var textSpan = document.createElement('span');
+    textSpan.textContent = msg;
+    el.appendChild(iconSpan);
+    el.appendChild(textSpan);
+    toastContainer.appendChild(el);
+
+    var duration = Math.min(Math.max(words.length * 500 + 1000, 3000), 5000);
+    var entry = { el: el, timer: null };
+    activeToasts.push(entry);
+    entry.timer = setTimeout(function() { dismissToast(entry); }, duration);
+  }
+
+  function dismissToast(entry) {
+    if (!entry || !entry.el) return;
+    // Remove from active list immediately to prevent re-dismissal from queue loop
+    activeToasts = activeToasts.filter(function(t) { return t !== entry; });
+    clearTimeout(entry.timer);
+    if (!entry.el.parentNode) return;
+    entry.el.classList.add('toast-out');
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var removalDelay = reducedMotion ? 0 : 200;
+    setTimeout(function() {
+      if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+    }, removalDelay);
+  }
+
+  if (typeof EventSource !== 'undefined') {
+    var evtSource = new EventSource('/events');
+    evtSource.onmessage = function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (TOAST_ICONS[data.type]) {
+          showToast(data);
+        }
+      } catch(err) {}
+    };
+  }
 })();
 </script>
 <script>
