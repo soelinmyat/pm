@@ -102,9 +102,9 @@ issues:
    Read `.pm/groom-sessions/{slug}.md` and parse the frontmatter. If the file is missing or the frontmatter cannot be parsed, log a warning:
    > "Could not read session state for learning extraction — skipping."
 
-   and proceed to step 9.
+   and proceed to step 10.
 
-   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 9 with no output.
+   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 10 with no output.
 
    | # | Check | Threshold | Learning text | Category |
    |---|-------|-----------|---------------|----------|
@@ -131,7 +131,21 @@ issues:
 
    This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 7.
 
-9. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
+9. **Clean up companion directory.** If the visual companion was active, delete the screen directory to prevent stale files from accumulating:
+
+   ```bash
+   COMPANION_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.pm/sessions/groom-{slug}"
+   if [ -d "$COMPANION_DIR" ]; then
+     rm -rf "$COMPANION_DIR"
+   fi
+   ```
+
+   - Replace `{slug}` with the session's actual slug.
+   - This deletes only the companion screen directory (`.pm/sessions/groom-{slug}/`), NOT the state file (`.pm/groom-sessions/{slug}.md`).
+   - If the directory does not exist (companion was never activated), this step does nothing.
+   - This step is silent — no user prompt, no output.
+
+10. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
