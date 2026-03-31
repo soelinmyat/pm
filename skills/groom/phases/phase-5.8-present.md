@@ -61,6 +61,44 @@ Before opening the proposal, verify these three things:
 
 If any check fails, fix it before proceeding.
 
+#### Step 1.7: Companion screen
+
+Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+Write `.pm/sessions/groom-{slug}/current.html` with:
+
+- `{TOPIC}`: the topic from groom state
+- `{PHASE_LABEL}`: "Presentation"
+- `{STEPPER_HTML}`: `present` as current; all prior phases as completed
+- `{CONTENT}`:
+
+  ```html
+  <h2>Session Complete</h2>
+
+  <div class="card">
+    <h3>Proposal</h3>
+    <p><a href="/proposals/{topic-slug}" style="color:var(--accent);font-weight:600;">
+      View full proposal &rarr;
+    </a></p>
+  </div>
+
+  <h2>Session Summary</h2>
+  <table>
+    <tbody>
+      <tr><th style="width:40%;">Phases completed</th><td>{count} of 9</td></tr>
+      <tr><th>Issues drafted</th><td>{issue count}</td></tr>
+      <tr><th>Scope review iterations</th><td>{scope_review.iterations}</td></tr>
+      <tr><th>Team review iterations</th><td>{team_review.iterations}</td></tr>
+      <tr><th>Bar raiser iterations</th><td>{bar_raiser.iterations}</td></tr>
+    </tbody>
+  </table>
+  ```
+
+Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+Do not mention this step to the user.
+
 #### Step 2: Open in dashboard and notify
 
 Follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md`:
