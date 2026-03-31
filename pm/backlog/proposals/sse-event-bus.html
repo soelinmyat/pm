@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: SSE Event Bus + Activity Feed</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+  /* ===== RESET & BASE ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: #1a1a1a;
+    background: #f8f9fa;
+    line-height: 1.6;
+  }
+
+  /* ===== HERO HEADER ===== */
+  .hero {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%);
+    color: #fff;
+    padding: 3rem 1.5rem 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 0.5rem;
+  }
+  .hero h1 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.85);
+    max-width: 640px;
+    margin-bottom: 1.5rem;
+  }
+
+  /* ===== KEY METRICS STRIP ===== */
+  .metrics-strip {
+    display: flex;
+    gap: 0;
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .metric {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    text-align: center;
+    border-right: 1px solid rgba(255,255,255,0.1);
+  }
+  .metric:last-child { border-right: none; }
+  .metric-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    display: block;
+    line-height: 1.2;
+  }
+  .metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* ===== STICKY TOC ===== */
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toc-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    gap: 0;
+    padding: 0 1rem;
+  }
+  .toc a {
+    display: block;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #777;
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .toc a:hover, .toc a.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+  }
+
+  /* ===== LAYOUT ===== */
+  .proposal {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  /* ===== SECTIONS ===== */
+  .section {
+    margin-bottom: 3rem;
+    opacity: 0;
+    transform: translateY(16px);
+    animation: fadeUp 0.5s ease forwards;
+  }
+  .section:nth-child(1) { animation-delay: 0.05s; }
+  .section:nth-child(2) { animation-delay: 0.1s; }
+  .section:nth-child(3) { animation-delay: 0.15s; }
+  .section:nth-child(4) { animation-delay: 0.2s; }
+  .section:nth-child(5) { animation-delay: 0.25s; }
+  .section:nth-child(6) { animation-delay: 0.3s; }
+  .section:nth-child(7) { animation-delay: 0.35s; }
+  .section:nth-child(8) { animation-delay: 0.4s; }
+  .section:nth-child(9) { animation-delay: 0.45s; }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .section-title .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: #eff6ff;
+    color: #2563eb;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .section p, .section li {
+    font-size: 0.95rem;
+    color: #444;
+    max-width: 65ch;
+  }
+  .section-lead {
+    font-weight: 600;
+    color: #111;
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .section ul, .section ol {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .section li { margin-bottom: 0.35rem; }
+
+  /* ===== CALLOUT ===== */
+  .callout {
+    background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%);
+    border-left: 4px solid #2563eb;
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    font-size: 0.93rem;
+    color: #1e40af;
+  }
+  .callout strong { color: #1e3a8a; }
+
+  /* ===== SCOPE GRID ===== */
+  .scope-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .scope-column {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .scope-column h4 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .scope-column.in-scope { border-top: 3px solid #16a34a; }
+  .scope-column.in-scope h4 { color: #16a34a; }
+  .scope-column.out-of-scope { border-top: 3px solid #dc2626; }
+  .scope-column.out-of-scope h4 { color: #dc2626; }
+  .scope-column ul { padding-left: 1.1rem; }
+  .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+  .filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    margin-top: 0.75rem;
+  }
+
+  /* ===== ISSUE CARDS ===== */
+  .issue-group { margin-bottom: 1.5rem; }
+  .issue-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .issue-card.parent { border-left: 4px solid #2563eb; }
+  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+  .issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .issue-id {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    background: #2563eb;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
+  .issue-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111;
+  }
+  .issue-outcome {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+    font-style: italic;
+    padding-left: 0.75rem;
+    border-left: 2px solid #e5e7eb;
+  }
+  .issue-labels {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #555;
+    border: 1px solid #e5e7eb;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+  .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  details { margin-top: 0.5rem; }
+  summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; }
+  .ac-list {
+    font-size: 0.88rem;
+    padding-left: 1.25rem;
+    color: #555;
+    margin-top: 0.5rem;
+  }
+  .ac-list li { margin-bottom: 0.25rem; }
+  .ac-list li::marker { color: #2563eb; }
+
+  /* ===== MERMAID ===== */
+  .mermaid-container {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    overflow-x: auto;
+  }
+  .mermaid { text-align: center; }
+
+  /* ===== WIREFRAME EMBED ===== */
+  .wireframe-embed {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+  }
+  .wireframe-embed iframe { width: 100%; height: 500px; border: none; }
+  .wireframe-link {
+    font-size: 0.85rem;
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .wireframe-link:hover { text-decoration: underline; }
+
+  /* ===== COMPETITIVE TABLE ===== */
+  .comp-table-wrap {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  .comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .comp-table th, .comp-table td {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .comp-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .comp-table td { color: #444; }
+  .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 600; }
+  .comp-table td.competitor-weak { background: #fef2f2; color: #991b1b; }
+  .comp-table td.competitor-partial { background: #fffbeb; color: #92400e; }
+  .comp-table tr:last-child td { border-bottom: none; }
+
+  /* ===== FEASIBILITY ===== */
+  .feasibility-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .feasibility-box {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .feasibility-box h4 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .feasibility-box.build-on h4 { color: #16a34a; }
+  .feasibility-box.build-new h4 { color: #2563eb; }
+  .feasibility-box.risks h4 { color: #d97706; }
+  .feasibility-box.sequencing h4 { color: #7c3aed; }
+  .feasibility-box ul { padding-left: 1.1rem; }
+  .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.25rem; color: #555; }
+
+  /* ===== REVIEW PIPELINE ===== */
+  .review-pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    padding: 0.5rem 0;
+  }
+  .pipeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-width: 120px;
+    position: relative;
+  }
+  .pipeline-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    border: 2px solid #e5e7eb;
+    background: #fff;
+    color: #aaa;
+    transition: all 0.3s;
+  }
+  .pipeline-step.passed .pipeline-dot {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: #fff;
+  }
+  .pipeline-step.current .pipeline-dot {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
+  }
+  .pipeline-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .pipeline-step.passed .pipeline-label { color: #16a34a; }
+  .pipeline-step.current .pipeline-label { color: #2563eb; }
+  .pipeline-connector {
+    flex: 1;
+    height: 2px;
+    background: #e5e7eb;
+    min-width: 24px;
+    margin-bottom: 1.2rem;
+  }
+  .pipeline-connector.done { background: #16a34a; }
+
+  /* ===== VERDICT BADGES ===== */
+  .verdict-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+  }
+  .verdict-badge.ready { background: #dcfce7; color: #166534; }
+  .verdict-badge.caution { background: #fef3c7; color: #92400e; }
+  .verdict-badge.blocked { background: #fee2e2; color: #991b1b; }
+
+  .review-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .review-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1rem;
+    transition: transform 0.2s;
+  }
+  .review-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+  }
+  .review-card-role {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #333;
+  }
+  .review-card-note {
+    font-size: 0.83rem;
+    color: #777;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  /* ===== OPEN QUESTIONS ===== */
+  .questions-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+  .questions-card > p {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 1rem;
+  }
+  .question-list {
+    list-style: none;
+    padding: 0;
+    counter-reset: question;
+  }
+  .question-list li {
+    counter-increment: question;
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.4rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.93rem;
+    color: #444;
+  }
+  .question-list li:last-child { border-bottom: none; padding-bottom: 0; }
+  .question-list li::before {
+    content: counter(question);
+    font-weight: 800;
+    color: #fff;
+    background: #2563eb;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  /* ===== ADVISORY ===== */
+  .advisory-card {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-top: 1rem;
+  }
+  .advisory-card h3 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+  }
+  .advisory-list {
+    padding-left: 1.25rem;
+    font-size: 0.88rem;
+    color: #78350f;
+  }
+  .advisory-list li { margin-bottom: 0.3rem; }
+
+  /* ===== PRINT ===== */
+  @media print {
+    body { background: #fff; }
+    .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toc { display: none; }
+    .proposal { max-width: 100%; padding: 1rem 0; }
+    .section { opacity: 1 !important; transform: none !important; animation: none !important; }
+    .issue-card, .scope-column, .feasibility-box, .review-card { break-inside: avoid; box-shadow: none; }
+    .mermaid-container { break-inside: avoid; }
+    .wireframe-embed { display: none; }
+    .wireframe-link::after { content: " (see attached wireframe)"; }
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.5rem; }
+    .metrics-strip { flex-wrap: wrap; }
+    .metric { min-width: 50%; }
+    .scope-grid, .feasibility-grid { grid-template-columns: 1fr; }
+    .issue-card.child { margin-left: 1rem; }
+    .review-cards { grid-template-columns: 1fr; }
+    .toc-inner { padding: 0 0.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================
+     HERO HEADER
+     ============================================ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Feature Proposal &mdash; PM-088</div>
+    <h1>SSE Event Bus + Activity Feed</h1>
+    <p class="subtitle">The product engineer monitors all active terminal sessions from the dashboard without switching windows &mdash; key milestones are surfaced proactively so nothing is missed.</p>
+    <div class="metrics-strip">
+      <div class="metric">
+        <span class="metric-value">High</span>
+        <span class="metric-label">Priority</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">10x</span>
+        <span class="metric-label">Differentiator</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value" style="font-size:1rem;">Multi-terminal<br>visibility</span>
+        <span class="metric-label">Impact</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value" style="font-size:1rem;">Product<br>Engineer</span>
+        <span class="metric-label">ICP</span>
+      </div>
+      <div class="metric">
+        <span class="metric-value">4 issues</span>
+        <span class="metric-label">Scope</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================
+     STICKY TABLE OF CONTENTS
+     ============================================ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#problem">Problem</a>
+    <a href="#scope">Scope</a>
+    <a href="#flows">Flows</a>
+    <a href="#wireframes">Wireframes</a>
+    <a href="#competitive">Competitive</a>
+    <a href="#feasibility">Feasibility</a>
+    <a href="#issues">Issues</a>
+    <a href="#review">Review</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<div class="proposal">
+
+  <!-- ============================================
+       SECTION 1: PROBLEM & CONTEXT
+       ============================================ -->
+  <div class="section" id="problem">
+    <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
+    <p class="section-lead"><strong>The product engineer running multiple terminals loses track of what each session is doing.</strong></p>
+    <p>When groom is running in one terminal, dev in another, and ship in a third, the only way to check status is to alt-tab between windows. There is no central view. Milestone events &mdash; a PR created, tests passing, a review completing &mdash; are invisible unless the engineer is watching the right terminal at the right moment.</p>
+    <div class="callout">
+      <strong>Research signal:</strong> OpenCode (SST) validates the SSE event bus architecture at production scale &mdash; typed events, POST ingestion, multi-client subscription. No profiled competitor has a real-time multi-terminal activity feed. ChatPRD is browser-only with no terminal awareness. PM Skills Marketplace is stateless per session. Productboard Spark runs isolated Jobs with no cross-session visibility. This is a defensible differentiator.
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 2: SCOPE OVERVIEW
+       ============================================ -->
+  <div class="section" id="scope">
+    <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
+    <p class="section-lead"><strong>Seven capabilities in scope; five deferred items cut to keep v1 shippable.</strong></p>
+    <div class="scope-grid">
+      <div class="scope-column in-scope">
+        <h4>&#10003; In Scope</h4>
+        <ul>
+          <li>SSE endpoint (<code>GET /events</code>) &mdash; server pushes events to browser</li>
+          <li>POST endpoint (<code>POST /events</code>) &mdash; terminals push events to server</li>
+          <li>Activity feed panel on dashboard home &mdash; right sidebar, quiet design</li>
+          <li>Toast notifications &mdash; bottom-right for milestone events</li>
+          <li>Port discovery utility &mdash; shell script to find running dashboard port</li>
+          <li>Event schema &mdash; type, source, timestamp, detail fields</li>
+          <li>Instrument pm:ship, pm:dev, pm:groom to emit milestone events via POST</li>
+        </ul>
+      </div>
+      <div class="scope-column out-of-scope">
+        <h4>&#10007; Out of Scope</h4>
+        <ul>
+          <li>Event persistence to disk <span style="color:#999;">(deferred &mdash; in-memory only for v1)</span></li>
+          <li>Filtering/search UI in feed <span style="color:#999;">(deferred &mdash; no usage data yet)</span></li>
+          <li>Cross-project event aggregation <span style="color:#999;">(non-goal &mdash; PM scopes to one project)</span></li>
+          <li>Feed on Backlog/Research pages <span style="color:#999;">(deferred &mdash; home page only in v1)</span></li>
+          <li>WebSocket replacement <span style="color:#999;">(not needed &mdash; SSE coexists with existing WS)</span></li>
+        </ul>
+      </div>
+    </div>
+    <span class="filter-badge">&#9889; 10x filter &mdash; only editor-native tool with live project pulse</span>
+  </div>
+
+  <!-- ============================================
+       SECTION 3: USER FLOWS
+       ============================================ -->
+  <div class="section" id="flows">
+    <h2 class="section-title"><span class="icon">&#8644;</span> User Flows</h2>
+    <p class="section-lead"><strong>Events flow from terminal skill &rarr; POST &rarr; ring buffer &rarr; SSE &rarr; feed panel &rarr; optional toast.</strong></p>
+    <div class="mermaid-container">
+      <pre class="mermaid">
+graph TD
+    A[Terminal runs pm:dev/ship/groom] --> B[Skill hits milestone event]
+    B --> C{Dashboard server running?}
+    C -->|No| D[Port discovery finds no server]
+    D --> E[Event silently dropped]
+    C -->|Yes| F[POST /events with event payload]
+    F --> G[Server stores in memory ring buffer]
+    G --> H[Server pushes to all SSE subscribers]
+    H --> I{Browser connected?}
+    I -->|No| J[Event stored, served on next connect]
+    I -->|Yes| K[Activity feed updates in real-time]
+    K --> L{Milestone event type?}
+    L -->|Yes| M[Toast slides in, auto-dismisses 3-5s]
+    L -->|No| N[Feed entry only, no toast]
+      </pre>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 4: WIREFRAMES
+       ============================================ -->
+  <div class="section" id="wireframes">
+    <h2 class="section-title"><span class="icon">&#9633;</span> Wireframes</h2>
+    <p class="section-lead"><strong>Right-sidebar feed panel sits alongside stat cards; toasts appear bottom-right of main content.</strong></p>
+    <div class="wireframe-embed">
+      <iframe src="../wireframes/sse-event-bus.html" title="SSE Event Bus + Activity Feed Wireframe"></iframe>
+    </div>
+    <a class="wireframe-link" href="../wireframes/sse-event-bus.html" target="_blank">Open wireframe in new tab &#8599;</a>
+  </div>
+
+  <!-- ============================================
+       SECTION 5: COMPETITIVE CONTEXT
+       ============================================ -->
+  <div class="section" id="competitive">
+    <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
+    <p class="section-lead"><strong>No competitor combines terminal awareness, lifecycle milestones, and a real-time feed in one tool.</strong></p>
+    <div class="comp-table-wrap">
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>PM Skills Marketplace</th>
+            <th>ChatPRD</th>
+            <th>Productboard Spark</th>
+            <th>OpenCode</th>
+            <th>PM (us)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Multi-terminal visibility</td>
+            <td class="competitor-weak">None &mdash; stateless</td>
+            <td class="competitor-weak">Browser-only</td>
+            <td class="competitor-weak">Isolated Jobs</td>
+            <td class="competitor-partial">Multi-client SSE</td>
+            <td class="us">&#10003; Live feed, all sessions</td>
+          </tr>
+          <tr>
+            <td>Real-time event feed</td>
+            <td class="competitor-weak">Not supported</td>
+            <td class="competitor-weak">Not supported</td>
+            <td class="competitor-weak">Not supported</td>
+            <td class="competitor-partial">Internal only (no UI)</td>
+            <td class="us">&#10003; Dashboard sidebar panel</td>
+          </tr>
+          <tr>
+            <td>Lifecycle milestones</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">Coding events only</td>
+            <td class="us">&#10003; PR, tests, merge, groom</td>
+          </tr>
+          <tr>
+            <td>Toast notifications</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="us">&#10003; Milestone celebrations</td>
+          </tr>
+          <tr>
+            <td>Event bus architecture</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-weak">None</td>
+            <td class="competitor-partial">SSE, coding agent scope</td>
+            <td class="us">&#10003; Product lifecycle scope</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Key differentiator:</strong> Only editor-native tool with live project pulse. Replicating this requires editor-native presence + server-side event bus + product lifecycle awareness &mdash; a combination no current competitor has.
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 6: TECHNICAL FEASIBILITY
+       ============================================ -->
+  <div class="section" id="feasibility">
+    <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
+    <p class="section-lead"><strong>Feasible as scoped &mdash; SSE is native HTTP, server infrastructure already exists.</strong></p>
+    <p style="margin-bottom: 1rem;"><strong>Verdict:</strong> <span class="verdict-badge ready">&#10003; Feasible</span></p>
+    <div class="feasibility-grid">
+      <div class="feasibility-box build-on">
+        <h4>&#9654; Build On</h4>
+        <ul>
+          <li><code>scripts/server.js</code> WebSocket broadcast pattern (iterate Set, write each)</li>
+          <li>Dashboard HTTP server &mdash; routeDashboard handles 15+ routes already</li>
+          <li>Stable port hashing via <code>hashProjectPort</code> in start-server.sh</li>
+          <li><code>broadcastDashboard</code> pattern applies directly to SSE broadcast</li>
+        </ul>
+      </div>
+      <div class="feasibility-box build-new">
+        <h4>&#10010; Build New</h4>
+        <ul>
+          <li>SSE endpoint (<code>GET /events</code>) with connection tracking + heartbeat</li>
+          <li>POST handler with body parsing (max 8KB) + 201/400/405 responses</li>
+          <li>In-memory ring buffer capped at 200 events with replay on reconnect</li>
+          <li>Activity feed panel HTML + CSS in <code>handleDashboardHome</code></li>
+          <li>Toast JS module (create, queue, animate, dismiss)</li>
+          <li><code>scripts/emit-event.sh</code> &mdash; port discovery + POST wrapper for skills</li>
+        </ul>
+      </div>
+      <div class="feasibility-box risks">
+        <h4>&#9888; Risks</h4>
+        <ul>
+          <li>server.js monolith at 4,155 lines &mdash; epic adds ~400 more; extract SSE module if &gt;5,000</li>
+          <li>Two real-time channels (WebSocket + SSE) in same browser tab &mdash; WebSocket reload kills SSE but EventSource auto-reconnects</li>
+          <li>No POST auth &mdash; any local process can inject events; acceptable for localhost-only server</li>
+        </ul>
+      </div>
+      <div class="feasibility-box sequencing">
+        <h4>&#8594; Sequencing</h4>
+        <ul>
+          <li>1. PM-090 &mdash; POST + store + SSE (everything depends on this)</li>
+          <li>2. PM-090 &mdash; Port discovery utility (<code>find-dashboard-port.sh</code>)</li>
+          <li>3. PM-091 &mdash; Activity feed panel on dashboard home</li>
+          <li>4. PM-092 &mdash; Toast notifications (shares EventSource with feed)</li>
+          <li>5. PM-093 &mdash; Skill instrumentation (pm:ship, pm:dev, pm:groom)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 7: ISSUE BREAKDOWN
+       ============================================ -->
+  <div class="section" id="issues">
+    <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
+    <p class="section-lead"><strong>1 parent + 4 child issues covering event pipeline, feed UI, toasts, and skill instrumentation.</strong></p>
+
+    <div class="issue-group">
+      <!-- Parent issue: PM-088 -->
+      <div class="issue-card parent">
+        <div class="issue-header">
+          <span class="issue-id">PM-088</span>
+          <span class="issue-title">SSE Event Bus + Activity Feed</span>
+        </div>
+        <p class="issue-outcome">The product engineer monitors all active terminal sessions from the dashboard without switching windows &mdash; key milestones are surfaced proactively so nothing is missed.</p>
+        <div class="issue-labels">
+          <span class="label">infrastructure</span>
+          <span class="label">feature</span>
+          <span class="label">ui</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <details><summary>Show acceptance criteria (7)</summary>
+        <ol class="ac-list">
+          <li>Terminal sessions can POST events to the dashboard server via <code>POST /events</code>.</li>
+          <li>The dashboard browser tab receives events in real-time via SSE (<code>GET /events</code>).</li>
+          <li>The dashboard home page shows a right-sidebar activity feed panel with reverse-chronological events.</li>
+          <li>Milestone events trigger a toast notification that auto-dismisses after 3&ndash;5 seconds.</li>
+          <li>A port discovery utility lets skills find the running dashboard server port.</li>
+          <li>pm:ship, pm:dev, and pm:groom emit milestone events during their workflows.</li>
+          <li>The feed shows an empty state when no events have been received.</li>
+        </ol>
+        </details>
+      </div>
+
+      <!-- Child issue: PM-090 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-090</span>
+          <span class="issue-title">SSE Event Bus Core &mdash; POST, Store, SSE, Port Discovery</span>
+        </div>
+        <p class="issue-outcome">Any process on the machine can push an event to the dashboard server and any browser tab can receive it in real-time &mdash; the event pipeline works end-to-end.</p>
+        <div class="issue-labels">
+          <span class="label">infrastructure</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <details><summary>Show acceptance criteria (10)</summary>
+        <ol class="ac-list">
+          <li><code>POST /events</code> accepts JSON body: <code>type</code> (required), <code>source</code> (required), <code>timestamp</code> (required), <code>detail</code> (optional), <code>source_type</code> (optional, default "terminal").</li>
+          <li><code>POST /events</code> returns 201 on success, 400 on missing required fields, 405 if not POST.</li>
+          <li>Events stored in an in-memory ring buffer capped at 200 events; oldest evicted when full.</li>
+          <li><code>GET /events</code> returns <code>Content-Type: text/event-stream</code> with <code>Cache-Control: no-cache</code> and <code>Connection: keep-alive</code>.</li>
+          <li>Each SSE message uses format <code>id: {id}\ndata: {json}\n\n</code>.</li>
+          <li>Heartbeat comment (<code>: keepalive\n\n</code>) sent every 15 seconds to prevent proxy/browser timeout.</li>
+          <li>On reconnect, if client sends <code>Last-Event-ID</code>, server replays missed events from ring buffer.</li>
+          <li>SSE connections tracked in existing <code>allConnections</code> set and destroyed on <code>server.close()</code>.</li>
+          <li><code>scripts/find-dashboard-port.sh</code> outputs port on stdout (exit 0) or nothing (exit 1) if no server is running.</li>
+          <li>Port derived from project directory path using same hashing algorithm as <code>start-server.sh</code> lines 119&ndash;123 &mdash; no port scanning.</li>
+        </ol>
+        </details>
+      </div>
+
+      <!-- Child issue: PM-091 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-091</span>
+          <span class="issue-title">Activity Feed Panel on Dashboard Home</span>
+        </div>
+        <p class="issue-outcome">The dashboard home page shows a live-updating activity feed in a right sidebar panel &mdash; the user sees what every terminal is doing at a glance.</p>
+        <div class="issue-labels">
+          <span class="label">ui</span>
+          <span class="label">feature</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <details><summary>Show acceptance criteria (12)</summary>
+        <ol class="ac-list">
+          <li>Dashboard home renders a 260px right sidebar panel alongside existing main content.</li>
+          <li>Panel header shows "Activity" label and a pulsing green "Live" indicator when SSE is connected.</li>
+          <li>Events render reverse-chronologically with: colored dot (by event type), source label, description, relative timestamp.</li>
+          <li>Events from last 3 minutes render at full contrast; older events fade to muted text and dimmer dots.</li>
+          <li>An "Earlier" time separator visually groups older events.</li>
+          <li>Panel background is slightly darker than main content (#12141a in dark mode) for visual recession.</li>
+          <li>Browser-side JS creates an <code>EventSource('/events')</code> connection and appends new events to feed DOM in real-time.</li>
+          <li>On SSE reconnect, feed reconciles state from ring buffer replay via <code>Last-Event-ID</code>.</li>
+          <li>Empty state: "No events yet. Activity appears here when terminal sessions are running." &mdash; Live indicator shows "Idle".</li>
+          <li>On screens narrower than 1024px, feed panel is hidden.</li>
+          <li><code>dashboardPage()</code> extended with conditional sidebar slot; non-Home pages render without it.</li>
+          <li>On WebSocket-triggered page reload, feed rebuilt from SSE replay via <code>Last-Event-ID</code>.</li>
+        </ol>
+        </details>
+      </div>
+
+      <!-- Child issue: PM-092 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-092</span>
+          <span class="issue-title">Toast Notifications for Milestone Events</span>
+        </div>
+        <p class="issue-outcome">When a terminal session hits a milestone (PR created, tests passed, merged), a brief toast slides in on the dashboard &mdash; the user gets a celebration moment without leaving their current view.</p>
+        <div class="issue-labels">
+          <span class="label">ui</span>
+          <span class="label">feature</span>
+          <span class="label priority-medium">medium priority</span>
+        </div>
+        <details><summary>Show acceptance criteria (10)</summary>
+        <ol class="ac-list">
+          <li>Toast notifications appear in the bottom-right of the main content area (not over the feed panel).</li>
+          <li>Toasts trigger only for milestone event types: <code>tests_passed</code>, <code>pr_created</code>, <code>review_done</code>, <code>merged</code>.</li>
+          <li>Each toast shows a status icon and a one-line message (max 10 words).</li>
+          <li>Toasts auto-dismiss after 500ms per word + 1000ms buffer (minimum 3s, maximum 5s).</li>
+          <li>Toasts slide in from bottom: translateY 8px &rarr; 0, 300ms ease-out.</li>
+          <li>When <code>prefers-reduced-motion</code> is active, toast appears instantly without animation.</li>
+          <li>Multiple toasts queue vertically &mdash; max 3 visible; oldest dismissed if 4th arrives.</li>
+          <li>Toasts contain no interactive elements &mdash; pure confirmation (WCAG compliant).</li>
+          <li>Toast styling uses <code>var(--surface)</code>, <code>var(--border)</code>, <code>var(--shadow-md)</code> &mdash; no aggressive colors.</li>
+          <li>Toast JS listens to the same EventSource connection used by the activity feed (PM-091).</li>
+        </ol>
+        </details>
+      </div>
+
+      <!-- Child issue: PM-093 -->
+      <div class="issue-card child">
+        <div class="issue-header">
+          <span class="issue-id">PM-093</span>
+          <span class="issue-title">Instrument Skills to Emit Milestone Events</span>
+        </div>
+        <p class="issue-outcome">When pm:ship, pm:dev, or pm:groom hit key milestones, the dashboard feed shows what happened &mdash; the pipeline produces real events, not just plumbing.</p>
+        <div class="issue-labels">
+          <span class="label">feature</span>
+          <span class="label">integration</span>
+          <span class="label priority-high">high priority</span>
+        </div>
+        <details><summary>Show acceptance criteria (9)</summary>
+        <ol class="ac-list">
+          <li>pm:ship emits: <code>pr_created</code>, <code>review_done</code> (with score), <code>tests_passed</code>/<code>tests_failed</code>, <code>merged</code>.</li>
+          <li>pm:dev emits: <code>dev_started</code> (with issue title), <code>tests_passed</code>/<code>tests_failed</code>, <code>phase_started</code> (implement, review, etc.).</li>
+          <li>pm:groom emits: <code>groom_started</code> (with topic), <code>phase_started</code> (intake, research, scope, etc.), <code>groom_complete</code> (with issue count).</li>
+          <li>Each event uses the schema from PM-090: <code>type</code>, <code>source</code>, <code>timestamp</code>, <code>detail</code>, <code>source_type: "terminal"</code>.</li>
+          <li>The <code>source</code> field uses the session slug when available, otherwise falls back to <code>"{skill}-{PID}"</code>.</li>
+          <li>Events sent via port discovery utility from PM-090. If no server running, event silently dropped &mdash; no error, no retry.</li>
+          <li>Event emission is non-blocking &mdash; skill execution never delayed by a failed POST.</li>
+          <li><code>scripts/emit-event.sh</code> wraps port discovery + POST in one call.</li>
+          <li>Instrumentation added as explicit Bash tool calls in SKILL.md files at specific milestone points.</li>
+        </ol>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 8: REVIEW SUMMARY
+       ============================================ -->
+  <div class="section" id="review">
+    <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
+    <p class="section-lead"><strong>All three review stages passed; bar raiser approved with two conditions now resolved.</strong></p>
+
+    <!-- Review pipeline stepper -->
+    <div class="review-pipeline">
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">&#10003;</div>
+        <span class="pipeline-label">Scope Review</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">&#10003;</div>
+        <span class="pipeline-label">Team Review</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step passed">
+        <div class="pipeline-dot">&#10003;</div>
+        <span class="pipeline-label">Bar Raiser</span>
+      </div>
+      <div class="pipeline-connector done"></div>
+      <div class="pipeline-step current">
+        <div class="pipeline-dot">&#9654;</div>
+        <span class="pipeline-label">Decision</span>
+      </div>
+    </div>
+
+    <!-- Verdict cards -->
+    <div class="review-cards">
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Product Manager</span>
+          <span class="verdict-badge caution">~ Ready if</span>
+        </div>
+        <p class="review-card-note">Tune 3min fade threshold post-ship</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Competitive Strategist</span>
+          <span class="verdict-badge caution">~ Sharp if</span>
+        </div>
+        <p class="review-card-note">Frame feed as differentiator, not infra</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Engineering Manager</span>
+          <span class="verdict-badge caution">~ Ready if</span>
+        </div>
+        <p class="review-card-note">Add 8KB max body size to POST handler</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Design Reviewer</span>
+          <span class="verdict-badge caution">~ Complete if</span>
+        </div>
+        <p class="review-card-note">Verify feed hides on screens &lt;1024px</p>
+      </div>
+      <div class="review-card">
+        <div class="review-card-header">
+          <span class="review-card-role">Bar Raiser</span>
+          <span class="verdict-badge caution">~ Ready if</span>
+        </div>
+        <p class="review-card-note">Remove phantom deploy_complete event type</p>
+      </div>
+    </div>
+
+    <div class="advisory-card">
+      <h3>&#9888; Advisory Conditions</h3>
+      <ul class="advisory-list">
+        <li><strong>[PM]</strong> 3min temporal fade threshold is a magic number &mdash; tune post-ship if needed.</li>
+        <li><strong>[PM]</strong> Success criteria measurement depends on future analytics instrumentation.</li>
+        <li><strong>[Competitive]</strong> Connect feed events to groomed issue lifecycle for Priority #1 visualization.</li>
+        <li><strong>[EM]</strong> Consider extracting shared EventSource client module to avoid duplication.</li>
+        <li><strong>[Bar Raiser]</strong> Remove deploy_complete phantom event type from PM-092.</li>
+        <li><strong>[Bar Raiser]</strong> Add server.js monolith extraction commitment (&gt;5,000 lines triggers extract).</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SECTION 9: OPEN QUESTIONS
+       ============================================ -->
+  <div class="section" id="questions">
+    <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
+    <p class="section-lead"><strong>Four bar raiser questions for the decision-maker before approving.</strong></p>
+    <div class="questions-card">
+      <ul class="question-list">
+        <li>Events in the ring buffer are lost on server restart &mdash; the feed goes empty. Is in-memory only acceptable for v1, or does the server restart limitation block real-world usefulness?</li>
+        <li>Success criteria is "dashboard tab stays open during 50%+ of multi-terminal sessions within 90 days." How will this be measured without analytics instrumentation in scope for this epic?</li>
+        <li>The dashboard now has two real-time channels: WebSocket (page reload) and SSE (event streaming). Is this two-channel design the long-term architecture, or is SSE-only consolidation the intended future state?</li>
+        <li>The activity feed surfaces terminal lifecycle events &mdash; is this the path to becoming the messaging differentiator, or does the roadmap call for a separate, more opinionated notification strategy?</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== STICKY TOC HIGHLIGHT ===== -->
+<script>
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  function updateToc() {
+    const scrollY = window.scrollY + 100;
+    const pageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+    let current = sections[0];
+    if (pageBottom) {
+      current = sections[sections.length - 1];
+    } else {
+      sections.forEach(s => { if (s.offsetTop <= scrollY) current = s; });
+    }
+    tocLinks.forEach(l => l.classList.remove('active'));
+    const active = document.querySelector(`.toc a[href="#${current.id}"]`);
+    if (active) active.classList.add('active');
+  }
+  window.addEventListener('scroll', updateToc, { passive: true });
+  updateToc();
+</script>
+
+</body>
+</html>

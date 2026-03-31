@@ -3757,7 +3757,130 @@ function createDashboardServer(pmDir) {
     }
   }
 
+  // ---- SSE Event Bus: ring buffer + broadcast ----
+  const EVENT_BUFFER_CAP = 200;
+  const eventBuffer = [];
+  let eventIdCounter = 0;
+  const sseClients = new Set();
+
+  function pushEvent(event) {
+    eventIdCounter++;
+    const stored = { id: eventIdCounter, ...event };
+    eventBuffer.push(stored);
+    if (eventBuffer.length > EVENT_BUFFER_CAP) {
+      eventBuffer.shift();
+    }
+    return stored;
+  }
+
+  function formatSSE(event) {
+    return `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
+  }
+
+  function broadcastSSE(event) {
+    const data = formatSSE(event);
+    for (const client of sseClients) {
+      try { client.write(data); } catch { sseClients.delete(client); }
+    }
+  }
+
+  const MAX_EVENT_BODY = 65536; // 64KB
+
+  function handlePostEvent(req, res) {
+    let body = '';
+    let aborted = false;
+    req.on('data', chunk => {
+      body += chunk;
+      if (!aborted && body.length > MAX_EVENT_BODY) {
+        aborted = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      const { type, source, timestamp } = parsed;
+      if (!type || !source || timestamp == null) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing required fields: type, source, timestamp' }));
+        return;
+      }
+
+      const event = {
+        type,
+        source,
+        timestamp,
+        detail: parsed.detail || {},
+        source_type: parsed.source_type || 'terminal',
+      };
+
+      const stored = pushEvent(event);
+      broadcastSSE(stored);
+
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: stored.id }));
+    });
+  }
+
+  function handleSSEConnection(req, res) {
+    touchActivity();
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    // Replay missed events if Last-Event-ID is present
+    const lastId = req.headers['last-event-id'];
+    if (lastId != null) {
+      const lastIdNum = parseInt(lastId, 10);
+      if (!isNaN(lastIdNum)) {
+        for (const event of eventBuffer) {
+          if (event.id > lastIdNum) {
+            res.write(formatSSE(event));
+          }
+        }
+      }
+    }
+
+    sseClients.add(res);
+    allConnections.add(res.socket);
+
+    // Heartbeat every 15 seconds
+    const heartbeat = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch { clearInterval(heartbeat); }
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    });
+  }
+
   const server = http.createServer((req, res) => {
+    const reqUrl = req.url.split('?')[0];
+
+    if (reqUrl === '/events') {
+      if (req.method === 'POST') {
+        handlePostEvent(req, res);
+      } else if (req.method === 'GET') {
+        handleSSEConnection(req, res);
+      } else {
+        res.writeHead(405); res.end('Method Not Allowed');
+      }
+      return;
+    }
+
     if (req.method === 'GET') {
       routeDashboard(req, res, pmDir);
     } else {
@@ -3846,6 +3969,11 @@ function createDashboardServer(pmDir) {
     watcherActive = false;
     closeWatchersUnder(pmDir);
     closeWatchersUnder(sessionsWatchDir);
+    // End SSE connections cleanly
+    for (const client of sseClients) {
+      try { client.end(); } catch {}
+    }
+    sseClients.clear();
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
       try { sock.destroy(); } catch (e) {}

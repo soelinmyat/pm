@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSE Event Bus + Activity Feed — Lo-fi Wireframe</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; line-height: 1.5; padding: 2rem; }
+
+.wireframe-title { text-align: center; margin-bottom: 0.5rem; font-size: 1.25rem; font-weight: 700; }
+.wireframe-subtitle { text-align: center; color: #888; font-size: 0.875rem; margin-bottom: 2rem; }
+
+/* Screen container */
+.wireframe-screen {
+  background: #fff; border: 2px solid #333; border-radius: 4px;
+  max-width: 1100px; margin: 0 auto 3rem; overflow: hidden;
+}
+.wireframe-screen-label {
+  background: #333; color: #fff; padding: 0.375rem 0.75rem;
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+/* Layout */
+.wireframe-layout { display: flex; min-height: 500px; }
+
+.wireframe-sidebar {
+  width: 180px; background: #e8e8e8; border-right: 2px solid #333;
+  padding: 1rem; flex-shrink: 0;
+}
+.wireframe-sidebar .brand { font-weight: 700; margin-bottom: 1rem; font-size: 0.875rem; }
+.wireframe-nav-item {
+  padding: 0.375rem 0.5rem; font-size: 0.8125rem; margin-bottom: 2px;
+  border-radius: 3px; color: #666;
+}
+.wireframe-nav-item.active { background: #ccc; color: #333; font-weight: 600; }
+
+.wireframe-main { flex: 1; display: flex; min-width: 0; }
+.wireframe-content { flex: 1; padding: 1.25rem; min-width: 0; }
+
+/* Activity feed panel */
+.wireframe-feed {
+  width: 260px; flex-shrink: 0; background: #f0f0f0;
+  border-left: 2px solid #333; display: flex; flex-direction: column;
+}
+.wireframe-feed-header {
+  padding: 0.75rem; border-bottom: 1px solid #ccc;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #888;
+}
+.wireframe-feed-live { font-size: 0.6875rem; color: #888; }
+.wireframe-feed-body { flex: 1; overflow-y: auto; }
+
+.wireframe-event {
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid #e0e0e0;
+  display: flex; align-items: flex-start; gap: 0.5rem;
+}
+.wireframe-event-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #999;
+  flex-shrink: 0; margin-top: 6px;
+}
+.wireframe-event-dot.recent { background: #555; }
+.wireframe-event-text { font-size: 0.75rem; color: #888; line-height: 1.4; }
+.wireframe-event-text.recent { color: #333; }
+.wireframe-event-text strong { font-weight: 500; }
+.wireframe-event-time { font-size: 0.625rem; color: #bbb; margin-top: 1px; }
+
+.wireframe-time-sep {
+  font-size: 0.625rem; color: #bbb; padding: 0.5rem 0.75rem 0.25rem;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+
+/* Stat cards */
+.wireframe-stats { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.wireframe-stat {
+  flex: 1; border: 1px solid #ccc; border-radius: 3px; padding: 0.5rem 0.75rem;
+}
+.wireframe-stat-val { font-size: 1.25rem; font-weight: 700; }
+.wireframe-stat-label { font-size: 0.6875rem; color: #888; }
+
+/* Session */
+.wireframe-session {
+  border: 1px solid #ccc; border-radius: 3px; padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.wireframe-session-dot { width: 8px; height: 8px; border-radius: 50%; background: #999; }
+.wireframe-session-text { font-size: 0.8125rem; }
+.wireframe-session-meta { font-size: 0.6875rem; color: #888; }
+
+/* Placeholder */
+.wireframe-placeholder {
+  border: 1px dashed #ccc; border-radius: 3px; padding: 0.75rem;
+  color: #999; font-size: 0.8125rem; text-align: center; margin-top: 0.75rem;
+}
+
+/* Toast */
+.wireframe-toast {
+  position: relative; margin: 0 auto 3rem; max-width: 1100px;
+}
+.wireframe-toast-box {
+  position: absolute; bottom: -2rem; right: 260px;
+  border: 2px solid #333; border-radius: 4px; padding: 0.5rem 0.875rem;
+  background: #fff; font-size: 0.8125rem; display: flex; align-items: center; gap: 0.5rem;
+  box-shadow: 2px 2px 0 #ccc;
+}
+.wireframe-toast-label {
+  position: absolute; bottom: -3.5rem; right: 260px;
+  font-size: 0.6875rem; color: #888; font-style: italic;
+}
+
+/* Annotations */
+.annotation {
+  max-width: 1100px; margin: 0 auto 2rem; padding: 1rem;
+  border: 1px dashed #999; border-radius: 4px; background: #fafafa;
+}
+.annotation-title { font-weight: 700; font-size: 0.875rem; margin-bottom: 0.5rem; }
+.annotation ul { margin-left: 1.25rem; font-size: 0.8125rem; color: #555; }
+.annotation li { margin-bottom: 0.25rem; }
+
+/* Architecture diagram */
+.architecture {
+  max-width: 1100px; margin: 0 auto 2rem;
+  border: 2px solid #333; border-radius: 4px; background: #fff; padding: 1.5rem;
+}
+.architecture-title { font-weight: 700; font-size: 0.875rem; margin-bottom: 1rem; text-align: center; text-transform: uppercase; letter-spacing: 0.05em; }
+.arch-flow { display: flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap; }
+.arch-box {
+  border: 2px solid #333; border-radius: 4px; padding: 0.5rem 1rem;
+  font-size: 0.8125rem; font-weight: 600; text-align: center; min-width: 120px;
+}
+.arch-box.terminal { background: #e8e8e8; }
+.arch-box.server { background: #d4e8d4; }
+.arch-box.browser { background: #d4d4e8; }
+.arch-arrow { font-size: 1.25rem; color: #666; }
+.arch-label { font-size: 0.625rem; color: #888; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="wireframe-title">SSE Event Bus + Activity Feed</div>
+<div class="wireframe-subtitle">Lo-fi Wireframe — PM-088</div>
+
+<!-- Architecture overview -->
+<!-- Source: pm/research/sse-event-bus/findings.md — Finding 1: OpenCode SSE event bus pattern -->
+<div class="architecture">
+  <div class="architecture-title">Data Flow</div>
+  <div class="arch-flow">
+    <div>
+      <div class="arch-box terminal">Terminal 1<br><small>pm:groom</small></div>
+    </div>
+    <div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-label">POST /events</div>
+    </div>
+    <div>
+      <div class="arch-box server">Dashboard Server<br><small>In-memory buffer</small></div>
+    </div>
+    <div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-label">SSE push</div>
+    </div>
+    <div>
+      <div class="arch-box browser">Browser<br><small>Feed + Toasts</small></div>
+    </div>
+  </div>
+  <div style="text-align: center; margin-top: 0.75rem;">
+    <div class="arch-flow">
+      <div>
+        <div class="arch-box terminal">Terminal 2<br><small>pm:dev</small></div>
+      </div>
+      <div>
+        <div class="arch-arrow">↗</div>
+      </div>
+      <div style="width: 140px;"></div>
+      <div></div>
+      <div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Screen 1: Dashboard Home with Activity Feed -->
+<div class="wireframe-screen">
+  <div class="wireframe-screen-label">Screen 1: Dashboard Home — Activity Feed Panel</div>
+  <div class="wireframe-layout">
+    <!-- Sidebar -->
+    <div class="wireframe-sidebar">
+      <div class="brand">[Project Name]</div>
+      <div class="wireframe-nav-item active">Home</div>
+      <div class="wireframe-nav-item">Backlog</div>
+      <div class="wireframe-nav-item">Research</div>
+    </div>
+
+    <!-- Main content -->
+    <div class="wireframe-content">
+      <div class="wireframe-stats">
+        <div class="wireframe-stat"><div class="wireframe-stat-val">24</div><div class="wireframe-stat-label">Backlog</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">3</div><div class="wireframe-stat-label">Competitors</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">9</div><div class="wireframe-stat-label">Topics</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">[checkmark]</div><div class="wireframe-stat-label">Strategy</div></div>
+      </div>
+
+      <div class="wireframe-session">
+        <div class="wireframe-session-dot"></div>
+        <div>
+          <div class="wireframe-session-text">SSE Event Bus</div>
+          <div class="wireframe-session-meta">Grooming · Phase: Research</div>
+        </div>
+      </div>
+      <div class="wireframe-session">
+        <div class="wireframe-session-dot"></div>
+        <div>
+          <div class="wireframe-session-text">Stable Port</div>
+          <div class="wireframe-session-meta">Dev · Stage: implement</div>
+        </div>
+      </div>
+
+      <div class="wireframe-placeholder">[Knowledge Base — collapsible]</div>
+      <div class="wireframe-placeholder" style="margin-top: 0.5rem;">[Recent Proposals — card grid]</div>
+    </div>
+
+    <!-- Activity Feed — right panel -->
+    <!-- Source: pm/research/sse-event-bus/findings.md — Finding 2: Activity feed UX patterns -->
+    <!-- Matches existing pattern in: scripts/server.js handleDashboardHome layout -->
+    <div class="wireframe-feed">
+      <div class="wireframe-feed-header">
+        Activity
+        <div class="wireframe-feed-live">[dot] Live</div>
+      </div>
+      <div class="wireframe-feed-body">
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 2</strong> tests passed (8/8)</div>
+            <div class="wireframe-event-time">12s ago</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 2</strong> PR #47 created</div>
+            <div class="wireframe-event-time">1m ago</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 1</strong> started research</div>
+            <div class="wireframe-event-time">3m ago</div>
+          </div>
+        </div>
+        <div class="wireframe-time-sep">Earlier</div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot"></div>
+          <div>
+            <div class="wireframe-event-text"><strong>Terminal 3</strong> review: B+</div>
+            <div class="wireframe-event-time">5m ago</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot"></div>
+          <div>
+            <div class="wireframe-event-text"><strong>Terminal 1</strong> strategy passed</div>
+            <div class="wireframe-event-time">8m ago</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot"></div>
+          <div>
+            <div class="wireframe-event-text"><strong>Terminal 2</strong> pushed 3 commits</div>
+            <div class="wireframe-event-time">15m ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast annotation -->
+<div class="annotation">
+  <div class="annotation-title">Toast Notification Behavior</div>
+  <ul>
+    <li>Appears bottom-right of main content area (not over the feed panel)</li>
+    <li>Auto-dismisses after 3-5 seconds (500ms per word + 1s buffer)</li>
+    <li>Subtle slide-in animation. Respects prefers-reduced-motion.</li>
+    <li>Only for milestone events: PR created, tests passed, review done, merged</li>
+    <li>No interactive elements — pure confirmation, not actionable</li>
+    <li>Queue multiple toasts without overlapping</li>
+  </ul>
+</div>
+
+<!-- Screen 2: Empty state -->
+<div class="wireframe-screen">
+  <div class="wireframe-screen-label">Screen 2: Empty State — No Events Yet</div>
+  <div class="wireframe-layout">
+    <div class="wireframe-sidebar">
+      <div class="brand">[Project Name]</div>
+      <div class="wireframe-nav-item active">Home</div>
+      <div class="wireframe-nav-item">Backlog</div>
+      <div class="wireframe-nav-item">Research</div>
+    </div>
+    <div class="wireframe-content">
+      <div class="wireframe-stats">
+        <div class="wireframe-stat"><div class="wireframe-stat-val">24</div><div class="wireframe-stat-label">Backlog</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">3</div><div class="wireframe-stat-label">Competitors</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">9</div><div class="wireframe-stat-label">Topics</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">[checkmark]</div><div class="wireframe-stat-label">Strategy</div></div>
+      </div>
+      <div class="wireframe-placeholder">[Session banners, KB, Proposals...]</div>
+    </div>
+    <div class="wireframe-feed">
+      <div class="wireframe-feed-header">
+        Activity
+        <div class="wireframe-feed-live" style="color: #ccc;">[dot] Idle</div>
+      </div>
+      <div class="wireframe-feed-body" style="display: flex; align-items: center; justify-content: center; padding: 2rem;">
+        <div style="text-align: center; color: #bbb; font-size: 0.75rem;">
+          No events yet.<br>
+          Activity appears here when<br>
+          terminal sessions are running.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Layout integration annotation -->
+<div class="annotation">
+  <div class="annotation-title">Layout Integration</div>
+  <ul>
+    <li>The feed panel lives inside the existing <code>app-layout &gt; main-content</code> structure in <code>dashboardPage()</code></li>
+    <li>The left sidebar (220px, <code>aside.sidebar</code>) is unchanged — the feed panel is a child of <code>main-content</code>, not a replacement</li>
+    <li><code>dashboardPage()</code> gets a conditional sidebar slot: Home page passes feed panel content, other pages pass null</li>
+    <li>On screens &lt; 1024px, the feed panel is hidden via CSS media query</li>
+    <li>"Earlier" separator appears below events older than 3 minutes</li>
+  </ul>
+</div>
+
+<!-- Screen 3: Toast in context -->
+<div class="wireframe-screen" style="position: relative;">
+  <div class="wireframe-screen-label">Screen 3: Toast Notification in Context</div>
+  <div class="wireframe-layout">
+    <div class="wireframe-sidebar">
+      <div class="brand">[Project Name]</div>
+      <div class="wireframe-nav-item active">Home</div>
+      <div class="wireframe-nav-item">Backlog</div>
+      <div class="wireframe-nav-item">Research</div>
+    </div>
+    <div class="wireframe-content" style="position: relative;">
+      <div class="wireframe-stats">
+        <div class="wireframe-stat"><div class="wireframe-stat-val">24</div><div class="wireframe-stat-label">Backlog Items</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">3</div><div class="wireframe-stat-label">Competitors</div></div>
+        <div class="wireframe-stat"><div class="wireframe-stat-val">9</div><div class="wireframe-stat-label">Research Topics</div></div>
+      </div>
+      <div class="wireframe-placeholder">[Session banners, KB, Proposals...]</div>
+
+      <!-- Toast stack: 2 toasts shown, positioned bottom-right of main content -->
+      <div style="position: absolute; bottom: 16px; right: 16px; display: flex; flex-direction: column-reverse; gap: 8px;">
+        <div style="border: 2px solid #333; border-radius: 4px; padding: 0.5rem 0.875rem; background: #fff; font-size: 0.8125rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 2px 2px 0 #ccc;">
+          <span style="color: #16a34a;">[checkmark]</span> Tests passed (8/8)
+        </div>
+        <div style="border: 2px solid #333; border-radius: 4px; padding: 0.5rem 0.875rem; background: #fff; font-size: 0.8125rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 2px 2px 0 #ccc;">
+          <span style="color: #2563eb;">[arrow]</span> PR #47 created
+        </div>
+      </div>
+    </div>
+    <!-- Feed panel — events appear here too -->
+    <!-- Source: pm/research/sse-event-bus/findings.md — Finding 3: Toast best practices -->
+    <div class="wireframe-feed">
+      <div class="wireframe-feed-header">
+        Activity
+        <div class="wireframe-feed-live">[dot] Live</div>
+      </div>
+      <div class="wireframe-feed-body">
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent" style="background: #16a34a;"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 2</strong> tests passed (8/8)</div>
+            <div class="wireframe-event-time">just now</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent" style="background: #2563eb;"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 2</strong> PR #47 created</div>
+            <div class="wireframe-event-time">3s ago</div>
+          </div>
+        </div>
+        <div class="wireframe-event">
+          <div class="wireframe-event-dot recent" style="background: #5e6ad2;"></div>
+          <div>
+            <div class="wireframe-event-text recent"><strong>Terminal 1</strong> started research</div>
+            <div class="wireframe-event-time">2m ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Event schema annotation -->
+<div class="annotation">
+  <div class="annotation-title">Event Schema (POST /events body)</div>
+  <ul>
+    <li><strong>type</strong> (string, required): Event category — "tests_passed", "pr_created", "review_done", "phase_started", "pushed", "merged"</li>
+    <li><strong>source</strong> (string, required): Terminal session identifier — e.g., "terminal-1", process PID, or session slug</li>
+    <li><strong>timestamp</strong> (number, required): Epoch milliseconds</li>
+    <li><strong>detail</strong> (object, optional): Event-specific data — e.g., { tests: 8, passed: 8 } or { pr: 47, branch: "feat/sse" }</li>
+    <li><strong>source_type</strong> (string, optional): "terminal" for v1. Extensible for future "webhook" or "integration" sources.</li>
+  </ul>
+</div>
+
+</body>
+</html>
