@@ -62,13 +62,21 @@ Set up an isolated git worktree. Make setup idempotent:
    - `REPO_ROOT=$(git rev-parse --show-toplevel)`
    - `CURRENT_BRANCH=$(git branch --show-current)`
 2. If already on a feature branch inside a worktree, reuse it.
-3. Else derive a slug from ticket/topic and propose:
+3. **Preflight: ensure new branches are based on the default branch.**
+   Before creating a new worktree, verify the starting point:
+   ```bash
+   git fetch origin
+   # Create worktree from the default branch, not the current branch
+   git worktree add ${REPO_ROOT}/.worktrees/<slug> -b <type>/<slug> origin/${DEFAULT_BRANCH}
+   ```
+   This prevents accidentally basing a new feature branch on another feature branch (e.g., if the user is currently on `feat/landing-page`, the new branch would carry over those unmerged commits). Always branch from `origin/${DEFAULT_BRANCH}` to get a clean starting point.
+4. Else derive a slug from ticket/topic and propose:
    - branch: `<type>/<slug>` (`feat/`, `fix/`, `chore/`)
    - worktree: `${REPO_ROOT}/.worktrees/<slug>`
-4. If branch/worktree already exists:
+5. If branch/worktree already exists:
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
-5. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
+6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
 
 ### Worktree environment prep
 

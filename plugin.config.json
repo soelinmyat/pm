@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "author": {
     "name": "Soe Lin Myat",
     "url": "https://github.com/soelinmyat"
@@ -48,7 +48,8 @@
         "ship",
         "subagent-dev",
         "tdd",
-        "using-pm"
+        "using-pm",
+        "deploy"
       ]
     },
     "interface": {
