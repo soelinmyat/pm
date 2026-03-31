@@ -115,3 +115,22 @@ updated: YYYY-MM-DD
 codebase_available: true | false
 codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 ```
+
+7. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
+
+   - `{TOPIC}`: the topic from step 1
+   - `{PHASE_LABEL}`: "Intake"
+   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `intake` as current phase
+   - `{CONTENT}`:
+     ```html
+     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
+       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 1: Intake — in progress</p>
+     </div>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.

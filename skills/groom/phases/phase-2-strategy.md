@@ -87,7 +87,26 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
      > "This doesn't map to any current top-3 priority. It's not a non-goal, but it
      > competes for focus. Proceed anyway?"
 
-4. Update state:
+4. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Strategy Check"
+   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `strategy-check` as current phase (`intake` as completed)
+   - `{CONTENT}`:
+     ```html
+     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
+       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 2: Strategy Check — in progress</p>
+     </div>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+5. Update state:
 
 ```yaml
 strategy_check:

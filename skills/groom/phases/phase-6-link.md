@@ -27,7 +27,26 @@
    ```
    If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
-5. **Update state:**
+5. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Linking Issues"
+   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `present` as completed (all phases complete — Phase 6 is post-presentation)
+   - `{CONTENT}`:
+     ```html
+     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
+       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 6: Linking Issues — in progress</p>
+     </div>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+6. **Update state:**
 
 ```yaml
 issues:
@@ -36,7 +55,7 @@ issues:
     linear_id: "{ID}" | null
 ```
 
-6. **Retro prompt.** Before deleting the state file, run a short retrospective:
+7. **Retro prompt.** Before deleting the state file, run a short retrospective:
 
    Ask ONE question:
    > "Anything worth remembering from this session?"
@@ -76,16 +95,16 @@ issues:
    After the answer is captured, say:
    > "Retro captured — saved to pm/memory.md."
 
-   If skipped, say nothing about retro and proceed to step 7.
+   If skipped, say nothing about retro and proceed to step 8.
 
-7. **Automated learning extraction.** Silently extract quantitative learnings from the state file. No user interaction.
+8. **Automated learning extraction.** Silently extract quantitative learnings from the state file. No user interaction.
 
    Read `.pm/groom-sessions/{slug}.md` and parse the frontmatter. If the file is missing or the frontmatter cannot be parsed, log a warning:
    > "Could not read session state for learning extraction — skipping."
 
-   and proceed to step 8.
+   and proceed to step 9.
 
-   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 8 with no output.
+   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 9 with no output.
 
    | # | Check | Threshold | Learning text | Category |
    |---|-------|-----------|---------------|----------|
@@ -110,9 +129,9 @@ issues:
    4. Update the `updated` field to today's date.
    5. Write the file back.
 
-   This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 6.
+   This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 7.
 
-8. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
+9. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.

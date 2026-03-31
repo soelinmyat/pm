@@ -16,7 +16,26 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 
 3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
 
-4. Update state:
+4. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Research"
+   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `research` as current phase (`intake`, `strategy-check` as completed)
+   - `{CONTENT}`:
+     ```html
+     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
+       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 3: Research — in progress</p>
+     </div>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
+
+5. Update state:
 
 ```yaml
 phase: research
