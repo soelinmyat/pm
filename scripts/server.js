@@ -1294,14 +1294,14 @@ a.groom-session:hover { background: #1e2240; }
 }
 
 /* ========== Progressive Proposal ========== */
-.groom-progress-bar { display: flex; gap: 2px; margin-bottom: 2rem; }
+.groom-progress-bar { display: flex; gap: 3px; margin-bottom: 2rem; }
 .groom-progress-seg {
-  flex: 1; height: 4px; border-radius: 2px;
+  flex: 1; height: 6px; border-radius: 3px;
   background: var(--border); transition: background 400ms ease;
 }
 .groom-progress-seg.filled { background: var(--accent); }
 .groom-progress-seg.current { background: var(--accent); animation: pulse-seg 2s ease-in-out infinite; }
-@keyframes pulse-seg { 0%,100%{opacity:.6} 50%{opacity:1} }
+@keyframes pulse-seg { 0%,100%{opacity:.5} 50%{opacity:1} }
 
 .groom-progress-label {
   display: flex; justify-content: space-between; align-items: baseline;
@@ -1309,102 +1309,112 @@ a.groom-session:hover { background: #1e2240; }
 }
 .groom-progress-label .phase-name { font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 
+/* Sections — no border box, just left accent + content */
 .proposal-section {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 1.5rem; margin-bottom: 1rem; transition: border-color 300ms ease, opacity 300ms ease;
+  padding: 1rem 0 1rem 1.25rem; margin-bottom: 0.25rem;
+  border-left: 2px solid var(--border);
+  transition: border-color 300ms ease, opacity 300ms ease;
+  background: none;
 }
 .proposal-section.filled { border-left: 3px solid var(--accent); }
 .proposal-section.placeholder {
-  opacity: 0.4; border-style: dashed; min-height: 80px;
-  display: flex; align-items: center; justify-content: center;
+  opacity: 0.35; min-height: 48px; padding: 0.75rem 0 0.75rem 1.25rem;
+  display: flex; align-items: center;
 }
 .proposal-section.placeholder .section-pending {
   font-size: 0.8125rem; color: var(--text-muted); font-style: italic;
 }
 .proposal-section .section-header {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 .proposal-section .section-title {
-  font-size: 1rem; font-weight: 700; letter-spacing: -0.01em;
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
 }
 .proposal-section .section-detail-trigger {
-  font-size: 0.75rem; color: var(--accent); cursor: pointer;
-  border: 1px solid var(--accent); border-radius: 4px; padding: 0.2em 0.6em;
-  background: transparent; transition: background 150ms ease;
+  font-size: 0.6875rem; color: var(--accent); cursor: pointer;
+  border: none; border-radius: 4px; padding: 0.2em 0.5em;
+  background: var(--accent-subtle); transition: background 150ms ease;
 }
-.proposal-section .section-detail-trigger:hover { background: var(--accent-subtle); }
+.proposal-section .section-detail-trigger:hover { background: rgba(94,106,210,0.25); }
 
-.proposal-section .section-body { font-size: 0.875rem; line-height: 1.6; }
+.proposal-section .section-body { font-size: 0.875rem; line-height: 1.6; color: var(--text); }
 .proposal-section .section-body p { margin-bottom: 0.5rem; }
 .proposal-section .section-body ul { margin: 0.25rem 0 0.5rem 1.25rem; }
-.proposal-section .section-body li { margin-bottom: 0.2rem; }
+.proposal-section .section-body li { margin-bottom: 0.2rem; color: var(--text); }
 .proposal-section .section-body table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.8125rem; }
 .proposal-section .section-body th, .proposal-section .section-body td {
   padding: 0.4rem 0.6rem; border: 1px solid var(--border); text-align: left;
 }
 .proposal-section .section-body th {
-  background: var(--dark); font-weight: 600; font-size: 0.75rem;
+  background: var(--surface); font-weight: 600; font-size: 0.75rem;
   text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted);
 }
 
-/* Hero section special styling */
+/* Hero section — gradient accent, no box */
 .proposal-hero {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 2rem 1.5rem; margin-bottom: 1rem; text-align: center;
+  position: relative; border-radius: var(--radius); overflow: hidden;
+  padding: 2.5rem 2rem 2rem; margin-bottom: 1.5rem; text-align: center;
+  background: linear-gradient(135deg, rgba(94,106,210,0.15) 0%, rgba(94,106,210,0.04) 100%);
+  border: 1px solid rgba(94,106,210,0.2);
 }
-.proposal-hero.placeholder { opacity: 0.4; border-style: dashed; }
-.proposal-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
-.proposal-hero .hero-subtitle { color: var(--text-muted); font-size: 0.9375rem; margin-bottom: 1rem; }
+.proposal-hero.placeholder { opacity: 0.3; background: var(--surface); border: 1px dashed var(--border); }
+.proposal-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.375rem; }
+.proposal-hero .hero-subtitle { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
 .proposal-hero .hero-badges { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
 .proposal-hero .hero-badge {
-  display: inline-block; padding: 0.25em 0.75em; border-radius: 4px;
-  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
-  background: var(--accent-subtle); color: var(--accent);
+  display: inline-block; padding: 0.2em 0.65em; border-radius: 12px;
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  background: rgba(94,106,210,0.2); color: var(--accent);
 }
 
-/* Scope grid inside proposal */
+/* Scope grid */
 .proposal-scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0.5rem 0; }
 .proposal-scope-col {
-  background: var(--dark); border-radius: var(--radius-sm); padding: 0.75rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.75rem;
   border-left: 3px solid var(--border);
 }
 .proposal-scope-col.in-scope { border-left-color: var(--success); }
 .proposal-scope-col.out-scope { border-left-color: var(--warning); }
-.proposal-scope-col h4 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; }
+.proposal-scope-col h4 { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.375rem; }
+.proposal-scope-col ul { margin: 0 0 0 1rem; }
+.proposal-scope-col li { font-size: 0.8125rem; color: var(--text); margin-bottom: 0.2rem; }
 
-/* Verdict row inside proposal */
-.proposal-verdicts { display: flex; gap: 0.5rem; margin: 0.5rem 0; flex-wrap: wrap; }
+/* Verdict chips */
+.proposal-verdicts { display: flex; gap: 0.5rem; margin: 0.75rem 0 0; flex-wrap: wrap; }
 .proposal-verdict {
-  flex: 1; min-width: 100px; background: var(--dark); border-radius: var(--radius-sm);
-  padding: 0.5rem 0.75rem; text-align: center;
+  flex: 1; min-width: 90px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.5rem 0.625rem; text-align: center;
 }
-.proposal-verdict .role { font-size: 0.625rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.proposal-verdict .verdict { font-size: 0.8125rem; font-weight: 700; margin-top: 0.125rem; }
+.proposal-verdict .role { font-size: 0.5625rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.proposal-verdict .verdict { font-size: 0.8125rem; font-weight: 700; margin-top: 0.125rem; color: var(--success); }
 
-/* Issue cards inside proposal */
+/* Issue cards */
 .proposal-issue {
-  background: var(--dark); border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 0.5rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm); padding: 0.625rem 0.875rem; margin-bottom: 0.5rem;
 }
-.proposal-issue .issue-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); margin-bottom: 0.125rem; }
-.proposal-issue .issue-title { font-size: 0.875rem; font-weight: 600; }
-.proposal-issue .issue-outcome { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.25rem; }
+.proposal-issue .issue-id { font-size: 0.625rem; font-weight: 600; color: var(--accent); margin-bottom: 0.125rem; }
+.proposal-issue .issue-title { font-size: 0.875rem; font-weight: 600; color: var(--text); }
+.proposal-issue .issue-outcome { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; }
 
 /* Final verdict banner */
 .proposal-verdict-banner {
   text-align: center; padding: 1.25rem; border-radius: var(--radius);
   margin-bottom: 1rem; font-weight: 700; font-size: 1.125rem;
 }
-.proposal-verdict-banner.ready { background: rgba(74,222,128,0.12); color: var(--success); border: 1px solid rgba(74,222,128,0.3); }
-.proposal-verdict-banner.send-back { background: rgba(251,146,60,0.12); color: var(--warning); border: 1px solid rgba(251,146,60,0.3); }
-.proposal-verdict-banner.pause { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.proposal-verdict-banner.ready { background: rgba(74,222,128,0.1); color: var(--success); border: 1px solid rgba(74,222,128,0.25); }
+.proposal-verdict-banner.send-back { background: rgba(251,146,60,0.1); color: var(--warning); border: 1px solid rgba(251,146,60,0.25); }
+.proposal-verdict-banner.pause { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
 
 /* Modal */
 .modal-overlay {
   display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   z-index: 100; align-items: center; justify-content: center;
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
 }
 .modal-overlay.open { display: flex; }
 .modal-content {
