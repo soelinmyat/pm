@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-104"
 title: "Canvas infrastructure and sidebar navigation"
 outcome: "The dashboard has a canvas sidebar that lists all active sessions — clicking one loads its live content in the main area with automatic refresh"
-status: drafted
+status: done
 parent: "live-canvas-system"
 children: []
 labels:

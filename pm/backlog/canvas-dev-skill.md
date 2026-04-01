@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-106"
 title: "Dev skill canvas writes"
 outcome: "Dev sessions render a live canvas showing plan progress, test results, and PR status — the user monitors builds from the dashboard"
-status: drafted
+status: done
 parent: "live-canvas-system"
 children: []
 labels:

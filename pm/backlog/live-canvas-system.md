@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-103"
 title: "Live Canvas System"
 outcome: "Each agent session gets its own live workspace on the dashboard — the user watches work products form in real-time while keeping hands in the terminal"
-status: drafted
+status: done
 parent: null
 children:
   - "canvas-infra-sidebar"

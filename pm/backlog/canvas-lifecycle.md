@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-105"
 title: "Canvas lifecycle states"
 outcome: "Each canvas shows whether its agent is actively working, idle, or done — the user knows at a glance which canvases need attention"
-status: drafted
+status: done
 parent: "live-canvas-system"
 children: []
 labels:

@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-107"
 title: "Canvas auto-archive cleanup"
 outcome: "Completed canvases automatically archive after 24 hours — the dashboard stays clean without manual cleanup"
-status: drafted
+status: done
 parent: "live-canvas-system"
 children: []
 labels:
