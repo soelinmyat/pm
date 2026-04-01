@@ -15,4 +15,5 @@ tools/swe-bench/logs/
 *.jpg
 *.jpeg
 *.webp
+!assets/**
 !skills/**/assets/**

@@ -1834,7 +1834,7 @@ function routeDashboard(req, res, pmDir) {
     }
   } else if (urlPath.startsWith('/assets/')) {
     const assetName = decodeURIComponent(urlPath.slice('/assets/'.length)).replace(/\.\./g, '');
-    const assetPath = path.join(__dirname, '..', 'skills', 'groom', 'assets', assetName);
+    const assetPath = path.join(__dirname, '..', 'assets', assetName);
     if (fs.existsSync(assetPath)) {
       const ext = path.extname(assetPath).toLowerCase();
       const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp' }[ext] || 'application/octet-stream';
@@ -2092,6 +2092,7 @@ html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: sm
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
 
 /* Progress bar */
+.pp-progress { position: sticky; top: 0; z-index: 100; background: #f8f9fa; padding-bottom: 0.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .pp-bar { display: flex; gap: 3px; padding: 0.75rem 1.5rem 0; max-width: 960px; margin: 0 auto; }
 .pp-seg { flex: 1; height: 5px; border-radius: 3px; background: #e5e7eb; transition: background 400ms ease; }
 .pp-seg.done { background: #7c3aed; }
@@ -2171,15 +2172,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .scope-col.out-scope h4 { color: #7c3aed; }
 .scope-col.out-scope li { color: #6b7280; }
 .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.7rem; border-radius: 999px; vertical-align: middle; }
-.scope-review-section { margin-top: 1.5rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.scope-review-header { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #999; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #f3f4f6; }
-.reviewer-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; }
+.scope-review-section { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
+.scope-review-header { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #bbb; margin-bottom: 0.75rem; }
+.reviewer-row { display: flex; align-items: flex-start; gap: 0.625rem; padding: 0.5rem 0; border-bottom: 1px solid #f3f4f6; }
 .reviewer-row:last-child { border-bottom: none; padding-bottom: 0; }
-.reviewer-avatar { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.reviewer-avatar { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
 .reviewer-content { flex: 1; min-width: 0; }
-.reviewer-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
-.reviewer-header strong { font-size: 0.875rem; }
-.reviewer-summary { font-size: 0.8rem; color: #666; line-height: 1.4; }
+.reviewer-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.125rem; }
+.reviewer-header strong { font-size: 0.8rem; }
+.reviewer-summary { font-size: 0.75rem; color: #888; line-height: 1.4; }
 
 /* Issue cards */
 .issue-group { margin-bottom: 1.5rem; }
@@ -2331,8 +2332,8 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
     const cls = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
     return `<div class="pp-seg ${cls}" title="${groomPhaseLabel(p)}"></div>`;
   }).join('');
-  const progressHtml = `<div class="pp-bar">${progressSegs}</div>
-<div class="pp-status"><span class="pp-phase">${esc(groomPhaseLabel(currentPhase))}</span><span>${Math.max(0,currentIdx)} of ${phases.length} phases</span></div>`;
+  const progressHtml = `<div class="pp-progress"><div class="pp-bar">${progressSegs}</div>
+<div class="pp-status"><span class="pp-phase">${esc(groomPhaseLabel(currentPhase))}</span><span>${Math.max(0,currentIdx)} of ${phases.length} phases</span></div></div>`;
 
   // Hero
   const hasHero = !!session.topic;
@@ -2341,10 +2342,11 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   if (tier) badges.push(esc(tier) + ' groom');
   const issueCount = Array.isArray(session.issues) ? session.issues.length : 0;
   const scopeFilter = session.scope && session.scope.filter_result ? esc(String(session.scope.filter_result)) : '';
+  const successMetric = session.success_metric || '';
   const metricsHtml = `<div class="metrics-strip">
   ${session.priority ? `<div class="metric"><span class="metric-value">${esc(String(session.priority))}</span><span class="metric-label">Priority</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Priority</span></div>'}
   ${scopeFilter ? `<div class="metric"><span class="metric-value">${scopeFilter}</span><span class="metric-label">Differentiator</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Differentiator</span></div>'}
-  <div class="metric"><span class="metric-value">${issueCount || '—'}</span><span class="metric-label">Issues</span></div>
+  ${successMetric ? `<div class="metric"><span class="metric-value" style="font-size:0.85rem;">${esc(String(successMetric))}</span><span class="metric-label">Success Metric</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Success Metric</span></div>'}
 </div>`;
   const heroHtml = hasHero
     ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${metricsHtml}</div></header>`

@@ -36,23 +36,40 @@ Follow the full methodology in `scope-validation.md`.
    - What is explicitly IN scope for this initiative?
    - What is explicitly OUT of scope? (with reasons — prevents scope creep)
 
-3. Apply the 10x filter (from `scope-validation.md`):
+3. **Success metric.** Ask:
+   > "What's the one metric that tells us this worked?"
+
+   Guide the user toward an **outcome metric** (what changed for users), not an output metric (what we shipped). The metric should have:
+   - **What to measure** — a specific, queryable metric
+   - **Target** — a number or directional threshold (exact for optimization work, directional for new features)
+   - **Timeframe** — when to evaluate (must be evaluable within 2-4 weeks of launch)
+
+   Good: "New user activation rate from 34% to 45% within 30 days"
+   Bad: "Every phase has a visible artifact" (that's an output, not an outcome)
+   Bad: "Improve user experience" (unmeasurable)
+
+   For exploratory / 0-to-1 work where no baseline exists, use qualitative: "5 of 10 beta users report this solves their workflow problem."
+
+   Store as `success_metric` in the state file. Keep it to one line — this appears in the hero metrics strip on the proposal.
+
+4. Apply the 10x filter (from `scope-validation.md`):
    > "Is this meaningfully better than what competitors offer — or incremental parity?"
    Document the filter result explicitly: `10x` | `parity` | `gap-fill`.
 
-4. If the result is `parity`: flag it.
+5. If the result is `parity`: flag it.
    > "This appears to be feature parity with {competitor}. Parity is a valid reason
    > to build, but not a differentiation story. Note the strategic intent before proceeding."
 
-5. If `visual_companion: true` in `.pm/config.json`: offer the scope grid (impact/effort).
+6. If `visual_companion: true` in `.pm/config.json`: offer the scope grid (impact/effort).
    > "Want a scope grid? I'll plot proposed scope items on impact vs. effort axes."
 
-6. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders the scope section from the state file — included/excluded lists, scope review verdicts, and differentiator badge.
+7. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders the scope section from the state file — included/excluded lists, scope review verdicts, and differentiator badge.
 
-7. Update state:
+8. Update state:
 
 ```yaml
 phase: scope
+success_metric: "{measurable outcome — e.g., 'grooming sessions complete 40% faster'}"
 scope:
   in_scope: []
   out_of_scope: []
