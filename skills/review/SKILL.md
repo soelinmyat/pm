@@ -152,9 +152,21 @@ If no code issues found, say "No code issues found."
 Max 5 findings (highest leverage only).
 ```
 
+### Contract Drift Check (before skipping any agent)
+
+Before skipping PM or Design review based on upstream gates, verify the implementation stayed within the approved scope:
+
+1. Read `.pm/dev-sessions/{slug}.md` and extract the plan's **Files in scope** list (from the Contract section of the plan, if present).
+2. Compare against the actual changed files in the diff (from Phase 1).
+3. **If all changed files are within the plan's scope:** Skip is safe. Proceed with skip.
+4. **If changed files exist outside the plan's scope** (new files not listed, or files in different modules/apps): Log "Contract drift detected — {N} files outside approved scope" and **do not skip** the agent. Run it even if the upstream gate passed.
+5. **If no plan scope is available** (legacy plans without Contract section, or XS/S tasks): Fall back to the original skip logic (upstream gate pass = skip).
+
+This check applies to both PM Review (Agent 3) and Design Review (Agent 4) below.
+
 ### Agent 3: PM Review (sub-agent)
 
-**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Spec review: passed`, skip this agent. The Spec Review stage already ran a PM reviewer against the spec. Log: "PM Review: skipped (Spec Review passed upstream)."
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Spec review: passed`, skip this agent — **unless contract drift was detected above**. The Spec Review stage already ran a PM reviewer against the spec. Log: "PM Review: skipped (Spec Review passed upstream, no drift)."
 
 Spawn via Agent tool (subagent_type: general-purpose):
 
@@ -195,7 +207,7 @@ Max 5 findings (highest leverage only).
 
 ### Agent 4: Design Review (sub-agent)
 
-**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream)."
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
 Spawn via Agent tool (subagent_type: general-purpose):
 

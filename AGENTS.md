@@ -160,9 +160,9 @@ Planning notes live in:
 
 ## Skill-Only Architecture
 
-This plugin uses skills as the sole runtime surface. There is no `commands/` directory — it was intentionally removed.
+This plugin uses skills as the sole runtime surface. Skills are the universal cross-platform format — they work on Claude Code, Cursor, Codex, and Gemini CLI.
 
-**Do not recreate command files.** Commands were thin wrappers around skills that only worked on Claude Code. Skills are the universal cross-platform format — they work on Claude Code, Cursor, Codex, and Gemini CLI. Recreating commands would break cross-platform compatibility.
+**Do not create new command files.** One compatibility alias exists: `commands/merge.md` — it delegates to the shared merge-loop reference for platforms that still expose command aliases. This is the only command, and it is intentionally thin. All workflow behavior lives in skills.
 
 Users invoke workflows through natural language. The `using-pm` skill (preloaded at session start) routes user intent to the correct skill automatically.
 

@@ -86,29 +86,24 @@ digraph process {
 
 ## Layer-Aware Dispatch
 
-This monorepo has strict layer constraints:
+Read layer constraints from the consuming project's AGENTS.md. Look for app directories, shared packages, and concurrency rules (e.g., shared test databases that prevent parallel access).
 
-| Layer | Apps | Constraint |
-|---|---|---|
-| api | apps/api | Only 1 agent at a time (shared test DB) |
-| web | apps/web-client (+ packages/shared) | Only 1 agent at a time |
-| mobile | apps/mobile (+ packages/shared) | Only 1 agent at a time (simulator, Metro) |
-| display | apps/display (+ packages/shared) | Only 1 agent at a time |
+If AGENTS.md does not document layer constraints, assume all tasks must serialize (safe default).
 
 **Rules:**
 - Tasks touching the same layer MUST serialize
-- Tasks on different layers CAN parallelize (e.g., api task + web task)
-- Cross-layer tasks (api + web) run alone
+- Tasks on different layers CAN parallelize if AGENTS.md confirms independence
+- Cross-layer tasks run alone unless AGENTS.md explicitly allows concurrency
 - Every implementer prompt must include: explicit cwd, which app(s) to modify, test command for that app
-- Contract sync (`bin/sync-api`) is required between api and frontend tasks
+- If AGENTS.md documents a contract sync command (e.g., codegen, type sync), it is required between backend and frontend tasks
 
 **Implementer prompt additions:**
 Always include in every implementer subagent prompt:
 - `**CWD:** {worktree path}`
 - `**Branch:** {feature branch name}`
-- `**App:** {apps/api | apps/web-client | apps/mobile | apps/display}`
-- `**Test command:** {app-specific test command}`
-- `**Core rules:** Tokens only. Generated types only. Locales only. Contract first.`
+- `**App:** {app path(s) from AGENTS.md or project structure}`
+- `**Test command:** {app-specific test command from AGENTS.md}`
+- `**Core rules:** {project-specific rules from AGENTS.md — e.g., token usage, codegen, locale requirements}`
 
 **Git hygiene rules (include in every implementer prompt):**
 ```
@@ -272,9 +267,8 @@ Done!
 - Let implementer self-review replace actual review (both are needed)
 - **Start code quality review before spec compliance is ✅** (wrong order)
 - Move to next task while either review has open issues
-- Start code without running `bin/sync-api` after API changes
-- Use raw hex colors or hardcoded values instead of tokens
-- Manually define API response types instead of using generated types from @cleanlog/shared
+- Skip contract sync (if documented in AGENTS.md) after cross-layer changes
+- Violate project-specific coding rules documented in AGENTS.md (token usage, codegen, etc.)
 
 **If subagent asks questions:**
 - Answer clearly and completely

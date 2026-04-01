@@ -52,10 +52,26 @@ This structure informs the task decomposition. Each task should produce self-con
 
 **Architecture:** [2-3 sentences about approach]
 
-**Monorepo apps affected:** [list which apps: api, web-client, mobile, display, shared]
-**Contract sync required:** [yes/no — yes if both backend and frontend changes]
+**Apps/services affected:** [list affected apps, packages, or services from project structure]
+**Cross-boundary sync required:** [yes/no — yes if changes span layers that require codegen, type sync, or contract sync per AGENTS.md]
 
 **Tech Stack:** [Key technologies/libraries]
+
+## Contract
+
+> What is binding for this implementation. Reviewers and implementers use this to judge completeness and drift.
+
+**Done criteria:**
+1. [Testable condition that must be true when this ships]
+2. [Testable condition]
+
+**Verification commands:**
+- `[test command from AGENTS.md]`
+- `[any additional verification — lint, typecheck, e2e]`
+
+**Files in scope:** [List of files/directories this plan creates or modifies — anything outside this list is out of scope]
+
+**Risk notes:** [Known risks, sequencing constraints, or assumptions that could invalidate the plan]
 
 ---
 ```
@@ -136,15 +152,14 @@ git commit -m "feat: add specific feature"
 ```
 ````
 
-**Task ordering for cross-layer changes:** Always sequence tasks as:
-1. Shared package types/tokens (if changed)
-2. API migrations and model specs
-3. API endpoints and request specs
-4. Contract sync (`bin/sync-api`)
-5. Frontend components and tests
-6. E2E tests (if applicable)
+**Task ordering for cross-layer changes:** Sequence tasks so dependencies flow downstream:
+1. Shared packages and types (if changed)
+2. Backend/API changes (migrations, endpoints, specs)
+3. Cross-boundary sync (codegen, type generation — per AGENTS.md)
+4. Frontend/consumer changes and tests
+5. E2E or integration tests (if applicable)
 
-Each task must produce working, testable code. Never leave contract sync as a "later" step.
+Each task must produce working, testable code. Never leave cross-boundary sync as a "later" step.
 
 ## Remember
 - Exact file paths always
