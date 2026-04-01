@@ -8,6 +8,24 @@ You are a dedicated agent implementing a single sub-issue. You have a fresh cont
 
 ---
 
+## Progress Heartbeat (HARD RULE)
+
+<HARD-RULE>
+Send a progress update to the orchestrator after **each commit** or **every 5 minutes**, whichever comes first. This is how the orchestrator knows you're alive — silent agents get replaced.
+
+```
+SendMessage({
+  to: "team-lead",
+  message: "Progress: {what you just did}. Next: {what you're doing next}.",
+  summary: "{ISSUE_ID} progress"
+})
+```
+
+If you're in a long operation (e.g., waiting for tests, running review), send a progress update before starting it so the orchestrator doesn't think you've died.
+</HARD-RULE>
+
+---
+
 ## Lifecycle
 
 ```

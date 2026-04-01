@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-090"
 title: "SSE Event Bus Core — POST, Store, SSE, Port Discovery"
 outcome: "Any process on the machine can push an event to the dashboard server and any browser tab can receive it in real-time — the event pipeline works end-to-end"
-status: approved
+status: done
 parent: "sse-event-bus"
 children: []
 labels:

@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-092"
 title: "Toast Notifications for Milestone Events"
 outcome: "When a terminal session hits a milestone (PR created, tests passed, merged), a brief toast slides in on the dashboard — the user gets a celebration moment without leaving their current view"
-status: approved
+status: done
 parent: "sse-event-bus"
 children: []
 labels:

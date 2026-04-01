@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-093"
 title: "Instrument Skills to Emit Milestone Events"
 outcome: "When pm:ship, pm:dev, or pm:groom hit key milestones, the dashboard feed shows what happened — the pipeline produces real events, not just plumbing"
-status: approved
+status: done
 parent: "sse-event-bus"
 children: []
 labels:

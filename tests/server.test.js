@@ -1040,6 +1040,21 @@ test('GET /kb?tab=strategy renders strategy content', async () => {
   } finally { cleanup(); }
 });
 
+test('GET /kb?tab=landscape renders landscape content and highlights landscape nav', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/landscape.md': '---\ntype: landscape\nupdated: 2026-03-12\n---\n# Market Landscape\n\nSome landscape content.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=landscape');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Market Landscape'), 'must render landscape markdown content');
+      assert.ok(body.includes('href="/landscape" class="kb-tab active"'), 'landscape nav link must be active');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
 test('Old /research URL redirects to /kb?tab=research', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
@@ -1332,6 +1347,55 @@ test('Dashboard home shows multiple session banners', async () => {
       assert.ok(body.includes('Dashboard Redesign'), 'must show first session topic');
       assert.ok(body.includes('Bulk Editing'), 'must show second session topic');
       assert.ok(body.includes('Currently grooming (2 sessions)'), 'must show pluralized label');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home uses generic active sessions label when groom and dev sessions coexist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+    '.pm/dev-sessions/p-08.md': '---\ntopic: "P-08 Companion"\n---\n| Stage | Implementation |\n| Size | M |\n| Branch | codex/p-08 |\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Active Sessions (2)'), 'mixed session types must use the generic active sessions label');
+      assert.ok(!body.includes('Currently grooming (2 sessions)'), 'mixed session types must not use the groom-only label');
+      assert.ok(body.includes('Dashboard Redesign'), 'must include the groom session topic');
+      assert.ok(body.includes('P-08 Companion'), 'must include the dev session topic');
+      assert.ok(body.includes('Dev · Stage: Implementation · M · codex/p-08'), 'must show dev session metadata');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home links groom session when companion screen exists', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+    '.pm/sessions/groom-dashboard-redesign/current.html': '<html><body>Companion</body></html>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('href="/session/dashboard-redesign"'), 'must link to the groom session page when companion output exists');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('Dashboard home shows groom session as plain text when companion screen is absent', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    '.pm/groom-sessions/dashboard-redesign.md': '---\ntopic: "Dashboard Redesign"\nphase: scope-review\nstarted: 2026-03-16\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Dashboard Redesign'), 'must still show the active groom session');
+      assert.ok(!body.includes('href="/session/dashboard-redesign"'), 'must not link to a companion page that does not exist');
     } finally { await close(); }
   } finally { cleanup(); }
 });
