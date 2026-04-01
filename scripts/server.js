@@ -644,7 +644,13 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   background:var(--surface); border:1px solid var(--border); border-radius:999px;
   font-size:0.8125rem; text-decoration:none; color:var(--text); white-space:nowrap; transition:border-color 150ms; }
 .canvas-tab:hover { border-color:var(--accent); }
-.canvas-tab-dot { width:6px; height:6px; border-radius:50%; background:var(--success); flex-shrink:0; }
+.canvas-tab-dot { width:6px; height:6px; border-radius:50%; background:var(--success); flex-shrink:0; animation:canvas-pulse 2s ease-in-out infinite; }
+.canvas-tab-dot.idle { background:var(--warning); animation:none; }
+@keyframes canvas-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+@media (prefers-reduced-motion: reduce) { .canvas-tab-dot { animation:none; } }
+.canvas-tab.completed { opacity:0.6; }
+.canvas-tab-check { font-size:0.75rem; color:var(--text-muted); }
+.canvas-tab-sep { color:var(--border); font-size:0.75rem; align-self:center; }
 .canvas-tab-type { font-size:0.6875rem; font-weight:600; text-transform:uppercase; color:var(--text-muted); }
 .canvas-tab-label { font-weight:500; }
 .pulse-score { text-align: center; margin: 0 0 0.75rem; padding: 1.25rem 0 0.5rem; }
@@ -1959,7 +1965,10 @@ function discoverCanvases(pmDir) {
         const slug = dashIdx > 0 ? name.slice(dashIdx + 1) : name;
         const htmlPath = path.join(sessionsDir, name, 'current.html');
         const mtime = fs.statSync(htmlPath).mtimeMs;
-        return { dirName: name, slug, type, label: humanizeSlug(slug), mtime };
+        const statePath = path.join(sessionsDir, name, '.state');
+        let state = 'active';
+        try { state = fs.readFileSync(statePath, 'utf-8').trim() || 'active'; } catch {}
+        return { dirName: name, slug, type, label: humanizeSlug(slug), mtime, state };
       })
       .sort((a, b) => b.mtime - a.mtime);
   } catch { return []; }
@@ -2851,11 +2860,20 @@ function handleDashboardHome(res, pmDir) {
   const canvases = discoverCanvases(pmDir);
   const canvasTabsHtml = canvases.length > 0 ? `
 <div class="canvas-tabs">
-  ${canvases.map(c => `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab">
-    <span class="canvas-tab-dot"></span>
+  ${canvases.filter(c => c.state !== 'completed').map(c => {
+    const dotClass = c.state === 'idle' ? 'canvas-tab-dot idle' : 'canvas-tab-dot';
+    return `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab">
+    <span class="${dotClass}"></span>
     <span class="canvas-tab-type">${escHtml(c.type)}</span>
     <span class="canvas-tab-label">${escHtml(c.label)}</span>
-  </a>`).join('\n  ')}
+  </a>`;
+  }).join('\n  ')}
+  ${canvases.filter(c => c.state === 'completed').length > 0 ? `<span class="canvas-tab-sep">|</span>
+  ${canvases.filter(c => c.state === 'completed').map(c => `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab completed">
+    <span class="canvas-tab-check">&#10003;</span>
+    <span class="canvas-tab-type">${escHtml(c.type)}</span>
+    <span class="canvas-tab-label">${escHtml(c.label)}</span>
+  </a>`).join('\n  ')}` : ''}
 </div>` : '';
 
   let body;
