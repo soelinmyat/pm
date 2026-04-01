@@ -1213,3 +1213,32 @@ Architecture Decision Records capture the "why" behind non-obvious technical cho
 - Standard framework patterns
 
 **Lifecycle:** ADRs are immutable once accepted. To reverse a decision, write a new ADR with `Supersedes: ADR-NNNN` and update the old ADR's status to `Superseded by ADR-NNNN`.
+
+---
+
+## Canvas Writes (Dashboard Live Canvas)
+
+At each stage transition, write a canvas HTML file so the dashboard shows live progress. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/canvas-template.md` for the HTML template.
+
+**When to write:**
+- After intake: canvas with issue title, size, branch name
+- After workspace setup: update with "implementing" stage
+- After tests pass: update with test results
+- After review: update with review verdict
+- After PR/merge: final summary, set state to `completed`
+
+**How to write:**
+```bash
+CANVAS_ID="dev-{slug}"
+CANVAS_DIR="${CLAUDE_PROJECT_DIR:-.}/.pm/sessions/${CANVAS_ID}"
+mkdir -p "$CANVAS_DIR"
+# Write the HTML (generate from canvas-template.md, substituting current values)
+# Set lifecycle state
+echo "active" > "$CANVAS_DIR/.state"
+# Emit SSE event for dashboard hot-reload
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "canvas_update" "${ISSUE_ID}" "{\"detail\":\"${CANVAS_ID}\"}"
+```
+
+**State transitions:** `active` during work, `idle` when waiting for user input, `completed` after merge.
+
+Canvas writes are best-effort. Never block implementation for a canvas write failure.

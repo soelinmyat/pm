@@ -8,24 +8,6 @@ You are a dedicated agent implementing a single sub-issue. You have a fresh cont
 
 ---
 
-## Progress Heartbeat (HARD RULE)
-
-<HARD-RULE>
-Send a progress update to the orchestrator after **each commit** or **every 5 minutes**, whichever comes first. This is how the orchestrator knows you're alive — silent agents get replaced.
-
-```
-SendMessage({
-  to: "team-lead",
-  message: "Progress: {what you just did}. Next: {what you're doing next}.",
-  summary: "{ISSUE_ID} progress"
-})
-```
-
-If you're in a long operation (e.g., waiting for tests, running review), send a progress update before starting it so the orchestrator doesn't think you've died.
-</HARD-RULE>
-
----
-
 ## Lifecycle
 
 ```
@@ -214,3 +196,39 @@ SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N}
 ```
 SendMessage({ to: "team-lead", message: "Blocked: {ISSUE_ID} — {reason}", summary: "{ISSUE_ID} blocked" })
 ```
+
+---
+
+## Canvas Writes (Dashboard Live Canvas)
+
+At each stage transition, write a canvas HTML file so the dashboard shows live progress. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/canvas-template.md` for the HTML template.
+
+**When to write:**
+- After Step 1 (Setup): canvas with issue title, branch, "Setting up"
+- After Step 2 (Implement): update with task progress
+- After Step 3 (Review): update with review verdict
+- After Step 6 (PR): update with PR link
+- After merge/completion: final summary, set state to `completed`
+
+**How to write:**
+```bash
+CANVAS_DIR="${CLAUDE_PROJECT_DIR:-.}/.pm/sessions/{CANVAS_ID}"
+mkdir -p "$CANVAS_DIR"
+# Write the HTML (generate from template, substituting current values)
+cat > "$CANVAS_DIR/current.html" << 'CANVAS_EOF'
+{generated HTML from canvas-template.md}
+CANVAS_EOF
+# Set lifecycle state
+echo "active" > "$CANVAS_DIR/.state"
+# Emit SSE event for hot-reload
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "canvas_update" "${ISSUE_ID}" "{\"detail\":\"${CANVAS_ID}\"}"
+```
+
+**Canvas ID:** Use `dev-{slug}` for single issues, `epic-{parent-slug}` for epics.
+
+**State transitions:**
+- `active` — during implementation, review, PR creation
+- `idle` — when waiting for user input or merge approval
+- `completed` — after merge and cleanup
+
+Canvas writes are best-effort. If they fail, continue with the implementation — never block work for a canvas write.
