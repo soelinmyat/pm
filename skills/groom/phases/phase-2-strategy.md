@@ -10,8 +10,8 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
    If it does NOT exist:
    > "No strategy doc found. Strategy check requires one. Options:
    > (a) Run /pm:strategy now to create a full strategy, then continue grooming
-   > (b) Quick-start — answer 3 questions and get a minimal strategy that unblocks grooming (~2 min)
-   > (c) Skip strategy check and proceed at your own risk"
+   > (b) Quick-start — answer 3 questions and get a minimal strategy that unblocks grooming
+   > (c) Skip — scope review agents won't have strategy context to challenge against"
    Wait for selection.
 
    If (a): invoke pm:strategy, then return here when complete.
@@ -87,24 +87,7 @@ If pm/strategy.md is missing, do NOT skip this phase — offer to create it firs
      > "This doesn't map to any current top-3 priority. It's not a non-goal, but it
      > competes for focus. Proceed anyway?"
 
-4. **Companion screen (silent).**
-
-   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
-
-   - `{TOPIC}`: the topic from groom state
-   - `{PHASE_LABEL}`: "Strategy Check"
-   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `strategy-check` as current phase (`intake` as completed)
-   - `{CONTENT}`:
-     ```html
-     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
-       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 2: Strategy Check — in progress</p>
-     </div>
-     ```
-
-   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-   Do not mention this step to the user.
+4. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders the strategy check result from the state file. No companion screen write needed — the server reads `strategy_check.status`, `supporting_priority`, and `conflicts` directly from `.pm/groom-sessions/{slug}.md` and renders the Strategy Alignment section.
 
 5. Update state:
 

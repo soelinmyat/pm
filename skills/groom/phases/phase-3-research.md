@@ -10,7 +10,10 @@ Research is required before scoping. Do NOT skip based on feature type (infrastr
 If the research yields "nothing relevant," that is a valid finding — it is different from never looking.
 </HARD-GATE>
 
-1. Invoke `pm:research {topic-slug}` for targeted investigation.
+1. Check the tier in `.pm/groom-sessions/{slug}.md`:
+   - **Standard tier:** Invoke `pm:research quick {topic-slug}` — fast inline answers, no full landscape or competitor deep-dive.
+   - **Full tier:** Invoke `pm:research {topic-slug}` — full targeted investigation.
+
    Brief it on the grooming context: what problem, what user, what's already known.
 
 2. Key questions to answer:
@@ -19,28 +22,13 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
    - What does internal customer evidence in `pm/research/` say, if `$pm-ingest` has been used?
    - Is there a market signal validating this is a real problem?
 
-3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
+3. **Verify research output.** After `pm:research` completes, confirm `pm/research/{topic-slug}/findings.md` exists and has content. If it doesn't:
+   > "Research didn't produce a findings file. Re-run research?"
+   Do NOT proceed to Phase 4 until `findings.md` exists. Only update `research_location` in the state file after verification.
 
-4. **Companion screen (silent).**
+4. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders the research section from `findings.md`. The section stays greyed out until the file exists — setting `research_location` alone is not enough.
 
-   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
-
-   - `{TOPIC}`: the topic from groom state
-   - `{PHASE_LABEL}`: "Research"
-   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `research` as current phase (`intake`, `strategy-check` as completed)
-   - `{CONTENT}`:
-     ```html
-     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
-       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 3: Research — in progress</p>
-     </div>
-     ```
-
-   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-   Do not mention this step to the user.
-
-5. Update state:
+5. Update state (only after findings.md is verified):
 
 ```yaml
 phase: research

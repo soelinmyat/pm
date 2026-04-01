@@ -37,30 +37,28 @@ For groom-specific examples (scope review tables, team review collapse): read `$
 
 Grooming depth scales with issue complexity. Not every issue needs the full ceremony.
 
-### Auto-detection
+### Tier selection (Phase 1, step 2.5)
 
-Classify tier from available context — Linear issue body, user description, or `/dev` size classification passed as argument:
+After capturing the idea, suggest a tier with a one-line reason and let the user confirm or override. Always ask — never silently auto-detect.
 
-| Signal | Tier |
-|--------|------|
+**Detection signals for the suggestion:**
+
+| Signal | Suggested tier |
+|--------|---------------|
 | `/dev` passed `groom_tier: quick` | **Quick** |
 | `/dev` passed `groom_tier: standard` | **Standard** |
 | `/dev` passed `groom_tier: full` | **Full** |
 | User says "quick groom" or "light groom" | **Quick** |
-| Issue is a bug fix, typo, config tweak, or single-concern gap | **Quick** |
-| Issue touches multiple concerns but has clear direction | **Standard** |
-| Issue is a new capability area, ambiguous direction, or multi-domain | **Full** |
-| Cannot determine | Ask user: "How deep should grooming go? Quick (scope + issues), standard (+ strategy + research), or full (all phases)?" |
+| Bug fix, typo, config tweak, single-concern gap | **Quick** |
+| Touches multiple concerns but has clear direction | **Standard** |
+| New capability area, ambiguous direction, multi-domain | **Full** |
 
-If `/dev` passed a `dev_size`, use it as a secondary signal:
+If `/dev` passed a `dev_size`, use as secondary signal: XS/S → Quick, M → Standard, L/XL → Full.
 
-| Dev size | Default tier |
-|----------|-------------|
-| XS, S | Quick |
-| M | Standard |
-| L, XL | Full |
+**Format:**
+> "I'd suggest **{tier}** — {reason}. Quick, Standard, or Full?"
 
-**User can always override.** If the user says "full groom" on an XS issue, respect it.
+**User's choice is final.** If the user says "full groom" on a bug fix, respect it.
 
 ### Tier → Phase mapping
 
@@ -142,8 +140,8 @@ Wait for the user's answer. If resuming: read the selected session file, skip co
 Phases run based on the tier determined during Tier Classification:
 
 - **Quick:** intake → scope (lightweight) → groom → link
-- **Standard:** intake → strategy check → research (quick) → design (if UI) → scope → scope review (2 agents) → groom → link
-- **Full:** intake → strategy check → research → design (optional) → scope → scope review → groom → team review → bar raiser → present → link
+- **Standard:** intake → strategy check → research (quick) → scope → scope review (2 agents) → design (if UI) → groom → link
+- **Full:** intake → strategy check → research → scope → scope review → design → groom → team review → bar raiser → present → link
 
 ---
 
@@ -180,17 +178,17 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 | Phase | File | Tiers | Summary |
 |-------|------|-------|---------|
-| 1. Intake | `phases/phase-1-intake.md` | All | Capture the idea, clarify, surface past learnings, derive slug, write initial state |
+| 1. Intake | `phases/phase-1-intake.md` | All | Capture the idea, tier selection, problem statement |
 | 2. Strategy Check | `phases/phase-2-strategy.md` | Standard, Full | Validate against priorities, non-goals, ICP |
 | 3. Research | `phases/phase-3-research.md` | Standard (quick), Full | Invoke pm:research for competitive and market intelligence |
-| 3.5. Design | `phases/phase-3.5-design.md` | Standard (if UI), Full | Collaborative design exploration, spec writing, visual companion |
 | 4. Scope | `phases/phase-4-scope.md` | All (Quick = lightweight) | Define in-scope / out-of-scope, apply 10x filter |
 | 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | Standard (2 agents), Full (3 agents) | Parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Groom | `phases/phase-5-groom.md` | All | Detect feature type, generate flows/wireframes, draft issues |
-| 5.5. Team Review | `phases/phase-5.5-team-review.md` | Full only | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
-| 5.7. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Full only | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 5.8. Present | `phases/phase-5.8-present.md` | Full only | Generate HTML proposal, open in browser, get user approval |
-| 6. Link | `phases/phase-6-link.md` | All | Create issues in Linear or local backlog, validate, retro prompt, learning extraction, clean up |
+| 5. Design | `phases/phase-3.5-design.md` | Standard (if UI), Full | User flows, wireframes, design exploration |
+| 6. Issue Drafting | `phases/phase-5-groom.md` | All | Decompose, INVEST validate, draft issues |
+| 7. Team Review | `phases/phase-5.5-team-review.md` | Full only | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
+| 8. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Full only | Product Director holistic review with fresh eyes (max 2 iterations) |
+| 9. Present | `phases/phase-5.8-present.md` | Full only | Generate HTML proposal, open in browser, get user approval |
+| 10. Link | `phases/phase-6-link.md` | All | Create issues in Linear or local backlog, validate, retro prompt |
 
 **How to use:** At the start of each phase, check the tier in `.pm/groom-sessions/{slug}.md`. If the phase is not included for the current tier (see Tier → Phase mapping above), skip it and proceed to the next applicable phase. When entering an applicable phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
@@ -218,7 +216,10 @@ phase: intake | strategy-check | research | scope | scope-review | groom | team-
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 effective_verdict: ready | ready-if | send-back | pause | null
+outcome: "{one-sentence: what changes for the user when this ships}"
+trigger: "{what prompted this — user request, competitor move, pain point, etc.}"
 codebase_available: true | false
+codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 
 strategy_check:
   status: passed | failed | override | skipped

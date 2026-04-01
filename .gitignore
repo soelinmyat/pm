@@ -11,3 +11,8 @@ tools/swe-bench/venv/
 tools/swe-bench/repos/
 tools/swe-bench/results/
 tools/swe-bench/logs/
+*.png
+*.jpg
+*.jpeg
+*.webp
+!skills/**/assets/**

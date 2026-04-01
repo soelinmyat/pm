@@ -124,54 +124,7 @@ Wait for user confirmation. Capture the EM's key findings for inclusion in the `
 2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
 3. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
 4. If iteration 3 still has blocking issues, present to user for decision.
-5. **Companion screen (silent).**
-
-   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
-
-   Write `.pm/sessions/groom-{slug}/current.html` with:
-
-   - `{TOPIC}`: the topic from groom state
-   - `{PHASE_LABEL}`: "Scope Review"
-   - `{STEPPER_HTML}`: `scope-review` as current; `intake` through `scope` as completed
-   - `{CONTENT}`: Build from the merged review outputs:
-
-     ```html
-     <h2>Scope Review</h2>
-
-     <div class="verdict-row">
-       <div class="verdict-card">
-         <div class="role">Product Manager</div>
-         <div class="verdict">{pm_verdict}</div>
-       </div>
-       <div class="verdict-card">
-         <div class="role">Competitive Strategist</div>
-         <div class="verdict">{competitive_verdict}</div>
-       </div>
-       <div class="verdict-card">
-         <div class="role">Engineering Manager</div>
-         <div class="verdict">{em_verdict}</div>
-       </div>
-     </div>
-
-     <h3>Blocking Issues</h3>
-     <ol>
-       <li>{blocking issue 1} — {why}</li>
-       <!-- one <li> per blocking issue, or <p>None</p> if all resolved -->
-     </ol>
-
-     <details>
-       <summary>Advisory Items ({count})</summary>
-       <ul>
-         <li>{advisory 1}</li>
-         <!-- one <li> per advisory/pushback/opportunity item -->
-       </ul>
-     </details>
-     ```
-
-   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-   Do not mention this step to the user.
+5. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders scope review from the state file — verdicts, summaries, and blocking issues.
 
 6. Update state:
 
@@ -179,8 +132,13 @@ Wait for user confirmation. Capture the EM's key findings for inclusion in the `
 phase: scope-review
 scope_review:
   pm_verdict: ship-it | ship-if | rethink-scope | wrong-priority
+  pm_summary: "{one-line key finding from PM review}"
   competitive_verdict: strengthens | strengthens-if | neutral | weakens
+  competitive_summary: "{one-line key finding from competitive review}"
   em_verdict: feasible | feasible-with-caveats | needs-rearchitecting
+  em_summary: "{one-line key finding from EM review}"
   blocking_issues_fixed: 0
   iterations: 1
 ```
+
+**Summary extraction:** After merging agent outputs, distill each reviewer's most important point into a single sentence for the summary field. This is what appears on the progressive proposal — not the verdict label, which is too terse to be useful.

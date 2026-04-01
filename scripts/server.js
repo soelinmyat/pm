@@ -1832,6 +1832,17 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  } else if (urlPath.startsWith('/assets/')) {
+    const assetName = decodeURIComponent(urlPath.slice('/assets/'.length)).replace(/\.\./g, '');
+    const assetPath = path.join(__dirname, '..', 'skills', 'groom', 'assets', assetName);
+    if (fs.existsSync(assetPath)) {
+      const ext = path.extname(assetPath).toLowerCase();
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp' }[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+      res.end(fs.readFileSync(assetPath));
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath.startsWith('/groom/')) {
     const slug = decodeURIComponent(urlPath.slice('/groom/'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
@@ -2083,14 +2094,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 /* Progress bar */
 .pp-bar { display: flex; gap: 3px; padding: 0.75rem 1.5rem 0; max-width: 960px; margin: 0 auto; }
 .pp-seg { flex: 1; height: 5px; border-radius: 3px; background: #e5e7eb; transition: background 400ms ease; }
-.pp-seg.done { background: #2563eb; }
-.pp-seg.current { background: #2563eb; animation: pp-pulse 2s ease-in-out infinite; }
+.pp-seg.done { background: #7c3aed; }
+.pp-seg.current { background: #7c3aed; animation: pp-pulse 2s ease-in-out infinite; }
 @keyframes pp-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
 .pp-status { display: flex; justify-content: space-between; align-items: baseline; padding: 0.375rem 1.5rem 0; max-width: 960px; margin: 0 auto; font-size: 0.7rem; color: #999; }
-.pp-phase { font-weight: 600; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em; }
+.pp-phase { font-weight: 600; color: #7c3aed; text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* Hero */
-.hero { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+.hero { background: linear-gradient(135deg, #2e1065 0%, #7c3aed 50%, #8b5cf6 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
 .hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
 .hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
 .hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
@@ -2109,7 +2120,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; }
 .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
 .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
-.toc a:hover { color: #2563eb; border-bottom-color: #2563eb; }
+.toc a:hover { color: #7c3aed; border-bottom-color: #7c3aed; }
 
 /* Layout */
 .proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
@@ -2128,47 +2139,62 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
 
 .section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 0.5rem; }
-.section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
-.section p, .section li { font-size: 0.95rem; color: #444; max-width: 65ch; }
+.section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #f5f3ff; color: #7c3aed; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.section-title .icon svg { width: 16px; height: 16px; }
+.section p, .section li { font-size: 0.95rem; color: #444; }
 .section-lead { font-weight: 600; color: #111; font-size: 1rem; margin-bottom: 0.75rem; }
 .section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
 .section li { margin-bottom: 0.35rem; }
 
-/* Placeholder sections */
-.pp-placeholder { opacity: 0.4; }
-.pp-placeholder .section-title { border-bottom-style: dashed; }
-.pp-hint { font-style: italic; color: #999 !important; font-size: 0.9rem !important; }
+/* Placeholder sections — greyed out, clearly inactive */
+.pp-placeholder { margin-bottom: 0.5rem; pointer-events: none; }
+.pp-placeholder .section-title { font-size: 0.875rem; font-weight: 500; color: #d1d5db; border-bottom: 1px dashed #e5e7eb; margin-bottom: 0; padding-bottom: 0.375rem; }
+.pp-placeholder .section-title .icon { width: 20px; height: 20px; background: #f3f4f6; color: #d1d5db; }
+.pp-placeholder .pp-hint { display: none; }
 
 /* Callout */
-.callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
-.callout strong { color: #1e3a8a; }
+.callout { background: linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%); border-left: 4px solid #7c3aed; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #5b21b6; }
+.callout strong { color: #4c1d95; }
 
 /* Scope */
-.scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
-.scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
-.scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
-.scope-column.in-scope { border-top: 3px solid #16a34a; }
-.scope-column.in-scope h4 { color: #16a34a; }
-.scope-column.out-of-scope { border-top: 3px solid #dc2626; }
-.scope-column.out-of-scope h4 { color: #dc2626; }
-.scope-column ul { padding-left: 1.1rem; }
-.scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
-.filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+.scope-grid { display: grid; grid-template-columns: 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+.scope-col { border-radius: 8px; padding: 1rem; }
+.scope-col h4 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.625rem; display: flex; align-items: center; gap: 0.3rem; }
+.scope-col h4 svg { width: 12px; height: 12px; }
+.scope-col ul { list-style: none; padding: 0; margin: 0; }
+.scope-col li { font-size: 0.875rem; line-height: 1.5; padding: 0.3rem 0; }
+.scope-col li strong { font-weight: 600; color: #111; }
+.scope-col.in-scope { background: #f0fdf4; }
+.scope-col.in-scope h4 { color: #16a34a; }
+.scope-col.in-scope li { color: #374151; }
+.scope-col.out-scope { background: #faf5ff; }
+.scope-col.out-scope h4 { color: #7c3aed; }
+.scope-col.out-scope li { color: #6b7280; }
+.filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.7rem; border-radius: 999px; vertical-align: middle; }
+.scope-review-section { margin-top: 1.5rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.scope-review-header { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #999; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #f3f4f6; }
+.reviewer-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; }
+.reviewer-row:last-child { border-bottom: none; padding-bottom: 0; }
+.reviewer-avatar { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.reviewer-content { flex: 1; min-width: 0; }
+.reviewer-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.reviewer-header strong { font-size: 0.875rem; }
+.reviewer-summary { font-size: 0.8rem; color: #666; line-height: 1.4; }
 
 /* Issue cards */
 .issue-group { margin-bottom: 1.5rem; }
 .issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.issue-card.parent { border-left: 4px solid #2563eb; }
-.issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+.issue-card.parent { border-left: 4px solid #7c3aed; }
+.issue-card.child { margin-left: 2rem; border-left: 4px solid #c4b5fd; }
 .issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-.issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+.issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #7c3aed; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
 .issue-title { font-size: 1rem; font-weight: 600; color: #111; }
 .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
 details { margin-top: 0.5rem; }
-summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; }
+summary { font-size: 0.85rem; font-weight: 600; color: #7c3aed; cursor: pointer; }
 .ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; margin-top: 0.5rem; }
 .ac-list li { margin-bottom: 0.25rem; }
-.ac-list li::marker { color: #2563eb; }
+.ac-list li::marker { color: #7c3aed; }
 
 /* Mermaid */
 .mermaid-container { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem; overflow-x: auto; }
@@ -2177,7 +2203,7 @@ summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer;
 /* Wireframes */
 .wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 0.75rem; }
 .wireframe-embed iframe { width: 100%; height: 500px; border: none; }
-.wireframe-link { font-size: 0.85rem; color: #2563eb; text-decoration: none; font-weight: 500; }
+.wireframe-link { font-size: 0.85rem; color: #7c3aed; text-decoration: none; font-weight: 500; }
 
 /* Verdict badges */
 .verdict-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 999px; }
@@ -2208,7 +2234,7 @@ summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer;
 }
 @media print {
   body { background: #fff; }
-  .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; }
+  .hero { background: #7c3aed !important; -webkit-print-color-adjust: exact; }
   .toc, .pp-bar, .pp-status { display: none; }
   .proposal { max-width: 100%; padding: 1rem 0; }
   .section { opacity: 1 !important; transform: none !important; animation: none !important; }
@@ -2218,12 +2244,39 @@ summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer;
 
 // ========== Progressive Proposal Handler ==========
 
-const GROOM_PHASE_ORDER_PP = ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom', 'team-review', 'bar-raiser', 'present'];
+const PP_ICONS = {
+  // Lucide: lightbulb
+  problem:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>',
+  // Lucide: compass
+  strategy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></svg>',
+  // Lucide: search
+  research: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>',
+  // Lucide: crosshair
+  scope:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/></svg>',
+  // Lucide: git-branch
+  flows:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6a9 9 0 0 0-9 9V3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/></svg>',
+  // Lucide: layout-dashboard
+  wireframe:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>',
+  // Lucide: kanban (used as list for issues)
+  issues:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v14"/><path d="M12 3v8"/><path d="M19 3v18"/></svg>',
+  // Lucide: users
+  review:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg>',
+  // Lucide: shield-check
+  verdict:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
+  // Lucide: triangle-alert
+  warning:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  // Lucide: check
+  check:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  // Lucide: x
+  cross:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+};
+
+const GROOM_PHASE_ORDER_PP = ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'design', 'groom', 'team-review', 'bar-raiser', 'present'];
 
 const TIER_PHASES_PP = {
   quick:    ['intake', 'scope', 'groom'],
-  standard: ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom'],
-  full:     ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom', 'team-review', 'bar-raiser', 'present'],
+  standard: ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'design', 'groom'],
+  full:     ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'design', 'groom', 'team-review', 'bar-raiser', 'present'],
 };
 
 function phaseIndex(phase) {
@@ -2292,14 +2345,14 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   ${session.priority ? `<div class="metric"><span class="metric-value">${esc(String(session.priority))}</span><span class="metric-label">Priority</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Priority</span></div>'}
   ${scopeFilter ? `<div class="metric"><span class="metric-value">${scopeFilter}</span><span class="metric-label">Differentiator</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Differentiator</span></div>'}
   <div class="metric"><span class="metric-value">${issueCount || '—'}</span><span class="metric-label">Issues</span></div>
-  <div class="metric"><span class="metric-value">${esc(tier)}</span><span class="metric-label">Tier</span></div>
 </div>`;
   const heroHtml = hasHero
-    ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${session.outcome ? `<p class="subtitle">${esc(String(session.outcome))}</p>` : ''}${metricsHtml}</div></header>`
+    ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${metricsHtml}</div></header>`
     : `<header class="hero pp-placeholder-hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal</div><h1>Untitled Feature</h1><p class="subtitle">Waiting for intake...</p></div></header>`;
 
   // TOC (only show anchors for filled sections)
   const tocItems = [];
+  if (session.outcome) tocItems.push('<a href="#problem">Problem</a>');
   const sc = session.strategy_check;
   if (sc && sc.status) tocItems.push('<a href="#strategy">Strategy</a>');
   if (session.research_location) tocItems.push('<a href="#research">Research</a>');
@@ -2312,17 +2365,28 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   // Sections
   let sections = '';
 
+  // Problem Statement (intake output — full content here, not in hero)
+  if (session.outcome) {
+    let problemBody = `<p class="section-lead">${esc(String(session.outcome))}</p>`;
+    if (session.trigger) problemBody += `<p><strong>Trigger:</strong> ${esc(String(session.trigger))}</p>`;
+    if (session.codebase_context) problemBody += `<p><strong>Codebase:</strong> ${esc(String(session.codebase_context))}</p>`;
+    sections += `<div class="section" id="problem"><div class="section-title"><span class="icon">${PP_ICONS.problem}</span> Problem Statement</div>${problemBody}</div>`;
+  } else {
+    sections += ppPlaceholder('problem', PP_ICONS.problem, 'Problem Statement', 'Pending intake');
+  }
+
   // Strategy
   if (phases.includes('strategy-check')) {
     if (sc && sc.status) {
       const verdictCls = sc.status === 'passed' ? 'ready' : sc.status === 'failed' ? 'blocked' : 'caution';
-      sections += `<div class="section" id="strategy"><div class="section-title"><span class="icon">&#9878;</span> Strategy Alignment</div>
-  <p class="section-lead"><span class="verdict-badge ${verdictCls}">${esc(sc.status)}</span></p>
+      sections += `<div class="section" id="strategy"><div class="section-title"><span class="icon">${PP_ICONS.strategy}</span> Strategy Alignment <span class="verdict-badge ${verdictCls}" style="margin-left:auto;">${esc(sc.status)}</span></div>
   ${sc.supporting_priority ? `<p>Supports: <strong>${esc(String(sc.supporting_priority))}</strong></p>` : ''}
   ${sc.conflicts && sc.conflicts.length > 0 ? '<div class="callout"><strong>Conflicts:</strong><ul>' + sc.conflicts.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>' : ''}
 </div>`;
+    } else if (isPhaseComplete(currentPhase, 'strategy-check')) {
+      sections += `<div class="section" id="strategy"><div class="section-title"><span class="icon">${PP_ICONS.strategy}</span> Strategy Alignment <span class="verdict-badge caution" style="margin-left:auto;">skipped</span></div><p style="color:#999;">No strategy check performed.</p></div>`;
     } else {
-      sections += ppPlaceholder('strategy', '&#9878;', 'Strategy Alignment', 'Pending strategy check');
+      sections += ppPlaceholder('strategy', PP_ICONS.strategy, 'Strategy Alignment', 'Pending strategy check');
     }
   }
 
@@ -2331,10 +2395,19 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
     if (session.research_location) {
       const resDir = path.resolve(pmDir, '..', session.research_location);
       const findingsPath = path.join(resDir, 'findings.md');
-      let resBody = `<p>Research at: <code>${esc(String(session.research_location))}</code></p>`;
+      const resSlug = String(session.research_location).replace(/^pm\/research\//, '').replace(/\/$/, '');
+      let resBody = '';
+      let hasFindings = false;
       if (fs.existsSync(findingsPath)) {
+        hasFindings = true;
         try {
           const raw = fs.readFileSync(findingsPath, 'utf-8');
+          // Try summary first, then key findings
+          const sumMatch = raw.match(/## Summary\n([\s\S]*?)(?=\n## |\n---)/i);
+          if (sumMatch) {
+            const sumText = sumMatch[1].trim().split('\n').filter(l => l.trim()).slice(0, 3).join(' ');
+            if (sumText) resBody += `<p>${esc(sumText)}</p>`;
+          }
           const fMatch = raw.match(/## (?:Key )?Findings\n([\s\S]*?)(?=\n## |\n---)/i);
           if (fMatch) {
             const bullets = fMatch[1].trim().split('\n').filter(l => l.trim().startsWith('-') || /^\d+\./.test(l.trim())).slice(0, 6);
@@ -2342,9 +2415,18 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
           }
         } catch {}
       }
-      sections += `<div class="section" id="research"><div class="section-title"><span class="icon">&#128269;</span> Market &amp; Competitive</div><p class="section-lead">Research complete.</p>${resBody}</div>`;
+      if (hasFindings) {
+        resBody += `<p style="margin-top:0.75rem;"><a href="/kb/research/${encodeURIComponent(resSlug)}" style="color:#7c3aed;font-weight:500;text-decoration:none;">View full research &rarr;</a></p>`;
+        sections += `<div class="section" id="research"><div class="section-title"><span class="icon">${PP_ICONS.research}</span> Market &amp; Competitive</div>${resBody}</div>`;
+      } else if (isPhaseComplete(currentPhase, 'research')) {
+        sections += `<div class="section" id="research"><div class="section-title"><span class="icon">${PP_ICONS.research}</span> Market &amp; Competitive</div><p style="color:#999;">No research available.</p></div>`;
+      } else {
+        sections += ppPlaceholder('research', PP_ICONS.research, 'Market & Competitive', 'Pending research');
+      }
+    } else if (isPhaseComplete(currentPhase, 'research')) {
+      sections += `<div class="section" id="research"><div class="section-title"><span class="icon">${PP_ICONS.research}</span> Market &amp; Competitive</div><p style="color:#999;">No research available.</p></div>`;
     } else {
-      sections += ppPlaceholder('research', '&#128269;', 'Market & Competitive', 'Pending research');
+      sections += ppPlaceholder('research', PP_ICONS.research, 'Market & Competitive', 'Pending research');
     }
   }
 
@@ -2354,30 +2436,57 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
     if (scope && scope.in_scope) {
       const inItems = Array.isArray(scope.in_scope) ? scope.in_scope : [];
       const outItems = Array.isArray(scope.out_of_scope) ? scope.out_of_scope : [];
-      const filterBadge = scope.filter_result ? `<span class="filter-badge">&#11088; ${esc(String(scope.filter_result))}</span>` : '';
+      const filterBadge = scope.filter_result ? `<span class="filter-badge">${esc(String(scope.filter_result))}</span>` : '';
+      // Bold the noun phrase (before first : or --)
+      const fmtScope = (s) => {
+        const str = String(s);
+        const sep = str.indexOf(':') > 0 ? ':' : str.indexOf(' -- ') > 0 ? ' -- ' : null;
+        if (sep) {
+          const idx = str.indexOf(sep);
+          return `<strong>${esc(str.slice(0, idx))}</strong> <span style="color:#888;">${esc(str.slice(idx + sep.length).trim())}</span>`;
+        }
+        return esc(str);
+      };
+      const filterDescs = { '10x': 'Meaningfully better than alternatives', parity: 'Matching competitor capabilities', 'gap-fill': 'Filling a missing capability' };
+      const fd = scope.filter_result ? (filterDescs[scope.filter_result] || '') : '';
       let scopeBody = `<div class="scope-grid">
-  <div class="scope-column in-scope"><h4>&#9989; In Scope</h4><ul>${inItems.map(i => `<li>${esc(String(i))}</li>`).join('')}</ul></div>
-  <div class="scope-column out-of-scope"><h4>&#10060; Out of Scope</h4><ul>${outItems.map(i => `<li>${esc(String(i))}</li>`).join('')}</ul></div>
-</div>${filterBadge}`;
+  <div class="scope-col in-scope"><h4>${PP_ICONS.check} Included</h4><ul>${inItems.map(i => `<li>${fmtScope(i)}</li>`).join('')}</ul></div>
+  <div class="scope-col out-scope"><h4>${PP_ICONS.cross} Excluded</h4><ul>${outItems.map(i => `<li>${fmtScope(i)}</li>`).join('')}</ul></div>
+</div>`;
       // Scope review verdicts
       const sr = session.scope_review;
       if (sr && sr.pm_verdict) {
-        scopeBody += `<div class="review-cards" style="margin-top:1rem;">`;
-        if (sr.pm_verdict) scopeBody += ppReviewCard('Product Manager', sr.pm_verdict);
-        if (sr.competitive_verdict) scopeBody += ppReviewCard('Competitive', sr.competitive_verdict);
-        if (sr.em_verdict) scopeBody += ppReviewCard('Engineering', sr.em_verdict);
+        const srDesc = {
+          pm: { 'ship-it': 'Ready to proceed', 'ship-if': 'Needs minor adjustments', 'rethink-scope': 'Needs significant rework', 'wrong-priority': 'Not the right priority' },
+          competitive: { strengthens: 'Strengthens position', 'strengthens-if': 'Could strengthen with adjustments', neutral: 'No competitive impact', weakens: 'Could weaken position' },
+          em: { feasible: 'Technically feasible', 'feasible-with-caveats': 'Feasible with constraints', 'needs-rearchitecting': 'Needs architectural changes' },
+        };
+        scopeBody += `<div class="scope-review-section"><h4 class="scope-review-header">Scope Review</h4>`;
+        if (scope.filter_result) scopeBody += `<p style="margin-bottom:0.75rem;font-size:0.85rem;color:#666;">${filterBadge} <span style="margin-left:0.25rem;">${esc(fd)}</span></p>`;
+        const addReviewer = (avatar, role, verdict, descs, summary) => {
+          const v = String(verdict);
+          const cls = /ship-it|strengthens|feasible/.test(v) ? 'ready' : /if|caveat/.test(v) ? 'caution' : 'blocked';
+          const desc = summary || (descs && descs[v]) || v;
+          return `<div class="reviewer-row"><img src="/assets/${avatar}" class="reviewer-avatar" alt="${esc(role)}"><div class="reviewer-content"><div class="reviewer-header"><strong>${esc(role)}</strong> <span class="verdict-badge ${cls}">${esc(v)}</span></div><div class="reviewer-summary">${esc(desc)}</div></div></div>`;
+        };
+        if (sr.pm_verdict) scopeBody += addReviewer('reviewer-pm.png', 'Product Manager', sr.pm_verdict, srDesc.pm, sr.pm_summary);
+        if (sr.competitive_verdict) scopeBody += addReviewer('reviewer-competitive.png', 'Competitive Strategist', sr.competitive_verdict, srDesc.competitive, sr.competitive_summary);
+        if (sr.em_verdict) scopeBody += addReviewer('reviewer-engineering.png', 'Engineer', sr.em_verdict, srDesc.em, sr.em_summary);
         scopeBody += '</div>';
       }
-      sections += `<div class="section" id="scope"><div class="section-title"><span class="icon">&#127919;</span> Scope Overview</div><p class="section-lead">Scope defined and reviewed.</p>${scopeBody}</div>`;
+      sections += `<div class="section" id="scope"><div class="section-title"><span class="icon">${PP_ICONS.scope}</span> Scope Overview</div>${scopeBody}</div>`;
     } else {
-      sections += ppPlaceholder('scope', '&#127919;', 'Scope Overview', 'Pending scoping');
+      sections += ppPlaceholder('scope', PP_ICONS.scope, 'Scope Overview', 'Pending scoping');
     }
   }
 
+  // Design phase check
+  const designed = isPhaseComplete(currentPhase, 'design') || currentPhase === 'design' || currentPhase === 'groom' || currentPhase === 'team-review' || currentPhase === 'bar-raiser' || currentPhase === 'present' || currentPhase === 'link';
+
   // Flows
   const groomed = isPhaseComplete(currentPhase, 'groom') || currentPhase === 'groom' || currentPhase === 'team-review' || currentPhase === 'bar-raiser' || currentPhase === 'present' || currentPhase === 'link';
-  if (phases.includes('groom')) {
-    if (groomed && issueCount > 0) {
+  if (phases.includes('design') || phases.includes('groom')) {
+    if (designed && issueCount > 0) {
       let flowBody = '';
       const issues = session.issues || [];
       for (const iss of issues) {
@@ -2390,9 +2499,9 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
         } catch {}
       }
       if (!flowBody) flowBody = '<p style="color:#999;">No user flow diagrams generated.</p>';
-      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">&#128260;</span> User Flows</div>${flowBody}</div>`;
+      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">${PP_ICONS.flows}</span> User Flows</div>${flowBody}</div>`;
     } else {
-      sections += ppPlaceholder('flows', '&#128260;', 'User Flows', 'Pending issue drafting');
+      sections += ppPlaceholder('flows', PP_ICONS.flows, 'User Flows', 'Pending issue drafting');
     }
 
     // Wireframes
@@ -2406,7 +2515,7 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
         }
       }
       if (wfBody) {
-        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">&#128396;</span> Wireframes</div>${wfBody}</div>`;
+        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes</div>${wfBody}</div>`;
       }
     }
 
@@ -2432,9 +2541,9 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
         issBody += `<div class="issue-card parent"><div class="issue-header">${issueId ? `<span class="issue-id">${esc(String(issueId))}</span>` : ''}<span class="issue-title">${esc(String(iss.title || iss.slug))}</span></div>
   ${outcome ? `<div class="issue-outcome">${esc(String(outcome))}</div>` : ''}${acList}</div>`;
       }
-      sections += `<div class="section" id="issues"><div class="section-title"><span class="icon">&#128203;</span> Issue Breakdown</div><p class="section-lead">${issueCount} issue${issueCount !== 1 ? 's' : ''} drafted.</p><div class="issue-group">${issBody}</div></div>`;
+      sections += `<div class="section" id="issues"><div class="section-title"><span class="icon">${PP_ICONS.issues}</span> Issue Breakdown</div><p class="section-lead">${issueCount} issue${issueCount !== 1 ? 's' : ''} drafted.</p><div class="issue-group">${issBody}</div></div>`;
     } else {
-      sections += ppPlaceholder('issues', '&#128203;', 'Issue Breakdown', 'Pending issue drafting');
+      sections += ppPlaceholder('issues', PP_ICONS.issues, 'Issue Breakdown', 'Pending issue drafting');
     }
   }
 
@@ -2449,11 +2558,11 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
       if (tr.design_verdict) revBody += ppReviewCard('Design', tr.design_verdict);
       revBody += '</div>';
       if (tr.conditions && tr.conditions.length > 0) {
-        revBody += '<div class="advisory-card"><h3>&#9888; Conditions</h3><ul class="advisory-list">' + tr.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+        revBody += '<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">' + tr.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
       }
-      sections += `<div class="section" id="review"><div class="section-title"><span class="icon">&#128101;</span> Review Summary</div><p class="section-lead">${tr.iterations || 1} iteration(s), ${tr.blocking_issues_fixed || 0} issues fixed.</p>${revBody}</div>`;
+      sections += `<div class="section" id="review"><div class="section-title"><span class="icon">${PP_ICONS.review}</span> Review Summary</div><p class="section-lead">${tr.iterations || 1} iteration(s), ${tr.blocking_issues_fixed || 0} issues fixed.</p>${revBody}</div>`;
     } else {
-      sections += ppPlaceholder('review', '&#128101;', 'Review Summary', 'Pending team review');
+      sections += ppPlaceholder('review', PP_ICONS.review, 'Review Summary', 'Pending team review');
     }
   }
 
@@ -2465,11 +2574,11 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
       const vLabel = { ready: 'Ready to Build', 'ready-if': 'Ready (with conditions)', 'send-back': 'Sent Back', pause: 'Paused' };
       let vBody = `<p class="section-lead"><span class="verdict-badge ${vCls}" style="font-size:1rem;padding:0.4rem 1rem;">${esc(vLabel[br.verdict] || br.verdict)}</span></p>`;
       if (br.conditions && br.conditions.length > 0) {
-        vBody += '<div class="advisory-card"><h3>&#9888; Conditions</h3><ul class="advisory-list">' + br.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+        vBody += '<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">' + br.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
       }
-      sections += `<div class="section" id="verdict"><div class="section-title"><span class="icon">&#127942;</span> Final Verdict</div>${vBody}</div>`;
+      sections += `<div class="section" id="verdict"><div class="section-title"><span class="icon">${PP_ICONS.verdict}</span> Final Verdict</div>${vBody}</div>`;
     } else {
-      sections += ppPlaceholder('verdict', '&#127942;', 'Final Verdict', 'Pending bar raiser review');
+      sections += ppPlaceholder('verdict', PP_ICONS.verdict, 'Final Verdict', 'Pending bar raiser review');
     }
   }
 
@@ -2569,7 +2678,8 @@ const GROOM_PHASE_LABELS = {
   'research': 'Research',
   'scope': 'Scoping',
   'scope-review': 'Scope Review',
-  'groom': 'Drafting Issues',
+  'design': 'Design',
+  'groom': 'Issue Drafting',
   'team-review': 'Team Review',
   'bar-raiser': 'Bar Raiser',
   'present': 'Presentation',
