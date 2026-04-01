@@ -2632,7 +2632,10 @@ test('Home page shows pulse score with populated KB', async () => {
     try {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('pulse-score'), 'must include pulse-score widget');
-      assert.ok(body.includes('pulse-score-value'), 'must include score value element');
+      assert.ok(body.includes('pulse-arc'), 'must include SVG arc');
+      assert.ok(body.includes('pulse-arc-fg'), 'must include arc foreground circle');
+      assert.ok(body.includes('pulse-breakdown'), 'must include breakdown panel');
+      assert.ok(body.includes('pulse-dim-card'), 'must include dimension cards');
       assert.ok(body.includes('Project Health'), 'must include Project Health label');
     } finally {
       await close();

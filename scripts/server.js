@@ -638,9 +638,23 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
-.pulse-score { text-align: center; margin: 0 0 1.5rem; padding: 1.25rem 0; }
-.pulse-score-value { font-size: 3rem; font-weight: 700; line-height: 1; }
-.pulse-score-label { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.25rem; }
+.pulse-score { text-align: center; margin: 0 0 0.75rem; padding: 1.25rem 0 0.5rem; }
+.pulse-arc { display: block; margin: 0 auto; }
+.pulse-arc-text { font-size: 2rem; font-weight: 700; }
+.pulse-arc-fg { animation: pulse-fill 600ms ease-out forwards; }
+@keyframes pulse-fill { to { stroke-dashoffset: var(--pulse-target); } }
+@media (prefers-reduced-motion: reduce) { .pulse-arc-fg { animation: none; stroke-dashoffset: var(--pulse-target); } }
+.pulse-score-label { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.375rem; }
+.pulse-breakdown { max-height: 0; overflow: hidden; transition: max-height 200ms ease-out, opacity 200ms ease-out; opacity: 0; }
+.pulse-breakdown.open { max-height: 12rem; opacity: 1; }
+.pulse-dim-row { display: flex; gap: 1rem; justify-content: center; padding: 0.75rem 0 1rem; flex-wrap: wrap; }
+.pulse-dim-card { flex: 1; min-width: 120px; max-width: 160px; padding: 0.625rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; text-align: left; }
+.pulse-dim-name { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.pulse-dim-score { font-size: 1.125rem; font-weight: 700; margin: 0.125rem 0; }
+.pulse-dim-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 0.25rem 0; }
+.pulse-dim-fill { height: 100%; border-radius: 2px; transition: width 400ms ease-out; }
+.pulse-dim-detail { font-size: 0.6875rem; color: var(--text-muted); }
+@media (max-width: 600px) { .pulse-arc { width: 80px; height: 80px; } .pulse-arc-text { font-size: 1.5rem; } .pulse-dim-row { flex-direction: column; align-items: center; } .pulse-dim-card { max-width: 100%; } }
 .suggested-next { margin-top: 1.5rem; padding: 1rem 1rem 1rem 1.25rem; border: none; border-left: 2px solid var(--accent);
   border-radius: 0; background: var(--surface); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
@@ -2776,11 +2790,34 @@ function handleDashboardHome(res, pmDir) {
   const pulse = computePulseScore(pmDir);
   const pulseColor = pulse.score >= 80 ? 'var(--success)' : pulse.score >= 50 ? 'var(--warning)' : '#ef4444';
   const pulseLabel = pulse.score >= 80 ? 'Healthy' : pulse.score >= 50 ? 'Needs attention' : 'At risk';
+  // SVG arc: radius 54, circumference = 2 * PI * 54 ≈ 339.29
+  const arcCircumference = 339.29;
+  const arcOffset = arcCircumference - (pulse.score / 100) * arcCircumference;
+  const breakdownCards = pulse.dimensions.map(d => {
+    const pct = Math.round((d.score / d.max) * 100);
+    return `<div class="pulse-dim-card">
+      <div class="pulse-dim-name">${escHtml(d.name)}</div>
+      <div class="pulse-dim-score">${d.score}/${d.max}</div>
+      <div class="pulse-dim-bar"><div class="pulse-dim-fill" style="width:${pct}%;background:${pulseColor}"></div></div>
+      <div class="pulse-dim-detail">${escHtml(d.detail)}</div>
+    </div>`;
+  }).join('\n');
   const pulseScoreHtml = stats.total > 0 ? `
-<div class="pulse-score">
-  <div class="pulse-score-value" style="color:${pulseColor}">${pulse.score}</div>
+<div class="pulse-score" onclick="document.getElementById('pulse-breakdown').classList.toggle('open');localStorage.setItem('pm-pulse-expanded',document.getElementById('pulse-breakdown').classList.contains('open'))" style="cursor:pointer" role="button" tabindex="0" aria-label="Project health score — click to see breakdown">
+  <svg class="pulse-arc" width="120" height="120" viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border)" stroke-width="8"/>
+    <circle class="pulse-arc-fg" cx="60" cy="60" r="54" fill="none" stroke="${pulseColor}" stroke-width="8"
+      stroke-linecap="round" stroke-dasharray="${arcCircumference}" stroke-dashoffset="${arcCircumference}"
+      style="--pulse-target:${arcOffset}" transform="rotate(-90 60 60)"/>
+    <text x="60" y="60" text-anchor="middle" dominant-baseline="central"
+      class="pulse-arc-text" fill="${pulseColor}">${pulse.score}</text>
+  </svg>
   <div class="pulse-score-label">Project Health &middot; <span style="color:${pulseColor}">${pulseLabel}</span></div>
-</div>` : '';
+</div>
+<div class="pulse-breakdown" id="pulse-breakdown">
+  <div class="pulse-dim-row">${breakdownCards}</div>
+</div>
+<script>if(localStorage.getItem('pm-pulse-expanded')==='true')document.getElementById('pulse-breakdown').classList.add('open');</script>` : '';
 
   let body;
   if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0) {
