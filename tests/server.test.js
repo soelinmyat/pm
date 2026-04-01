@@ -2659,3 +2659,68 @@ test('Home page hides pulse score when KB is empty', async () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Canvas System — tab bar and session serving
+// ---------------------------------------------------------------------------
+
+test('Home page shows canvas tabs when canvases exist', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n',
+  });
+  // Create a canvas directory with current.html
+  const canvasDir = path.join(root, '.pm', 'sessions', 'groom-test-feature');
+  fs.mkdirSync(canvasDir, { recursive: true });
+  fs.writeFileSync(path.join(canvasDir, 'current.html'), '<html><body>Canvas content</body></html>');
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('canvas-tabs'), 'must include canvas tab bar');
+      assert.ok(body.includes('canvas-tab'), 'must include canvas tab links');
+      assert.ok(body.includes('Test Feature'), 'must humanize canvas slug into label');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Home page hides canvas tabs when no canvases exist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="canvas-tabs"'), 'must NOT show canvas tab bar when no canvases');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Session page serves canvas current.html for dev prefix', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  const canvasDir = path.join(root, '.pm', 'sessions', 'dev-auth-flow');
+  fs.mkdirSync(canvasDir, { recursive: true });
+  fs.writeFileSync(path.join(canvasDir, 'current.html'), '<html><body>Dev canvas here</body></html>');
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/session/auth-flow');
+      assert.ok(body.includes('Dev canvas here'), 'must serve dev canvas current.html');
+      assert.ok(body.includes('canvas-hot-reload'), 'must inject SSE hot-reload script');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});

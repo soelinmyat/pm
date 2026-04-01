@@ -638,6 +638,15 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
+.canvas-tabs { display:flex; gap:0.5rem; overflow-x:auto; padding:0 0 1rem; scrollbar-width:none; }
+.canvas-tabs::-webkit-scrollbar { display:none; }
+.canvas-tab { display:flex; align-items:center; gap:0.375rem; padding:0.375rem 0.75rem;
+  background:var(--surface); border:1px solid var(--border); border-radius:999px;
+  font-size:0.8125rem; text-decoration:none; color:var(--text); white-space:nowrap; transition:border-color 150ms; }
+.canvas-tab:hover { border-color:var(--accent); }
+.canvas-tab-dot { width:6px; height:6px; border-radius:50%; background:var(--success); flex-shrink:0; }
+.canvas-tab-type { font-size:0.6875rem; font-weight:600; text-transform:uppercase; color:var(--text-muted); }
+.canvas-tab-label { font-weight:500; }
 .pulse-score { text-align: center; margin: 0 0 0.75rem; padding: 1.25rem 0 0.5rem; }
 .pulse-arc { display: block; margin: 0 auto; }
 .pulse-arc-text { font-size: 2rem; font-weight: 700; }
@@ -1937,6 +1946,25 @@ function computePulseScore(pmDir) {
   return { score, dimensions };
 }
 
+function discoverCanvases(pmDir) {
+  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'sessions');
+  if (!fs.existsSync(sessionsDir)) return [];
+  try {
+    return fs.readdirSync(sessionsDir, { withFileTypes: true })
+      .filter(e => e.isDirectory() && fs.existsSync(path.join(sessionsDir, e.name, 'current.html')))
+      .map(e => {
+        const name = e.name;
+        const dashIdx = name.indexOf('-');
+        const type = dashIdx > 0 ? name.slice(0, dashIdx) : 'session';
+        const slug = dashIdx > 0 ? name.slice(dashIdx + 1) : name;
+        const htmlPath = path.join(sessionsDir, name, 'current.html');
+        const mtime = fs.statSync(htmlPath).mtimeMs;
+        return { dirName: name, slug, type, label: humanizeSlug(slug), mtime };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+  } catch { return []; }
+}
+
 function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -2819,6 +2847,17 @@ function handleDashboardHome(res, pmDir) {
 </div>
 <script>if(localStorage.getItem('pm-pulse-expanded')==='true')document.getElementById('pulse-breakdown').classList.add('open');</script>` : '';
 
+  // Discover active canvases
+  const canvases = discoverCanvases(pmDir);
+  const canvasTabsHtml = canvases.length > 0 ? `
+<div class="canvas-tabs">
+  ${canvases.map(c => `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab">
+    <span class="canvas-tab-dot"></span>
+    <span class="canvas-tab-type">${escHtml(c.type)}</span>
+    <span class="canvas-tab-label">${escHtml(c.label)}</span>
+  </a>`).join('\n  ')}
+</div>` : '';
+
   let body;
   if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0) {
     // Empty state — prominent "Start Grooming" CTA
@@ -2841,6 +2880,7 @@ ${suggestedHtml}`;
   <p class="subtitle">Knowledge base overview</p>
 </div>
 ${pulseScoreHtml}
+${canvasTabsHtml}
 ${controlCards}
 ${sessionBannerHtml}
 ${designBannerHtml}
@@ -2877,14 +2917,31 @@ function handleSessionPage(res, pmDir, slug) {
   const rootDir = path.resolve(pmDir, '..');
   const pmRoot = path.resolve(rootDir, '.pm');
 
-  // AC2: Check for current.html override (enables PM-061 per-phase HTML)
+  // Check for current.html canvas override — scan all type prefixes
   const sessionsDir = path.resolve(pmRoot, 'sessions');
-  const overridePath = path.join(sessionsDir, 'groom-' + slug, 'current.html');
-  if (overridePath.startsWith(sessionsDir + path.sep) && fs.existsSync(overridePath)) {
-    const html = fs.readFileSync(overridePath, 'utf-8');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
-    return;
+  const canvasPrefixes = ['groom-', 'dev-', 'epic-', 'research-', ''];
+  for (const prefix of canvasPrefixes) {
+    const candidatePath = path.join(sessionsDir, prefix + slug, 'current.html');
+    if (candidatePath.startsWith(sessionsDir + path.sep) && fs.existsSync(candidatePath)) {
+      let html = fs.readFileSync(candidatePath, 'utf-8');
+      // Inject SSE hot-reload script before </body> if not already present
+      if (!html.includes('canvas-hot-reload')) {
+        const reloadScript = `<script data-canvas-hot-reload>
+(function(){var es=new EventSource('/events');var slug='${slug.replace(/'/g,"\\'")}';
+es.onmessage=function(e){try{var d=JSON.parse(e.data);
+if(d.type==='canvas_update'&&d.detail&&d.detail.indexOf(slug)!==-1)location.reload();
+}catch(x){}};})();
+</script>`;
+        if (html.includes('</body>')) {
+          html = html.replace('</body>', reloadScript + '</body>');
+        } else {
+          html += reloadScript;
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
   }
 
   // Find the session — check groom first, then dev
