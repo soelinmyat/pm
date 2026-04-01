@@ -486,8 +486,14 @@ SendMessage({
   **Mode:** {sequential | parallel}
 
   Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md for the full
-  implementation lifecycle, then execute it:
+  implementation lifecycle, then execute it.
 
+  **IMPORTANT — Progress heartbeat:** Send a progress update to team-lead after each commit
+  or every 5 minutes, whichever comes first. Format:
+  SendMessage({ to: "team-lead", message: "Progress: {what you just did}. Next: {what's next}.", summary: "{ISSUE_ID} progress" })
+  This is how the orchestrator knows you're alive. Silent agents get replaced.
+
+  Lifecycle:
   1. cd {WORKTREE_PATH}
   2. Install deps (read AGENTS.md for install command), verify clean test baseline
   3. Read the plan and implement all tasks
@@ -520,29 +526,29 @@ After a teammate reports "Merged" or "Failed":
 
 On resume (session crash/restart): read the state file, skip sub-issues marked "Merged", restart from the first non-merged sub-issue.
 
-### 4.5 Agent failure detection and retry
+### 4.5 Agent watchdog and failure recovery
 
 <HARD-RULE>
-API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST detect this and retry with exponential backoff.
+API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST run a 5-minute watchdog to detect dead agents promptly.
 </HARD-RULE>
 
-**Detection:** After sending "go implement", if the teammate goes idle **without** sending a result message ("Merged...", "Ready to merge...", or "Blocked..."):
+**How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `epic-implementation-flow.md`). The orchestrator uses silence as the death signal.
 
-**Retry with exponential backoff:**
+**Watchdog protocol:** After dispatching or resuming a teammate, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
 
-| Attempt | Action | Backoff |
-|---------|--------|---------|
-| 1 | Send status check ping via SendMessage | — |
-| 2 | Wait 30s, spawn fresh teammate with same prompt + plan path | 30s |
-| 3 | Wait 60s, spawn fresh teammate | 60s |
-| 4 | Wait 120s, spawn fresh teammate | 120s |
-| 5 | Agent is dead. Log failure, mark sub-issue as "Failed" in state file, continue to next sub-issue | — |
+| Step | Action |
+|------|--------|
+| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", message: "Status check: are you still working on {ISSUE_ID}?", summary: "Ping {ISSUE_ID}" })` |
+| 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
+| 3 | If no response to ping → agent is dead. Spawn a **fresh teammate** with the recovery prompt below |
+| 4 | If fresh teammate also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
+| 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
 
-**Fresh teammate prompt must include:**
+**Fresh teammate recovery prompt must include:**
 - The plan file path (so it picks up where the dead agent left off)
-- The current git state (`git status`, `git log --oneline -3`)
+- Current git state: `git status`, `git log --oneline -5`, `git diff --stat`
 - The sub-issue description and acceptance criteria
-- Instruction: "A previous agent failed on this task. Check what was already done before starting."
+- Instruction: "A previous agent failed on this task. Check what was already done before starting. Send a progress update after each commit or every 5 minutes."
 
 **State file tracking:** Add retry count to sub-issue table:
 
