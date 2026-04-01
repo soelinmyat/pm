@@ -16,6 +16,11 @@
           },
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-launch.sh",
+            "async": true
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reconcile-merged.sh",
             "async": true
           }
