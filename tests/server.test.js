@@ -2615,3 +2615,44 @@ test('Feed panel includes reconnect and temporal fade logic', async () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Pulse Score — project health metric on home page
+// ---------------------------------------------------------------------------
+
+test('Home page shows pulse score with populated KB', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n',
+    'pm/research/topic-a/findings.md': '---\ntype: topic-research\nupdated: 2026-04-01\n---\n# Topic A\n',
+    'pm/competitors/acme/profile.md': '---\ntype: competitor\nupdated: 2026-04-01\n---\n# Acme\n',
+    'pm/backlog/item-1.md': '---\ntype: backlog-issue\nid: "PM-001"\ntitle: "Item 1"\nstatus: done\nupdated: 2026-04-01\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('pulse-score'), 'must include pulse-score widget');
+      assert.ok(body.includes('pulse-score-value'), 'must include score value element');
+      assert.ok(body.includes('Project Health'), 'must include Project Health label');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('Home page hides pulse score when KB is empty', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(!body.includes('class="pulse-score-value"'), 'must NOT show pulse score widget on empty KB');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});

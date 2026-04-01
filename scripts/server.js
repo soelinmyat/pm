@@ -638,6 +638,9 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
+.pulse-score { text-align: center; margin: 0 0 1.5rem; padding: 1.25rem 0; }
+.pulse-score-value { font-size: 3rem; font-weight: 700; line-height: 1; }
+.pulse-score-label { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.25rem; }
 .suggested-next { margin-top: 1.5rem; padding: 1rem 1rem 1rem 1.25rem; border: none; border-left: 2px solid var(--accent);
   border-radius: 0; background: var(--surface); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
@@ -1833,6 +1836,93 @@ function stalenessInfo(dateStr) {
   return { label, level };
 }
 
+function computePulseScore(pmDir) {
+  const dimensions = [];
+  const now = new Date();
+  const STALE_DAYS = 30;
+  const STRATEGY_STALE_DAYS = 60;
+
+  function daysSince(dateStr) {
+    if (!dateStr) return Infinity;
+    return Math.floor((now - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  }
+
+  // 1. Research freshness (0-25)
+  const researchDir = path.join(pmDir, 'research');
+  let researchScore = 0;
+  let researchDetail = 'No research topics';
+  if (fs.existsSync(researchDir)) {
+    const topics = fs.readdirSync(researchDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    if (topics.length > 0) {
+      const freshCount = topics.filter(t => {
+        const d = getUpdatedDate(path.join(researchDir, t.name, 'findings.md'));
+        return d && daysSince(d) < STALE_DAYS;
+      }).length;
+      researchScore = Math.round((freshCount / topics.length) * 25);
+      researchDetail = `${freshCount} of ${topics.length} topics fresh`;
+    }
+  }
+  dimensions.push({ name: 'Research', score: researchScore, max: 25, detail: researchDetail });
+
+  // 2. Competitor freshness (0-25)
+  const compDir = path.join(pmDir, 'competitors');
+  let compScore = 0;
+  let compDetail = 'No competitors profiled';
+  if (fs.existsSync(compDir)) {
+    const profiles = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    if (profiles.length > 0) {
+      const freshCount = profiles.filter(p => {
+        const d = getUpdatedDate(path.join(compDir, p.name, 'profile.md'));
+        return d && daysSince(d) < STALE_DAYS;
+      }).length;
+      compScore = Math.round((freshCount / profiles.length) * 25);
+      compDetail = `${freshCount} of ${profiles.length} profiles fresh`;
+    }
+  }
+  dimensions.push({ name: 'Competitors', score: compScore, max: 25, detail: compDetail });
+
+  // 3. Backlog coverage (0-25)
+  const backlogDir = path.join(pmDir, 'backlog');
+  let backlogScore = 0;
+  let backlogDetail = 'No backlog items';
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    let ideas = 0, shipped = 0;
+    for (const f of files) {
+      try {
+        const raw = fs.readFileSync(path.join(backlogDir, f), 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        if (data.status === 'idea' || data.status === 'drafted') ideas++;
+        if (data.status === 'done') shipped++;
+      } catch {}
+    }
+    backlogScore = Math.min(25, shipped * 5);
+    if (shipped > 0 && ideas > shipped * 3) backlogScore = Math.max(0, backlogScore - 5);
+    backlogDetail = `${shipped} shipped, ${ideas} ideas`;
+  }
+  dimensions.push({ name: 'Backlog', score: backlogScore, max: 25, detail: backlogDetail });
+
+  // 4. Strategy presence (0-25)
+  const strategyPath = path.join(pmDir, 'strategy.md');
+  let strategyScore = 0;
+  let strategyDetail = 'No strategy defined';
+  if (fs.existsSync(strategyPath)) {
+    const d = getUpdatedDate(strategyPath);
+    const days = daysSince(d);
+    if (days < STRATEGY_STALE_DAYS) {
+      strategyScore = 25;
+      strategyDetail = 'Strategy current';
+    } else {
+      strategyScore = 15;
+      strategyDetail = `Strategy ${Math.floor(days / 30)}mo old`;
+    }
+  }
+  dimensions.push({ name: 'Strategy', score: strategyScore, max: 25, detail: strategyDetail });
+
+  const score = dimensions.reduce((sum, d) => sum + d.score, 0);
+  return { score, dimensions };
+}
+
 function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -2682,6 +2772,16 @@ function handleDashboardHome(res, pmDir) {
   ${researchHasContent ? `<span style="font-size:0.8125rem;color:var(--text-muted);margin-left:1rem;">Research: ${escHtml(researchDesc)}</span>` : ''}
 </div>`;
 
+  // Compute pulse score
+  const pulse = computePulseScore(pmDir);
+  const pulseColor = pulse.score >= 80 ? 'var(--success)' : pulse.score >= 50 ? 'var(--warning)' : '#ef4444';
+  const pulseLabel = pulse.score >= 80 ? 'Healthy' : pulse.score >= 50 ? 'Needs attention' : 'At risk';
+  const pulseScoreHtml = stats.total > 0 ? `
+<div class="pulse-score">
+  <div class="pulse-score-value" style="color:${pulseColor}">${pulse.score}</div>
+  <div class="pulse-score-label">Project Health &middot; <span style="color:${pulseColor}">${pulseLabel}</span></div>
+</div>` : '';
+
   let body;
   if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0) {
     // Empty state — prominent "Start Grooming" CTA
@@ -2703,6 +2803,7 @@ ${suggestedHtml}`;
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Knowledge base overview</p>
 </div>
+${pulseScoreHtml}
 ${controlCards}
 ${sessionBannerHtml}
 ${designBannerHtml}
