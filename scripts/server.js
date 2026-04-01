@@ -1974,6 +1974,47 @@ function discoverCanvases(pmDir) {
   } catch { return []; }
 }
 
+function archiveCompletedCanvases(pmDir) {
+  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'sessions');
+  if (!fs.existsSync(sessionsDir)) return;
+  const rootDir = path.resolve(pmDir, '..');
+  const ARCHIVE_MS = 24 * 60 * 60 * 1000;
+
+  // Collect active session slugs to protect from archival
+  const protectedSlugs = new Set();
+  const groomDir = path.resolve(rootDir, '.pm', 'groom-sessions');
+  const devDir = path.resolve(rootDir, '.pm', 'dev-sessions');
+  for (const dir of [groomDir, devDir]) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.md'))) {
+        protectedSlugs.add(f.replace('.md', ''));
+      }
+    } catch {}
+  }
+
+  try {
+    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = path.join(sessionsDir, entry.name);
+      const statePath = path.join(dirPath, '.state');
+      if (!fs.existsSync(statePath)) continue;
+      try {
+        const state = fs.readFileSync(statePath, 'utf-8').trim();
+        if (state !== 'completed') continue;
+        const mtime = fs.statSync(statePath).mtimeMs;
+        if (Date.now() - mtime < ARCHIVE_MS) continue;
+        // Check if protected by active state file
+        const dashIdx = entry.name.indexOf('-');
+        const slug = dashIdx > 0 ? entry.name.slice(dashIdx + 1) : entry.name;
+        if (protectedSlugs.has(slug) || protectedSlugs.has(entry.name)) continue;
+        // Archive: remove directory
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      } catch {}
+    }
+  } catch {}
+}
+
 function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -4871,6 +4912,9 @@ async function startServer() {
       }
     }, 60 * 1000);
     lifecycleCheck.unref();
+
+    // Archive completed canvases older than 24 hours on startup
+    archiveCompletedCanvases(pmDir);
 
     server.listen(PORT, HOST, () => {
       const address = server.address();
