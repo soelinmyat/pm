@@ -853,6 +853,7 @@ a.groom-session:hover { background: #1e2240; }
 
 /* KB sub-tabs */
 .kb-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
+.nav-secondary { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin: 0 0 1.5rem; overflow-x: auto; }
 .kb-tab { padding: 0.625rem 1rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
   text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px;
   transition: color var(--transition), border-color var(--transition); }
@@ -861,6 +862,7 @@ a.groom-session:hover { background: #1e2240; }
 
 /* Proposal cards */
 .proposal-card { position: relative; overflow: hidden; }
+.card-gradient { height: 4px; margin: -1rem -1rem 0.875rem; border-radius: var(--radius) var(--radius) 0 0; }
 .proposal-card h3 { margin-top: 0; }
 .proposal-card h3 { margin: 0 0 0.25rem; }
 .proposal-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
@@ -887,6 +889,7 @@ a.groom-session:hover { background: #1e2240; }
   padding: 0.625rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border);
   text-decoration: none; color: var(--text); }
 .group-header:hover { background: #222630; }
+.group-gradient { width: 0.875rem; height: 0.875rem; border-radius: 999px; flex-shrink: 0; }
 .group-title { font-weight: 600; font-size: 0.875rem; flex: 1; }
 .group-count { font-size: 0.75rem; color: var(--text-muted); }
 .group-items { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
@@ -900,8 +903,8 @@ a.groom-session:hover { background: #1e2240; }
 .proposal-iframe { width: 100%; height: 800px; border: none; background: var(--surface); }
 
 /* ========== Activity Feed Panel ========== */
-.main-with-feed { display: flex; gap: 0; }
-.main-with-feed > .container { flex: 1; min-width: 0; }
+.main-with-feed { display: flex; gap: 0; overflow: hidden; }
+.main-with-feed > .container { flex: 1; min-width: 0; overflow-y: auto; }
 
 .activity-feed {
   width: 260px; flex-shrink: 0;
@@ -1218,15 +1221,35 @@ a.groom-session:hover { background: #1e2240; }
 function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) {
   projectName = projectName || _cachedProjectName || 'PM';
   const navLinks = [
-    { href: '/', label: 'Home', icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5L8 2l5.5 4.5V13a1 1 0 01-1 1h-3V10H6.5v4h-3a1 1 0 01-1-1V6.5z"/></svg>' },
-    { href: '/backlog', label: 'Backlog', icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg>' },
-    { href: '/kb', label: 'Research', icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h4.5a2 2 0 012 2v8a1.5 1.5 0 00-1.5-1.5H2V3.5zM14 3.5H9.5a2 2 0 00-2 2v8a1.5 1.5 0 011.5-1.5H14V3.5z"/></svg>' },
+    { href: '/', label: 'Home' },
+    { href: '/proposals', label: 'Proposals' },
+    { href: '/backlog', label: 'Backlog' },
   ];
-  const isKbPage = activeNav && activeNav.startsWith('/kb');
   const linksHtml = navLinks.map(l => {
-    const active = l.href === '/kb' ? isKbPage : activeNav === l.href;
-    return `<a href="${l.href}" class="nav-item${active ? ' active' : ''}">${l.icon}<span>${l.label}</span></a>`;
+    const active = activeNav === l.href;
+    return `<a href="${l.href}" class="nav-item${active ? ' active' : ''}">${l.label}</a>`;
   }).join('\n      ');
+
+  let activeKbTab = '';
+  if (activeNav && activeNav.startsWith('/kb?tab=')) {
+    activeKbTab = activeNav.slice('/kb?tab='.length);
+  } else if (activeNav && activeNav.startsWith('/competitors/')) {
+    activeKbTab = 'competitors';
+  } else if (activeNav && activeNav.startsWith('/research/')) {
+    activeKbTab = 'research';
+  } else if (activeNav === '/kb') {
+    activeKbTab = 'research';
+  }
+
+  const secondaryLinks = [
+    { href: '/kb?tab=strategy', label: 'Strategy', active: activeKbTab === 'strategy' },
+    { href: '/kb?tab=research', label: 'Research', active: activeKbTab === 'research' || activeKbTab === 'topics' },
+    { href: '/kb?tab=competitors', label: 'Competitors', active: activeKbTab === 'competitors' },
+    { href: '/landscape', label: 'Landscape', active: activeKbTab === 'landscape' },
+  ];
+  const secondaryHtml = secondaryLinks.map(link =>
+    `${link.active ? '<span class="active" hidden aria-hidden="true"></span>' : ''}<a href="${link.href}" class="kb-tab${link.active ? ' active' : ''}">${link.label}</a>`
+  ).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1262,6 +1285,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) 
   </aside>
   <main class="main-content${sidebarSlot ? ' main-with-feed' : ''}">
     <div class="container">
+      <nav class="nav-secondary">${secondaryHtml}</nav>
 ${bodyContent}
     </div>
 ${sidebarSlot || ''}
@@ -1737,7 +1761,7 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (urlPath === '/proposals') {
-    res.writeHead(301, { 'Location': '/backlog' }); res.end();
+    handleProposalsPage(res, pmDir);
   } else if (urlPath.startsWith('/proposals/wireframes/')) {
     const slug = decodeURIComponent(urlPath.slice('/proposals/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
@@ -1814,6 +1838,40 @@ function humanizeSlug(slug) {
 }
 
 // ========== Proposal Metadata Helpers ==========
+
+const PROPOSAL_GRADIENTS = [
+  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+  'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+  'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+  'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+  'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+  'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+  'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+];
+
+function proposalGradient(slug) {
+  const input = String(slug || '');
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) - hash) + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return PROPOSAL_GRADIENTS[Math.abs(hash) % PROPOSAL_GRADIENTS.length];
+}
+
+function sanitizeGradient(value) {
+  const fallback = '#e5e7eb';
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  if (/[;]/.test(trimmed) || /url\s*\(/i.test(trimmed) || /javascript:/i.test(trimmed) || /expression\s*\(/i.test(trimmed)) {
+    return fallback;
+  }
+  if (/^#(?:[0-9a-fA-F]{3,8})$/.test(trimmed)) return trimmed;
+  if (/^linear-gradient\([#%,.\s0-9A-Za-z-]+\)$/.test(trimmed)) return trimmed;
+  return fallback;
+}
 
 
 function readProposalMeta(slug, pmDir) {
@@ -2122,8 +2180,10 @@ function buildBacklogGrouped(pmDir) {
       const verdictBadge = meta.verdictLabel
         ? `<span class="badge badge-ready">${escHtml(String(meta.verdictLabel))}</span>`
         : '';
+      const gradient = sanitizeGradient(meta.gradient || proposalGradient(proposalSlug));
       html += `<div class="proposal-group">
   <a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="group-header">
+    <div class="group-gradient" style="background:${escHtml(gradient)}"></div>
     <div class="group-title">${title}</div>
     ${verdictBadge}
     <div class="group-count">${escHtml(countText)}</div>
@@ -2201,6 +2261,74 @@ function buildBacklogGrouped(pmDir) {
   return html;
 }
 
+function buildBacklogKanban(pmDir) {
+  const backlogDir = path.join(pmDir, 'backlog');
+  if (!fs.existsSync(backlogDir)) {
+    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  const items = fs.readdirSync(backlogDir)
+    .filter(f => f.endsWith('.md'))
+    .map(file => {
+      const slug = file.replace('.md', '');
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      return {
+        slug,
+        title: data.title || humanizeSlug(slug),
+        status: data.status || 'idea',
+        id: data.id || null,
+        updated: data.updated || data.created || '',
+        priority: safePriority(data.priority),
+      };
+    });
+
+  if (items.length === 0) {
+    return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  items.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+
+  const doneItems = items.filter(item => item.status === 'done');
+  const inProgressItems = items.filter(item => item.status === 'in-progress');
+  const openItems = items.filter(item => item.status !== 'done' && item.status !== 'in-progress' && item.status !== 'archived');
+
+  const columns = [
+    { key: 'open', label: 'Open', items: openItems },
+    { key: 'in-progress', label: 'In Progress', items: inProgressItems },
+    { key: 'done', label: 'Done', items: doneItems.slice(0, 10), total: doneItems.length },
+  ];
+
+  return `<div class="kanban">${columns.map(column => {
+    const rows = column.items.map(item => {
+      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
+      const badgeHtml = column.key === 'done'
+        ? '<span class="status-badge badge-done">done</span>'
+        : `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>`;
+      const hintHtml = item.status === 'idea'
+        ? `<div class="kanban-item-hint">Run <code>/pm:groom ${escHtml(item.slug)}</code></div>`
+        : '';
+      return `<a class="kanban-item${column.key === 'done' ? ' done-item' : ''} priority-${item.priority}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
+  <div class="kanban-item-ids">${idHtml}${badgeHtml}</div>
+  <div class="kanban-item-title">${escHtml(item.title)}</div>
+  ${hintHtml}
+</a>`;
+    }).join('\n');
+
+    const viewAllHtml = column.key === 'done' && column.total > 10
+      ? `<a href="/backlog/shipped" class="kanban-view-all">View all ${column.total} shipped</a>`
+      : '';
+
+    return `<div class="kanban-col${column.items.length === 0 ? ' col-empty' : ''}">
+  <div class="col-header">${column.label}</div>
+  <div class="col-body">
+    ${rows || '<div class="empty-state"><p>No items</p></div>'}
+    ${viewAllHtml}
+  </div>
+</div>`;
+  }).join('')}</div>`;
+}
+
 function findProposalAncestor(slug, items, proposalSlugs) {
   let current = slug;
   const visited = new Set();
@@ -2217,6 +2345,7 @@ function findProposalAncestor(slug, items, proposalSlugs) {
 
 function buildProposalCards(pmDir, limit, preloadedSessions) {
   const entries = [];
+  let shippedCount = 0;
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   if (fs.existsSync(proposalsDir)) {
     const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
@@ -2224,6 +2353,8 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
       const slug = file.replace('.meta.json', '');
       const meta = readProposalMeta(slug, pmDir);
       if (!meta) continue;
+      const verdict = (meta.verdict || '').toLowerCase();
+      if (verdict === 'shipped') { shippedCount++; continue; }
       const title = typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug);
       const stale = stalenessInfo(meta.date);
       const staleLabel = stale ? stale.label : '';
@@ -2233,10 +2364,12 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
       const issueHtml = typeof meta.issueCount === 'number'
         ? `<span class="badge">${meta.issueCount} issue${meta.issueCount !== 1 ? 's' : ''}</span>`
         : '';
+      const gradient = sanitizeGradient(meta.gradient || proposalGradient(slug));
       entries.push({
         date: meta.date || '0000-00-00',
         isDraft: false,
         html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
+  <div class="card-gradient" style="background:${escHtml(gradient)}"></div>
   <h3>${meta.id ? `<span class="proposal-id">${escHtml(meta.id)}</span>` : ''}${escHtml(title)}</h3>
   <p class="meta">${escHtml(staleLabel)}</p>
   <div class="card-footer"><div>${verdictHtml}${issueHtml}</div><span class="view-link">View →</span></div>
@@ -2260,6 +2393,7 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
         date: '0000-00-00', // unknown date — sort to end
         isDraft: false,
         html: `<a href="/proposals/${escHtml(encodeURIComponent(slug))}" class="card proposal-card">
+  <div class="card-gradient" style="background:${sanitizeGradient(null)}"></div>
   <h3>${escHtml(title)}</h3>
   <p class="meta">Legacy proposal</p>
   <div class="card-footer"><div></div><span class="view-link">View →</span></div>
@@ -2285,7 +2419,7 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
   const totalCount = entries.length;
   const limited = limit ? entries.slice(0, limit) : entries;
   const cardsHtml = limited.map(e => e.html).join('\n');
-  return { cardsHtml, totalCount };
+  return { cardsHtml, totalCount, shippedCount };
 }
 
 function normalizeSourceOrigin(value) {
@@ -2453,7 +2587,9 @@ function handleDashboardHome(res, pmDir) {
   const allSessions = readAllActiveSessions(pmDir).filter(s => s._mtime && (Date.now() - s._mtime) < staleMs);
   let sessionBannerHtml = '';
   if (allSessions.length > 0) {
-    const label = allSessions.length === 1 ? 'Active Session' : `Active Sessions (${allSessions.length})`;
+    const label = allSessions.every(s => s._type === 'groom')
+      ? (allSessions.length === 1 ? 'Currently grooming' : `Currently grooming (${allSessions.length} sessions)`)
+      : (allSessions.length === 1 ? 'Active Session' : `Active Sessions (${allSessions.length})`);
     const sessionItems = allSessions.map(s => {
       const slug = s._slug || '';
       const link = slug ? `/session/${encodeURIComponent(slug)}` : '#';
@@ -2511,7 +2647,7 @@ function handleDashboardHome(res, pmDir) {
 <div class="content-section">
   <div class="proposals-header">
     <h2>Recent Proposals</h2>
-    <a href="/backlog" class="proposals-view-all">View backlog →</a>
+    <a href="/proposals" class="proposals-view-all">View all proposals</a>
   </div>
   <div class="card-grid">${proposalCards}</div>
 </div>`;
@@ -2532,7 +2668,7 @@ function handleDashboardHome(res, pmDir) {
     <div class="value">${stats.competitors}</div>
     <div class="label">Competitors</div>
   </a>
-  <a href="/kb?tab=topics" class="stat-card stat-card-link">
+  <a href="/kb?tab=research" class="stat-card stat-card-link">
     <div class="value">${stats.research}</div>
     <div class="label">Research Topics</div>
   </a>
@@ -2552,7 +2688,7 @@ function handleDashboardHome(res, pmDir) {
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Product command center</p>
+  <p class="subtitle">Knowledge base overview</p>
 </div>
 <div class="empty-state-cta">
   <h2>Ready to build?</h2>
@@ -2565,12 +2701,13 @@ ${suggestedHtml}`;
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Product command center</p>
+  <p class="subtitle">Knowledge base overview</p>
 </div>
 ${controlCards}
 ${sessionBannerHtml}
 ${designBannerHtml}
 ${proposalsHtml}
+${kbReferenceHtml}
 ${suggestedHtml}`;
   }
 
@@ -2818,21 +2955,21 @@ function handleProposalDetailRaw(res, pmDir, slug) {
 function handleProposalDetail(res, pmDir, slug) {
   if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/backlog">&larr; Back to Backlog</a></p></div>'));
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
     return;
   }
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
   const htmlPath = path.resolve(proposalsDir, slug + '.html');
   if (!htmlPath.startsWith(proposalsDir + path.sep) || !fs.existsSync(htmlPath)) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/backlog">&larr; Back to Backlog</a></p></div>'));
+    res.end(dashboardPage('Not Found', '/proposals', '<div class="empty-state"><p>Proposal not found.</p><p><a href="/proposals">&larr; Back to Proposals</a></p></div>'));
     return;
   }
   const encodedSlug = encodeURIComponent(slug);
   const title = humanizeSlug(slug);
   const body = `
 <div class="page-header">
-  <p class="breadcrumb"><a href="/backlog">&larr; Back to Backlog</a></p>
+  <p class="breadcrumb"><a href="/proposals">&larr; Back to Proposals</a></p>
   <h1>${escHtml(title)}</h1>
 </div>
 <div class="proposal-embed">
@@ -2842,7 +2979,7 @@ function handleProposalDetail(res, pmDir, slug) {
   </div>
   <iframe src="/proposals/${encodedSlug}/raw" class="proposal-iframe"></iframe>
 </div>`;
-  const html = dashboardPage(title, '/backlog', body);
+  const html = dashboardPage(title, '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3625,26 +3762,34 @@ function handleCompetitorsList(res, pmDir) {
 
 function buildKbSubTabs(activeTab) {
   const tabs = [
-    { id: 'research', label: 'Landscape' },
-    { id: 'competitors', label: 'Competitors' },
     { id: 'strategy', label: 'Strategy' },
-    { id: 'topics', label: 'Topics' },
+    { id: 'research', label: 'Research' },
+    { id: 'competitors', label: 'Competitors' },
+    { id: 'landscape', label: 'Landscape' },
   ];
-  return '<div class="kb-sub-tabs">' + tabs.map(t =>
-    `<a href="/kb?tab=${t.id}" class="kb-sub-tab${t.id === activeTab ? ' active' : ''}">${t.label}</a>`
-  ).join('') + '</div>';
+  return '<nav class="nav-secondary">' + tabs.map(t =>
+    `<a href="${t.id === 'landscape' ? '/landscape' : '/kb?tab=' + t.id}" class="kb-tab${t.id === activeTab ? ' active' : ''}">${t.label}</a>`
+  ).join('') + '</nav>';
 }
 
 function handleKnowledgeBasePage(res, pmDir, tab) {
-  const validTabs = ['research', 'competitors', 'strategy', 'topics'];
+  const validTabs = ['research', 'competitors', 'strategy', 'topics', 'landscape'];
   const activeTab = validTabs.includes(tab) ? tab : 'research';
 
   let contentHtml = '';
   let title = 'Research';
 
-  const subTabs = buildKbSubTabs(activeTab);
-
   if (activeTab === 'research') {
+    title = 'Research';
+    contentHtml = `<div class="content-section">
+  <h2>Landscape</h2>
+  ${buildLandscapeContent(pmDir)}
+</div>
+<div class="content-section">
+  <h2>Research</h2>
+  ${buildTopicsContent(pmDir)}
+</div>`;
+  } else if (activeTab === 'landscape') {
     title = 'Research — Landscape';
     contentHtml = buildLandscapeContent(pmDir);
   } else if (activeTab === 'strategy') {
@@ -3667,12 +3812,13 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     title = 'Research — Competitors';
     contentHtml = buildCompetitorsContent(pmDir);
   } else if (activeTab === 'topics') {
-    title = 'Research — Topics';
+    title = 'Research';
     contentHtml = buildTopicsContent(pmDir);
   }
 
-  const body = '<div class="page-header"><h1>Research</h1></div>' + subTabs + contentHtml;
-  const html = dashboardPage(title, '/kb', body);
+  const navActive = activeTab === 'topics' ? 'research' : activeTab;
+  const body = '<div class="page-header"><h1>Research</h1></div>' + contentHtml;
+  const html = dashboardPage(title, '/kb?tab=' + navActive, body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3796,6 +3942,10 @@ function handleWireframe(res, pmDir, slug) {
 
 function handleBacklog(res, pmDir, view) {
   const backlogDir = path.join(pmDir, 'backlog');
+  const activeView = view === 'kanban' ? 'kanban' : 'proposals';
+
+  // Proposal cards — these ARE the backlog's primary view (built first for stats)
+  const { cardsHtml, totalCount: proposalCount, shippedCount: shippedProposalCount } = buildProposalCards(pmDir, 0);
 
   // Read all backlog items for stats
   const items = [];
@@ -3807,72 +3957,24 @@ function handleBacklog(res, pmDir, view) {
   }
 
   const ideaCount = items.filter(i => i.status === 'idea').length;
-  const readyCount = items.filter(i => i.status !== 'idea' && i.status !== 'done' && i.status !== 'archived').length;
   const doneCount = items.filter(i => i.status === 'done').length;
   const archivedCount = items.filter(i => i.status === 'archived').length;
 
-  // Summary stats
+  // Summary stats — proposal count matches what's shown below
   const statsHtml = `<div class="backlog-stats">
-  <div class="stat-card"><div class="value">${readyCount}</div><div class="label">Ready to Build</div></div>
+  <div class="stat-card"><div class="value">${proposalCount}</div><div class="label">Proposals</div></div>
   <div class="stat-card"><div class="value">${ideaCount}</div><div class="label">Ideas</div></div>
   <a href="/backlog/shipped" class="stat-card stat-card-link"><div class="value">${doneCount}</div><div class="label">Shipped →</div></a>
   <a href="/backlog/archived" class="stat-card stat-card-link"><div class="value">${archivedCount}</div><div class="label">Archived →</div></a>
 </div>`;
+  const viewToggleHtml = `<div class="view-toggle">
+  <a href="/backlog?view=proposals" class="toggle-btn${activeView === 'proposals' ? ' active' : ''}">Proposals</a>
+  <a href="/backlog?view=kanban" class="toggle-btn${activeView === 'kanban' ? ' active' : ''}">Kanban</a>
+</div>`;
 
-  // Proposal cards — these ARE the backlog's primary view
-  const { cardsHtml, totalCount: proposalCount } = buildProposalCards(pmDir, 0);
-  let proposalsHtml = '';
-  if (proposalCount > 0) {
-    proposalsHtml = `<h2 class="backlog-section-title">Proposals <span class="badge">${proposalCount}</span></h2>
-<div class="card-grid">${cardsHtml}</div>`;
-  }
-
-  // Ideas section — ungroomed items not attached to proposals
-  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
-  const proposalSet = new Set();
-  if (fs.existsSync(proposalsDir)) {
-    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'))) {
-      proposalSet.add(f.replace('.meta.json', ''));
-    }
-    for (const f of fs.readdirSync(proposalsDir).filter(f => f.endsWith('.html'))) {
-      proposalSet.add(f.replace('.html', ''));
-    }
-  }
-
-  // Find idea items that don't belong to any proposal
-  let ideasHtml = '';
-  if (fs.existsSync(backlogDir)) {
-    const itemsMap = {};
-    const ideaItems = [];
-    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
-      const slug = file.replace('.md', '');
-      const { data } = parseFrontmatter(fs.readFileSync(path.join(backlogDir, file), 'utf-8'));
-      itemsMap[slug] = { slug, title: data.title || humanizeSlug(slug), status: data.status || 'idea', parent: data.parent || null, id: data.id || null };
-    }
-    for (const slug of Object.keys(itemsMap)) {
-      const item = itemsMap[slug];
-      if (item.status !== 'idea') continue;
-      const ancestor = findProposalAncestor(slug, itemsMap, proposalSet);
-      if (!ancestor) ideaItems.push(item);
-    }
-    if (ideaItems.length > 0) {
-      const rows = ideaItems.map(item => {
-        const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
-        return `<a class="kanban-item priority-medium" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
-  <div class="kanban-item-ids">${idHtml}<span class="status-badge badge-idea">idea</span></div>
-  <div class="kanban-item-title">${escHtml(item.title)}</div>
-  <div class="kanban-item-hint">Run <code>/pm:groom ${escHtml(item.slug)}</code></div>
-</a>`;
-      }).join('\n');
-      ideasHtml = `<h2 class="backlog-section-title" style="margin-top:1.5rem">Ungroomed Ideas <span class="badge">${ideaItems.length}</span></h2>
-<div class="backlog-list">${rows}</div>`;
-    }
-  }
-
-  // Empty state
-  if (proposalCount === 0 && !ideasHtml) {
-    proposalsHtml = '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
-  }
+  const contentHtml = activeView === 'kanban'
+    ? buildBacklogKanban(pmDir)
+    : buildBacklogGrouped(pmDir);
 
   const searchHtml = `<div style="margin-bottom:1rem;">
 <input type="text" id="backlog-search" placeholder="Filter backlog..."
@@ -3885,7 +3987,7 @@ function handleBacklog(res, pmDir, view) {
   if (!input) return;
   input.addEventListener('input', function() {
     var q = this.value.toLowerCase();
-    document.querySelectorAll('.card-grid .card, .backlog-list .kanban-item').forEach(function(el) {
+    document.querySelectorAll('.card-grid .card, .backlog-list .kanban-item, .proposal-group, .kanban .kanban-item').forEach(function(el) {
       var text = el.textContent.toLowerCase();
       el.style.display = text.includes(q) ? '' : 'none';
     });
@@ -3895,9 +3997,9 @@ function handleBacklog(res, pmDir, view) {
 
   const body = `<div class="page-header"><h1>Backlog</h1></div>
 ${statsHtml}
+${viewToggleHtml}
 ${searchHtml}
-${proposalsHtml}
-${ideasHtml}`;
+${contentHtml}`;
 
   const html = dashboardPage('Backlog', '/backlog', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -4654,6 +4756,7 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, groomPhaseLabel, buildProposalCards, findProposalAncestor, buildBacklogGrouped,
+  readProposalMeta, proposalGradient, sanitizeGradient,
+  readGroomState, groomPhaseLabel, buildProposalCards, findProposalAncestor, buildBacklogGrouped, buildBacklogKanban,
   hashProjectPort, isPortAvailable, resolvePort,
 };
