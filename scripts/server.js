@@ -1293,147 +1293,6 @@ a.groom-session:hover { background: #1e2240; }
   }
 }
 
-/* ========== Progressive Proposal ========== */
-.groom-progress-bar { display: flex; gap: 3px; margin-bottom: 2rem; }
-.groom-progress-seg {
-  flex: 1; height: 6px; border-radius: 3px;
-  background: var(--border); transition: background 400ms ease;
-}
-.groom-progress-seg.filled { background: var(--accent); }
-.groom-progress-seg.current { background: var(--accent); animation: pulse-seg 2s ease-in-out infinite; }
-@keyframes pulse-seg { 0%,100%{opacity:.5} 50%{opacity:1} }
-
-.groom-progress-label {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: 0.5rem; font-size: 0.75rem; color: var(--text-muted);
-}
-.groom-progress-label .phase-name { font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* Sections — no border box, just left accent + content */
-.proposal-section {
-  padding: 1rem 0 1rem 1.25rem; margin-bottom: 0.25rem;
-  border-left: 2px solid var(--border);
-  transition: border-color 300ms ease, opacity 300ms ease;
-  background: none;
-}
-.proposal-section.filled { border-left: 3px solid var(--accent); }
-.proposal-section.placeholder {
-  opacity: 0.35; min-height: 48px; padding: 0.75rem 0 0.75rem 1.25rem;
-  display: flex; align-items: center;
-}
-.proposal-section.placeholder .section-pending {
-  font-size: 0.8125rem; color: var(--text-muted); font-style: italic;
-}
-.proposal-section .section-header {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 0.5rem;
-}
-.proposal-section .section-title {
-  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-muted);
-}
-.proposal-section .section-detail-trigger {
-  font-size: 0.6875rem; color: var(--accent); cursor: pointer;
-  border: none; border-radius: 4px; padding: 0.2em 0.5em;
-  background: var(--accent-subtle); transition: background 150ms ease;
-}
-.proposal-section .section-detail-trigger:hover { background: rgba(94,106,210,0.25); }
-
-.proposal-section .section-body { font-size: 0.875rem; line-height: 1.6; color: var(--text); }
-.proposal-section .section-body p { margin-bottom: 0.5rem; }
-.proposal-section .section-body ul { margin: 0.25rem 0 0.5rem 1.25rem; }
-.proposal-section .section-body li { margin-bottom: 0.2rem; color: var(--text); }
-.proposal-section .section-body table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.8125rem; }
-.proposal-section .section-body th, .proposal-section .section-body td {
-  padding: 0.4rem 0.6rem; border: 1px solid var(--border); text-align: left;
-}
-.proposal-section .section-body th {
-  background: var(--surface); font-weight: 600; font-size: 0.75rem;
-  text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted);
-}
-
-/* Hero section — gradient accent, no box */
-.proposal-hero {
-  position: relative; border-radius: var(--radius); overflow: hidden;
-  padding: 2.5rem 2rem 2rem; margin-bottom: 1.5rem; text-align: center;
-  background: linear-gradient(135deg, rgba(94,106,210,0.15) 0%, rgba(94,106,210,0.04) 100%);
-  border: 1px solid rgba(94,106,210,0.2);
-}
-.proposal-hero.placeholder { opacity: 0.3; background: var(--surface); border: 1px dashed var(--border); }
-.proposal-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.375rem; }
-.proposal-hero .hero-subtitle { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
-.proposal-hero .hero-badges { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
-.proposal-hero .hero-badge {
-  display: inline-block; padding: 0.2em 0.65em; border-radius: 12px;
-  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  background: rgba(94,106,210,0.2); color: var(--accent);
-}
-
-/* Scope grid */
-.proposal-scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0.5rem 0; }
-.proposal-scope-col {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 0.75rem;
-  border-left: 3px solid var(--border);
-}
-.proposal-scope-col.in-scope { border-left-color: var(--success); }
-.proposal-scope-col.out-scope { border-left-color: var(--warning); }
-.proposal-scope-col h4 { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.375rem; }
-.proposal-scope-col ul { margin: 0 0 0 1rem; }
-.proposal-scope-col li { font-size: 0.8125rem; color: var(--text); margin-bottom: 0.2rem; }
-
-/* Verdict chips */
-.proposal-verdicts { display: flex; gap: 0.5rem; margin: 0.75rem 0 0; flex-wrap: wrap; }
-.proposal-verdict {
-  flex: 1; min-width: 90px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 0.5rem 0.625rem; text-align: center;
-}
-.proposal-verdict .role { font-size: 0.5625rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.proposal-verdict .verdict { font-size: 0.8125rem; font-weight: 700; margin-top: 0.125rem; color: var(--success); }
-
-/* Issue cards */
-.proposal-issue {
-  background: var(--surface); border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm); padding: 0.625rem 0.875rem; margin-bottom: 0.5rem;
-}
-.proposal-issue .issue-id { font-size: 0.625rem; font-weight: 600; color: var(--accent); margin-bottom: 0.125rem; }
-.proposal-issue .issue-title { font-size: 0.875rem; font-weight: 600; color: var(--text); }
-.proposal-issue .issue-outcome { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; }
-
-/* Final verdict banner */
-.proposal-verdict-banner {
-  text-align: center; padding: 1.25rem; border-radius: var(--radius);
-  margin-bottom: 1rem; font-weight: 700; font-size: 1.125rem;
-}
-.proposal-verdict-banner.ready { background: rgba(74,222,128,0.1); color: var(--success); border: 1px solid rgba(74,222,128,0.25); }
-.proposal-verdict-banner.send-back { background: rgba(251,146,60,0.1); color: var(--warning); border: 1px solid rgba(251,146,60,0.25); }
-.proposal-verdict-banner.pause { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
-
-/* Modal */
-.modal-overlay {
-  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-  z-index: 100; align-items: center; justify-content: center;
-  backdrop-filter: blur(4px);
-}
-.modal-overlay.open { display: flex; }
-.modal-content {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  max-width: 640px; width: 90%; max-height: 80vh; overflow-y: auto;
-  padding: 1.5rem; box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-}
-.modal-content h2 { font-size: 1.125rem; font-weight: 700; margin-bottom: 1rem; }
-.modal-close {
-  float: right; background: none; border: none; color: var(--text-muted);
-  font-size: 1.25rem; cursor: pointer; padding: 0.25rem; line-height: 1;
-}
-.modal-close:hover { color: var(--text); }
-
-@media (max-width: 640px) {
-  .proposal-scope-grid { grid-template-columns: 1fr; }
-  .proposal-verdicts { flex-direction: column; }
-  .modal-content { width: 95%; max-height: 90vh; }
-}
 `;
 
 // ========== Dashboard HTML Shell ==========
@@ -1550,27 +1409,6 @@ ${sidebarSlot || ''}
     review_done: 'Review done',
     merged: 'Merged'
   };
-
-  // Modal handlers
-  window.openModal = function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.add('open');
-  };
-  window.closeModal = function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.remove('open');
-  };
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      var modals = document.querySelectorAll('.modal-overlay.open');
-      modals.forEach(function(m) { m.classList.remove('open'); });
-    }
-  });
-  document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal-overlay')) {
-      e.target.classList.remove('open');
-    }
-  });
 
   var toastContainer = document.getElementById('toast-container');
   var activeToasts = [];
@@ -2235,31 +2073,161 @@ function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ========== Progressive Proposal CSS (matches proposal-reference.html) ==========
+
+const PROGRESSIVE_PROPOSAL_CSS = `
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: #f8f9fa; line-height: 1.6; }
+
+/* Progress bar */
+.pp-bar { display: flex; gap: 3px; padding: 0.75rem 1.5rem 0; max-width: 960px; margin: 0 auto; }
+.pp-seg { flex: 1; height: 5px; border-radius: 3px; background: #e5e7eb; transition: background 400ms ease; }
+.pp-seg.done { background: #2563eb; }
+.pp-seg.current { background: #2563eb; animation: pp-pulse 2s ease-in-out infinite; }
+@keyframes pp-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+.pp-status { display: flex; justify-content: space-between; align-items: baseline; padding: 0.375rem 1.5rem 0; max-width: 960px; margin: 0 auto; font-size: 0.7rem; color: #999; }
+.pp-phase { font-weight: 600; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Hero */
+.hero { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%); color: #fff; padding: 3rem 1.5rem 2.5rem; position: relative; overflow: hidden; }
+.hero::before { content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }
+.hero-inner { max-width: 960px; margin: 0 auto; position: relative; z-index: 1; }
+.hero-eyebrow { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem; }
+.hero h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+.hero .subtitle { font-size: 1.1rem; color: rgba(255,255,255,0.85); max-width: 640px; margin-bottom: 1.5rem; }
+.pp-placeholder-hero { opacity: 0.6; }
+
+/* Metrics strip */
+.metrics-strip { display: flex; gap: 0; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); }
+.metric { flex: 1; padding: 0.75rem 1rem; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+.metric:last-child { border-right: none; }
+.metric-value { font-size: 1.4rem; font-weight: 800; display: block; line-height: 1.2; }
+.metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
+
+/* TOC */
+.toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; }
+.toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
+.toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.toc a:hover { color: #2563eb; border-bottom-color: #2563eb; }
+
+/* Layout */
+.proposal { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+/* Sections */
+.section { margin-bottom: 3rem; opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+.section:nth-child(1) { animation-delay: 0.05s; }
+.section:nth-child(2) { animation-delay: 0.1s; }
+.section:nth-child(3) { animation-delay: 0.15s; }
+.section:nth-child(4) { animation-delay: 0.2s; }
+.section:nth-child(5) { animation-delay: 0.25s; }
+.section:nth-child(6) { animation-delay: 0.3s; }
+.section:nth-child(7) { animation-delay: 0.35s; }
+.section:nth-child(8) { animation-delay: 0.4s; }
+.section:nth-child(9) { animation-delay: 0.45s; }
+@keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+.section-title { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 0.5rem; }
+.section-title .icon { width: 28px; height: 28px; border-radius: 6px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0; }
+.section p, .section li { font-size: 0.95rem; color: #444; max-width: 65ch; }
+.section-lead { font-weight: 600; color: #111; font-size: 1rem; margin-bottom: 0.75rem; }
+.section ul, .section ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.section li { margin-bottom: 0.35rem; }
+
+/* Placeholder sections */
+.pp-placeholder { opacity: 0.4; }
+.pp-placeholder .section-title { border-bottom-style: dashed; }
+.pp-hint { font-style: italic; color: #999 !important; font-size: 0.9rem !important; }
+
+/* Callout */
+.callout { background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%); border-left: 4px solid #2563eb; border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 0.93rem; color: #1e40af; }
+.callout strong { color: #1e3a8a; }
+
+/* Scope */
+.scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1rem; }
+.scope-column { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+.scope-column h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
+.scope-column.in-scope { border-top: 3px solid #16a34a; }
+.scope-column.in-scope h4 { color: #16a34a; }
+.scope-column.out-of-scope { border-top: 3px solid #dc2626; }
+.scope-column.out-of-scope h4 { color: #dc2626; }
+.scope-column ul { padding-left: 1.1rem; }
+.scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
+.filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 999px; margin-top: 0.75rem; }
+
+/* Issue cards */
+.issue-group { margin-bottom: 1.5rem; }
+.issue-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.issue-card.parent { border-left: 4px solid #2563eb; }
+.issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
+.issue-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.issue-id { font-size: 0.75rem; font-weight: 700; color: #fff; background: #2563eb; padding: 0.1rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+.issue-title { font-size: 1rem; font-weight: 600; color: #111; }
+.issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
+details { margin-top: 0.5rem; }
+summary { font-size: 0.85rem; font-weight: 600; color: #2563eb; cursor: pointer; }
+.ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; margin-top: 0.5rem; }
+.ac-list li { margin-bottom: 0.25rem; }
+.ac-list li::marker { color: #2563eb; }
+
+/* Mermaid */
+.mermaid-container { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.5rem; margin-bottom: 1rem; overflow-x: auto; }
+.mermaid { text-align: center; }
+
+/* Wireframes */
+.wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 0.75rem; }
+.wireframe-embed iframe { width: 100%; height: 500px; border: none; }
+.wireframe-link { font-size: 0.85rem; color: #2563eb; text-decoration: none; font-weight: 500; }
+
+/* Verdict badges */
+.verdict-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 999px; }
+.verdict-badge.ready { background: #dcfce7; color: #166534; }
+.verdict-badge.caution { background: #fef3c7; color: #92400e; }
+.verdict-badge.blocked { background: #fee2e2; color: #991b1b; }
+
+/* Review cards */
+.review-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+.review-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }
+.review-card-header { display: flex; justify-content: space-between; align-items: center; }
+.review-card-role { font-size: 0.85rem; font-weight: 600; color: #333; }
+
+/* Advisory */
+.advisory-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 1rem 1.25rem; margin-top: 1rem; }
+.advisory-card h3 { font-size: 0.8rem; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+.advisory-list { padding-left: 1.25rem; font-size: 0.88rem; color: #78350f; }
+.advisory-list li { margin-bottom: 0.3rem; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .hero h1 { font-size: 1.5rem; }
+  .metrics-strip { flex-wrap: wrap; }
+  .metric { min-width: 50%; }
+  .scope-grid { grid-template-columns: 1fr; }
+  .issue-card.child { margin-left: 1rem; }
+  .review-cards { grid-template-columns: 1fr; }
+}
+@media print {
+  body { background: #fff; }
+  .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; }
+  .toc, .pp-bar, .pp-status { display: none; }
+  .proposal { max-width: 100%; padding: 1rem 0; }
+  .section { opacity: 1 !important; transform: none !important; animation: none !important; }
+  .pp-placeholder { display: none; }
+}
+`;
+
 // ========== Progressive Proposal Handler ==========
 
-const GROOM_PHASE_ORDER = ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom', 'team-review', 'bar-raiser', 'present'];
+const GROOM_PHASE_ORDER_PP = ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom', 'team-review', 'bar-raiser', 'present'];
 
-const TIER_PHASES = {
+const TIER_PHASES_PP = {
   quick:    ['intake', 'scope', 'groom'],
   standard: ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom'],
   full:     ['intake', 'strategy-check', 'research', 'scope', 'scope-review', 'groom', 'team-review', 'bar-raiser', 'present'],
 };
 
-// Map phases to the proposal sections they fill
-const PHASE_SECTIONS = {
-  'intake':        ['hero'],
-  'strategy-check':['strategy'],
-  'research':      ['market'],
-  'scope':         ['scope'],
-  'scope-review':  ['scope'],    // enriches the scope section with verdicts
-  'groom':         ['flows', 'wireframes', 'issues'],
-  'team-review':   ['review'],
-  'bar-raiser':    ['verdict'],
-  'present':       [],           // freeze step — no new section
-};
-
 function phaseIndex(phase) {
-  const idx = GROOM_PHASE_ORDER.indexOf(phase);
+  const idx = GROOM_PHASE_ORDER_PP.indexOf(phase);
   return idx >= 0 ? idx : -1;
 }
 
@@ -2270,250 +2238,8 @@ function isPhaseComplete(currentPhase, checkPhase) {
   return cur > chk;
 }
 
-function isSectionFilled(session, sectionId) {
-  const phase = session.phase || '';
-  switch (sectionId) {
-    case 'hero':       return !!session.topic;
-    case 'strategy':   return !!(session.strategy_check && session.strategy_check.status);
-    case 'market':     return !!session.research_location;
-    case 'scope':      return !!(session.scope && session.scope.in_scope);
-    case 'flows':      return isPhaseComplete(phase, 'groom') || phase === 'groom' || phase === 'team-review' || phase === 'bar-raiser' || phase === 'present' || phase === 'link';
-    case 'wireframes': return isPhaseComplete(phase, 'groom') || phase === 'groom' || phase === 'team-review' || phase === 'bar-raiser' || phase === 'present' || phase === 'link';
-    case 'issues':     return !!(session.issues && session.issues.length > 0);
-    case 'review':     return !!(session.team_review && session.team_review.pm_verdict);
-    case 'verdict':    return !!(session.bar_raiser && session.bar_raiser.verdict);
-    default:           return false;
-  }
-}
-
-function renderHeroSection(session) {
-  if (!session.topic) {
-    return `<div class="proposal-hero placeholder"><span class="section-pending">Untitled feature</span></div>`;
-  }
-  const title = escHtml(session.topic);
-  const badges = [];
-  if (session.priority) badges.push(escHtml(session.priority));
-  if (session.tier) badges.push(escHtml(session.tier) + ' groom');
-  const badgesHtml = badges.map(b => `<span class="hero-badge">${b}</span>`).join('');
-  return `<div class="proposal-hero filled">
-  <h1>${title}</h1>
-  ${session.outcome ? `<div class="hero-subtitle">${escHtml(String(session.outcome))}</div>` : ''}
-  <div class="hero-badges">${badgesHtml}</div>
-</div>`;
-}
-
-function renderStrategySection(session) {
-  const sc = session.strategy_check;
-  if (!sc || !sc.status) return renderPlaceholder('Strategy Alignment');
-  const statusMap = { passed: 'success', failed: 'warning', override: 'info', skipped: '' };
-  const cls = statusMap[sc.status] || '';
-  const badgeClass = cls ? `badge-${cls}` : '';
-  let body = `<span class="badge ${badgeClass}">${escHtml(sc.status)}</span>`;
-  if (sc.supporting_priority) body += `<p style="margin-top:0.5rem;">Supports: ${escHtml(String(sc.supporting_priority))}</p>`;
-  if (sc.conflicts && sc.conflicts.length > 0) {
-    body += '<p style="margin-top:0.5rem;color:var(--warning);">Conflicts:</p><ul>' +
-      sc.conflicts.map(c => `<li>${escHtml(String(c))}</li>`).join('') + '</ul>';
-  }
-  return renderFilledSection('Strategy Alignment', body);
-}
-
-function renderMarketSection(session, pmDir) {
-  if (!session.research_location) return renderPlaceholder('Market & Competitive');
-  const resDir = path.resolve(pmDir, '..', session.research_location);
-  const findingsPath = path.join(resDir, 'findings.md');
-  let body = `<p>Research at: <code>${escHtml(String(session.research_location))}</code></p>`;
-  if (fs.existsSync(findingsPath)) {
-    try {
-      const raw = fs.readFileSync(findingsPath, 'utf-8');
-      const { data } = parseFrontmatter(raw);
-      if (data.title) body = `<p><strong>${escHtml(String(data.title))}</strong></p>` + body;
-      // Extract key findings (first few bullet points)
-      const findingsMatch = raw.match(/## (?:Key )?Findings\n([\s\S]*?)(?=\n## |\n---)/i);
-      if (findingsMatch) {
-        const lines = findingsMatch[1].trim().split('\n').filter(l => l.startsWith('- ')).slice(0, 5);
-        if (lines.length > 0) {
-          body += '<ul>' + lines.map(l => `<li>${escHtml(l.replace(/^- /, ''))}</li>`).join('') + '</ul>';
-        }
-      }
-    } catch {}
-  }
-  const modalContent = fs.existsSync(findingsPath)
-    ? `<button class="section-detail-trigger" onclick="openModal('market-detail')">Research complete</button>`
-    : '';
-  return renderFilledSection('Market & Competitive', body, modalContent);
-}
-
-function renderScopeSection(session) {
-  const scope = session.scope;
-  if (!scope || !scope.in_scope) return renderPlaceholder('Scope Overview');
-  let body = '';
-  // Filter badge
-  if (scope.filter_result) {
-    const filterMap = { '10x': 'badge-success', parity: 'badge-warning', 'gap-fill': 'badge-info' };
-    body += `<span class="badge ${filterMap[scope.filter_result] || ''}">${escHtml(String(scope.filter_result))}</span> `;
-  }
-  // Scope grid
-  const inItems = Array.isArray(scope.in_scope) ? scope.in_scope : [];
-  const outItems = Array.isArray(scope.out_of_scope) ? scope.out_of_scope : [];
-  body += `<div class="proposal-scope-grid">
-  <div class="proposal-scope-col in-scope"><h4>In Scope</h4><ul>${inItems.map(i => `<li>${escHtml(String(i))}</li>`).join('')}</ul></div>
-  <div class="proposal-scope-col out-scope"><h4>Out of Scope</h4><ul>${outItems.map(i => `<li>${escHtml(String(i))}</li>`).join('')}</ul></div>
-</div>`;
-  // Scope review verdicts
-  const sr = session.scope_review;
-  if (sr && sr.pm_verdict) {
-    body += '<div class="proposal-verdicts">';
-    if (sr.pm_verdict) body += `<div class="proposal-verdict"><div class="role">PM</div><div class="verdict">${escHtml(String(sr.pm_verdict))}</div></div>`;
-    if (sr.competitive_verdict) body += `<div class="proposal-verdict"><div class="role">Competitive</div><div class="verdict">${escHtml(String(sr.competitive_verdict))}</div></div>`;
-    if (sr.em_verdict) body += `<div class="proposal-verdict"><div class="role">EM</div><div class="verdict">${escHtml(String(sr.em_verdict))}</div></div>`;
-    body += '</div>';
-    const triggerText = `${sr.iterations || 1} iteration${(sr.iterations || 1) > 1 ? 's' : ''}, ${(sr.blocking_issues_fixed || 0)} issues fixed`;
-    return renderFilledSection('Scope Overview', body, `<button class="section-detail-trigger" onclick="openModal('scope-detail')">${escHtml(triggerText)}</button>`);
-  }
-  return renderFilledSection('Scope Overview', body);
-}
-
-function renderFlowsSection(session, pmDir) {
-  // Check for wireframe/flow files in backlog
-  const issues = Array.isArray(session.issues) ? session.issues : [];
-  if (issues.length === 0 && !isPhaseComplete(session.phase || '', 'groom')) return renderPlaceholder('User Flows');
-  // Try to read mermaid from parent issue
-  let body = '';
-  for (const iss of issues) {
-    const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
-    if (!fs.existsSync(issuePath)) continue;
-    try {
-      const raw = fs.readFileSync(issuePath, 'utf-8');
-      const mermaidMatch = raw.match(/```mermaid\n([\s\S]*?)```/);
-      if (mermaidMatch) {
-        body += `<pre class="mermaid">${escHtml(mermaidMatch[1].trim())}</pre>`;
-        break; // one flow is enough for the progressive view
-      }
-    } catch {}
-  }
-  if (!body) body = '<p style="color:var(--text-muted);">User flows will appear here after issue drafting.</p>';
-  return renderFilledSection('User Flows', body);
-}
-
-function renderWireframesSection(session, pmDir) {
-  const issues = Array.isArray(session.issues) ? session.issues : [];
-  if (issues.length === 0) return renderPlaceholder('Wireframes');
-  let body = '';
-  for (const iss of issues) {
-    const wfPath = path.resolve(pmDir, 'backlog', 'wireframes', (iss.slug || '') + '.html');
-    if (fs.existsSync(wfPath)) {
-      const encodedSlug = encodeURIComponent(iss.slug || '');
-      body += `<div style="margin-bottom:0.5rem;"><a href="/backlog/wireframes/${encodedSlug}" style="color:var(--accent);font-weight:600;">${escHtml(String(iss.title || iss.slug))} wireframe &nearr;</a></div>`;
-    }
-  }
-  if (!body) body = '<p style="color:var(--text-muted);">No wireframes generated yet.</p>';
-  return renderFilledSection('Wireframes', body);
-}
-
-function renderIssuesSection(session, pmDir) {
-  const issues = Array.isArray(session.issues) ? session.issues : [];
-  if (issues.length === 0) return renderPlaceholder('Issue Breakdown');
-  let body = '';
-  for (const iss of issues) {
-    const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
-    let outcome = '';
-    let issueId = '';
-    if (fs.existsSync(issuePath)) {
-      try {
-        const raw = fs.readFileSync(issuePath, 'utf-8');
-        const { data } = parseFrontmatter(raw);
-        outcome = data.outcome || '';
-        issueId = data.id || '';
-      } catch {}
-    }
-    body += `<div class="proposal-issue">
-  ${issueId ? `<div class="issue-id">${escHtml(String(issueId))}</div>` : ''}
-  <div class="issue-title">${escHtml(String(iss.title || iss.slug))}</div>
-  ${outcome ? `<div class="issue-outcome">${escHtml(String(outcome))}</div>` : ''}
-</div>`;
-  }
-  return renderFilledSection('Issue Breakdown', body, `<button class="section-detail-trigger" onclick="openModal('issues-detail')">${issues.length} issue${issues.length !== 1 ? 's' : ''} drafted</button>`);
-}
-
-function renderReviewSection(session) {
-  const tr = session.team_review;
-  if (!tr || !tr.pm_verdict) return renderPlaceholder('Review Summary');
-  let body = '<div class="proposal-verdicts">';
-  if (tr.pm_verdict) body += `<div class="proposal-verdict"><div class="role">PM</div><div class="verdict">${escHtml(String(tr.pm_verdict))}</div></div>`;
-  if (tr.competitive_verdict) body += `<div class="proposal-verdict"><div class="role">Competitive</div><div class="verdict">${escHtml(String(tr.competitive_verdict))}</div></div>`;
-  if (tr.em_verdict) body += `<div class="proposal-verdict"><div class="role">EM</div><div class="verdict">${escHtml(String(tr.em_verdict))}</div></div>`;
-  if (tr.design_verdict) body += `<div class="proposal-verdict"><div class="role">Design</div><div class="verdict">${escHtml(String(tr.design_verdict))}</div></div>`;
-  body += '</div>';
-  if (tr.conditions && tr.conditions.length > 0) {
-    body += '<p style="margin-top:0.5rem;font-size:0.8125rem;color:var(--text-muted);">Conditions:</p><ul>';
-    body += tr.conditions.map(c => `<li>${escHtml(String(c))}</li>`).join('');
-    body += '</ul>';
-  }
-  const triggerText = `${tr.iterations || 1} iteration${(tr.iterations || 1) > 1 ? 's' : ''}, ${(tr.blocking_issues_fixed || 0)} issues fixed`;
-  return renderFilledSection('Review Summary', body, `<button class="section-detail-trigger" onclick="openModal('review-detail')">${escHtml(triggerText)}</button>`);
-}
-
-function renderVerdictSection(session) {
-  const br = session.bar_raiser;
-  if (!br || !br.verdict) return renderPlaceholder('Final Verdict');
-  const verdictMap = { ready: 'ready', 'ready-if': 'ready', 'send-back': 'send-back', pause: 'pause' };
-  const cls = verdictMap[br.verdict] || '';
-  const label = { ready: 'Ready to Build', 'ready-if': 'Ready (with conditions)', 'send-back': 'Sent Back', pause: 'Paused' };
-  let html = `<div class="proposal-verdict-banner ${cls}">${escHtml(label[br.verdict] || br.verdict)}</div>`;
-  if (br.conditions && br.conditions.length > 0) {
-    html += `<div class="proposal-section filled"><div class="section-body"><p><strong>Conditions:</strong></p><ul>` +
-      br.conditions.map(c => `<li>${escHtml(String(c))}</li>`).join('') + '</ul></div></div>';
-  }
-  return html;
-}
-
-function renderPlaceholder(sectionTitle) {
-  return `<div class="proposal-section placeholder"><span class="section-pending">${escHtml(sectionTitle)}</span></div>`;
-}
-
-function renderFilledSection(title, bodyHtml, triggerHtml) {
-  return `<div class="proposal-section filled">
-  <div class="section-header">
-    <span class="section-title">${escHtml(title)}</span>
-    ${triggerHtml || ''}
-  </div>
-  <div class="section-body">${bodyHtml}</div>
-</div>`;
-}
-
-function renderMarketModal(session, pmDir) {
-  if (!session.research_location) return '';
-  const findingsPath = path.resolve(pmDir, '..', session.research_location, 'findings.md');
-  if (!fs.existsSync(findingsPath)) return '';
-  try {
-    const raw = fs.readFileSync(findingsPath, 'utf-8');
-    const { body } = parseFrontmatter(raw);
-    // Convert markdown-ish content to simple HTML
-    const lines = body.split('\n');
-    let html = '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('## ')) html += `<h3>${escHtml(trimmed.slice(3))}</h3>`;
-      else if (trimmed.startsWith('### ')) html += `<h4 style="margin-top:0.75rem;font-size:0.875rem;">${escHtml(trimmed.slice(4))}</h4>`;
-      else if (trimmed.startsWith('- ')) html += `<li>${escHtml(trimmed.slice(2))}</li>`;
-      else if (trimmed) html += `<p>${escHtml(trimmed)}</p>`;
-    }
-    return html;
-  } catch { return ''; }
-}
-
-function buildModalHtml(id, title, content) {
-  return `<div class="modal-overlay" id="${id}">
-  <div class="modal-content">
-    <button class="modal-close" onclick="closeModal('${id}')">&times;</button>
-    <h2>${escHtml(title)}</h2>
-    ${content}
-  </div>
-</div>`;
-}
 
 function handleGroomProgress(res, pmDir, slug) {
-  // Read the groom session state
   const sessionsDir = path.resolve(pmDir, '..', '.pm', 'groom-sessions');
   const sessionPath = path.join(sessionsDir, slug + '.md');
 
@@ -2534,139 +2260,255 @@ function handleGroomProgress(res, pmDir, slug) {
     return;
   }
 
+  const html = buildProgressiveProposalHtml(session, pmDir, slug);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function buildProgressiveProposalHtml(session, pmDir, slug) {
   const tier = session.tier || 'full';
-  const phases = TIER_PHASES[tier] || TIER_PHASES.full;
+  const phases = TIER_PHASES_PP[tier] || TIER_PHASES_PP.full;
   const currentPhase = session.phase || 'intake';
   const currentIdx = phases.indexOf(currentPhase);
+  const topic = session.topic || 'Untitled Feature';
+  const esc = escHtml;
 
-  // Build progress bar segments
+  // Progress bar
   const progressSegs = phases.map((p, i) => {
-    let cls = 'groom-progress-seg';
-    if (i < currentIdx) cls += ' filled';
-    else if (i === currentIdx) cls += ' current';
-    return `<div class="${cls}" title="${groomPhaseLabel(p)}"></div>`;
+    const cls = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
+    return `<div class="pp-seg ${cls}" title="${groomPhaseLabel(p)}"></div>`;
   }).join('');
+  const progressHtml = `<div class="pp-bar">${progressSegs}</div>
+<div class="pp-status"><span class="pp-phase">${esc(groomPhaseLabel(currentPhase))}</span><span>${Math.max(0,currentIdx)} of ${phases.length} phases</span></div>`;
 
-  const filledCount = Math.max(0, currentIdx);
-  const progressLabel = `<div class="groom-progress-label">
-  <span class="phase-name">${escHtml(groomPhaseLabel(currentPhase))}</span>
-  <span>${filledCount} of ${phases.length} phases</span>
+  // Hero
+  const hasHero = !!session.topic;
+  const badges = [];
+  if (session.priority) badges.push(esc(String(session.priority)));
+  if (tier) badges.push(esc(tier) + ' groom');
+  const issueCount = Array.isArray(session.issues) ? session.issues.length : 0;
+  const scopeFilter = session.scope && session.scope.filter_result ? esc(String(session.scope.filter_result)) : '';
+  const metricsHtml = `<div class="metrics-strip">
+  ${session.priority ? `<div class="metric"><span class="metric-value">${esc(String(session.priority))}</span><span class="metric-label">Priority</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Priority</span></div>'}
+  ${scopeFilter ? `<div class="metric"><span class="metric-value">${scopeFilter}</span><span class="metric-label">Differentiator</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Differentiator</span></div>'}
+  <div class="metric"><span class="metric-value">${issueCount || '—'}</span><span class="metric-label">Issues</span></div>
+  <div class="metric"><span class="metric-value">${esc(tier)}</span><span class="metric-label">Tier</span></div>
 </div>`;
+  const heroHtml = hasHero
+    ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${session.outcome ? `<p class="subtitle">${esc(String(session.outcome))}</p>` : ''}${metricsHtml}</div></header>`
+    : `<header class="hero pp-placeholder-hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal</div><h1>Untitled Feature</h1><p class="subtitle">Waiting for intake...</p></div></header>`;
 
-  // Determine which sections to show based on tier
-  const allSections = [];
-  for (const p of phases) {
-    const secs = PHASE_SECTIONS[p] || [];
-    for (const s of secs) {
-      if (!allSections.includes(s)) allSections.push(s);
+  // TOC (only show anchors for filled sections)
+  const tocItems = [];
+  const sc = session.strategy_check;
+  if (sc && sc.status) tocItems.push('<a href="#strategy">Strategy</a>');
+  if (session.research_location) tocItems.push('<a href="#research">Research</a>');
+  if (session.scope && session.scope.in_scope) tocItems.push('<a href="#scope">Scope</a>');
+  if (issueCount > 0) { tocItems.push('<a href="#flows">Flows</a>'); tocItems.push('<a href="#issues">Issues</a>'); }
+  if (session.team_review && session.team_review.pm_verdict) tocItems.push('<a href="#review">Review</a>');
+  if (session.bar_raiser && session.bar_raiser.verdict) tocItems.push('<a href="#verdict">Verdict</a>');
+  const tocHtml = tocItems.length > 0 ? `<nav class="toc"><div class="toc-inner">${tocItems.join('')}</div></nav>` : '';
+
+  // Sections
+  let sections = '';
+
+  // Strategy
+  if (phases.includes('strategy-check')) {
+    if (sc && sc.status) {
+      const verdictCls = sc.status === 'passed' ? 'ready' : sc.status === 'failed' ? 'blocked' : 'caution';
+      sections += `<div class="section" id="strategy"><div class="section-title"><span class="icon">&#9878;</span> Strategy Alignment</div>
+  <p class="section-lead"><span class="verdict-badge ${verdictCls}">${esc(sc.status)}</span></p>
+  ${sc.supporting_priority ? `<p>Supports: <strong>${esc(String(sc.supporting_priority))}</strong></p>` : ''}
+  ${sc.conflicts && sc.conflicts.length > 0 ? '<div class="callout"><strong>Conflicts:</strong><ul>' + sc.conflicts.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>' : ''}
+</div>`;
+    } else {
+      sections += ppPlaceholder('strategy', '&#9878;', 'Strategy Alignment', 'Pending strategy check');
     }
   }
 
-  // Render each section
-  let sectionsHtml = '';
-  for (const sec of allSections) {
-    const filled = isSectionFilled(session, sec);
-    switch (sec) {
-      case 'hero':       sectionsHtml += renderHeroSection(session); break;
-      case 'strategy':   sectionsHtml += renderStrategySection(session); break;
-      case 'market':     sectionsHtml += renderMarketSection(session, pmDir); break;
-      case 'scope':      sectionsHtml += renderScopeSection(session); break;
-      case 'flows':      sectionsHtml += renderFlowsSection(session, pmDir); break;
-      case 'wireframes': sectionsHtml += renderWireframesSection(session, pmDir); break;
-      case 'issues':     sectionsHtml += renderIssuesSection(session, pmDir); break;
-      case 'review':     sectionsHtml += renderReviewSection(session); break;
-      case 'verdict':    sectionsHtml += renderVerdictSection(session); break;
-      default:           sectionsHtml += renderPlaceholder(sec); break;
-    }
-  }
-
-  // Build modals
-  let modalsHtml = '';
-  // Market detail modal
-  const marketModalContent = renderMarketModal(session, pmDir);
-  if (marketModalContent) {
-    modalsHtml += buildModalHtml('market-detail', 'Research Findings', marketModalContent);
-  }
-  // Scope detail modal
-  if (session.scope_review && session.scope_review.pm_verdict) {
-    const sr = session.scope_review;
-    let scopeDetail = '<div class="proposal-verdicts">';
-    if (sr.pm_verdict) scopeDetail += `<div class="proposal-verdict"><div class="role">Product Manager</div><div class="verdict">${escHtml(String(sr.pm_verdict))}</div></div>`;
-    if (sr.competitive_verdict) scopeDetail += `<div class="proposal-verdict"><div class="role">Competitive Strategist</div><div class="verdict">${escHtml(String(sr.competitive_verdict))}</div></div>`;
-    if (sr.em_verdict) scopeDetail += `<div class="proposal-verdict"><div class="role">Engineering Manager</div><div class="verdict">${escHtml(String(sr.em_verdict))}</div></div>`;
-    scopeDetail += '</div>';
-    scopeDetail += `<p style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-muted);">${sr.iterations || 1} iteration(s), ${sr.blocking_issues_fixed || 0} blocking issue(s) fixed</p>`;
-    modalsHtml += buildModalHtml('scope-detail', 'Scope Review Detail', scopeDetail);
-  }
-  // Issues detail modal
-  if (session.issues && session.issues.length > 0) {
-    let issuesDetail = '';
-    for (const iss of session.issues) {
-      const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
-      let acHtml = '';
-      if (fs.existsSync(issuePath)) {
+  // Research
+  if (phases.includes('research')) {
+    if (session.research_location) {
+      const resDir = path.resolve(pmDir, '..', session.research_location);
+      const findingsPath = path.join(resDir, 'findings.md');
+      let resBody = `<p>Research at: <code>${esc(String(session.research_location))}</code></p>`;
+      if (fs.existsSync(findingsPath)) {
         try {
-          const raw = fs.readFileSync(issuePath, 'utf-8');
-          const acMatch = raw.match(/## Acceptance Criteria\n([\s\S]*?)(?=\n## |\Z)/);
-          if (acMatch) {
-            const items = acMatch[1].trim().split('\n').filter(l => /^\d+\./.test(l.trim()));
-            if (items.length > 0) {
-              acHtml = '<ol style="margin:0.25rem 0 0 1.25rem;font-size:0.8125rem;">' +
-                items.map(i => `<li>${escHtml(i.replace(/^\d+\.\s*/, ''))}</li>`).join('') + '</ol>';
-            }
+          const raw = fs.readFileSync(findingsPath, 'utf-8');
+          const fMatch = raw.match(/## (?:Key )?Findings\n([\s\S]*?)(?=\n## |\n---)/i);
+          if (fMatch) {
+            const bullets = fMatch[1].trim().split('\n').filter(l => l.trim().startsWith('-') || /^\d+\./.test(l.trim())).slice(0, 6);
+            if (bullets.length > 0) resBody += '<ul>' + bullets.map(l => `<li>${esc(l.replace(/^[\s\-\d.]+/, ''))}</li>`).join('') + '</ul>';
           }
         } catch {}
       }
-      issuesDetail += `<div class="proposal-issue"><div class="issue-title">${escHtml(String(iss.title || iss.slug))}</div>${acHtml}</div>`;
+      sections += `<div class="section" id="research"><div class="section-title"><span class="icon">&#128269;</span> Market &amp; Competitive</div><p class="section-lead">Research complete.</p>${resBody}</div>`;
+    } else {
+      sections += ppPlaceholder('research', '&#128269;', 'Market & Competitive', 'Pending research');
     }
-    modalsHtml += buildModalHtml('issues-detail', 'Drafted Issues', issuesDetail);
   }
-  // Review detail modal
-  if (session.team_review && session.team_review.pm_verdict) {
+
+  // Scope
+  if (phases.includes('scope')) {
+    const scope = session.scope;
+    if (scope && scope.in_scope) {
+      const inItems = Array.isArray(scope.in_scope) ? scope.in_scope : [];
+      const outItems = Array.isArray(scope.out_of_scope) ? scope.out_of_scope : [];
+      const filterBadge = scope.filter_result ? `<span class="filter-badge">&#11088; ${esc(String(scope.filter_result))}</span>` : '';
+      let scopeBody = `<div class="scope-grid">
+  <div class="scope-column in-scope"><h4>&#9989; In Scope</h4><ul>${inItems.map(i => `<li>${esc(String(i))}</li>`).join('')}</ul></div>
+  <div class="scope-column out-of-scope"><h4>&#10060; Out of Scope</h4><ul>${outItems.map(i => `<li>${esc(String(i))}</li>`).join('')}</ul></div>
+</div>${filterBadge}`;
+      // Scope review verdicts
+      const sr = session.scope_review;
+      if (sr && sr.pm_verdict) {
+        scopeBody += `<div class="review-cards" style="margin-top:1rem;">`;
+        if (sr.pm_verdict) scopeBody += ppReviewCard('Product Manager', sr.pm_verdict);
+        if (sr.competitive_verdict) scopeBody += ppReviewCard('Competitive', sr.competitive_verdict);
+        if (sr.em_verdict) scopeBody += ppReviewCard('Engineering', sr.em_verdict);
+        scopeBody += '</div>';
+      }
+      sections += `<div class="section" id="scope"><div class="section-title"><span class="icon">&#127919;</span> Scope Overview</div><p class="section-lead">Scope defined and reviewed.</p>${scopeBody}</div>`;
+    } else {
+      sections += ppPlaceholder('scope', '&#127919;', 'Scope Overview', 'Pending scoping');
+    }
+  }
+
+  // Flows
+  const groomed = isPhaseComplete(currentPhase, 'groom') || currentPhase === 'groom' || currentPhase === 'team-review' || currentPhase === 'bar-raiser' || currentPhase === 'present' || currentPhase === 'link';
+  if (phases.includes('groom')) {
+    if (groomed && issueCount > 0) {
+      let flowBody = '';
+      const issues = session.issues || [];
+      for (const iss of issues) {
+        const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
+        if (!fs.existsSync(issuePath)) continue;
+        try {
+          const raw = fs.readFileSync(issuePath, 'utf-8');
+          const mm = raw.match(/```mermaid\n([\s\S]*?)```/);
+          if (mm) { flowBody += `<div class="mermaid-container"><pre class="mermaid">${esc(mm[1].trim())}</pre></div>`; break; }
+        } catch {}
+      }
+      if (!flowBody) flowBody = '<p style="color:#999;">No user flow diagrams generated.</p>';
+      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">&#128260;</span> User Flows</div>${flowBody}</div>`;
+    } else {
+      sections += ppPlaceholder('flows', '&#128260;', 'User Flows', 'Pending issue drafting');
+    }
+
+    // Wireframes
+    if (groomed && issueCount > 0) {
+      let wfBody = '';
+      for (const iss of (session.issues || [])) {
+        const wfPath = path.resolve(pmDir, 'backlog', 'wireframes', (iss.slug || '') + '.html');
+        if (fs.existsSync(wfPath)) {
+          wfBody += `<div class="wireframe-embed"><iframe src="/backlog/wireframes/${encodeURIComponent(iss.slug || '')}"></iframe></div>
+  <a class="wireframe-link" href="/backlog/wireframes/${encodeURIComponent(iss.slug || '')}" target="_blank">${esc(String(iss.title || iss.slug))} wireframe &nearr;</a>`;
+        }
+      }
+      if (wfBody) {
+        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">&#128396;</span> Wireframes</div>${wfBody}</div>`;
+      }
+    }
+
+    // Issues
+    if (issueCount > 0) {
+      let issBody = '';
+      for (const iss of (session.issues || [])) {
+        const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
+        let outcome = '', issueId = '', acList = '';
+        if (fs.existsSync(issuePath)) {
+          try {
+            const raw = fs.readFileSync(issuePath, 'utf-8');
+            const { data } = parseFrontmatter(raw);
+            outcome = data.outcome || '';
+            issueId = data.id || '';
+            const acMatch = raw.match(/## Acceptance Criteria\n([\s\S]*?)(?=\n## )/);
+            if (acMatch) {
+              const items = acMatch[1].trim().split('\n').filter(l => /^\d+\./.test(l.trim()));
+              if (items.length) acList = '<details><summary>Acceptance Criteria (' + items.length + ')</summary><ol class="ac-list">' + items.map(i => `<li>${esc(i.replace(/^\d+\.\s*/, ''))}</li>`).join('') + '</ol></details>';
+            }
+          } catch {}
+        }
+        issBody += `<div class="issue-card parent"><div class="issue-header">${issueId ? `<span class="issue-id">${esc(String(issueId))}</span>` : ''}<span class="issue-title">${esc(String(iss.title || iss.slug))}</span></div>
+  ${outcome ? `<div class="issue-outcome">${esc(String(outcome))}</div>` : ''}${acList}</div>`;
+      }
+      sections += `<div class="section" id="issues"><div class="section-title"><span class="icon">&#128203;</span> Issue Breakdown</div><p class="section-lead">${issueCount} issue${issueCount !== 1 ? 's' : ''} drafted.</p><div class="issue-group">${issBody}</div></div>`;
+    } else {
+      sections += ppPlaceholder('issues', '&#128203;', 'Issue Breakdown', 'Pending issue drafting');
+    }
+  }
+
+  // Team Review
+  if (phases.includes('team-review')) {
     const tr = session.team_review;
-    let reviewDetail = '<div class="proposal-verdicts">';
-    if (tr.pm_verdict) reviewDetail += `<div class="proposal-verdict"><div class="role">Product Manager</div><div class="verdict">${escHtml(String(tr.pm_verdict))}</div></div>`;
-    if (tr.competitive_verdict) reviewDetail += `<div class="proposal-verdict"><div class="role">Competitive Strategist</div><div class="verdict">${escHtml(String(tr.competitive_verdict))}</div></div>`;
-    if (tr.em_verdict) reviewDetail += `<div class="proposal-verdict"><div class="role">Engineering Manager</div><div class="verdict">${escHtml(String(tr.em_verdict))}</div></div>`;
-    if (tr.design_verdict) reviewDetail += `<div class="proposal-verdict"><div class="role">Design</div><div class="verdict">${escHtml(String(tr.design_verdict))}</div></div>`;
-    reviewDetail += '</div>';
-    if (tr.conditions && tr.conditions.length > 0) {
-      reviewDetail += '<h3 style="margin-top:1rem;font-size:0.9375rem;">Conditions</h3><ul>';
-      reviewDetail += tr.conditions.map(c => `<li>${escHtml(String(c))}</li>`).join('');
-      reviewDetail += '</ul>';
+    if (tr && tr.pm_verdict) {
+      let revBody = '<div class="review-cards">';
+      if (tr.pm_verdict) revBody += ppReviewCard('Product Manager', tr.pm_verdict);
+      if (tr.competitive_verdict) revBody += ppReviewCard('Competitive', tr.competitive_verdict);
+      if (tr.em_verdict) revBody += ppReviewCard('Engineering', tr.em_verdict);
+      if (tr.design_verdict) revBody += ppReviewCard('Design', tr.design_verdict);
+      revBody += '</div>';
+      if (tr.conditions && tr.conditions.length > 0) {
+        revBody += '<div class="advisory-card"><h3>&#9888; Conditions</h3><ul class="advisory-list">' + tr.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+      }
+      sections += `<div class="section" id="review"><div class="section-title"><span class="icon">&#128101;</span> Review Summary</div><p class="section-lead">${tr.iterations || 1} iteration(s), ${tr.blocking_issues_fixed || 0} issues fixed.</p>${revBody}</div>`;
+    } else {
+      sections += ppPlaceholder('review', '&#128101;', 'Review Summary', 'Pending team review');
     }
-    reviewDetail += `<p style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-muted);">${tr.iterations || 1} iteration(s), ${tr.blocking_issues_fixed || 0} blocking issue(s) fixed</p>`;
-    modalsHtml += buildModalHtml('review-detail', 'Team Review Detail', reviewDetail);
   }
 
-  // Check if final proposal exists
-  const proposalPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
-  const hasProposal = fs.existsSync(proposalPath);
-  let proposalLink = '';
-  if (hasProposal) {
-    proposalLink = `<div style="text-align:center;margin:1.5rem 0;">
-  <a href="/proposals/${encodeURIComponent(slug)}" style="color:var(--accent);font-weight:600;font-size:0.9375rem;">View final proposal &rarr;</a>
-</div>`;
+  // Bar Raiser / Verdict
+  if (phases.includes('bar-raiser')) {
+    const br = session.bar_raiser;
+    if (br && br.verdict) {
+      const vCls = br.verdict === 'ready' || br.verdict === 'ready-if' ? 'ready' : br.verdict === 'send-back' ? 'caution' : 'blocked';
+      const vLabel = { ready: 'Ready to Build', 'ready-if': 'Ready (with conditions)', 'send-back': 'Sent Back', pause: 'Paused' };
+      let vBody = `<p class="section-lead"><span class="verdict-badge ${vCls}" style="font-size:1rem;padding:0.4rem 1rem;">${esc(vLabel[br.verdict] || br.verdict)}</span></p>`;
+      if (br.conditions && br.conditions.length > 0) {
+        vBody += '<div class="advisory-card"><h3>&#9888; Conditions</h3><ul class="advisory-list">' + br.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+      }
+      sections += `<div class="section" id="verdict"><div class="section-title"><span class="icon">&#127942;</span> Final Verdict</div>${vBody}</div>`;
+    } else {
+      sections += ppPlaceholder('verdict', '&#127942;', 'Final Verdict', 'Pending bar raiser review');
+    }
   }
 
-  const title = session.topic ? escHtml(String(session.topic)) : 'Grooming Session';
-  const body = `
-<div class="page-header">
-  <p class="breadcrumb"><a href="/">&larr; Back to Home</a></p>
-  <h1 style="font-size:1.25rem;margin-bottom:0.25rem;">Grooming: ${title}</h1>
-  <p class="subtitle" style="margin-bottom:1.5rem;">${escHtml(tier)} tier &middot; started ${escHtml(String(session.started || ''))}</p>
-</div>
-${progressLabel}
-<div class="groom-progress-bar">${progressSegs}</div>
-${sectionsHtml}
-${proposalLink}
-${modalsHtml}
+  // WebSocket auto-reload script
+  const wsScript = `<script>
+(function(){try{var ws=new WebSocket('ws://'+location.host+'/ws');ws.onmessage=function(e){var d=JSON.parse(e.data);if(d.type==='reload')location.reload();};}catch(e){}})();
+</script>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposal: ${esc(topic)}</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({ startOnLoad: true, theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'dark' });</script>`;
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
+<style>
+${PROGRESSIVE_PROPOSAL_CSS}
+</style>
+</head>
+<body>
+${progressHtml}
+${heroHtml}
+${tocHtml}
+<div class="proposal">
+${sections}
+</div>
+${wsScript}
+</body>
+</html>`;
+}
 
-  const html = dashboardPage('Grooming: ' + (session.topic || slug), '/', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(html);
+function ppPlaceholder(id, icon, title, hint) {
+  return `<div class="section pp-placeholder" id="${id}"><div class="section-title"><span class="icon">${icon}</span> ${escHtml(title)}</div><p class="pp-hint">${escHtml(hint)}</p></div>`;
+}
+
+function ppReviewCard(role, verdict) {
+  const cls = /ready|ship|feasible|strengthens|complete|sharp/.test(String(verdict)) ? 'ready' : /caution|if|caveat/.test(String(verdict)) ? 'caution' : /rethink|needs|missing|wrong|gaps|weak|under/.test(String(verdict)) ? 'blocked' : 'caution';
+  return `<div class="review-card"><div class="review-card-header"><span class="review-card-role">${escHtml(role)}</span><span class="verdict-badge ${cls}">${escHtml(String(verdict))}</span></div></div>`;
 }
 
 // ========== Proposal Metadata Helpers ==========
