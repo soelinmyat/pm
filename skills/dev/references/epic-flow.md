@@ -154,6 +154,8 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
+**Timestamps:** Set `Started` and `Stage started` to the current ISO 8601 timestamp (run `date -u +"%Y-%m-%dT%H:%M:%SZ"`). Update `Stage started` at every subsequent stage transition.
+
 ### 1.7 Merge strategy detection
 
 Detect whether direct pushes to main are possible. Check **all three** sources:
@@ -314,7 +316,7 @@ After each plan agent returns, check if the plan's task count suggests a differe
 
 ### 2.5 State updates
 
-After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA.
+After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA. Set the sub-issue's `Started` timestamp when dispatching the planning agent (if not already set).
 
 ---
 
@@ -519,7 +521,7 @@ After each sub-issue is merged (or fails), update the state file IMMEDIATELY. Do
 </HARD-RULE>
 
 After a teammate reports "Merged" or "Failed":
-1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA
+1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA, and set `Completed` to the current ISO 8601 timestamp
 2. Update `## Implementation Progress` with the result
 3. Update `## Resume Instructions` with the next sub-issue
 4. Write the state file to disk before dispatching the next agent
@@ -589,19 +591,31 @@ If an issue tracker is available, you MUST update ALL issue statuses before proc
 2. **Update parent issue:** Set parent issue to "Done". Comment with summary table (sub-issue | PR | commit).
 3. **Announce:** Report the tracker update to the user: "Updated {N} issues to Done in {tracker}."
 
-### 5.2 Retro
+### 5.2 Session Summary and Archive
+
+Before retro, compute and append the session summary:
+
+1. Read the state file. Get `Started` and all stage/sub-issue timestamps.
+2. Get the current timestamp as the session end time.
+3. Compute durations for each stage (use `Stage started` transitions) and each sub-issue (from `Started` to `Completed` columns).
+4. Append a `## Session Summary` section (see `epic-state-template.md` for format).
+5. Archive: `mkdir -p .pm/dev-sessions/completed && mv .pm/dev-sessions/epic-{parent-slug}.md .pm/dev-sessions/completed/`
+
+The archived file preserves full timing data for future analysis.
+
+### 5.3 Retro
 
 - What was smooth, what was hard
 - Write to the learnings file (default: `learnings.md`, configurable) — max 3 lines each
 - Flag AGENTS.md/CLAUDE.md updates if suggested by learnings
 
-### 5.3 Cleanup
+### 5.4 Cleanup
 
 <HARD-RULE>
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
-**5.3.1 Shutdown teammates individually** (broadcast does not support structured messages):
+**5.4.1 Shutdown teammates individually** (broadcast does not support structured messages):
 ```
 for each remaining teammate name:
   SendMessage({ to: "{name}", message: { type: "shutdown_request", reason: "Epic complete" } })
@@ -609,12 +623,12 @@ for each remaining teammate name:
 
 Note: Teammates for fully-implemented sub-issues (0 tasks) should already have been shut down in Stage 4.0. Only teammates that performed implementation need shutdown here.
 
-**5.3.2 Remove state files:**
+**5.4.2 Remove state files:**
 ```bash
-# Remove this epic's state file
-rm -f .pm/dev-sessions/epic-{parent-slug}.md
+# Epic state file was already archived in Step 5.2 — just verify it's gone from active sessions
+test ! -f .pm/dev-sessions/epic-{parent-slug}.md || echo "WARN: State file not archived, removing" && rm -f .pm/dev-sessions/epic-{parent-slug}.md
 
-# Also scan for any OTHER stale state files from completed epics/sessions
+# Scan for any OTHER stale state files from completed epics/sessions
 for f in .pm/dev-sessions/*.md; do
   [ -f "$f" ] && echo "WARN: Found stale state file: $f" && rm -f "$f"
 done
@@ -625,7 +639,7 @@ for f in .dev-epic-state-*.md .dev-state-*.md; do
 done
 ```
 
-**5.3.3 Verify worktrees and branches:**
+**5.4.3 Verify worktrees and branches:**
 ```bash
 git worktree list   # Should only show main working tree
 git branch          # Should only show main (and any unrelated branches)
@@ -638,7 +652,7 @@ git worktree remove .worktrees/{slug} 2>/dev/null || git worktree remove .worktr
 git branch -D feat/{slug} 2>/dev/null || true
 ```
 
-**5.3.4 Remove temporary artifacts:**
+**5.4.4 Remove temporary artifacts:**
 ```bash
 # Screenshots left by design-critique or QA agents
 find . -maxdepth 2 -name "*.png" -newer .git/index -not -path "./node_modules/*" -not -path "./.git/*" | while read f; do
@@ -649,7 +663,7 @@ done
 rm -rf .qa-reports/ .playwright-cli/ 2>/dev/null
 ```
 
-**5.3.5 Verify clean git status:**
+**5.4.5 Verify clean git status:**
 ```bash
 git status --short
 ```
@@ -660,7 +674,7 @@ If untracked files remain from agent work (screenshots, reports, temp files), ei
 
 Report any remaining untracked files to the user.
 
-### 5.4 Final report
+### 5.5 Final report
 
 ```
 ## Epic Complete

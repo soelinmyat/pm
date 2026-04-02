@@ -1085,7 +1085,19 @@ If no issue tracker is configured, skip these updates.
 
 ## State File (.pm/dev-sessions/{slug}.md)
 
-The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
+The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Archived after retro.**
+
+**Timestamps:** Set `Started` when the state file is first created (intake). Update `Stage started` at every stage transition (use `date -u +"%Y-%m-%dT%H:%M:%SZ"`).
+
+**On completion (after retro):** Append a `## Session Summary` section:
+```markdown
+## Session Summary
+- **Total:** {duration} ({Started} → {end timestamp})
+- **Planning:** {duration}
+- **Implementation:** {duration}
+- **Review + merge:** {duration}
+```
+Then archive: `mkdir -p .pm/dev-sessions/completed && mv .pm/dev-sessions/{slug}.md .pm/dev-sessions/completed/`
 
 After compaction or if context feels stale, read this file to recover full session state.
 
@@ -1102,6 +1114,8 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Plan | docs/plans/2026-02-15-feature.md |
 | Branch | feat/feature-name |
 | Worktree | .worktrees/feature-name |
+| Started | 2026-02-15T09:00:00Z |
+| Stage started | 2026-02-15T10:30:00Z |
 
 ## Project Context
 - Product: Example App — task management for teams
@@ -1169,7 +1183,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Include all decisions made so far — a cold reader should understand the full context
 - After design critique, add the report path
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
-- After retro, delete the file
+- After retro, append Session Summary and archive to `.pm/dev-sessions/completed/`
 
 ## Process Cleanup
 
