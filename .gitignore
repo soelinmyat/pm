@@ -9,7 +9,7 @@ pm/*.local.md
 dev/instructions.local.md
 tools/swe-bench/venv/
 tools/swe-bench/repos/
-tools/swe-bench/results/
+tools/swe-bench/results/**/predictions*.jsonl
 tools/swe-bench/logs/
 *.png
 *.jpg
