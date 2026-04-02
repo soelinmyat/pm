@@ -133,7 +133,15 @@ Run the transcription script:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio-file-path>"
 ```
 
-This produces a diarized transcript (JSON with speaker labels and timestamps). If transcription fails:
+This outputs plain text to stdout in the format:
+```
+[00:00:02] Speaker A: Welcome everyone to the standup.
+[00:00:08] Speaker B: Thanks. I worked on the API refactor yesterday.
+```
+
+Each line: `[HH:MM:SS] Speaker X: text` (with diarization) or `[HH:MM:SS] text` (without).
+
+If transcription fails (non-zero exit code):
 - Log the error as a parse warning.
 - Skip this file — do not block other imports.
 - Continue to the next file.
@@ -168,7 +176,7 @@ Wait for confirmation. If the user corrects a role, update the mapping before sa
 
 #### Step 4: Save transcripts
 
-**Raw transcript** (unredacted): Save to `.pm/evidence/transcripts/{slug}-raw.json` (gitignored with `.pm/`).
+**Raw transcript** (unredacted): Save to `.pm/evidence/transcripts/{slug}-raw.txt` (gitignored with `.pm/`).
 
 **Redacted transcript** (committed): Save to `pm/evidence/transcripts/{slug}.md` in this format:
 
@@ -329,7 +337,8 @@ Add a `/transcripts/{slug}` route to `routeDashboard()` that serves redacted tra
   } else if (urlPath.startsWith('/transcripts/')) {
     const slug = decodeURIComponent(urlPath.slice('/transcripts/'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
-      handleTranscriptPage(res, pmDir, slug);
+      const highlight = urlObj.searchParams.get('highlight') || '';
+      handleTranscriptPage(res, pmDir, slug, highlight);
     } else {
       res.writeHead(404); res.end('Not found');
     }
@@ -338,7 +347,7 @@ Add a `/transcripts/{slug}` route to `routeDashboard()` that serves redacted tra
 **Add the `handleTranscriptPage` function** (insert near `handleResearchTopic`, around line ~4776):
 
 ```javascript
-function handleTranscriptPage(res, pmDir, slug) {
+function handleTranscriptPage(res, pmDir, slug, highlight) {
   const transcriptPath = path.join(pmDir, 'evidence', 'transcripts', slug + '.md');
 
   if (!fs.existsSync(transcriptPath)) {
@@ -359,10 +368,6 @@ function handleTranscriptPage(res, pmDir, slug) {
   const speakers = (data.speakers || [])
     .map(s => `<span class="speaker-badge speaker-${s.role}">${escHtml(s.role)}</span>`)
     .join(' ');
-
-  // Check for ?highlight= query param to highlight a quoted section
-  const urlObj = new URL(req.url, 'http://localhost');
-  const highlight = urlObj.searchParams.get('highlight') || '';
 
   let renderedBody = renderMarkdown(body);
 
@@ -424,17 +429,6 @@ function handleTranscriptPage(res, pmDir, slug) {
   padding: 0.1rem 0.2rem;
   border-radius: 2px;
 }
-```
-
-**Note:** The `handleTranscriptPage` function needs access to `req` for the highlight query param. Since `routeDashboard` receives `req`, pass it through. Actually — looking at the existing code, the query params are already parsed from `rawUrl` at the top of `routeDashboard`. We should use `urlObj` (already available in scope) instead of re-parsing. Update the function signature to accept a `highlight` parameter:
-
-```javascript
-// In routeDashboard, the route call becomes:
-handleTranscriptPage(res, pmDir, slug, urlObj.searchParams.get('highlight') || '');
-
-// And the function signature:
-function handleTranscriptPage(res, pmDir, slug, highlight) {
-  // ... remove the URL parsing inside the function, use highlight param directly
 ```
 
 - [ ] Add `/transcripts/{slug}` route to routeDashboard in server.js
