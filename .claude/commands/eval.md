@@ -1,10 +1,12 @@
 # SWE-bench Skill Eval
 
-Run the SWE-bench Lite skill eval from within this Claude Code session.
+Run the SWE-bench Verified Mini eval from within this Claude Code session.
+Uses the 50-task SWE-bench Verified Mini subset (Django + Sphinx), which has
+a public leaderboard at hal.cs.princeton.edu for comparable results.
 
 ## Arguments
 
-- No args: run full mini subset (49 tasks) with both `vanilla` and `pm-dev` configs
+- No args: run full Verified Mini (50 tasks) with both `vanilla` and `pm-dev` configs
 - `--quick`: run first 10 tasks only (~10 min)
 - `--config vanilla|pm-dev`: run a single config instead of both
 - `--resume`: skip tasks that already have results in the current run file
@@ -13,21 +15,16 @@ Run the SWE-bench Lite skill eval from within this Claude Code session.
 
 The eval infrastructure lives in `tools/swe-bench/`. Repos are cached in `tools/swe-bench/repos/`.
 
-Before first run, ensure repos are cloned:
-```bash
-cd tools/swe-bench && python3 -c "
-from datasets import load_dataset
-ds = load_dataset('princeton-nlp/SWE-bench_Lite', split='test')
-print(f'Dataset: {len(ds)} tasks')
-"
-```
+Required repos: `django__django`, `sphinx-doc__sphinx` (both already cached).
+
+Task data: `tools/swe-bench/tasks-verified-mini.json` (50 tasks from `MariusHobbhahn/swe-bench-verified-mini`).
 
 ## Flow
 
 ### 1. Load tasks
 
-Read `tools/swe-bench/tasks-mini.txt` for the task instance IDs (one per line).
-Load the full task data from `tools/swe-bench/tasks.json` (or the HuggingFace dataset if tasks.json doesn't have the needed fields).
+Read `tools/swe-bench/tasks-verified-mini.txt` for the task instance IDs (one per line).
+Load the full task data from `tools/swe-bench/tasks-verified-mini.json`.
 
 If `--quick` was passed, take only the first 10 tasks.
 
@@ -40,11 +37,15 @@ If `--config` was passed, run only that config.
 
 **Configs:**
 
-- **vanilla**: Prompt is a plain bug fix request (no skill invocation):
+- **vanilla**: Prompt is a plain bug fix request with skills/plugins explicitly disabled:
   ```
   You are solving a GitHub issue. The repo is at {repo_path}.
   Read the issue description below, find the bug, and make the minimal fix.
   Only modify existing files. Do not create new test files.
+
+  IMPORTANT: Do NOT use any skills, slash commands, or plugin workflows
+  (no /dev, /tdd, /review, /ship, /groom, or any other skill).
+  Do NOT use the Skill tool. Just read the code, find the bug, and fix it directly.
 
   ## Issue
   {problem_statement}
@@ -63,58 +64,63 @@ If `--config` was passed, run only that config.
   When done, reply with ONLY "DONE".
   ```
 
+**Before starting the loop**, create an empty predictions file:
+```bash
+mkdir -p tools/swe-bench/results/{config}
+> tools/swe-bench/results/{config}/predictions.jsonl
+```
+
 **Per task:**
 
-1. **Checkout repo** at the task's base commit:
-   ```bash
-   cd tools/swe-bench/repos/{owner}__{repo}
-   git checkout --force {base_commit}
-   git clean -fdx -q
-   ```
+1. **Record start time** (`date -u +%s`)
 
-2. **Record start time** (`date -u +"%Y-%m-%dT%H:%M:%SZ"`)
-
-3. **Dispatch subagent** to solve the task:
+2. **Dispatch subagent** with `bypassPermissions` to solve the task.
+   The subagent resets the repo itself (include repo reset in the prompt):
    ```
    Agent({
      description: "Eval {instance_id}",
      mode: "bypassPermissions",
-     prompt: "{config-specific prompt}"
+     prompt: "FIRST: cd {repo_path} && git checkout --force {base_commit} && git clean -fdx -q
+              Then {config-specific instructions}..."
    })
    ```
-   The agent works in the repo directory. It may succeed, fail, or timeout.
 
-4. **Capture patch** after agent returns:
+3. **Capture patch** after agent returns:
    ```bash
-   cd tools/swe-bench/repos/{owner}__{repo}
-   git diff HEAD
+   cd tools/swe-bench/repos/{owner}__{repo} && git diff HEAD
    ```
 
-5. **Record result**:
-   - `instance_id`
-   - `patch` (the git diff)
-   - `patch_valid`: true if patch is non-empty and applies cleanly
-   - `elapsed_seconds`: wall time from dispatch to return
-   - `error_count`: 0 if agent returned normally, 1 if it errored/timed out
+4. **IMMEDIATELY append to predictions file** (CRITICAL — patches are destroyed by the next task's repo reset):
+   ```python
+   # Use python to safely write the patch as JSON
+   import json
+   entry = {"instance_id": "...", "model_name_or_path": "{config}", "model_patch": patch_text}
+   # Append one JSONL line
+   with open("results/{config}/predictions.jsonl", "a") as f:
+       f.write(json.dumps(entry) + "\n")
+   ```
+   **This is the #1 failure mode of the eval.** If you skip this step, all patches are lost.
+
+5. **Record result** for the YAML summary:
+   - `instance_id`, `patch_bytes`, `elapsed_seconds`, `error_count`
 
 6. **Report progress** to the user:
    ```
-   [{N}/{total}] {instance_id} — {patch_bytes}b patch ({elapsed}s). Running total: {resolved_patches}/{N} with patches ({pct}%)
+   [{N}/{total}] {instance_id} — {patch_bytes}b patch ({elapsed}s). Running total: {patches}/{N} ({pct}%)
    ```
 
-7. **Reset repo** for next task:
-   ```bash
-   git checkout --force {base_commit}
-   git clean -fdx -q
-   ```
+### 4. Verify predictions file
 
-### 4. Write predictions file
-
-After all tasks complete, write `tools/swe-bench/results/{config}/predictions.jsonl`:
-```json
-{"instance_id": "...", "model_name_or_path": "{config}", "model_patch": "..."}
+After all tasks complete, verify the predictions file was written correctly:
+```bash
+wc -l results/{config}/predictions.jsonl  # should equal total tasks
+python3 -c "
+import json
+with open('results/{config}/predictions.jsonl') as f:
+    entries = [json.loads(l) for l in f]
+print(f'Total: {len(entries)}, With patches: {sum(1 for e in entries if e[\"model_patch\"].strip())}')
+"
 ```
-One line per task. This is the format the SWE-bench evaluator expects.
 
 ### 5. Run scoring
 
@@ -144,7 +150,7 @@ date: "{YYYY-MM-DD}"
 plugin_version: "{version}"
 commit: "{short hash}"
 model: "current session model"
-subset: "mini-49"
+subset: "verified-mini-50"
 budget_per_task: 10.0
 
 aggregates:
@@ -210,7 +216,7 @@ Tasks vanilla solved that pm-dev didn't:
 ## Important Notes
 
 - Tasks run sequentially (repos are shared, can't parallelize)
-- Budget is $10/task — let the agent retry and self-heal
+- Budget is /task — let the agent retry and self-heal
 - If a subagent hangs or errors, record it and move on
 - The predictions.jsonl format is what SWE-bench evaluator expects
 - Results YAML files accumulate over time for trend tracking

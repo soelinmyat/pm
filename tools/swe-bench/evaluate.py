@@ -36,7 +36,7 @@ def evaluate_local(config_name: str, predictions_path: Path, max_workers: int = 
 
     cmd = [
         sys.executable, "-m", "swebench.harness.run_evaluation",
-        "--dataset_name", "princeton-nlp/SWE-bench_Lite",
+        "--dataset_name", "MariusHobbhahn/swe-bench-verified-mini",
         "--predictions_path", str(predictions_path),
         "--max_workers", str(max_workers),
         "--run_id", config_name,
