@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-112"
 title: "Audio transcription for pm:ingest"
 outcome: "Users ingest audio evidence (interviews, sales calls) directly — no manual transcription step"
-status: approved
+status: done
 parent: null
 children:
   - "transcription-script"

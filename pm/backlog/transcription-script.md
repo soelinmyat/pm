@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-113"
 title: "Faster-whisper transcription script with speaker diarization"
 outcome: "Plugin ships a Python script that transcribes any audio file to diarized text locally"
-status: approved
+status: done
 parent: "audio-transcription-ingest"
 children: []
 labels:

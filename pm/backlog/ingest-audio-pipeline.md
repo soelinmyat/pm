@@ -3,7 +3,7 @@ type: backlog-issue
 id: "PM-114"
 title: "Ingest audio detection + LLM speaker role inference"
 outcome: "pm:ingest automatically handles audio files, redacts PII, and attributes quotes to the right speaker role"
-status: approved
+status: done
 parent: "audio-transcription-ingest"
 children: []
 labels:
