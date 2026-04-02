@@ -673,6 +673,18 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .badge-origin-external { background: #222630; color: #8b8f96; }
 .badge-origin-mixed { background: #2e2810; color: #fbbf24; }
 .badge-evidence { background: #0d2530; color: #38bdf8; }
+.badge-green { background: #132b1a; color: #4ade80; }
+
+/* Transcript reader */
+.transcript-reader p strong { color: var(--accent); }
+.transcript-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); flex-wrap: wrap; }
+.meta-label { font-weight: 600; }
+.meta-sep { color: var(--border); }
+.speaker-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: capitalize; }
+.speaker-interviewer { background: var(--bg-secondary); color: var(--text-secondary); }
+.speaker-customer { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.speaker-unknown { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+.transcript-highlight { background: rgba(251, 191, 36, 0.25); padding: 0.1rem 0.2rem; border-radius: 2px; }
 
 /* Content sections */
 .content-section { margin-top: 2rem; }
@@ -1159,6 +1171,11 @@ a.groom-session:hover { background: #1e2240; }
 [data-theme="light"] .badge-origin-external { background: #e5e7eb; color: #374151; }
 [data-theme="light"] .badge-origin-mixed { background: #fef3c7; color: #92400e; }
 [data-theme="light"] .badge-evidence { background: #e0f2fe; color: #0c4a6e; }
+[data-theme="light"] .badge-green { background: #dcfce7; color: #166534; }
+[data-theme="light"] .speaker-interviewer { background: #f1f5f9; color: #475569; }
+[data-theme="light"] .speaker-customer { background: #dcfce7; color: #166534; }
+[data-theme="light"] .speaker-unknown { background: #fef3c7; color: #92400e; }
+[data-theme="light"] .transcript-highlight { background: rgba(251, 191, 36, 0.35); }
 [data-theme="light"] .badge-groom { background: #ede9fe; color: #5b21b6; }
 [data-theme="light"] .badge-dev { background: #dcfce7; color: #15803d; }
 [data-theme="light"] .badge-draft { background: #ede9fe; color: #5b21b6; }
@@ -1854,6 +1871,13 @@ function routeDashboard(req, res, pmDir) {
     const slug = decodeURIComponent(urlPath.slice('/session/'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
       handleSessionPage(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (urlPath.startsWith('/transcripts/')) {
+    const slug = decodeURIComponent(urlPath.slice('/transcripts/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleTranscriptPage(res, pmDir, slug, urlObj.searchParams.get('highlight') || '');
     } else {
       res.writeHead(404); res.end('Not found');
     }
@@ -4771,6 +4795,53 @@ function handleResearchTopic(res, pmDir, topic) {
   <div class="topic-badges">${meta.badgesHtml}</div>
 </div>
 <div class="markdown-body">${renderMarkdown(body)}</div>`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleTranscriptPage(res, pmDir, slug, highlight) {
+  const transcriptPath = path.join(pmDir, 'evidence', 'transcripts', slug + '.md');
+
+  if (!fs.existsSync(transcriptPath)) {
+    const html = dashboardPage('Transcript Not Found', '/kb?tab=research', `
+<div class="empty-state">
+  <p>No transcript found for <code>${escHtml(slug)}</code>.</p>
+  <p><a href="/kb?tab=research">&larr; Back to research</a></p>
+</div>`);
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  const raw = fs.readFileSync(transcriptPath, 'utf-8');
+  const { data, body } = parseFrontmatter(raw);
+
+  const sourceFile = data.source_file || slug;
+  const speakers = (data.speakers || [])
+    .map(s => `<span class="speaker-badge speaker-${escHtml(String(s.role))}">${escHtml(String(s.role))}</span>`)
+    .join(' ');
+
+  let renderedBody = renderMarkdown(body);
+
+  if (highlight) {
+    const safeHighlight = escHtml(highlight).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    renderedBody = renderedBody.replace(
+      new RegExp(safeHighlight, 'g'),
+      match => '<mark class="transcript-highlight">' + match + '</mark>'
+    );
+  }
+
+  const html = dashboardPage(`Transcript: ${escHtml(sourceFile)}`, '/kb?tab=research', `
+<div class="page-header">
+  <p class="breadcrumb"><a href="/kb?tab=research">&larr; Research</a></p>
+  <h1>Transcript: ${escHtml(sourceFile)}</h1>
+  <div class="transcript-meta">
+    <span class="meta-label">Speakers:</span> ${speakers}
+    ${data.transcribed_at ? `<span class="meta-sep">&middot;</span> <span class="meta-label">Transcribed:</span> ${escHtml(String(data.transcribed_at).slice(0, 10))}` : ''}
+    ${data.redacted ? '<span class="meta-sep">&middot;</span> <span class="badge badge-green">PII Redacted</span>' : ''}
+  </div>
+</div>
+<div class="markdown-body transcript-reader">${renderedBody}</div>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
