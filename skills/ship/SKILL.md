@@ -123,7 +123,7 @@ Run any documented setup commands before pushing.
 
 ### Attempt push
 
-Run `git push`. If no upstream tracking branch exists, use `git push -u origin HEAD`.
+Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). If no upstream tracking branch exists, use `git push -u origin HEAD`.
 
 ### Handle result
 
@@ -260,7 +260,7 @@ fi
 2. Categorize failures: test failures, lint errors, build errors, security issues
 3. Fix each issue using project-appropriate tools (check AGENTS.md for lint/fix commands)
 4. Commit fixes with descriptive message
-5. Push: `git push`
+5. Push: `git push` (use `timeout: 600000`)
 6. Return to polling (Step 7, top)
 
 ### Retry limit

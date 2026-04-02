@@ -160,7 +160,7 @@ git checkout main && git pull --ff-only origin main
 git checkout -b fix/merge-production-history
 git merge origin/production  # resolve conflicts keeping main's versions
 git commit  # produces a real merge commit
-git push origin fix/merge-production-history
+git push origin fix/merge-production-history  # use timeout: 600000
 gh pr create --base main --head fix/merge-production-history --title "fix: merge production history into main"
 gh pr merge <NUMBER> --auto --merge  # MUST use --merge, not --squash
 ```
@@ -219,7 +219,7 @@ When CI fails on the production PR, fixes must go through `main` (the PR head).
    # Make the fix
    git add [files]
    git commit -m "fix: [description of CI fix for production deploy]"
-   git push origin main
+   git push origin main  # use timeout: 600000
    ```
 
 4. Wait for new CI run, then re-check gates.

@@ -150,7 +150,7 @@ After all fixes are committed:
 
 **If no tracker:** Log results to console.
 
-Push all commits: `git push`
+Push all commits: `git push` (use `timeout: 600000` — pre-push hooks can take 5-10 min)
 
 ---
 

@@ -947,7 +947,7 @@ fi
 # 5. Verify on merged default branch
 <project-test-command>
 
-# 6. Push
+# 6. Push (use timeout: 600000 — pre-push hooks can take 5-10 min)
 git push origin {DEFAULT_BRANCH}
 
 # 7. Clean up worktree + branch

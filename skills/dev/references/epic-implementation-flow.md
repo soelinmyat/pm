@@ -110,7 +110,7 @@ Fix findings. Commit.
 # Merge latest {DEFAULT_BRANCH}
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 
-# Push
+# Push (use timeout: 600000 — pre-push hooks can take 5-10 min)
 git push origin {BRANCH}
 
 # Create PR
@@ -125,7 +125,7 @@ SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N}
 ```
 
 The orchestrator will send a "Merge now" message when it's your turn. When you receive it:
-1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}`
+1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}` (use `timeout: 600000`)
 2. Squash merge: `gh api repos/{OWNER}/{REPO}/pulls/{PR}/merge -X PUT -f merge_method=squash -f commit_title="feat({ISSUE_ID}): {slug} (#{PR})"`
 3. Continue to Step 7 (Cleanup) and Step 8 (report "Merged.").
 
@@ -144,7 +144,7 @@ cd {REPO_ROOT}
 git checkout {DEFAULT_BRANCH}
 git pull --ff-only origin {DEFAULT_BRANCH}
 git merge {BRANCH} --no-ff -m "feat({ISSUE_ID}): {title}"
-git push origin {DEFAULT_BRANCH}
+git push origin {DEFAULT_BRANCH}  # use timeout: 600000
 ```
 
 **XS/S with branch protection:** use the PR flow above.
