@@ -6,6 +6,7 @@ node_modules/
 !.pm/dev-sessions/
 pm/*.local.md
 .worktrees/
+.playwright-mcp/
 dev/instructions.local.md
 tools/swe-bench/venv/
 tools/swe-bench/repos/
