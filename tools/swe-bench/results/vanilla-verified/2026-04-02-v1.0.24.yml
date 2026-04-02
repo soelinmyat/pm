@@ -10,8 +10,8 @@ aggregates:
   total: 50
   patches_generated: 50
   patches_valid: 50
-  resolved: null  # requires SWE-bench Docker evaluator
-  resolve_rate: null
+  resolved: 38
+  resolve_rate: 0.76
   errors: 0
 
 per_task:
