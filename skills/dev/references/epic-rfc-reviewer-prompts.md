@@ -80,3 +80,41 @@ Agent({
 `
 })
 ```
+
+---
+
+## Product Spec Review Agent
+
+**Used for:** Raw M/L/XL sub-issues inside epics. Run in parallel with UX and Competitive review before planning.
+
+```
+Agent({
+  subagent_type: "pm:product-manager",
+  prompt: `Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and outcome coverage.
+
+**Spec to review:** {SPEC_FILE_PATH}
+
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
+```
+
+---
+
+## Competitive Spec Review Agent
+
+**Used for:** Raw M/L/XL sub-issues inside epics. Run in parallel with UX and Product review before planning.
+
+```
+Agent({
+  subagent_type: "pm:strategist",
+  prompt: `Review this feature spec for differentiation, switching motivation, competitive response, and non-goal violations.
+
+**Spec to review:** {SPEC_FILE_PATH}
+
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
+```

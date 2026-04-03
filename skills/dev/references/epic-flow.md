@@ -6,27 +6,34 @@ This reference is loaded on-demand by the dev skill router when handling a paren
 
 # /dev-epic [parent-issue-id]
 
-Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state, creates a team, and dispatches teammates for planning and implementation. Each sub-issue gets **one combined teammate** that plans first, then implements — preserving codebase context across both phases.
+Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state, tracks worker ids, and dispatches persistent workers for planning and implementation. Each sub-issue gets **one combined worker** that plans first, then implements — preserving codebase context across both phases.
 
 **Architecture:**
-- **Orchestrator (this context, team lead):** Intake, state management, team creation, task assignment, result tracking
-- **Combined teammates:** One per sub-issue. Plans first (explore codebase, write plan, commit). Goes idle. Resumes for implementation after epic review approval. Context from planning phase is preserved — no duplicate codebase exploration.
-- **Epic review sub-agents:** 1-3 parallel sub-agents (NOT teammates) reviewing all plans as a set. Return compact JSON verdicts directly to orchestrator context.
+- **Orchestrator (this context):** Intake, state management, worker registry, result tracking
+- **Persistent workers:** One per sub-issue. Plans first (explore codebase, write plan, commit). Stops cleanly. Resumes for implementation after epic review approval. Context from planning phase is preserved — no duplicate codebase exploration.
+- **Epic review sub-agents:** 1-3 parallel short-lived review agents (NOT persistent workers) reviewing all plans as a set. Return compact JSON verdicts directly to orchestrator context.
 
-**Team lifecycle:**
-1. Orchestrator creates team via `TeamCreate({ team_name: "epic-{parent-slug}" })`
-2. Orchestrator creates tasks via `TaskCreate` for each sub-issue
-3. Orchestrator spawns combined teammates via `Agent({ team_name: "epic-{parent-slug}", name: "agent-{slug}", ... })`
-4. **Planning phase:** Each teammate plans, commits, sends summary via `SendMessage`, goes idle
-5. **Epic review:** Orchestrator dispatches sub-agents (not teammates) — compact JSON comes back directly
-6. **Implementation phase:** Orchestrator sends "go implement" to idle teammates via `SendMessage` — they resume with full planning context
-7. After wrap-up, orchestrator shuts down all teammates via per-agent `SendMessage({ message: { type: "shutdown_request" } })`
+**Worker lifecycle:**
+1. Orchestrator initializes the state file and creates one worker slot per sub-issue
+2. Orchestrator spawns one persistent worker per sub-issue and stores its worker id in the state file
+3. **Planning phase:** Each worker plans, commits, returns a compact summary, then stops
+4. **Epic review:** Orchestrator dispatches short-lived review agents — compact JSON comes back directly
+5. **Implementation phase:** Orchestrator resumes approved workers and sends "go implement" — they continue with full planning context
+6. **Wrap-up:** Orchestrator closes any remaining workers and removes the worker registry from state
 
 **Reference files (read on-demand, NOT upfront):**
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC agent prompts (Stage 2, raw issues only)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review agent prompts (Stage 3)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md` - Sub-issue agent instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
+
+**Codex runtime mapping:**
+- Create persistent worker: `spawn_agent`
+- Wait for planning/implementation summary: `wait_agent`
+- Resume an existing worker: `resume_agent`, then `send_input`
+- Ping a worker or deliver "merge now": `send_input`
+- Shutdown a worker at cleanup: `close_agent`
+- Task lists and worker metadata live in `.pm/dev-sessions/epic-{parent-slug}.md` — there is no separate team/task API
 
 ---
 
@@ -174,19 +181,17 @@ test -f .githooks/pre-push && echo ".githooks/pre-push exists"
 
 **If none detected:** set `Merge strategy: direct push allowed`.
 
-### 1.8 Create team
+### 1.8 Create worker registry
+
+In the epic state file, create one worker slot per sub-issue. This is the source of truth for orchestration in Codex.
 
 ```
-TeamCreate({
-  team_name: "epic-{parent-slug}",
-  description: "Epic: {PARENT_TITLE} — {N} sub-issues"
-})
+| # | ID | Title | Size | Dependency | Worker Name | Worker ID | Branch | Worktree | Phase |
+|---|----|-------|------|------------|-------------|-----------|--------|----------|-------|
+| 1 | {ISSUE_ID} | {TITLE} | {SIZE} | {DEPS} | agent-{slug} | pending | feat/{slug} | .worktrees/{slug} | planning |
 ```
 
-Create one task per sub-issue (combined plan + implement):
-```
-TaskCreate({ title: "{ISSUE_ID}: {TITLE}", description: "Plan then implement. Size: {SIZE}. Deps: {DEPS}" })
-```
+Set `Worker ID` to `pending` until the worker is spawned. Update it immediately after `spawn_agent` returns.
 
 ---
 
@@ -212,7 +217,7 @@ In autonomous mode (after Stage 3.3 approval), do NOT pause for confirmation. An
 
 ---
 
-## Stage 2: Sequential Planning (via teammates)
+## Stage 2: Sequential Planning (via persistent workers)
 
 No user interaction. For each sub-issue in dependency order.
 
@@ -220,15 +225,12 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Dispatch a **combined teammate** per sub-issue. The teammate explores the codebase, writes the plan, commits it, sends back the plan path + summary, and goes idle. The same teammate resumes for implementation in Stage 4 — preserving all codebase context from the planning phase.
+Spawn a **persistent worker** per sub-issue. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+
+Prompt template for the worker:
 
 ```
-Agent({
-  description: "Plan+Impl {ISSUE_ID}",
-  name: "agent-{slug}",
-  team_name: "epic-{parent-slug}",
-  subagent_type: "pm:developer",
-  prompt: `Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
+Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -245,12 +247,17 @@ Agent({
 
 Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
 Save plan to docs/plans/{DATE}-{SLUG}.md.
-Commit, then SendMessage({ to: "team-lead", message: "Plan complete. Path: docs/plans/{file}. Summary: {3-line summary}. Tasks: {N}", summary: "{ISSUE_ID} plan done" }).
-STOP and wait for "go implement" after epic review.`
-})
+Commit, then end your response with:
+PLAN_COMPLETE
+- issue: {ISSUE_ID}
+- path: docs/plans/{file}
+- summary: {3-line summary}
+- tasks: {N}
+
+Stop after sending the summary. You will be resumed for implementation after epic review.
 ```
 
-The orchestrator waits for the teammate's message. Only the message content enters the orchestrator's context — not the teammate's internal work.
+The orchestrator waits for the worker's planning result (Codex: `wait_agent`). Only the returned summary enters the orchestrator's context — not the worker's internal work.
 
 **Skip individual RFC review for groomed issues.** Epic review (Stage 3) is the quality gate.
 
@@ -258,19 +265,14 @@ The orchestrator waits for the teammate's message. Only the message content ente
 
 **Raw XS:** Note "direct implementation, no plan needed" in state file. Skip planning.
 
-**Raw S:** Dispatch combined teammate (same prompt as 2.1), then dispatch RFC review sub-agents from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (Agents 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
+**Raw S:** Dispatch a persistent worker (same prompt as 2.1), then dispatch RFC review sub-agents from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (Agents 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
 
 **Raw M/L/XL:** Three-step process:
 
-1. **Dispatch design exploration teammate** to generate a spec:
+1. **Dispatch a short-lived design worker** to generate a spec:
 
 ```
-Agent({
-  description: "Design {ISSUE_ID}",
-  name: "design-{slug}",
-  team_name: "epic-{parent-slug}",
-  subagent_type: "pm:developer",
-  prompt: `Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
+Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -284,13 +286,21 @@ Agent({
 
 Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md.
 Save spec to docs/specs/{DATE}-{SLUG}.md.
-Commit, then SendMessage({ to: "team-lead", message: "Spec complete. Path: docs/specs/{file}. Summary: {2-line summary}", summary: "{ISSUE_ID} spec done" }).`
-})
+Commit, then end your response with:
+SPEC_COMPLETE
+- issue: {ISSUE_ID}
+- path: docs/specs/{file}
+- summary: {2-line summary}
 ```
 
-2. **Dispatch UX spec review sub-agent** (prompt from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md`, UX Spec Review section). Fix blocking issues in the spec.
+2. **Dispatch raw-spec reviewers in parallel** using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md`:
+   - UX Spec Review
+   - Product Spec Review
+   - Competitive Spec Review
 
-3. **Dispatch combined teammate** (same prompt as 2.1, but referencing the spec file instead of ACs). Then dispatch all 3 RFC review sub-agents. Fix blocking issues, commit.
+   Merge findings, fix all blocking issues in the spec, and re-run the spec reviewers if needed before moving on.
+
+3. **Dispatch a persistent worker** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC review sub-agents. Fix blocking issues, commit.
 
 ### 2.3 Context accumulation
 
@@ -322,29 +332,27 @@ Count sub-issues with actual code work (plan reports tasks > 0). Scale reviewer 
 | 1-2 | 1 combined reviewer | Single agent reviews arch + integration + scope |
 | 3+ | 3 parallel reviewers | Full review: arch, integration, scope |
 
-### 3.1 Dispatch sub-agents (NOT teammates)
+### 3.1 Dispatch short-lived review agents
 
-Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use regular sub-agents, not teammates. This avoids team communication overhead (SendMessage, idle notifications, shutdown).
-
-**CRITICAL: Do NOT pass `team_name` to the Agent tool for epic reviewers.** Passing `team_name` creates a teammate (requiring SendMessage, idle handling, and manual shutdown). Omitting `team_name` creates a true sub-agent whose result returns directly to the orchestrator's context.
+Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use short-lived review agents, not persistent workers. Their results should return directly to the orchestrator and should not be saved for later resume.
 
 **For 3+ sub-issues with code work:**
 ```
-Agent({ subagent_type: "pm:system-architect", prompt: "..." })   // Architect — no team_name!
-Agent({ subagent_type: "pm:integration-engineer", prompt: "..." })  // Integration — no team_name!
-Agent({ subagent_type: "pm:product-manager", prompt: "..." })    // Scope — no team_name!
+Agent({ subagent_type: "pm:system-architect", prompt: "..." })   // Architect
+Agent({ subagent_type: "pm:integration-engineer", prompt: "..." })  // Integration
+Agent({ subagent_type: "pm:product-manager", prompt: "..." })    // Scope
 ```
 
 **For 1-2 sub-issues with code work:**
 ```
-Agent({ subagent_type: "pm:system-architect", prompt: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}" })  // no team_name!
+Agent({ subagent_type: "pm:system-architect", prompt: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}" })  // combined reviewer
 ```
 
-Sub-agent results return directly to the orchestrator — no SendMessage needed.
+Sub-agent results return directly to the orchestrator — no worker handoff needed.
 
 ### 3.2 Handling findings
 
-1. Receive verdict messages from all 3 teammates. Merge. Deduplicate.
+1. Receive reviewer outputs from all active review agents. Merge. Deduplicate.
 2. Fix all blocking issues in affected plans.
 3. Re-dispatch if fixes made (max 3 iterations).
 4. Commit plan updates.
@@ -357,13 +365,13 @@ After approval, update state file with `Continuous execution: authorized`.
 
 ---
 
-## Stage 4: One-Shot Implementation (via existing teammates)
+## Stage 4: One-Shot Implementation (via existing workers)
 
 <HARD-RULE>
 After approval, proceed through ALL sub-issues without pausing. Only stop for: QA Blocked, 3x test failures, merge conflicts, CI failures needing human intervention, human review feedback on PRs.
 </HARD-RULE>
 
-**Why resume existing teammates:** The combined teammate that planned the sub-issue already explored the codebase and understands the current state. Sending "go implement" to the idle teammate preserves this context — no duplicate codebase exploration. Implementation details, test output, CI logs, and diffs stay in the teammate's context. The orchestrator only receives short SendMessage summaries.
+**Why resume existing workers:** The combined worker that planned the sub-issue already explored the codebase and understands the current state. Resuming that worker preserves this context — no duplicate codebase exploration. Implementation details, test output, CI logs, and diffs stay in the worker's context. The orchestrator only receives short summaries.
 
 ### 4.pre Environment readiness check
 
@@ -439,65 +447,59 @@ For waves with 2+ sub-issues:
 
 2. **Set all issue statuses** to In Progress.
 
-3. **Dispatch all agents simultaneously.** The "go implement" message includes `**Mode:** parallel` which tells the agent to stop after pushing the branch and creating the PR — do NOT merge. Agent reports "Ready to merge. PR #{N}" instead of "Merged."
+3. **Resume all workers simultaneously.** The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
 
 4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
    - If any agent reports "Blocked": pause, report to user.
    - If all report "Ready to merge": proceed to sequential merge.
 
-5. **Sequential merge.** For each PR in the wave, in dependency order:
+5. **Sequential merge.** For each PR in the wave, in dependency order, resume the saved worker id (Codex: `resume_agent`, then `send_input`) with:
    ```
-   SendMessage({
-     to: "agent-{slug}",
-     message: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup.",
-     summary: "Merge {ISSUE_ID}"
-   })
+   Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup.
    ```
-   Wait for "Merged." before telling the next agent to merge.
+   Wait for "Merged." before telling the next worker to merge.
 
 6. **Sync main** after all wave PRs are merged:
    ```bash
    git checkout -B main origin/main
    ```
 
-#### "Go implement" message template
+#### "Go implement" instruction template
+
+Resume worker `{worker_id}` (Codex: `resume_agent`, then `send_input`) with:
 
 ```
-SendMessage({
-  to: "agent-{slug}",
-  message: `Phase 2 — Implementation approved. Go implement.
+Phase 2 — Implementation approved. Go implement.
 
-  **CWD:** {WORKTREE_PATH}
-  **Branch:** feat/{slug}
-  **Plan:** {PLAN_FILE_PATH}
-  **Merge strategy:** {PR required | direct push allowed}
-  **Mode:** {sequential | parallel}
+**CWD:** {WORKTREE_PATH}
+**Branch:** feat/{slug}
+**Plan:** {PLAN_FILE_PATH}
+**Merge strategy:** {PR required | direct push allowed}
+**Mode:** {sequential | parallel}
 
-  Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md for the full
-  implementation lifecycle, then execute it.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md for the full
+implementation lifecycle, then execute it.
 
-  **IMPORTANT — Progress heartbeat:** Send a progress update to team-lead after each commit
-  or every 5 minutes, whichever comes first. Format:
-  SendMessage({ to: "team-lead", message: "Progress: {what you just did}. Next: {what's next}.", summary: "{ISSUE_ID} progress" })
-  This is how the orchestrator knows you're alive. Silent agents get replaced.
+**IMPORTANT — Progress heartbeat:** Reply in this worker thread after each commit
+or every 5 minutes, whichever comes first, using:
+Progress: {what you just did}. Next: {what's next}.
+This is how the orchestrator knows you're alive. Silent workers get replaced.
 
-  Lifecycle:
-  1. cd {WORKTREE_PATH}
-  2. Install deps (read AGENTS.md for install command), verify clean test baseline
-  3. Read the plan and implement all tasks
-  4. Invoke /simplify - fix findings, run tests, commit
-  5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
-  6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
-     If SIZE is XS/S: run code scan (single sub-agent per implementation-flow.md)
-  7. Run full test suite as final verification
-  8. Push branch, create PR
-  9. If Mode is "sequential": squash merge, cleanup, report "Merged. PR #{N}, sha {abc}, {N} files changed."
-     If Mode is "parallel": STOP after PR creation, report "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed."
+Lifecycle:
+1. cd {WORKTREE_PATH}
+2. Install deps (read AGENTS.md for install command), verify clean test baseline
+3. Read the plan and implement all tasks
+4. Invoke /simplify - fix findings, run tests, commit
+5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
+6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
+   If SIZE is XS/S: run code scan (single sub-agent per implementation-flow.md)
+7. Run full test suite as final verification
+8. Push branch, create PR
+9. If Mode is "sequential": squash merge, cleanup, report "Merged. PR #{N}, sha {abc}, {N} files changed."
+   If Mode is "parallel": STOP after PR creation, report "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed."
 
-  **If blocked, send:**
-  "Blocked: {reason}"`,
-  summary: "Go implement {ISSUE_ID}"
-})
+If blocked, reply:
+Blocked: {reason}
 ```
 
 ### 4.4 Checkpoint after each sub-issue
@@ -506,7 +508,7 @@ SendMessage({
 After each sub-issue is merged (or fails), update the state file IMMEDIATELY. Do not batch updates. A crash between sub-issues must not lose progress.
 </HARD-RULE>
 
-After a teammate reports "Merged" or "Failed":
+After a worker reports "Merged" or "Failed":
 1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA
 2. Update `## Implementation Progress` with the result
 3. Update `## Resume Instructions` with the next sub-issue
@@ -522,17 +524,17 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 
 **How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `epic-implementation-flow.md`). The orchestrator uses silence as the death signal.
 
-**Watchdog protocol:** After dispatching or resuming a teammate, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
+**Watchdog protocol:** After dispatching or resuming a worker, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
 
 | Step | Action |
 |------|--------|
-| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", message: "Status check: are you still working on {ISSUE_ID}?", summary: "Ping {ISSUE_ID}" })` |
+| 1 | **Ping:** send the saved worker id `Status check: are you still working on {ISSUE_ID}?` |
 | 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
-| 3 | If no response to ping → agent is dead. Spawn a **fresh teammate** with the recovery prompt below |
-| 4 | If fresh teammate also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
+| 3 | If no response to ping → the worker is dead. Spawn a **fresh persistent worker** with the recovery prompt below |
+| 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
 | 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
 
-**Fresh teammate recovery prompt must include:**
+**Fresh worker recovery prompt must include:**
 - The plan file path (so it picks up where the dead agent left off)
 - Current git state: `git status`, `git log --oneline -5`, `git diff --stat`
 - The sub-issue description and acceptance criteria
@@ -558,8 +560,8 @@ After all sub-issues complete, log a summary:
 - **No test DB conflicts:** Only one API agent runs at a time. Rails test suites don't corrupt each other.
 - **No merge conflicts:** Different layers touch different files. The sequential merge step handles any rare overlap.
 - **Implementation is the bottleneck.** A typical M-sized sub-issue takes 15-30 min to implement but only 1-2 min to merge. Parallelizing implementation across layers saves one full sub-issue wall-time per parallel agent.
-- **Combined teammates preserve context.** Same architecture as before — each teammate planned the sub-issue and resumes with full codebase context.
-- **Orchestrator stays thin.** Only receives short "Ready to merge" messages. All implementation work happens in teammate contexts.
+- **Combined workers preserve context.** Same architecture as before — each worker planned the sub-issue and resumes with full codebase context.
+- **Orchestrator stays thin.** Only receives short "Ready to merge" messages. All implementation work happens in worker contexts.
 
 ---
 
@@ -589,13 +591,13 @@ If an issue tracker is available, you MUST update ALL issue statuses before proc
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
-**5.3.1 Shutdown teammates individually** (broadcast does not support structured messages):
+**5.3.1 Close workers individually:**
 ```
-for each remaining teammate name:
-  SendMessage({ to: "{name}", message: { type: "shutdown_request", reason: "Epic complete" } })
+for each remaining worker id:
+  close_agent({ target: "{worker_id}" })
 ```
 
-Note: Teammates for fully-implemented sub-issues (0 tasks) should already have been shut down in Stage 4.0. Only teammates that performed implementation need shutdown here.
+Note: Workers for fully-implemented sub-issues (0 tasks) should already have been closed in Stage 4.0. Only workers that performed implementation need cleanup here.
 
 **5.3.2 Remove state files:**
 ```bash
