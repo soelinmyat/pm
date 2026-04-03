@@ -6,7 +6,7 @@ This reference is loaded on-demand by the dev skill router when handling a paren
 
 # /dev-epic [parent-issue-id]
 
-Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state, tracks worker ids, and dispatches persistent workers for planning and implementation. Each sub-issue gets **one combined worker** that plans first, then implements — preserving codebase context across both phases.
+Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state, tracks worker handles, and dispatches persistent workers for planning and implementation. Each sub-issue gets **one combined worker** that plans first, then implements — preserving codebase context across both phases.
 
 **Architecture:**
 - **Orchestrator (this context):** Intake, state management, worker registry, result tracking
@@ -15,7 +15,7 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 
 **Worker lifecycle:**
 1. Orchestrator initializes the state file and creates one worker slot per sub-issue
-2. Orchestrator spawns one persistent worker per sub-issue and stores its worker id in the state file
+2. Orchestrator starts one persistent worker per sub-issue and stores its worker handle in the state file
 3. **Planning phase:** Each worker plans, commits, returns a compact summary, then stops
 4. **Epic review:** Orchestrator dispatches short-lived review agents — compact JSON comes back directly
 5. **Implementation phase:** Orchestrator resumes approved workers and sends "go implement" — they continue with full planning context
@@ -27,13 +27,12 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md` - Sub-issue agent instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
-**Codex runtime mapping:**
-- Create persistent worker: `spawn_agent`
-- Wait for planning/implementation summary: `wait_agent`
-- Resume an existing worker: `resume_agent`, then `send_input`
-- Ping a worker or deliver "merge now": `send_input`
-- Shutdown a worker at cleanup: `close_agent`
-- Task lists and worker metadata live in `.pm/dev-sessions/epic-{parent-slug}.md` — there is no separate team/task API
+**Persistent-worker contract:**
+- Create a worker using the host platform's persistent-agent primitive
+- Store the returned worker handle in `.pm/dev-sessions/epic-{parent-slug}.md`
+- Wait for planning/implementation summaries through that worker's normal reply channel
+- Resume the same worker for implementation and merge instructions instead of starting over
+- Close the worker explicitly at wrap-up if the platform does not auto-clean it up
 
 ---
 
@@ -70,19 +69,24 @@ Glob for `.pm/dev-sessions/epic-*.md` (and legacy `.dev-epic-state-*.md` at repo
 Run before any epic work begins. Takes ~30 seconds, prevents hours of wasted work.
 
 ```bash
+# Detect default branch first
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"
+
 # 1. Git state — must be clean
 git status --porcelain
 # If output is non-empty: STOP. List dirty files, ask user to resolve.
 
-# 2. Branch — should be on main with latest
-git branch --show-current  # Should be main
+# 2. Branch — should be on the default branch with latest
+git branch --show-current  # Should be $DEFAULT_BRANCH
 git fetch origin
-git log HEAD..origin/main --oneline  # Should be empty (up to date)
-# If behind: run `git pull --ff-only origin main`
+git log HEAD..origin/$DEFAULT_BRANCH --oneline  # Should be empty (up to date)
+# If behind: run `git pull --ff-only origin $DEFAULT_BRANCH`
 
 # 3. Stale worktrees — from prior failed epics
 git worktree list
-# If worktrees other than main exist: list them, ask user whether to remove
+# If worktrees other than the default branch exist: list them, ask user whether to remove
 
 # 4. GitHub CLI — needed for PRs
 command -v gh >/dev/null 2>&1
@@ -163,11 +167,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for th
 
 ### 1.7 Merge strategy detection
 
-Detect whether direct pushes to main are possible. Check **all three** sources:
+Detect whether direct pushes to `{DEFAULT_BRANCH}` are possible. Check **all three** sources:
 
 ```bash
 # 1. GitHub branch protection API
-gh api repos/{owner}/{repo}/branches/main/protection 2>/dev/null
+gh api repos/{owner}/{repo}/branches/{DEFAULT_BRANCH}/protection 2>/dev/null
 
 # 2. Git hooks (version-controlled or custom path)
 HOOKS_PATH=$(git config core.hooksPath 2>/dev/null || echo ".git/hooks")
@@ -186,12 +190,12 @@ test -f .githooks/pre-push && echo ".githooks/pre-push exists"
 In the epic state file, create one worker slot per sub-issue. This is the source of truth for orchestration in Codex.
 
 ```
-| # | ID | Title | Size | Dependency | Worker Name | Worker ID | Branch | Worktree | Phase |
-|---|----|-------|------|------------|-------------|-----------|--------|----------|-------|
+| # | ID | Title | Size | Dependency | Worker Name | Worker Handle | Branch | Worktree | Phase |
+|---|----|-------|------|------------|-------------|---------------|--------|----------|-------|
 | 1 | {ISSUE_ID} | {TITLE} | {SIZE} | {DEPS} | agent-{slug} | pending | feat/{slug} | .worktrees/{slug} | planning |
 ```
 
-Set `Worker ID` to `pending` until the worker is spawned. Update it immediately after `spawn_agent` returns.
+Set `Worker Handle` to `pending` until the worker is started. Update it immediately after the platform returns the worker handle.
 
 ---
 
@@ -257,7 +261,7 @@ PLAN_COMPLETE
 Stop after sending the summary. You will be resumed for implementation after epic review.
 ```
 
-The orchestrator waits for the worker's planning result (Codex: `wait_agent`). Only the returned summary enters the orchestrator's context — not the worker's internal work.
+The orchestrator waits for the worker's planning result via the platform's normal agent-result channel. Only the returned summary enters the orchestrator's context — not the worker's internal work.
 
 **Skip individual RFC review for groomed issues.** Epic review (Stage 3) is the quality gate.
 
@@ -447,26 +451,26 @@ For waves with 2+ sub-issues:
 
 2. **Set all issue statuses** to In Progress.
 
-3. **Resume all workers simultaneously.** The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
+3. **Resume all workers simultaneously.** The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports `Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.` instead of `Merged. ...`.
 
-4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
-   - If any agent reports "Blocked": pause, report to user.
+4. **Collect results.** Wait for all workers in the wave to report "Ready to merge" or "Blocked."
+   - If any worker reports "Blocked": pause, report to user.
    - If all report "Ready to merge": proceed to sequential merge.
 
-5. **Sequential merge.** For each PR in the wave, in dependency order, resume the saved worker id (Codex: `resume_agent`, then `send_input`) with:
+5. **Sequential merge.** For each PR in the wave, in dependency order, resume the saved worker handle with:
    ```
-   Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup.
+   Merge now. Rebase on {DEFAULT_BRANCH} first: git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup.
    ```
    Wait for "Merged." before telling the next worker to merge.
 
-6. **Sync main** after all wave PRs are merged:
+6. **Sync the default branch** after all wave PRs are merged:
    ```bash
-   git checkout -B main origin/main
+   git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
    ```
 
 #### "Go implement" instruction template
 
-Resume worker `{worker_id}` (Codex: `resume_agent`, then `send_input`) with:
+Resume worker `{worker_id}` using the host platform's worker-resume primitive with:
 
 ```
 Phase 2 — Implementation approved. Go implement.
@@ -528,8 +532,8 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 
 | Step | Action |
 |------|--------|
-| 1 | **Ping:** send the saved worker id `Status check: are you still working on {ISSUE_ID}?` |
-| 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
+| 1 | **Ping:** send the saved worker handle `Status check: are you still working on {ISSUE_ID}?` |
+| 2 | If ping gets a response → worker is alive, reset the 5-minute timer |
 | 3 | If no response to ping → the worker is dead. Spawn a **fresh persistent worker** with the recovery prompt below |
 | 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
 | 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
@@ -593,8 +597,8 @@ Every item in this checklist MUST be verified. Do not skip cleanup even if you b
 
 **5.3.1 Close workers individually:**
 ```
-for each remaining worker id:
-  close_agent({ target: "{worker_id}" })
+for each remaining worker handle:
+  use the platform's worker-close primitive for that handle
 ```
 
 Note: Workers for fully-implemented sub-issues (0 tasks) should already have been closed in Stage 4.0. Only workers that performed implementation need cleanup here.
@@ -617,8 +621,8 @@ done
 
 **5.3.3 Verify worktrees and branches:**
 ```bash
-git worktree list   # Should only show main working tree
-git branch          # Should only show main (and any unrelated branches)
+git worktree list   # Should only show the default-branch working tree
+git branch          # Should only show {DEFAULT_BRANCH} (and any unrelated branches)
 git fetch --prune
 ```
 
@@ -678,5 +682,5 @@ Report any remaining untracked files to the user.
 8. Fix ALL review findings from ALL active agents
 9. Fresh test evidence before every merge
 10. State file is single source of truth
-11. Plans committed to main so sub-issue agent worktrees can read them
+11. Plans committed to the default branch so sub-issue worktrees can read them
 12. Orchestrator creates worktrees; agents work inside them

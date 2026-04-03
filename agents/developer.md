@@ -100,7 +100,12 @@ When dispatched as a combined worker in an epic:
 2. Explore the codebase for your specific domain
 3. Write the implementation plan
 4. Commit the plan
-5. Reply in your worker thread: "Plan committed at {path}. Ready for review."
+5. Reply in your worker thread with:
+   - `PLAN_COMPLETE`
+   - `- issue: {ISSUE_ID}`
+   - `- path: {PLAN_PATH}`
+   - `- summary: {3-line summary}`
+   - `- tasks: {N}`
 6. **STOP and wait** for "go implement" message
 
 ### Implementation Phase
@@ -110,10 +115,13 @@ When dispatched as a combined worker in an epic:
 4. Run `/simplify` after implementation
 5. Run `/design-critique` if UI changes
 6. Push and create PR (or report ready for merge)
-7. Reply to the orchestrator: "Implementation complete. PR: {url}" or "Ready to merge."
+7. Reply using the exact terminal message expected by the implementation flow:
+   - Sequential mode: `Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.`
+   - Parallel mode: `Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.`
+   - Blocked work: `Blocked: {ISSUE_ID} — {reason}`
 
 ### Communication
-- Use short worker-thread replies to report status
+- Use short worker-thread replies that match the documented worker contract exactly
 - Report blockers immediately — don't try to work around them silently
 - If you need to modify files outside your plan's scope, ask the orchestrator first
 
