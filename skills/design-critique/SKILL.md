@@ -20,9 +20,9 @@ Three parallel designer sub-agents plus a Fresh Eyes reviewer examine screenshot
 
 | File | Purpose |
 |------|---------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md` | 3 designer agent prompts, scoring rubric, grade computation |
+| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md` | 3 designer agent dispatch refs, scoring rubric, grade computation |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md` | Zero-context regression reviewer prompt |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md` | PM Framing, Conflict Resolution, and Bar-Raiser prompts |
+| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md` | PM Framing (inline), Conflict Resolution (inline), Bar-Raiser (agent dispatch) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md` | Platform detection, server lifecycle, screenshot capture sequences |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md` | Seed task conventions, template, edge case checklist |
 
@@ -110,16 +110,18 @@ Full self-contained flow for when there is no implementing agent.
 All reviewers are **sub-agents** (not teammates). Their results return directly to the orchestrator context. The only exception is the engineer in standalone mode, which is a **teammate** because it edits files.
 
 ```
-# Designers (3 parallel sub-agents)
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // Designer A -- no team_name!
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // Designer B -- no team_name!
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // Designer C -- no team_name!
+# Designers (3 parallel sub-agents -- formal plugin agents)
+Agent({ subagent_type: "pm:design-director", prompt: "..." })      // Designer A: UX Quality + Content
+Agent({ subagent_type: "pm:qa-lead", prompt: "..." })               // Designer B: Resilience + Accessibility
+Agent({ subagent_type: "pm:design-system-lead", prompt: "..." })    // Designer C: Design System + Visual Polish
 
 # Fresh Eyes (1 sub-agent, M+ only)
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // no team_name!
+Agent({ subagent_type: "general-purpose", prompt: "..." })  // no team_name! (no dedicated agent -- zero-context by design)
 
-# PM (1 sub-agent per phase)
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // no team_name!
+# PM phases
+# PM Framing -- inline prompt (orchestration step, not independent perspective)
+# PM Conflict Resolution -- inline prompt (orchestration step, not independent perspective)
+Agent({ subagent_type: "pm:product-director", prompt: "..." })  // PM Bar-Raiser (M+ only)
 
 # Engineer (standalone mode only -- needs to edit files, so use teammate)
 Agent({ team_name: "design-critique", name: "engineer", subagent_type: "general-purpose", prompt: "..." })

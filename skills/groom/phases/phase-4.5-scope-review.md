@@ -10,106 +10,48 @@ If a reviewer's angle doesn't apply, the reviewer will say so — that is differ
 
 After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `subagent_type: "general-purpose"` and `model: "opus"`.
+Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use `model: "opus"`.
 
 **Agent 1: Product Manager**
 
+Dispatch via Agent tool with `subagent_type: "pm:product-manager"` and `model: "opus"`:
+
 ```
-You are a product manager reviewing a scoped feature initiative.
+prompt: |
+  Review the scope for "{topic}".
 
-**Read before reviewing:**
-- pm/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
-- **Stub detection:** After reading pm/strategy.md, check if Section 3 (value prop) or Section 4 (competitive positioning) contain the text "Not yet defined". If so, note in your review that these sections are pending and evaluate based only on the sections that are populated (Sections 2, 6, 7). Do not treat missing value prop or positioning as a blocking issue — it means the user ran quick-start strategy and has not yet completed a full strategy pass.
-- pm/landscape.md — market context
-- pm/competitors/index.md — competitive landscape
-**Groom state:** .pm/groom-sessions/{slug}.md (contains topic, scope, strategy check result, research location)
-**Research:** Read all files in the research location from groom state
+  Groom state: .pm/groom-sessions/{slug}.md
+  Research: {research_location from groom state}
 
-You are opinionated. You care about whether this moves the needle for the business, not whether the scope is well-formatted.
-
-Review from these angles:
-
-1. **JTBD clarity.** What job is the customer hiring this feature to do? Can you state it in one sentence? If not, the scope is too vague to draft issues from.
-2. **ICP fit.** Does this solve a problem the ICP (from pm/strategy.md Section 2) actually has, or is it a feature we think is cool?
-3. **Prioritization.** Given the current priorities (from pm/strategy.md Section 6), does this belong now or is it a distraction? Be harsh.
-4. **Scope right-sizing.** Is the scope trying to do too much? Would cutting 30% still deliver the core value? Are any in-scope items actually out-of-scope in disguise?
-5. **Success criteria.** How would we know this worked in 90 days? If there's no measurable outcome defined, that's a gap.
-
-**Output:**
-## Product Review
-**Verdict:** Ship it | Ship if {condition} | Rethink scope | Wrong priority
-**Blocking issues:** (must fix before drafting issues)
-- [issue] - [why this matters for the business]
-**Pushback:** (challenges to consider, non-blocking)
-- [concern] - [what to watch for]
-Note: "Ship if {condition}" means the scope is sound but depends on a specific assumption or prerequisite. State the condition clearly — it becomes an open item tracked through grooming.
+  Focus: scope review — JTBD clarity, ICP fit, prioritization, scope right-sizing, success criteria.
 ```
 
 **Agent 2: Competitive Strategist**
 
+Dispatch via Agent tool with `subagent_type: "pm:strategist"` and `model: "opus"`:
+
 ```
-You are a competitive strategist reviewing a scoped feature initiative.
+prompt: |
+  Review the scope for "{topic}".
 
-**Read before reviewing:**
-- pm/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
-- **Stub detection:** After reading pm/strategy.md, check if Section 3 (value prop) or Section 4 (competitive positioning) contain the text "Not yet defined". If so, note in your review that competitive positioning data is pending and evaluate based on available sections (non-goals, research, competitor profiles). Recommend running /pm:strategy to fill in positioning, but do not treat the stubs as a blocking issue.
-- pm/landscape.md — market context and positioning map
-- pm/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
-**Groom state:** .pm/groom-sessions/{slug}.md (contains topic, scope, 10x filter result, research location)
-**Research:** Read all files in the research location from groom state
+  Groom state: .pm/groom-sessions/{slug}.md
+  Research: {research_location from groom state}
 
-Review from these angles:
-
-1. **Differentiation.** Does this make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
-2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in pm/competitors/)? Or is it "nice to have" post-switch?
-3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
-4. **Non-goal violations.** Does any in-scope item creep toward the explicit non-goals listed in pm/strategy.md Section 7?
-5. **Differentiation opportunity.** Is there a unique angle (AI, automation, workflow depth) that the scope is missing? Check what competitors lack in their feature profiles.
-
-**Output:**
-## Competitive Review
-**Verdict:** Strengthens position | Strengthens if {condition} | Neutral | Weakens focus
-**Blocking issues:** (strategic misalignment that should stop issue drafting)
-- [issue] - [competitive risk]
-**Opportunities:** (ways to sharpen competitive edge, non-blocking)
-- [opportunity] - [why it matters]
-Note: "Strengthens if {condition}" means the competitive advantage is real but contingent. State what must hold true.
+  Focus: scope review — differentiation, switching motivation, competitive response, non-goal violations, differentiation opportunities.
 ```
 
 **Agent 3: Engineering Manager**
 
+Dispatch via Agent tool with `subagent_type: "pm:engineering-manager"` and `model: "opus"`:
+
 ```
-You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
+prompt: |
+  Review the scope for "{topic}".
 
-**Read before reviewing:** pm/strategy.md (for non-goals boundary)
-**Groom state:** .pm/groom-sessions/{slug}.md (contains topic, scope, research location)
-**Codebase:** Explore the project's source code structure to understand current implementation. Start with the top-level directory listing, then read files relevant to the scoped feature.
+  Groom state: .pm/groom-sessions/{slug}.md
+  Research: {research_location from groom state}
 
-You are practical and observational. Your job is to ground the product scope in implementation reality. You tell the team what the code says, not what to do about it.
-
-Review from these angles:
-
-1. **Build-on.** What existing code, patterns, or infrastructure supports this feature? Name specific files and patterns.
-2. **Build-new.** What doesn't exist yet and would need to be created? Be specific about what's missing.
-3. **Risk.** What makes this harder than it looks? Missing dependencies, architectural constraints, performance concerns, format ambiguities.
-4. **Sequencing advice.** What should be built first? Are there natural implementation milestones?
-
-**Important boundaries:**
-- Stay observational: "the codebase currently has X" — not prescriptive: "you should implement it with Y"
-- Reference specific file paths to make findings verifiable
-- If the codebase is not available or the feature is for a greenfield project, note "No codebase context available" and fall back to research-based feasibility signals
-
-**Output:**
-## Engineering Manager Review
-**Verdict:** Feasible as scoped | Feasible with caveats | Needs rearchitecting
-**Build-on:** (existing infrastructure that supports this)
-- [file/pattern] - [how it helps]
-**Build-new:** (what needs to be created)
-- [component] - [what it does]
-**Risks:** (things that make this harder than it looks)
-- [risk] - [why it matters]
-**Sequencing:** (recommended build order)
-1. [step] - [rationale]
+  Focus: scope review — build-on (existing code), build-new, risks, sequencing advice. Explore the codebase for technical feasibility.
 ```
 
 After the EM agent completes, present its findings conversationally to the user. The EM review is interactive — invite the user to ask follow-up questions or push back on the assessment before proceeding.
@@ -124,7 +66,54 @@ Wait for user confirmation. Capture the EM's key findings for inclusion in the `
 2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
 3. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
 4. If iteration 3 still has blocking issues, present to user for decision.
-5. **Dashboard update.** The progressive proposal at `/groom/{slug}` auto-renders scope review from the state file — verdicts, summaries, and blocking issues.
+5. **Companion screen (silent).**
+
+   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
+
+   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
+
+   Write `.pm/sessions/groom-{slug}/current.html` with:
+
+   - `{TOPIC}`: the topic from groom state
+   - `{PHASE_LABEL}`: "Scope Review"
+   - `{STEPPER_HTML}`: `scope-review` as current; `intake` through `scope` as completed
+   - `{CONTENT}`: Build from the merged review outputs:
+
+     ```html
+     <h2>Scope Review</h2>
+
+     <div class="verdict-row">
+       <div class="verdict-card">
+         <div class="role">Product Manager</div>
+         <div class="verdict">{pm_verdict}</div>
+       </div>
+       <div class="verdict-card">
+         <div class="role">Competitive Strategist</div>
+         <div class="verdict">{competitive_verdict}</div>
+       </div>
+       <div class="verdict-card">
+         <div class="role">Engineering Manager</div>
+         <div class="verdict">{em_verdict}</div>
+       </div>
+     </div>
+
+     <h3>Blocking Issues</h3>
+     <ol>
+       <li>{blocking issue 1} — {why}</li>
+       <!-- one <li> per blocking issue, or <p>None</p> if all resolved -->
+     </ol>
+
+     <details>
+       <summary>Advisory Items ({count})</summary>
+       <ul>
+         <li>{advisory 1}</li>
+         <!-- one <li> per advisory/pushback/opportunity item -->
+       </ul>
+     </details>
+     ```
+
+   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
+   Do not mention this step to the user.
 
 6. Update state:
 
@@ -132,13 +121,8 @@ Wait for user confirmation. Capture the EM's key findings for inclusion in the `
 phase: scope-review
 scope_review:
   pm_verdict: ship-it | ship-if | rethink-scope | wrong-priority
-  pm_summary: "{one-line key finding from PM review}"
   competitive_verdict: strengthens | strengthens-if | neutral | weakens
-  competitive_summary: "{one-line key finding from competitive review}"
   em_verdict: feasible | feasible-with-caveats | needs-rearchitecting
-  em_summary: "{one-line key finding from EM review}"
   blocking_issues_fixed: 0
   iterations: 1
 ```
-
-**Summary extraction:** After merging agent outputs, distill each reviewer's most important point into a single sentence for the summary field. This is what appears on the progressive proposal — not the verdict label, which is too terse to be useful.

@@ -292,137 +292,55 @@ If any field can't be populated, write "Not documented" rather than omitting it.
 
 Walks through every user flow end-to-end, then stress-tests with edge cases. Not just "is the UI nice?" but "does this actually work under real-world pressure?"
 
-Dispatch as sub-agent (subagent_type: general-purpose, model: opus):
+Dispatch as sub-agent:
 
 ```
-You are a UX designer and user flow analyst reviewing a feature spec.
+Agent({
+  subagent_type: "pm:ux-designer",
+  prompt: `Review this feature spec for UX and user flow completeness.
 
 **Spec to review:** {SPEC_FILE_PATH}
-**Read before reviewing:** AGENTS.md (for tech stack and conventions)
 
-## Project Context (pre-extracted by orchestrator)
-
+## Project Context
 {PROJECT_CONTEXT}
-
-Cite any "Not documented" fields as context gaps in your output. If users or scale are undocumented, continue with what you can infer from the spec, but flag the gap as a blocking issue for future reviews.
-
-## Part 1: User Flow Walkthroughs
-
-For EVERY user-facing flow in the spec, walk through it step by step as if you are the user. Write it out:
-
-> "I am [role]. I want to [goal]. I open [screen]. I see [what]. I tap [action]. Then [what happens]..."
-
-Do this for each persona you extracted from CLAUDE.md. If the spec doesn't define a flow clearly enough for you to walk through it, that's a blocking issue.
-
-For each flow, answer:
-- Can I complete my goal without leaving this flow?
-- How many taps/clicks from intent to completion?
-- What happens if I abandon halfway and come back?
-- What does the mobile experience look like vs desktop? (if applicable)
-
-## Part 2: Edge Cases Within Flows
-
-For each flow you walked through, **generate concrete scenarios specific to this product's domain** (don't just list categories). Use the users and scale numbers you extracted from CLAUDE.md to make scenarios realistic.
-
-Categories to stress-test:
-
-1. **Timezone / locale edge cases.** Construct specific scenarios from the user personas. Example format: "User A is in timezone X, managing resources in timezone Y. They create a [resource] at 11 PM their time. What date does it show for the resource in timezone Y?" If the product is single-timezone, skip.
-2. **Business-critical calculation edge cases.** Identify what's business-critical from the domain (financial, scheduling, compliance, inventory, billing). Construct specific scenarios where calculations cross boundaries: midnight, week boundaries, month-end, threshold crossings. Example: "A [resource] spans two [periods]. How is it counted for [business purpose]?"
-3. **Concurrent operations.** Two users of the personas you identified editing the same resource simultaneously. Bulk operations conflicting with individual edits. Operations that arrive out of order.
-4. **Scale stress.** Use the actual scale numbers from CLAUDE.md (or reasonable estimates if not documented). "With [N] records, does this list paginate? Does search still work? Does the mobile app survive loading [N] items?"
-5. **Connectivity failures.** User loses connection mid-action. Data syncs after delay. What state is the UI in? Especially relevant for mobile or field-worker personas.
-6. **Empty and partial states.** First-time setup with no data. Resources with missing associations. Partially completed workflows.
-
-## Part 3: Interaction Quality
-
-1. **Information hierarchy.** Can the user get the answer they need in <3 seconds? What's the primary action? Is it obvious?
-2. **Cognitive load.** How many decisions does the user need to make? Can we eliminate choices with opinionated defaults? Count form fields, toggles, and options.
-3. **Pattern consistency.** Does this introduce new interaction patterns where existing ones would work?
-
-**Output:**
-## UX & User Flow Review
-**Verdict:** Sound | Needs work | Rethink approach
-
-**Flow walkthroughs:** (one per persona/flow)
-- [Role: Goal]: [flow summary] - [works / has gaps]
-
-**Blocking issues:** (broken flows, undefined edge cases that affect data integrity or business-critical operations)
-- [flow or edge case]: [what's missing] - [what the user would experience]
-
-**Edge case gaps:** (scenarios the spec doesn't address, non-blocking if low-frequency)
-- [scenario]: [what would happen] - [severity: data loss / bad UX / cosmetic]
-
-**Design suggestions:** (improvements, non-blocking)
-- [suggestion] - [why it helps]
+`
+})
 ```
 
 ### PM + Competitive Strategist (only when NOT from groom)
 
 These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both design exploration and spec review are skipped entirely — this section is never reached.
 
-Dispatch both as sub-agents in parallel alongside the UX reviewer (subagent_type: general-purpose, model: opus):
+Dispatch both as sub-agents in parallel alongside the UX reviewer:
 
 **Product Manager**
 
 ```
-You are a product manager reviewing a feature spec.
+Agent({
+  subagent_type: "pm:product-manager",
+  prompt: `Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and competitive positioning.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
-## Project Context (pre-extracted by orchestrator)
-
+## Project Context
 {PROJECT_CONTEXT}
-
-If any critical context is marked "Not documented", flag it as a gap in your output.
-
-You are opinionated. You care about whether this moves the needle for the business, not whether the document is well-written.
-
-Review from these angles:
-
-1. **JTBD clarity.** What job is the customer hiring this feature to do? Is it explicit? If you can't state it in one sentence, the spec is too vague.
-2. **ICP fit.** Does this solve a problem the target user actually has, or is it a feature the team thinks is cool?
-3. **Prioritization.** Given the product's stated strategic pillars, does this belong now or is it a distraction? Be harsh.
-4. **Scope creep.** Is the spec trying to do too much? Would cutting 30% of the scope still deliver the core value?
-5. **Competitive positioning.** Does this strengthen the product's angle or pull it toward feature-parity with incumbents? Check if competitors already do this better.
-6. **Success criteria.** How would we know this worked? If the spec doesn't define measurable outcomes, that's a gap.
-
-**Output:**
-## Product Review
-**Verdict:** Ship it | Rethink scope | Wrong priority
-**Blocking issues:** (must fix before planning)
-- [issue] - [why this matters for the business]
-**Pushback:** (challenges to consider, non-blocking)
-- [concern] - [what to watch for]
+`
+})
 ```
 
 **Competitive Strategist**
 
 ```
-You are a competitive strategist reviewing a feature spec.
+Agent({
+  subagent_type: "pm:strategist",
+  prompt: `Review this feature spec for differentiation, switching motivation, competitive response, and AI-native opportunities.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
-## Project Context (pre-extracted by orchestrator)
-
+## Project Context
 {PROJECT_CONTEXT}
-
-If any critical context is marked "Not documented", flag it as a gap in your output.
-
-Review from these angles:
-
-1. **Differentiation.** Does this feature make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but should be explicitly labeled as such.
-2. **Switching motivation.** Would this feature contribute to a user's decision to switch from a competitor? Or is it "nice to have" after they've already switched?
-3. **Competitive response.** If this feature works, how easily can incumbents copy it? If the answer is "trivially," the feature needs to be wrapped in something defensible (data network effects, AI integration, workflow depth).
-4. **Non-goal violations.** Does this creep toward the product's explicit non-goals?
-5. **AI-native opportunity.** Is there an AI integration angle that the spec missed? Could this workflow benefit from AI orchestration?
-
-**Output:**
-## Competitive Review
-**Verdict:** Strengthens position | Neutral | Weakens focus
-**Blocking issues:** (strategic misalignment that should stop planning)
-- [issue] - [competitive risk]
-**Opportunities:** (ways to sharpen the feature's competitive edge, non-blocking)
-- [opportunity] - [why it matters]
+`
+})
 ```
 
 ### Handling findings
@@ -486,37 +404,24 @@ digraph plan_review {
 
 ### The 3 RFC reviewers
 
-Dispatch all 3 as sub-agents in parallel (subagent_type: general-purpose, model: opus):
+Dispatch all 3 as sub-agents in parallel:
 
 **Agent 1: Senior Engineer — Architecture & Risk**
 
 Challenges whether the technical approach is sound and proportionate.
 
 ```
-You are a senior engineer reviewing an implementation plan (RFC).
+Agent({
+  subagent_type: "pm:adversarial-engineer",
+  prompt: `Review this implementation plan (RFC) for architecture soundness and risk.
 
 **Plan to review:** {PLAN_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
-**Read before reviewing:** CLAUDE.md, AGENTS.md, plus any app-specific AGENTS.md files the plan touches
 
-You are adversarial. Your job is to find the problems that will blow up during implementation. Be direct.
-
-Review from these angles:
-
-1. **Architecture proportionality.** Is the approach over-engineered for the problem? Under-engineered? Would you approve this RFC at a design review? If the plan introduces abstractions, do they earn their complexity?
-2. **Data model soundness.** Are migrations safe and reversible? Missing indexes for query patterns? Missing constraints that would let bad data in? Race conditions on concurrent writes?
-3. **API design.** Does the API contract make sense from the consumer's perspective? Are there N+1 query risks? Missing pagination? Incorrect HTTP semantics?
-4. **Error handling.** What happens when the database is slow, an external service is down, or a background job fails? Is the plan explicit, or does it hope for the best?
-5. **Performance at scale.** Read CLAUDE.md for the product's expected scale (user count, data volume, concurrent operations). If not documented, ask: "What's a realistic high-water mark for this product in 12 months?" Use those numbers to evaluate: will this work at that scale? Are there unbounded queries or expensive computations in hot paths? State the specific numbers you're testing against.
-6. **Hidden complexity.** What looks simple but isn't? Timezone handling, concurrent edits, cache invalidation, state machine transitions?
-
-**Output:**
-## Architecture & Risk Review
-**Verdict:** Approved | Needs revision | Rethink approach
-**Blocking issues:** (would cause production incidents or major rework)
-- [Task N]: [issue] - [what would go wrong]
-**Risks to monitor:** (not blocking, but watch during implementation)
-- [risk] - [when it would surface]
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
 ```
 
 **Agent 2: Senior Engineer — Testing & Quality**
@@ -524,30 +429,17 @@ Review from these angles:
 Challenges whether the testing strategy will actually catch bugs.
 
 ```
-You are a senior engineer focused on testing strategy, reviewing an implementation plan (RFC).
+Agent({
+  subagent_type: "pm:test-engineer",
+  prompt: `Review this implementation plan (RFC) for testing strategy and coverage.
 
 **Plan to review:** {PLAN_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
-**Read before reviewing:** AGENTS.md (test layer guidance and test commands), plus any app-specific AGENTS.md files
 
-You believe in TDD but hate bad tests. Tests that pass but don't catch real bugs are worse than no tests.
-
-Review from these angles:
-
-1. **Spec coverage.** Map each spec requirement to a test in the plan. Flag requirements with no test coverage. This is the primary gate.
-2. **Test quality.** Are tests verifying behavior or implementation details? Would the tests still pass after a valid refactor? Tests coupled to internal structure are fragile.
-3. **Edge case coverage.** Are the hard cases tested? Boundary values, empty states, concurrent access, timezone transitions, business-critical calculations. Not every edge case needs a test, but business-critical ones do.
-4. **Test layer correctness.** Is each test at the right layer? Unit tests for logic, integration tests for API contracts, component tests for UI behavior, E2E for critical user flows. Tests at the wrong layer are slow and brittle.
-5. **Negative testing.** Are failure paths tested? Invalid input, unauthorized access, missing data, network failures. Happy path coverage alone is insufficient.
-6. **Contract sync.** If this is full-stack, does the plan include API contract sync before frontend tests? (Check AGENTS.md for the project's contract sync pattern.)
-
-**Output:**
-## Testing & Quality Review
-**Verdict:** Approved | Needs revision | Insufficient coverage
-**Blocking issues:** (spec requirements without tests, or tests that won't catch real bugs)
-- [Spec requirement or Task N]: [issue] - [what would slip through]
-**Suggestions:** (test improvements, non-blocking)
-- [suggestion] - [what it would catch]
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
 ```
 
 **Agent 3: Staff Engineer — Complexity & Maintainability**
@@ -555,30 +447,17 @@ Review from these angles:
 Challenges whether a future engineer (or agent) can understand and maintain this code.
 
 ```
-You are a staff engineer reviewing an implementation plan (RFC) for long-term maintainability.
+Agent({
+  subagent_type: "pm:staff-engineer",
+  prompt: `Review this implementation plan (RFC) for complexity and long-term maintainability.
 
 **Plan to review:** {PLAN_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
-**Read before reviewing:** AGENTS.md
 
-You've seen too many codebases rot. Your job is to catch decisions that feel expedient now but create debt later.
-
-Review from these angles:
-
-1. **Task ordering and dependencies.** Are tasks sequenced so each one produces working, testable code? Are there implicit dependencies between tasks that aren't called out? Would a cold agent executing Task 3 fail because Task 2's side effects aren't documented?
-2. **File structure and boundaries.** Do new files have clear single responsibilities? Will any file grow past ~300 lines? Are responsibilities split by domain, not by technical layer?
-3. **Abstraction audit.** Every abstraction in the plan: does it have 2+ concrete uses, or is it speculative? Premature abstractions are harder to remove than duplicate code.
-4. **Naming and discoverability.** Would a new engineer find these files, functions, and endpoints where they'd expect them? Do names communicate intent?
-5. **Migration safety.** If there are schema changes: can they be rolled back? Are they backward-compatible with running code during deploy? Is there a data backfill needed?
-6. **Missing pieces.** Does the plan leave anything for "later" that would actually block the feature from working? Unstated assumptions about existing code?
-
-**Output:**
-## Complexity & Maintainability Review
-**Verdict:** Approved | Needs revision | Over-engineered | Under-engineered
-**Blocking issues:** (would cause maintenance nightmares or implementation failures)
-- [Task N or concern]: [issue] - [long-term consequence]
-**Simplification opportunities:** (ways to reduce complexity, non-blocking)
-- [opportunity] - [what it eliminates]
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
 ```
 
 ### Handling findings
@@ -872,32 +751,20 @@ BEFORE auto-merging XS/S tasks, you MUST run a lightweight code scan.
 This catches bugs that tests alone miss: silent no-ops, swallowed errors, race conditions, missing error feedback.
 </HARD-GATE>
 
-Spawn a single sub-agent (subagent_type: general-purpose, model: opus) with this prompt:
+Spawn a single sub-agent:
 
 ```
-You are a Code Reviewer scanning for genuine bugs to auto-fix.
+Agent({
+  subagent_type: "pm:code-reviewer",
+  prompt: `Scan for genuine bugs in this diff. Max 5 findings.
 
-**Diff:** {paste git diff {DEFAULT_BRANCH}...HEAD or git diff of uncommitted changes}
+**Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
 **Changed files:** {list}
 
-**First:** Read AGENTS.md for project conventions and anti-patterns. If a review checklist exists (e.g., `.claude/references/review-checklist.md`), read it and check sections matching the changed files.
-
-**Review checklist:**
-1. Runtime bugs: null derefs, silent no-ops (missing else/return), NaN
-2. Error handling: mutations/API calls with no onError, errors swallowed silently, user left with no feedback
-3. Race conditions: concurrent mutations without cancellation, stale closures
-4. State management: state updates in wrong order, sheet/modal dismissed before async completes
-5. Domain anti-patterns: anything matching the project's documented anti-patterns
-
-**Output format:**
-For each finding:
-- Severity: P0 (crash/freeze) / P1 (incorrect behavior) / P2 (code quality)
-- File: exact path and line
-- Issue: what's wrong
-- Fix: specific code change
-
-If no issues found, say "No issues found."
-Max 5 findings.
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
 ```
 
 **If findings exist:** fix them, run tests, commit fixes.
@@ -947,7 +814,7 @@ fi
 # 5. Verify on merged default branch
 <project-test-command>
 
-# 6. Push (use timeout: 600000 — pre-push hooks can take 5-10 min)
+# 6. Push
 git push origin {DEFAULT_BRANCH}
 
 # 7. Clean up worktree + branch
@@ -1085,19 +952,7 @@ If no issue tracker is configured, skip these updates.
 
 ## State File (.pm/dev-sessions/{slug}.md)
 
-The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Archived after retro.**
-
-**Timestamps:** Set `Started` when the state file is first created (intake). Update `Stage started` at every stage transition (use `date -u +"%Y-%m-%dT%H:%M:%SZ"`).
-
-**On completion (after retro):** Append a `## Session Summary` section:
-```markdown
-## Session Summary
-- **Total:** {duration} ({Started} → {end timestamp})
-- **Planning:** {duration}
-- **Implementation:** {duration}
-- **Review + merge:** {duration}
-```
-Then archive: `mkdir -p .pm/dev-sessions/completed && mv .pm/dev-sessions/{slug}.md .pm/dev-sessions/completed/`
+The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
 
 After compaction or if context feels stale, read this file to recover full session state.
 
@@ -1114,8 +969,6 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Plan | docs/plans/2026-02-15-feature.md |
 | Branch | feat/feature-name |
 | Worktree | .worktrees/feature-name |
-| Started | 2026-02-15T09:00:00Z |
-| Stage started | 2026-02-15T10:30:00Z |
 
 ## Project Context
 - Product: Example App — task management for teams
@@ -1183,7 +1036,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Include all decisions made so far — a cold reader should understand the full context
 - After design critique, add the report path
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
-- After retro, append Session Summary and archive to `.pm/dev-sessions/completed/`
+- After retro, delete the file
 
 ## Process Cleanup
 

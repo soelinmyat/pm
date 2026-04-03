@@ -154,8 +154,6 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
-**Timestamps:** Set `Started` and `Stage started` to the current ISO 8601 timestamp (run `date -u +"%Y-%m-%dT%H:%M:%SZ"`). Update `Stage started` at every subsequent stage transition.
-
 ### 1.7 Merge strategy detection
 
 Detect whether direct pushes to main are possible. Check **all three** sources:
@@ -229,14 +227,12 @@ Agent({
   description: "Plan+Impl {ISSUE_ID}",
   name: "agent-{slug}",
   team_name: "epic-{parent-slug}",
-  subagent_type: "general-purpose",
-  prompt: `You are a combined plan+implement teammate on the "epic-{parent-slug}" team.
+  subagent_type: "pm:developer",
+  prompt: `Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 
-## Project Context (pre-extracted by orchestrator)
-
+## Project Context
 {PROJECT_CONTEXT}
 
-**Your task (Phase 1 — Planning):** Write an implementation plan for {ISSUE_ID} ({ISSUE_TITLE}).
 **CWD:** {REPO_ROOT}
 **Sub-issue description + ACs:**
 {ISSUE_DESCRIPTION}
@@ -247,15 +243,10 @@ Agent({
 **Previous plans in this epic (for reference):**
 {LIST_OF_PREVIOUS_PLAN_PATHS_AND_SUMMARIES}
 
-**Phase 1 Instructions:**
-1. Read AGENTS.md and relevant app-specific AGENTS.md
-2. Explore the codebase to understand current state for this sub-issue
-3. Follow the writing-plans reference at ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md
-4. Save plan to docs/plans/{DATE}-{SLUG}.md
-5. Commit: git add docs/plans/{file} && git commit -m "docs: add plan for {ISSUE_ID} - {TITLE}"
-6. Send result to orchestrator: SendMessage({ to: "team-lead", message: "Plan complete. Path: docs/plans/{file}. Summary: {3-line summary}. Tasks: {N}", summary: "{ISSUE_ID} plan done" })
-
-**After sending the plan summary, STOP and wait.** The orchestrator will send you a "go implement" message after epic review passes. You will then proceed to Phase 2 (implementation) with all your codebase context preserved.`
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
+Save plan to docs/plans/{DATE}-{SLUG}.md.
+Commit, then SendMessage({ to: "team-lead", message: "Plan complete. Path: docs/plans/{file}. Summary: {3-line summary}. Tasks: {N}", summary: "{ISSUE_ID} plan done" }).
+STOP and wait for "go implement" after epic review.`
 })
 ```
 
@@ -278,14 +269,12 @@ Agent({
   description: "Design {ISSUE_ID}",
   name: "design-{slug}",
   team_name: "epic-{parent-slug}",
-  subagent_type: "general-purpose",
-  prompt: `You are a design exploration teammate on the "epic-{parent-slug}" team.
+  subagent_type: "pm:developer",
+  prompt: `Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 
-## Project Context (pre-extracted by orchestrator)
-
+## Project Context
 {PROJECT_CONTEXT}
 
-**Your task:** Generate a feature spec for {ISSUE_ID} ({ISSUE_TITLE}).
 **CWD:** {REPO_ROOT}
 **Sub-issue description:**
 {ISSUE_DESCRIPTION}
@@ -293,12 +282,9 @@ Agent({
 **Parent issue context:**
 {PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
 
-**Instructions:**
-1. Read and follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md
-2. Explore the codebase, ask clarifying questions (answer from the issue description), propose approaches, and write a spec
-3. Save the spec to docs/specs/{DATE}-{SLUG}.md
-4. Commit: git add docs/specs/{file} && git commit -m "docs: add spec for {ISSUE_ID} - {TITLE}"
-5. Send result to orchestrator: SendMessage({ to: "team-lead", message: "Spec complete. Path: docs/specs/{file}. Summary: {2-line summary}", summary: "{ISSUE_ID} spec done" })`
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md.
+Save spec to docs/specs/{DATE}-{SLUG}.md.
+Commit, then SendMessage({ to: "team-lead", message: "Spec complete. Path: docs/specs/{file}. Summary: {2-line summary}", summary: "{ISSUE_ID} spec done" }).`
 })
 ```
 
@@ -316,7 +302,7 @@ After each plan agent returns, check if the plan's task count suggests a differe
 
 ### 2.5 State updates
 
-After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA. Set the sub-issue's `Started` timestamp when dispatching the planning agent (if not already set).
+After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA.
 
 ---
 
@@ -344,14 +330,14 @@ Epic reviewers return compact JSON (~10 lines each) — this fits fine in the or
 
 **For 3+ sub-issues with code work:**
 ```
-Agent({ subagent_type: "general-purpose", model: "opus", prompt: "..." })  // Architect — no team_name!
-Agent({ subagent_type: "general-purpose", model: "opus", prompt: "..." })  // Integration — no team_name!
-Agent({ subagent_type: "general-purpose", model: "opus", prompt: "..." })  // Scope — no team_name!
+Agent({ subagent_type: "pm:system-architect", prompt: "..." })   // Architect — no team_name!
+Agent({ subagent_type: "pm:integration-engineer", prompt: "..." })  // Integration — no team_name!
+Agent({ subagent_type: "pm:product-manager", prompt: "..." })    // Scope — no team_name!
 ```
 
 **For 1-2 sub-issues with code work:**
 ```
-Agent({ subagent_type: "general-purpose", model: "opus", prompt: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}" })  // no team_name!
+Agent({ subagent_type: "pm:system-architect", prompt: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}" })  // no team_name!
 ```
 
 Sub-agent results return directly to the orchestrator — no SendMessage needed.
@@ -521,7 +507,7 @@ After each sub-issue is merged (or fails), update the state file IMMEDIATELY. Do
 </HARD-RULE>
 
 After a teammate reports "Merged" or "Failed":
-1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA, and set `Completed` to the current ISO 8601 timestamp
+1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA
 2. Update `## Implementation Progress` with the result
 3. Update `## Resume Instructions` with the next sub-issue
 4. Write the state file to disk before dispatching the next agent
@@ -591,31 +577,19 @@ If an issue tracker is available, you MUST update ALL issue statuses before proc
 2. **Update parent issue:** Set parent issue to "Done". Comment with summary table (sub-issue | PR | commit).
 3. **Announce:** Report the tracker update to the user: "Updated {N} issues to Done in {tracker}."
 
-### 5.2 Session Summary and Archive
-
-Before retro, compute and append the session summary:
-
-1. Read the state file. Get `Started` and all stage/sub-issue timestamps.
-2. Get the current timestamp as the session end time.
-3. Compute durations for each stage (use `Stage started` transitions) and each sub-issue (from `Started` to `Completed` columns).
-4. Append a `## Session Summary` section (see `epic-state-template.md` for format).
-5. Archive: `mkdir -p .pm/dev-sessions/completed && mv .pm/dev-sessions/epic-{parent-slug}.md .pm/dev-sessions/completed/`
-
-The archived file preserves full timing data for future analysis.
-
-### 5.3 Retro
+### 5.2 Retro
 
 - What was smooth, what was hard
 - Write to the learnings file (default: `learnings.md`, configurable) — max 3 lines each
 - Flag AGENTS.md/CLAUDE.md updates if suggested by learnings
 
-### 5.4 Cleanup
+### 5.3 Cleanup
 
 <HARD-RULE>
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
-**5.4.1 Shutdown teammates individually** (broadcast does not support structured messages):
+**5.3.1 Shutdown teammates individually** (broadcast does not support structured messages):
 ```
 for each remaining teammate name:
   SendMessage({ to: "{name}", message: { type: "shutdown_request", reason: "Epic complete" } })
@@ -623,12 +597,12 @@ for each remaining teammate name:
 
 Note: Teammates for fully-implemented sub-issues (0 tasks) should already have been shut down in Stage 4.0. Only teammates that performed implementation need shutdown here.
 
-**5.4.2 Remove state files:**
+**5.3.2 Remove state files:**
 ```bash
-# Epic state file was already archived in Step 5.2 — just verify it's gone from active sessions
-test ! -f .pm/dev-sessions/epic-{parent-slug}.md || echo "WARN: State file not archived, removing" && rm -f .pm/dev-sessions/epic-{parent-slug}.md
+# Remove this epic's state file
+rm -f .pm/dev-sessions/epic-{parent-slug}.md
 
-# Scan for any OTHER stale state files from completed epics/sessions
+# Also scan for any OTHER stale state files from completed epics/sessions
 for f in .pm/dev-sessions/*.md; do
   [ -f "$f" ] && echo "WARN: Found stale state file: $f" && rm -f "$f"
 done
@@ -639,7 +613,7 @@ for f in .dev-epic-state-*.md .dev-state-*.md; do
 done
 ```
 
-**5.4.3 Verify worktrees and branches:**
+**5.3.3 Verify worktrees and branches:**
 ```bash
 git worktree list   # Should only show main working tree
 git branch          # Should only show main (and any unrelated branches)
@@ -652,7 +626,7 @@ git worktree remove .worktrees/{slug} 2>/dev/null || git worktree remove .worktr
 git branch -D feat/{slug} 2>/dev/null || true
 ```
 
-**5.4.4 Remove temporary artifacts:**
+**5.3.4 Remove temporary artifacts:**
 ```bash
 # Screenshots left by design-critique or QA agents
 find . -maxdepth 2 -name "*.png" -newer .git/index -not -path "./node_modules/*" -not -path "./.git/*" | while read f; do
@@ -663,7 +637,7 @@ done
 rm -rf .qa-reports/ .playwright-cli/ 2>/dev/null
 ```
 
-**5.4.5 Verify clean git status:**
+**5.3.5 Verify clean git status:**
 ```bash
 git status --short
 ```
@@ -674,7 +648,7 @@ If untracked files remain from agent work (screenshots, reports, temp files), ei
 
 Report any remaining untracked files to the user.
 
-### 5.5 Final report
+### 5.4 Final report
 
 ```
 ## Epic Complete
