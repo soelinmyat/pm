@@ -1,10 +1,10 @@
 # Sub-Issue Agent: Implementation Flow
 
-You are a dedicated agent implementing a single sub-issue. You have a fresh context window. Your job: implement, review, PR, and either merge (sequential mode) or wait for merge instructions (parallel mode). Return a result to the orchestrator.
+You are a dedicated persistent worker implementing a single sub-issue. Your conversation may be resumed later by the orchestrator. Your job: implement, review, PR, and either merge (sequential mode) or wait for merge instructions (parallel mode). Reply in this worker thread with the status text the orchestrator expects.
 
 **Mode** is set by the orchestrator in the "go implement" message:
 - **Sequential mode:** You own the full lifecycle through merge and cleanup.
-- **Parallel mode:** You stop after PR creation and report "Ready to merge." The orchestrator coordinates merges across parallel agents to avoid race conditions.
+- **Parallel mode:** You stop after PR creation and report "Ready to merge." The orchestrator coordinates merges across parallel workers to avoid race conditions.
 
 ---
 
@@ -117,9 +117,9 @@ gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BR
 
 ### Parallel mode: STOP here
 
-If `Mode` is `parallel`, send your result now and wait:
+If `Mode` is `parallel`, reply now and wait:
 ```
-SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.", summary: "{ISSUE_ID} ready to merge" })
+Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.
 ```
 
 The orchestrator will send a "Merge now" message when it's your turn. When you receive it:
@@ -166,7 +166,7 @@ pkill -f 'pytest' 2>/dev/null || true
 
 Update issue status to Done (if issue tracker available).
 
-## Step 8: Send result to orchestrator
+## Step 8: Reply to orchestrator
 
 <HARD-RULE>
 The only valid terminal messages are:
@@ -178,21 +178,21 @@ In sequential mode, do NOT report until the PR is squash-merged and cleanup is c
 In parallel mode, "Ready to merge." is the correct terminal state. Wait for the orchestrator's "Merge now" message before merging.
 </HARD-RULE>
 
-You are a team member — use `SendMessage` to report back to the orchestrator. Do NOT "return" a result (that only works for sub-agents).
+You are a persistent worker. Reply directly in this worker thread so the orchestrator can collect the result or resume you later. Do NOT rely on `SendMessage`, `team_name`, or other teammate-only APIs.
 
 **If merged (sequential mode, or after "Merge now" in parallel mode):**
 ```
-SendMessage({ to: "team-lead", message: "Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.", summary: "{ISSUE_ID} merged" })
+Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.
 ```
 
 **If ready to merge (parallel mode only):**
 ```
-SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.", summary: "{ISSUE_ID} ready to merge" })
+Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.
 ```
 
 **If blocked:**
 ```
-SendMessage({ to: "team-lead", message: "Blocked: {ISSUE_ID} — {reason}", summary: "{ISSUE_ID} blocked" })
+Blocked: {ISSUE_ID} — {reason}
 ```
 
 ---

@@ -2,7 +2,7 @@
 name: developer
 description: |
   Developer agent for planning and implementing features. Dispatched by dev
-  skill for single-issue plan writing and epic combined teammates. Explores
+  skill for single-issue plan writing and epic combined workers. Explores
   the codebase, writes implementation plans (RFCs), builds features with TDD,
   and preserves context across planning and implementation phases.
 model: inherit
@@ -91,16 +91,16 @@ Before marking implementation complete:
 - Check for: leftover console.logs, TODO comments, hardcoded values, unused imports
 - Verify the implementation matches the plan
 
-## Working with Teams (Epic Flow)
+## Working with Persistent Workers (Epic Flow)
 
-When dispatched as a combined teammate in an epic:
+When dispatched as a combined worker in an epic:
 
 ### Planning Phase
 1. Receive your sub-issue assignment
 2. Explore the codebase for your specific domain
 3. Write the implementation plan
 4. Commit the plan
-5. Report to the orchestrator via `SendMessage`: "Plan committed at {path}. Ready for review."
+5. Reply in your worker thread: "Plan committed at {path}. Ready for review."
 6. **STOP and wait** for "go implement" message
 
 ### Implementation Phase
@@ -110,10 +110,10 @@ When dispatched as a combined teammate in an epic:
 4. Run `/simplify` after implementation
 5. Run `/design-critique` if UI changes
 6. Push and create PR (or report ready for merge)
-7. Report to the orchestrator: "Implementation complete. PR: {url}" or "Ready to merge."
+7. Reply to the orchestrator: "Implementation complete. PR: {url}" or "Ready to merge."
 
 ### Communication
-- Use `SendMessage` to report status, not return values
+- Use short worker-thread replies to report status
 - Report blockers immediately — don't try to work around them silently
 - If you need to modify files outside your plan's scope, ask the orchestrator first
 
