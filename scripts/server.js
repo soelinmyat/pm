@@ -956,7 +956,7 @@ a.groom-session:hover { background: #1e2240; }
 .proposal-card h3 { margin-top: 0; }
 .proposal-card h3 { margin: 0 0 0.25rem; }
 .proposal-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
-.proposal-card.draft { border-style: dashed; border-color: #2a3545; cursor: default; opacity: 0.85; }
+.proposal-card.draft { border-style: dashed; border-color: #2a3545; cursor: default; opacity: 0.85; padding: 0.5rem 1rem; }
 .proposal-card.draft:hover { box-shadow: var(--shadow-sm); transform: none; }
 .badge-draft { background: #1a2040; color: #818cf8; }
 .proposals-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
@@ -2710,6 +2710,7 @@ const GROOM_PHASE_LABELS = {
   'bar-raiser': 'Bar Raiser',
   'present': 'Presentation',
   'link': 'Linking Issues',
+  'done': 'Done',
 };
 
 function groomPhaseLabel(phase) {
@@ -2731,6 +2732,7 @@ function readGroomState(pmDir) {
         const raw = fs.readFileSync(path.join(sessionsDir, file), 'utf-8');
         const { data } = parseFrontmatter(raw);
         if (typeof data.topic === 'string' && data.topic.trim() !== '') {
+          if (data.phase === 'done') continue; // skip completed sessions
           sessions.push({ ...data, _slug: file.replace('.md', '') });
         }
       } catch {}
@@ -2807,10 +2809,9 @@ function readActiveDesignSessions(pmDir) {
 
       // Verify the server process is still running
       const pidPath = path.join(sessionDir, '.server.pid');
-      if (fs.existsSync(pidPath)) {
-        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
-        try { process.kill(pid, 0); } catch { continue; } // process dead
-      }
+      if (!fs.existsSync(pidPath)) continue; // no pid file — stale session
+      const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+      try { process.kill(pid, 0); } catch { continue; } // process dead
 
       // Get the newest HTML file to determine the session topic
       const htmlFiles = fs.readdirSync(sessionDir).filter(f => f.endsWith('.html')).sort();

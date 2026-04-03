@@ -9,11 +9,7 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 ## Session Greeting
 
-When this skill loads at session start, prepend a brief project status to the top of your first response (before addressing whatever the user asked). Look for these in the hook output within `<system-reminder>` tags:
-
-1. **Dashboard URL** — if present (e.g., `Dashboard: http://localhost:...`), show it
-2. **Project pulse** — if present (attention line, backlog shape, suggested next), show all lines
-3. **Advisories** — if present (e.g., missing CLAUDE.md, .gitignore suggestions), mention briefly
+When this skill loads at session start, prepend a brief project status to the top of your first response (before addressing whatever the user asked). Look for `<SESSION_PULSE>` tags in the `<system-reminder>` that contains this skill. The pulse contains the dashboard URL and project health lines.
 
 Format the greeting like this:
 
@@ -23,11 +19,9 @@ Dashboard: {url}
 {attention line}
 {backlog shape line}
 {suggested next line}
-
-{any advisories, one line each}
 ```
 
-If no pulse data is in the hook output, skip the project section. If no dashboard URL, skip that line. Keep it short — no filler, no "welcome back", no explanation of what the lines mean. Just present the data, then continue with the user's request.
+If no `<SESSION_PULSE>` tag is present, skip the greeting entirely. Keep it short — no filler, no "welcome back", no explanation of what the lines mean. Just present the data, then continue with the user's request.
 
 # Using Plugin Skills
 

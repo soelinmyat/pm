@@ -27,7 +27,19 @@ escape_for_json() {
 }
 
 using_dev_escaped=$(escape_for_json "$using_dev_content")
-session_context="<EXTREMELY_IMPORTANT>\nYou have plugin skills.\n\n**Below is the full content of your 'using-pm' skill — your guide to using plugin skills. For all other skills, use the 'Skill' tool:**\n\n${using_dev_escaped}\n</EXTREMELY_IMPORTANT>"
+
+# Run auto-launch.sh to get dashboard URL + project pulse.
+# Its stdout was previously a separate hook, but Claude Code only surfaces one
+# plain-text hook output per SessionStart event, so we embed it here instead.
+pulse_output=$("$PLUGIN_ROOT/hooks/auto-launch.sh" 2>/dev/null || true)
+
+pulse_section=""
+if [ -n "$pulse_output" ]; then
+  pulse_escaped=$(escape_for_json "$pulse_output")
+  pulse_section="<SESSION_PULSE>\n${pulse_escaped}\n</SESSION_PULSE>\n\n"
+fi
+
+session_context="${pulse_section}<EXTREMELY_IMPORTANT>\nYou have plugin skills.\n\n**Below is the full content of your 'using-pm' skill — your guide to using plugin skills. For all other skills, use the 'Skill' tool:**\n\n${using_dev_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON
 # Claude Code expects hookSpecificOutput.additionalContext
