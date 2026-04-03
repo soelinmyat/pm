@@ -2283,6 +2283,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .issue-outcome { font-size: 0.9rem; color: #555; margin-bottom: 0.75rem; font-style: italic; padding-left: 0.75rem; border-left: 2px solid #e5e7eb; }
 details { margin-top: 0.5rem; }
 summary { font-size: 0.85rem; font-weight: 600; color: #7c3aed; cursor: pointer; }
+.issue-priority { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: auto; }
+.issue-priority-critical { background: #fef2f2; color: #991b1b; }
+.issue-priority-high { background: #fff7ed; color: #9a3412; }
+.issue-priority-medium { background: #fefce8; color: #854d0e; }
+.issue-priority-low { background: #f0fdf4; color: #166534; }
+.issue-label { font-size: 0.65rem; font-weight: 500; padding: 0.1rem 0.4rem; border-radius: 4px; background: #f3f4f6; color: #6b7280; margin-left: 0.25rem; }
 .ac-list { font-size: 0.88rem; padding-left: 1.25rem; color: #555; margin-top: 0.5rem; }
 .ac-list li { margin-bottom: 0.25rem; }
 .ac-list li::marker { color: #7c3aed; }
@@ -2292,9 +2298,12 @@ summary { font-size: 0.85rem; font-weight: 600; color: #7c3aed; cursor: pointer;
 .mermaid { text-align: center; }
 
 /* Wireframes */
-.wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 0.75rem; }
-.wireframe-embed { min-height: 500px; }
-.wireframe-embed iframe { width: 100%; height: 500px; border: none; }
+.wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 1rem; }
+.wireframe-embed iframe { width: 100%; height: 520px; border: none; background: #f8f9fa; }
+.wireframe-chrome { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+.wireframe-chrome-title { font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+.wireframe-chrome-open { font-size: 0.75rem; color: #7c3aed; text-decoration: none; font-weight: 500; }
+.wireframe-chrome-open:hover { text-decoration: underline; }
 .section-scroll { max-height: 700px; overflow-y: auto; }
 .wireframe-link { font-size: 0.85rem; color: #7c3aed; text-decoration: none; font-weight: 500; }
 
@@ -2688,41 +2697,83 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
       }
       const wfSlugArr = Array.from(wfSlugs);
       for (const wfSlug of wfSlugArr) {
-        wfBody += `<div class="wireframe-embed"><iframe src="/backlog/wireframes/${encodeURIComponent(wfSlug)}/raw"></iframe></div>`;
+        // Extract title from wireframe HTML for the chrome header
+        let wfTitle = wfSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        try {
+          const wfHtml = fs.readFileSync(path.join(wfDir, wfSlug + '.html'), 'utf-8');
+          const titleMatch = wfHtml.match(/<title>(?:Wireframe:\s*)?(.+?)<\/title>/i);
+          if (titleMatch) wfTitle = titleMatch[1].trim();
+        } catch {}
+        wfBody += `<div class="wireframe-embed"><div class="wireframe-chrome"><span class="wireframe-chrome-title">${esc(wfTitle)}</span><a href="/backlog/wireframes/${encodeURIComponent(wfSlug)}" class="wireframe-chrome-open" target="_blank">Open in new tab &nearr;</a></div><iframe src="/backlog/wireframes/${encodeURIComponent(wfSlug)}/raw"></iframe></div>`;
       }
       if (wfBody) {
-        const viewWfLink = wfSlugArr.length === 1
-          ? `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframe &rarr;</a>`
-          : `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframes &rarr;</a>`;
-        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes ${viewWfLink}</div><div class="section-scroll">${wfBody}</div></div>`;
+        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes</div><div class="section-scroll">${wfBody}</div></div>`;
       } else if (groomed || currentPhase === 'groom') {
-        sections += ppPlaceholder('wireframes', PP_ICONS.wireframe, 'Wireframes', 'Pending wireframe generation');
+        // Distinguish "deliberately empty" (wireframes: []) from "not yet generated" (wireframes undefined)
+        const wfExplicitlyEmpty = session.wireframes === '[]' || (Array.isArray(session.wireframes) && session.wireframes.length === 0);
+        if (wfExplicitlyEmpty) {
+          sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes <span class="verdict-badge caution" style="margin-left:auto;">skipped</span></div><p style="color:#999;">No wireframes needed — UI changes applied directly.</p></div>`;
+        } else {
+          sections += ppPlaceholder('wireframes', PP_ICONS.wireframe, 'Wireframes', 'Pending wireframe generation');
+        }
       }
     }
 
     // Issues
     if (issueCount > 0) {
-      let issBody = '';
+      // Read all issue data and determine parent/child relationships
+      const issueData = [];
       for (const iss of (session.issues || [])) {
         const issuePath = path.resolve(pmDir, 'backlog', (iss.slug || '') + '.md');
-        let outcome = '', issueId = '', acList = '';
+        const entry = { slug: iss.slug || '', title: iss.title || iss.slug || '', outcome: '', id: '', parent: null, priority: '', labels: [], acItems: [] };
         if (fs.existsSync(issuePath)) {
           try {
             const raw = fs.readFileSync(issuePath, 'utf-8');
             const { data } = parseFrontmatter(raw);
-            outcome = data.outcome || '';
-            issueId = data.id || '';
+            entry.outcome = data.outcome || '';
+            entry.id = data.id || '';
+            entry.parent = (data.parent && data.parent !== 'null') ? data.parent : null;
+            entry.priority = data.priority || '';
+            if (data.labels) {
+              entry.labels = typeof data.labels === 'string' ? [data.labels] : (Array.isArray(data.labels) ? data.labels : []);
+            }
             const acMatch = raw.match(/## Acceptance Criteria\n([\s\S]*?)(?=\n## )/);
             if (acMatch) {
-              const items = acMatch[1].trim().split('\n').filter(l => /^\d+\./.test(l.trim()));
-              if (items.length) acList = '<details><summary>Acceptance Criteria (' + items.length + ')</summary><ol class="ac-list">' + items.map(i => `<li>${esc(i.replace(/^\d+\.\s*/, ''))}</li>`).join('') + '</ol></details>';
+              entry.acItems = acMatch[1].trim().split('\n').filter(l => /^\d+\./.test(l.trim())).map(i => i.replace(/^\d+\.\s*/, ''));
             }
           } catch {}
         }
-        issBody += `<div class="issue-card parent"><div class="issue-header">${issueId ? `<span class="issue-id">${esc(String(issueId))}</span>` : ''}<span class="issue-title">${esc(String(iss.title || iss.slug))}</span></div>
-  ${outcome ? `<div class="issue-outcome">${esc(String(outcome))}</div>` : ''}${acList}</div>`;
+        issueData.push(entry);
       }
-      sections += `<div class="section" id="issues"><div class="section-title"><span class="icon">${PP_ICONS.issues}</span> Issue Breakdown</div><p class="section-lead">${issueCount} issue${issueCount !== 1 ? 's' : ''} drafted.</p><div class="issue-group">${issBody}</div></div>`;
+
+      // Separate parents and children
+      const parentSlugs = new Set(issueData.filter(i => !i.parent).map(i => i.slug));
+      const renderCard = (entry, isChild) => {
+        const cls = isChild ? 'child' : 'parent';
+        const idBadge = entry.id ? `<span class="issue-id">${esc(String(entry.id))}</span>` : '';
+        const priorityBadge = entry.priority ? `<span class="issue-priority issue-priority-${esc(entry.priority)}">${esc(entry.priority)}</span>` : '';
+        const labelHtml = entry.labels.length > 0 ? entry.labels.map(l => `<span class="issue-label">${esc(String(l))}</span>`).join('') : '';
+        const acList = entry.acItems.length > 0 ? `<details><summary>Acceptance Criteria (${entry.acItems.length})</summary><ol class="ac-list">${entry.acItems.map(i => `<li>${esc(i)}</li>`).join('')}</ol></details>` : '';
+        return `<div class="issue-card ${cls}"><div class="issue-header">${idBadge}<span class="issue-title">${esc(String(entry.title))}</span>${priorityBadge}${labelHtml}</div>${entry.outcome ? `<div class="issue-outcome">${esc(String(entry.outcome))}</div>` : ''}${acList}</div>`;
+      };
+
+      let issBody = '';
+      const parentCount = issueData.filter(i => !i.parent).length;
+      const childCount = issueData.filter(i => i.parent).length;
+      // Render parents first, then their children
+      for (const parent of issueData.filter(i => !i.parent)) {
+        issBody += renderCard(parent, false);
+        for (const child of issueData.filter(i => i.parent === parent.slug)) {
+          issBody += renderCard(child, true);
+        }
+      }
+      // Render orphan children (parent not in this session) as parents
+      for (const orphan of issueData.filter(i => i.parent && !parentSlugs.has(i.parent))) {
+        issBody += renderCard(orphan, false);
+      }
+
+      const leadText = childCount > 0 ? `${parentCount} epic${parentCount !== 1 ? 's' : ''}, ${childCount} child issue${childCount !== 1 ? 's' : ''}.` : `${issueCount} issue${issueCount !== 1 ? 's' : ''} drafted.`;
+      sections += `<div class="section" id="issues"><div class="section-title"><span class="icon">${PP_ICONS.issues}</span> Issue Breakdown</div><p class="section-lead">${leadText}</p><div class="issue-group">${issBody}</div></div>`;
     } else {
       sections += ppPlaceholder('issues', PP_ICONS.issues, 'Issue Breakdown', 'Pending issue drafting');
     }
@@ -2732,16 +2783,23 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   if (phases.includes('team-review')) {
     const tr = session.team_review;
     if (tr && tr.pm_verdict) {
-      let revBody = '<div class="review-cards">';
-      if (tr.pm_verdict) revBody += ppReviewCard('Product Manager', tr.pm_verdict);
-      if (tr.competitive_verdict) revBody += ppReviewCard('Competitive', tr.competitive_verdict);
-      if (tr.em_verdict) revBody += ppReviewCard('Engineering', tr.em_verdict);
-      if (tr.design_verdict) revBody += ppReviewCard('Design', tr.design_verdict);
-      revBody += '</div>';
+      const addTeamReviewer = (avatar, role, verdict, summary) => {
+        const v = String(verdict);
+        const cls = /ready|ship|feasible|strengthens|complete|sharp/.test(v) ? 'ready' : /if|caveat/.test(v) ? 'caution' : 'blocked';
+        const desc = summary || v;
+        return `<div class="reviewer-row"><img src="/assets/${avatar}" class="reviewer-avatar" alt="${esc(role)}"><div class="reviewer-content"><div class="reviewer-header"><strong>${esc(role)}</strong> <span class="verdict-badge ${cls}">${esc(v)}</span></div><div class="reviewer-summary">${esc(desc)}</div></div></div>`;
+      };
+      let revBody = '';
+      if (tr.pm_verdict) revBody += addTeamReviewer('reviewer-pm.png', 'Product Manager', tr.pm_verdict, tr.pm_summary);
+      if (tr.competitive_verdict) revBody += addTeamReviewer('reviewer-competitive.png', 'Competitive Strategist', tr.competitive_verdict, tr.competitive_summary);
+      if (tr.em_verdict) revBody += addTeamReviewer('reviewer-engineering.png', 'Engineering Manager', tr.em_verdict, tr.em_summary);
+      if (tr.design_verdict && tr.design_verdict !== 'null') revBody += addTeamReviewer('reviewer-designer.png', 'UX Designer', tr.design_verdict, tr.design_summary);
+      const iterLabel = (tr.iterations || 1) === 1 ? '1 iteration' : `${tr.iterations} iterations`;
+      const fixLabel = (tr.blocking_issues_fixed || 0) > 0 ? `, ${tr.blocking_issues_fixed} blocking issue${tr.blocking_issues_fixed > 1 ? 's' : ''} fixed` : '';
       if (tr.conditions && tr.conditions.length > 0) {
-        revBody += '<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">' + tr.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+        revBody += `<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">` + tr.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
       }
-      sections += `<div class="section" id="review"><div class="section-title"><span class="icon">${PP_ICONS.review}</span> Review Summary</div><p class="section-lead">${tr.iterations || 1} iteration(s), ${tr.blocking_issues_fixed || 0} issues fixed.</p>${revBody}</div>`;
+      sections += `<div class="section" id="review"><div class="section-title"><span class="icon">${PP_ICONS.review}</span> Review Summary</div><p class="section-lead">${iterLabel}${fixLabel}.</p>${revBody}</div>`;
     } else {
       sections += ppPlaceholder('review', PP_ICONS.review, 'Review Summary', 'Pending team review');
     }
@@ -2755,7 +2813,7 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
       const vLabel = { ready: 'Ready to Build', 'ready-if': 'Ready (with conditions)', 'send-back': 'Sent Back', pause: 'Paused' };
       let vBody = `<p class="section-lead"><span class="verdict-badge ${vCls}" style="font-size:1rem;padding:0.4rem 1rem;">${esc(vLabel[br.verdict] || br.verdict)}</span></p>`;
       if (br.conditions && br.conditions.length > 0) {
-        vBody += '<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">' + br.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
+        vBody += `<div class="advisory-card"><h3>${PP_ICONS.warning} Conditions</h3><ul class="advisory-list">` + br.conditions.map(c => `<li>${esc(String(c))}</li>`).join('') + '</ul></div>';
       }
       sections += `<div class="section" id="verdict"><div class="section-title"><span class="icon">${PP_ICONS.verdict}</span> Final Verdict</div>${vBody}</div>`;
     } else {
@@ -2911,7 +2969,7 @@ const GROOM_PHASE_LABELS = {
   'intake': 'Intake',
   'strategy-check': 'Strategy Check',
   'research': 'Research',
-  'scope': 'Scoping',
+  'scope': 'Scope',
   'scope-review': 'Scope Review',
   'design': 'Design',
   'groom': 'Issue Drafting',

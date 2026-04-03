@@ -52,7 +52,7 @@ Then list only blocking items as bullets. Advisory items after user acknowledges
 >
 > No blocking issues. 2 advisory notes — want to see them?
 
-### Team review (Phase 5.5 — parallel agents)
+### Team review (Phase 6 — parallel agents)
 
 **Before:** Dense per-reviewer sections, 60+ lines. Verdict buried after preamble.
 **After:**

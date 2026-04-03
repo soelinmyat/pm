@@ -1,6 +1,6 @@
-### Phase 3.5: Design Exploration (optional)
+### Phase 5: Design Exploration
 
-Turn ideas into fully formed designs through collaborative dialogue. This phase runs when the feature needs design work — UI features, new components, architectural decisions, or anything where "what are we building?" isn't obvious from the scope alone.
+Turn scope into fully formed designs through collaborative dialogue. This phase runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed, not *what* to build. Applies to UI features, new components, architectural decisions, or anything where the implementation shape isn't obvious from the scope alone.
 
 **For UI features:** Mockups use the project's real design system (colors, typography, spacing, components) rendered as static HTML+Tailwind. This produces high-fidelity visuals identical to the running app, enabling meaningful design review during grooming — before any implementation begins.
 
@@ -12,7 +12,7 @@ Turn ideas into fully formed designs through collaborative dialogue. This phase 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 <HARD-GATE>
-Do NOT proceed to Phase 4 (Scope) until the design is presented and the user has approved it.
+Do NOT proceed to Phase 5.5 (Groom / Issue Drafting) until the design is presented and the user has approved it.
 For UI features: high-fidelity mockups MUST be reviewed before proceeding.
 </HARD-GATE>
 
@@ -143,7 +143,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
 8. **User reviews spec** — ask user to review the written spec before proceeding:
    > "Spec written to `<path>`. Review it and let me know of any changes before we proceed to scoping."
 
-9. **Proceed to Phase 4 (Scope)** — with the design doc as the shared understanding of what's being built.
+9. **Proceed to Phase 5.5 (Groom / Issue Drafting)** — with the design doc as the shared understanding of what's being built.
 
 ---
 

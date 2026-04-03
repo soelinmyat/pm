@@ -1,4 +1,4 @@
-### Phase 5.8: Present to User
+### Phase 7: Present to User
 
 Present the reviewed, iterated proposal as a self-contained HTML presentation in the browser. The terminal is not the medium for an executive-ready package.
 
@@ -33,7 +33,7 @@ Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Wor
 2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
 4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
-5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
+5. **Wireframes.** Embed via `<iframe>` if generated (with chrome header showing title + "Open in new tab" link). If `wireframes: []` in state, show "No wireframes needed — UI changes applied directly" with a "skipped" badge. Omit section entirely for non-UI features that never addressed wireframes.
 6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
 8. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID badge, title, outcome, labels, numbered ACs.
@@ -87,7 +87,7 @@ Write `.pm/sessions/groom-{slug}/current.html` with:
   <h2>Session Summary</h2>
   <table>
     <tbody>
-      <tr><th style="width:40%;">Phases completed</th><td>{count} of 9</td></tr>
+      <tr><th style="width:40%;">Phases completed</th><td>{count} of 10</td></tr>
       <tr><th>Issues drafted</th><td>{issue count}</td></tr>
       <tr><th>Scope review iterations</th><td>{scope_review.iterations}</td></tr>
       <tr><th>Team review iterations</th><td>{team_review.iterations}</td></tr>
@@ -115,7 +115,7 @@ Tell the user:
 
 Wait for explicit approval. Accept edits inline. If the user requests changes:
 - For minor edits (wording, AC tweaks): revise issues and regenerate the presentation. No need to re-run reviews.
-- For scope changes (adding/removing in-scope items): re-run from Phase 5.5 (Team Review).
+- For scope changes (adding/removing in-scope items): re-run from Phase 6 (Team Review).
 
 Update state:
 

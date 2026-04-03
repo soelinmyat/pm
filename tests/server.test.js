@@ -121,11 +121,9 @@ function httpRequest(port, method, urlPath, data) {
 // 1. --mode dashboard flag is parsed
 // ---------------------------------------------------------------------------
 
-test('--mode dashboard flag is parsed correctly', () => {
+test('dashboard server is always the default mode', () => {
   const mod = loadServer();
-  assert.equal(typeof mod.parseMode, 'function', 'parseMode must be exported');
-  const mode = mod.parseMode(['node', 'server.js', '--mode', 'dashboard']);
-  assert.equal(mode, 'dashboard');
+  assert.equal(typeof mod.createDashboardServer, 'function', 'createDashboardServer must be exported');
 });
 
 // ---------------------------------------------------------------------------
@@ -936,11 +934,10 @@ test('start-server.sh launches dashboard mode against the provided project direc
 
     const startScript = path.join(__dirname, '..', 'scripts', 'start-server.sh');
     const stopScript = path.join(__dirname, '..', 'scripts', 'stop-server.sh');
-    const { stdout } = await execFileAsync(startScript, ['--project-dir', root, '--mode', 'dashboard', '--background']);
+    const { stdout } = await execFileAsync(startScript, ['--project-dir', root, '--background']);
     const info = JSON.parse(stdout.trim());
 
     assert.ok(info.url, 'start-server.sh must return a dashboard URL');
-    assert.ok(info.screen_dir, 'start-server.sh must return screen_dir for cleanup');
 
     const url = new URL(info.url);
     const { statusCode: homeStatus, body: homeBody } = await httpGet(Number(url.port), '/');
@@ -952,7 +949,7 @@ test('start-server.sh launches dashboard mode against the provided project direc
     assert.equal(researchStatus, 200);
     assert.ok(researchBody.includes('Market Landscape'), 'KB research tab must read the project knowledge base');
 
-    await execFileAsync(stopScript, [info.screen_dir]);
+    await execFileAsync(stopScript, [info.screen_dir || root]);
   } finally {
     cleanup();
   }
@@ -969,19 +966,20 @@ test('Dashboard nav shows two-tier navigation', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, '/');
-      // Primary nav
-      const primaryMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      // Primary nav on home page
+      const { body: homeBody } = await httpGet(port, '/');
+      const primaryMatch = homeBody.match(/<nav>([\s\S]*?)<\/nav>/);
       assert.ok(primaryMatch, 'page must have a primary nav element');
       const primaryHtml = primaryMatch[1];
       assert.ok(primaryHtml.includes('>Home</a>'), 'primary nav must show Home');
       assert.ok(primaryHtml.includes('>Proposals</a>'), 'primary nav must show Proposals');
       assert.ok(primaryHtml.includes('>Backlog</a>'), 'primary nav must show Backlog');
-      assert.ok(!primaryHtml.includes('Knowledge Base'), 'primary nav must NOT show Knowledge Base');
-      // Secondary nav
-      assert.ok(body.includes('nav-secondary'), 'page must have secondary nav');
-      const secMatch = body.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
-      assert.ok(secMatch, 'page must have a nav-secondary element');
+      assert.ok(primaryHtml.includes('Knowledge Base'), 'primary nav must show Knowledge Base');
+      // Secondary nav on KB page
+      const { body: kbBody } = await httpGet(port, '/kb?tab=research');
+      assert.ok(kbBody.includes('nav-secondary'), 'KB page must have secondary nav');
+      const secMatch = kbBody.match(/<nav class="nav-secondary">([\s\S]*?)<\/nav>/);
+      assert.ok(secMatch, 'KB page must have a nav-secondary element');
       const secHtml = secMatch[1];
       assert.ok(secHtml.includes('>Strategy</a>'), 'secondary nav must show Strategy');
       assert.ok(secHtml.includes('>Research</a>'), 'secondary nav must show Research');

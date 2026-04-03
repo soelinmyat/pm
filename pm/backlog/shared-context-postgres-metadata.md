@@ -13,7 +13,7 @@ priority: high
 research_refs:
   - pm/research/shared-context/findings.md
 created: 2026-03-30
-updated: 2026-03-30
+updated: 2026-04-03
 ---
 
 ## Outcome
@@ -48,4 +48,5 @@ A Postgres database on Neon free tier stores user and project metadata. The API 
 - No dependencies on PM-069 or PM-070 — can be built in parallel.
 - v1 adds tables: `changelog`, `billing_subscriptions`, `invite_tokens`.
 - Neon free tier: 0.5GB storage, 100 hours compute/month. More than enough.
-- PM-073 (CLI commands) and PM-074 (project detection) depend on this.
+- PM-073 (MCP server) and PM-074 (project detection) depend on this.
+- Lives in the `product-memory` repo (private).

@@ -1,4 +1,4 @@
-### Phase 6: Link (optional)
+### Phase 8: Link (optional)
 
 1. Check if Linear is configured AND available:
    - Read `.pm/config.json` for `linear: true`
@@ -35,16 +35,21 @@
 
    - `{TOPIC}`: the topic from groom state
    - `{PHASE_LABEL}`: "Linking Issues"
-   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `present` as completed (all phases complete — Phase 6 is post-presentation)
+   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `present` as completed (all phases complete — Phase 8 is post-presentation)
    - `{CONTENT}`:
      ```html
      <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
-       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 6: Linking Issues — in progress</p>
+       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 8: Linking Issues — in progress</p>
      </div>
      ```
 
    Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
    Do not mention this step to the user.
+
+5.5. **Emit event — groom complete:**
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "groom_complete" "${SLUG:-groom-$$}" "{\"issue_count\":${ISSUE_COUNT},\"topic\":\"${TOPIC}\"}"
+   ```
 
 6. **Update state:**
 
@@ -102,7 +107,7 @@ issues:
    Read `.pm/groom-sessions/{slug}.md` and parse the frontmatter. If the file is missing or the frontmatter cannot be parsed, log a warning:
    > "Could not read session state for learning extraction — skipping."
 
-   and proceed to step 10.
+   and proceed to step 9.
 
    Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 10 with no output.
 

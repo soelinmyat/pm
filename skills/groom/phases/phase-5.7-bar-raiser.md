@@ -1,4 +1,4 @@
-### Phase 5.7: Bar Raiser Review
+### Phase 6.5: Bar Raiser Review
 
 **Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
 
@@ -30,11 +30,11 @@ prompt: |
 
 **Handling bar raiser findings:**
 
-1. If verdict is **"Ready to present"**: proceed to Phase 5.8.
-2. If verdict is **"Ready if {condition}"**: persist the condition in `bar_raiser.conditions` in the state file. If the bar raiser also lists blocking issues, those must be fixed first (treat as "Send back" until resolved, then re-assess). If no blocking issues, treat as "Ready to present" and surface the condition to the user in Phase 5.8 as an open item requiring acknowledgment before approval.
+1. If verdict is **"Ready to present"**: proceed to Phase 7 (Present).
+2. If verdict is **"Ready if {condition}"**: persist the condition in `bar_raiser.conditions` in the state file. If the bar raiser also lists blocking issues, those must be fixed first (treat as "Send back" until resolved, then re-assess). If no blocking issues, treat as "Ready to present" and surface the condition to the user in Phase 7 as an open item requiring acknowledgment before approval.
 3. If verdict is **"Send back to team"**:
    - Address the bar raiser's blocking issues by revising the affected issues
-   - Re-run Phase 5.5 (Team Review) with the revised issues — the team must validate the fixes
+   - Re-run Phase 6 (Team Review) with the revised issues — the team must validate the fixes
    - After team review converges, re-run the bar raiser
    - Max **2 bar raiser iterations**. If iteration 2 still returns "Send back," present to the user with unresolved concerns flagged.
 4. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.

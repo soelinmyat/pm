@@ -83,14 +83,14 @@ Wait for the user's answer. If they confirm, proceed. If they pick a different t
 | 1. Intake | Yes | Yes | Yes |
 | 2. Strategy Check | Skip | Yes | Yes |
 | 3. Research | Skip | Yes (quick mode) | Yes (full mode) |
-| 3.5. Design | Skip | If UI feature | Yes |
 | 4. Scope | Yes (lightweight) | Yes | Yes |
 | 4.5. Scope Review | Skip | Yes (PM + EM only, 2 agents) | Yes (3 agents) |
-| 5. Groom | Yes (draft issues) | Yes | Yes |
-| 5.5. Team Review | Skip | Skip | Yes (3-4 agents) |
-| 5.7. Bar Raiser | Skip | Skip | Yes |
-| 5.8. Present | Skip | Skip | Yes |
-| 6. Link | Yes | Yes | Yes |
+| 5. Design | Skip | If UI feature | Yes |
+| 5.5. Groom | Yes (draft issues) | Yes | Yes |
+| 6. Team Review | Skip | Skip | Yes (3-4 agents) |
+| 6.5. Bar Raiser | Skip | Skip | Yes |
+| 7. Present | Skip | Skip | Yes |
+| 8. Link | Yes | Yes | Yes |
 
 **Quick tier scope (Phase 4)** is lightweight: confirm in-scope / out-of-scope with the user in a single exchange. Skip the 10x filter, scope grid, and codebase reality check. The goal is a clear boundary, not a strategic evaluation.
 
@@ -151,8 +151,8 @@ Wait for the user's answer. If resuming: read the selected session file, skip co
 Phases run based on the tier determined during Tier Classification:
 
 - **Quick:** intake → scope (lightweight) → groom → link
-- **Standard:** intake → strategy check → research (quick) → design (if UI) → scope → scope review (2 agents) → groom → link
-- **Full:** intake → strategy check → research → design (optional) → scope → scope review → groom → team review → bar raiser → present → link
+- **Standard:** intake → strategy check → research (quick) → scope → scope review (2 agents) → design (if UI) → groom → link
+- **Full:** intake → strategy check → research → scope → scope review → design → groom → team review → bar raiser → present → link
 
 ---
 
@@ -192,14 +192,14 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 | 1. Intake | `phases/phase-1-intake.md` | All | Capture the idea, clarify, surface past learnings, derive slug, write initial state |
 | 2. Strategy Check | `phases/phase-2-strategy.md` | Standard, Full | Validate against priorities, non-goals, ICP |
 | 3. Research | `phases/phase-3-research.md` | Standard (quick), Full | Invoke pm:research for competitive and market intelligence |
-| 3.5. Design | `phases/phase-3.5-design.md` | Standard (if UI), Full | Collaborative design exploration, spec writing, visual companion |
 | 4. Scope | `phases/phase-4-scope.md` | All (Quick = lightweight) | Define in-scope / out-of-scope, apply 10x filter |
 | 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | Standard (2 agents), Full (3 agents) | Parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Groom | `phases/phase-5-groom.md` | All | Detect feature type, generate flows/wireframes, draft issues |
-| 5.5. Team Review | `phases/phase-5.5-team-review.md` | Full only | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
-| 5.7. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Full only | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 5.8. Present | `phases/phase-5.8-present.md` | Full only | Generate HTML proposal, open in browser, get user approval |
-| 6. Link | `phases/phase-6-link.md` | All | Create issues in Linear or local backlog, validate, retro prompt, learning extraction, clean up |
+| 5. Design | `phases/phase-3.5-design.md` | Standard (if UI), Full | Collaborative design exploration after scope is locked, spec writing, visual companion |
+| 5.5. Groom | `phases/phase-5-groom.md` | All | Detect feature type, generate flows/wireframes, draft issues |
+| 6. Team Review | `phases/phase-5.5-team-review.md` | Full only | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
+| 6.5. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Full only | Product Director holistic review with fresh eyes (max 2 iterations) |
+| 7. Present | `phases/phase-5.8-present.md` | Full only | Generate HTML proposal, open in browser, get user approval |
+| 8. Link | `phases/phase-6-link.md` | All | Create issues in Linear or local backlog, validate, retro prompt, learning extraction, clean up |
 
 **How to use:** At the start of each phase, check the tier in `.pm/groom-sessions/{slug}.md`. If the phase is not included for the current tier (see Tier → Phase mapping above), skip it and proceed to the next applicable phase. When entering an applicable phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
@@ -223,7 +223,7 @@ Each grooming session has its own state file at `.pm/groom-sessions/{slug}.md`, 
 ---
 topic: "{topic name}"
 tier: quick | standard | full
-phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
+phase: intake | strategy-check | research | scope | scope-review | design | groom | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 effective_verdict: ready | ready-if | send-back | pause | null
@@ -260,9 +260,13 @@ scope_review:
 
 team_review:
   pm_verdict: ready | ready-if | needs-revision | significant-gaps | null
+  pm_summary: "{one-line summary}" | null
   competitive_verdict: sharp | sharp-if | adequate | undifferentiated | null
+  competitive_summary: "{one-line summary}" | null
   em_verdict: ready | ready-if | needs-restructuring | missing-prerequisites | null
+  em_summary: "{one-line summary}" | null
   design_verdict: complete | complete-if | gaps | inconsistencies | null
+  design_summary: "{one-line summary}" | null
   conditions:
     - "{reviewer}: {condition text}"
   blocking_issues_fixed: 0

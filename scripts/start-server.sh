@@ -1,17 +1,14 @@
 #!/bin/bash
-# Start the PM companion server and output connection info
-# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--mode <companion|dashboard>] [--foreground] [--background]
+# Start the PM dashboard server and output connection info
+# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background]
 #
 # Starts server on a stable port derived from the project directory, outputs JSON with URL.
-# Each session gets its own directory to avoid conflicts.
 #
 # Options:
-#   --project-dir <path>  Store session files under <path>/.pm/sessions/
-#                         instead of the default. Files persist after server stops.
+#   --project-dir <path>  Project root directory (default: cwd).
 #   --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
 #                         Use 0.0.0.0 in remote/containerized environments.
 #   --url-host <host>     Hostname shown in returned URL JSON.
-#   --mode <mode>         Server mode: companion (default) or dashboard.
 #   --foreground          Run server in the current terminal (no backgrounding).
 #   --background          Force background mode (overrides Codex auto-foreground).
 
@@ -24,7 +21,6 @@ FOREGROUND="false"
 FORCE_BACKGROUND="false"
 BIND_HOST="127.0.0.1"
 URL_HOST=""
-MODE="companion"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project-dir)
@@ -40,7 +36,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mode)
-      MODE="$2"
+      # Deprecated — dashboard is now the only mode. Accept and ignore for backwards compat.
       shift 2
       ;;
     --foreground|--no-daemon)
@@ -80,12 +76,10 @@ else
   SCREEN_DIR="/tmp/pm-${SESSION_ID}"
 fi
 
-if [[ "$MODE" == "dashboard" ]]; then
-  if [[ -n "$PROJECT_DIR" ]]; then
-    DASHBOARD_DIR="${PROJECT_DIR}/pm"
-  else
-    DASHBOARD_DIR="${CALLER_DIR}/pm"
-  fi
+if [[ -n "$PROJECT_DIR" ]]; then
+  DASHBOARD_DIR="${PROJECT_DIR}/pm"
+else
+  DASHBOARD_DIR="${CALLER_DIR}/pm"
 fi
 
 PID_FILE="${SCREEN_DIR}/.server.pid"
@@ -135,21 +129,13 @@ fi
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
   echo "$$" > "$PID_FILE"
-  if [[ "$MODE" == "dashboard" ]]; then
-    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR"
-  else
-    env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE"
-  fi
+  env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR"
   exit $?
 fi
 
 # Start server, capturing output to log file
 # Use nohup to survive shell exit; disown to remove from job table
-if [[ "$MODE" == "dashboard" ]]; then
-  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
-else
-  nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --mode "$MODE" > "$LOG_FILE" 2>&1 &
-fi
+nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
 echo "$SERVER_PID" > "$PID_FILE"

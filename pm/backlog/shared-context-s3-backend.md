@@ -18,25 +18,27 @@ updated: 2026-03-30
 
 ## Outcome
 
-An `S3StorageProvider` implements the storage interface from PM-069. Files are stored in a versioned S3 bucket with prefix structure `users/{id}/projects/{id}/pm/`. Any overwritten file can be restored to a previous version.
+S3 serves as the durable storage layer for all knowledge base files. The API server (PM-070) reads/writes S3 and maintains a server-side cache (memory/Redis) for fast serving. Terminals never talk to S3 directly — they go through the API via the MCP server.
 
 ## Acceptance Criteria
 
-1. `S3StorageProvider` implements the full `StorageProvider` interface (read, write, list, exists, stat, delete).
+1. S3 module provides: `readFile`, `writeFile`, `listFiles`, `deleteFile`, `listVersions`, `readVersion`.
 2. Single S3 bucket with versioning enabled.
-3. Files stored at `users/{user_id}/projects/{project_id}/pm/{path}` keys.
+3. Files stored at `/ws-{id}/pm/{path}` keys.
 4. Previous versions retained automatically by S3 versioning.
-5. `listVersions(path)` method returns version history for a file.
+5. `listVersions(path)` returns version history for a file.
 6. `readVersion(path, versionId)` retrieves a specific version.
 7. Lifecycle policy: delete versions older than 90 days (configurable).
 8. Works with both AWS S3 and Cloudflare R2 (S3-compatible API).
-9. Integration tests verify read/write/list/version operations against a real bucket (or localstack for CI).
+9. ETag returned on every read/write — used by API for conflict detection on diff-based edits.
+10. Server-side cache layer sits between API and S3: reads served from cache (~5-10ms), cache invalidated on writes.
+11. Integration tests verify read/write/list/version operations against a real bucket (or localstack for CI).
 
 ## Technical Feasibility
 
-**Build-new:** `@aws-sdk/client-s3` integration. This is the first external dependency in the project — introduces `node_modules` and `package.json`.
+**Build-new:** `@aws-sdk/client-s3` integration. Lives in the `product-memory` repo (private), not the plugin repo.
 
-**Risk:** The zero-dependency posture breaks. S3 SDK pulls 20+ transitive deps. Consider using the S3 REST API directly with `node:https` + SigV4 signing to minimize dependencies. Trade-off: more code but no `node_modules`.
+**Risk:** S3 GET latency (50-200ms) per operation. Mitigated by server-side cache — first read hits S3, subsequent reads from memory/Redis. Small `.md` files mean the whole workspace fits in <50MB of cache.
 
 ## Research Links
 
@@ -46,5 +48,5 @@ An `S3StorageProvider` implements the storage interface from PM-069. Files are s
 
 - R2 is S3-compatible and has a generous free tier (10GB). Consider as default.
 - Bucket name: `pm-hub-{environment}` (e.g., `pm-hub-production`).
-- Depends on PM-069 (storage abstraction interface).
+- S3 is the **storage layer**, API + cache is the **serving layer**. Terminals never hit S3 directly.
 - PM-076 (hosted dashboard) and PM-078 (changelog/restore) depend on this.

@@ -14,7 +14,7 @@ priority: medium
 research_refs:
   - pm/research/shared-context/findings.md
 created: 2026-03-30
-updated: 2026-03-30
+updated: 2026-04-03
 ---
 
 ## Outcome
@@ -27,9 +27,9 @@ Projects with more than 1 member require a paid subscription. Stripe handles pay
 2. Stripe Checkout session created when user tries to add 2nd member without subscription.
 3. Stripe webhook handles: `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`.
 4. Subscription state stored in Postgres `billing_subscriptions` table.
-5. Seat count checked on `pm invite` / `pm join` — reject if at tier limit.
+5. Seat count checked on invite/join API endpoints — reject if at tier limit.
 6. Graceful degradation: if subscription lapses, existing members retain read access but cannot push. New members blocked.
-7. `pm billing` shows current plan, seat usage, next billing date.
+7. Billing info available via API endpoint and web dashboard.
 8. No annual pricing at launch. Monthly only.
 
 ## Technical Feasibility

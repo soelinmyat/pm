@@ -1,43 +1,46 @@
 ---
 type: backlog-issue
 id: "PM-073"
-title: "CLI commands: pm login, pm push, pm pull, pm status"
-outcome: "Users can sync their local pm/ knowledge base to and from the cloud hub via explicit commands"
+title: "MCP server: 5 tools for remote knowledge base access"
+outcome: "Any AI terminal can read/write the shared knowledge base via MCP tools — no sync, no local cache"
 status: drafted
 parent: "shared-context"
 children: []
 labels:
   - "feature"
-  - "cli"
+  - "mcp"
 priority: high
 research_refs:
   - pm/research/shared-context/findings.md
 created: 2026-03-30
-updated: 2026-03-30
+updated: 2026-04-03
 ---
 
 ## Outcome
 
-Four new CLI commands let users authenticate and sync their knowledge base. `pm login` authenticates via GitHub. `pm push` uploads local changes. `pm pull` downloads remote changes. `pm status` shows sync state.
+An MCP server with 5 tools (list, read, create, edit, delete) connects any AI terminal to the Product Memory API. No local sync or cache — the API is always the source of truth. The MCP server is a thin HTTP client that routes tool calls to the API.
 
 ## Acceptance Criteria
 
-1. `pm login` — initiates GitHub OAuth device flow. Displays user code + URL. Polls until approved. Stores JWT in system keychain. Prints "Logged in as {github_username}."
-2. `pm push` — compares local `pm/` files against remote file index. Uploads changed/new files. Deletes remote files not present locally. Prints summary: "Pushed N files (M new, K updated, J deleted)."
-3. `pm pull` — downloads remote files to local `pm/`. For v0 (single user): overwrites local with remote. If local has uncommitted changes, prompts "Local changes will be overwritten. Continue?" before proceeding. Agent-merge on conflict deferred to PM-075 (team sharing).
-4. `pm status` — shows sync state: files only local, files only remote, files modified on both sides. No network mutation.
-5. All commands read project from auto-detection (PM-074) or `.pm/config.json` hub settings.
-6. All commands fail gracefully without auth: "Not logged in. Run `pm login` first."
-7. All commands work offline with clear error: "Hub unreachable. Working locally."
-8. Commands implemented as plugin skills (invoked via `pm:login`, `pm:push`, `pm:pull`, `pm:status`) or as shell scripts in `scripts/`.
+1. MCP server exposes 5 tools: `list(folder?)`, `read(path)`, `create(path, content)`, `edit(path, diff)`, `delete(path)`.
+2. `list` returns file names + paths in a folder (recursive optional).
+3. `read` returns full file content from the API.
+4. `create` sends new file content — API enforces path guardrails (research/ , backlog/, strategy/, etc.).
+5. `edit` sends a diff — API applies it, rejects on ETag conflict, returns both versions for AI merge.
+6. `delete` removes a file (API enforces guardrails).
+7. MCP server supports two modes via config: `remote` (calls API) or `local` (reads/writes local `pm/` filesystem — current behavior).
+8. Mode detected from `.pm/config.json` — if `hub` key exists with API URL + token, use remote. Otherwise local.
+9. `pm login` skill still needed — initiates GitHub OAuth device flow, stores JWT, writes hub config to `.pm/config.json`.
+10. All tools fail gracefully without auth: return error "Not connected to Product Memory. Run pm login first."
+11. MCP server is stateless — no local cache, no sync state, no conflict resolution logic (that's in the API + terminal).
 
 ## Technical Feasibility
 
-**Build-on:** Existing `commands/merge.md` pattern for CLI commands. `.pm/config.json` for project settings. `hooks/analytics-log.sh` pattern for activity logging.
+**Build-on:** Existing MCP patterns in Claude Code plugin ecosystem. `.pm/config.json` for project settings.
 
-**Build-new:** HTTP client for hub API calls. File diffing logic (hash comparison). Merge-on-pull logic (agent reads both versions, produces merged output). Keychain read/write for token storage.
+**Build-new:** MCP server (~200-300 lines), HTTP client for API calls, config detection logic.
 
-**Risk:** Agent-as-merge-layer on pull is the hardest part. For v0 (single user), conflicts are rare — same person on two machines. Simple last-write-wins or prompt-on-conflict is sufficient. Intelligent agent merge is a v1 enhancement.
+**Risk:** Minimal. MCP server is a thin wrapper. The complexity lives in the API (PM-070), not here.
 
 ## Research Links
 
@@ -45,6 +48,7 @@ Four new CLI commands let users authenticate and sync their knowledge base. `pm 
 
 ## Notes
 
-- Depends on PM-070 (API + auth), PM-071 (S3 backend), PM-072 (Postgres metadata).
-- v0 simplification: single user, so push/pull are effectively full-sync. No conflict resolution needed.
-- Consider `pm push --dry-run` and `pm pull --dry-run` for safety.
+- Depends on PM-070 (API + auth), PM-071 (S3 backend).
+- Replaces the old push/pull/status CLI commands — no sync model needed.
+- Works with Claude Code, Codex, and any future MCP-compatible terminal.
+- Local mode preserves current solo experience with zero changes.

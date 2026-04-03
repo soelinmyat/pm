@@ -1,4 +1,4 @@
-### Phase 5: Groom
+### Phase 5.5: Groom (Issue Drafting)
 
 Read the splitting patterns reference before starting this phase:
 
@@ -76,6 +76,8 @@ If the feature type is UI or workflow, generate **one flow diagram per job** fro
 
 #### Step 2b: Generate HTML wireframe (UI features only)
 
+**If no wireframe is needed** (non-UI feature, or UI changes applied directly without a separate wireframe), set `wireframes: []` in the state file. The progressive proposal will show a "skipped" badge with "No wireframes needed — UI changes applied directly." Skip the rest of Step 2b.
+
 If the feature type is UI, generate a standalone HTML wireframe file:
 
 1. **Create the wireframes directory** if it doesn't exist: `pm/backlog/wireframes/`
@@ -98,6 +100,7 @@ If the feature type is UI, generate a standalone HTML wireframe file:
    - No colors, icons, or images (use text placeholders: `[Icon]`, `[Image]`)
    - No interactivity (static HTML only)
    - Max 2-3 screens per wireframe file (use sections or scroll)
+   - Include a `<title>` tag with the wireframe name — the dashboard extracts this for the chrome header displayed above the iframe embed
 
 5. **Reference the wireframe** in the parent issue's `## Wireframes` section:
    ```
@@ -267,7 +270,7 @@ The renderer shows the top 3 `featured: true` flows inline and links to `/sessio
 
 #### Step 7: Update state
 
-Do NOT present issues to the user yet. Proceed directly to Phase 5.5.
+Do NOT present issues to the user yet. Proceed directly to Phase 6 (Team Review).
 
 ```yaml
 phase: groom

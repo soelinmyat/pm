@@ -1,4 +1,4 @@
-### Phase 5.5: Team Review
+### Phase 6: Team Review
 
 **Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
 
@@ -58,7 +58,7 @@ prompt: |
 
 **Agent 4: UX Designer — Visual Quality** *(only dispatch if visual artifacts were generated)*
 
-Only dispatch this agent if Phase 5 generated visual artifacts (UI or workflow feature type). Check the feature type from groom state or Phase 5 Step 1.
+Only dispatch this agent if Phase 5.5 (Groom) classified the feature as "UI feature" in Step 1 AND generated flows or wireframes. If `wireframes: []` (explicitly skipped) but flows exist, still dispatch — the designer reviews flows. If neither flows nor wireframes exist, skip this agent and leave `design_verdict: null` in state.
 
 Dispatch via Agent tool with `subagent_type: "pm:ux-designer"` and `model: "opus"`:
 
@@ -76,7 +76,7 @@ prompt: |
 
 **Handling team review findings:**
 
-**Conditional verdicts:** If a reviewer returns a "Ready if {condition}" (or equivalent) verdict, treat it as non-blocking but persist the condition text in the state file under `team_review.conditions`. Surface all accumulated conditions to the bar raiser and the user in Phase 5.8 as open items requiring acknowledgment. Conditions survive context compression because they live in the state file, not just conversation history.
+**Conditional verdicts:** If a reviewer returns a "Ready if {condition}" (or equivalent) verdict, treat it as non-blocking but persist the condition text in the state file under `team_review.conditions`. Surface all accumulated conditions to the bar raiser and the user in Phase 7 (Present) as open items requiring acknowledgment. Conditions survive context compression because they live in the state file, not just conversation history.
 
 1. Merge all agent outputs. Deduplicate overlapping concerns.
 2. If ANY agent returns blocking issues:
@@ -84,7 +84,7 @@ prompt: |
    - Re-dispatch ALL reviewers (not just the one that flagged — fixes can introduce new problems)
    - Max **3 iterations** of the team review loop
 3. If iteration 3 still has blocking issues, escalate to the bar raiser with unresolved items flagged.
-4. Advisory findings are accumulated and surfaced to the user in Phase 5.8.
+4. Advisory findings are accumulated and surfaced to the user in Phase 7 (Present).
 5. **Companion screen (silent).**
 
    Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
@@ -95,7 +95,7 @@ prompt: |
 
    - `{TOPIC}`: the topic from groom state
    - `{PHASE_LABEL}`: "Team Review"
-   - `{STEPPER_HTML}`: `team-review` as current; `intake` through `groom` as completed
+   - `{STEPPER_HTML}`: `team-review` as current; `intake` through `groom` (issue drafting) as completed
    - `{CONTENT}`:
 
      ```html
@@ -145,9 +145,13 @@ prompt: |
 phase: team-review
 team_review:
   pm_verdict: ready | ready-if | needs-revision | significant-gaps
+  pm_summary: "{one-line summary of PM's key finding}"
   competitive_verdict: sharp | sharp-if | adequate | undifferentiated
+  competitive_summary: "{one-line summary of competitive finding}"
   em_verdict: ready | ready-if | needs-restructuring | missing-prerequisites
+  em_summary: "{one-line summary of engineering finding}"
   design_verdict: complete | complete-if | gaps | inconsistencies | null
+  design_summary: "{one-line summary of design finding}" | null
   blocking_issues_fixed: {count}
   iterations: {count}
 ```
