@@ -1,10 +1,5 @@
 ### Phase 5: Groom
 
-**Emit event — phase started:**
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-groom-$$}" "{\"phase\":\"groom\"}"
-```
-
 Read the splitting patterns reference before starting this phase:
 
 `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/references/splitting-patterns.md`

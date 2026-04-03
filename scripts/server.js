@@ -482,6 +482,12 @@ const DASHBOARD_CSS = `
   --accent-hover: #7c85e0;
   --accent-subtle: #1e1f35;
   --dark: #111318;
+  --sidebar-bg: #111318;
+  --sidebar-text: #ffffff;
+  --sidebar-text-muted: rgba(255,255,255,0.5);
+  --sidebar-text-hover: rgba(255,255,255,0.9);
+  --sidebar-hover-bg: rgba(255,255,255,0.06);
+  --sidebar-active-bg: rgba(255,255,255,0.08);
   --success: #4ade80;
   --warning: #fb923c;
   --info: #38bdf8;
@@ -497,6 +503,12 @@ const DASHBOARD_CSS = `
   --surface: #ffffff;
   --border: #e2e5ea;
   --text: #1e2128;
+  --sidebar-bg: #f0f1f4;
+  --sidebar-text: #1e2128;
+  --sidebar-text-muted: rgba(30,33,40,0.5);
+  --sidebar-text-hover: rgba(30,33,40,0.9);
+  --sidebar-hover-bg: rgba(0,0,0,0.04);
+  --sidebar-active-bg: rgba(0,0,0,0.07);
   --text-muted: #6b7280;
   --accent: #5e6ad2;
   --accent-hover: #4f5bc4;
@@ -721,14 +733,14 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .pulse-score-label { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.375rem; }
 .pulse-breakdown { max-height: 0; overflow: hidden; transition: max-height 200ms ease-out, opacity 200ms ease-out; opacity: 0; }
 .pulse-breakdown.open { max-height: 12rem; opacity: 1; }
-.pulse-dim-row { display: flex; gap: 1rem; justify-content: center; padding: 0.75rem 0 1rem; flex-wrap: wrap; }
-.pulse-dim-card { flex: 1; min-width: 120px; max-width: 160px; padding: 0.625rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; text-align: left; }
+.pulse-dim-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; padding: 0.75rem 0 1rem; }
+.pulse-dim-card { padding: 0.625rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; text-align: left; }
 .pulse-dim-name { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 .pulse-dim-score { font-size: 1.125rem; font-weight: 700; margin: 0.125rem 0; }
 .pulse-dim-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 0.25rem 0; }
 .pulse-dim-fill { height: 100%; border-radius: 2px; transition: width 400ms ease-out; }
 .pulse-dim-detail { font-size: 0.6875rem; color: var(--text-muted); }
-@media (max-width: 600px) { .pulse-arc { width: 80px; height: 80px; } .pulse-arc-text { font-size: 1.5rem; } .pulse-dim-row { flex-direction: column; align-items: center; } .pulse-dim-card { max-width: 100%; } }
+@media (max-width: 600px) { .pulse-arc { width: 80px; height: 80px; } .pulse-arc-text { font-size: 1.5rem; } .pulse-dim-row { grid-template-columns: repeat(2, 1fr); } }
 .suggested-next { margin-top: 1.5rem; padding: 1rem 1rem 1rem 1.25rem; border: none; border-left: 2px solid var(--accent);
   border-radius: 0; background: var(--surface); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
@@ -1216,17 +1228,17 @@ a.groom-session:hover { background: #1e2240; }
 
 /* Sidebar layout */
 .app-layout { display: flex; min-height: 100vh; }
-.sidebar { width: 220px; background: var(--dark); border-right: 1px solid var(--border);
+.sidebar { width: 220px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
-.sidebar-brand { color: #fff; font-weight: 700; font-size: 0.875rem; padding: 1.25rem 1rem 1rem;
+.sidebar-brand { color: var(--sidebar-text); font-weight: 700; font-size: 0.875rem; padding: 1.25rem 1rem 1rem;
   letter-spacing: -0.02em; border-bottom: 1px solid var(--border); }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 0.75rem 0.5rem; }
 .nav-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.4375rem 0.75rem;
-  font-size: 0.8125rem; font-weight: 500; color: rgba(255,255,255,0.5); border-radius: 6px;
+  font-size: 0.8125rem; font-weight: 500; color: var(--sidebar-text-muted); border-radius: 6px;
   text-decoration: none; transition: background 150ms, color 150ms; }
-.nav-item:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); text-decoration: none; }
+.nav-item:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text-hover); text-decoration: none; }
 .nav-item:focus-visible { box-shadow: 0 0 0 2px var(--accent); outline: none; }
-.nav-item.active { background: rgba(255,255,255,0.08); color: #fff; }
+.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-text); }
 .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.7; }
 .nav-item.active svg { opacity: 1; }
 .main-content { flex: 1; margin-left: 220px; min-height: 100vh; }
@@ -1234,9 +1246,9 @@ a.groom-session:hover { background: #1e2240; }
 /* Theme toggle */
 .sidebar-footer { margin-top: auto; padding: 0.75rem; border-top: 1px solid var(--border); }
 .theme-toggle { display: flex; align-items: center; gap: 0.5rem; padding: 0.4375rem 0.75rem;
-  font-size: 0.75rem; font-weight: 500; color: rgba(255,255,255,0.5); border-radius: 6px;
+  font-size: 0.75rem; font-weight: 500; color: var(--sidebar-text-muted); border-radius: 6px;
   background: none; border: none; cursor: pointer; width: 100%; transition: background 150ms, color 150ms; }
-.theme-toggle:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); }
+.theme-toggle:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text-hover); }
 .theme-toggle svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.7; }
 
 @media (max-width: 768px) {
@@ -1896,7 +1908,7 @@ function routeDashboard(req, res, pmDir) {
           let flowHtml = fs.readFileSync(flowsPath, 'utf-8');
           // Inject back bar if not already present
           if (!flowHtml.includes('detail-back-bar')) {
-            const backBar = detailBackBar(slug, pmDir);
+            const backBar = detailBackBar(slug, pmDir, 'flows');
             flowHtml = flowHtml.includes('<body>') ? flowHtml.replace('<body>', '<body>' + backBar) : backBar + flowHtml;
           }
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -2281,8 +2293,9 @@ summary { font-size: 0.85rem; font-weight: 600; color: #7c3aed; cursor: pointer;
 
 /* Wireframes */
 .wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 0.75rem; }
-.wireframe-embed iframe { width: 100%; height: 100%; border: none; }
-.section-scroll { max-height: 600px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }
+.wireframe-embed { min-height: 500px; }
+.wireframe-embed iframe { width: 100%; height: 500px; border: none; }
+.section-scroll { max-height: 700px; overflow-y: auto; }
 .wireframe-link { font-size: 0.85rem; color: #7c3aed; text-decoration: none; font-weight: 500; }
 
 /* Verdict badges */
@@ -2428,8 +2441,8 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   ${successMetric ? `<div class="metric"><span class="metric-value" style="font-size:0.85rem;">${esc(String(successMetric))}</span><span class="metric-label">Success Metric</span></div>` : '<div class="metric"><span class="metric-value">—</span><span class="metric-label">Success Metric</span></div>'}
 </div>`;
   const heroHtml = hasHero
-    ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${metricsHtml}</div></header>`
-    : `<header class="hero pp-placeholder-hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal</div><h1>Untitled Feature</h1><p class="subtitle">Waiting for intake...</p></div></header>`;
+    ? `<header class="hero"><div class="hero-inner"><a href="/" style="font-size:0.85rem;color:rgba(255,255,255,0.7);text-decoration:none;display:inline-block;margin-bottom:0.5rem;">&larr; Back to dashboard</a><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${metricsHtml}</div></header>`
+    : `<header class="hero pp-placeholder-hero"><div class="hero-inner"><a href="/" style="font-size:0.85rem;color:rgba(255,255,255,0.7);text-decoration:none;display:inline-block;margin-bottom:0.5rem;">&larr; Back to dashboard</a><div class="hero-eyebrow">Feature Proposal</div><h1>Untitled Feature</h1><p class="subtitle">Waiting for intake...</p></div></header>`;
 
   // TOC — show all sections that exist for this tier (filled or placeholder)
   const sc = session.strategy_check;
@@ -2681,7 +2694,7 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
         const viewWfLink = wfSlugArr.length === 1
           ? `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframe &rarr;</a>`
           : `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframes &rarr;</a>`;
-        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes ${viewWfLink}</div>${wfBody}</div>`;
+        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes ${viewWfLink}</div><div class="section-scroll">${wfBody}</div></div>`;
       } else if (groomed || currentPhase === 'groom') {
         sections += ppPlaceholder('wireframes', PP_ICONS.wireframe, 'Wireframes', 'Pending wireframe generation');
       }
@@ -2777,14 +2790,6 @@ ${sections}
 ${wsScript}
 <script>
 (function() {
-  // Auto-resize wireframe iframes to content height
-  var iframes = document.querySelectorAll('.wireframe-embed iframe');
-  for (var i = 0; i < iframes.length; i++) {
-    iframes[i].addEventListener('load', function() {
-      try { this.style.height = this.contentDocument.documentElement.scrollHeight + 'px'; } catch(e) {}
-    });
-  }
-
   var sections = document.querySelectorAll('.proposal > .section');
   if (!sections.length) return;
 
@@ -5068,7 +5073,7 @@ function handleTranscriptPage(res, pmDir, slug, highlight) {
   res.end(html);
 }
 
-function detailBackBar(slug, pmDir) {
+function detailBackBar(slug, pmDir, sectionAnchor) {
   // Find the groom/dev session this artifact belongs to
   const pmRoot = path.resolve(pmDir, '..', '.pm');
   let sessionSlug = null;
@@ -5086,7 +5091,8 @@ function detailBackBar(slug, pmDir) {
       }
     } catch {}
   }
-  const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) : '/';
+  const anchor = sectionAnchor ? '#' + sectionAnchor : '';
+  const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) + anchor : '/';
   const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
   return `<div class="detail-back-bar" style="position:sticky;top:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;padding:0.5rem 1.5rem;display:flex;align-items:center;gap:0.75rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.04);"><a href="${escHtml(backHref)}" style="font-size:0.85rem;color:#7c3aed;text-decoration:none;font-weight:500;">&larr; ${escHtml(backLabel)}</a></div>`;
 }
@@ -5117,9 +5123,20 @@ function handleWireframe(res, pmDir, slug) {
         if (raw.includes(slug)) { sessionSlug = f.replace('.md', ''); break; }
       }
     } catch {}
-    const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) : '/';
+    const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) + '#wireframes' : '/';
     const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
     // Wrap wireframe in a proper page shell matching flows page style
+    // Extract wireframe styles and body content, wrap in our shell
+    let wfStyles = '';
+    const styleMatch = content.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    if (styleMatch) wfStyles = styleMatch[1];
+    let wfBody = content;
+    const bodyMatch = content.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (bodyMatch) wfBody = bodyMatch[1];
+    else {
+      // Strip html/head/doctype if no body tag
+      wfBody = wfBody.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '').replace(/<head>[\s\S]*?<\/head>/i, '');
+    }
     const wrapped = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5135,9 +5152,9 @@ function handleWireframe(res, pmDir, slug) {
   .wf-header .back-link:hover { color: #fff; }
   .wf-header h1 { font-size: 1.5rem; font-weight: 700; }
   .wf-header p { font-size: 0.9rem; color: rgba(255,255,255,0.75); margin-top: 0.25rem; }
-  .wf-container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
-  .wf-frame { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-  .wf-frame iframe { width: 100%; height: 80vh; border: none; display: block; }
+  .wf-content { max-width: 960px; margin: 0 auto; padding: 1rem 0; }
+  ${wfStyles}
+  body { padding: 0 !important; margin: 0 !important; }
 </style>
 </head>
 <body>
@@ -5148,10 +5165,8 @@ function handleWireframe(res, pmDir, slug) {
     <p>Lo-fi wireframe</p>
   </div>
 </div>
-<div class="wf-container">
-  <div class="wf-frame">
-    <iframe src="/backlog/wireframes/${encodeURIComponent(slug)}/raw" title="${escHtml(label)}"></iframe>
-  </div>
+<div class="wf-content">
+${wfBody}
 </div>
 </body>
 </html>`;
@@ -5458,32 +5473,11 @@ function createDashboardServer(pmDir) {
     }
   }
 
-  // ---- SSE Event Bus: ring buffer + broadcast + persistence ----
+  // ---- SSE Event Bus: ring buffer + broadcast ----
   const EVENT_BUFFER_CAP = 200;
   const eventBuffer = [];
   let eventIdCounter = 0;
   const sseClients = new Set();
-
-  // Persist events to disk so they survive server restarts
-  const eventsFilePath = path.resolve(pmDir, '..', '.pm', 'events.jsonl');
-
-  // Load persisted events on startup
-  try {
-    const lines = fs.readFileSync(eventsFilePath, 'utf-8').trim().split('\n').filter(Boolean);
-    // Keep only the last EVENT_BUFFER_CAP lines
-    const recent = lines.slice(-EVENT_BUFFER_CAP);
-    for (const line of recent) {
-      try {
-        const event = JSON.parse(line);
-        eventBuffer.push(event);
-        if (event.id > eventIdCounter) eventIdCounter = event.id;
-      } catch {}
-    }
-  } catch {}
-
-  function persistEvent(event) {
-    try { fs.appendFileSync(eventsFilePath, JSON.stringify(event) + '\n'); } catch {}
-  }
 
   function pushEvent(event) {
     eventIdCounter++;
@@ -5492,7 +5486,6 @@ function createDashboardServer(pmDir) {
     if (eventBuffer.length > EVENT_BUFFER_CAP) {
       eventBuffer.shift();
     }
-    persistEvent(stored);
     return stored;
   }
 
