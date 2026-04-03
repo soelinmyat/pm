@@ -7,21 +7,9 @@ description: Use at session start — establishes how to find and use all plugin
 If you were dispatched as a subagent to execute a specific task, skip this skill.
 </SUBAGENT-STOP>
 
-## Session Greeting
+## Session Start
 
-When this skill loads at session start, prepend a brief project status to the top of your first response (before addressing whatever the user asked). Look for `<SESSION_PULSE>` tags in the `<system-reminder>` that contains this skill. The pulse contains the dashboard URL and project health lines.
-
-Format the greeting like this:
-
-```
-Dashboard: {url}
-
-{attention line}
-{backlog shape line}
-{suggested next line}
-```
-
-If no `<SESSION_PULSE>` tag is present, skip the greeting entirely. Keep it short — no filler, no "welcome back", no explanation of what the lines mean. Just present the data, then continue with the user's request.
+When this skill loads at the beginning of a new session, invoke `pm:start` before responding to the user. This launches the dashboard, shows the project pulse, and handles onboarding if there is no knowledge base yet.
 
 # Using Plugin Skills
 
@@ -62,7 +50,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 |---------|-------|--------------|
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback into pm/ |
 | Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
-| Open dashboard | `pm:view` | Launch PM knowledge base dashboard |
+| Open dashboard / session greeting | `pm:start` | Project pulse, dashboard launch, onboarding |
 | Sync source to cache | `pm:sync` | Dev loop without publish cycle |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
@@ -130,7 +118,7 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 | "Deploy" / "deploy to production" / "release" / "push to production" | `pm:deploy` — create PR from main to production, self-heal, auto-merge |
 | "Merge this PR" / "land this" / "get this merged" | merge workflow — self-healing merge loop |
 | "Fix the PR comments" / "Resolve CI" / "fix review feedback" | merge workflow — fixes, replies, resolves threads, merges |
-| "Show dashboard" / "open pm" / "view research" | `pm:view` |
+| "Show dashboard" / "open pm" / "view research" | `pm:start` |
 | "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
 | "What's outdated?" / "update research" / "stale data" | `pm:refresh` |
 
