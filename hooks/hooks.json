@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-launch.sh",
-            "async": true
+            "async": false
           },
           {
             "type": "command",
