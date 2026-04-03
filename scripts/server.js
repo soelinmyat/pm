@@ -992,89 +992,6 @@ a.groom-session:hover { background: #1e2240; }
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
 .proposal-iframe { width: 100%; height: 800px; border: none; background: var(--surface); }
 
-/* ========== Activity Feed Panel ========== */
-.main-with-feed { display: flex; gap: 0; overflow: hidden; }
-.main-with-feed > .container { flex: 1; min-width: 0; overflow-y: auto; }
-
-.activity-feed {
-  width: 260px; flex-shrink: 0;
-  background: #12141a; border-left: 1px solid var(--border);
-  display: flex; flex-direction: column; height: 100vh;
-  position: sticky; top: 0;
-}
-[data-theme="light"] .activity-feed {
-  background: #f0f1f4;
-}
-
-.feed-header {
-  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--text-muted);
-}
-.feed-status {
-  display: flex; align-items: center; gap: 0.375rem;
-  font-size: 0.6875rem; font-weight: 500; text-transform: none;
-  letter-spacing: 0; color: var(--text-muted);
-}
-.feed-status-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--success);
-}
-.feed-status-dot.live {
-  animation: feed-pulse 2s ease-in-out infinite;
-}
-.feed-status-dot.idle {
-  background: var(--text-muted);
-  animation: none;
-}
-@keyframes feed-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.feed-body { flex: 1; overflow-y: auto; }
-
-.feed-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 100%; padding: 2rem 1rem; text-align: center;
-  font-size: 0.75rem; color: var(--text-muted); line-height: 1.5;
-}
-
-.feed-event {
-  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
-  display: flex; align-items: flex-start; gap: 0.5rem;
-}
-.feed-event.muted { opacity: 0.5; }
-
-.feed-event-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  flex-shrink: 0; margin-top: 5px;
-  background: var(--text-muted);
-}
-.feed-event-dot.success { background: var(--success); }
-.feed-event-dot.info { background: var(--info); }
-.feed-event-dot.warning { background: var(--warning); }
-.feed-event-dot.accent { background: var(--accent); }
-
-.feed-event-content { min-width: 0; }
-.feed-event-text {
-  font-size: 0.75rem; line-height: 1.4; color: var(--text);
-}
-.feed-event.muted .feed-event-text { color: var(--text-muted); }
-.feed-event-source { font-weight: 500; }
-.feed-event-time {
-  font-size: 0.625rem; color: var(--text-muted); margin-top: 1px;
-}
-
-.feed-time-sep {
-  font-size: 0.625rem; color: var(--text-muted); padding: 0.5rem 1rem 0.25rem;
-  text-transform: uppercase; letter-spacing: 0.03em;
-}
-
-@media (max-width: 1024px) {
-  .activity-feed { display: none; }
-}
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1249,72 +1166,12 @@ a.groom-session:hover { background: #1e2240; }
   .app-layout { flex-direction: column; }
 }
 
-/* Toast notifications */
-.toast-container {
-  position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  z-index: 100;
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 0.5rem;
-  pointer-events: none;
-}
-.toast {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  padding: 0.625rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text);
-  max-width: 320px;
-  opacity: 0;
-  transform: translateY(8px);
-  animation: toast-in 300ms ease-out forwards;
-  pointer-events: auto;
-}
-.toast-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-}
-.toast-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.toast.toast-out {
-  animation: toast-out 200ms ease-in forwards;
-}
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes toast-out {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(8px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .toast {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-  .toast.toast-out {
-    animation: none;
-    opacity: 0;
-  }
-}
 
 `;
 
 // ========== Dashboard HTML Shell ==========
 
-function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) {
+function dashboardPage(title, activeNav, bodyContent, projectName) {
   projectName = projectName || _cachedProjectName || 'PM';
   const navLinks = [
     { href: '/', label: 'Home' },
@@ -1379,14 +1236,12 @@ function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) 
       </button>
     </div>
   </aside>
-  <main class="main-content${sidebarSlot ? ' main-with-feed' : ''}">
+  <main class="main-content">
     <div class="container">
       <nav class="nav-secondary">${secondaryHtml}</nav>
 ${bodyContent}
     </div>
-${sidebarSlot || ''}
   </main>
-  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
 </div>
 <script>
 (function() {
@@ -1412,218 +1267,7 @@ ${sidebarSlot || ''}
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
 
-  // ---- Toast Notifications (PM-092) ----
-  // Static trusted SVG icons per milestone type (safe for innerHTML — not user input)
-  var TOAST_ICONS = {
-    tests_passed: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
-    pr_created: '<svg viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v8m0 0a2 2 0 104 0M12 14V6m0 0a2 2 0 10-4 0"/></svg>',
-    review_done: '<svg viewBox="0 0 16 16" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8.5l2 2 3.5-4"/></svg>',
-    merged: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v4a4 4 0 004 4h4M8 10l4-4M8 10l4 4"/></svg>'
-  };
-  var TOAST_LABELS = {
-    tests_passed: 'Tests passed',
-    pr_created: 'PR created',
-    review_done: 'Review done',
-    merged: 'Merged'
-  };
-
-  var toastContainer = document.getElementById('toast-container');
-  var activeToasts = [];
-  var MAX_TOASTS = 3;
-
-  function showToast(eventData) {
-    if (!TOAST_ICONS[eventData.type]) return;
-    var msg = (eventData.detail && eventData.detail.message) || TOAST_LABELS[eventData.type];
-    var words = msg.split(/\\s+/).slice(0, 10);
-    msg = words.join(' ');
-
-    while (activeToasts.length >= MAX_TOASTS) {
-      dismissToast(activeToasts[0]);
-    }
-
-    var el = document.createElement('div');
-    el.className = 'toast';
-    var iconSpan = document.createElement('span');
-    iconSpan.className = 'toast-icon';
-    // Safe: TOAST_ICONS values are static trusted SVG strings, keyed by validated type
-    iconSpan.innerHTML = TOAST_ICONS[eventData.type];
-    var textSpan = document.createElement('span');
-    textSpan.textContent = msg;
-    el.appendChild(iconSpan);
-    el.appendChild(textSpan);
-    toastContainer.appendChild(el);
-
-    var duration = Math.min(Math.max(words.length * 500 + 1000, 3000), 5000);
-    var entry = { el: el, timer: null };
-    activeToasts.push(entry);
-    entry.timer = setTimeout(function() { dismissToast(entry); }, duration);
-  }
-
-  function dismissToast(entry) {
-    if (!entry || !entry.el) return;
-    // Remove from active list immediately to prevent re-dismissal from queue loop
-    activeToasts = activeToasts.filter(function(t) { return t !== entry; });
-    clearTimeout(entry.timer);
-    if (!entry.el.parentNode) return;
-    entry.el.classList.add('toast-out');
-    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var removalDelay = reducedMotion ? 0 : 200;
-    setTimeout(function() {
-      if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
-    }, removalDelay);
-  }
-
-  if (typeof EventSource !== 'undefined') {
-    var evtSource = new EventSource('/events');
-    evtSource.onmessage = function(e) {
-      try {
-        var data = JSON.parse(e.data);
-        if (TOAST_ICONS[data.type]) {
-          showToast(data);
-        }
-      } catch(err) {}
-    };
-  }
 })();
-</script>
-<script>
-(function() {
-  var feedBody = document.getElementById('feed-body');
-  if (!feedBody) return;
-
-  var feedEmpty = document.getElementById('feed-empty');
-  var statusDot = document.getElementById('feed-status-dot');
-  var statusLabel = document.getElementById('feed-status-label');
-  var RECENT_MS = 3 * 60 * 1000;
-
-  function dotClass(type) {
-    if (!type) return '';
-    if (type.indexOf('fail') !== -1 || type.indexOf('error') !== -1 || type.indexOf('warn') !== -1) return 'warning';
-    if (type.indexOf('test') !== -1 || type.indexOf('pass') !== -1 || type.indexOf('merge') !== -1) return 'success';
-    if (type.indexOf('pr_') !== -1 || type.indexOf('push') !== -1 || type.indexOf('commit') !== -1) return 'info';
-    return 'accent';
-  }
-
-  function relativeTime(ts) {
-    var diff = Math.max(0, Date.now() - ts);
-    if (diff < 5000) return 'just now';
-    if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
-    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-    return Math.floor(diff / 3600000) + 'h ago';
-  }
-
-  function isRecent(ts) {
-    return (Date.now() - ts) < RECENT_MS;
-  }
-
-  function createEventEl(event) {
-    var recent = isRecent(event.timestamp);
-    var div = document.createElement('div');
-    div.className = 'feed-event' + (recent ? '' : ' muted');
-    div.setAttribute('data-event-id', event.id);
-    div.setAttribute('data-timestamp', event.timestamp);
-
-    var dot = document.createElement('div');
-    dot.className = 'feed-event-dot ' + dotClass(event.type);
-    div.appendChild(dot);
-
-    var content = document.createElement('div');
-    content.className = 'feed-event-content';
-
-    var text = document.createElement('div');
-    text.className = 'feed-event-text';
-    var sourceSpan = document.createElement('span');
-    sourceSpan.className = 'feed-event-source';
-    sourceSpan.textContent = event.source;
-    text.appendChild(sourceSpan);
-    var desc = event.detail && event.detail.description ? event.detail.description : event.type.replace(/_/g, ' ');
-    text.appendChild(document.createTextNode(' ' + desc));
-    content.appendChild(text);
-
-    var time = document.createElement('div');
-    time.className = 'feed-event-time';
-    time.textContent = relativeTime(event.timestamp);
-    content.appendChild(time);
-
-    div.appendChild(content);
-    return div;
-  }
-
-  function refreshFade() {
-    var events = feedBody.querySelectorAll('.feed-event');
-    var sepInserted = false;
-    var seps = feedBody.querySelectorAll('.feed-time-sep');
-    for (var i = 0; i < seps.length; i++) seps[i].remove();
-
-    for (var j = 0; j < events.length; j++) {
-      var ts = parseInt(events[j].getAttribute('data-timestamp'), 10);
-      var recent = isRecent(ts);
-      if (recent) {
-        events[j].classList.remove('muted');
-      } else {
-        events[j].classList.add('muted');
-        if (!sepInserted) {
-          var sep = document.createElement('div');
-          sep.className = 'feed-time-sep';
-          sep.textContent = 'Earlier';
-          feedBody.insertBefore(sep, events[j]);
-          sepInserted = true;
-        }
-      }
-      var timeEl = events[j].querySelector('.feed-event-time');
-      if (timeEl) timeEl.textContent = relativeTime(ts);
-    }
-  }
-
-  function setConnected(connected) {
-    if (connected) {
-      statusDot.className = 'feed-status-dot live';
-      statusLabel.textContent = 'Live';
-    } else {
-      statusDot.className = 'feed-status-dot idle';
-      statusLabel.textContent = 'Idle';
-    }
-  }
-
-  var lastEventId = null;
-
-  function connect() {
-    var es = new EventSource('/events');
-    window.__pmEventSource = es;
-
-    es.onopen = function() {
-      setConnected(true);
-    };
-
-    es.onmessage = function(e) {
-      var event;
-      try { event = JSON.parse(e.data); } catch(err) { return; }
-
-      lastEventId = e.lastEventId || event.id;
-
-      if (feedBody.querySelector('[data-event-id="' + event.id + '"]')) return;
-
-      if (feedEmpty) feedEmpty.style.display = 'none';
-
-      var el = createEventEl(event);
-      var firstChild = feedBody.querySelector('.feed-event, .feed-time-sep');
-      if (firstChild) {
-        feedBody.insertBefore(el, firstChild);
-      } else {
-        feedBody.appendChild(el);
-      }
-
-      refreshFade();
-    };
-
-    es.onerror = function() {
-      setConnected(false);
-    };
-  }
-
-  connect();
-})();
-</script>
 </body>
 </html>`;
 }
@@ -3577,25 +3221,7 @@ ${kbReferenceHtml}
 ${suggestedHtml}`;
   }
 
-  const feedPanelHtml = `
-    <aside class="activity-feed" id="activity-feed">
-      <div class="feed-header">
-        Activity
-        <div class="feed-status" id="feed-status">
-          <span class="feed-status-dot idle" id="feed-status-dot"></span>
-          <span id="feed-status-label">Idle</span>
-        </div>
-      </div>
-      <div class="feed-body" id="feed-body">
-        <div class="feed-empty" id="feed-empty">
-          No events yet.<br>
-          Activity appears here when<br>
-          terminal sessions are running.
-        </div>
-      </div>
-    </aside>`;
-
-  const html = dashboardPage('Home', '/', body, projectName, feedPanelHtml);
+  const html = dashboardPage('Home', '/', body, projectName);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3612,20 +3238,6 @@ function handleSessionPage(res, pmDir, slug) {
     const candidatePath = path.join(sessionsDir, prefix + slug, 'current.html');
     if (candidatePath.startsWith(sessionsDir + path.sep) && fs.existsSync(candidatePath)) {
       let html = fs.readFileSync(candidatePath, 'utf-8');
-      // Inject SSE hot-reload script before </body> if not already present
-      if (!html.includes('canvas-hot-reload')) {
-        const reloadScript = `<script data-canvas-hot-reload>
-(function(){var es=new EventSource('/events');var slug='${slug.replace(/'/g,"\\'")}';
-es.onmessage=function(e){try{var d=JSON.parse(e.data);
-if(d.type==='canvas_update'&&d.detail&&d.detail.indexOf(slug)!==-1)location.reload();
-}catch(x){}};})();
-</script>`;
-        if (html.includes('</body>')) {
-          html = html.replace('</body>', reloadScript + '</body>');
-        } else {
-          html += reloadScript;
-        }
-      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
@@ -5165,130 +4777,7 @@ function createDashboardServer(pmDir) {
     }
   }
 
-  // ---- SSE Event Bus: ring buffer + broadcast ----
-  const EVENT_BUFFER_CAP = 200;
-  const eventBuffer = [];
-  let eventIdCounter = 0;
-  const sseClients = new Set();
-
-  function pushEvent(event) {
-    eventIdCounter++;
-    const stored = { id: eventIdCounter, ...event };
-    eventBuffer.push(stored);
-    if (eventBuffer.length > EVENT_BUFFER_CAP) {
-      eventBuffer.shift();
-    }
-    return stored;
-  }
-
-  function formatSSE(event) {
-    return `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
-  }
-
-  function broadcastSSE(event) {
-    const data = formatSSE(event);
-    for (const client of sseClients) {
-      try { client.write(data); } catch { sseClients.delete(client); }
-    }
-  }
-
-  const MAX_EVENT_BODY = 65536; // 64KB
-
-  function handlePostEvent(req, res) {
-    let body = '';
-    let aborted = false;
-    req.on('data', chunk => {
-      body += chunk;
-      if (!aborted && body.length > MAX_EVENT_BODY) {
-        aborted = true;
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Request body too large' }));
-        req.destroy();
-      }
-    });
-    req.on('end', () => {
-      if (aborted) return;
-      let parsed;
-      try {
-        parsed = JSON.parse(body);
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        return;
-      }
-
-      const { type, source, timestamp } = parsed;
-      if (!type || !source || timestamp == null) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing required fields: type, source, timestamp' }));
-        return;
-      }
-
-      const event = {
-        type,
-        source,
-        timestamp,
-        detail: parsed.detail || {},
-        source_type: parsed.source_type || 'terminal',
-      };
-
-      const stored = pushEvent(event);
-      broadcastSSE(stored);
-
-      res.writeHead(201, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ id: stored.id }));
-    });
-  }
-
-  function handleSSEConnection(req, res) {
-    touchActivity();
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-
-    // Replay missed events if Last-Event-ID is present
-    const lastId = req.headers['last-event-id'];
-    if (lastId != null) {
-      const lastIdNum = parseInt(lastId, 10);
-      if (!isNaN(lastIdNum)) {
-        for (const event of eventBuffer) {
-          if (event.id > lastIdNum) {
-            res.write(formatSSE(event));
-          }
-        }
-      }
-    }
-
-    sseClients.add(res);
-    allConnections.add(res.socket);
-
-    // Heartbeat every 15 seconds
-    const heartbeat = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch { clearInterval(heartbeat); }
-    }, 15000);
-
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      sseClients.delete(res);
-    });
-  }
-
   const server = http.createServer((req, res) => {
-    const reqUrl = req.url.split('?')[0];
-
-    if (reqUrl === '/events') {
-      if (req.method === 'POST') {
-        handlePostEvent(req, res);
-      } else if (req.method === 'GET') {
-        handleSSEConnection(req, res);
-      } else {
-        res.writeHead(405); res.end('Method Not Allowed');
-      }
-      return;
-    }
-
     if (req.method === 'GET') {
       routeDashboard(req, res, pmDir);
     } else {
@@ -5377,11 +4866,6 @@ function createDashboardServer(pmDir) {
     watcherActive = false;
     closeWatchersUnder(pmDir);
     closeWatchersUnder(sessionsWatchDir);
-    // End SSE connections cleanly
-    for (const client of sseClients) {
-      try { client.end(); } catch {}
-    }
-    sseClients.clear();
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
       try { sock.destroy(); } catch (e) {}

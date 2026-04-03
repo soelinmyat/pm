@@ -218,8 +218,6 @@ cat > "$CANVAS_DIR/current.html" << 'CANVAS_EOF'
 CANVAS_EOF
 # Set lifecycle state
 echo "active" > "$CANVAS_DIR/.state"
-# Emit SSE event for hot-reload
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "canvas_update" "${ISSUE_ID}" "{\"detail\":\"${CANVAS_ID}\"}"
 ```
 
 **Canvas ID:** Use `dev-{slug}` for single issues, `epic-{parent-slug}` for epics.
