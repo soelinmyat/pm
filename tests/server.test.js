@@ -1430,9 +1430,9 @@ test('groomPhaseLabel maps raw phase strings to human-readable labels', () => {
   assert.equal(mod.groomPhaseLabel('intake'), 'Intake');
   assert.equal(mod.groomPhaseLabel('strategy-check'), 'Strategy Check');
   assert.equal(mod.groomPhaseLabel('research'), 'Research');
-  assert.equal(mod.groomPhaseLabel('scope'), 'Scoping');
+  assert.equal(mod.groomPhaseLabel('scope'), 'Scope');
   assert.equal(mod.groomPhaseLabel('scope-review'), 'Scope Review');
-  assert.equal(mod.groomPhaseLabel('groom'), 'Drafting Issues');
+  assert.equal(mod.groomPhaseLabel('groom'), 'Issue Drafting');
   assert.equal(mod.groomPhaseLabel('team-review'), 'Team Review');
   assert.equal(mod.groomPhaseLabel('bar-raiser'), 'Bar Raiser');
   assert.equal(mod.groomPhaseLabel('present'), 'Presentation');

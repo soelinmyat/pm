@@ -215,7 +215,7 @@ Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/co
 Write `.pm/sessions/groom-{slug}/current.html` with:
 
 - `{TOPIC}`: the topic from groom state
-- `{PHASE_LABEL}`: "Drafting Issues"
+- `{PHASE_LABEL}`: "Issue Drafting"
 - `{STEPPER_HTML}`: `groom` as current; `intake` through `scope-review` as completed
 - `{CONTENT}`: Build from the decomposition and drafted issues:
 

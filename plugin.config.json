@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-  "version": "1.0.19",
+  "version": "1.0.28",
   "author": {
     "name": "Soe Lin Myat",
     "url": "https://github.com/soelinmyat"
@@ -30,14 +30,13 @@
     "fallbackSkillAliases": {
       "pm": [
         "setup",
+        "start",
         "research",
         "strategy",
         "groom",
         "think",
         "ingest",
-        "refresh",
-        "view",
-        "sync"
+        "refresh"
       ],
       "dev": [
         "debugging",
