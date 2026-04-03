@@ -693,6 +693,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 /* Action hints */
 .action-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
 .action-hint code { background: var(--accent-subtle); padding: 0.125em 0.375em; border-radius: 3px; font-size: 0.75rem; color: var(--accent); }
+.action-code { background: var(--accent-subtle); padding: 0.125em 0.375em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); white-space: nowrap; }
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
@@ -943,7 +944,7 @@ a.groom-session:hover { background: #1e2240; }
 
 /* KB sub-tabs */
 .kb-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
-.nav-secondary { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin: 0 0 1.5rem; overflow-x: auto; }
+.nav-secondary { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin: 0 0 1.5rem; overflow-x: auto; background: transparent; padding: 0; min-height: auto; }
 .kb-tab { padding: 0.625rem 1rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
   text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px;
   transition: color var(--transition), border-color var(--transition); }
@@ -952,7 +953,7 @@ a.groom-session:hover { background: #1e2240; }
 
 /* Proposal cards */
 .proposal-card { position: relative; overflow: hidden; }
-.card-gradient { height: 4px; margin: -1rem -1rem 0.875rem; border-radius: var(--radius) var(--radius) 0 0; }
+.card-gradient { display: none; }
 .proposal-card h3 { margin-top: 0; }
 .proposal-card h3 { margin: 0 0 0.25rem; }
 .proposal-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
@@ -992,6 +993,89 @@ a.groom-session:hover { background: #1e2240; }
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
 .proposal-iframe { width: 100%; height: 800px; border: none; background: var(--surface); }
 
+/* ========== Activity Feed Panel ========== */
+.main-with-feed { display: flex; gap: 0; overflow: hidden; }
+.main-with-feed > .container { flex: 1; min-width: 0; overflow-y: auto; }
+
+.activity-feed {
+  width: 260px; flex-shrink: 0;
+  background: #12141a; border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; height: 100vh;
+  position: sticky; top: 0;
+}
+[data-theme="light"] .activity-feed {
+  background: #f0f1f4;
+}
+
+.feed-header {
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+.feed-status {
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.6875rem; font-weight: 500; text-transform: none;
+  letter-spacing: 0; color: var(--text-muted);
+}
+.feed-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success);
+}
+.feed-status-dot.live {
+  animation: feed-pulse 2s ease-in-out infinite;
+}
+.feed-status-dot.idle {
+  background: var(--text-muted);
+  animation: none;
+}
+@keyframes feed-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.feed-body { flex: 1; overflow-y: auto; }
+
+.feed-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; padding: 2rem 1rem; text-align: center;
+  font-size: 0.75rem; color: var(--text-muted); line-height: 1.5;
+}
+
+.feed-event {
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 0.5rem;
+}
+.feed-event.muted { opacity: 0.5; }
+
+.feed-event-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; margin-top: 5px;
+  background: var(--text-muted);
+}
+.feed-event-dot.success { background: var(--success); }
+.feed-event-dot.info { background: var(--info); }
+.feed-event-dot.warning { background: var(--warning); }
+.feed-event-dot.accent { background: var(--accent); }
+
+.feed-event-content { min-width: 0; }
+.feed-event-text {
+  font-size: 0.75rem; line-height: 1.4; color: var(--text);
+}
+.feed-event.muted .feed-event-text { color: var(--text-muted); }
+.feed-event-source { font-weight: 500; }
+.feed-event-time {
+  font-size: 0.625rem; color: var(--text-muted); margin-top: 1px;
+}
+
+.feed-time-sep {
+  font-size: 0.625rem; color: var(--text-muted); padding: 0.5rem 1rem 0.25rem;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+
+@media (max-width: 1024px) {
+  .activity-feed { display: none; }
+}
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1166,20 +1250,83 @@ a.groom-session:hover { background: #1e2240; }
   .app-layout { flex-direction: column; }
 }
 
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 0.625rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+  max-width: 320px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: toast-in 300ms ease-out forwards;
+  pointer-events: auto;
+}
+.toast-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.toast-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.toast.toast-out {
+  animation: toast-out 200ms ease-in forwards;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .toast.toast-out {
+    animation: none;
+    opacity: 0;
+  }
+}
 
 `;
 
 // ========== Dashboard HTML Shell ==========
 
-function dashboardPage(title, activeNav, bodyContent, projectName) {
+function dashboardPage(title, activeNav, bodyContent, projectName, sidebarSlot) {
   projectName = projectName || _cachedProjectName || 'PM';
   const navLinks = [
     { href: '/', label: 'Home' },
     { href: '/proposals', label: 'Proposals' },
+    { href: '/kb?tab=research', label: 'Knowledge Base' },
     { href: '/backlog', label: 'Backlog' },
   ];
   const linksHtml = navLinks.map(l => {
-    const active = activeNav === l.href;
+    const active = l.label === 'Knowledge Base'
+      ? (activeNav && (activeNav.startsWith('/kb') || activeNav.startsWith('/competitors/') || activeNav.startsWith('/research/') || activeNav === '/landscape'))
+      : activeNav === l.href;
     return `<a href="${l.href}" class="nav-item${active ? ' active' : ''}">${l.label}</a>`;
   }).join('\n      ');
 
@@ -1236,12 +1383,14 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       </button>
     </div>
   </aside>
-  <main class="main-content">
+  <main class="main-content${sidebarSlot ? ' main-with-feed' : ''}">
     <div class="container">
-      <nav class="nav-secondary">${secondaryHtml}</nav>
+      ${activeKbTab ? `<nav class="nav-secondary">${secondaryHtml}</nav>` : ''}
 ${bodyContent}
     </div>
+${sidebarSlot || ''}
   </main>
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
 </div>
 <script>
 (function() {
@@ -1267,7 +1416,218 @@ ${bodyContent}
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
 
+  // ---- Toast Notifications (PM-092) ----
+  // Static trusted SVG icons per milestone type (safe for innerHTML — not user input)
+  var TOAST_ICONS = {
+    tests_passed: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+    pr_created: '<svg viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v8m0 0a2 2 0 104 0M12 14V6m0 0a2 2 0 10-4 0"/></svg>',
+    review_done: '<svg viewBox="0 0 16 16" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8.5l2 2 3.5-4"/></svg>',
+    merged: '<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v4a4 4 0 004 4h4M8 10l4-4M8 10l4 4"/></svg>'
+  };
+  var TOAST_LABELS = {
+    tests_passed: 'Tests passed',
+    pr_created: 'PR created',
+    review_done: 'Review done',
+    merged: 'Merged'
+  };
+
+  var toastContainer = document.getElementById('toast-container');
+  var activeToasts = [];
+  var MAX_TOASTS = 3;
+
+  function showToast(eventData) {
+    if (!TOAST_ICONS[eventData.type]) return;
+    var msg = (eventData.detail && eventData.detail.message) || TOAST_LABELS[eventData.type];
+    var words = msg.split(/\\s+/).slice(0, 10);
+    msg = words.join(' ');
+
+    while (activeToasts.length >= MAX_TOASTS) {
+      dismissToast(activeToasts[0]);
+    }
+
+    var el = document.createElement('div');
+    el.className = 'toast';
+    var iconSpan = document.createElement('span');
+    iconSpan.className = 'toast-icon';
+    // Safe: TOAST_ICONS values are static trusted SVG strings, keyed by validated type
+    iconSpan.innerHTML = TOAST_ICONS[eventData.type];
+    var textSpan = document.createElement('span');
+    textSpan.textContent = msg;
+    el.appendChild(iconSpan);
+    el.appendChild(textSpan);
+    toastContainer.appendChild(el);
+
+    var duration = Math.min(Math.max(words.length * 500 + 1000, 3000), 5000);
+    var entry = { el: el, timer: null };
+    activeToasts.push(entry);
+    entry.timer = setTimeout(function() { dismissToast(entry); }, duration);
+  }
+
+  function dismissToast(entry) {
+    if (!entry || !entry.el) return;
+    // Remove from active list immediately to prevent re-dismissal from queue loop
+    activeToasts = activeToasts.filter(function(t) { return t !== entry; });
+    clearTimeout(entry.timer);
+    if (!entry.el.parentNode) return;
+    entry.el.classList.add('toast-out');
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var removalDelay = reducedMotion ? 0 : 200;
+    setTimeout(function() {
+      if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+    }, removalDelay);
+  }
+
+  if (typeof EventSource !== 'undefined') {
+    var evtSource = new EventSource('/events');
+    evtSource.onmessage = function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (TOAST_ICONS[data.type]) {
+          showToast(data);
+        }
+      } catch(err) {}
+    };
+  }
 })();
+</script>
+<script>
+(function() {
+  var feedBody = document.getElementById('feed-body');
+  if (!feedBody) return;
+
+  var feedEmpty = document.getElementById('feed-empty');
+  var statusDot = document.getElementById('feed-status-dot');
+  var statusLabel = document.getElementById('feed-status-label');
+  var RECENT_MS = 3 * 60 * 1000;
+
+  function dotClass(type) {
+    if (!type) return '';
+    if (type.indexOf('fail') !== -1 || type.indexOf('error') !== -1 || type.indexOf('warn') !== -1) return 'warning';
+    if (type.indexOf('test') !== -1 || type.indexOf('pass') !== -1 || type.indexOf('merge') !== -1) return 'success';
+    if (type.indexOf('pr_') !== -1 || type.indexOf('push') !== -1 || type.indexOf('commit') !== -1) return 'info';
+    return 'accent';
+  }
+
+  function relativeTime(ts) {
+    var diff = Math.max(0, Date.now() - ts);
+    if (diff < 5000) return 'just now';
+    if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    return Math.floor(diff / 3600000) + 'h ago';
+  }
+
+  function isRecent(ts) {
+    return (Date.now() - ts) < RECENT_MS;
+  }
+
+  function createEventEl(event) {
+    var recent = isRecent(event.timestamp);
+    var div = document.createElement('div');
+    div.className = 'feed-event' + (recent ? '' : ' muted');
+    div.setAttribute('data-event-id', event.id);
+    div.setAttribute('data-timestamp', event.timestamp);
+
+    var dot = document.createElement('div');
+    dot.className = 'feed-event-dot ' + dotClass(event.type);
+    div.appendChild(dot);
+
+    var content = document.createElement('div');
+    content.className = 'feed-event-content';
+
+    var text = document.createElement('div');
+    text.className = 'feed-event-text';
+    var sourceSpan = document.createElement('span');
+    sourceSpan.className = 'feed-event-source';
+    sourceSpan.textContent = event.source;
+    text.appendChild(sourceSpan);
+    var desc = event.detail && event.detail.description ? event.detail.description : event.type.replace(/_/g, ' ');
+    text.appendChild(document.createTextNode(' ' + desc));
+    content.appendChild(text);
+
+    var time = document.createElement('div');
+    time.className = 'feed-event-time';
+    time.textContent = relativeTime(event.timestamp);
+    content.appendChild(time);
+
+    div.appendChild(content);
+    return div;
+  }
+
+  function refreshFade() {
+    var events = feedBody.querySelectorAll('.feed-event');
+    var sepInserted = false;
+    var seps = feedBody.querySelectorAll('.feed-time-sep');
+    for (var i = 0; i < seps.length; i++) seps[i].remove();
+
+    for (var j = 0; j < events.length; j++) {
+      var ts = parseInt(events[j].getAttribute('data-timestamp'), 10);
+      var recent = isRecent(ts);
+      if (recent) {
+        events[j].classList.remove('muted');
+      } else {
+        events[j].classList.add('muted');
+        if (!sepInserted) {
+          var sep = document.createElement('div');
+          sep.className = 'feed-time-sep';
+          sep.textContent = 'Earlier';
+          feedBody.insertBefore(sep, events[j]);
+          sepInserted = true;
+        }
+      }
+      var timeEl = events[j].querySelector('.feed-event-time');
+      if (timeEl) timeEl.textContent = relativeTime(ts);
+    }
+  }
+
+  function setConnected(connected) {
+    if (connected) {
+      statusDot.className = 'feed-status-dot live';
+      statusLabel.textContent = 'Live';
+    } else {
+      statusDot.className = 'feed-status-dot idle';
+      statusLabel.textContent = 'Idle';
+    }
+  }
+
+  var lastEventId = null;
+
+  function connect() {
+    var es = new EventSource('/events');
+    window.__pmEventSource = es;
+
+    es.onopen = function() {
+      setConnected(true);
+    };
+
+    es.onmessage = function(e) {
+      var event;
+      try { event = JSON.parse(e.data); } catch(err) { return; }
+
+      lastEventId = e.lastEventId || event.id;
+
+      if (feedBody.querySelector('[data-event-id="' + event.id + '"]')) return;
+
+      if (feedEmpty) feedEmpty.style.display = 'none';
+
+      var el = createEventEl(event);
+      var firstChild = feedBody.querySelector('.feed-event, .feed-time-sep');
+      if (firstChild) {
+        feedBody.insertBefore(el, firstChild);
+      } else {
+        feedBody.appendChild(el);
+      }
+
+      refreshFade();
+    };
+
+    es.onerror = function() {
+      setConnected(false);
+    };
+  }
+
+  connect();
+})();
+</script>
 </body>
 </html>`;
 }
@@ -1483,6 +1843,17 @@ function routeDashboard(req, res, pmDir) {
     handleShipped(res, pmDir);
   } else if (urlPath === '/backlog/archived') {
     handleArchived(res, pmDir);
+  } else if (urlPath.match(/^\/backlog\/wireframes\/.+\/raw$/)) {
+    const slug = decodeURIComponent(urlPath.slice('/backlog/wireframes/'.length)).replace(/\/raw$/, '').replace(/\.html$/, '');
+    // Serve raw wireframe HTML for iframe embedding
+    const wfDir = path.resolve(pmDir, 'backlog', 'wireframes');
+    const wfPath = path.resolve(wfDir, slug + '.html');
+    if (wfPath.startsWith(wfDir + path.sep) && fs.existsSync(wfPath)) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(fs.readFileSync(wfPath, 'utf-8'));
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath.startsWith('/backlog/wireframes/')) {
     const slug = decodeURIComponent(urlPath.slice('/backlog/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
@@ -1495,7 +1866,9 @@ function routeDashboard(req, res, pmDir) {
     }
   } else if (urlPath.startsWith('/assets/')) {
     const assetName = decodeURIComponent(urlPath.slice('/assets/'.length)).replace(/\.\./g, '');
-    const assetPath = path.join(__dirname, '..', 'assets', assetName);
+    const pluginAssetPath = path.join(__dirname, '..', 'assets', assetName);
+    const projectAssetPath = path.resolve(pmDir, '..', 'assets', assetName);
+    const assetPath = fs.existsSync(pluginAssetPath) ? pluginAssetPath : projectAssetPath;
     if (fs.existsSync(assetPath)) {
       const ext = path.extname(assetPath).toLowerCase();
       const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp' }[ext] || 'application/octet-stream';
@@ -1508,6 +1881,31 @@ function routeDashboard(req, res, pmDir) {
     const slug = decodeURIComponent(urlPath.slice('/groom/'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
       handleGroomProgress(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (urlPath.match(/^\/session\/[^/]+\/flows$/)) {
+    const slug = decodeURIComponent(urlPath.split('/')[2]);
+    if (slug && !slug.includes('..')) {
+      const pmRoot = path.resolve(pmDir, '..', '.pm');
+      const prefixes = ['groom-', 'dev-', ''];
+      let served = false;
+      for (const prefix of prefixes) {
+        const flowsPath = path.join(pmRoot, 'sessions', prefix + slug, 'user-flows-draft.html');
+        if (flowsPath.startsWith(path.join(pmRoot, 'sessions') + path.sep) && fs.existsSync(flowsPath)) {
+          let flowHtml = fs.readFileSync(flowsPath, 'utf-8');
+          // Inject back bar if not already present
+          if (!flowHtml.includes('detail-back-bar')) {
+            const backBar = detailBackBar(slug, pmDir);
+            flowHtml = flowHtml.includes('<body>') ? flowHtml.replace('<body>', '<body>' + backBar) : backBar + flowHtml;
+          }
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(flowHtml);
+          served = true;
+          break;
+        }
+      }
+      if (!served) { res.writeHead(404); res.end('Not found'); }
     } else {
       res.writeHead(404); res.end('Not found');
     }
@@ -1786,7 +2184,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .metric-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.7); }
 
 /* TOC */
-.toc { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.06); overflow-x: auto; }
+.toc { background: #fff; border-bottom: 1px solid #e5e7eb; overflow-x: auto; }
 .toc-inner { max-width: 960px; margin: 0 auto; display: flex; gap: 0; padding: 0 1rem; }
 .toc a { display: block; padding: 0.6rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #777; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
 .toc a:hover { color: #7c3aed; border-bottom-color: #7c3aed; }
@@ -1828,18 +2226,30 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 /* Scope */
 .scope-grid { display: grid; grid-template-columns: 1fr; gap: 0.75rem; margin-bottom: 1rem; }
 .scope-col { border-radius: 8px; padding: 1rem; }
-.scope-col h4 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.625rem; display: flex; align-items: center; gap: 0.3rem; }
+.scope-grid { grid-template-columns: 1fr 1fr; }
+.scope-col { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.25rem; }
+.scope-col h4 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.3rem; }
 .scope-col h4 svg { width: 12px; height: 12px; }
 .scope-col ul { list-style: none; padding: 0; margin: 0; }
-.scope-col li { font-size: 0.875rem; line-height: 1.5; padding: 0.3rem 0; }
+.scope-col li { font-size: 0.875rem; line-height: 1.5; padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6; }
+.scope-col li:last-child { border-bottom: none; }
 .scope-col li strong { font-weight: 600; color: #111; }
-.scope-col.in-scope { background: #f0fdf4; }
 .scope-col.in-scope h4 { color: #16a34a; }
 .scope-col.in-scope li { color: #374151; }
-.scope-col.out-scope { background: #faf5ff; }
-.scope-col.out-scope h4 { color: #7c3aed; }
+.scope-col.out-scope h4 { color: #999; }
 .scope-col.out-scope li { color: #6b7280; }
 .filter-badge { display: inline-flex; align-items: center; gap: 0.35rem; background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.7rem; border-radius: 999px; vertical-align: middle; }
+.scope-jobs { margin-bottom: 1.5rem; }
+.scope-jobs-header { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #999; margin-bottom: 0.5rem; }
+.scope-jobs-list { list-style: none; padding: 0; margin: 0; }
+.scope-jobs-list li { padding: 0.4rem 0; border-bottom: 1px solid #f3f4f6; font-size: 0.9rem; color: #333; line-height: 1.5; }
+.scope-jobs-list li:last-child { border-bottom: none; }
+.scope-jobs-list .job-want { font-weight: 600; }
+.scope-jobs-list .job-so { color: #888; }
+.scope-review-details { margin-top: 1.25rem; border-top: 1px solid #f3f4f6; padding-top: 0.75rem; }
+.scope-review-summary { font-size: 0.8rem; font-weight: 500; color: #999; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; }
+.scope-review-summary:hover { color: #666; }
+.scope-review-body { padding-top: 0.75rem; }
 .scope-review-section { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
 .scope-review-header { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #bbb; margin-bottom: 0.75rem; }
 .reviewer-row { display: flex; align-items: flex-start; gap: 0.625rem; padding: 0.5rem 0; border-bottom: 1px solid #f3f4f6; }
@@ -1871,7 +2281,8 @@ summary { font-size: 0.85rem; font-weight: 600; color: #7c3aed; cursor: pointer;
 
 /* Wireframes */
 .wireframe-embed { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 0.75rem; }
-.wireframe-embed iframe { width: 100%; height: 500px; border: none; }
+.wireframe-embed iframe { width: 100%; height: 100%; border: none; }
+.section-scroll { max-height: 600px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; }
 .wireframe-link { font-size: 0.85rem; color: #7c3aed; text-decoration: none; font-weight: 500; }
 
 /* Verdict badges */
@@ -2020,16 +2431,36 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
     ? `<header class="hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal &mdash; In Progress</div><h1>${esc(topic)}</h1>${metricsHtml}</div></header>`
     : `<header class="hero pp-placeholder-hero"><div class="hero-inner"><div class="hero-eyebrow">Feature Proposal</div><h1>Untitled Feature</h1><p class="subtitle">Waiting for intake...</p></div></header>`;
 
-  // TOC (only show anchors for filled sections)
-  const tocItems = [];
-  if (session.outcome) tocItems.push('<a href="#problem">Problem</a>');
+  // TOC — show all sections that exist for this tier (filled or placeholder)
   const sc = session.strategy_check;
-  if (sc && sc.status) tocItems.push('<a href="#strategy">Strategy</a>');
-  if (session.research_location) tocItems.push('<a href="#research">Research</a>');
-  if (session.scope && session.scope.in_scope) tocItems.push('<a href="#scope">Scope</a>');
-  if (issueCount > 0) { tocItems.push('<a href="#flows">Flows</a>'); tocItems.push('<a href="#issues">Issues</a>'); }
-  if (session.team_review && session.team_review.pm_verdict) tocItems.push('<a href="#review">Review</a>');
-  if (session.bar_raiser && session.bar_raiser.verdict) tocItems.push('<a href="#verdict">Verdict</a>');
+  const hasFlowsJson = ['groom-', 'dev-', ''].some(fp => fs.existsSync(path.resolve(pmDir, '..', '.pm', 'sessions', fp + slug, 'flows.json')));
+  const wfDirToc = path.resolve(pmDir, 'backlog', 'wireframes');
+  const hasWireframes = (fs.existsSync(wfDirToc) && fs.readdirSync(wfDirToc).some(f => f.endsWith('.html') && f.includes(slug))) || (Array.isArray(session.wireframes) && session.wireframes.length > 0);
+
+  const tocDefs = [
+    { id: 'problem', label: 'Problem', show: true },
+    { id: 'strategy', label: 'Strategy', show: phases.includes('strategy-check') },
+    { id: 'research', label: 'Research', show: phases.includes('research') },
+    { id: 'scope', label: 'Scope', show: phases.includes('scope') },
+    { id: 'flows', label: 'Flows', show: phases.includes('groom') || phases.includes('design') },
+    { id: 'wireframes', label: 'Wireframes', show: hasWireframes },
+    { id: 'issues', label: 'Issues', show: phases.includes('groom') },
+    { id: 'review', label: 'Review', show: phases.includes('team-review') },
+    { id: 'verdict', label: 'Verdict', show: phases.includes('bar-raiser') },
+  ];
+  const tocItems = tocDefs.filter(t => t.show).map(t => {
+    // Dim items that are still placeholders
+    const filled = (t.id === 'problem' && session.outcome)
+      || (t.id === 'strategy' && sc && sc.status)
+      || (t.id === 'research' && session.research_location)
+      || (t.id === 'scope' && session.scope && session.scope.in_scope)
+      || (t.id === 'flows' && (hasFlowsJson || issueCount > 0))
+      || (t.id === 'wireframes' && hasWireframes)
+      || (t.id === 'issues' && issueCount > 0)
+      || (t.id === 'review' && session.team_review && session.team_review.pm_verdict)
+      || (t.id === 'verdict' && session.bar_raiser && session.bar_raiser.verdict);
+    return `<a href="#${t.id}"${filled ? '' : ' style="opacity:0.4"'}>${t.label}</a>`;
+  });
   const tocHtml = tocItems.length > 0 ? `<nav class="toc"><div class="toc-inner">${tocItems.join('')}</div></nav>` : '';
 
   // Sections
@@ -2119,11 +2550,23 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
       };
       const filterDescs = { '10x': 'Meaningfully better than alternatives', parity: 'Matching competitor capabilities', 'gap-fill': 'Filling a missing capability' };
       const fd = scope.filter_result ? (filterDescs[scope.filter_result] || '') : '';
-      let scopeBody = `<div class="scope-grid">
+      // Jobs-to-be-Done
+      const jobs = Array.isArray(session.jobs) ? session.jobs : [];
+      let scopeBody = '';
+      if (jobs.length > 0) {
+        scopeBody += '<div class="scope-jobs"><h4 class="scope-jobs-header">Jobs to be Done</h4><ul class="scope-jobs-list">';
+        for (const job of jobs) {
+          scopeBody += `<li><span class="job-want">${esc(String(job.want || ''))}</span> <span class="job-so">&mdash; ${esc(String(job.so || ''))}</span></li>`;
+        }
+        scopeBody += '</ul></div>';
+      }
+
+      // In/Out scope grid
+      scopeBody += `<div class="scope-grid">
   <div class="scope-col in-scope"><h4>${PP_ICONS.check} Included</h4><ul>${inItems.map(i => `<li>${fmtScope(i)}</li>`).join('')}</ul></div>
   <div class="scope-col out-scope"><h4>${PP_ICONS.cross} Excluded</h4><ul>${outItems.map(i => `<li>${fmtScope(i)}</li>`).join('')}</ul></div>
 </div>`;
-      // Scope review verdicts
+      // Scope review verdicts — secondary info, collapsible
       const sr = session.scope_review;
       if (sr && sr.pm_verdict) {
         const srDesc = {
@@ -2131,18 +2574,17 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
           competitive: { strengthens: 'Strengthens position', 'strengthens-if': 'Could strengthen with adjustments', neutral: 'No competitive impact', weakens: 'Could weaken position' },
           em: { feasible: 'Technically feasible', 'feasible-with-caveats': 'Feasible with constraints', 'needs-rearchitecting': 'Needs architectural changes' },
         };
-        scopeBody += `<div class="scope-review-section"><h4 class="scope-review-header">Scope Review</h4>`;
-        if (scope.filter_result) scopeBody += `<p style="margin-bottom:0.75rem;font-size:0.85rem;color:#666;">${filterBadge} <span style="margin-left:0.25rem;">${esc(fd)}</span></p>`;
         const addReviewer = (avatar, role, verdict, descs, summary) => {
           const v = String(verdict);
           const cls = /ship-it|strengthens|feasible/.test(v) ? 'ready' : /if|caveat/.test(v) ? 'caution' : 'blocked';
           const desc = summary || (descs && descs[v]) || v;
           return `<div class="reviewer-row"><img src="/assets/${avatar}" class="reviewer-avatar" alt="${esc(role)}"><div class="reviewer-content"><div class="reviewer-header"><strong>${esc(role)}</strong> <span class="verdict-badge ${cls}">${esc(v)}</span></div><div class="reviewer-summary">${esc(desc)}</div></div></div>`;
         };
-        if (sr.pm_verdict) scopeBody += addReviewer('reviewer-pm.png', 'Product Manager', sr.pm_verdict, srDesc.pm, sr.pm_summary);
-        if (sr.competitive_verdict) scopeBody += addReviewer('reviewer-competitive.png', 'Competitive Strategist', sr.competitive_verdict, srDesc.competitive, sr.competitive_summary);
-        if (sr.em_verdict) scopeBody += addReviewer('reviewer-engineering.png', 'Engineer', sr.em_verdict, srDesc.em, sr.em_summary);
-        scopeBody += '</div>';
+        let reviewerHtml = '';
+        if (sr.pm_verdict) reviewerHtml += addReviewer('reviewer-pm.png', 'Product Manager', sr.pm_verdict, srDesc.pm, sr.pm_summary);
+        if (sr.competitive_verdict) reviewerHtml += addReviewer('reviewer-competitive.png', 'Competitive Strategist', sr.competitive_verdict, srDesc.competitive, sr.competitive_summary);
+        if (sr.em_verdict) reviewerHtml += addReviewer('reviewer-engineering.png', 'Engineer', sr.em_verdict, srDesc.em, sr.em_summary);
+        scopeBody += `<details class="scope-review-details" open><summary class="scope-review-summary">${filterBadge ? filterBadge + ' ' : ''}Scope Review — ${esc(String(sr.iterations || 1))} iteration${(sr.iterations || 1) > 1 ? 's' : ''}</summary><div class="scope-review-body">${reviewerHtml}</div></details>`;
       }
       sections += `<div class="section" id="scope"><div class="section-title"><span class="icon">${PP_ICONS.scope}</span> Scope Overview</div>${scopeBody}</div>`;
     } else {
@@ -2156,7 +2598,38 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
   // Flows
   const groomed = isPhaseComplete(currentPhase, 'groom') || currentPhase === 'groom' || currentPhase === 'team-review' || currentPhase === 'bar-raiser' || currentPhase === 'present' || currentPhase === 'link';
   if (phases.includes('design') || phases.includes('groom')) {
-    if (designed && issueCount > 0) {
+    // Check for flows.json and user-flows-draft.html in session directory
+    const flowsPrefixes = ['groom-', 'dev-', ''];
+    let flowsData = null;
+    let hasFlowsDraft = false;
+    for (const fp of flowsPrefixes) {
+      const jsonPath = path.resolve(pmDir, '..', '.pm', 'sessions', fp + slug, 'flows.json');
+      const htmlPath = path.resolve(pmDir, '..', '.pm', 'sessions', fp + slug, 'user-flows-draft.html');
+      if (!flowsData && fs.existsSync(jsonPath)) {
+        try { flowsData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')); } catch {}
+      }
+      if (!hasFlowsDraft && fs.existsSync(htmlPath)) hasFlowsDraft = true;
+    }
+    const flowsLink = hasFlowsDraft ? `<a href="/session/${encodeURIComponent(slug)}/flows" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View all flows &rarr;</a>` : '';
+
+    if (flowsData && flowsData.length > 0) {
+      // Render top 3 featured flows inline
+      const featured = flowsData.filter(f => f.featured).slice(0, 3);
+      let flowBody = '';
+      for (let fi = 0; fi < featured.length; fi++) {
+        const flow = featured[fi];
+        flowBody += `<div style="margin-bottom:1.5rem;"><h4 style="font-size:0.85rem;font-weight:600;color:#333;margin-bottom:0.5rem;"><span style="display:inline-flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;border-radius:50%;background:#7c3aed;color:#fff;font-size:0.65rem;font-weight:700;margin-right:0.4rem;">${fi + 1}</span>${esc(String(flow.title))}</h4>`;
+        flowBody += `<p style="font-size:0.8rem;color:#888;margin-bottom:0.75rem;">${esc(String(flow.job))}</p>`;
+        flowBody += `<div class="mermaid-container"><pre class="mermaid">${esc(String(flow.mermaid))}</pre></div>`;
+        if (flow.edges && flow.edges.length > 0) {
+          flowBody += '<ul style="margin-top:0.5rem;padding-left:1.25rem;">';
+          for (const edge of flow.edges) flowBody += `<li style="font-size:0.8rem;color:#888;">${esc(String(edge))}</li>`;
+          flowBody += '</ul>';
+        }
+        flowBody += '</div>';
+      }
+      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">${PP_ICONS.flows}</span> User Flows ${flowsLink}</div><div class="section-scroll">${flowBody}</div></div>`;
+    } else if (designed && issueCount > 0) {
       let flowBody = '';
       const issues = session.issues || [];
       for (const iss of issues) {
@@ -2169,23 +2642,48 @@ function buildProgressiveProposalHtml(session, pmDir, slug) {
         } catch {}
       }
       if (!flowBody) flowBody = '<p style="color:#999;">No user flow diagrams generated.</p>';
-      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">${PP_ICONS.flows}</span> User Flows</div>${flowBody}</div>`;
+      sections += `<div class="section" id="flows"><div class="section-title"><span class="icon">${PP_ICONS.flows}</span> User Flows ${flowsLink}</div><div class="section-scroll">${flowBody}</div></div>`;
     } else {
       sections += ppPlaceholder('flows', PP_ICONS.flows, 'User Flows', 'Pending issue drafting');
     }
 
-    // Wireframes
-    if (groomed && issueCount > 0) {
+    // Wireframes — check issue slugs, session slug, and any wireframe referencing this topic
+    {
       let wfBody = '';
+      const wfDir = path.resolve(pmDir, 'backlog', 'wireframes');
+      const wfSlugs = new Set();
+      // Check issue-linked wireframes
       for (const iss of (session.issues || [])) {
-        const wfPath = path.resolve(pmDir, 'backlog', 'wireframes', (iss.slug || '') + '.html');
-        if (fs.existsSync(wfPath)) {
-          wfBody += `<div class="wireframe-embed"><iframe src="/backlog/wireframes/${encodeURIComponent(iss.slug || '')}"></iframe></div>
-  <a class="wireframe-link" href="/backlog/wireframes/${encodeURIComponent(iss.slug || '')}" target="_blank">${esc(String(iss.title || iss.slug))} wireframe &nearr;</a>`;
+        const s = iss.slug || '';
+        if (s && fs.existsSync(path.join(wfDir, s + '.html'))) wfSlugs.add(s);
+      }
+      // Check session slug wireframe
+      if (fs.existsSync(path.join(wfDir, slug + '.html'))) wfSlugs.add(slug);
+      // Check wireframes listed in state file
+      if (Array.isArray(session.wireframes)) {
+        for (const wf of session.wireframes) {
+          if (wf && fs.existsSync(path.join(wfDir, String(wf) + '.html'))) wfSlugs.add(String(wf));
         }
       }
+      // Scan wireframes dir for any that include the slug in the filename
+      if (fs.existsSync(wfDir)) {
+        try {
+          for (const f of fs.readdirSync(wfDir)) {
+            if (f.endsWith('.html') && f.includes(slug)) wfSlugs.add(f.replace('.html', ''));
+          }
+        } catch {}
+      }
+      const wfSlugArr = Array.from(wfSlugs);
+      for (const wfSlug of wfSlugArr) {
+        wfBody += `<div class="wireframe-embed"><iframe src="/backlog/wireframes/${encodeURIComponent(wfSlug)}/raw"></iframe></div>`;
+      }
       if (wfBody) {
-        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes</div>${wfBody}</div>`;
+        const viewWfLink = wfSlugArr.length === 1
+          ? `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframe &rarr;</a>`
+          : `<a href="/backlog/wireframes/${encodeURIComponent(wfSlugArr[0])}" style="font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;">View wireframes &rarr;</a>`;
+        sections += `<div class="section" id="wireframes"><div class="section-title"><span class="icon">${PP_ICONS.wireframe}</span> Wireframes ${viewWfLink}</div>${wfBody}</div>`;
+      } else if (groomed || currentPhase === 'groom') {
+        sections += ppPlaceholder('wireframes', PP_ICONS.wireframe, 'Wireframes', 'Pending wireframe generation');
       }
     }
 
@@ -2277,6 +2775,68 @@ ${tocHtml}
 ${sections}
 </div>
 ${wsScript}
+<script>
+(function() {
+  // Auto-resize wireframe iframes to content height
+  var iframes = document.querySelectorAll('.wireframe-embed iframe');
+  for (var i = 0; i < iframes.length; i++) {
+    iframes[i].addEventListener('load', function() {
+      try { this.style.height = this.contentDocument.documentElement.scrollHeight + 'px'; } catch(e) {}
+    });
+  }
+
+  var sections = document.querySelectorAll('.proposal > .section');
+  if (!sections.length) return;
+
+  var progressBar = document.querySelector('.pp-progress');
+  var barTop = progressBar ? progressBar.offsetHeight : 0;
+
+  var bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;top:' + barTop + 'px;left:0;right:0;z-index:150;background:#f8f9fa;box-shadow:0 2px 8px rgba(0,0,0,0.06);display:none;';
+  var inner = document.createElement('div');
+  inner.style.cssText = 'max-width:960px;margin:0 auto;padding:0.5rem 1.5rem;display:flex;align-items:center;gap:0.5rem;font-size:1rem;font-weight:700;color:#111;';
+  bar.appendChild(inner);
+  document.body.appendChild(bar);
+
+  function onScroll() {
+    var active = null;
+    for (var i = 0; i < sections.length; i++) {
+      var rect = sections[i].getBoundingClientRect();
+      var title = sections[i].querySelector('.section-title');
+      if (!title) continue;
+      var titleBottom = title.getBoundingClientRect().bottom;
+      if (titleBottom < barTop && rect.bottom > barTop + 60) {
+        active = { section: sections[i], title: title };
+      }
+    }
+    if (active) {
+      inner.textContent = '';
+      var icon = active.title.querySelector('.icon');
+      if (icon) inner.appendChild(icon.cloneNode(true));
+      var spans = active.title.childNodes;
+      for (var j = 0; j < spans.length; j++) {
+        if (spans[j].nodeType === 3 && spans[j].textContent.trim()) {
+          var t = document.createElement('span');
+          t.textContent = spans[j].textContent.trim();
+          inner.appendChild(t);
+        }
+      }
+      var link = active.title.querySelector('a');
+      if (link) {
+        var a = document.createElement('a');
+        a.href = link.href;
+        a.textContent = link.textContent;
+        a.style.cssText = 'font-size:0.85rem;font-weight:500;color:#7c3aed;text-decoration:none;margin-left:auto;';
+        inner.appendChild(a);
+      }
+      bar.style.display = 'block';
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
 </body>
 </html>`;
 }
@@ -2485,7 +3045,16 @@ function readAllActiveSessions(pmDir) {
     return { ...s, _type: 'groom', _mtime: mtime };
   });
   const devSessions = readDevState(pmDir);
-  return [...groomSessions, ...devSessions].sort((a, b) => (b._mtime || 0) - (a._mtime || 0));
+  const sessions = [...groomSessions, ...devSessions];
+
+  // Check for active Claude Code session marker (touched by skill invocations)
+  const markerPath = path.resolve(pmDir, '..', '.pm', 'active-session.md');
+  try {
+    const stat = fs.statSync(markerPath);
+    sessions.push({ _slug: 'active', _type: 'session', _mtime: stat.mtimeMs, topic: 'Claude Code session' });
+  } catch {}
+
+  return sessions.sort((a, b) => (b._mtime || 0) - (a._mtime || 0));
 }
 
 function groomSessionDisplay(session) {
@@ -2865,8 +3434,7 @@ function buildProposalCards(pmDir, limit, preloadedSessions) {
       html: `<div class="card proposal-card draft">
   <h3>${d.topic}</h3>
   <p class="meta">Grooming since ${d.started}</p>
-  <div class="card-footer"><span class="badge badge-draft">Draft — ${d.phase}</span></div>
-  <p class="action-hint">Resume with <code>${d.resumeHint}</code></p>
+  <div class="card-footer"><span class="badge badge-draft">Draft — ${d.phase}</span> <code class="action-code">${d.resumeHint}</code></div>
 </div>`
     });
   }
@@ -3036,10 +3604,14 @@ function handleDashboardHome(res, pmDir) {
 
   const projectName = getProjectName(pmDir);
 
-  // Active sessions (groom + dev) — filter out stale sessions (>24h since last modified)
+  // Active sessions (groom + dev)
+  // Groom sessions stay active until phase=done; dev sessions expire after 24h
   const groomSessions = readGroomState(pmDir);
-  const staleMs = 24 * 60 * 60 * 1000;
-  const allSessions = readAllActiveSessions(pmDir).filter(s => s._mtime && (Date.now() - s._mtime) < staleMs);
+  const staleMs = 60 * 60 * 1000;
+  const allSessions = readAllActiveSessions(pmDir).filter(s => {
+    if (s._type === 'groom') return true; // groom sessions are already filtered by phase!=done
+    return s._mtime && (Date.now() - s._mtime) < staleMs;
+  });
   let sessionBannerHtml = '';
   if (allSessions.length > 0) {
     const label = allSessions.every(s => s._type === 'groom')
@@ -3221,7 +3793,25 @@ ${kbReferenceHtml}
 ${suggestedHtml}`;
   }
 
-  const html = dashboardPage('Home', '/', body, projectName);
+  const feedPanelHtml = `
+    <aside class="activity-feed" id="activity-feed">
+      <div class="feed-header">
+        Activity
+        <div class="feed-status" id="feed-status">
+          <span class="feed-status-dot idle" id="feed-status-dot"></span>
+          <span id="feed-status-label">Idle</span>
+        </div>
+      </div>
+      <div class="feed-body" id="feed-body">
+        <div class="feed-empty" id="feed-empty">
+          No events yet.<br>
+          Activity appears here when<br>
+          terminal sessions are running.
+        </div>
+      </div>
+    </aside>`;
+
+  const html = dashboardPage('Home', '/', body, projectName, feedPanelHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3232,12 +3822,33 @@ function handleSessionPage(res, pmDir, slug) {
   const pmRoot = path.resolve(rootDir, '.pm');
 
   // Check for current.html canvas override — scan all type prefixes
+  // Skip canvas if the session state file is newer (canvas is stale)
   const sessionsDir = path.resolve(pmRoot, 'sessions');
   const canvasPrefixes = ['groom-', 'dev-', 'epic-', 'research-', ''];
   for (const prefix of canvasPrefixes) {
     const candidatePath = path.join(sessionsDir, prefix + slug, 'current.html');
     if (candidatePath.startsWith(sessionsDir + path.sep) && fs.existsSync(candidatePath)) {
+      // Check if session state is newer than canvas — prefer dynamic page if so
+      const canvasMtime = fs.statSync(candidatePath).mtimeMs;
+      const groomStatePath = path.join(pmRoot, 'groom-sessions', slug + '.md');
+      const devStatePath = path.join(pmRoot, 'dev-sessions', slug + '.md');
+      const statePath = fs.existsSync(groomStatePath) ? groomStatePath : (fs.existsSync(devStatePath) ? devStatePath : null);
+      if (statePath && fs.statSync(statePath).mtimeMs > canvasMtime) continue; // canvas is stale
       let html = fs.readFileSync(candidatePath, 'utf-8');
+      // Inject SSE hot-reload script before </body> if not already present
+      if (!html.includes('canvas-hot-reload')) {
+        const reloadScript = `<script data-canvas-hot-reload>
+(function(){var es=new EventSource('/events');var slug='${slug.replace(/'/g,"\\'")}';
+es.onmessage=function(e){try{var d=JSON.parse(e.data);
+if(d.type==='canvas_update'&&d.detail&&d.detail.indexOf(slug)!==-1)location.reload();
+}catch(x){}};})();
+</script>`;
+        if (html.includes('</body>')) {
+          html = html.replace('</body>', reloadScript + '</body>');
+        } else {
+          html += reloadScript;
+        }
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
@@ -3253,10 +3864,8 @@ function handleSessionPage(res, pmDir, slug) {
   const devPath = path.join(pmRoot, 'dev-sessions', slug + '.md');
 
   if (fs.existsSync(groomPath)) {
-    sessionType = 'groom';
-    sessionRaw = fs.readFileSync(groomPath, 'utf-8');
-    const { data } = parseFrontmatter(sessionRaw);
-    sessionData = data;
+    // Groom sessions render as progressive proposals
+    return handleGroomProgress(res, pmDir, slug);
   } else if (fs.existsSync(devPath)) {
     sessionType = 'dev';
     sessionRaw = fs.readFileSync(devPath, 'utf-8');
@@ -4459,6 +5068,29 @@ function handleTranscriptPage(res, pmDir, slug, highlight) {
   res.end(html);
 }
 
+function detailBackBar(slug, pmDir) {
+  // Find the groom/dev session this artifact belongs to
+  const pmRoot = path.resolve(pmDir, '..', '.pm');
+  let sessionSlug = null;
+  // Check if slug itself is a groom session
+  const groomDir = path.join(pmRoot, 'groom-sessions');
+  if (fs.existsSync(path.join(groomDir, slug + '.md'))) {
+    sessionSlug = slug;
+  }
+  // Otherwise scan groom sessions for artifact references
+  if (!sessionSlug) {
+    try {
+      for (const f of fs.readdirSync(groomDir).filter(f2 => f2.endsWith('.md'))) {
+        const raw = fs.readFileSync(path.join(groomDir, f), 'utf-8');
+        if (raw.includes(slug)) { sessionSlug = f.replace('.md', ''); break; }
+      }
+    } catch {}
+  }
+  const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) : '/';
+  const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
+  return `<div class="detail-back-bar" style="position:sticky;top:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;padding:0.5rem 1.5rem;display:flex;align-items:center;gap:0.75rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.04);"><a href="${escHtml(backHref)}" style="font-size:0.85rem;color:#7c3aed;text-decoration:none;font-weight:500;">&larr; ${escHtml(backLabel)}</a></div>`;
+}
+
 function handleWireframe(res, pmDir, slug) {
   if (!slug || slug.includes('/') || slug.includes('..')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -4474,8 +5106,57 @@ function handleWireframe(res, pmDir, slug) {
   }
   try {
     const content = fs.readFileSync(wfPath, 'utf-8');
+    const label = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // Find parent session for back link
+    const pmRoot = path.resolve(pmDir, '..', '.pm');
+    let sessionSlug = null;
+    const groomDir = path.join(pmRoot, 'groom-sessions');
+    try {
+      for (const f of fs.readdirSync(groomDir).filter(f2 => f2.endsWith('.md'))) {
+        const raw = fs.readFileSync(path.join(groomDir, f), 'utf-8');
+        if (raw.includes(slug)) { sessionSlug = f.replace('.md', ''); break; }
+      }
+    } catch {}
+    const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) : '/';
+    const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
+    // Wrap wireframe in a proper page shell matching flows page style
+    const wrapped = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wireframe: ${escHtml(label)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #f8f9fa; color: #1a1a1a; line-height: 1.6; }
+  .wf-header { background: linear-gradient(135deg, #2e1065 0%, #7c3aed 50%, #8b5cf6 100%); color: #fff; padding: 2rem 1.5rem; }
+  .wf-header-inner { max-width: 960px; margin: 0 auto; }
+  .wf-header .back-link { display: inline-block; font-size: 0.85rem; color: rgba(255,255,255,0.7); text-decoration: none; margin-bottom: 0.5rem; }
+  .wf-header .back-link:hover { color: #fff; }
+  .wf-header h1 { font-size: 1.5rem; font-weight: 700; }
+  .wf-header p { font-size: 0.9rem; color: rgba(255,255,255,0.75); margin-top: 0.25rem; }
+  .wf-container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+  .wf-frame { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+  .wf-frame iframe { width: 100%; height: 80vh; border: none; display: block; }
+</style>
+</head>
+<body>
+<div class="wf-header">
+  <div class="wf-header-inner">
+    <a class="back-link" href="${escHtml(backHref)}">&larr; ${escHtml(backLabel)}</a>
+    <h1>${escHtml(label)}</h1>
+    <p>Lo-fi wireframe</p>
+  </div>
+</div>
+<div class="wf-container">
+  <div class="wf-frame">
+    <iframe src="/backlog/wireframes/${encodeURIComponent(slug)}/raw" title="${escHtml(label)}"></iframe>
+  </div>
+</div>
+</body>
+</html>`;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(content);
+    res.end(wrapped);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(dashboardPage('Wireframe Not Found', '/backlog', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
@@ -4777,7 +5458,157 @@ function createDashboardServer(pmDir) {
     }
   }
 
+  // ---- SSE Event Bus: ring buffer + broadcast + persistence ----
+  const EVENT_BUFFER_CAP = 200;
+  const eventBuffer = [];
+  let eventIdCounter = 0;
+  const sseClients = new Set();
+
+  // Persist events to disk so they survive server restarts
+  const eventsFilePath = path.resolve(pmDir, '..', '.pm', 'events.jsonl');
+
+  // Load persisted events on startup
+  try {
+    const lines = fs.readFileSync(eventsFilePath, 'utf-8').trim().split('\n').filter(Boolean);
+    // Keep only the last EVENT_BUFFER_CAP lines
+    const recent = lines.slice(-EVENT_BUFFER_CAP);
+    for (const line of recent) {
+      try {
+        const event = JSON.parse(line);
+        eventBuffer.push(event);
+        if (event.id > eventIdCounter) eventIdCounter = event.id;
+      } catch {}
+    }
+  } catch {}
+
+  function persistEvent(event) {
+    try { fs.appendFileSync(eventsFilePath, JSON.stringify(event) + '\n'); } catch {}
+  }
+
+  function pushEvent(event) {
+    eventIdCounter++;
+    const stored = { id: eventIdCounter, ...event };
+    eventBuffer.push(stored);
+    if (eventBuffer.length > EVENT_BUFFER_CAP) {
+      eventBuffer.shift();
+    }
+    persistEvent(stored);
+    return stored;
+  }
+
+  function formatSSE(event) {
+    return `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
+  }
+
+  function broadcastSSE(event) {
+    const data = formatSSE(event);
+    for (const client of sseClients) {
+      try { client.write(data); } catch { sseClients.delete(client); }
+    }
+  }
+
+  const MAX_EVENT_BODY = 65536; // 64KB
+
+  function handlePostEvent(req, res) {
+    let body = '';
+    let aborted = false;
+    req.on('data', chunk => {
+      body += chunk;
+      if (!aborted && body.length > MAX_EVENT_BODY) {
+        aborted = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      const { type, source, timestamp } = parsed;
+      if (!type || !source || timestamp == null) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing required fields: type, source, timestamp' }));
+        return;
+      }
+
+      const event = {
+        type,
+        source,
+        timestamp,
+        detail: parsed.detail || {},
+        source_type: parsed.source_type || 'terminal',
+      };
+
+      const stored = pushEvent(event);
+      broadcastSSE(stored);
+
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: stored.id }));
+    });
+  }
+
+  function handleSSEConnection(req, res) {
+    touchActivity();
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    // Replay events: missed events on reconnect, or all buffered on fresh load
+    const lastId = req.headers['last-event-id'];
+    if (lastId != null) {
+      const lastIdNum = parseInt(lastId, 10);
+      if (!isNaN(lastIdNum)) {
+        for (const event of eventBuffer) {
+          if (event.id > lastIdNum) {
+            res.write(formatSSE(event));
+          }
+        }
+      }
+    } else {
+      // Fresh connection — replay all buffered events
+      for (const event of eventBuffer) {
+        res.write(formatSSE(event));
+      }
+    }
+
+    sseClients.add(res);
+    allConnections.add(res.socket);
+
+    // Heartbeat every 15 seconds
+    const heartbeat = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch { clearInterval(heartbeat); }
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    });
+  }
+
   const server = http.createServer((req, res) => {
+    const reqUrl = req.url.split('?')[0];
+
+    if (reqUrl === '/events') {
+      if (req.method === 'POST') {
+        handlePostEvent(req, res);
+      } else if (req.method === 'GET') {
+        handleSSEConnection(req, res);
+      } else {
+        res.writeHead(405); res.end('Method Not Allowed');
+      }
+      return;
+    }
+
     if (req.method === 'GET') {
       routeDashboard(req, res, pmDir);
     } else {
@@ -4866,6 +5697,11 @@ function createDashboardServer(pmDir) {
     watcherActive = false;
     closeWatchersUnder(pmDir);
     closeWatchersUnder(sessionsWatchDir);
+    // End SSE connections cleanly
+    for (const client of sseClients) {
+      try { client.end(); } catch {}
+    }
+    sseClients.clear();
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
       try { sock.destroy(); } catch (e) {}

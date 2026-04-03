@@ -19,23 +19,61 @@ Confirm with the user:
 
 Wait for confirmation before proceeding.
 
-#### Step 2a: Generate Mermaid user flow diagram (if applicable)
+#### Step 2a: Generate Mermaid user flow diagrams (if applicable)
 
-If the feature type is UI or workflow:
+If the feature type is UI or workflow, generate **one flow diagram per job** from the JTBD list defined in Phase 4 scope. Each flow traces how a specific job gets done — from the trigger situation through to the desired outcome.
 
-1. Generate a Mermaid flowchart showing:
+**Generating the flow set:**
+
+1. **Read the jobs list** from `.pm/groom-sessions/{slug}.md` → `jobs` (top-level key). Each job with its `when/want/so` structure defines one flow. A job that has no decision points or edge cases (e.g., a simple read-only display) doesn't need a flow — skip it.
+
+2. **For each flow, include:**
    - Primary happy path from user intent to completion
    - Key decision points as diamond nodes
-   - Error states and edge cases as branching paths
+   - Error states and edge cases as branching paths (tier skips, review failures, resume from saved state, validation errors, etc.)
    - Start and end states clearly labeled
+   - Max ~15 nodes per diagram. If a flow exceeds this, split into sub-flows within the same section.
 
-2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
+3. **Include citation trails** — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
    ```
    %% Source: pm/research/{topic}/findings.md — Finding N: {description}
    %% Source: pm/competitors/{slug}/features.md — {gap or pattern}
    ```
 
-3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.
+4. **Rank and tag flows.** Use the job `rank` from Phase 4 scope. The top 3 ranked jobs get `featured: true` — these display inline in the progressive proposal. The rest are accessible via a "View all flows" modal. If fewer than 4 jobs have flows, all are featured.
+
+5. **Collapse simple sections.** If two adjacent sections share decision points or the second section is trivially simple (no branches), combine them into one flow rather than producing a stub diagram.
+
+6. **Render flows in the browser for review.** Do NOT dump Mermaid source into the terminal — it's unreadable. Instead:
+   - Write a self-contained HTML file to `.pm/sessions/groom-{slug}/user-flows-draft.html` with:
+     - Mermaid.js loaded from CDN for client-side rendering
+     - One section per flow: rank badge, job title, featured tag, Mermaid diagram, edge cases list
+     - Top 3 flows above a divider, remaining flows below
+   - **Auto-start dashboard if not running** — follow `${CLAUDE_PLUGIN_ROOT}/references/visual.md`:
+     ```bash
+     bash "${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh" --project-dir "$PWD" --mode dashboard
+     ```
+     Parse the returned JSON for the `port`. Never ask the user to start the dashboard manually.
+   - Open in browser via dashboard route or direct file if no route exists:
+     ```bash
+     open "http://localhost:${PORT}/session/${SLUG}"
+     ```
+     If the draft HTML is not served by a dashboard route, fall back to `open .pm/sessions/groom-{slug}/user-flows-draft.html`.
+   - Tell the user: "Flows are open in your browser. Any changes before I proceed?"
+   - Wait for user response. If they request changes, update the HTML and re-open.
+
+7. **Write flows to issue files.** After user confirms, write each flow as a separate fenced mermaid block in the parent issue file with a heading and featured tag:
+   ```markdown
+   ### Flow: {Job Title}
+   <!-- featured: true -->
+   ```mermaid
+   graph TD
+       A[Start] --> B{Decision}
+       ...
+   ```
+   ```
+
+   Non-featured flows use `<!-- featured: false -->`. Edge cases go as a bullet list below each flow diagram.
 
 #### Step 2b: Generate HTML wireframe (UI features only)
 
