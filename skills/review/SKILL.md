@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Multi-perspective code review (code + PM + design + input edge-cases) with auto-fix. Conditionally skips PM/Design agents when upstream gates passed."
+description: "Multi-perspective code review (code + PM + design + input edge-cases) with auto-fix. PM always runs; conditionally skips Design when upstream gate passed."
 ---
 
 # /review [PR#]
@@ -10,7 +10,7 @@ description: "Multi-perspective code review (code + PM + design + input edge-cas
 Multi-perspective code review with auto-fix. Runs up to five review agents in parallel:
 - **Code Reviewer** (official code-review skill) — posts PR comment for high-confidence bugs
 - **Code Fix Reviewer** — finds ALL genuine code bugs for auto-fix (no confidence threshold)
-- **PM Reviewer** — JTBD alignment, feature completeness, product risk. *Skipped when Spec Review passed upstream.*
+- **PM Reviewer** — JTBD alignment, feature completeness, product risk. *Always runs.*
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
@@ -110,51 +110,29 @@ This posts findings directly to the PR as GitHub comments (uses an internal >=80
 
 ### Agent 2: Code Fix Review (sub-agent — all genuine bugs for auto-fix)
 
-Spawn via Agent tool (subagent_type: general-purpose) **in parallel with Agents 1, 3, 4, and 5**:
+Dispatch via Agent tool with `subagent_type: "pm:code-reviewer"` **in parallel with Agents 1, 3, 4, and 5**:
 
 ```
-You are a Code Reviewer scanning for genuine bugs to auto-fix.
+prompt: |
+  Review this diff for genuine bugs to auto-fix. Report ALL real issues — no confidence threshold.
 
-## Project Context (pre-extracted by orchestrator)
+  ## Project Context
+  {PROJECT_CONTEXT}
 
-{PROJECT_CONTEXT}
+  **Diff:**
+  {paste the full diff}
 
-**Diff:**
-{paste the full diff}
+  **Changed files:**
+  {list of changed files}
 
-**Changed files:**
-{list of changed files}
-
-**Context files to read:**
-- `AGENTS.md` — project conventions, API contract requirements
-- App-specific `AGENTS.md` for each affected app
-- If a review checklist exists (e.g., `.claude/references/review-checklist.md`), read and check sections matching changed files
-- Read the actual source files to understand full context (not just the diff)
-
-**Review checklist:**
-1. **Runtime bugs** — NaN, null derefs, incorrect logic, missing error handling
-2. **Redundant/dead code** — conditions that can never trigger, unused variables
-3. **API contract gaps** — missing API spec coverage, serializer/schema mismatches (check AGENTS.md for contract tooling)
-4. **Cache invalidation** — mutations that don't invalidate related queries
-5. **Type safety** — manually defined types that should use generated schema types (if project uses codegen)
-6. **Domain anti-patterns** — anything matching the project's documented anti-patterns in AGENTS.md or review checklist
-
-**Important:** Report ALL genuine issues regardless of how minor. Do NOT apply a confidence threshold — if it's a real issue (not a false positive), include it. False positives to exclude: pre-existing issues, things a linter/compiler would catch, stylistic preferences not in AGENTS.md.
-
-**Output format:**
-For each finding:
-- **Severity:** P0 (bug/crash) / P1 (incorrect behavior) / P2 (code quality)
-- **File:** exact file path and line range
-- **Issue:** what's wrong
-- **Fix:** specific code change to make
-
-If no code issues found, say "No code issues found."
-Max 5 findings (highest leverage only).
+  **Slug:** {slug}
 ```
 
-### Contract Drift Check (before skipping any agent)
+The agent already knows its methodology (runtime bugs, dead code, API contracts, cache invalidation, type safety, domain anti-patterns). Do not duplicate the checklist here.
 
-Before skipping PM or Design review based on upstream gates, verify the implementation stayed within the approved scope:
+### Contract Drift Check (before skipping Design agent)
+
+Before skipping Design review based on upstream gates, verify the implementation stayed within the approved scope:
 
 1. Read `.pm/dev-sessions/{slug}.md` and extract the plan's **Files in scope** list (from the Contract section of the plan, if present).
 2. Compare against the actual changed files in the diff (from Phase 1).
@@ -162,138 +140,77 @@ Before skipping PM or Design review based on upstream gates, verify the implemen
 4. **If changed files exist outside the plan's scope** (new files not listed, or files in different modules/apps): Log "Contract drift detected — {N} files outside approved scope" and **do not skip** the agent. Run it even if the upstream gate passed.
 5. **If no plan scope is available** (legacy plans without Contract section, or XS/S tasks): Fall back to the original skip logic (upstream gate pass = skip).
 
-This check applies to both PM Review (Agent 3) and Design Review (Agent 4) below.
+This check applies to Design Review (Agent 4) below. PM Review (Agent 3) always runs regardless of drift.
 
 ### Agent 3: PM Review (sub-agent)
 
-**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Spec review: passed`, skip this agent — **unless contract drift was detected above**. The Spec Review stage already ran a PM reviewer against the spec. Log: "PM Review: skipped (Spec Review passed upstream, no drift)."
+**Always runs.** Spec review evaluates the plan; code review evaluates the implementation. Passing spec review does not mean the code correctly implements the spec.
 
-Spawn via Agent tool (subagent_type: general-purpose):
+Dispatch via Agent tool with `subagent_type: "pm:product-manager"`:
 
 ```
-You are a Product Manager reviewing code changes.
+prompt: |
+  Review this code diff from a product perspective. Focus on JTBD alignment, feature completeness, workflow impact, copy/labeling, and data integrity.
 
-## Project Context (pre-extracted by orchestrator)
+  ## Project Context
+  {PROJECT_CONTEXT}
 
-{PROJECT_CONTEXT}
+  **Diff:**
+  {paste the full diff}
 
-**Diff:**
-{paste the full diff}
+  **Changed files:**
+  {list of changed files}
 
-**Changed files:**
-{list of changed files}
-
-**Context files to read:**
-- Read any backlog, plan, or design docs referenced in CLAUDE.md or the project's docs/ directory
-- Read the source files for any changed components to understand the full context
-
-**Review checklist:**
-1. **User goal alignment** — Does this change serve a clear user need? Is the JTBD obvious?
-2. **Feature completeness** — Are there missing states, edge cases, or flows a user would expect?
-3. **Workflow impact** — Does this break or change existing user workflows? If so, is it intentional?
-4. **Copy/labeling** — Are labels, error messages, and empty states clear for the target users (see Project Context)?
-5. **Data integrity** — Could this change cause data loss, orphaned records, or inconsistent state?
-
-**Output format:**
-For each finding:
-- **Severity:** P0 (blocks user) / P1 (degrades experience) / P2 (minor polish)
-- **File:** exact file path and line range
-- **Issue:** what's wrong from a product perspective
-- **Fix:** specific code change to make (not vague suggestion)
-
-If no product issues found, say "No product issues found" and explain why the changes look good.
-Max 5 findings (highest leverage only).
+  **Slug:** {slug}
 ```
+
+The agent already knows its methodology (JTBD clarity, ICP fit, outcome clarity, scope coverage, etc.). Do not duplicate the checklist here.
 
 ### Agent 4: Design Review (sub-agent)
 
 **Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
-Spawn via Agent tool (subagent_type: general-purpose):
+Dispatch via Agent tool with `subagent_type: "pm:design-system-lead"`:
 
 ```
-You are a Design System Reviewer.
+prompt: |
+  Review this diff for design system compliance: token usage, component patterns, typography, spacing, and cross-page consistency.
 
-## Project Context (pre-extracted by orchestrator)
+  ## Project Context
+  {PROJECT_CONTEXT}
 
-{PROJECT_CONTEXT}
+  **Diff:**
+  {paste the full diff}
 
-**Diff:**
-{paste the full diff}
+  **Changed files:**
+  {list of changed files}
 
-**Changed files:**
-{list of changed files}
-
-**Context files to read (REQUIRED — read ALL before reviewing):**
-- `AGENTS.md` — design system rules, page patterns, styling rules
-- App-specific `AGENTS.md` for each affected app (discover via `apps/*/AGENTS.md`)
-- Read any design token files referenced in AGENTS.md
-- Read the source of any shared components referenced in the diff
-
-**Review checklist:**
-1. **Token compliance** — No hardcoded colors, spacing, shadows, or transitions. All values must use design tokens (check AGENTS.md for token file locations).
-2. **Component patterns** — Components follow the patterns documented in AGENTS.md. Feature components compose shared components.
-3. **Design system consistency** — Correct use of layout primitives, card patterns, page headers per AGENTS.md rules.
-4. **Typography** — Text hierarchy follows design system (no ad-hoc font sizes).
-5. **Interactive patterns** — Consistent editing, hover, and action patterns per AGENTS.md.
-
-**Output format:**
-For each finding:
-- **Severity:** P0 (design system violation) / P1 (inconsistency) / P2 (polish)
-- **File:** exact file path and line range
-- **Rule violated:** which AGENTS.md rule or token this breaks
-- **Issue:** what's wrong
-- **Fix:** exact code change (old -> new) with proper token/component references
-
-If no design issues found, say "No design issues found."
-Max 5 findings (highest leverage only).
+  **Slug:** {slug}
 ```
+
+The agent already knows its methodology (token compliance, component reuse, typography, spacing/layout, color, polish checklist). Do not duplicate the checklist here.
 
 ### Agent 5: Input Edge-Case Review (sub-agent)
 
-Spawn via Agent tool (subagent_type: general-purpose, model: opus) **in parallel with Agents 1-4**:
+Dispatch via Agent tool with `subagent_type: "pm:edge-case-tester"`, `model: "opus"` **in parallel with Agents 1-4**:
 
 ```
-You are an Input Edge-Case Reviewer.
+prompt: |
+  Find untested input edge cases in user-facing functions touched by this diff. Test boundaries, nulls, unicode, injection vectors, and type coercion.
 
-## Project Context (pre-extracted by orchestrator)
+  ## Project Context
+  {PROJECT_CONTEXT}
 
-{PROJECT_CONTEXT}
+  **Diff:**
+  {paste the full diff}
 
-**Diff:**
-{paste the full diff}
+  **Changed files:**
+  {list of changed files}
 
-**Changed files:**
-{list of changed files}
-
-**Context files to read:**
-- Read the actual source files to understand full function signatures and branching logic
-- Read corresponding test files to check existing edge-case coverage
-
-**Review focus: Find untested input edge cases in user-facing functions.**
-
-1. Identify all functions that process user input: form handlers, formatters, validators, API param parsers, normalizers
-2. For each function, enumerate:
-   - All conditional branches (if/else, switch, ternary, guard clauses)
-   - Input types: empty string, null, undefined, whitespace-only, max-length, unicode, special characters
-   - Boundary values: off-by-one on length checks, prefix/suffix edge cases
-   - Composition: what happens when two transformations are applied sequentially?
-3. Cross-check against existing test files: which edge cases have no test coverage?
-4. Output: list of untested edge cases with specific input values and expected behavior
-5. Score each finding with the same P0/P1/P2 rubric used by other review agents
-
-**Output format:**
-For each finding:
-- **Severity:** P0 (crash/data corruption) / P1 (incorrect behavior) / P2 (minor inconsistency)
-- **File:** exact file path and line range
-- **Function:** function name and what it processes
-- **Untested edge case:** specific input value (e.g., `"  "`, `null`, empty array)
-- **Expected behavior:** what should happen
-- **Why it matters:** what goes wrong without coverage
-
-If no untested edge cases found, say "No untested input edge cases found."
-Max 5 findings (highest leverage only).
+  **Slug:** {slug}
 ```
+
+The agent already knows its methodology (boundary values, empty/null, unicode/encoding, injection vectors, type coercion, concurrency). Do not duplicate the checklist here.
 
 ---
 
@@ -317,7 +234,7 @@ After all agents complete:
 - P1: [issue] in file:line
 
 ### PM Findings
-[findings / Skipped (Spec Review passed upstream)]
+[findings]
 
 ### Design Findings
 [findings / Skipped (Design Critique passed upstream)]

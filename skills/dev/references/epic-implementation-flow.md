@@ -85,19 +85,17 @@ If `/design-critique` is not available: log "Design critique: skipped (not avail
 
 **XS/S:** Dispatch a code scan sub-agent:
 ```
-You are a Code Reviewer scanning for genuine bugs.
+Agent({
+  subagent_type: "pm:code-reviewer",
+  prompt: `Scan for genuine bugs in this diff. Max 5 findings.
 
 **Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
 **Changed files:** {list}
 
-Read AGENTS.md for conventions. Check:
-1. Runtime bugs (null derefs, silent no-ops, NaN)
-2. Error handling (missing onError, swallowed errors)
-3. Race conditions (stale closures, concurrent mutations)
-4. State management (wrong update order)
-5. Domain anti-patterns
-
-Output: P0/P1/P2 findings with file, issue, fix. Max 5.
+## Project Context
+{PROJECT_CONTEXT}
+`
+})
 ```
 
 Fix findings. Commit.
@@ -110,7 +108,7 @@ Fix findings. Commit.
 # Merge latest {DEFAULT_BRANCH}
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 
-# Push (use timeout: 600000 — pre-push hooks can take 5-10 min)
+# Push
 git push origin {BRANCH}
 
 # Create PR
@@ -125,7 +123,7 @@ SendMessage({ to: "team-lead", message: "Ready to merge. {ISSUE_ID} PR #{N}, {N}
 ```
 
 The orchestrator will send a "Merge now" message when it's your turn. When you receive it:
-1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}` (use `timeout: 600000`)
+1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}`
 2. Squash merge: `gh api repos/{OWNER}/{REPO}/pulls/{PR}/merge -X PUT -f merge_method=squash -f commit_title="feat({ISSUE_ID}): {slug} (#{PR})"`
 3. Continue to Step 7 (Cleanup) and Step 8 (report "Merged.").
 
@@ -144,7 +142,7 @@ cd {REPO_ROOT}
 git checkout {DEFAULT_BRANCH}
 git pull --ff-only origin {DEFAULT_BRANCH}
 git merge {BRANCH} --no-ff -m "feat({ISSUE_ID}): {title}"
-git push origin {DEFAULT_BRANCH}  # use timeout: 600000
+git push origin {DEFAULT_BRANCH}
 ```
 
 **XS/S with branch protection:** use the PR flow above.

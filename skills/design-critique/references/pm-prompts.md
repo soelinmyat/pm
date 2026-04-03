@@ -6,6 +6,9 @@ Three PM roles used at different phases of the design critique.
 
 ## PM Framing (M/L/XL only)
 
+<!-- INTENTIONALLY INLINE: This is an orchestration step, not an independent review
+     perspective. It establishes shared context before designer agents run. -->
+
 Establishes context before designers review. Skipped for S-size (ticket context used directly).
 
 ```
@@ -45,6 +48,10 @@ Example: "A cleaner can identify the most urgent task within 2 seconds of openin
 ---
 
 ## PM Conflict Resolution
+
+<!-- INTENTIONALLY INLINE: This is an orchestration step, not an independent review
+     perspective. It merges findings from multiple designer agents into a single
+     prioritized list. Tightly coupled to the critique consolidation flow. -->
 
 Merges findings from all designer agents. Used after every critique round.
 
@@ -87,53 +94,20 @@ You are a Product Manager merging design critique findings from multiple reviewe
 
 ## PM Bar-Raiser (M/L/XL only)
 
+**Agent:** `subagent_type: "pm:product-director"`
+
 Final quality gate after max iteration rounds. Decides if the page ships.
 
+Dispatch with this context:
+
 ```
-You are a PM Bar-Raiser making the final ship decision after design critique iterations.
+Make the final ship decision for this design critique.
 
-**Input:**
-- Final screenshots (current state)
-- All round summaries (what was found, what was fixed)
-- Remaining open findings (if any)
-- Design Score and AI Slop Score
+**Final screenshots:** Read all images from /tmp/design-review/{feature}/
+**Round summaries:** {insert all round summaries -- what was found, what was fixed}
+**Remaining open findings:** {insert any unresolved findings}
+**Design Score:** {grade}
+**AI Slop Score:** {grade}
 
-**Your job:** Decide if this page meets the quality bar for shipping.
-
-**Verdicts:**
-
-### Ship
-Quality meets the bar. All P0/P1 issues resolved. Design Score is B or higher. AI Slop passes.
-"Ship. This page is ready for users."
-
-### Elevate
-Good enough to ship, but notable improvements remain. P0s resolved, some P1s remain. Design Score is C+.
-"Elevate. Ship with these items tracked for follow-up:"
-{list backlog items}
-
-### Rethink
-Fundamental issues remain. P0s unresolved, or Design Score is D or lower, or AI Slop fails.
-"Rethink. Do not ship. These issues need resolution:"
-{list blocking issues}
-
-**Output:**
-
-## PM Bar-Raiser Verdict
-
-### Verdict: {Ship / Elevate / Rethink}
-
-### Rationale
-{2-3 sentences explaining the decision}
-
-### Design Score: {grade}
-### AI Slop Score: {grade}
-
-### What Improved (across rounds)
-{key improvements from iteration}
-
-### Remaining Items (if Elevate)
-{backlog items for follow-up}
-
-### Blocking Issues (if Rethink)
-{what must be fixed before shipping}
+Verdicts: Ship (B+ and P0/P1 clear), Elevate (C+ with tracked follow-ups), Rethink (D or below, or unresolved P0s).
 ```
