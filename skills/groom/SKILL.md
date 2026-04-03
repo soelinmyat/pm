@@ -275,6 +275,9 @@ bar_raiser:
   iterations: 1
   blocking_issues_fixed: 0
 
+wireframes:
+  - "{wireframe-slug}"
+
 issues:
   - slug: "{issue-slug}"
     title: "{title}"

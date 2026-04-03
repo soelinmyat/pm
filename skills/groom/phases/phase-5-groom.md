@@ -1,5 +1,10 @@
 ### Phase 5: Groom
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-groom-$$}" "{\"phase\":\"groom\"}"
+```
+
 Read the splitting patterns reference before starting this phase:
 
 `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/references/splitting-patterns.md`
@@ -54,11 +59,10 @@ If the feature type is UI or workflow, generate **one flow diagram per job** fro
      bash "${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh" --project-dir "$PWD" --mode dashboard
      ```
      Parse the returned JSON for the `port`. Never ask the user to start the dashboard manually.
-   - Open in browser via dashboard route or direct file if no route exists:
+   - Open in browser via the dashboard flows route:
      ```bash
-     open "http://localhost:${PORT}/session/${SLUG}"
+     open "http://localhost:${PORT}/session/${SLUG}/flows"
      ```
-     If the draft HTML is not served by a dashboard route, fall back to `open .pm/sessions/groom-{slug}/user-flows-draft.html`.
    - Tell the user: "Flows are open in your browser. Any changes before I proceed?"
    - Wait for user response. If they request changes, update the HTML and re-open.
 
@@ -247,14 +251,37 @@ Write `.pm/sessions/groom-{slug}/current.html` with:
 Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
 Do not mention this step to the user.
 
-#### Step 6: Update state
+#### Step 6: Write flows.json
+
+After user confirms the flows, write `.pm/sessions/groom-{slug}/flows.json` — a JSON array the progressive proposal renderer reads to display inline flows:
+
+```json
+[
+  {
+    "rank": 1,
+    "featured": true,
+    "title": "{job want text}",
+    "job": "{When ... — so ...}",
+    "mermaid": "graph TD\n    A[Start] --> B{Decision}\n    ...",
+    "edges": ["edge case 1", "edge case 2"]
+  }
+]
+```
+
+The renderer shows the top 3 `featured: true` flows inline and links to `/session/{slug}/flows` for all flows.
+
+#### Step 7: Update state
 
 Do NOT present issues to the user yet. Proceed directly to Phase 5.5.
 
 ```yaml
 phase: groom
+wireframes:
+  - "{wireframe-slug}"
 issues:
   - slug: "{issue-slug}"
     title: "{title}"
     status: drafted
 ```
+
+Add `wireframes` list with the slug of each wireframe file generated in Step 2b (filename without `.html`). This lets the progressive proposal renderer find wireframes that don't match the session slug.

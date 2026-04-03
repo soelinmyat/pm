@@ -1,5 +1,10 @@
 ### Phase 4: Scope
 
+**Emit event — phase started:**
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "phase_started" "${SLUG:-groom-$$}" "{\"phase\":\"scope\"}"
+```
+
 <HARD-GATE>
 Formal scoping is required before review. Do NOT skip based on perceived simplicity or feature type.
 Even "obvious" features benefit from explicit in-scope / out-of-scope boundaries.
