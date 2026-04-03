@@ -18,7 +18,7 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)
 - **Required** before skills that use integrations (research with SEO, groom with Linear)
-- **NOT required** for `$pm-view` (read-only over committed files) or `$pm-research quick` (web search fallback)
+- **NOT required** for `$pm-start` (read-only over committed files) or `$pm-research quick` (web search fallback)
 
 Skills that need integrations check for config themselves and prompt setup if missing.
 
@@ -176,7 +176,7 @@ Populate fields:
 When the knowledge base has data (from ingest or pre-existing files), do two things:
 
 ### Launch the dashboard
-Start `$pm-view` so the user can see their data immediately:
+Start `$pm-start` so the user can see their data immediately:
 
 > "Opening the PM dashboard so you can see what's already in the knowledge base..."
 
@@ -237,7 +237,7 @@ When `pm/` is empty and no import path was provided:
 
 If yes, invoke `$pm-research landscape` immediately.
 
-Do **not** launch `$pm-view` for an empty knowledge base — there's nothing to see yet.
+Do **not** launch `$pm-start` for an empty knowledge base — there's nothing to see yet.
 
 ---
 
