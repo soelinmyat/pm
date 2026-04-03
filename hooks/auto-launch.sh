@@ -19,7 +19,15 @@ if [ -f "$PROJECT_DIR/.pm/config.json" ]; then
 fi
 
 # Check if server already running on stable port
-PORT=$("$PLUGIN_ROOT/scripts/find-dashboard-port.sh" "$PROJECT_DIR" 2>/dev/null)
+PORT=$(PM_HASH_DIR="$PROJECT_DIR" node -e "
+  const crypto = require('crypto');
+  const hash = crypto.createHash('md5').update(process.env.PM_HASH_DIR).digest();
+  console.log(3000 + (hash.readUInt32BE(0) % 7000));
+" 2>/dev/null)
+# Verify something is actually listening
+if [ -n "$PORT" ] && ! lsof -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  PORT=""
+fi
 if [ -n "$PORT" ]; then
   echo "Dashboard: http://localhost:${PORT}"
 else

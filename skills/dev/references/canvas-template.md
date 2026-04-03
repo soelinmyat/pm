@@ -17,12 +17,7 @@ Write `.pm/sessions/{canvas-id}/current.html` at each stage transition:
 
 ## After each write
 
-1. Emit a `canvas_update` SSE event:
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh" "canvas_update" "${SLUG}" "{\"detail\":\"${CANVAS_ID}\"}"
-   ```
-
-2. Write the `.state` file:
+1. Write the `.state` file:
    ```bash
    echo "active" > ".pm/sessions/${CANVAS_ID}/.state"
    ```
