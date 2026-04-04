@@ -39,7 +39,11 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mode)
-      # Deprecated — dashboard is now the only mode. Accept and ignore for backwards compat.
+      # Deprecated — dashboard is now the only mode.
+      if [[ "$2" != "dashboard" ]]; then
+        echo "{\"error\": \"Unsupported PM server mode: $2. Dashboard is the only supported mode.\"}"
+        exit 1
+      fi
       shift 2
       ;;
     --foreground|--no-daemon)
