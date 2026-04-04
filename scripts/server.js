@@ -647,30 +647,38 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .card .card-footer .view-link { font-size: 0.8125rem; font-weight: 500; }
 
 /* Kanban */
-.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 1.5rem 0; align-items: start; }
-.kanban-col { background: transparent; border: none; border-radius: 0;
-  overflow: hidden; box-shadow: none; border-right: 1px solid var(--border-strong); }
-.kanban-col:last-child { border-right: none; }
-.kanban-col .col-header { background: transparent; padding: 0.5rem 1rem 0.75rem; font-weight: 600;
-  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-.kanban-col .col-body { padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
-.kanban-col.col-empty { opacity: 0.45; }
-.kanban-col.col-empty .col-body { min-height: 3rem; }
-.kanban-col.shipped .kanban-item { opacity: 0.7; }
-.kanban-col.shipped .kanban-item:hover { opacity: 1; }
+.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 1.5rem 0; align-items: start; }
+.kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.kanban-col .col-header { display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.col-count { font-size: 11px; font-weight: 500; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.kanban-col .col-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.kanban-col.col-empty .col-body { display: flex; align-items: center; justify-content: center;
+  padding: 32px 16px; color: var(--text-dim); font-size: 13px; min-height: 80px; }
+.kanban-col.shipped .kanban-card { opacity: 0.7; }
+.kanban-col.shipped .kanban-card:hover { opacity: 1; }
+.kanban-card { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  text-decoration: none; color: var(--text); transition: border-color 150ms; display: block; }
+.kanban-card:hover { border-color: var(--border-strong); }
+.kanban-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.kanban-card-id { font-size: 11px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.kanban-card-sub { font-size: 11px; color: var(--text-dim); }
+.kanban-card-title { font-size: 13px; font-weight: 500; line-height: 1.4; }
+.kanban-view-all { display: block; text-align: center; padding: 10px; font-size: 12px; color: var(--accent);
+  text-decoration: none; border-top: 1px solid var(--border); }
+.kanban-view-all:hover { background: var(--surface-hover); }
+/* Status badges */
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
 .badge-in-progress { background: var(--badge-info-bg); color: var(--accent); }
 .badge-approved { background: var(--badge-success-bg); color: var(--badge-success-text); }
-.kanban-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem;
-  font-size: 0.875rem; transition: box-shadow var(--transition); border-left: 3px solid var(--border); }
-.kanban-item.priority-critical { border-left-color: var(--error); }
-.kanban-item.priority-high { border-left-color: var(--warning); }
-.kanban-item.priority-medium { border-left-color: var(--info); }
-.kanban-item.priority-low { border-left-color: var(--text-faint); }
-.kanban-item:hover { box-shadow: var(--shadow-sm); }
-a.kanban-item { color: var(--text); text-decoration: none; display: block; cursor: pointer; }
-.kanban-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
-.kanban-parent { font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
+/* Filter bar */
+.filter-bar { margin-bottom: 24px; }
+.filter-input { width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 13px; color: var(--text); outline: none; font-family: inherit; transition: border-color 150ms; }
+.filter-input::placeholder { color: var(--text-dim); }
+.filter-input:focus { border-color: var(--accent); }
+/* Legacy */
 .backlog-item-id { font-size: 0.75em; font-weight: 600; color: var(--accent); }
 .issue-relations { margin-top: 0.75rem; padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; }
 .issue-relation { font-size: 0.875rem; margin-bottom: 0.375rem; }
@@ -1296,7 +1304,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
 /* Detail page layout */
-.detail-page { max-width: 720px; margin: 0 auto; }
+.detail-page { max-width: 960px; }
 .detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
 .detail-breadcrumb a { color: var(--text-muted); text-decoration: none; }
 .detail-breadcrumb a:hover { color: var(--accent); }
@@ -1315,7 +1323,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .click-to-copy:hover { background: var(--accent); color: var(--text-on-accent); }
 .click-to-copy:hover code { color: var(--text-on-accent); background: transparent; }
 .click-to-copy code { font-size: var(--text-base); color: var(--accent); background: transparent; }
-.copy-icon { font-size: var(--text-xs); opacity: 0.6; }
+.copy-icon { opacity: 0.6; vertical-align: middle; flex-shrink: 0; }
 .detail-ac-list { list-style: none; padding: 0; margin: 0; }
 .detail-ac-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-base); display: flex; align-items: flex-start; gap: var(--space-2); }
 .detail-ac-list li:last-child { border-bottom: none; }
@@ -1487,7 +1495,7 @@ const SEGMENT_COLORS = {
 
 function renderClickToCopy(command) {
   if (typeof command !== 'string' || !command) return '';
-  return `<span class="click-to-copy" data-copy="${escHtml(command)}" tabindex="0" role="button"><code>${escHtml(command)}</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>`;
+  return `<span class="click-to-copy" data-copy="${escHtml(command)}" tabindex="0" role="button"><code>${escHtml(command)}</code><svg class="copy-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>`;
 }
 
 function renderEmptyState(title, desc, command, ctaLabel) {
@@ -1710,6 +1718,17 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === '/strategy') {
     // Redirect old route to KB
     res.writeHead(302, { 'Location': '/kb?tab=strategy' }); res.end();
+  } else if (urlPath === '/strategy-deck') {
+    const deckPath = path.resolve(pmDir, 'strategy-deck.html');
+    if (fs.existsSync(deckPath)) {
+      const content = fs.readFileSync(deckPath, 'utf-8');
+      const header = injectableHeaderBar('Back', 'Strategy Deck');
+      const injected = content.replace(/(<\/head>)/i, header.style + '$1').replace(/(<body[^>]*>)/i, '$1' + header.html);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(injected);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath.startsWith('/competitors/')) {
     const slug = urlPath.slice('/competitors/'.length).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
@@ -3909,92 +3928,87 @@ function handleWireframe(res, pmDir, slug) {
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
   const columns = {};
-  const slugLookup = {};
-  const STATUS_ORDER = ['idea', 'groomed', 'shipped'];
-  const STATUS_MAP = { 'idea': 'idea', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'groomed', 'done': 'shipped' };
+  const childCounts = {};
+  const STATUS_ORDER = ['groomed', 'in-progress', 'shipped'];
+  const STATUS_MAP = { 'idea': 'groomed', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'in-progress', 'done': 'shipped' };
+  const COL_LABELS = { 'groomed': 'Groomed', 'in-progress': 'In Progress', 'shipped': 'Shipped' };
+  const COL_LIMIT = 10;
 
   if (fs.existsSync(backlogDir)) {
     const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    // First pass: count children per parent
     for (const file of files) {
       const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
       const { data } = parseFrontmatter(raw);
-      const rawStatus = data.status || 'idea';
-      const status = STATUS_MAP[rawStatus] || rawStatus;
-      const title = data.title || file.replace('.md', '');
-      const slug = file.replace('.md', '');
-      const badge = (rawStatus === 'in-progress' || rawStatus === 'approved') ? rawStatus : null;
-      const priority = data.priority || 'medium';
-      const labels = Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [];
-      const scope = data.scope_signal || null;
-      const id = data.id || null;
       const parent = data.parent || null;
-      if (!columns[status]) columns[status] = [];
-      slugLookup[slug] = { id, title };
-      const updated = data.updated || data.created || '';
-      // Only show top-level items on the kanban — skip sub-issues
-      if (!parent || parent === 'null') {
-        columns[status].push({ slug, title, badge, priority, labels, scope, id, parent, updated });
+      if (parent && parent !== 'null') {
+        childCounts[parent] = (childCounts[parent] || 0) + 1;
       }
+    }
+    // Second pass: build columns with parent items only
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const slug = file.replace('.md', '');
+      const parent = data.parent || null;
+      if (parent && parent !== 'null') continue; // skip sub-issues
+      const rawStatus = data.status || 'idea';
+      const status = STATUS_MAP[rawStatus] || 'groomed';
+      if (!columns[status]) columns[status] = [];
+      columns[status].push({
+        slug,
+        title: data.title || slug,
+        id: data.id || null,
+        subCount: childCounts[slug] || 0,
+        updated: data.updated || data.created || '',
+      });
     }
   }
 
-  const allStatuses = STATUS_ORDER;
-
-  const COL_LIMIT = 10;
-
-  const renderItem = (item, status) => {
-    const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
-    const labelHtml = item.labels.length > 0 ? '<div class="kanban-labels">' + item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join('') + '</div>' : '';
-    const scopeHtml = item.scope ? `<span class="kanban-scope scope-${item.scope}">${item.scope}</span>` : '';
-    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
-    const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
-    const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
-    const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
-    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}" role="article">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
+  const renderCard = (item) => {
+    const idHtml = item.id ? `<span class="kanban-card-id">${escHtml(item.id)}</span>` : '';
+    const subHtml = item.subCount > 0 ? `<span class="kanban-card-sub">${item.subCount} sub-issue${item.subCount !== 1 ? 's' : ''}</span>` : '';
+    const header = (idHtml || subHtml) ? `<div class="kanban-card-header">${idHtml}${subHtml}</div>` : '';
+    return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
-  const COL_HINTS = {};
-
-  const VIEW_ALL_LABELS = { 'idea': 'ideas', 'groomed': 'groomed', 'shipped': 'shipped' };
-
-  const cols = allStatuses.map(status => {
-    const allItems = columns[status] || [];
-    const isShipped = status === 'shipped';
+  const cols = STATUS_ORDER.map(status => {
+    const allItems = (columns[status] || []).sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
     const totalCount = allItems.length;
     const isCapped = totalCount > COL_LIMIT;
-    const displayItems = isCapped
-      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, COL_LIMIT)
-      : allItems;
-    const items = displayItems.map(item => renderItem(item, status)).join('');
+    const displayItems = isCapped ? allItems.slice(0, COL_LIMIT) : allItems;
+    const cards = displayItems.map(renderCard).join('');
     const viewAllLink = isCapped
-      ? (isShipped
-        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`
-        : `<a href="/roadmap?col=${status}" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`)
+      ? (status === 'shipped'
+        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
+        : '')
       : '';
-    const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const countLabel = isCapped ? ` <span class="col-count">${totalCount}</span>` : '';
     const emptyClass = totalCount === 0 ? ' col-empty' : '';
-    const colHint = COL_HINTS[status] && totalCount > 0 ? `<div class="col-hint">${COL_HINTS[status]}</div>` : '';
-    const shippedClass = isShipped ? ' shipped' : '';
+    const shippedClass = status === 'shipped' ? ' shipped' : '';
+    const bodyContent = totalCount === 0
+      ? '<div class="col-body"><span>No items</span></div>'
+      : `<div class="col-body">${cards}</div>${viewAllLink}`;
     return `<div class="kanban-col${shippedClass}${emptyClass}">
-  <div class="col-header">${label}${countLabel}</div>
-  ${colHint}
-  <div class="col-body">${items || '<div class="col-placeholder"></div>'}${viewAllLink}</div>
+  <div class="col-header">${COL_LABELS[status]} <span class="col-count">${totalCount}</span></div>
+  ${bodyContent}
 </div>`;
   }).join('');
 
-  const legend = `<div class="backlog-legend">
-<span class="legend-item"><span class="legend-bar priority-critical"></span>Critical</span>
-<span class="legend-item"><span class="legend-bar priority-high"></span>High</span>
-<span class="legend-item"><span class="legend-bar priority-medium"></span>Medium</span>
-<span class="legend-item"><span class="legend-bar priority-low"></span>Low</span>
-</div>`;
-  const totalBacklogItems = Object.values(columns).reduce((sum, arr) => sum + arr.length, 0);
+  const totalItems = Object.values(columns).reduce((sum, arr) => sum + arr.length, 0);
   const body = `
 <div class="page-header"><h1>Roadmap</h1>
   <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
-${legend}</div>
-${totalBacklogItems > 0 ? '<div class="kanban">' + cols + '</div>' : renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming. They have acceptance criteria, wireframes, and priority.', '/pm:groom', 'Start grooming')}`;
+</div>
+<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>
+${totalItems > 0 ? '<div class="kanban">' + cols + '</div>' : renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming')}
+<script>
+document.getElementById('roadmap-filter').addEventListener('input', function(e) {
+  var q = e.target.value.toLowerCase();
+  document.querySelectorAll('.kanban-card').forEach(function(card) {
+    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>`;
 
   const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -4266,8 +4280,8 @@ function handleBacklogItem(res, pmDir, slug) {
 ${breadcrumb}
 ${titleHtml}
 ${metaBar}
-${sections.join('\n')}
 ${actionHint}
+${sections.join('\n')}
 </div>`;
 
   const html = dashboardPage(title, '/roadmap', pageBody);
