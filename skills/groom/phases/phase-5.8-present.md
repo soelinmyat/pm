@@ -18,12 +18,17 @@ Write the proposal to `pm/backlog/proposals/{topic-slug}.html` (create the `prop
   "date": "YYYY-MM-DD",
   "verdict": "{bar-raiser verdict: ready | send-back | pause}",
   "verdictLabel": "{Ready | Needs Work | Paused}",
+  "status": "proposed",
   "phase": "completed",
   "issueCount": {number of child issues},
   "gradient": "{deterministic CSS gradient from slug hash — use the proposalGradient() function in server.js, or assign from the 8-gradient palette based on djb2 hash of the slug}",
   "labels": ["{label1}", "{label2}"]
 }
 ```
+
+**Two status dimensions:**
+- `verdict` — grooming outcome. Set by groom. Never changed by dev. Values: `ready`, `send-back`, `pause`.
+- `status` — implementation lifecycle. Set to `"proposed"` by groom. Updated by dev. Values: `proposed` → `in-progress` → `shipped`.
 
 Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Work"`, `"pause"` → `"Paused"`. For any unmapped verdict value, use the raw value as the label.
 
