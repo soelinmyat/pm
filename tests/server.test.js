@@ -1474,14 +1474,16 @@ test('PM-119 Task 5: bar-fill, scatter-dot.highlight, priority classes use var()
   }
 });
 
-test('PM-119 Task 6: no hardcoded hex outside :root token definitions', () => {
+test('PM-119 Task 6: no hardcoded hex outside token definition blocks', () => {
   const { DASHBOARD_CSS } = loadServer();
-  // Remove :root blocks (both light and dark themes if present)
-  const withoutRoot = DASHBOARD_CSS.replace(/:root\s*\{[^}]+\}/g, '');
+  // Remove :root and [data-theme] blocks (token definition blocks)
+  const withoutTokenBlocks = DASHBOARD_CSS
+    .replace(/:root\s*\{[^}]+\}/g, '')
+    .replace(/\[data-theme="[^"]+"\]\s*\{[^}]+\}/g, '');
   // Find remaining hex colors
-  const hexMatches = withoutRoot.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  const hexMatches = withoutTokenBlocks.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
   assert.deepEqual(hexMatches, [],
-    `Hardcoded hex colors found outside :root: ${hexMatches.join(', ')}`);
+    `Hardcoded hex colors found outside token blocks: ${hexMatches.join(', ')}`);
 });
 
 test('PM-119 Task 7: --border-strong token exists in :root', () => {
@@ -3106,4 +3108,182 @@ test('PM-126: Every empty-state div has a title (h2 or h3) and a <p> explanation
     );
   }
   assert.ok(count > 0, 'must find at least one empty-state div in server.js');
+});
+
+// ---------------------------------------------------------------------------
+// PM-127: Dark/Light Mode Consistency
+// ---------------------------------------------------------------------------
+
+test('PM-127 Task 1: [data-theme="light"] defines ALL color tokens that :root defines', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  // Extract the :root block
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const rootTokens = (rootMatch[1].match(/--[\w-]+(?=\s*:)/g) || [])
+    .filter(t => !t.startsWith('--space-') && !t.startsWith('--text-xs') &&
+      !t.startsWith('--text-sm') && !t.startsWith('--text-base') &&
+      !t.startsWith('--text-md') && !t.startsWith('--text-lg') &&
+      t !== '--radius' && t !== '--radius-sm' && t !== '--transition');
+
+  // Extract the [data-theme="light"] block
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] block must exist');
+  const lightTokens = lightMatch[1].match(/--[\w-]+(?=\s*:)/g) || [];
+
+  // Every color token in :root must also appear in [data-theme="light"]
+  for (const token of rootTokens) {
+    assert.ok(lightTokens.includes(token),
+      `[data-theme="light"] must define ${token} (present in :root)`);
+  }
+});
+
+test('PM-127 Task 2: [data-theme="dark"] defines ALL color tokens that :root defines', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const rootTokens = (rootMatch[1].match(/--[\w-]+(?=\s*:)/g) || [])
+    .filter(t => !t.startsWith('--space-') && !t.startsWith('--text-xs') &&
+      !t.startsWith('--text-sm') && !t.startsWith('--text-base') &&
+      !t.startsWith('--text-md') && !t.startsWith('--text-lg') &&
+      t !== '--radius' && t !== '--radius-sm' && t !== '--transition');
+
+  const darkMatch = DASHBOARD_CSS.match(/\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  assert.ok(darkMatch, '[data-theme="dark"] block must exist');
+  const darkTokens = darkMatch[1].match(/--[\w-]+(?=\s*:)/g) || [];
+
+  for (const token of rootTokens) {
+    assert.ok(darkTokens.includes(token),
+      `[data-theme="dark"] must define ${token} (present in :root)`);
+  }
+});
+
+test('PM-127 Task 3: dark theme has appropriate dark values, not copies of light', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const darkMatch = DASHBOARD_CSS.match(/\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  assert.ok(darkMatch, '[data-theme="dark"] block must exist');
+  const darkBlock = darkMatch[1];
+
+  // Dark background should be dark, not light
+  assert.ok(darkBlock.includes('--bg: #0d0f12'), '--bg must be dark (#0d0f12)');
+  assert.ok(darkBlock.includes('--surface: #1a1d23'), '--surface must be dark (#1a1d23)');
+  assert.ok(darkBlock.includes('--text: #e8eaed'), '--text must be light (#e8eaed) for readability');
+  assert.ok(darkBlock.includes('color-scheme: dark'), 'dark theme must set color-scheme: dark');
+});
+
+test('PM-127 Task 4: light theme has color-scheme: light', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  assert.ok(rootMatch[1].includes('color-scheme: light'), ':root must set color-scheme: light');
+
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] block must exist');
+  assert.ok(lightMatch[1].includes('color-scheme: light'), '[data-theme="light"] must set color-scheme: light');
+});
+
+test('PM-127 Task 5: no scattered [data-theme="light"] overrides outside main token block', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  // Remove the main [data-theme="light"] token block
+  const withoutMain = DASHBOARD_CSS.replace(/\[data-theme="light"\]\s*\{[^}]+\}/, '');
+  // Should not contain any other [data-theme="light"] selectors
+  assert.ok(!withoutMain.includes('[data-theme="light"]'),
+    'No scattered [data-theme="light"] overrides should exist outside the main token block');
+});
+
+test('PM-127 Task 6: accent color is #5e6ad2 in both themes', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] must exist');
+  assert.ok(lightMatch[1].includes('--accent: #5e6ad2'), 'light theme accent must be #5e6ad2');
+
+  const darkMatch = DASHBOARD_CSS.match(/\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  assert.ok(darkMatch, '[data-theme="dark"] must exist');
+  assert.ok(darkMatch[1].includes('--accent: #5e6ad2'), 'dark theme accent must be #5e6ad2');
+});
+
+test('PM-127 Task 7: SEGMENT_COLORS do not contain non-standard accent hex', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'server.js'), 'utf-8');
+  // Extract SEGMENT_COLORS block
+  const segMatch = src.match(/const SEGMENT_COLORS\s*=\s*\{([^}]+)\}/);
+  assert.ok(segMatch, 'SEGMENT_COLORS must exist');
+  const segBlock = segMatch[1];
+
+  // Should NOT contain #7c3aed or #2563eb
+  assert.ok(!segBlock.includes('#7c3aed'), 'SEGMENT_COLORS must not contain #7c3aed');
+  assert.ok(!segBlock.includes('#2563eb'), 'SEGMENT_COLORS must not contain #2563eb');
+  assert.ok(!segBlock.includes('#8b5cf6'), 'SEGMENT_COLORS must not contain #8b5cf6');
+});
+
+test('PM-127 Task 8: no #7c3aed, #2563eb, or #8b5cf6 anywhere in DASHBOARD_CSS', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(!DASHBOARD_CSS.includes('#7c3aed'), 'DASHBOARD_CSS must not contain #7c3aed');
+  assert.ok(!DASHBOARD_CSS.includes('#2563eb'), 'DASHBOARD_CSS must not contain #2563eb');
+  assert.ok(!DASHBOARD_CSS.includes('#8b5cf6'), 'DASHBOARD_CSS must not contain #8b5cf6');
+});
+
+test('PM-127 Task 9: HTML shell contains theme initialization script', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      // Must have data-theme initialization
+      assert.ok(body.includes('data-theme'), 'HTML must reference data-theme');
+      assert.ok(body.includes('pm-theme'), 'HTML must reference pm-theme localStorage key');
+      assert.ok(body.includes('prefers-color-scheme'), 'HTML must check prefers-color-scheme');
+      // Must have theme toggle button
+      assert.ok(body.includes('theme-toggle'), 'HTML must contain theme toggle button');
+      // Must have meta theme-color
+      assert.ok(body.includes('meta name="theme-color"'), 'HTML must have meta theme-color');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-127 Task 10: dark theme badge tokens are distinct from light theme', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  const darkMatch = DASHBOARD_CSS.match(/\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch && darkMatch, 'both theme blocks must exist');
+
+  // Extract badge-success-bg from each
+  const lightSuccessBg = lightMatch[1].match(/--badge-success-bg:\s*([^;]+)/);
+  const darkSuccessBg = darkMatch[1].match(/--badge-success-bg:\s*([^;]+)/);
+  assert.ok(lightSuccessBg && darkSuccessBg, 'badge-success-bg must be defined in both themes');
+  assert.notEqual(lightSuccessBg[1].trim(), darkSuccessBg[1].trim(),
+    'badge-success-bg must differ between light and dark themes');
+
+  // Extract badge-error-bg from each
+  const lightErrorBg = lightMatch[1].match(/--badge-error-bg:\s*([^;]+)/);
+  const darkErrorBg = darkMatch[1].match(/--badge-error-bg:\s*([^;]+)/);
+  assert.ok(lightErrorBg && darkErrorBg, 'badge-error-bg must be defined in both themes');
+  assert.notEqual(lightErrorBg[1].trim(), darkErrorBg[1].trim(),
+    'badge-error-bg must differ between light and dark themes');
+});
+
+test('PM-127 Task 11: selection and scrollbar tokens exist in both themes', () => {
+  const { DASHBOARD_CSS } = loadServer();
+
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  const darkMatch = DASHBOARD_CSS.match(/\[data-theme="dark"\]\s*\{([^}]+)\}/);
+  assert.ok(rootMatch && darkMatch, 'both :root and dark blocks must exist');
+
+  const selectionTokens = ['--selection-bg', '--scrollbar-thumb', '--scrollbar-thumb-hover'];
+  for (const token of selectionTokens) {
+    assert.ok(rootMatch[1].includes(token + ':'), `:root must define ${token}`);
+    assert.ok(darkMatch[1].includes(token + ':'), `[data-theme="dark"] must define ${token}`);
+  }
+
+  // CSS must use these tokens
+  assert.ok(DASHBOARD_CSS.includes('::selection'), 'must have ::selection rule');
+  assert.ok(DASHBOARD_CSS.includes('var(--selection-bg)'), 'selection must use var(--selection-bg)');
+  assert.ok(DASHBOARD_CSS.includes('var(--scrollbar-thumb)'), 'scrollbar must use var(--scrollbar-thumb)');
 });

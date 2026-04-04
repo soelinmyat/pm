@@ -342,12 +342,17 @@ function inlineMarkdown(str) {
 // ========== Dashboard CSS ==========
 
 const DASHBOARD_CSS = `
+/* ===== LIGHT THEME (default) ===== */
 :root {
+  color-scheme: light;
   --bg: #f7f8fb;
   --surface: #ffffff;
+  --surface-raised: #eef0f4;
+  --surface-hover: #f0f2f5;
   --border: rgba(0,0,0,0.06);
   --border-strong: rgba(0,0,0,0.12);
   --text: #1e2128;
+  --text-secondary: #555;
   --text-muted: #6b7280;
   --text-faint: #9ca3af;
   --text-on-accent: #fff;
@@ -377,6 +382,9 @@ const DASHBOARD_CSS = `
   --badge-neutral-bg: #f3f4f6;
   --badge-neutral-text: #6b7280;
   --surface-raised: #eef0f4;
+  --selection-bg: rgba(94,106,210,0.2);
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-thumb-hover: #9ca3af;
 
   /* Spacing scale (4px base) */
   --space-1: 4px;
@@ -395,6 +403,88 @@ const DASHBOARD_CSS = `
   --text-base: 0.875rem;  /* 14px */
   --text-md: 1rem;         /* 16px */
   --text-lg: 1.5rem;       /* 24px */
+}
+
+/* ===== LIGHT THEME (explicit, mirrors :root) ===== */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-raised: #eef0f4;
+  --surface-hover: #f0f2f5;
+  --border: rgba(0,0,0,0.06);
+  --border-strong: rgba(0,0,0,0.12);
+  --text: #1e2128;
+  --text-secondary: #555;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+  --text-on-accent: #fff;
+  --accent: #5e6ad2;
+  --accent-hover: #4f5bc4;
+  --accent-subtle: #eef0ff;
+  --dark: #1a1a2e;
+  --success: #16a34a;
+  --warning: #ea580c;
+  --info: #0891b2;
+  --error: #dc2626;
+  --error-text: #f87171;
+  --teal: #044842;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.07);
+  --badge-success-bg: #dcfce7;
+  --badge-success-text: #166534;
+  --badge-warning-bg: #fef3c7;
+  --badge-warning-text: #92400e;
+  --badge-error-bg: #fee2e2;
+  --badge-error-text: #991b1b;
+  --badge-info-bg: #dbeafe;
+  --badge-info-text: #1d4ed8;
+  --badge-neutral-bg: #f3f4f6;
+  --badge-neutral-text: #6b7280;
+  --selection-bg: rgba(94,106,210,0.2);
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-thumb-hover: #9ca3af;
+}
+
+/* ===== DARK THEME ===== */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0f12;
+  --surface: #1a1d23;
+  --surface-raised: #222630;
+  --surface-hover: #262a33;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.14);
+  --text: #e8eaed;
+  --text-secondary: #a0a4ab;
+  --text-muted: #8b8f96;
+  --text-faint: #4a4f57;
+  --text-on-accent: #fff;
+  --accent: #5e6ad2;
+  --accent-hover: #7c85e0;
+  --accent-subtle: #1e1f35;
+  --dark: #111318;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  --error: #f87171;
+  --error-text: #f87171;
+  --teal: #2dd4bf;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --badge-success-bg: #132b1a;
+  --badge-success-text: #4ade80;
+  --badge-warning-bg: #2e2810;
+  --badge-warning-text: #fbbf24;
+  --badge-error-bg: #2e1a1a;
+  --badge-error-text: #f87171;
+  --badge-info-bg: #1a2040;
+  --badge-info-text: #818cf8;
+  --badge-neutral-bg: #222630;
+  --badge-neutral-text: #8b8f96;
+  --selection-bg: rgba(94,106,210,0.3);
+  --scrollbar-thumb: rgba(255,255,255,0.1);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.18);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -1142,6 +1232,19 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .toast { background: var(--dark); color: var(--text-on-accent); padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; animation: fadeIn 150ms ease-out; pointer-events: auto; }
 .toast-out { opacity: 0; transition: opacity 200ms ease-out; }
 
+/* Selection & scrollbar */
+::selection { background: var(--selection-bg); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* Theme toggle */
+.theme-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.6);
+  font-size: var(--text-md); padding: 0 var(--space-2); display: flex; align-items: center; transition: color var(--transition); }
+.theme-toggle:hover { color: rgba(255,255,255,0.9); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1168,7 +1271,11 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f7f8fb">
 <title>${escHtml(title)} - ${escHtml(projectName)}</title>
+<script>
+(function(){var t=localStorage.getItem('pm-theme');if(!t){t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);document.querySelector('meta[name=theme-color]')&&document.querySelector('meta[name=theme-color]').setAttribute('content',t==='dark'?'#0d0f12':'#f7f8fb');})();
+</script>
 <style>${DASHBOARD_CSS}</style>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose'});</script>
@@ -1177,6 +1284,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <nav>
   <span class="brand">${escHtml(projectName)}</span>
   ${navHtml}
+  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme">&#9681;</button>
 </nav>
 <div class="container">
 ${bodyContent}
@@ -1217,6 +1325,19 @@ function showCopyToast(msg) {
     setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
   }, 1500);
 }
+// Theme toggle
+(function() {
+  var btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  function getTheme() { return document.documentElement.getAttribute('data-theme') || 'light'; }
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('pm-theme', t);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', t === 'dark' ? '#0d0f12' : '#f7f8fb');
+  }
+  btn.addEventListener('click', function() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); });
+})();
 </script>
 </body>
 </html>`;
@@ -1225,8 +1346,8 @@ function showCopyToast(msg) {
 // ========== Positioning Map Renderer ==========
 
 const SEGMENT_COLORS = {
-  'enterprise':  '#7c3aed',
-  'mid-market':  '#2563eb',
+  'enterprise':  '#5e6ad2',
+  'mid-market':  '#5e6ad2',
   'smb':         '#16a34a',
   'horizontal':  '#ea580c',
   'self':        '#ef4444',
@@ -2529,7 +2650,7 @@ function renderPositioningScatter(body) {
 
   var maxTraffic = Math.max.apply(null, dots.map(function(d) { return d.traffic || 1; }));
   var segColors = {
-    'horizontal': '#6366f1', 'enterprise': '#dc2626', 'mid-market': '#2563eb',
+    'horizontal': '#ea580c', 'enterprise': '#5e6ad2', 'mid-market': '#5e6ad2',
     'smb': '#16a34a', 'self': '#044842'
   };
 
