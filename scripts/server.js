@@ -4334,26 +4334,28 @@ function handleSessionPage(res, pmDir, slug) {
     ? (session.legacy ? '.pm/.groom-state.md' : `.pm/groom-sessions/${slug}.md`)
     : `.pm/dev-sessions/${slug}.md`;
 
-  const body = `<div class="detail-page">
-  <nav class="detail-breadcrumb" aria-label="Breadcrumb">
-    <a href="/">Dashboard</a>
-    <span class="breadcrumb-sep">/</span>
-    <span class="breadcrumb-current">${escHtml(topic)}</span>
-  </nav>
-  <h1 class="detail-title">${escHtml(topic)}</h1>
-  <div class="detail-meta-bar">
-    <span class="meta-item">${escHtml(typeLabel)}</span>
-    ${started ? `<span class="meta-sep">&middot;</span><span class="meta-item">Started ${escHtml(started)}</span>` : ''}
-    <span class="meta-sep">&middot;</span><span class="meta-item">Phase ${escHtml(phase)}</span>
-  </div>
-  <section class="detail-section">
-    <h2 class="detail-section-title">Resume</h2>
-    <div class="markdown-body">
+  // Build meta badges
+  const metaBadges = [{ html: `<span class="meta-item">${escHtml(typeLabel)}</span>` }];
+  if (started) {
+    metaBadges.push({ html: `<span class="meta-item">Started ${escHtml(started)}</span>` });
+  }
+  metaBadges.push({ html: `<span class="meta-item">Phase ${escHtml(phase)}</span>` });
+
+  const body = renderTemplate('detail', {
+    breadcrumb: [
+      { label: 'Dashboard', href: '/' },
+      { label: topic },
+    ],
+    title: topic,
+    metaBadges,
+    sections: [{
+      title: 'Resume',
+      html: `<div class="markdown-body">
       <p>Resume this session from the terminal with <code>${escHtml(resumeCommand)}</code>.</p>
       <p>State file: <code>${escHtml(statePath)}</code></p>
-    </div>
-  </section>
-</div>`;
+    </div>`,
+    }],
+  });
 
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(dashboardPage(`Session: ${topic}`, `/session/${slug}`, body, projectName));
