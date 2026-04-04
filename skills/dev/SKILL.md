@@ -16,7 +16,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 **Read ONE flow reference, not all three.** The routing section below determines which.
 
 **Hard rules (all flows):**
-- **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation agent MUST be dispatched as a **team member** (`Agent` with `team_name`) — not a sub-agent. Team members communicate via SendMessage, so the orchestrator never sees their internal work. Sub-agents are fine for quick dispatches (review, code scan, spec review) that return compact results. See ADR-0002.
+- **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation worker MUST run as a **persistent agent with isolated context**. In Codex, create that worker with `spawn_agent`, collect summaries with `wait_agent`, resume it with `resume_agent` + `send_input`, and clean it up with `close_agent`. Short-lived review/code-scan agents can still return compact results directly. See ADR-0002.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
 - No design critique or review without running `/simplify` first (all sizes)
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
@@ -209,4 +209,3 @@ If the same root-cause error repeats twice (path missing, branch exists, permiss
 1. Stop repeating the same command
 2. Run a short diagnosis (`pwd`, `git status -sb`, `git worktree list`)
 3. Switch strategy (reuse existing worktree/branch, fix path, or ask user one focused question)
-

@@ -3,6 +3,7 @@ node_modules/
 .env
 .env.*
 .pm/
+pm/
 !.pm/dev-sessions/
 pm/*.local.md
 .worktrees/
