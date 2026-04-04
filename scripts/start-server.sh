@@ -58,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       SERVER_DIR="$2"
       shift 2
       ;;
+    --no-owner)
+      # Accepted for backwards compatibility, no-op (owner tracking removed)
+      shift
+      ;;
     *)
       echo "{\"error\": \"Unknown argument: $1\"}"
       exit 1
@@ -109,13 +113,7 @@ fi
 # Use --server-dir if provided (dev mode), otherwise use this script's directory (production)
 cd "${SERVER_DIR:-$SCRIPT_DIR}"
 
-# Resolve the harness PID (grandparent of this script).
-# $PPID is the ephemeral shell the harness spawned to run us — it dies
-# when this script exits. The harness itself is $PPID's parent.
-OWNER_PID="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ')"
-if [[ -z "$OWNER_PID" || "$OWNER_PID" == "1" ]]; then
-  OWNER_PID="$PPID"
-fi
+# Owner PID tracking removed — server shuts down on idle timeout only.
 
 # Resolve the project directory for stable port hashing.
 # Use --project-dir if provided, otherwise use the caller's working directory.
@@ -141,13 +139,13 @@ fi
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
   echo "$$" > "$PID_FILE"
-  env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR"
+  env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR"
   exit $?
 fi
 
 # Start server, capturing output to log file
 # Use nohup to survive shell exit; disown to remove from job table
-nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
+nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
 echo "$SERVER_PID" > "$PID_FILE"

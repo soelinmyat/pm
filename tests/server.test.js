@@ -236,10 +236,10 @@ test('GET /roadmap kanban does not show per-card groom hints', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. GET /landscape redirects to the research dashboard landscape tab
+// 3. GET /landscape redirects to the KB landscape tab
 // ---------------------------------------------------------------------------
 
-test('GET /landscape redirects to /kb?tab=research', async () => {
+test('GET /landscape redirects to /kb?tab=landscape', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/landscape.md': '---\ntype: landscape\ncreated: 2026-03-12\n---\n# Market Landscape\n\nSome landscape content.\n',
   });
@@ -248,7 +248,7 @@ test('GET /landscape redirects to /kb?tab=research', async () => {
     try {
       const { statusCode, headers, body } = await httpGet(port, '/landscape');
       assert.equal(statusCode, 302);
-      assert.equal(headers.location, '/kb?tab=research');
+      assert.equal(headers.location, '/kb?tab=landscape');
       assert.equal(body, '');
     } finally {
       await close();
@@ -2798,7 +2798,7 @@ test('PM-130: GET /competitors/{slug} renders .detail-meta-bar', async () => {
   } finally { cleanup(); }
 });
 
-test('PM-130: GET /competitors/{slug} renders .detail-section for each available section', async () => {
+test('PM-130: GET /competitors/{slug} renders tabs for available sections', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
     'pm/competitors/acme/features.md': '---\n---\n# Features\n- Feature A\n',
@@ -2808,31 +2808,31 @@ test('PM-130: GET /competitors/{slug} renders .detail-section for each available
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/competitors/acme');
-      const sectionCount = (body.match(/<h2 class="detail-section-title">/g) || []).length;
-      assert.equal(sectionCount, 3, 'must render 3 detail-section-title elements for 3 available sections');
-      assert.ok(body.includes('>Profile<'), 'must have Profile section');
-      assert.ok(body.includes('>Features<'), 'must have Features section');
-      assert.ok(body.includes('>SEO<'), 'must have SEO section');
+      assert.ok(body.includes('role="tablist"'), 'must contain role=tablist');
+      assert.ok(body.includes('>Profile<'), 'must have Profile tab');
+      assert.ok(body.includes('>Features<'), 'must have Features tab');
+      assert.ok(body.includes('>SEO<'), 'must have SEO tab');
+      const tabPanels = (body.match(/class="tab-panel/g) || []).length;
+      assert.equal(tabPanels, 3, 'must render 3 tab panels for 3 available sections');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('PM-130: GET /competitors/{slug} does NOT contain tabs or role=tablist', async () => {
+test('PM-130: GET /competitors/{slug} with single section renders without tabs', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
-    'pm/competitors/acme/features.md': '---\n---\n# Features\n- Feature A\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/competitors/acme');
-      assert.ok(!body.includes('role="tablist"'), 'must NOT contain role=tablist');
-      assert.ok(!body.includes('class="tabs"'), 'must NOT contain .tabs class');
+      assert.ok(!body.includes('role="tablist"'), 'single section must NOT show tabs');
+      assert.ok(body.includes('markdown-body'), 'must still render content');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('PM-130: GET /competitors/{slug} renders .click-to-copy with /pm:research competitors', async () => {
+test('PM-130: GET /competitors/{slug} renders .click-to-copy with /pm:refresh {slug} in meta bar', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
   });
@@ -2841,7 +2841,10 @@ test('PM-130: GET /competitors/{slug} renders .click-to-copy with /pm:research c
     try {
       const { body } = await httpGet(port, '/competitors/acme');
       assert.ok(body.includes('click-to-copy'), 'must render .click-to-copy');
-      assert.ok(body.includes('/pm:research competitors'), 'click-to-copy must contain /pm:research competitors');
+      assert.ok(body.includes('/pm:refresh acme'), 'click-to-copy must contain /pm:refresh acme');
+      // Action hint should be inside meta bar, not at bottom
+      const metaBarMatch = body.match(/detail-meta-bar[\s\S]*?<\/div>/);
+      assert.ok(metaBarMatch && metaBarMatch[0].includes('click-to-copy'), 'click-to-copy must be inside meta bar');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -2887,7 +2890,7 @@ test('PM-130: GET /research/{topic} renders .detail-meta-bar with origin badge',
   } finally { cleanup(); }
 });
 
-test('PM-130: GET /research/{topic} renders .click-to-copy with /pm:research {topic}', async () => {
+test('PM-130: GET /research/{topic} renders .click-to-copy with /pm:refresh {topic} in meta bar', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/research/ai-agents/findings.md': '---\ntopic: AI Agents\nsource_origin: external\n---\n# AI Agents Research\n',
   });
@@ -2896,7 +2899,7 @@ test('PM-130: GET /research/{topic} renders .click-to-copy with /pm:research {to
     try {
       const { body } = await httpGet(port, '/research/ai-agents');
       assert.ok(body.includes('click-to-copy'), 'must render .click-to-copy');
-      assert.ok(body.includes('/pm:research ai-agents'), 'click-to-copy must contain /pm:research ai-agents');
+      assert.ok(body.includes('/pm:refresh ai-agents'), 'click-to-copy must contain /pm:refresh ai-agents');
     } finally { await close(); }
   } finally { cleanup(); }
 });

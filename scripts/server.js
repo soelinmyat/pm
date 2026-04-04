@@ -80,7 +80,7 @@ function decodeFrame(buffer) {
 const HOST = process.env.PM_HOST || '127.0.0.1';
 const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
 
-const OWNER_PID = process.env.PM_OWNER_PID ? Number(process.env.PM_OWNER_PID) : null;
+// Owner PID tracking removed — server lifecycle is managed by idle timeout only.
 
 // ========== Stable Port Resolution ==========
 
@@ -1305,6 +1305,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
+/* Landscape TOC — matches .tabs style */
+.landscape-toc {
+  display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem;
+}
+.landscape-toc-title { display: none; }
+.landscape-toc-item {
+  padding: 0.625rem 1rem; font-size: 0.8125rem; font-weight: 500;
+  color: var(--text-muted); text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  transition: color var(--transition), border-color var(--transition);
+}
+.landscape-toc-item:hover { color: var(--text); }
+
 /* Detail page layout */
 .detail-page { max-width: 960px; }
 .detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
@@ -1713,7 +1726,7 @@ function routeDashboard(req, res, pmDir) {
     res.writeHead(302, { 'Location': '/kb?tab=research' }); res.end();
   } else if (urlPath === '/landscape') {
     // Redirect old route
-    res.writeHead(302, { 'Location': '/kb?tab=research' }); res.end();
+    res.writeHead(302, { 'Location': '/kb?tab=landscape' }); res.end();
   } else if (urlPath === '/competitors') {
     // Redirect old route to KB
     res.writeHead(302, { 'Location': '/kb?tab=competitors' }); res.end();
@@ -3431,7 +3444,7 @@ function buildStrategyBanner(pmDir) {
       ${escHtml(snapshot.staleness.label)}
     </div>
     <a href="/kb?tab=strategy" class="btn-sm">View strategy</a>
-    ${deckExists ? '<a href="/strategy-deck" target="_blank" class="btn-sm">Slide deck</a>' : ''}
+    ${deckExists ? '<a href="/strategy-deck" class="btn-sm">Slide deck</a>' : ''}
   </div>
 </div>`;
 }
@@ -3661,14 +3674,43 @@ function handleKbLandscapeDetail(res, pmDir) {
     const { body } = parseFrontmatter(raw);
     const statsData = parseStatsData(body);
     const statsHtml = renderStatsCards(statsData);
+
+    // Extract h2 headings for TOC
+    const headings = [];
+    const headingRe = /^## (.+)$/gm;
+    let hm;
+    while ((hm = headingRe.exec(body)) !== null) {
+      const text = hm[1].replace(/[*_`#]/g, '').trim();
+      const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      headings.push({ text, slug });
+    }
+
     var rendered = renderLandscapeWithViz(body);
     if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-    landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
+
+    // Inject id attributes on h2 elements for anchor links
+    headings.forEach(function(h) {
+      const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      rendered = rendered.replace(
+        new RegExp('<h2>(' + escaped + ')</h2>'),
+        '<h2 id="' + h.slug + '">$1</h2>'
+      );
+    });
+
+    const tocHtml = headings.length > 0
+      ? '<nav class="landscape-toc"><div class="landscape-toc-title">Contents</div>' +
+        headings.map(function(h) {
+          return '<a href="#' + h.slug + '" class="landscape-toc-item">' + escHtml(h.text) + '</a>';
+        }).join('') + '</nav>'
+      : '';
+
+    landscapeHtml = tocHtml +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
     landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeHtml;
+  const landscapeAction = '<div class="detail-meta-bar"><div class="detail-action-hint">' + renderClickToCopy('/pm:refresh') + '</div></div>';
+  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeAction + landscapeHtml;
   const html = dashboardPage('Landscape', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3732,8 +3774,8 @@ function handleCompetitorDetail(res, pmDir, slug) {
   let category = '';
   let profileUpdatedDate = null;
 
-  // Build flat sections and count available files
-  const sectionBlocks = [];
+  // Build tab sections
+  const sectionTabs = [];
   let availableCount = 0;
   sectionKeys.forEach((sec) => {
     const filePath = path.join(compDir, sec + '.md');
@@ -3749,10 +3791,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
     }
     const label = SECTION_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
     const rendered = sec === 'profile' ? renderProfileWithSwot(body) : renderMarkdown(body);
-    sectionBlocks.push(`<section class="detail-section">
-  <h2 class="detail-section-title">${escHtml(label)}</h2>
-  <div class="markdown-body">${rendered}</div>
-</section>`);
+    sectionTabs.push({ id: sec, label, rendered });
   });
 
   // Breadcrumb
@@ -3765,7 +3804,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
   // Title
   const titleHtml = `<h1 class="detail-title">${escHtml(name)}</h1>`;
 
-  // Meta bar: category, sections count, freshness
+  // Meta bar
   const metaParts = [];
   if (category) {
     metaParts.push(`<span class="meta-item">${escHtml(category)}</span>`);
@@ -3777,18 +3816,45 @@ function handleCompetitorDetail(res, pmDir, slug) {
     metaParts.push(`<span class="meta-sep">&middot;</span>`);
     metaParts.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
   }
-  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
+  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:refresh ' + slug)}</div>`;
+  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}${actionHint}</div>`;
 
-  // Action hint
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:research competitors')}</div>`;
+  // Tab headers + panels
+  const tabHeaders = sectionTabs.map((t, i) =>
+    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="comp-${t.id}" onclick="switchTab(this,'comp-tab-${t.id}')" onkeydown="tabKey(event,this,'comp-tab-${t.id}')">${escHtml(t.label)}</div>`
+  ).join('');
+  const tabPanels = sectionTabs.map((t, i) =>
+    `<div id="comp-tab-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${t.rendered}</div></div>`
+  ).join('');
 
   const body = `<div class="detail-page">
 ${breadcrumb}
 ${titleHtml}
 ${metaBar}
-${sectionBlocks.join('\n')}
-${actionHint}
-</div>`;
+${sectionTabs.length > 1 ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}` : (sectionTabs.length === 1 ? `<div class="markdown-body">${sectionTabs[0].rendered}</div>` : '')}
+</div>
+<script>
+function switchTab(el, panelId) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  el.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
+}
+function tabKey(e, el, panelId) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
+  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
+  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
+}
+(function() {
+  var hash = location.hash.slice(1);
+  if (hash) {
+    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
+    if (tab) switchTab(tab, hash.replace('comp-', 'comp-tab-'));
+  }
+})();
+</script>`;
 
   const html = dashboardPage(name, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3820,8 +3886,9 @@ function handleResearchTopic(res, pmDir, topic) {
   const titleHtml = `<h1 class="detail-title">${escHtml(meta.label)}</h1>
 <p class="subtitle">${escHtml(meta.subtitle)}</p>`;
 
-  // Meta bar: origin badge + evidence badge + freshness badge (reuse from buildTopicMeta)
-  const metaBar = `<div class="detail-meta-bar">${meta.badgesHtml}</div>`;
+  // Meta bar: origin badge + evidence badge + freshness badge + action hint
+  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:refresh ' + topic)}</div>`;
+  const metaBar = `<div class="detail-meta-bar">${meta.badgesHtml}${actionHint}</div>`;
 
   // Sections
   const sections = [];
@@ -3835,6 +3902,9 @@ function handleResearchTopic(res, pmDir, topic) {
     findingsBody = body.substring(0, sourcesMatch.index);
     sourcesBody = body.substring(sourcesMatch.index + sourcesMatch[0].length);
   }
+
+  // Strip leading h1 if it duplicates the page title
+  findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, '');
 
   // Main findings section
   sections.push(`<section class="detail-section">
@@ -3850,15 +3920,11 @@ function handleResearchTopic(res, pmDir, topic) {
 </section>`);
   }
 
-  // Action hint
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:research ' + topic)}</div>`;
-
   const pageBody = `<div class="detail-page">
 ${breadcrumb}
 ${titleHtml}
 ${metaBar}
 ${sections.join('\n')}
-${actionHint}
 </div>`;
 
   const html = dashboardPage(meta.label, '/kb', pageBody);
@@ -4644,7 +4710,7 @@ function handleSessionPage(res, pmDir, slug) {
 
 // ========== Activity Tracking ==========
 
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
 let lastActivity = Date.now();
 
 function touchActivity() {
@@ -4671,18 +4737,9 @@ async function startServer() {
 
   const server = createDashboardServer(pmDir);
 
-  function ownerAliveDash() {
-    if (!OWNER_PID) return true;
-    try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
-  }
-
   const lifecycleCheck = setInterval(() => {
-    if (!ownerAliveDash()) {
-      console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
-      clearInterval(lifecycleCheck);
-      server.close(() => process.exit(0));
-    } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
-      console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
+    if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+      console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout (60 min)' }));
       clearInterval(lifecycleCheck);
       server.close(() => process.exit(0));
     }
