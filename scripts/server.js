@@ -1348,6 +1348,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 }
 .detail-proposal-link:hover { background: var(--surface-raised); }
 
+/* Template wrappers (PM-140) */
+.list-template { }
+.kanban-template { }
+
 /* Toast notifications */
 .toast-container { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; pointer-events: none; }
 .toast { background: var(--dark); color: var(--text-on-accent); padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; animation: fadeIn 150ms ease-out; pointer-events: auto; }
@@ -1644,6 +1648,8 @@ function renderTemplate(type, data) {
     case 'detail': return renderDetailTemplate(data);
     case 'detail-tabs': return renderDetailTabsTemplate(data);
     case 'detail-toc': return renderDetailTocTemplate(data);
+    case 'list': return renderListTemplate(data);
+    case 'kanban': return renderKanbanTemplate(data);
     default: throw new Error(`Unknown template type: ${type}`);
   }
 }
@@ -2316,6 +2322,100 @@ function parseStrategySnapshot(pmDir) {
   return { focus, priorities, staleness: stale || { level: 'fresh', label: 'Current' } };
 }
 
+function renderListTemplate(opts) {
+  const { breadcrumb, title, subtitle, sections = [], emptyState, contentBefore } = opts;
+
+  const parts = [];
+
+  // Page header
+  parts.push('<div class="list-template">');
+  parts.push('<div class="page-header">');
+  if (breadcrumb) parts.push(`<p class="breadcrumb">${breadcrumb}</p>`);
+  parts.push(`<h1>${escHtml(title)}</h1>`);
+  if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
+  parts.push('</div>');
+
+  // Empty state: shown when all sections have 0 items and no contentBefore
+  const totalItems = sections.reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
+  if (emptyState && totalItems === 0 && !contentBefore) {
+    parts.push(emptyState);
+    parts.push('</div>');
+    return parts.join('\n');
+  }
+
+  // Optional content before sections
+  if (contentBefore) parts.push(contentBefore);
+
+  // Sections
+  for (const section of sections) {
+    if (!section.items || section.items.length === 0) continue;
+    parts.push('<section class="section">');
+    if (section.title) {
+      parts.push('<div class="section-header">');
+      parts.push(`<span class="section-title">${escHtml(section.title)}</span>`);
+      if (section.count) parts.push(`<span class="section-count">${escHtml(section.count)}</span>`);
+      parts.push('</div>');
+    }
+    const containerClass = section.itemsClass || (section.layout === 'cards' ? 'card-grid' : 'item-list');
+    parts.push(`<div class="${containerClass}">${section.items.join('\n')}</div>`);
+    parts.push('</section>');
+  }
+
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+function renderKanbanTemplate(opts) {
+  const { title, subtitle, legend, columns = [], emptyState } = opts;
+
+  const parts = [];
+
+  // Page header
+  parts.push('<div class="kanban-template">');
+  parts.push('<div class="page-header">');
+  parts.push(`<h1>${escHtml(title)}</h1>`);
+  if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
+  parts.push('</div>');
+
+  // Optional legend
+  if (legend) parts.push(legend);
+
+  // Empty state: shown when all columns have 0 items
+  const totalItems = columns.reduce((sum, c) => sum + (c.items ? c.items.length : 0), 0);
+  if (emptyState && totalItems === 0) {
+    parts.push(emptyState);
+    parts.push('</div>');
+    return parts.join('\n');
+  }
+
+  // Columns
+  const colsHtml = columns.map(col => {
+    const totalCount = col.totalCount || (col.items ? col.items.length : 0);
+    const emptyClass = totalCount === 0 ? ' col-empty' : '';
+    const extraClass = col.cssClass ? ` ${col.cssClass}` : '';
+    const cards = (col.items || []).join('');
+    const hintHtml = col.hint ? `<div class="col-hint">${col.hint}</div>` : '';
+    const viewAllHtml = col.viewAllHref && col.totalCount > (col.displayCount || 0)
+      ? `<a href="${escHtml(col.viewAllHref)}" class="kanban-view-all">View all ${col.totalCount} ${escHtml(col.viewAllLabel || col.label.toLowerCase())} &rarr;</a>`
+      : '';
+    const bodyContent = totalCount === 0
+      ? '<div class="col-body"><span>No items</span></div>'
+      : `<div class="col-body">${cards}</div>${viewAllHtml}`;
+
+    return `<div class="kanban-col${extraClass}${emptyClass}">
+  <div class="col-header">${escHtml(col.label)} <span class="col-count">${totalCount}</span></div>
+  ${hintHtml}${bodyContent}
+</div>`;
+  }).join('');
+
+  if (totalItems > 0) {
+    parts.push(`<div class="kanban">${colsHtml}</div>`);
+  }
+
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
 function handleProposalsPage(res, pmDir) {
   const proposals = buildProposalRows(pmDir);
 
@@ -2333,26 +2433,19 @@ function handleProposalsPage(res, pmDir) {
     }
   }
 
-  let body;
-  if (proposals.length === 0 && ideas.length === 0) {
-    body = `<div class="page-header"><h1>Proposals</h1></div>
-${renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal')}`;
-  } else {
-    const subtitle = [
-      proposals.length > 0 ? `${proposals.length} groomed` : null,
-      ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
-    ].filter(Boolean).join(', ');
+  const subtitle = [
+    proposals.length > 0 ? `${proposals.length} groomed` : null,
+    ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(', ');
 
-    // Groomed section
-    let groomedHtml = '';
-    if (proposals.length > 0) {
-      const rows = proposals.map(p => {
-        const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
-          : p.verdict === 'paused' ? 'badge-paused'
-          : p.verdict === 'ready' ? 'badge-ready'
-          : 'badge-groomed';
-        const statusLabel = p.verdictLabel || 'Groomed';
-        return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
+  // Groomed card rows (HTML stays in handler)
+  const groomedItems = proposals.map(p => {
+    const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
+      : p.verdict === 'paused' ? 'badge-paused'
+      : p.verdict === 'ready' ? 'badge-ready'
+      : 'badge-groomed';
+    const statusLabel = p.verdictLabel || 'Groomed';
+    return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
   <div class="proposal-card-body">
     <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
     ${p.outcome ? `<div class="proposal-card-outcome">${escHtml(p.outcome)}</div>` : ''}
@@ -2363,41 +2456,28 @@ ${renderEmptyState('No proposals yet', 'Proposals are structured feature plans w
     ${p.date ? `<span class="updated">${escHtml(formatRelativeDate(p.date))}</span>` : ''}
   </div>
 </a>`;
-      }).join('\n');
+  });
 
-      groomedHtml = `
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">Groomed</span>
-    <span class="section-count">${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}</span>
-  </div>
-  <div class="proposal-grid">${rows}</div>
-</section>`;
-    }
+  // Idea rows (HTML stays in handler)
+  const ideaItems = ideas.map(i => {
+    const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
+    return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
+  });
 
-    // Ideas section
-    let ideasHtml = '';
-    if (ideas.length > 0) {
-      const ideaRows = ideas.map(i => {
-        const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
-        return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
-      }).join('\n');
-
-      ideasHtml = `
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">Ideas</span>
-    <span class="section-count">${ideas.length} ungroomed</span>
-  </div>
-  <div class="idea-list">${ideaRows}</div>
-</section>`;
-    }
-
-    body = `<div class="page-header"><h1>Proposals</h1>
-  <p class="subtitle">${subtitle}</p>
-</div>
-${groomedHtml}${ideasHtml}`;
+  const sections = [];
+  if (groomedItems.length > 0) {
+    sections.push({ title: 'Groomed', count: `${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}`, items: groomedItems, layout: 'rows', itemsClass: 'proposal-grid' });
   }
+  if (ideaItems.length > 0) {
+    sections.push({ title: 'Ideas', count: `${ideas.length} ungroomed`, items: ideaItems, layout: 'rows', itemsClass: 'idea-list' });
+  }
+
+  const body = renderListTemplate({
+    title: 'Proposals',
+    subtitle: subtitle || undefined,
+    sections,
+    emptyState: renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal'),
+  });
 
   const html = dashboardPage('Proposals', '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3397,14 +3477,20 @@ function handleKbStrategyDetail(res, pmDir) {
   const filePath = path.join(pmDir, 'strategy.md');
   let contentHtml;
   if (!fs.existsSync(filePath)) {
-    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
+    contentHtml = `<div class="detail-page">
+<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<h1>Strategy</h1>
+</div>` +
       renderEmptyState('No strategy defined', 'Your product strategy defines ICP, value proposition, competitive positioning, and priorities.', '/pm:strategy', 'Define your strategy');
   } else {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = parseFrontmatter(raw);
     const rendered = renderStrategyWithViz(parsed.body);
-    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
-      '<div class="markdown-body">' + rendered + '</div>';
+    contentHtml = `<div class="detail-page">
+<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<h1>Strategy</h1>
+<div class="markdown-body">${rendered}</div>
+</div>`;
   }
   const html = dashboardPage('Strategy', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3413,24 +3499,28 @@ function handleKbStrategyDetail(res, pmDir) {
 
 function handleKbCompetitorsDetail(res, pmDir) {
   const compDir = path.join(pmDir, 'competitors');
-  let cardsHtml = '';
+  const cardItems = [];
   if (fs.existsSync(compDir)) {
     const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
-    cardsHtml = dirs.map(d => {
+    for (const d of dirs) {
       const profilePath = path.join(compDir, d.name, 'profile.md');
-      if (!fs.existsSync(profilePath)) return '';
+      if (!fs.existsSync(profilePath)) continue;
       const summary = extractProfileSummary(parseFrontmatter(fs.readFileSync(profilePath, 'utf-8')).body);
       const stale = stalenessInfo(getUpdatedDate(profilePath));
       const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
-      return `<article class="card">
+      cardItems.push(`<article class="card">
         <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
         <p class="meta">${escHtml(summary.category || '')}</p>
         <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
-      </article>`;
-    }).join('');
+      </article>`);
+    }
   }
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'));
+  const contentHtml = renderListTemplate({
+    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
+    title: 'Competitors',
+    sections: [{ items: cardItems, layout: 'cards' }],
+    emptyState: renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'),
+  });
   const html = dashboardPage('Competitors', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3488,6 +3578,7 @@ function handleKbLandscapeDetail(res, pmDir) {
 }
 
 function handleKbTopicsDetail(res, pmDir) {
+  // Landscape content (shown before topic cards)
   let landscapeHtml = '';
   const landscapePath = path.join(pmDir, 'landscape.md');
   if (fs.existsSync(landscapePath)) {
@@ -3499,33 +3590,40 @@ function handleKbTopicsDetail(res, pmDir) {
     if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
-  } else {
-    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
 
-  let topicsHtml = '';
+  // Topic cards (HTML stays in handler)
+  const topicCards = [];
   const researchDir = path.join(pmDir, 'research');
   if (fs.existsSync(researchDir)) {
     const topics = fs.readdirSync(researchDir, { withFileTypes: true })
       .filter(e => e.isDirectory());
-    if (topics.length > 0) {
-      const cards = topics.map(t => {
-        const findingsPath = path.join(researchDir, t.name, 'findings.md');
-        if (!fs.existsSync(findingsPath)) return '';
-        const raw = fs.readFileSync(findingsPath, 'utf-8');
-        const { data } = parseFrontmatter(raw);
-        const meta = buildTopicMeta(t.name, data, findingsPath);
-        return `<article class="card">
+    for (const t of topics) {
+      const findingsPath = path.join(researchDir, t.name, 'findings.md');
+      if (!fs.existsSync(findingsPath)) continue;
+      const raw = fs.readFileSync(findingsPath, 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const meta = buildTopicMeta(t.name, data, findingsPath);
+      topicCards.push(`<article class="card">
           <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
           <p class="meta">${escHtml(meta.subtitle)}</p>
           <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
-        </article>`;
-      }).join('');
-      topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
+        </article>`);
     }
   }
 
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Research</h1></div>' + landscapeHtml + topicsHtml;
+  const sections = [];
+  if (topicCards.length > 0) {
+    sections.push({ title: 'Topics', items: topicCards, layout: 'cards' });
+  }
+
+  const contentHtml = renderListTemplate({
+    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
+    title: 'Research',
+    contentBefore: landscapeHtml || undefined,
+    sections,
+    emptyState: !landscapeHtml ? renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market') : undefined,
+  });
   const html = dashboardPage('Research', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3752,36 +3850,26 @@ function handleBacklog(res, pmDir) {
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
-  const cols = STATUS_ORDER.map(status => {
+  const templateColumns = STATUS_ORDER.map(status => {
     const allItems = (columns[status] || []).sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
     const totalCount = allItems.length;
     const isCapped = totalCount > COL_LIMIT;
     const displayItems = isCapped ? allItems.slice(0, COL_LIMIT) : allItems;
-    const cards = displayItems.map(renderCard).join('');
-    const viewAllLink = isCapped
-      ? (status === 'shipped'
-        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
-        : '')
-      : '';
-    const emptyClass = totalCount === 0 ? ' col-empty' : '';
-    const shippedClass = status === 'shipped' ? ' shipped' : '';
-    const bodyContent = totalCount === 0
-      ? '<div class="col-body"><span>No items</span></div>'
-      : `<div class="col-body">${cards}</div>${viewAllLink}`;
-    return `<div class="kanban-col${shippedClass}${emptyClass}">
-  <div class="col-header">${COL_LABELS[status]} <span class="col-count">${totalCount}</span></div>
-  ${bodyContent}
-</div>`;
-  }).join('');
+    const isShipped = status === 'shipped';
+    return {
+      label: COL_LABELS[status],
+      status,
+      items: displayItems.map(renderCard),
+      totalCount,
+      displayCount: displayItems.length,
+      viewAllHref: isShipped ? '/roadmap/shipped' : undefined,
+      viewAllLabel: 'shipped',
+      cssClass: isShipped ? 'shipped' : '',
+    };
+  });
 
-  const totalItems = Object.values(columns).reduce((sum, arr) => sum + arr.length, 0);
-  const body = `
-<div class="page-header"><h1>Roadmap</h1>
-  <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
-</div>
-<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>
-${totalItems > 0 ? '<div class="kanban">' + cols + '</div>' : renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming')}
-<script>
+  const filterBar = '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
+  const filterScript = `<script>
 document.getElementById('roadmap-filter').addEventListener('input', function(e) {
   var q = e.target.value.toLowerCase();
   document.querySelectorAll('.kanban-card').forEach(function(card) {
@@ -3789,6 +3877,14 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
   });
 });
 </script>`;
+
+  const body = renderKanbanTemplate({
+    title: 'Roadmap',
+    subtitle: "What's coming, what's in progress, and what just shipped",
+    legend: filterBar,
+    columns: templateColumns,
+    emptyState: renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming'),
+  }) + filterScript;
 
   const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3834,7 +3930,7 @@ function handleShipped(res, pmDir) {
   );
   roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
 
-  const rows = roots.map(item => {
+  const cardItems = roots.map(item => {
     const subCount = childCount[item.slug] || 0;
     const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
     const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
@@ -3863,14 +3959,15 @@ function handleShipped(res, pmDir) {
   ${item.outcome ? `<div class="shipped-item-outcome">${escHtml(item.outcome)}</div>` : ''}
   ${tags.length > 0 || labelTags.length > 0 ? `<div class="shipped-item-tags">${[...tags, ...labelTags].join('')}</div>` : ''}
 </a>`;
-  }).join('');
+  });
 
-  const body = `
-<p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
-<div class="page-header"><h1>Shipped</h1>
-  <p class="subtitle">${roots.length} item${roots.length !== 1 ? 's' : ''} shipped</p>
-</div>
-<div class="shipped-items">${rows || renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.')}</div>`;
+  const body = renderListTemplate({
+    breadcrumb: '<a href="/roadmap">&larr; Roadmap</a>',
+    title: 'Shipped',
+    subtitle: `${roots.length} item${roots.length !== 1 ? 's' : ''} shipped`,
+    sections: [{ items: cardItems, layout: 'rows', itemsClass: 'shipped-items' }],
+    emptyState: renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.'),
+  });
 
   const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -4458,4 +4555,6 @@ module.exports = {
   hashProjectPort, isPortAvailable, resolvePort,
   DASHBOARD_CSS,
   renderTemplate,
+  renderListTemplate,
+  renderKanbanTemplate,
 };

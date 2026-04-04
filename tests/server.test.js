@@ -3802,3 +3802,205 @@ test('PM-139: GET /kb?tab=landscape uses detail-toc template (integration)', asy
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// PM-140: List and Kanban Templates
+// ============================================================================
+
+// --- renderListTemplate ---
+
+test('PM-140: renderListTemplate returns page-header with title', () => {
+  const { renderListTemplate, escHtml } = loadServer();
+  const html = renderListTemplate({ title: 'My List', sections: [] });
+  assert.ok(html.includes('page-header'), 'must have page-header');
+  assert.ok(html.includes('My List'), 'must contain title');
+  assert.ok(html.includes('list-template'), 'must have list-template wrapper');
+});
+
+test('PM-140: renderListTemplate returns empty state when all sections empty', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    title: 'Empty',
+    sections: [{ items: [], layout: 'rows' }],
+    emptyState: '<div class="empty-state"><h2>Nothing here</h2></div>',
+  });
+  assert.ok(html.includes('empty-state'), 'must show empty state');
+  assert.ok(html.includes('Nothing here'), 'must show empty message');
+});
+
+test('PM-140: renderListTemplate renders multiple sections', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    title: 'Multi',
+    sections: [
+      { title: 'First', count: '3 items', items: ['<span>A</span>'], layout: 'rows' },
+      { title: 'Second', items: ['<span>B</span>'], layout: 'cards' },
+    ],
+  });
+  assert.ok(html.includes('First'), 'must have first section title');
+  assert.ok(html.includes('Second'), 'must have second section title');
+  assert.ok(html.includes('section-header'), 'must have section-header');
+  assert.ok(html.includes('section-count'), 'must have section-count');
+  assert.ok(html.includes('card-grid'), 'cards layout must use card-grid class');
+});
+
+test('PM-140: renderListTemplate includes contentBefore when provided', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    title: 'Research',
+    contentBefore: '<div class="markdown-body">Landscape content</div>',
+    sections: [{ title: 'Topics', items: ['<span>T</span>'], layout: 'cards' }],
+  });
+  assert.ok(html.includes('Landscape content'), 'must include contentBefore');
+  assert.ok(html.includes('Topics'), 'must still render sections');
+});
+
+test('PM-140: renderListTemplate uses itemsClass override when provided', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    title: 'Custom',
+    sections: [{ items: ['<span>X</span>'], layout: 'rows', itemsClass: 'proposal-grid' }],
+  });
+  assert.ok(html.includes('proposal-grid'), 'must use custom itemsClass');
+  assert.ok(!html.includes('item-list'), 'must NOT use default class when override provided');
+});
+
+test('PM-140: renderListTemplate renders breadcrumb when provided', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
+    title: 'Competitors',
+    sections: [{ items: ['<span>C</span>'], layout: 'cards' }],
+  });
+  assert.ok(html.includes('breadcrumb'), 'must have breadcrumb class');
+  assert.ok(html.includes('Knowledge Base'), 'must contain breadcrumb text');
+});
+
+test('PM-140: renderListTemplate does not show emptyState when contentBefore exists', () => {
+  const { renderListTemplate } = loadServer();
+  const html = renderListTemplate({
+    title: 'Research',
+    contentBefore: '<div>Some landscape</div>',
+    sections: [{ items: [], layout: 'cards' }],
+    emptyState: '<div class="empty-state"><h2>Should not show</h2></div>',
+  });
+  assert.ok(!html.includes('Should not show'), 'must NOT show empty state when contentBefore present');
+  assert.ok(html.includes('Some landscape'), 'must show contentBefore');
+});
+
+// --- renderKanbanTemplate ---
+
+test('PM-140: renderKanbanTemplate returns page-header with title and subtitle', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Roadmap',
+    subtitle: 'What is coming',
+    columns: [],
+  });
+  assert.ok(html.includes('page-header'), 'must have page-header');
+  assert.ok(html.includes('Roadmap'), 'must contain title');
+  assert.ok(html.includes('What is coming'), 'must contain subtitle');
+  assert.ok(html.includes('kanban-template'), 'must have kanban-template wrapper');
+});
+
+test('PM-140: renderKanbanTemplate returns empty state when no items', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Roadmap',
+    columns: [{ label: 'Groomed', items: [] }],
+    emptyState: '<div class="empty-state"><h2>No items</h2></div>',
+  });
+  assert.ok(html.includes('empty-state'), 'must show empty state');
+  assert.ok(html.includes('No items'), 'must show empty message');
+});
+
+test('PM-140: renderKanbanTemplate renders columns with items', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Board',
+    columns: [
+      { label: 'Todo', items: ['<span>Task 1</span>'], totalCount: 1, displayCount: 1 },
+      { label: 'Done', items: ['<span>Task 2</span>'], totalCount: 1, displayCount: 1 },
+    ],
+  });
+  assert.ok(html.includes('kanban-col'), 'must have kanban-col class');
+  assert.ok(html.includes('col-header'), 'must have col-header');
+  assert.ok(html.includes('col-body'), 'must have col-body');
+  assert.ok(html.includes('Task 1'), 'must render first column items');
+  assert.ok(html.includes('Task 2'), 'must render second column items');
+  assert.ok(html.includes('class="kanban"'), 'must have kanban container');
+});
+
+test('PM-140: renderKanbanTemplate adds view-all link when capped', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Board',
+    columns: [{
+      label: 'Shipped',
+      items: ['<span>Item</span>'],
+      totalCount: 15,
+      displayCount: 10,
+      viewAllHref: '/roadmap/shipped',
+      viewAllLabel: 'shipped',
+    }],
+  });
+  assert.ok(html.includes('kanban-view-all'), 'must have view-all link');
+  assert.ok(html.includes('View all 15 shipped'), 'must show total count in view-all');
+  assert.ok(html.includes('/roadmap/shipped'), 'must have correct href');
+});
+
+test('PM-140: renderKanbanTemplate applies cssClass to column', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Board',
+    columns: [{
+      label: 'Shipped',
+      items: ['<span>Item</span>'],
+      cssClass: 'shipped',
+      totalCount: 1,
+      displayCount: 1,
+    }],
+  });
+  assert.ok(html.includes('kanban-col shipped'), 'must apply cssClass');
+});
+
+test('PM-140: renderKanbanTemplate renders legend when provided', () => {
+  const { renderKanbanTemplate } = loadServer();
+  const html = renderKanbanTemplate({
+    title: 'Board',
+    legend: '<div class="backlog-legend">Legend here</div>',
+    columns: [{ label: 'Col', items: ['<span>X</span>'], totalCount: 1, displayCount: 1 }],
+  });
+  assert.ok(html.includes('backlog-legend'), 'must include legend HTML');
+  assert.ok(html.includes('Legend here'), 'must include legend content');
+});
+
+// --- handleKbStrategyDetail uses detail-page pattern (Task 7) ---
+
+test('PM-140: handleKbStrategyDetail uses .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntitle: Strategy\n---\n# Strategy\nOur ICP is startups.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=strategy');
+      assert.ok(body.includes('detail-page'), 'must use .detail-page wrapper');
+      assert.ok(body.includes('detail-breadcrumb'), 'must use .detail-breadcrumb nav');
+      assert.ok(body.includes('Knowledge Base'), 'breadcrumb must link to KB');
+      assert.ok(body.includes('Strategy'), 'must show title');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-140: handleKbStrategyDetail empty state uses .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=strategy');
+      assert.ok(body.includes('detail-page'), 'empty state must use .detail-page wrapper');
+      assert.ok(body.includes('detail-breadcrumb'), 'empty state must use .detail-breadcrumb');
+      assert.ok(body.includes('No strategy defined'), 'must show empty state message');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
