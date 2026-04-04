@@ -173,6 +173,8 @@ test('GET / shows session brief based on workspace state', async () => {
     try {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('/pm:strategy'), 'must suggest strategy when research exists without strategy');
+      assert.ok(body.includes('Also consider'), 'must show alternative actions when available');
+      assert.ok(body.includes('/pm:groom ideate'), 'must include a concrete alternative action');
     } finally { await close(); }
   } finally { cleanup2(); }
 
