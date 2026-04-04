@@ -231,20 +231,22 @@ Bug-fix sessions create a lightweight state file for resume detection:
 
 | Field | Value |
 |-------|-------|
+| Run ID | {PM_RUN_ID} |
 | Stage | investigating / reviewing / fixing / updating-tracker |
 | Cycle | {cycle-name} |
 | Bugs | {total count} |
 | Approved | {count or "pending"} |
 | Fixed | {count} |
 | Failed | {count} |
-| Started | {ISO 8601 timestamp} |
-| Stage started | {ISO 8601 timestamp} |
+| Started at | {ISO 8601 timestamp} |
+| Stage started at | {ISO 8601 timestamp} |
+| Completed at | null | {ISO 8601 timestamp on completion} |
 
 ## Resume Instructions
 - Next action: {next step}
 - Bugs remaining: {list of IDs not yet fixed}
 ```
 
-**Timestamps:** Set `Started` when the state file is created. Update `Stage started` at each stage transition.
+**Timestamps:** Set `Started at` when the state file is created. Update `Stage started at` at each stage transition. Set `Completed at` before archiving.
 
 **On completion:** Append a `## Session Summary` section with total duration and per-bug timing, then archive: `mkdir -p .pm/dev-sessions/completed && mv .pm/dev-sessions/bugfix-{cycle-slug}.md .pm/dev-sessions/completed/`

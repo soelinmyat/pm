@@ -136,24 +136,29 @@ These thoughts mean STOP — you're skipping discipline:
 
 ## Activity Analytics (opt-in)
 
-When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, skill invocations are logged automatically via a `PostToolUse` hook on the `Skill` tool.
+When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, PM skills can emit shared workflow telemetry.
 
-**How it works:** The hook (`hooks/analytics-log.sh`) fires after every `Skill` tool call, checks the analytics flag, and logs `pm:` skill invocations to `.pm/analytics/activity.jsonl`. No manual logging required — skills don't need to call `pm-log.sh` themselves.
+**How it works:** The hook (`hooks/analytics-log.sh`) still logs coarse `pm:` skill invocations to `.pm/analytics/activity.jsonl`, but the shared logger also supports run start/end events and step spans in `.pm/analytics/steps.jsonl`.
 
-**For milestone events within a skill** (e.g., review passed, TDD completed, PR merged), skills can still log directly:
+**Shared contract:** Read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. It defines:
+- run start / run end logging
+- step spans with duration, retries, and file counts
+- exact token capture when available, estimated token fallback when it is not
+- state-file fields for stateful workflows
+
+**CLI surface:**
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh <skill> <event> [detail]
+${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-start --skill dev --args "$ARGUMENTS"
+${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh step --skill dev --run-id "$PM_RUN_ID" --phase implement --step tdd-cycle --started-at "$STEP_STARTED_AT"
+${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-end --skill dev --run-id "$PM_RUN_ID" --status completed
 ```
 
-Only do this after checking the flag:
+**Baseline summary:** After telemetry accumulates, generate a maintainer summary with:
 ```bash
-ANALYTICS=$(sed -n 's/^analytics: *//p' .claude/pm.local.md 2>/dev/null | head -1)
-[ "$ANALYTICS" = "true" ] && ${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh dev review_passed "score=B+"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output pm/research/tracking-dogfooding/baseline.md
 ```
 
-**Log output:** `.pm/analytics/activity.jsonl` in the project root. Add `.pm/analytics/` to `.gitignore`.
-
-**When analytics is off:** Hook exits immediately. No overhead, no side effects.
+**When analytics is off:** The logger exits immediately. No telemetry files are created.
 
 ## Instruction Priority
 

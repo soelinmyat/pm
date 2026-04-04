@@ -21,7 +21,7 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 **Read before reviewing:**
 - pm/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - pm/landscape.md — market context
-- .pm/.groom-state.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
+- .pm/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
 - All drafted issue files (pm/backlog/{slug}.md) — the complete proposal
 - pm/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
 - pm/research/{topic}/ — the underlying research

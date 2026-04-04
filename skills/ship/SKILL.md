@@ -11,6 +11,22 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 
 **Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+`pm:ship` should mirror `run_id`, `started_at`, `completed_at`, and `stage_started_at` into the session state when one exists.
+
+Minimum coverage for `pm:ship`:
+- `pre-flight`
+- `conflict-check`
+- `review`
+- `push`
+- `create-or-detect-pr`
+- `code-review`
+- `merge-monitor`
+- `cleanup`
+
 ## Default Branch
 
 Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:

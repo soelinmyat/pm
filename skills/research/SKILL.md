@@ -9,6 +9,17 @@ description: "Use when doing industry landscape analysis, competitive intelligen
 
 Build and maintain the product knowledge base. Research gates strategy and grooming — without it, positioning is guesswork.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `pm:research`:
+- run start / run end
+- one step span for mode routing
+- Landscape mode: `seo-market-intelligence`, `web-market-overview`, `write-landscape`
+- Competitor mode: `discover-competitors`, `profile-competitors`, `synthesize`
+- Topic mode: `research-topic`, `write-findings`
+
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.

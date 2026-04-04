@@ -9,6 +9,19 @@ description: "Multi-agent design critique against real running app with seed dat
 
 Three parallel designer sub-agents plus a Fresh Eyes reviewer examine screenshots captured from real running applications (not Storybook). A PM agent frames the review and consolidates findings.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `design-critique`:
+- run start / run end
+- one step span for `capture`
+- one step span for `pm-framing`
+- one step span for `designer-batch`
+- one step span for `fresh-eyes` when applicable
+- one step span for `consolidation`
+- one step span for each re-review round when standalone mode iterates
+
 **Two modes:**
 
 - **Embedded** (called from `/dev`). Acts as a review service. Returns consolidated findings to the implementing agent, which applies fixes itself.
