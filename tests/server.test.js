@@ -149,36 +149,48 @@ test('GET / uses project_name from .pm/config.json in header and title', async (
 });
 
 // ---------------------------------------------------------------------------
-// 2c. Home dashboard shows "Suggested next" action hint
+// 2c. Home dashboard shows session brief with recommended next action
 // ---------------------------------------------------------------------------
 
-test('GET / shows suggested next action based on knowledge base state', async () => {
-  // No strategy → suggest /pm:strategy
+test('GET / shows session brief based on workspace state', async () => {
+  // Empty workspace → suggest /pm:start
   const { pmDir: pmDir1, cleanup: cleanup1 } = withPmDir({});
   try {
     const { port, close } = await startDashboardServer(pmDir1);
     try {
       const { body } = await httpGet(port, '/');
-      assert.ok(body.includes('Suggested next'), 'must show suggested next section');
-      assert.ok(body.includes('/pm:strategy'), 'must suggest strategy when none exists');
+      assert.ok(body.includes('Session brief'), 'must show session brief section');
+      assert.ok(body.includes('/pm:start'), 'must send empty workspaces to start');
     } finally { await close(); }
   } finally { cleanup1(); }
 
-  // Has strategy + landscape + competitors + ideas → suggest grooming
+  // Research exists but strategy does not → suggest strategy
   const { pmDir: pmDir2, cleanup: cleanup2 } = withPmDir({
+    'pm/research/checkout/findings.md': '---\nupdated: 2026-03-25\n---\n# Checkout\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir2);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('/pm:strategy'), 'must suggest strategy when research exists without strategy');
+    } finally { await close(); }
+  } finally { cleanup2(); }
+
+  // Has strategy + landscape + competitors + ideas → suggest grooming a concrete idea
+  const { pmDir: pmDir3, cleanup: cleanup3 } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
     'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',
     'pm/competitors/acme/profile.md': '---\ntype: competitor\n---\n# Acme\n',
     'pm/backlog/my-idea.md': '---\nstatus: idea\ntitle: My Idea\n---\n# My Idea\n',
   });
   try {
-    const { port, close } = await startDashboardServer(pmDir2);
+    const { port, close } = await startDashboardServer(pmDir3);
     try {
       const { body } = await httpGet(port, '/');
       assert.ok(body.includes('/pm:groom'), 'must suggest grooming when ideas exist');
       assert.ok(body.includes('my-idea'), 'must include the idea slug in the hint');
     } finally { await close(); }
-  } finally { cleanup2(); }
+  } finally { cleanup3(); }
 });
 
 // ---------------------------------------------------------------------------
@@ -751,10 +763,9 @@ test('Missing pm/ directory returns helpful empty state HTML', async () => {
       const { statusCode, body } = await httpGet(port, '/');
       assert.equal(statusCode, 200);
       assert.ok(
-        body.includes('setup') || body.includes('Setup') ||
-        body.includes('pm:setup') || body.includes('/pm:setup') ||
-        body.includes('get started') || body.includes('Get started'),
-        'must show setup/get-started message'
+        body.includes('/pm:setup') &&
+        body.includes('Welcome to PM'),
+        'must show Welcome to PM onboarding message with /pm:setup'
       );
     } finally {
       await close();
@@ -1738,7 +1749,7 @@ test('PM-120: recently shipped shows done items', async () => {
       assert.ok(body.includes('Recently shipped'), 'must have shipped section');
       assert.ok(body.includes('Feature Alpha'), 'must show shipped item title');
       assert.ok(body.includes('Feature Beta'), 'must show second shipped item');
-      assert.ok(!body.includes('Not Shipped') || body.indexOf('Not Shipped') > body.indexOf('Suggested next'),
+      assert.ok(!body.includes('Not Shipped') || body.indexOf('Not Shipped') > body.indexOf('Session brief'),
         'must not show non-shipped items in shipped section');
       assert.ok(body.includes('Reduced churn by 15%'), 'must show outcome context');
       assert.ok(body.includes('home-shipped-date'), 'must show date');
@@ -2927,4 +2938,172 @@ test('PM-130: GET /research/{topic} renders .click-to-copy with /pm:research {to
       assert.ok(body.includes('/pm:research ai-agents'), 'click-to-copy must contain /pm:research ai-agents');
     } finally { await close(); }
   } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// PM-126: Empty states and partial-data states
+// ---------------------------------------------------------------------------
+
+test('PM-126: .empty-state CSS contains dashed border', () => {
+  const mod = loadServer();
+  // The CSS is embedded in the module's output; read server.js directly
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'server.js'), 'utf-8');
+  assert.ok(
+    /\.empty-state\s*\{[^}]*border[^}]*dashed/.test(src),
+    '.empty-state CSS must contain dashed border'
+  );
+});
+
+test('PM-126: .empty-state CSS contains text-align: center', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'server.js'), 'utf-8');
+  assert.ok(
+    /\.empty-state\s*\{[^}]*text-align:\s*center/.test(src),
+    '.empty-state CSS must contain text-align: center'
+  );
+});
+
+test('PM-126: Home empty state contains "shared product brain" text and click-to-copy', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('shared product brain'), 'must contain "shared product brain" explanatory text');
+      assert.ok(body.includes('click-to-copy') && body.includes('data-copy="/pm:groom"'),
+        'must contain click-to-copy with data-copy="/pm:groom"');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Home partial state shows strategy + "Ready for your first feature"', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n1. Ship fast\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Ready for your first feature'), 'must show partial state CTA title');
+      assert.ok(body.includes('data-copy="/pm:groom"'), 'partial state must have click-to-copy for /pm:groom');
+      assert.ok(body.includes('Strategy'), 'must still show strategy section');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Proposals empty state contains click-to-copy with /pm:groom', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/done-item.md': '---\ntitle: Done\nstatus: done\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      assert.ok(body.includes('No proposals yet'), 'must show "No proposals yet" title');
+      assert.ok(body.includes('data-copy="/pm:groom"'), 'must have click-to-copy for /pm:groom');
+      assert.ok(body.includes('Proposals are structured feature plans'), 'must have explanatory text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Strategy empty state contains click-to-copy with /pm:strategy', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=strategy');
+      assert.ok(body.includes('No strategy defined'), 'must show "No strategy defined" title');
+      assert.ok(body.includes('data-copy="/pm:strategy"'), 'must have click-to-copy for /pm:strategy');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Landscape empty state contains click-to-copy with /pm:research landscape', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=research');
+      assert.ok(body.includes('No landscape research'), 'must show "No landscape research" title');
+      assert.ok(body.includes('data-copy="/pm:research landscape"'), 'must have click-to-copy for /pm:research landscape');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Competitors empty state contains click-to-copy with /pm:research competitors', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=competitors');
+      assert.ok(body.includes('No competitor profiles'), 'must show "No competitor profiles" title');
+      assert.ok(body.includes('data-copy="/pm:research competitors"'), 'must have click-to-copy for /pm:research competitors');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Backlog/roadmap empty state contains click-to-copy with /pm:groom', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap');
+      assert.ok(body.includes('No backlog items'), 'must show "No backlog items" title');
+      assert.ok(body.includes('data-copy="/pm:groom"'), 'must have click-to-copy for /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: Shipped empty state has title and explanation but no CTA', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('Nothing shipped yet'), 'must show "Nothing shipped yet" title');
+      assert.ok(body.includes('Completed items appear here'), 'must have explanatory text');
+      // Should NOT have a click-to-copy CTA
+      const shippedEmpty = body.substring(body.indexOf('Nothing shipped yet'));
+      const endIdx = shippedEmpty.indexOf('</div>');
+      const snippet = shippedEmpty.substring(0, endIdx > 0 ? endIdx : 300);
+      assert.ok(!snippet.includes('click-to-copy'), 'shipped empty state should not have click-to-copy CTA');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-126: "No pm/ directory" shows Welcome to PM with click-to-copy /pm:setup', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'server-test-nopm-126-'));
+  const nonExistentPmDir = path.join(root, 'pm');
+  try {
+    const { port, close } = await startDashboardServer(nonExistentPmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Welcome to PM'), 'must show "Welcome to PM" title');
+      assert.ok(body.includes('shared product brain'), 'must explain what PM is');
+      assert.ok(body.includes('data-copy="/pm:setup"'), 'must have click-to-copy for /pm:setup');
+    } finally { await close(); }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PM-126: Every empty-state div has a title (h2 or h3) and a <p> explanation', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'server.js'), 'utf-8');
+  // Find all occurrences of class="empty-state"> (not empty-state-hub or empty-state-cta)
+  const re = /class="empty-state">/g;
+  let match;
+  let count = 0;
+  while ((match = re.exec(src)) !== null) {
+    count++;
+    // Get the next ~500 chars after the match to check for structure
+    const snippet = src.substring(match.index, match.index + 500);
+    assert.ok(
+      /<h[23]>/.test(snippet),
+      `empty-state at offset ${match.index} must contain an h2 or h3 title`
+    );
+    assert.ok(
+      /<p[ >]/.test(snippet),
+      `empty-state at offset ${match.index} must contain a <p> explanation`
+    );
+  }
+  assert.ok(count > 0, 'must find at least one empty-state div in server.js');
 });

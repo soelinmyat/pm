@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { buildStatus } = require('./start-status.js');
 
 // ========== WebSocket Protocol (RFC 6455) ==========
 
@@ -602,13 +603,27 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .suggested-next { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
 .suggested-next code { background: var(--accent-subtle); padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.8125rem; color: var(--accent); }
+.session-brief-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 0.75rem; padding-top: 0.5rem; }
+.session-brief-row:first-of-type { padding-top: 0; }
+.session-brief-key { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.session-brief-value { min-width: 0; }
+.session-brief-actions { margin-top: 0.875rem; padding-top: 0.875rem; border-top: 1px solid var(--border); }
+.session-brief-actions-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
+.session-brief-actions ul { margin: 0.375rem 0 0; padding-left: 1.125rem; color: var(--text-muted); }
+.session-brief-actions li { margin-top: 0.25rem; }
 
 /* Empty states */
-.empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-muted); }
-.empty-state h2 { color: var(--text); margin-bottom: 0.5rem; }
-.empty-state p { max-width: 420px; margin-left: auto; margin-right: auto; }
+.empty-state { text-align: center; padding: var(--space-12) var(--space-6); color: var(--text-muted);
+  border: 2px dashed var(--border); border-radius: var(--radius); margin: var(--space-4) 0; }
+.empty-state h2 { color: var(--text); margin-bottom: var(--space-2); font-size: var(--text-xl); }
+.empty-state h3 { color: var(--text); margin-bottom: var(--space-2); font-size: var(--text-lg); }
+.empty-state p { max-width: 480px; margin-left: auto; margin-right: auto; font-size: var(--text-base);
+  line-height: 1.6; margin-bottom: var(--space-3); }
+.empty-state p:last-of-type { margin-bottom: var(--space-4); }
 .empty-state code { background: var(--accent-subtle); padding: 0.2em 0.5em; border-radius: 4px;
-  font-size: 0.85rem; color: var(--accent); }
+  font-size: var(--text-sm); color: var(--accent); }
+.empty-state .click-to-copy { margin-top: var(--space-4); }
+.empty-state-cta-label { font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1); }
 
 /* Page header */
 .page-header { margin-bottom: 2rem; }
@@ -1358,9 +1373,10 @@ function routeDashboard(req, res, pmDir) {
   if (!pmExists) {
     const html = dashboardPage('PM Dashboard', '/', `
 <div class="empty-state">
-  <h2>No knowledge base found</h2>
-  <p>The <code>pm/</code> directory does not exist yet.</p>
-  <p>Run <code>/pm:setup</code> to get started and initialize your knowledge base.</p>
+  <h2>Welcome to PM</h2>
+  <p>PM is your team's shared product brain — strategy, research, proposals, and roadmap in one place. To get started, an engineer needs to initialize the knowledge base.</p>
+  <span class="click-to-copy" data-copy="/pm:setup" tabindex="0" role="button"><code>/pm:setup</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  <p class="empty-state-cta-label">Initialize knowledge base</p>
 </div>`);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
@@ -1789,7 +1805,9 @@ function handleProposalsPage(res, pmDir) {
     body = `<div class="page-header"><h1>Proposals</h1></div>
 <div class="empty-state">
   <h2>No proposals yet</h2>
-  <p>Run <code>/pm:groom</code> to create your first proposal.</p>
+  <p>Proposals are structured feature plans with research, strategy alignment, and scoped issues.</p>
+  <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  <p class="empty-state-cta-label">Create your first proposal</p>
 </div>`;
   } else {
     const subtitle = [
@@ -1859,6 +1877,25 @@ ${groomedHtml}${ideasHtml}`;
 }
 
 function handleDashboardHome(res, pmDir) {
+  const projectDir = path.dirname(pmDir);
+  const status = buildStatus(projectDir);
+
+  function renderBriefValue(label, value) {
+    if (!value) {
+      return '';
+    }
+
+    let renderedValue = escHtml(value);
+    if (label === 'Next' && value.startsWith('/')) {
+      renderedValue = `Run <code>${escHtml(value)}</code>`;
+    }
+
+    return `<div class="session-brief-row">
+      <div class="session-brief-key">${escHtml(label)}</div>
+      <div class="session-brief-value">${renderedValue}</div>
+    </div>`;
+  }
+
   // Scan pm/ and count files by type
   const stats = { total: 0, landscape: 0, strategy: 0, competitors: 0, backlog: 0, research: 0 };
 
@@ -2078,39 +2115,65 @@ function handleDashboardHome(res, pmDir) {
   </div>
 </div>`;
 
-  // ===== 5. Suggested next (retained for empty/new projects) =====
-  let suggestedNext = '';
-  if (!stats.strategy) {
-    suggestedNext = 'Run <code>/pm:strategy</code> to define your product strategy';
-  } else if (!stats.landscape) {
-    suggestedNext = 'Run <code>/pm:research landscape</code> to map your market';
-  } else if (stats.competitors === 0) {
-    suggestedNext = 'Run <code>/pm:research competitors</code> to profile competitors';
-  } else if (stats.backlog === 0) {
-    suggestedNext = 'Run <code>/pm:ideate</code> to generate feature ideas from your knowledge base';
-  } else {
-    let firstIdea = null;
-    if (fs.existsSync(backlogDir)) {
-      const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
-      for (const file of files) {
-        const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
-        const { data: d } = parseFrontmatter(raw);
-        if (d.status === 'idea') { firstIdea = file.replace('.md', ''); break; }
-      }
-    }
-    if (firstIdea) {
-      suggestedNext = `Run <code>/pm:groom ${escHtml(firstIdea)}</code> to scope your next idea`;
-    } else {
-      suggestedNext = 'Run <code>/pm:ideate</code> to discover new opportunities';
-    }
-  }
+  const firstWorkflowActions = status.next === '/pm:start (choose your first workflow)' ? `
+  <div class="session-brief-actions">
+    <div class="session-brief-actions-label">Good first moves</div>
+    <ul>
+      <li><code>/pm:ingest &lt;path&gt;</code> if you already have customer evidence</li>
+      <li><code>/pm:research landscape</code> to understand the market</li>
+      <li><code>/pm:research competitors</code> to profile alternatives</li>
+      <li><code>/pm:groom &lt;idea&gt;</code> if you already know what feature to scope</li>
+    </ul>
+  </div>` : '';
 
   const suggestedHtml = `<div class="suggested-next">
-  <div class="suggested-next-label">Suggested next</div>
-  <div>${suggestedNext}</div>
+  <div class="suggested-next-label">Session brief</div>
+  ${status.update.available ? renderBriefValue('Update', status.update.message) : ''}
+  ${renderBriefValue('Focus', status.focus)}
+  ${renderBriefValue('Backlog', status.backlog)}
+  ${renderBriefValue('Next', status.next)}
+  ${firstWorkflowActions}
 </div>`;
 
-  const body = `
+  const proposalCount = activeProposals.length;
+  const isFullyEmpty = !strategyData && proposalCount === 0 && recentShipped.length === 0 && stats.total === 0;
+
+  let body;
+  if (isFullyEmpty) {
+    body = `
+<div class="page-header">
+  <h1>${escHtml(projectName)}</h1>
+  <p class="subtitle">Product knowledge base</p>
+</div>
+<div class="empty-state">
+  <h2>Your team's shared product brain</h2>
+  <p>Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.</p>
+  <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  <p class="empty-state-cta-label">Start your first feature</p>
+</div>
+${suggestedHtml}`;
+  } else if (proposalCount === 0 && !shippedSection) {
+    // Partial state: strategy/KB exists but no proposals yet
+    const partialProposals = `
+<div class="home-section">
+  <div class="home-section-header"><span class="home-section-title">What's coming</span></div>
+  <div class="empty-state">
+    <h3>Ready for your first feature</h3>
+    <p>Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.</p>
+    <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  </div>
+</div>`;
+    body = `
+<div class="page-header">
+  <h1>${escHtml(projectName)}</h1>
+  <p class="subtitle">Product knowledge base</p>
+</div>
+${strategySection}
+${partialProposals}
+${kbSection}
+${suggestedHtml}`;
+  } else {
+    body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Product knowledge base</p>
@@ -2120,6 +2183,7 @@ ${proposalsSection}
 ${shippedSection}
 ${kbSection}
 ${suggestedHtml}`;
+  }
 
   const html = dashboardPage('Home', '/', body, projectName);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -2152,7 +2216,7 @@ function handleResearchPage(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
   }
 
   // --- Competitors tab ---
@@ -2218,7 +2282,7 @@ function handleResearchPage(res, pmDir) {
     }
   }
   if (!competitorsHtml) {
-    competitorsHtml = '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to start profiling.</p></div>';
+    competitorsHtml = '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>';
   }
 
   // --- Topics tab ---
@@ -2331,7 +2395,7 @@ function handleResearchPage(res, pmDir) {
     }
   }
   if (!topicsHtml) {
-    topicsHtml = '<div class="empty-state"><p>No topic research yet.</p><p>Run <code>/pm:research &lt;topic&gt;</code> for external research or <code>/pm:ingest &lt;path&gt;</code> to add customer evidence.</p></div>';
+    topicsHtml = '<div class="empty-state"><h2>No topic research</h2><p>Topic research covers external market research and customer evidence on specific subjects.</p><span class="click-to-copy" data-copy="/pm:research {topic}" tabindex="0" role="button"><code>/pm:research {topic}</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Research a topic</p><span class="click-to-copy" data-copy="/pm:ingest path/to/evidence" tabindex="0" role="button"><code>/pm:ingest path/to/evidence</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Import customer evidence</p></div>';
   }
 
   const tabs = [
@@ -2389,8 +2453,10 @@ function handleMarkdownPage(res, pmDir, filename, title, navPath) {
     const html = dashboardPage(title, navPath, `
 <div class="page-header"><h1>${escHtml(title)}</h1></div>
 <div class="empty-state">
-  <p>No <code>${escHtml(filename)}</code> found.</p>
-  <p>Run <code>/pm:setup</code> to initialize the knowledge base structure.</p>
+  <h2>File not found</h2>
+  <p>No <code>${escHtml(filename)}</code> found in this knowledge base.</p>
+  <span class="click-to-copy" data-copy="/pm:setup" tabindex="0" role="button"><code>/pm:setup</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  <p class="empty-state-cta-label">Initialize knowledge base</p>
 </div>`);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
@@ -2609,7 +2675,7 @@ function handleStrategyPage(res, pmDir) {
   var filePath = path.join(pmDir, 'strategy.md');
   if (!fs.existsSync(filePath)) {
     var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
-      '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>');
+      '<div class="empty-state"><h2>No strategy defined</h2><p>Your product strategy defines ICP, value proposition, competitive positioning, and priorities.</p><span class="click-to-copy" data-copy="/pm:strategy" tabindex="0" role="button"><code>/pm:strategy</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Define your strategy</p></div>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
     return;
@@ -2961,7 +3027,7 @@ function handleCompetitorsList(res, pmDir) {
   }
 
   var body = '<div class="page-header"><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p></div>') +
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>') +
     matrixContent + indexContent;
 
   var html = dashboardPage('Competitors', '/kb', body);
@@ -3116,7 +3182,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     : `<div class="empty-state-hub">
   <div class="empty-state-hub-title">No customer evidence yet</div>
   <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  <code>/pm:ingest path/to/evidence</code>
+  <span class="click-to-copy" data-copy="/pm:ingest path/to/evidence" tabindex="0" role="button"><code>/pm:ingest path/to/evidence</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
 </div>`;
 
   const compDir = path.join(pmDir, 'competitors');
@@ -3172,7 +3238,7 @@ function handleKbStrategyDetail(res, pmDir) {
   let contentHtml;
   if (!fs.existsSync(filePath)) {
     contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
-      '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>';
+      '<div class="empty-state"><h2>No strategy defined</h2><p>Your product strategy defines ICP, value proposition, competitive positioning, and priorities.</p><span class="click-to-copy" data-copy="/pm:strategy" tabindex="0" role="button"><code>/pm:strategy</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Define your strategy</p></div>';
   } else {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = parseFrontmatter(raw);
@@ -3204,7 +3270,7 @@ function handleKbCompetitorsDetail(res, pmDir) {
     }).join('');
   }
   const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to profile competitors.</p></div>');
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>');
   const html = dashboardPage('Competitors', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3223,7 +3289,7 @@ function handleKbLandscapeDetail(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
   }
   const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeHtml;
   const html = dashboardPage('Landscape', '/kb', contentHtml);
@@ -3244,7 +3310,7 @@ function handleKbTopicsDetail(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
   }
 
   let topicsHtml = '';
@@ -3278,7 +3344,7 @@ function handleKbTopicsDetail(res, pmDir) {
 function handleCompetitorDetail(res, pmDir, slug) {
   const compDir = path.join(pmDir, 'competitors', slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Competitor not found.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><h2>Competitor not found</h2><p>This competitor profile does not exist.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3361,7 +3427,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const findingsPath = path.join(topicDir, 'findings.md');
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><p>Research topic not found.</p><p><a href="/research">&larr; Back to research</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><h2>Research topic not found</h2><p>This research topic does not exist.</p><p><a href="/research">&larr; Back to research</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3536,11 +3602,12 @@ function handleBacklog(res, pmDir) {
 <span class="legend-item"><span class="legend-bar priority-medium"></span>Medium</span>
 <span class="legend-item"><span class="legend-bar priority-low"></span>Low</span>
 </div>`;
+  const totalBacklogItems = Object.values(columns).reduce((sum, arr) => sum + arr.length, 0);
   const body = `
 <div class="page-header"><h1>Roadmap</h1>
   <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
 ${legend}</div>
-${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
+${totalBacklogItems > 0 ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><h2>No backlog items</h2><p>Backlog items are scoped issues created during grooming. They have acceptance criteria, wireframes, and priority.</p><span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Start grooming</p></div>'}`;
 
   const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3622,7 +3689,7 @@ function handleShipped(res, pmDir) {
 <div class="page-header"><h1>Shipped</h1>
   <p class="subtitle">${roots.length} item${roots.length !== 1 ? 's' : ''} shipped</p>
 </div>
-<div class="shipped-items">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
+<div class="shipped-items">${rows || '<div class="empty-state"><h2>Nothing shipped yet</h2><p>Completed items appear here once their status is set to done.</p></div>'}</div>`;
 
   const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3760,7 +3827,7 @@ ${actionHint}
 function handleBacklogItem(res, pmDir, slug) {
   const filePath = path.join(pmDir, 'backlog', slug + '.md');
   if (!fs.existsSync(filePath)) {
-    const html = dashboardPage('Not Found', '/roadmap', '<div class="empty-state"><p>Backlog item not found.</p><p><a href="/roadmap">&larr; Back to roadmap</a></p></div>');
+    const html = dashboardPage('Not Found', '/roadmap', '<div class="empty-state"><h2>Backlog item not found</h2><p>This backlog item does not exist.</p><p><a href="/roadmap">&larr; Back to roadmap</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
