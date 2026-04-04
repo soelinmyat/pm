@@ -11,6 +11,28 @@ Orchestrate the full product discovery lifecycle: from raw idea to structured, r
 
 Research gates grooming. Strategy gates scoping. Neither is optional.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+`pm:groom` is stateful. Mirror these fields into the groom session state file:
+- `run_id`
+- `started_at`
+- `completed_at`
+- `phase_started_at`
+
+Minimum step coverage:
+- `intake`
+- `strategy-check`
+- `research`
+- `scope`
+- `scope-review`
+- `groom`
+- `team-review`
+- `bar-raiser`
+- `present`
+- `link`
+
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
@@ -19,14 +41,16 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 
 ## Resume Check
 
-Before doing anything else, check if `.pm/.groom-state.md` exists.
+Before doing anything else, glob `.pm/groom-sessions/*.md`.
 
-If it does, read it and say:
+If exactly one session exists, read it and say:
 
 > "Found an in-progress grooming session for '{topic}' (last updated: {updated}, current phase: {phase}).
 > Resume from {phase}, or start fresh?"
 
-Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the state file, then begin Phase 1.
+If multiple sessions exist, list them with topic, phase, and updated timestamp. Ask which to resume.
+
+Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the selected state file, then begin Phase 1.
 
 ---
 
@@ -80,9 +104,9 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 ---
 
-## State File Schema (.pm/.groom-state.md)
+## State File Schema (.pm/groom-sessions/{topic-slug}.md)
 
-Only one state file at a time. If one exists when starting fresh, overwrite it.
+Each grooming session has its own state file under `.pm/groom-sessions/`.
 
 ```yaml
 ---
@@ -90,6 +114,11 @@ topic: "{topic name}"
 phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
+run_id: "{PM_RUN_ID}"
+started_at: YYYY-MM-DDTHH:MM:SSZ
+phase_started_at: YYYY-MM-DDTHH:MM:SSZ
+completed_at: null | YYYY-MM-DDTHH:MM:SSZ
+effective_verdict: ready | ready-if | send-back | pause | null
 codebase_available: true | false
 
 strategy_check:
@@ -141,7 +170,7 @@ issues:
 ## Error Handling
 
 **Corrupted state file** (unparseable YAML, missing required fields):
-> "The state file at .pm/.groom-state.md appears corrupted. Options:
+> "The selected groom state file under .pm/groom-sessions/ appears corrupted. Options:
 > (a) Show me the file so I can fix it manually
 > (b) Start fresh (deletes the state file)"
 

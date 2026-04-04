@@ -29,6 +29,28 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
 - Bug-fix: investigation AND fixes run in sub-agents — main context only sees summaries
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+`pm:dev` is stateful. Mirror these fields into `.pm/dev-sessions/{slug}.md` (or epic / bugfix variants):
+- `run_id`
+- `started_at`
+- `completed_at`
+- `stage_started_at`
+
+Minimum step coverage:
+- `resume-detection`
+- `intake`
+- `workspace`
+- `groom-readiness`
+- `design-exploration` or `plan`
+- `implementation`
+- `qa`
+- `review`
+- `ship`
+- `retro`
+
 ## Route Detection
 
 **Runs FIRST on every invocation.**

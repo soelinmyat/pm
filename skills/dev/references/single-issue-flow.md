@@ -43,7 +43,7 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 7. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery. This is the single source of truth for the session.
+8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -539,6 +539,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 
 | Field | Value |
 |-------|-------|
+| Run ID | {PM_RUN_ID} |
 | Stage | implement |
 | Size | M |
 | Ticket | PROJ-456 |
@@ -547,6 +548,9 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Plan | docs/plans/2026-02-15-feature.md |
 | Branch | feat/feature-name |
 | Worktree | .worktrees/feature-name |
+| Started at | 2026-04-04T01:00:00Z |
+| Stage started at | 2026-04-04T03:20:00Z |
+| Completed at | null |
 
 ## Project Context
 - Product: Example App — task management for teams
@@ -611,6 +615,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 
 **Update rules:**
 - Write the full file (not append) at each stage transition
+- Keep `Stage started at` current at every stage transition and set `Completed at` when the session finishes
 - Include all decisions made so far — a cold reader should understand the full context
 - After design critique, add the report path
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.

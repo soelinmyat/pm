@@ -9,6 +9,17 @@ Create a PR from `main` to `production`, monitor CI, self-heal failures, and aut
 
 This is the final step after `/ship` has merged work into `main`. No code review gates are needed since code was already reviewed.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `deploy`:
+- run start / run end
+- one step span for `sync-main`
+- one step span for `existing-pr-check`
+- one step span for `create-pr` when needed
+- one step span for `auto-merge-monitor`
+
 ---
 
 ## Prerequisites

@@ -37,13 +37,17 @@ Skip to step 3 after confirmation.
 
 5. Derive a topic slug from the idea (kebab-case, max 4 words).
 
-5. Write initial state to `.pm/.groom-state.md`:
+5. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"
 phase: intake
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
+run_id: "{PM_RUN_ID}"
+started_at: YYYY-MM-DDTHH:MM:SSZ
+phase_started_at: YYYY-MM-DDTHH:MM:SSZ
+completed_at: null
 codebase_available: true | false
 codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 ```

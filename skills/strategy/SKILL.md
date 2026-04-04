@@ -9,6 +9,16 @@ description: "Use when creating or maintaining a product strategy document. Cove
 The strategy doc is the alignment filter for all grooming decisions.
 Every feature idea gets evaluated against it. Without one, grooming drifts.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `pm:strategy`:
+- run start / run end
+- one step span for prerequisite detection
+- one step span for the interview itself
+- one step span for write/update of `pm/strategy.md`
+
 ## Prerequisite Check
 
 Check if `pm/landscape.md` exists.
