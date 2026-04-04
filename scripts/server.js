@@ -3930,7 +3930,7 @@ function handleShipped(res, pmDir) {
   );
   roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
 
-  const rows = roots.map(item => {
+  const cardItems = roots.map(item => {
     const subCount = childCount[item.slug] || 0;
     const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
     const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
@@ -3959,14 +3959,15 @@ function handleShipped(res, pmDir) {
   ${item.outcome ? `<div class="shipped-item-outcome">${escHtml(item.outcome)}</div>` : ''}
   ${tags.length > 0 || labelTags.length > 0 ? `<div class="shipped-item-tags">${[...tags, ...labelTags].join('')}</div>` : ''}
 </a>`;
-  }).join('');
+  });
 
-  const body = `
-<p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
-<div class="page-header"><h1>Shipped</h1>
-  <p class="subtitle">${roots.length} item${roots.length !== 1 ? 's' : ''} shipped</p>
-</div>
-<div class="shipped-items">${rows || renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.')}</div>`;
+  const body = renderListTemplate({
+    breadcrumb: '<a href="/roadmap">&larr; Roadmap</a>',
+    title: 'Shipped',
+    subtitle: `${roots.length} item${roots.length !== 1 ? 's' : ''} shipped`,
+    sections: [{ items: cardItems, layout: 'rows', itemsClass: 'shipped-items' }],
+    emptyState: renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.'),
+  });
 
   const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
