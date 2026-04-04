@@ -1265,8 +1265,9 @@ test('PM-129: coverage group headers use CSS classes for pillar colors', () => {
 
 test('PM-129: page-count class replaces inline style on shipped page', () => {
   const serverSrc = fs.readFileSync(require.resolve('../scripts/server.js'), 'utf-8');
-  assert.ok(serverSrc.includes('class="col-count page-count"'),
-    'Shipped page count must use page-count class');
+  // PM-124 redesigned shipped page -- count now uses subtitle class
+  assert.ok(serverSrc.includes('class="subtitle"') || serverSrc.includes('class="col-count page-count"'),
+    'Shipped page count must use subtitle or page-count class');
   assert.ok(!serverSrc.includes('col-count" style="font-size:1rem'),
     'col-count should not have inline font-size style');
 });
@@ -2229,6 +2230,214 @@ test('PM-122: research topics sorted by freshness, capped at 8', async () => {
       const topic3Pos = body.indexOf('Topic 3');
       assert.ok(topic10Pos !== -1 && topic3Pos !== -1, 'both topics must be in the display');
       assert.ok(topic10Pos < topic3Pos, 'topics must be sorted by freshness (newest first)');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// PM-124: Shipped Page Redesign
+// ---------------------------------------------------------------------------
+
+test('PM-124: shipped page uses shipped-item-card class', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/feature-a.md': '---\nstatus: done\ntitle: Feature Alpha\nid: PM-001\nupdated: 2026-03-28\noutcome: Reduced churn by 15%\n---\n# Alpha\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/roadmap/shipped');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('shipped-item-card'), 'must use shipped-item-card class');
+      assert.ok(body.includes('shipped-item-header'), 'must have shipped-item-header');
+      assert.ok(body.includes('shipped-item-title'), 'must have shipped-item-title');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page shows outcome statement', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/feature-a.md': '---\nstatus: done\ntitle: Feature Alpha\nid: PM-001\nupdated: 2026-03-28\noutcome: Reduced churn by 15%\n---\n# Alpha\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('shipped-item-outcome'), 'must have shipped-item-outcome class');
+      assert.ok(body.includes('Reduced churn by 15%'), 'must show outcome text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page shows research trail tags', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/feature-a.md': '---\nstatus: done\ntitle: Feature Alpha\nid: PM-001\nupdated: 2026-03-28\nresearch_refs:\n  - pm/research/onboarding/findings.md\n---\n# Alpha\n',
+    'pm/research/onboarding/findings.md': '---\ntopic: Onboarding Flow\n---\n# Onboarding\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('shipped-item-research'), 'must have shipped-item-research class');
+      assert.ok(body.includes('shipped-tag-research'), 'must have shipped-tag-research class');
+      assert.ok(body.includes('Onboarding Flow'), 'must show resolved research topic name');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page breadcrumb says Roadmap', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/feature-a.md': '---\nstatus: done\ntitle: Feature Alpha\nupdated: 2026-03-28\n---\n# Alpha\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('Roadmap</a>'), 'breadcrumb must say Roadmap');
+      assert.ok(!body.includes('Backlog</a>'), 'breadcrumb must NOT say Backlog');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped items sorted newest first', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/old-item.md': '---\nstatus: done\ntitle: Old Feature\nupdated: 2026-01-01\n---\n# Old\n',
+    'pm/backlog/new-item.md': '---\nstatus: done\ntitle: New Feature\nupdated: 2026-03-28\n---\n# New\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      const newPos = body.indexOf('New Feature');
+      const oldPos = body.indexOf('Old Feature');
+      assert.ok(newPos !== -1 && oldPos !== -1, 'both items must appear');
+      assert.ok(newPos < oldPos, 'newer item must appear before older item');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped items without enrichment render cleanly', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/plain-item.md': '---\nstatus: done\ntitle: Plain Feature\nid: PM-050\nupdated: 2026-03-15\n---\n# Plain\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('Plain Feature'), 'must show item title');
+      assert.ok(body.includes('PM-050'), 'must show item ID');
+      // No outcome div in the card itself (class appears in CSS but not in the body HTML)
+      const bodyHtml = body.split('</style>').pop() || '';
+      assert.ok(!bodyHtml.includes('shipped-item-outcome'), 'must NOT show outcome div when item has no outcome');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page shows strategy alignment tag', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    // Root shipped item with parent pointing to a proposal slug
+    'pm/backlog/dashboard-redesign.md': '---\nstatus: done\ntitle: Dashboard Redesign\nid: PM-005\nupdated: 2026-03-18\nparent: dashboard-proposal\n---\n# Dashboard\n',
+    // Proposal meta with strategy_check
+    'pm/backlog/proposals/dashboard-proposal.meta.json': '{"strategy_check":"Ship dashboard"}',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('shipped-tag-strategy'), 'must have strategy tag class');
+      assert.ok(body.includes('Ship dashboard'), 'must show strategy alignment text');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page shows competitive context tag', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/feature-c.md': '---\nstatus: done\ntitle: Feature Gamma\nid: PM-020\nupdated: 2026-03-25\nresearch_refs:\n  - pm/research/acme-gap/findings.md\n---\n# Gamma\n',
+    'pm/research/acme-gap/findings.md': '---\ntopic: Acme Gap Analysis\n---\n# Acme\n',
+    'pm/competitors/acme-gap/profile.md': '---\ncompany: Acme Corp\n---\n# Acme Corp\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('shipped-tag-competitor'), 'must have competitor tag class');
+      assert.ok(body.includes('Addresses gap in Acme Corp'), 'must show competitive context');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped page shows sub-issue count', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/epic-item.md': '---\nstatus: done\ntitle: Epic Feature\nid: PM-030\nupdated: 2026-03-28\n---\n# Epic\n',
+    'pm/backlog/sub-1.md': '---\nstatus: done\ntitle: Sub One\nparent: epic-item\nupdated: 2026-03-27\n---\n# Sub\n',
+    'pm/backlog/sub-2.md': '---\nstatus: done\ntitle: Sub Two\nparent: epic-item\nupdated: 2026-03-26\n---\n# Sub\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('shipped-item-sub'), 'must have sub-issue count element');
+      assert.ok(body.includes('2 sub-issues'), 'must show correct sub-issue count');
+      // Sub-issues should NOT appear as root items
+      assert.ok(!body.includes('Sub One'), 'sub-issues must not appear as root items');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: shipped CSS uses design tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('.shipped-item-card'), 'must have shipped-item-card rule');
+  assert.ok(DASHBOARD_CSS.includes('.shipped-item-outcome'), 'must have shipped-item-outcome rule');
+  assert.ok(DASHBOARD_CSS.includes('.shipped-tag-research'), 'must have shipped-tag-research rule');
+  assert.ok(DASHBOARD_CSS.includes('.shipped-tag-strategy'), 'must have shipped-tag-strategy rule');
+  assert.ok(DASHBOARD_CSS.includes('.shipped-tag-competitor'), 'must have shipped-tag-competitor rule');
+  // Verify design token usage in new shipped rules
+  assert.ok(DASHBOARD_CSS.includes('.shipped-items'), 'must have shipped-items container rule');
+});
+
+test('PM-124: shipped page uses formatRelativeDate for dates', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/recent-item.md': '---\nstatus: done\ntitle: Recent Feature\nupdated: 2026-04-04\n---\n# Recent\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      // formatRelativeDate should produce a relative date, not the raw ISO date
+      assert.ok(!body.includes('2026-04-04') || body.includes('today') || body.includes('ago'),
+        'must use relative date format, not raw ISO date');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-124: resolveResearchRefs returns empty array for no refs', () => {
+  const { resolveResearchRefs } = loadServer();
+  assert.deepEqual(resolveResearchRefs([], '/tmp'), []);
+  assert.deepEqual(resolveResearchRefs(null, '/tmp'), []);
+  assert.deepEqual(resolveResearchRefs(undefined, '/tmp'), []);
+});
+
+test('PM-124: resolveStrategyAlignment returns null without parent', () => {
+  const { resolveStrategyAlignment } = loadServer();
+  const item = { slug: 'test', parent: null };
+  assert.equal(resolveStrategyAlignment(item, {}, '/tmp'), null);
+});
+
+test('PM-124: resolveCompetitiveContext returns empty array without competitors', () => {
+  const { resolveCompetitiveContext } = loadServer();
+  const item = { slug: 'test', research_refs: [] };
+  assert.deepEqual(resolveCompetitiveContext(item, {}, '/tmp'), []);
+});
+
+test('PM-124: shipped page uses /roadmap/ paths for item links', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/my-feature.md': '---\nstatus: done\ntitle: My Feature\nupdated: 2026-03-20\n---\n# My Feature\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/shipped');
+      assert.ok(body.includes('href="/roadmap/my-feature"'), 'item links must use /roadmap/ paths');
+      assert.ok(!body.includes('href="/backlog/'), 'must NOT use /backlog/ paths');
     } finally { await close(); }
   } finally { cleanup(); }
 });

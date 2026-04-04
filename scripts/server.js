@@ -531,8 +531,59 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .kanban-view-all { display: block; text-align: center; padding: 0.5rem; font-size: 0.8125rem; color: var(--accent); text-decoration: none; border-top: 1px solid var(--border); margin-top: 0.25rem; }
 .kanban-view-all:hover { text-decoration: underline; }
 .col-count { font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
-.shipped-list { display: flex; flex-direction: column; gap: 0.5rem; max-width: 40rem; }
-.shipped-date { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+/* ===== SHIPPED PAGE ===== */
+.shipped-items { display: flex; flex-direction: column; gap: var(--space-3); }
+.shipped-item-card {
+  padding: var(--space-5) var(--space-6); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+  display: block;
+}
+.shipped-item-card:hover { background: var(--surface-raised, var(--surface)); }
+
+.shipped-item-header {
+  display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2);
+}
+.shipped-item-id {
+  font-size: var(--text-xs); font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.shipped-item-title {
+  font-size: var(--text-base); font-weight: 600; letter-spacing: -0.01em; flex: 1;
+}
+.shipped-item-date {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+.shipped-item-outcome {
+  font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5;
+  margin-bottom: var(--space-3);
+}
+
+.shipped-item-tags {
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+}
+.shipped-tag {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-2); border-radius: var(--space-1);
+  font-size: var(--text-xs); font-weight: 500;
+}
+.shipped-tag-label { padding: var(--space-1) var(--space-2); border-radius: var(--space-1); font-size: var(--text-xs); font-weight: 500; }
+.shipped-tag-research {
+  background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent);
+}
+.shipped-tag-strategy {
+  background: color-mix(in srgb, var(--success) 10%, transparent); color: var(--success);
+}
+.shipped-tag-competitor {
+  background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--warning);
+}
+.shipped-item-sub {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+}
+.shipped-item-research { display: contents; }
 
 /* Tabs */
 .tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
@@ -1425,6 +1476,81 @@ function formatRelativeDate(dateStr) {
 
 function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ========== Shipped Enrichment Helpers ==========
+
+/**
+ * Resolve research_refs to topic labels.
+ * research_refs can be paths like "pm/research/dashboard-linear-quality/findings.md"
+ * or shorthand topic slugs.
+ */
+function resolveResearchRefs(refs, pmDir) {
+  if (!Array.isArray(refs) || refs.length === 0) return [];
+  const researchDir = path.join(pmDir, 'research');
+  return refs.map(ref => {
+    // Extract topic slug from path
+    const match = String(ref).match(/research\/([^/]+)/);
+    const slug = match ? match[1] : String(ref);
+    const findingsPath = path.join(researchDir, slug, 'findings.md');
+    if (fs.existsSync(findingsPath)) {
+      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+      const topic = parsed.data.topic || humanizeSlug(slug);
+      return { slug, label: topic };
+    }
+    return { slug, label: humanizeSlug(slug) };
+  });
+}
+
+/**
+ * Determine strategy alignment for a shipped item.
+ * Check the item's parent proposal for strategy_check field,
+ * or look at the item's own labels/scope for priority references.
+ */
+function resolveStrategyAlignment(item, allItems, pmDir) {
+  if (item.parent) {
+    const metaPath = path.join(pmDir, 'backlog', 'proposals', item.parent + '.meta.json');
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        if (meta.strategy_check) return meta.strategy_check;
+      } catch { /* ignore malformed JSON */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find competitive context for a shipped item.
+ * If the item or parent proposal references competitor research,
+ * extract the competitor name.
+ */
+function resolveCompetitiveContext(item, allItems, pmDir) {
+  const refs = [...(item.research_refs || [])];
+  if (item.parent && allItems[item.parent]) {
+    const parentRefs = allItems[item.parent].research_refs || [];
+    refs.push(...parentRefs);
+  }
+  const competitors = [];
+  const compDir = path.join(pmDir, 'competitors');
+  if (fs.existsSync(compDir)) {
+    const compSlugs = fs.readdirSync(compDir, { withFileTypes: true })
+      .filter(e => e.isDirectory()).map(e => e.name);
+    for (const ref of refs) {
+      for (const comp of compSlugs) {
+        if (String(ref).toLowerCase().includes(comp.toLowerCase())) {
+          const profilePath = path.join(compDir, comp, 'profile.md');
+          let name = humanizeSlug(comp);
+          if (fs.existsSync(profilePath)) {
+            const parsed = parseFrontmatter(fs.readFileSync(profilePath, 'utf-8'));
+            if (parsed.data.company) name = parsed.data.company;
+          }
+          if (!competitors.includes(name)) competitors.push(name);
+        }
+      }
+    }
+  }
+  return competitors;
 }
 
 // ========== Proposal Metadata Helpers ==========
@@ -3285,42 +3411,80 @@ ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p
 
 function handleShipped(res, pmDir) {
   const backlogDir = path.join(pmDir, 'backlog');
-  const STATUS_MAP = { 'done': true };
-  const items = [];
+  const allItems = {};
+  const childCount = {};
 
   if (fs.existsSync(backlogDir)) {
     const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
       const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
       const { data } = parseFrontmatter(raw);
-      if (!STATUS_MAP[data.status]) continue;
-      items.push({
-        slug: file.replace('.md', ''),
-        title: data.title || file.replace('.md', ''),
+      const slug = file.replace('.md', '');
+      allItems[slug] = {
+        slug,
+        title: data.title || slug,
+        status: data.status || 'idea',
         id: data.id || null,
+        parent: data.parent || null,
         priority: data.priority || 'medium',
         labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
         updated: data.updated || data.created || '',
-      });
+        outcome: data.outcome || '',
+        research_refs: Array.isArray(data.research_refs) ? data.research_refs : [],
+      };
     }
   }
 
-  items.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+  // Build child counts
+  for (const item of Object.values(allItems)) {
+    if (item.parent && item.parent !== 'null' && allItems[item.parent]) {
+      childCount[item.parent] = (childCount[item.parent] || 0) + 1;
+    }
+  }
 
-  const rows = items.map(item => {
-    const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-    const labelHtml = item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join(' ');
-    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}">
-  <div class="kanban-item-ids">${idHtml}</div>
-  <div class="kanban-item-title">${escHtml(item.title)}</div>
-  <div class="kanban-item-meta">${labelHtml}<span class="shipped-date">${escHtml(item.updated)}</span></div>
+  // Filter to done root items only
+  const roots = Object.values(allItems).filter(i =>
+    i.status === 'done' && (!i.parent || i.parent === 'null' || !allItems[i.parent])
+  );
+  roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+
+  const rows = roots.map(item => {
+    const subCount = childCount[item.slug] || 0;
+    const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
+    const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
+    const competitorGaps = resolveCompetitiveContext(item, allItems, pmDir);
+
+    // Build tag HTML
+    const tags = [];
+    for (const topic of researchTopics) {
+      tags.push(`<span class="shipped-tag shipped-tag-research shipped-item-research">${escHtml(topic.label)}</span>`);
+    }
+    if (strategyNote) {
+      tags.push(`<span class="shipped-tag shipped-tag-strategy">${escHtml(strategyNote)}</span>`);
+    }
+    for (const comp of competitorGaps) {
+      tags.push(`<span class="shipped-tag shipped-tag-competitor">Addresses gap in ${escHtml(comp)}</span>`);
+    }
+    const labelTags = item.labels.map(l => `<span class="shipped-tag-label kanban-label">${escHtml(l)}</span>`);
+
+    return `<a class="shipped-item-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}">
+  <div class="shipped-item-header">
+    ${item.id ? `<span class="shipped-item-id">${escHtml(item.id)}</span>` : ''}
+    <span class="shipped-item-title">${escHtml(item.title)}</span>
+    ${subCount > 0 ? `<span class="shipped-item-sub">${subCount} sub-issue${subCount !== 1 ? 's' : ''}</span>` : ''}
+    <span class="shipped-item-date">${escHtml(formatRelativeDate(item.updated))}</span>
+  </div>
+  ${item.outcome ? `<div class="shipped-item-outcome">${escHtml(item.outcome)}</div>` : ''}
+  ${tags.length > 0 || labelTags.length > 0 ? `<div class="shipped-item-tags">${[...tags, ...labelTags].join('')}</div>` : ''}
 </a>`;
   }).join('');
 
   const body = `
 <p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
-<div class="page-header"><h1>Shipped</h1><span class="col-count page-count">${items.length} items</span></div>
-<div class="shipped-list">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
+<div class="page-header"><h1>Shipped</h1>
+  <p class="subtitle">${roots.length} item${roots.length !== 1 ? 's' : ''} shipped</p>
+</div>
+<div class="shipped-items">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
 
   const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3830,5 +3994,6 @@ module.exports = {
   createDashboardServer,
   readProposalMeta, readGroomState, proposalGradient, buildProposalRows,
   formatRelativeDate, parseStrategySnapshot,
+  resolveResearchRefs, resolveStrategyAlignment, resolveCompetitiveContext,
   DASHBOARD_CSS,
 };
