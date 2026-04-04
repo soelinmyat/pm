@@ -1296,25 +1296,8 @@ test('PM-129: chart descriptions use CSS class instead of inline style', () => {
     `Expected at least 2 chart-description usages, found ${chartDescCount}`);
 });
 
-test('PM-129: coverage legend uses CSS classes instead of inline styles', () => {
-  const serverSrc = fs.readFileSync(require.resolve('../scripts/server.js'), 'utf-8');
-  assert.ok(serverSrc.includes('class="coverage-legend"'),
-    'Coverage legend wrapper must use class');
-  assert.ok(serverSrc.includes('class="coverage-legend-item"'),
-    'Coverage legend items must use class');
-  assert.ok(serverSrc.includes('class="coverage-heading"'),
-    'Coverage heading must use class');
-});
-
-test('PM-129: coverage group headers use CSS classes for pillar colors', () => {
-  const serverSrc = fs.readFileSync(require.resolve('../scripts/server.js'), 'utf-8');
-  // Should not have inline background on coverage-group-header
-  assert.ok(!serverSrc.includes('coverage-group-header" style="background:'),
-    'Coverage group headers should not have inline background color');
-  // Should use pillar class modifier
-  assert.ok(serverSrc.includes('pillarClassMap'),
-    'Should use pillarClassMap instead of pillarColors');
-});
+// PM-142: removed tests for coverage-legend and pillarClassMap — they tested
+// dead code inside handleResearchPage which was removed as unreachable.
 
 test('PM-129: page-count class replaces inline style on shipped page', () => {
   const serverSrc = fs.readFileSync(require.resolve('../scripts/server.js'), 'utf-8');
