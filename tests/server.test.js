@@ -2780,3 +2780,151 @@ test('PM-125: GET /roadmap/{slug} renders acceptance criteria from frontmatter a
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// PM-130: Competitor and Research Detail Pages
+// ---------------------------------------------------------------------------
+
+test('PM-130: GET /competitors/{slug} renders .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(body.includes('detail-page'), 'must render .detail-page wrapper');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /competitors/{slug} renders .detail-breadcrumb linking to /kb?tab=competitors', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(body.includes('detail-breadcrumb'), 'must render .detail-breadcrumb');
+      assert.ok(body.includes('href="/kb?tab=competitors"'), 'breadcrumb must link to /kb?tab=competitors');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /competitors/{slug} renders .detail-meta-bar', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(body.includes('detail-meta-bar'), 'must render .detail-meta-bar');
+      assert.ok(body.includes('1/5 sections'), 'meta bar must show sections count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /competitors/{slug} renders .detail-section for each available section', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
+    'pm/competitors/acme/features.md': '---\n---\n# Features\n- Feature A\n',
+    'pm/competitors/acme/seo.md': '---\n---\n# SEO\nGood rankings\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      const sectionCount = (body.match(/<h2 class="detail-section-title">/g) || []).length;
+      assert.equal(sectionCount, 3, 'must render 3 detail-section-title elements for 3 available sections');
+      assert.ok(body.includes('>Profile<'), 'must have Profile section');
+      assert.ok(body.includes('>Features<'), 'must have Features section');
+      assert.ok(body.includes('>SEO<'), 'must have SEO section');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /competitors/{slug} does NOT contain tabs or role=tablist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
+    'pm/competitors/acme/features.md': '---\n---\n# Features\n- Feature A\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(!body.includes('role="tablist"'), 'must NOT contain role=tablist');
+      assert.ok(!body.includes('class="tabs"'), 'must NOT contain .tabs class');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /competitors/{slug} renders .click-to-copy with /pm:research competitors', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      assert.ok(body.includes('click-to-copy'), 'must render .click-to-copy');
+      assert.ok(body.includes('/pm:research competitors'), 'click-to-copy must contain /pm:research competitors');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /research/{topic} renders .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/ai-agents/findings.md': '---\ntopic: AI Agents\nsource_origin: external\n---\n# AI Agents Research\nFindings here.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/research/ai-agents');
+      assert.ok(body.includes('detail-page'), 'must render .detail-page wrapper');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /research/{topic} renders .detail-breadcrumb linking to /kb?tab=research', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/ai-agents/findings.md': '---\ntopic: AI Agents\nsource_origin: external\n---\n# AI Agents Research\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/research/ai-agents');
+      assert.ok(body.includes('detail-breadcrumb'), 'must render .detail-breadcrumb');
+      assert.ok(body.includes('href="/kb?tab=research"'), 'breadcrumb must link to /kb?tab=research');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /research/{topic} renders .detail-meta-bar with origin badge', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/ai-agents/findings.md': '---\ntopic: AI Agents\nsource_origin: mixed\nevidence_count: 5\n---\n# AI Agents Research\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/research/ai-agents');
+      assert.ok(body.includes('detail-meta-bar'), 'must render .detail-meta-bar');
+      assert.ok(body.includes('badge-origin-mixed'), 'meta bar must include origin badge');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-130: GET /research/{topic} renders .click-to-copy with /pm:research {topic}', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/ai-agents/findings.md': '---\ntopic: AI Agents\nsource_origin: external\n---\n# AI Agents Research\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/research/ai-agents');
+      assert.ok(body.includes('click-to-copy'), 'must render .click-to-copy');
+      assert.ok(body.includes('/pm:research ai-agents'), 'click-to-copy must contain /pm:research ai-agents');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});

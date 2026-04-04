@@ -3283,48 +3283,73 @@ function handleCompetitorDetail(res, pmDir, slug) {
     return;
   }
 
-  const sections = ['profile', 'features', 'api', 'seo', 'sentiment'];
+  const sectionKeys = ['profile', 'features', 'api', 'seo', 'sentiment'];
+  const SECTION_LABELS = { profile: 'Profile', features: 'Features', api: 'API', seo: 'SEO', sentiment: 'Sentiment' };
   let name = slug;
+  let category = '';
 
-  const tabHeaders = [];
-  const tabPanels = [];
-
-  const TAB_LABELS = { profile: 'Profile', features: 'Features', api: 'API', seo: 'SEO', sentiment: 'Sentiment' };
-
-  sections.forEach((sec, idx) => {
+  // Build flat sections and count available files
+  const sectionBlocks = [];
+  let availableCount = 0;
+  sectionKeys.forEach((sec) => {
     const filePath = path.join(compDir, sec + '.md');
     if (!fs.existsSync(filePath)) return;
+    availableCount++;
     const raw = fs.readFileSync(filePath, 'utf-8');
     const { data, body } = parseFrontmatter(raw);
-    if (idx === 0 && data.name) name = data.name;
-    const label = TAB_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
-    const isFirst = tabHeaders.length === 0;
-    tabHeaders.push(`<div class="tab${isFirst ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${isFirst}" onclick="switchTab(this,'tab-${sec}')" onkeydown="tabKey(event,this,'tab-${sec}')">${label}</div>`);
+    if (sec === 'profile') {
+      if (data.name) name = data.name;
+      const summary = extractProfileSummary(body);
+      if (summary.category) category = summary.category;
+    }
+    const label = SECTION_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
     const rendered = sec === 'profile' ? renderProfileWithSwot(body) : renderMarkdown(body);
-    tabPanels.push(`<div id="tab-${sec}" class="tab-panel${isFirst ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${rendered}</div></div>`);
+    sectionBlocks.push(`<section class="detail-section">
+  <h2 class="detail-section-title">${escHtml(label)}</h2>
+  <div class="markdown-body">${rendered}</div>
+</section>`);
   });
 
-  const body = `
-<div class="page-header">
-  <p class="breadcrumb"><a href="/kb?tab=competitors">&larr; Competitors</a></p>
-  <h1>${escHtml(name)}</h1>
-</div>
-<div class="tabs" role="tablist">${tabHeaders.join('')}</div>
-${tabPanels.join('')}
-<script>
-function switchTab(el, panelId) {
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
-  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-  el.classList.add('active');
-  el.setAttribute('aria-selected','true');
-  document.getElementById(panelId).classList.add('active');
-}
-function tabKey(e, el, panelId) {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
-  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
-  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
-}
-</script>`;
+  // Breadcrumb
+  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
+  <a href="/kb?tab=competitors">Knowledge Base</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">${escHtml(name)}</span>
+</nav>`;
+
+  // Title
+  const titleHtml = `<h1 class="detail-title">${escHtml(name)}</h1>`;
+
+  // Meta bar: category, sections count, freshness
+  const metaParts = [];
+  if (category) {
+    metaParts.push(`<span class="meta-item">${escHtml(category)}</span>`);
+  }
+  metaParts.push(`<span class="meta-sep">&middot;</span>`);
+  metaParts.push(`<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>`);
+  const profilePath = path.join(compDir, 'profile.md');
+  const stale = stalenessInfo(getUpdatedDate(profilePath));
+  if (stale) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
+  }
+  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
+
+  // Action hint
+  const actionHint = `<div class="detail-action-hint">
+  <span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button">
+    <code>/pm:research competitors</code>
+    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
+  </span>
+</div>`;
+
+  const body = `<div class="detail-page">
+${breadcrumb}
+${titleHtml}
+${metaBar}
+${sectionBlocks.join('\n')}
+${actionHint}
+</div>`;
 
   const html = dashboardPage(name, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3344,14 +3369,65 @@ function handleResearchTopic(res, pmDir, topic) {
   const raw = fs.readFileSync(findingsPath, 'utf-8');
   const { data, body } = parseFrontmatter(raw);
   const meta = buildTopicMeta(topic, data, findingsPath);
-  const html = dashboardPage(meta.label, '/kb', `
-<div class="page-header">
-  <p class="breadcrumb"><a href="/kb?tab=research">&larr; Research</a></p>
-  <h1>${escHtml(meta.label)}</h1>
-  <p class="subtitle">${escHtml(meta.subtitle)}</p>
-  <div class="topic-badges">${meta.badgesHtml}</div>
-</div>
-<div class="markdown-body">${renderMarkdown(body)}</div>`);
+
+  // Breadcrumb
+  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
+  <a href="/kb?tab=research">Knowledge Base</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">${escHtml(meta.label)}</span>
+</nav>`;
+
+  // Title + subtitle
+  const titleHtml = `<h1 class="detail-title">${escHtml(meta.label)}</h1>
+<p class="subtitle">${escHtml(meta.subtitle)}</p>`;
+
+  // Meta bar: origin badge + evidence badge + freshness badge (reuse from buildTopicMeta)
+  const metaBar = `<div class="detail-meta-bar">${meta.badgesHtml}</div>`;
+
+  // Sections
+  const sections = [];
+
+  // Split body into main findings and sources/references
+  const sourcesRe = /\n## (?:Sources|References)\s*\n/;
+  const sourcesMatch = body.match(sourcesRe);
+  let findingsBody = body;
+  let sourcesBody = '';
+  if (sourcesMatch) {
+    findingsBody = body.substring(0, sourcesMatch.index);
+    sourcesBody = body.substring(sourcesMatch.index + sourcesMatch[0].length);
+  }
+
+  // Main findings section
+  sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Findings</h2>
+  <div class="markdown-body">${renderMarkdown(findingsBody)}</div>
+</section>`);
+
+  // Sources section (if present)
+  if (sourcesBody.trim()) {
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Sources</h2>
+  <div class="markdown-body">${renderMarkdown(sourcesBody)}</div>
+</section>`);
+  }
+
+  // Action hint
+  const actionHint = `<div class="detail-action-hint">
+  <span class="click-to-copy" data-copy="/pm:research ${topic}" tabindex="0" role="button">
+    <code>/pm:research ${escHtml(topic)}</code>
+    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
+  </span>
+</div>`;
+
+  const pageBody = `<div class="detail-page">
+${breadcrumb}
+${titleHtml}
+${metaBar}
+${sections.join('\n')}
+${actionHint}
+</div>`;
+
+  const html = dashboardPage(meta.label, '/kb', pageBody);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
