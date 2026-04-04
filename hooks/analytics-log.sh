@@ -2,6 +2,10 @@
 # PostToolUse hook — logs pm: skill invocations when analytics is enabled.
 # Fires after every Skill tool call. Checks the analytics flag, extracts
 # the skill name from stdin JSON, and delegates to pm-log.sh.
+#
+# Also emits run-start for each skill invocation and writes .current-run
+# so agent-step.sh can correlate agent dispatches to the active skill run.
+# When a new skill starts, the previous run is automatically closed.
 
 set -euo pipefail
 
@@ -30,4 +34,29 @@ ARGS=$(printf '%s' "$INPUT" | sed -n 's/.*"args"[[:space:]]*:[[:space:]]*"\([^"]
 
 # Log — pm-log.sh uses git root for project detection, so cd to project dir
 cd "$PROJECT_DIR"
+
+# Legacy invoked event (backward compatible)
 "$PLUGIN_ROOT/scripts/pm-log.sh" "$SKILL_SHORT" "invoked" "${ARGS:+args=$ARGS}"
+
+# --- Run lifecycle tracking ---
+ANALYTICS_DIR="$PROJECT_DIR/.pm/analytics"
+CURRENT_RUN_FILE="$ANALYTICS_DIR/.current-run"
+
+# Close previous run if one was active
+if [ -f "$CURRENT_RUN_FILE" ]; then
+  PREV_RUN_ID=$(cat "$CURRENT_RUN_FILE" 2>/dev/null)
+  PREV_SKILL=$(printf '%s' "$PREV_RUN_ID" | sed 's/-.*//')
+  if [ -n "$PREV_RUN_ID" ] && [ -n "$PREV_SKILL" ]; then
+    "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
+      --skill "$PREV_SKILL" \
+      --run-id "$PREV_RUN_ID" \
+      --status completed 2>/dev/null || true
+  fi
+fi
+
+# Start new run and write run_id for agent-step correlation
+RUN_ID=$("$PLUGIN_ROOT/scripts/pm-log.sh" run-start --skill "$SKILL_SHORT" ${ARGS:+--args "$ARGS"}) || true
+if [ -n "$RUN_ID" ]; then
+  mkdir -p "$ANALYTICS_DIR"
+  printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
+fi
