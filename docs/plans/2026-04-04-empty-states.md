@@ -207,20 +207,25 @@ Leave `.empty-state-cta` rules (lines 730-736) unchanged -- those are for the ho
 </div>
 ```
 
-### Task 4: Add home page partial state (around line 3640)
+### Task 4: Add home page partial state
 
-**Insert a new branch** in the `if (proposalCount === 0 && allSessions.length === 0 && stats.total === 0)` conditional. After the fully-empty check, add:
+**NOTE:** PM-120 (Home Redesign) rewrites `handleDashboardHome()` to use a new structure with strategy snapshot, proposals section, shipped section, and KB health cards. The old `pulseScoreHtml`, `controlCards`, `kbReferenceHtml`, and `suggestedHtml` variables no longer exist after PM-120. This task must be written against PM-120's output, not the pre-epic codebase.
+
+**Insert a new branch** in the home page conditional, after the fully-empty check. The partial state shows the strategy snapshot (if strategy exists) plus a CTA to start the first feature:
 
 ```javascript
-} else if (proposalCount === 0 && allSessions.length === 0) {
-  // Partial state: KB exists but no proposals yet
-  body = `...${pulseScoreHtml}${controlCards}
-<div class="empty-state">
-  <h3>Ready for your first feature</h3>
-  <p>Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.</p>
-  <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code></span>
+} else if (proposalCount === 0) {
+  // Partial state: strategy/KB exists but no proposals yet
+  body = `${strategySnapshotHtml}
+<div class="section">
+  <div class="section-header"><span class="section-title">What's coming</span></div>
+  <div class="empty-state">
+    <h3>Ready for your first feature</h3>
+    <p>Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.</p>
+    <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  </div>
 </div>
-${kbReferenceHtml}${suggestedHtml}`;
+${kbHealthHtml}`;
 ```
 
 ### Task 5: Upgrade all remaining empty states (bulk)

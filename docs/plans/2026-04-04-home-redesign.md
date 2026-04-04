@@ -346,6 +346,41 @@ if (fs.existsSync(backlogDir)) {
 }
 ```
 
+### Task 5b: Define `formatRelativeDate()` helper
+
+**BLOCKING DEPENDENCY:** PM-121, PM-122, and PM-124 also call this function. It must be defined here (the first plan that needs it).
+
+Add this helper function near the other date utilities in server.js (around the `stalenessInfo` function):
+
+```javascript
+function formatRelativeDate(dateStr) {
+  if (!dateStr) return '';
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  if (isNaN(then)) return dateStr;
+  const diffMs = now - then;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return `${Math.floor(diffDays / 365)}y ago`;
+}
+```
+
+Test:
+```javascript
+test('formatRelativeDate returns human-readable relative dates', () => {
+  const now = new Date();
+  assert.equal(formatRelativeDate(now.toISOString()), 'today');
+  const yesterday = new Date(now - 86400000);
+  assert.equal(formatRelativeDate(yesterday.toISOString()), 'yesterday');
+  assert.equal(formatRelativeDate(''), '');
+  assert.equal(formatRelativeDate(null), '');
+});
+```
+
 ### Task 6: Remove old pulse score, stat cards, canvas tabs, KB accordion
 
 Remove from `handleDashboardHome`:

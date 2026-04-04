@@ -223,7 +223,9 @@ Add to the kanban section of DASHBOARD_CSS:
 **File:** `server.js`
 **Line range:** 3021-3168
 
-Delete the entire `buildBacklogGrouped()` function. Verify no callers reference it (grep confirms it's unused after the kanban-only refactor).
+Delete the entire `buildBacklogGrouped()` function. Also remove it from `module.exports` (around line 5654) — grep for `buildBacklogGrouped` in the exports object and delete that entry. Verify no callers reference it (grep confirms it's unused after the kanban-only refactor).
+
+**Test:** After deletion, run `node -e "const m = require('./scripts/server.js'); console.log(typeof m.buildBacklogGrouped)"` — should print `undefined` (not crash).
 
 ### Task 9: Update filter placeholder text (line 5086)
 
