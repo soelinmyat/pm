@@ -97,7 +97,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
    - Use the same class patterns found in the component code
    - Show the full page context, not just the new element in isolation
 
-5. **Present as before/after** — show the user both views using the visual companion's split layout:
+5. **Present as before/after** — show the user both views in the dashboard session canvas:
    - **Before:** the real screenshot of the current page
    - **After:** the high-fidelity mockup with the new feature integrated
 
@@ -105,11 +105,11 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
 #### Flow
 
-1. **Offer visual companion** (if topic involves visual questions) — this is its own message, not combined with other content.
+1. **Offer dashboard session view** (if topic involves visual questions) — this is its own message, not combined with other content.
 
    > "Some of what we're working on might be easier to explain visually. Want me to show high-fidelity mockups using your project's design system in the browser? (Token-intensive)"
 
-   Wait for response. If declined, proceed text-only. If accepted, read the visual companion guide: `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md`
+   Wait for response. If declined, proceed text-only. If accepted, read the dashboard session canvas guide: `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/dashboard-session.md`
 
 2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria.
    - Prefer multiple choice when possible
@@ -149,7 +149,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
 #### High-Fidelity Mockups
 
-When the visual companion is active and a design system was discovered, generate mockups using the real design tokens instead of generic wireframe classes.
+When the dashboard session view is active and a design system was discovered, generate mockups using the real design tokens instead of generic wireframe classes.
 
 **Rendering approach:** Static HTML + Tailwind CDN with the project's custom theme values. This produces visuals identical to the running app without needing React, build tools, or a running server.
 
@@ -190,7 +190,7 @@ When the visual companion is active and a design system was discovered, generate
 - Show all relevant states (empty, populated, error) as separate mockups or tabs
 - Keep mockups focused — one screen/component per file, not the entire app
 
-**When no design system is found:** Fall back to the generic visual companion wireframe classes. Note to the user: "No design system detected — showing wireframe mockups. These will be refined during implementation."
+**When no design system is found:** Fall back to generic wireframe classes. Note to the user: "No design system detected — showing wireframe mockups. These will be refined during implementation."
 
 ---
 
@@ -202,7 +202,7 @@ When the visual companion is active and a design system was discovered, generate
 - **Incremental validation** — present design, get approval before moving on
 - **High fidelity when possible** — use the real design system so design review is meaningful
 
-#### Visual Companion
+#### Dashboard Session View
 
 A browser-based tool for showing mockups, diagrams, and visual options during design exploration.
 

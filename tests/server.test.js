@@ -95,6 +95,14 @@ test('--mode dashboard flag is parsed correctly', () => {
   assert.equal(mode, 'dashboard');
 });
 
+test('--mode companion is rejected', () => {
+  const mod = loadServer();
+  assert.throws(
+    () => mod.parseMode(['node', 'server.js', '--mode', 'companion']),
+    /Unsupported PM server mode "companion"/
+  );
+});
+
 // ---------------------------------------------------------------------------
 // 2. GET / returns home dashboard HTML with knowledge base stats
 // ---------------------------------------------------------------------------
@@ -920,6 +928,38 @@ test('start-server.sh launches dashboard mode against the provided project direc
     assert.ok(researchBody.includes('Market Landscape'), 'KB research tab must read the project knowledge base');
 
     await execFileAsync(stopScript, [info.screen_dir]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('start-server.sh rejects deprecated companion mode', async () => {
+  const { root, cleanup } = withPmDir({
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\n',
+  });
+
+  try {
+    const { execFile } = require('child_process');
+    const execFileAsync = (file, args) => new Promise((resolve, reject) => {
+      execFile(file, args, { cwd: root, timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          error.stdout = stdout;
+          error.stderr = stderr;
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
+    });
+
+    const startScript = path.join(__dirname, '..', 'scripts', 'start-server.sh');
+    await assert.rejects(
+      execFileAsync(startScript, ['--project-dir', root, '--mode', 'companion', '--background']),
+      (error) => {
+        assert.match(error.stdout || '', /Unsupported PM server mode: companion/);
+        return true;
+      }
+    );
   } finally {
     cleanup();
   }

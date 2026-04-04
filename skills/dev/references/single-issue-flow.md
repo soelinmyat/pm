@@ -32,12 +32,12 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
 5. **Confirm size with user** before proceeding.
-6. **Visual companion offer (M/L/XL with UI changes):** If the task involves frontend/UI work:
+6. **Dashboard session view offer (M/L/XL with UI changes):** If the task involves frontend/UI work:
 
-   <HARD-GATE>You MUST offer the visual companion for M/L/XL tasks with UI changes. Do not skip.</HARD-GATE>
+   <HARD-GATE>You MUST offer the dashboard session view for M/L/XL tasks with UI changes. Do not skip.</HARD-GATE>
 
    > "I can show specs, wireframes, and review results in the browser. Open the dashboard?"
-   - Yes: Start the visual companion. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/visual-companion.md`.
+   - Yes: Open the dashboard session view. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/dashboard-session.md`.
    - No: Text-only. Do not ask again.
    - XS/S or backend-only: Skip this step entirely.
 7. **Issue tracking (M/L/XL only):**

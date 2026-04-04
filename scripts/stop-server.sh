@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop the PM companion server and clean up
+# Stop the PM dashboard server and clean up
 # Usage: stop-server.sh <screen_dir>
 #
 # Kills the server process. Only deletes session directory if it's

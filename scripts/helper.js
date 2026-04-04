@@ -25,6 +25,7 @@
 
   function sendEvent(event) {
     event.timestamp = Date.now();
+    event.path = event.path || window.location.pathname;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(event));
     } else {

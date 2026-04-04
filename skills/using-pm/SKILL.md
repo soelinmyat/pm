@@ -84,7 +84,7 @@ After the skill is loaded but before doing anything, tell the user what's about 
 I'll check in with you at [decision points]. Let's start.
 ```
 
-Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery, visual companion), mention them as conditional: "If your project has a design system, I'll use it for mockups."
+Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery, dashboard session view), mention them as conditional: "If your project has a design system, I'll use it for mockups."
 
 ### Closing (after all work is done)
 

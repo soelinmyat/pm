@@ -1,6 +1,6 @@
-# Companion Screen Template
+# Dashboard Session Template
 
-Reference template for per-phase companion screens written to `.pm/sessions/groom-{slug}/current.html`.
+Reference template for per-phase dashboard session canvases written to `.pm/sessions/groom-{slug}/current.html`.
 
 All phase write steps produce a complete HTML document following this structure. Fill the placeholder slots with phase-specific content.
 

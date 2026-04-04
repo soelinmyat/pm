@@ -102,9 +102,9 @@ Mark each in-scope item with its quadrant in the state file under `scope.in_scop
 
 ---
 
-## 5. Scope Grid (Visual Companion)
+## 5. Scope Grid (Dashboard Session View)
 
-If `visual_companion: true` in `.pm/config.json`, offer this after the scope definition is complete:
+If `dashboard_session_view: true` in `.pm/config.json`, offer this after the scope definition is complete:
 
 > "Want a scope grid? I'll plot each in-scope item on impact vs. effort. Two minutes."
 
