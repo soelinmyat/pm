@@ -1,6 +1,6 @@
 ---
 name: pm-ingest
-description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, or other local evidence. Normalizes records into .pm/ and updates shared research artifacts in pm/research/."
+description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, audio recordings, or other local evidence. Normalizes records into .pm/ and updates shared research artifacts in pm/research/."
 ---
 
 # pm:ingest
@@ -49,6 +49,7 @@ If the folders do not exist yet, bootstrap the minimum structure automatically:
 
 ```bash
 mkdir -p pm/research
+mkdir -p pm/evidence/transcripts
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
@@ -88,12 +89,23 @@ If no path is provided:
 
 ## Supported Inputs
 
-### Supported in v1
+### Text formats
 
 - `.md`
 - `.txt`
 - `.csv`
 - `.json`
+
+### Audio formats
+
+- `.mp3`
+- `.wav`
+- `.m4a`
+- `.ogg`
+- `.flac`
+- `.webm`
+
+Audio files are transcribed locally via `scripts/transcribe.py` (faster-whisper + pyannote.audio). If the transcription dependencies are not installed, ingest warns and skips audio files gracefully — it does not block text-based imports.
 
 ### Deferred
 
@@ -101,7 +113,6 @@ If no path is provided:
 - `.docx`
 - direct cloud URLs
 - live SaaS integrations
-- audio ingestion
 
 If a folder is provided:
 - scan recursively
@@ -130,7 +141,8 @@ Before starting work, check for user instructions:
 1. Accept the path, or ask for one if missing.
 2. Determine whether it is a file or directory.
 3. Preview:
-   - supported files found
+   - supported text files found
+   - supported audio files found (list separately with format and duration if detectable)
    - unsupported files skipped
    - likely source types detected
 4. Infer `source_type` from filename, content, or CSV headers:
@@ -147,7 +159,20 @@ Before starting work, check for user instructions:
    - propose a column mapping
    - ask for confirmation before importing
    - cache the confirmed mapping in the import manifest for repeat imports of the same schema
-7. Before importing, check `.pm/imports/manifest.json`:
+7. **For audio files** (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.webm`):
+   - Check if transcription dependencies are available:
+     ```bash
+     python3 -c "import faster_whisper" 2>/dev/null
+     ```
+   - If **not installed**: warn and skip audio files. Do not block text imports.
+     > "Skipping N audio file(s) — faster-whisper not installed. Run: pip install -r ${CLAUDE_PLUGIN_ROOT}/scripts/requirements.txt"
+   - If **installed**: transcribe each audio file:
+     ```bash
+     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --output ".pm/evidence/transcripts/<slug>.txt"
+     ```
+   - If transcription fails for a single file (corrupt, too long, OOM), warn and skip that file — continue with the rest.
+   - Default `source_type` for audio: `interview` (override if filename suggests otherwise, e.g., `sales-call-*` → `sales`).
+8. Before importing, check `.pm/imports/manifest.json`:
    - unchanged file: skip by default and tell the user it was already imported
    - same path, different hash: ask whether to re-import and replace prior records for that file
    - missing prior source file on refresh: report it and offer to remove orphaned records
@@ -171,6 +196,12 @@ Structure:
   evidence/
     source-0001.json
     source-0002.json
+    transcripts/
+      prospect-interview-20260402.txt   # raw diarized transcript (gitignored)
+pm/
+  evidence/
+    transcripts/
+      prospect-interview-20260402.md    # redacted transcript (committed)
 ```
 
 Rules:
@@ -178,6 +209,41 @@ Rules:
 - `.pm/` stays gitignored
 - one normalized JSON record per evidence item
 - manifest tracks imports and synthesis state
+
+#### Audio normalization (additional steps)
+
+For each transcribed audio file, after the raw transcript is available in `.pm/evidence/transcripts/`:
+
+1. **Speaker role inference.** Read the diarized transcript. In a single LLM pass:
+   - Infer who is the interviewer and who is the customer from conversational patterns (who asks questions vs. who describes problems).
+   - Assign roles: `interviewer`, `customer`, `unknown`. For 3+ speakers, assign `customer-a`, `customer-b`, etc.
+   - Confirm with the user:
+     > "Speaker A sounds like the interviewer, Speaker B the customer — correct?"
+
+2. **PII redaction** (same LLM pass as role inference):
+   - Replace real names with role labels: `[Interviewer]`, `[Customer A]`
+   - Replace company names with `[Company A]`, `[Company B]`
+   - Replace emails, phone numbers, addresses with `[redacted]`
+   - Do NOT promise perfect redaction — warn the user (see PII rule below).
+
+3. **Save redacted transcript** to `pm/evidence/transcripts/{slug}.md` (safe to commit):
+   ```markdown
+   ---
+   type: transcript
+   source: prospect-interview-20260402.m4a
+   speakers:
+     - id: A
+       role: interviewer
+     - id: B
+       role: customer
+   transcribed_at: 2026-04-02T10:00:00Z
+   ---
+
+   [00:01:23] [Interviewer]: How do you currently handle bulk edits?
+   [00:01:45] [Customer A]: We do them one by one. It takes forever.
+   ```
+
+4. **Extract evidence records** from the redacted transcript. Each distinct topic/pain point becomes a separate normalized record with `speaker_role` on quotes.
 
 ### Required record fields
 
@@ -188,7 +254,7 @@ Every normalized record must include:
   "id": "uuid-or-stable-hash",
   "source_path": "/absolute/path/to/file",
   "source_type": "interview|support|sales|notes|feedback|unknown",
-  "source_format": "md|txt|csv|json",
+  "source_format": "md|txt|csv|json|audio",
   "imported_at": "2026-03-12T10:00:00Z",
   "topic": "bulk editing",
   "pain_point": "editing many rows is slow",
@@ -199,6 +265,16 @@ Every normalized record must include:
     "row": 14,
     "section": "Pain points"
   }
+}
+```
+
+**Additional fields for audio-sourced records:**
+
+```json
+{
+  "speaker_role": "customer|interviewer|unknown",
+  "transcript_ref": "pm/evidence/transcripts/prospect-interview-20260402.md",
+  "timestamp": "00:01:45"
 }
 ```
 
@@ -241,6 +317,15 @@ Maintain `.pm/imports/manifest.json`:
         "priority": "Severity",
         "date": "Created At"
       }
+    },
+    {
+      "path": "/absolute/path/to/prospect-interview.m4a",
+      "kind": "file",
+      "sha256": "def456",
+      "imported_at": "2026-04-02T10:00:00Z",
+      "record_count": 8,
+      "format_hint": "audio-interview",
+      "transcript_path": "pm/evidence/transcripts/prospect-interview.md"
     }
   ]
 }
@@ -283,6 +368,11 @@ Score clusters by:
 - recency
 - segment concentration
 - strategic relevance to `pm/strategy.md` if it exists
+
+For audio-sourced records, use `speaker_role` to weight quote selection:
+- Prefer `customer` quotes for pain points and representative quotes
+- Use `interviewer` quotes only for context (what prompted the response)
+- Link audio-sourced quotes to their transcript: `[View transcript](pm/evidence/transcripts/{slug}.md)`
 
 ### Shared research knowledge base
 
@@ -401,6 +491,7 @@ Committed research must use **portable source labels**, not machine-specific abs
 Good committed reference:
 - `support-export.csv (rows 12, 14, 31)`
 - `interview-ops-lead.md (section: Pain points)`
+- `prospect-interview-20260402.m4a (transcript: pm/evidence/transcripts/prospect-interview-20260402.md, 00:01:45)`
 
 Absolute local paths belong only in:
 - `.pm/imports/manifest.json`
@@ -429,9 +520,10 @@ If validation fails, fix the frontmatter errors before proceeding. Do not surfac
 ### Phase 4: Report Back
 
 End with a concise import report:
-- files imported
+- files imported (text + audio separately)
+- audio files transcribed (with duration if available)
 - records created
-- files skipped
+- files skipped (with reason: unsupported format, missing deps, transcription failure)
 - replacements performed
 - themes created or updated
 - parse warnings
