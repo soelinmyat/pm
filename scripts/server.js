@@ -1305,19 +1305,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
-/* Landscape TOC — matches .tabs style */
-.landscape-toc {
-  display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: var(--space-6);
-}
-.landscape-toc-title { display: none; }
-.landscape-toc-item {
-  padding: var(--space-2) var(--space-4); font-size: var(--text-sm); font-weight: 500;
-  color: var(--text-muted); text-decoration: none; white-space: nowrap;
-  border-bottom: 2px solid transparent; margin-bottom: -2px;
-  transition: color var(--transition), border-color var(--transition);
-}
-.landscape-toc-item:hover { color: var(--text); }
-
 /* Detail page layout */
 .detail-page { max-width: 960px; }
 .detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
@@ -3450,50 +3437,51 @@ function handleKbCompetitorsDetail(res, pmDir) {
 }
 
 function handleKbLandscapeDetail(res, pmDir) {
-  let landscapeHtml = '';
   const landscapePath = path.join(pmDir, 'landscape.md');
-  if (fs.existsSync(landscapePath)) {
-    const raw = fs.readFileSync(landscapePath, 'utf-8');
-    const { body } = parseFrontmatter(raw);
-    const statsData = parseStatsData(body);
-    const statsHtml = renderStatsCards(statsData);
-
-    // Extract h2 headings for TOC
-    const headings = [];
-    const headingRe = /^## (.+)$/gm;
-    let hm;
-    while ((hm = headingRe.exec(body)) !== null) {
-      const text = hm[1].replace(/[*_`#]/g, '').trim();
-      const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      headings.push({ text, slug });
-    }
-
-    var rendered = renderLandscapeWithViz(body);
-    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-
-    // Inject id attributes on h2 elements for anchor links
-    headings.forEach(function(h) {
-      const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      rendered = rendered.replace(
-        new RegExp('<h2>(' + escaped + ')</h2>'),
-        '<h2 id="' + h.slug + '">$1</h2>'
-      );
-    });
-
-    const tocHtml = headings.length > 0
-      ? '<nav class="landscape-toc"><div class="landscape-toc-title">Contents</div>' +
-        headings.map(function(h) {
-          return '<a href="#' + h.slug + '" class="landscape-toc-item">' + escHtml(h.text) + '</a>';
-        }).join('') + '</nav>'
-      : '';
-
-    landscapeHtml = tocHtml +
-      '<div class="markdown-body">' + rendered + '</div>';
-  } else {
-    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
+  if (!fs.existsSync(landscapePath)) {
+    const emptyHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
+    const html = dashboardPage('Landscape', '/kb', emptyHtml);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
   }
-  const landscapeAction = '<div class="detail-meta-bar"><div class="detail-action-hint">' + renderClickToCopy('/pm:refresh') + '</div></div>';
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeAction + landscapeHtml;
+
+  const raw = fs.readFileSync(landscapePath, 'utf-8');
+  const { body } = parseFrontmatter(raw);
+  const statsData = parseStatsData(body);
+  const statsHtml = renderStatsCards(statsData);
+
+  // Extract h2 headings for TOC
+  const headings = [];
+  const headingRe = /^## (.+)$/gm;
+  let hm;
+  while ((hm = headingRe.exec(body)) !== null) {
+    const text = hm[1].replace(/[*_`#]/g, '').trim();
+    const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    headings.push({ text, slug });
+  }
+
+  var rendered = renderLandscapeWithViz(body);
+  if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+
+  // Inject id attributes on h2 elements for anchor links
+  headings.forEach(function(h) {
+    const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rendered = rendered.replace(
+      new RegExp('<h2>(' + escaped + ')</h2>'),
+      '<h2 id="' + h.slug + '">$1</h2>'
+    );
+  });
+
+  const contentHtml = renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }],
+    title: 'Market Landscape',
+    metaBadges: [],
+    toc: headings,
+    bodyHtml: rendered,
+    actionHint: '/pm:refresh',
+  });
+
   const html = dashboardPage('Landscape', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
