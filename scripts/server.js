@@ -3905,53 +3905,41 @@ function handleBacklogItem(res, pmDir, slug) {
     parentTitle = slugLookup[parentSlug].title;
   }
 
-  // Breadcrumb: Proposals / {Parent} / PM-XXX  OR  Roadmap / PM-XXX
-  let breadcrumbInner = '';
-  if (parentSlug && parentTitle) {
-    breadcrumbInner = `<a href="/proposals">Proposals</a>
-  <span class="breadcrumb-sep">/</span>
-  <a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(itemId ? itemId + ' ' + title : title)}</span>`;
-  } else {
-    breadcrumbInner = `<a href="/roadmap">Roadmap</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(itemId ? itemId + ' ' + title : title)}</span>`;
-  }
-  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
-  ${breadcrumbInner}
-</nav>`;
+  // Breadcrumb
+  const currentLabel = itemId ? itemId + ' ' + title : title;
+  const breadcrumbItems = (parentSlug && parentTitle)
+    ? [
+        { label: 'Proposals', href: '/proposals' },
+        { label: parentTitle, href: '/roadmap/' + escHtml(parentSlug) },
+        { label: currentLabel },
+      ]
+    : [
+        { label: 'Roadmap', href: '/roadmap' },
+        { label: currentLabel },
+      ];
 
-  // Title with ID badge
+  // Title prefix (ID badge)
   const idBadge = itemId ? `<span class="detail-id-badge">${escHtml(itemId)}</span>` : '';
-  const titleHtml = `<h1 class="detail-title">${idBadge}${escHtml(title)}</h1>`;
 
-  // Metadata bar
-  const metaParts = [];
-  metaParts.push(`<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>`);
+  // Meta badges (content items only — template adds separators)
+  const metaBadges = [];
+  metaBadges.push({ html: `<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>` });
   if (priority) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="meta-item">${escHtml(priority)} priority</span>`);
+    metaBadges.push({ html: `<span class="meta-item">${escHtml(priority)} priority</span>` });
   }
   if (parentSlug && parentTitle) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="meta-item"><a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a></span>`);
+    metaBadges.push({ html: `<span class="meta-item"><a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a></span>` });
   }
   if (date) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="meta-item">${escHtml(date)}</span>`);
+    metaBadges.push({ html: `<span class="meta-item">${escHtml(date)}</span>` });
   }
-  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
 
   // Sections
-  const sections = [];
+  const templateSections = [];
 
   // Outcome section
   if (data.outcome) {
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Outcome</h2>
-  <p>${escHtml(data.outcome)}</p>
-</section>`);
+    templateSections.push({ title: 'Outcome', html: `<p>${escHtml(data.outcome)}</p>` });
   }
 
   // Acceptance Criteria section — parse from body or frontmatter
@@ -3959,7 +3947,6 @@ function handleBacklogItem(res, pmDir, slug) {
   if (Array.isArray(data.acceptance_criteria)) {
     data.acceptance_criteria.forEach(ac => acItems.push(String(ac)));
   } else {
-    // Parse from markdown body: look for ## Acceptance Criteria section
     const acMatch = body.match(/## Acceptance Criteria\s*\n([\s\S]*?)(?=\n## |\n# |$)/i);
     if (acMatch) {
       const acBlock = acMatch[1];
@@ -3972,10 +3959,7 @@ function handleBacklogItem(res, pmDir, slug) {
   }
   if (acItems.length > 0) {
     const acListItems = acItems.map(ac => `<li>${escHtml(ac)}</li>`).join('\n');
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Acceptance Criteria</h2>
-  <ul class="detail-ac-list">${acListItems}</ul>
-</section>`);
+    templateSections.push({ title: 'Acceptance Criteria', html: `<ul class="detail-ac-list">${acListItems}</ul>` });
   }
 
   // Children section
@@ -3986,22 +3970,16 @@ function handleBacklogItem(res, pmDir, slug) {
       const cId = ch.id ? `<span class="detail-issue-id">${escHtml(ch.id)}</span>` : '';
       return `<li><a href="/roadmap/${escHtml(c)}">${cId}${escHtml(ch.title)}</a></li>`;
     }).join('\n');
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Child Issues</h2>
-  <ul class="detail-issue-list">${childItems}</ul>
-</section>`);
+    templateSections.push({ title: 'Child Issues', html: `<ul class="detail-issue-list">${childItems}</ul>` });
   }
 
   // Wireframe embed section
   try {
     fs.accessSync(path.join(pmDir, 'backlog', 'wireframes', slug + '.html'));
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Wireframe</h2>
-  <div class="wireframe-embed">
+    templateSections.push({ title: 'Wireframe', html: `<div class="wireframe-embed">
     <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/roadmap/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
     <iframe src="/roadmap/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
-  </div>
-</section>`);
+  </div>` });
   } catch { /* no wireframe for this item */ }
 
   // Remaining markdown body section (strip AC section to avoid duplication)
@@ -4010,30 +3988,25 @@ function handleBacklogItem(res, pmDir, slug) {
     remainingBody = remainingBody.replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, '').trim();
   }
   if (remainingBody.trim()) {
-    sections.push(`<section class="detail-section">
-  <div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>
-</section>`);
+    templateSections.push({ title: null, html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>` });
   }
 
-  // Action hint: click-to-copy /dev PM-XXX inline in meta bar
-  let actionHintHtml = '';
+  // Action hint
+  let actionHintCmd = '';
   if (itemId && status !== 'done') {
-    actionHintHtml = `<div class="detail-action-hint">${renderClickToCopy('/dev ' + itemId)}</div>`;
+    actionHintCmd = '/dev ' + itemId;
   } else if (status !== 'done') {
-    actionHintHtml = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + (itemId || slug))}</div>`;
+    actionHintCmd = '/pm:groom ' + (itemId || slug);
   }
 
-  // Inject action hint into meta bar (before closing tag)
-  const metaBarWithAction = actionHintHtml
-    ? metaBar.replace('</div>', actionHintHtml + '</div>')
-    : metaBar;
-
-  const pageBody = `<div class="detail-page">
-${breadcrumb}
-${titleHtml}
-${metaBarWithAction}
-${sections.join('\n')}
-</div>`;
+  const pageBody = renderTemplate('detail', {
+    breadcrumb: breadcrumbItems,
+    title,
+    titlePrefix: idBadge,
+    metaBadges,
+    sections: templateSections,
+    actionHint: actionHintCmd,
+  });
 
   const html = dashboardPage(title, '/roadmap', pageBody);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
