@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
-const repoRoot = path.join(__dirname, '..');
-const configPath = path.join(repoRoot, 'plugin.config.json');
-const checkMode = process.argv.includes('--check');
+const repoRoot = path.join(__dirname, "..");
+const configPath = path.join(repoRoot, "plugin.config.json");
+const checkMode = process.argv.includes("--check");
 
 function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
 function serializeJson(value) {
@@ -27,29 +27,32 @@ function writeText(filePath, value) {
 }
 
 function listSkillDirs() {
-  const skillsRoot = path.join(repoRoot, 'skills');
-  return fs.readdirSync(skillsRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory()
-      && fs.existsSync(path.join(skillsRoot, entry.name, 'SKILL.md')))
+  const skillsRoot = path.join(repoRoot, "skills");
+  return fs
+    .readdirSync(skillsRoot, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && fs.existsSync(path.join(skillsRoot, entry.name, "SKILL.md"))
+    )
     .map((entry) => entry.name)
     .sort();
 }
 
 function listCommandFiles() {
-  const commandsRoot = path.join(repoRoot, 'commands');
+  const commandsRoot = path.join(repoRoot, "commands");
   if (!fs.existsSync(commandsRoot)) {
     return [];
   }
 
-  return fs.readdirSync(commandsRoot)
-    .filter((entry) => entry.endsWith('.md'))
+  return fs
+    .readdirSync(commandsRoot)
+    .filter((entry) => entry.endsWith(".md"))
     .sort();
 }
 
 function assertCanonicalInventory(config, skillDirs, commandFiles) {
   const configuredSkillSet = new Set([
     ...config.codex.fallbackSkillAliases.pm,
-    ...config.codex.fallbackSkillAliases.dev
+    ...config.codex.fallbackSkillAliases.dev,
   ]);
 
   const actualSkillSet = new Set(skillDirs);
@@ -59,12 +62,14 @@ function assertCanonicalInventory(config, skillDirs, commandFiles) {
   if (missingSkills.length > 0 || unmappedSkills.length > 0) {
     const problems = [];
     if (missingSkills.length > 0) {
-      problems.push(`missing skill dirs: ${missingSkills.join(', ')}`);
+      problems.push(`missing skill dirs: ${missingSkills.join(", ")}`);
     }
     if (unmappedSkills.length > 0) {
-      problems.push(`unmapped skill dirs: ${unmappedSkills.join(', ')}`);
+      problems.push(`unmapped skill dirs: ${unmappedSkills.join(", ")}`);
     }
-    throw new Error(`plugin.config.json skill aliases are out of sync with skills/: ${problems.join('; ')}`);
+    throw new Error(
+      `plugin.config.json skill aliases are out of sync with skills/: ${problems.join("; ")}`
+    );
   }
 
   const configuredCommandSet = new Set(config.commands.map((name) => `${name}.md`));
@@ -74,12 +79,14 @@ function assertCanonicalInventory(config, skillDirs, commandFiles) {
   if (missingCommands.length > 0 || unconfiguredCommands.length > 0) {
     const problems = [];
     if (missingCommands.length > 0) {
-      problems.push(`missing command files: ${missingCommands.join(', ')}`);
+      problems.push(`missing command files: ${missingCommands.join(", ")}`);
     }
     if (unconfiguredCommands.length > 0) {
-      problems.push(`unconfigured command files: ${unconfiguredCommands.join(', ')}`);
+      problems.push(`unconfigured command files: ${unconfiguredCommands.join(", ")}`);
     }
-    throw new Error(`plugin.config.json commands are out of sync with commands/: ${problems.join('; ')}`);
+    throw new Error(
+      `plugin.config.json commands are out of sync with commands/: ${problems.join("; ")}`
+    );
   }
 }
 
@@ -89,23 +96,23 @@ function buildCommonManifest(config) {
     description: config.description,
     version: config.version,
     author: {
-      name: config.author.name
+      name: config.author.name,
     },
     homepage: config.homepage,
     repository: config.repository,
     license: config.license,
-    keywords: config.keywords
+    keywords: config.keywords,
   };
 }
 
 function buildClaudePluginManifest(config, commandFiles) {
   const manifest = {
     ...buildCommonManifest(config),
-    skills: './skills/'
+    skills: "./skills/",
   };
 
   if (commandFiles.length > 0) {
-    manifest.commands = './commands/';
+    manifest.commands = "./commands/";
   }
 
   return manifest;
@@ -115,13 +122,13 @@ function buildCursorPluginManifest(config, commandFiles) {
   const manifest = {
     ...buildCommonManifest(config),
     displayName: config.displayName,
-    skills: './skills/',
-    agents: './agents/',
-    hooks: './hooks/hooks.json'
+    skills: "./skills/",
+    agents: "./agents/",
+    hooks: "./hooks/hooks.json",
   };
 
   if (commandFiles.length > 0) {
-    manifest.commands = './commands/';
+    manifest.commands = "./commands/";
   }
 
   return manifest;
@@ -129,10 +136,10 @@ function buildCursorPluginManifest(config, commandFiles) {
 
 function buildClaudeMarketplaceManifest(config) {
   return {
-    $schema: 'https://anthropic.com/claude-code/marketplace.schema.json',
+    $schema: "https://anthropic.com/claude-code/marketplace.schema.json",
     name: config.name,
     owner: {
-      name: config.author.name
+      name: config.author.name,
     },
     plugins: [
       {
@@ -140,13 +147,13 @@ function buildClaudeMarketplaceManifest(config) {
         description: config.marketplace.description,
         version: config.version,
         author: {
-          name: config.author.name
+          name: config.author.name,
         },
-        source: './',
+        source: "./",
         category: config.marketplace.category,
-        homepage: config.homepage
-      }
-    ]
+        homepage: config.homepage,
+      },
+    ],
   };
 }
 
@@ -154,14 +161,14 @@ function buildGeminiExtensionManifest(config) {
   return {
     name: config.name,
     contextFileName: config.gemini.contextFileName,
-    version: config.version
+    version: config.version,
   };
 }
 
 function buildCodexPluginManifest(config) {
   return {
     ...buildCommonManifest(config),
-    skills: './skills/',
+    skills: "./skills/",
     interface: {
       displayName: config.displayName,
       shortDescription: config.codex.interface.shortDescription,
@@ -173,8 +180,8 @@ function buildCodexPluginManifest(config) {
       privacyPolicyURL: config.codex.interface.privacyPolicyURL,
       termsOfServiceURL: config.codex.interface.termsOfServiceURL,
       defaultPrompt: config.codex.interface.defaultPrompt,
-      brandColor: config.codex.interface.brandColor
-    }
+      brandColor: config.codex.interface.brandColor,
+    },
   };
 }
 
@@ -183,11 +190,17 @@ function buildCodexInstallDoc(config) {
   const devSkills = config.codex.fallbackSkillAliases.dev;
 
   const pmLinkLines = pmSkills
-    .map((skill) => `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/pm-${skill}`)
-    .join('\n');
+    .map(
+      (skill) =>
+        `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/pm-${skill}`
+    )
+    .join("\n");
   const devLinkLines = devSkills
-    .map((skill) => `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/dev-${skill}`)
-    .join('\n');
+    .map(
+      (skill) =>
+        `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/dev-${skill}`
+    )
+    .join("\n");
 
   return `# PM Plugin: Codex Installation
 
@@ -292,17 +305,15 @@ function checkOrWriteFile(filePath, content, format) {
       throw new Error(`Generated file is missing: ${path.relative(repoRoot, filePath)}`);
     }
 
-    const current = fs.readFileSync(filePath, 'utf8');
-    const expected = format === 'json'
-      ? serializeJson(content)
-      : content;
+    const current = fs.readFileSync(filePath, "utf8");
+    const expected = format === "json" ? serializeJson(content) : content;
     if (current !== expected) {
       throw new Error(`Generated file is out of date: ${path.relative(repoRoot, filePath)}`);
     }
     return;
   }
 
-  if (format === 'json') {
+  if (format === "json") {
     writeJson(filePath, content);
   } else {
     writeText(filePath, content);
@@ -317,12 +328,24 @@ function main() {
   assertCanonicalInventory(config, skillDirs, commandFiles);
 
   const generatedFiles = [
-    [path.join(repoRoot, '.claude-plugin', 'plugin.json'), buildClaudePluginManifest(config, commandFiles), 'json'],
-    [path.join(repoRoot, '.cursor-plugin', 'plugin.json'), buildCursorPluginManifest(config, commandFiles), 'json'],
-    [path.join(repoRoot, '.claude-plugin', 'marketplace.json'), buildClaudeMarketplaceManifest(config), 'json'],
-    [path.join(repoRoot, 'gemini-extension.json'), buildGeminiExtensionManifest(config), 'json'],
-    [path.join(repoRoot, '.codex-plugin', 'plugin.json'), buildCodexPluginManifest(config), 'json'],
-    [path.join(repoRoot, '.codex', 'INSTALL.md'), buildCodexInstallDoc(config), 'text']
+    [
+      path.join(repoRoot, ".claude-plugin", "plugin.json"),
+      buildClaudePluginManifest(config, commandFiles),
+      "json",
+    ],
+    [
+      path.join(repoRoot, ".cursor-plugin", "plugin.json"),
+      buildCursorPluginManifest(config, commandFiles),
+      "json",
+    ],
+    [
+      path.join(repoRoot, ".claude-plugin", "marketplace.json"),
+      buildClaudeMarketplaceManifest(config),
+      "json",
+    ],
+    [path.join(repoRoot, "gemini-extension.json"), buildGeminiExtensionManifest(config), "json"],
+    [path.join(repoRoot, ".codex-plugin", "plugin.json"), buildCodexPluginManifest(config), "json"],
+    [path.join(repoRoot, ".codex", "INSTALL.md"), buildCodexInstallDoc(config), "text"],
   ];
 
   for (const [filePath, content, format] of generatedFiles) {

@@ -1,5 +1,5 @@
-(function() {
-  const WS_URL = 'ws://' + window.location.host;
+(function () {
+  const WS_URL = "ws://" + window.location.host;
   let ws = null;
   let eventQueue = [];
 
@@ -7,13 +7,13 @@
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      eventQueue.forEach(e => ws.send(JSON.stringify(e)));
+      eventQueue.forEach((e) => ws.send(JSON.stringify(e)));
       eventQueue = [];
     };
 
     ws.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
-      if (data.type === 'reload') {
+      if (data.type === "reload") {
         window.location.reload();
       }
     };
@@ -34,43 +34,49 @@
   }
 
   function setIndicatorText(indicator, label, suffix) {
-    indicator.textContent = '';
+    indicator.textContent = "";
     if (label) {
-      const span = document.createElement('span');
-      span.className = 'selected-text';
+      const span = document.createElement("span");
+      span.className = "selected-text";
       span.textContent = label;
       indicator.appendChild(span);
-      indicator.appendChild(document.createTextNode(' ' + suffix));
+      indicator.appendChild(document.createTextNode(" " + suffix));
     } else {
       indicator.textContent = suffix;
     }
   }
 
   // Capture clicks on choice elements
-  document.addEventListener('click', (e) => {
-    const target = e.target.closest('[data-choice]');
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-choice]");
     if (!target) return;
 
     sendEvent({
-      type: 'click',
+      type: "click",
       text: target.textContent.trim(),
       choice: target.dataset.choice,
-      id: target.id || null
+      id: target.id || null,
     });
 
     // Update indicator bar (defer so toggleSelect runs first)
     setTimeout(() => {
-      const indicator = document.getElementById('indicator-text');
+      const indicator = document.getElementById("indicator-text");
       if (!indicator) return;
-      const container = target.closest('.options') || target.closest('.cards');
-      const selected = container ? container.querySelectorAll('.selected') : [];
+      const container = target.closest(".options") || target.closest(".cards");
+      const selected = container ? container.querySelectorAll(".selected") : [];
       if (selected.length === 0) {
-        setIndicatorText(indicator, null, 'Click an option above, then return to the terminal');
+        setIndicatorText(indicator, null, "Click an option above, then return to the terminal");
       } else if (selected.length === 1) {
-        const label = selected[0].querySelector('h3, .content h3, .card-body h3')?.textContent?.trim() || selected[0].dataset.choice;
-        setIndicatorText(indicator, label, 'selected \u2014 return to terminal to continue');
+        const label =
+          selected[0].querySelector("h3, .content h3, .card-body h3")?.textContent?.trim() ||
+          selected[0].dataset.choice;
+        setIndicatorText(indicator, label, "selected \u2014 return to terminal to continue");
       } else {
-        setIndicatorText(indicator, selected.length + ' selected', '\u2014 return to terminal to continue');
+        setIndicatorText(
+          indicator,
+          selected.length + " selected",
+          "\u2014 return to terminal to continue"
+        );
       }
     }, 0);
   });
@@ -78,16 +84,16 @@
   // Frame UI: selection tracking
   window.selectedChoice = null;
 
-  window.toggleSelect = function(el) {
-    const container = el.closest('.options') || el.closest('.cards');
+  window.toggleSelect = function (el) {
+    const container = el.closest(".options") || el.closest(".cards");
     const multi = container && container.dataset.multiselect !== undefined;
     if (container && !multi) {
-      container.querySelectorAll('.option, .card').forEach(o => o.classList.remove('selected'));
+      container.querySelectorAll(".option, .card").forEach((o) => o.classList.remove("selected"));
     }
     if (multi) {
-      el.classList.toggle('selected');
+      el.classList.toggle("selected");
     } else {
-      el.classList.add('selected');
+      el.classList.add("selected");
     }
     window.selectedChoice = el.dataset.choice;
   };
@@ -95,7 +101,7 @@
   // Expose API for explicit use
   window.pm = {
     send: sendEvent,
-    choice: (value, metadata = {}) => sendEvent({ type: 'choice', value, ...metadata })
+    choice: (value, metadata = {}) => sendEvent({ type: "choice", value, ...metadata }),
   };
 
   connect();

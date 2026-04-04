@@ -1,0 +1,6 @@
+# Default shell dialect
+shell=bash
+
+# SC2086: Double quote to prevent globbing — too noisy for scripting style
+# SC1091: Not following sourced file — can't resolve dynamic paths
+disable=SC2086,SC1091

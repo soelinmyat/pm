@@ -1,700 +1,892 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Proposal: Dashboard Filtering System</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral' });</script>
-<style>
-  /* ===== RESET & BASE ===== */
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; scroll-padding-top: 3.5rem; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a1a;
-    background: #f8f9fa;
-    line-height: 1.6;
-  }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proposal: Dashboard Filtering System</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+    </script>
+    <style>
+      /* ===== RESET & BASE ===== */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        font-size: 16px;
+        -webkit-font-smoothing: antialiased;
+        scroll-behavior: smooth;
+        scroll-padding-top: 3.5rem;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #1a1a1a;
+        background: #f8f9fa;
+        line-height: 1.6;
+      }
 
-  /* ===== HERO HEADER ===== */
-  .hero {
-    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%);
-    color: #fff;
-    padding: 3rem 1.5rem 2.5rem;
-    position: relative;
-    overflow: hidden;
-  }
-  .hero::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -20%;
-    width: 600px;
-    height: 600px;
-    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
-    border-radius: 50%;
-  }
-  .hero-inner {
-    max-width: 960px;
-    margin: 0 auto;
-    position: relative;
-    z-index: 1;
-  }
-  .hero-eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255,255,255,0.7);
-    margin-bottom: 0.5rem;
-  }
-  .hero h1 {
-    font-size: 2.25rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    margin-bottom: 0.5rem;
-  }
-  .hero .subtitle {
-    font-size: 1.1rem;
-    color: rgba(255,255,255,0.85);
-    max-width: 640px;
-    margin-bottom: 1.5rem;
-  }
+      /* ===== HERO HEADER ===== */
+      .hero {
+        background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%);
+        color: #fff;
+        padding: 3rem 1.5rem 2.5rem;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        top: -50%;
+        right: -20%;
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.06) 0%, transparent 70%);
+        border-radius: 50%;
+      }
+      .hero-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        position: relative;
+        z-index: 1;
+      }
+      .hero-eyebrow {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(255, 255, 255, 0.7);
+        margin-bottom: 0.5rem;
+      }
+      .hero h1 {
+        font-size: 2.25rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.5rem;
+      }
+      .hero .subtitle {
+        font-size: 1.1rem;
+        color: rgba(255, 255, 255, 0.85);
+        max-width: 640px;
+        margin-bottom: 1.5rem;
+      }
 
-  /* ===== KEY METRICS STRIP ===== */
-  .metrics-strip {
-    display: flex;
-    gap: 0;
-    background: rgba(255,255,255,0.1);
-    border-radius: 10px;
-    overflow: hidden;
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.15);
-  }
-  .metric {
-    flex: 1;
-    padding: 0.75rem 1rem;
-    text-align: center;
-    border-right: 1px solid rgba(255,255,255,0.1);
-  }
-  .metric:last-child { border-right: none; }
-  .metric-value {
-    font-size: 1.5rem;
-    font-weight: 800;
-    display: block;
-    line-height: 1.2;
-  }
-  .metric-label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgba(255,255,255,0.7);
-  }
+      /* ===== KEY METRICS STRIP ===== */
+      .metrics-strip {
+        display: flex;
+        gap: 0;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        overflow: hidden;
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .metric {
+        flex: 1;
+        padding: 0.75rem 1rem;
+        text-align: center;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .metric:last-child {
+        border-right: none;
+      }
+      .metric-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        display: block;
+        line-height: 1.2;
+      }
+      .metric-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.7);
+      }
 
-  /* ===== STICKY TOC ===== */
-  .toc {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background: #fff;
-    border-bottom: 1px solid #e5e7eb;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .toc-inner {
-    max-width: 960px;
-    margin: 0 auto;
-    display: flex;
-    gap: 0;
-    padding: 0 1rem;
-  }
-  .toc a {
-    display: block;
-    padding: 0.6rem 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #777;
-    text-decoration: none;
-    white-space: nowrap;
-    border-bottom: 2px solid transparent;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  .toc a:hover, .toc a.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
-  }
+      /* ===== STICKY TOC ===== */
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: #fff;
+        border-bottom: 1px solid #e5e7eb;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .toc-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        gap: 0;
+        padding: 0 1rem;
+      }
+      .toc a {
+        display: block;
+        padding: 0.6rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: #777;
+        text-decoration: none;
+        white-space: nowrap;
+        border-bottom: 2px solid transparent;
+        transition:
+          color 0.2s,
+          border-color 0.2s;
+      }
+      .toc a:hover,
+      .toc a.active {
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+      }
 
-  /* ===== LAYOUT ===== */
-  .proposal {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 2.5rem 1.5rem 4rem;
-  }
+      /* ===== LAYOUT ===== */
+      .proposal {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 4rem;
+      }
 
-  /* ===== SECTIONS ===== */
-  .section {
-    margin-bottom: 3rem;
-    opacity: 0;
-    transform: translateY(16px);
-    animation: fadeUp 0.5s ease forwards;
-  }
-  .section:nth-child(1) { animation-delay: 0.05s; }
-  .section:nth-child(2) { animation-delay: 0.1s; }
-  .section:nth-child(3) { animation-delay: 0.15s; }
-  .section:nth-child(4) { animation-delay: 0.2s; }
-  .section:nth-child(5) { animation-delay: 0.25s; }
-  .section:nth-child(6) { animation-delay: 0.3s; }
-  .section:nth-child(7) { animation-delay: 0.35s; }
-  .section:nth-child(8) { animation-delay: 0.4s; }
-  .section:nth-child(9) { animation-delay: 0.45s; }
+      /* ===== SECTIONS ===== */
+      .section {
+        margin-bottom: 3rem;
+        opacity: 0;
+        transform: translateY(16px);
+        animation: fadeUp 0.5s ease forwards;
+      }
+      .section:nth-child(1) {
+        animation-delay: 0.05s;
+      }
+      .section:nth-child(2) {
+        animation-delay: 0.1s;
+      }
+      .section:nth-child(3) {
+        animation-delay: 0.15s;
+      }
+      .section:nth-child(4) {
+        animation-delay: 0.2s;
+      }
+      .section:nth-child(5) {
+        animation-delay: 0.25s;
+      }
+      .section:nth-child(6) {
+        animation-delay: 0.3s;
+      }
+      .section:nth-child(7) {
+        animation-delay: 0.35s;
+      }
+      .section:nth-child(8) {
+        animation-delay: 0.4s;
+      }
+      .section:nth-child(9) {
+        animation-delay: 0.45s;
+      }
 
-  @keyframes fadeUp {
-    to { opacity: 1; transform: translateY(0); }
-  }
+      @keyframes fadeUp {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
 
-  .section-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #111;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .section-title .icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    background: #eff6ff;
-    color: #2563eb;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.85rem;
-    flex-shrink: 0;
-  }
-  .section p, .section li {
-    font-size: 0.95rem;
-    color: #444;
-  }
-  .section ul, .section ol {
-    padding-left: 1.25rem;
-    margin-bottom: 0.75rem;
-  }
-  .section li { margin-bottom: 0.35rem; }
+      .section-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #111;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #e5e7eb;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .section-title .icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        background: #eff6ff;
+        color: #2563eb;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+      }
+      .section p,
+      .section li {
+        font-size: 0.95rem;
+        color: #444;
+      }
+      .section ul,
+      .section ol {
+        padding-left: 1.25rem;
+        margin-bottom: 0.75rem;
+      }
+      .section li {
+        margin-bottom: 0.35rem;
+      }
 
-  /* ===== CALLOUT ===== */
-  .callout {
-    background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%);
-    border-left: 4px solid #2563eb;
-    border-radius: 0 8px 8px 0;
-    padding: 1rem 1.25rem;
-    margin: 1rem 0;
-    font-size: 0.93rem;
-    color: #1e40af;
-  }
-  .callout strong { color: #1e3a8a; }
+      /* ===== CALLOUT ===== */
+      .callout {
+        background: linear-gradient(135deg, #eff6ff 0%, #f0f7ff 100%);
+        border-left: 4px solid #2563eb;
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.25rem;
+        margin: 1rem 0;
+        font-size: 0.93rem;
+        color: #1e40af;
+      }
+      .callout strong {
+        color: #1e3a8a;
+      }
 
-  /* ===== SCOPE GRID ===== */
-  .scope-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.25rem;
-    margin-bottom: 1rem;
-  }
-  .scope-column {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1.25rem;
-  }
-  .scope-column h4 {
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .scope-column.in-scope { border-top: 3px solid #16a34a; }
-  .scope-column.in-scope h4 { color: #16a34a; }
-  .scope-column.out-of-scope { border-top: 3px solid #dc2626; }
-  .scope-column.out-of-scope h4 { color: #dc2626; }
-  .scope-column ul { padding-left: 1.1rem; }
-  .scope-column li { font-size: 0.9rem; margin-bottom: 0.3rem; }
-  .filter-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
-    color: #fff;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 0.35rem 0.85rem;
-    border-radius: 999px;
-    margin-top: 0.75rem;
-  }
+      /* ===== SCOPE GRID ===== */
+      .scope-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .scope-column {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+      .scope-column h4 {
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .scope-column.in-scope {
+        border-top: 3px solid #16a34a;
+      }
+      .scope-column.in-scope h4 {
+        color: #16a34a;
+      }
+      .scope-column.out-of-scope {
+        border-top: 3px solid #dc2626;
+      }
+      .scope-column.out-of-scope h4 {
+        color: #dc2626;
+      }
+      .scope-column ul {
+        padding-left: 1.1rem;
+      }
+      .scope-column li {
+        font-size: 0.9rem;
+        margin-bottom: 0.3rem;
+      }
+      .filter-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 0.35rem 0.85rem;
+        border-radius: 999px;
+        margin-top: 0.75rem;
+      }
 
-  /* ===== ISSUE CARDS ===== */
-  .issue-group { margin-bottom: 1.5rem; }
-  .issue-card {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1.25rem;
-    margin-bottom: 0.75rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  }
-  .issue-card.parent { border-left: 4px solid #2563eb; }
-  .issue-card.child { margin-left: 2rem; border-left: 4px solid #93c5fd; }
-  .issue-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-  .issue-id {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #fff;
-    background: #2563eb;
-    padding: 0.1rem 0.5rem;
-    border-radius: 4px;
-    white-space: nowrap;
-  }
-  .issue-card.child .issue-id { background: #93c5fd; color: #1e3a5f; }
-  .issue-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #111;
-  }
-  .issue-outcome {
-    font-size: 0.9rem;
-    color: #555;
-    margin-bottom: 0.75rem;
-    font-style: italic;
-    padding-left: 0.75rem;
-    border-left: 2px solid #e5e7eb;
-  }
-  .issue-labels {
-    display: flex;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.75rem;
-  }
-  .label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    background: #f3f4f6;
-    color: #555;
-    border: 1px solid #e5e7eb;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .label.priority-high { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
-  .label.priority-medium { background: #fffbeb; color: #d97706; border-color: #fde68a; }
-  .ac-list {
-    font-size: 0.88rem;
-    padding-left: 1.25rem;
-    color: #555;
-  }
-  .ac-list li { margin-bottom: 0.25rem; }
-  .ac-list li::marker { color: #2563eb; }
+      /* ===== ISSUE CARDS ===== */
+      .issue-group {
+        margin-bottom: 1.5rem;
+      }
+      .issue-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1.25rem;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      }
+      .issue-card.parent {
+        border-left: 4px solid #2563eb;
+      }
+      .issue-card.child {
+        margin-left: 2rem;
+        border-left: 4px solid #93c5fd;
+      }
+      .issue-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+      }
+      .issue-id {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #fff;
+        background: #2563eb;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .issue-card.child .issue-id {
+        background: #93c5fd;
+        color: #1e3a5f;
+      }
+      .issue-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #111;
+      }
+      .issue-outcome {
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 0.75rem;
+        font-style: italic;
+        padding-left: 0.75rem;
+        border-left: 2px solid #e5e7eb;
+      }
+      .issue-labels {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+      }
+      .label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        background: #f3f4f6;
+        color: #555;
+        border: 1px solid #e5e7eb;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .label.priority-high {
+        background: #fef2f2;
+        color: #dc2626;
+        border-color: #fecaca;
+      }
+      .label.priority-medium {
+        background: #fffbeb;
+        color: #d97706;
+        border-color: #fde68a;
+      }
+      .ac-list {
+        font-size: 0.88rem;
+        padding-left: 1.25rem;
+        color: #555;
+      }
+      .ac-list li {
+        margin-bottom: 0.25rem;
+      }
+      .ac-list li::marker {
+        color: #2563eb;
+      }
 
-  /* ===== MERMAID ===== */
-  .mermaid-container {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    overflow-x: auto;
-  }
-  .mermaid { text-align: center; }
+      /* ===== MERMAID ===== */
+      .mermaid-container {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        overflow-x: auto;
+      }
+      .mermaid {
+        text-align: center;
+      }
 
-  /* ===== WIREFRAME EMBED ===== */
-  .wireframe-embed {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 0.75rem;
-  }
-  .wireframe-embed iframe { width: 100%; height: 500px; border: none; }
-  .wireframe-link {
-    font-size: 0.85rem;
-    color: #2563eb;
-    text-decoration: none;
-    font-weight: 500;
-  }
-  .wireframe-link:hover { text-decoration: underline; }
+      /* ===== WIREFRAME EMBED ===== */
+      .wireframe-embed {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 0.75rem;
+      }
+      .wireframe-embed iframe {
+        width: 100%;
+        height: 500px;
+        border: none;
+      }
+      .wireframe-link {
+        font-size: 0.85rem;
+        color: #2563eb;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .wireframe-link:hover {
+        text-decoration: underline;
+      }
 
-  /* ===== COMPETITIVE TABLE ===== */
-  .comp-table-wrap {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 1rem;
-  }
-  .comp-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-  }
-  .comp-table th, .comp-table td {
-    text-align: left;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #f3f4f6;
-  }
-  .comp-table th {
-    background: #f9fafb;
-    font-weight: 600;
-    color: #555;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .comp-table td { color: #444; }
-  .comp-table td.us { background: #f0fdf4; color: #166534; font-weight: 500; }
-  .comp-table td.competitor-weak { color: #9ca3af; }
-  .comp-table tr:last-child td { border-bottom: none; }
+      /* ===== COMPETITIVE TABLE ===== */
+      .comp-table-wrap {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 1rem;
+      }
+      .comp-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+      }
+      .comp-table th,
+      .comp-table td {
+        text-align: left;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      .comp-table th {
+        background: #f9fafb;
+        font-weight: 600;
+        color: #555;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .comp-table td {
+        color: #444;
+      }
+      .comp-table td.us {
+        background: #f0fdf4;
+        color: #166534;
+        font-weight: 500;
+      }
+      .comp-table td.competitor-weak {
+        color: #9ca3af;
+      }
+      .comp-table tr:last-child td {
+        border-bottom: none;
+      }
 
-  /* ===== FEASIBILITY ===== */
-  .feasibility-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-  .feasibility-box {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1.25rem;
-  }
-  .feasibility-box h4 {
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 0.6rem;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .feasibility-box.build-on h4 { color: #16a34a; }
-  .feasibility-box.build-new h4 { color: #2563eb; }
-  .feasibility-box.risks h4 { color: #d97706; }
-  .feasibility-box.sequencing h4 { color: #7c3aed; }
-  .feasibility-box ul { padding-left: 1.1rem; }
-  .feasibility-box li { font-size: 0.88rem; margin-bottom: 0.25rem; color: #555; }
+      /* ===== FEASIBILITY ===== */
+      .feasibility-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      .feasibility-box {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+      .feasibility-box h4 {
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.6rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .feasibility-box.build-on h4 {
+        color: #16a34a;
+      }
+      .feasibility-box.build-new h4 {
+        color: #2563eb;
+      }
+      .feasibility-box.risks h4 {
+        color: #d97706;
+      }
+      .feasibility-box.sequencing h4 {
+        color: #7c3aed;
+      }
+      .feasibility-box ul {
+        padding-left: 1.1rem;
+      }
+      .feasibility-box li {
+        font-size: 0.88rem;
+        margin-bottom: 0.25rem;
+        color: #555;
+      }
 
-  /* ===== REVIEW PIPELINE ===== */
-  .review-pipeline {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-bottom: 1.5rem;
-    overflow-x: auto;
-    padding: 0.5rem 0;
-  }
-  .pipeline-step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    min-width: 120px;
-    position: relative;
-  }
-  .pipeline-dot {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.9rem;
-    font-weight: 700;
-    margin-bottom: 0.4rem;
-    border: 2px solid #e5e7eb;
-    background: #fff;
-    color: #aaa;
-    transition: all 0.3s;
-  }
-  .pipeline-step.passed .pipeline-dot {
-    background: #16a34a;
-    border-color: #16a34a;
-    color: #fff;
-  }
-  .pipeline-step.current .pipeline-dot {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: #fff;
-    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
-  }
-  .pipeline-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #999;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .pipeline-step.passed .pipeline-label { color: #16a34a; }
-  .pipeline-step.current .pipeline-label { color: #2563eb; }
-  .pipeline-connector {
-    flex: 1;
-    height: 2px;
-    background: #e5e7eb;
-    min-width: 24px;
-    margin-bottom: 1.2rem;
-  }
-  .pipeline-connector.done { background: #16a34a; }
+      /* ===== REVIEW PIPELINE ===== */
+      .review-pipeline {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        margin-bottom: 1.5rem;
+        overflow-x: auto;
+        padding: 0.5rem 0;
+      }
+      .pipeline-step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        min-width: 120px;
+        position: relative;
+      }
+      .pipeline-dot {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin-bottom: 0.4rem;
+        border: 2px solid #e5e7eb;
+        background: #fff;
+        color: #aaa;
+        transition: all 0.3s;
+      }
+      .pipeline-step.passed .pipeline-dot {
+        background: #16a34a;
+        border-color: #16a34a;
+        color: #fff;
+      }
+      .pipeline-step.current .pipeline-dot {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+      }
+      .pipeline-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .pipeline-step.passed .pipeline-label {
+        color: #16a34a;
+      }
+      .pipeline-step.current .pipeline-label {
+        color: #2563eb;
+      }
+      .pipeline-connector {
+        flex: 1;
+        height: 2px;
+        background: #e5e7eb;
+        min-width: 24px;
+        margin-bottom: 1.2rem;
+      }
+      .pipeline-connector.done {
+        background: #16a34a;
+      }
 
-  /* ===== VERDICT BADGES ===== */
-  .verdict-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    padding: 0.2rem 0.65rem;
-    border-radius: 999px;
-  }
-  .verdict-badge.ready { background: #dcfce7; color: #166534; }
-  .verdict-badge.caution { background: #fef3c7; color: #92400e; }
-  .verdict-badge.blocked { background: #fee2e2; color: #991b1b; }
+      /* ===== VERDICT BADGES ===== */
+      .verdict-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+      }
+      .verdict-badge.ready {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .verdict-badge.caution {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .verdict-badge.blocked {
+        background: #fee2e2;
+        color: #991b1b;
+      }
 
-  .review-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.25rem;
-  }
-  .review-card {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1rem;
-    transition: transform 0.2s;
-  }
-  .review-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.4rem;
-  }
-  .review-card-role {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #333;
-  }
-  .review-card-note {
-    font-size: 0.83rem;
-    color: #777;
-    line-height: 1.4;
-  }
+      .review-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+      }
+      .review-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1rem;
+        transition: transform 0.2s;
+      }
+      .review-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.4rem;
+      }
+      .review-card-role {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #333;
+      }
+      .review-card-note {
+        font-size: 0.83rem;
+        color: #777;
+        line-height: 1.4;
+      }
 
-  /* ===== OPEN QUESTIONS ===== */
-  .questions-card {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 1.5rem;
-  }
-  .questions-card > p {
-    font-size: 0.9rem;
-    color: #555;
-    margin-bottom: 1rem;
-  }
-  .question-list {
-    list-style: none;
-    padding: 0;
-    counter-reset: question;
-  }
-  .question-list li {
-    counter-increment: question;
-    display: grid;
-    grid-template-columns: 2rem 1fr;
-    gap: 0.4rem;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #f3f4f6;
-    font-size: 0.93rem;
-    color: #444;
-  }
-  .question-list li:last-child { border-bottom: none; padding-bottom: 0; }
-  .question-list li::before {
-    content: counter(question);
-    font-weight: 800;
-    color: #fff;
-    background: #2563eb;
-    width: 1.6rem;
-    height: 1.6rem;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    flex-shrink: 0;
-  }
+      /* ===== OPEN QUESTIONS ===== */
+      .questions-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1.5rem;
+      }
+      .questions-card > p {
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 1rem;
+      }
+      .question-list {
+        list-style: none;
+        padding: 0;
+        counter-reset: question;
+      }
+      .question-list li {
+        counter-increment: question;
+        display: grid;
+        grid-template-columns: 2rem 1fr;
+        gap: 0.4rem;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid #f3f4f6;
+        font-size: 0.93rem;
+        color: #444;
+      }
+      .question-list li:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+      .question-list li::before {
+        content: counter(question);
+        font-weight: 800;
+        color: #fff;
+        background: #2563eb;
+        width: 1.6rem;
+        height: 1.6rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+      }
 
-  /* ===== ADVISORY ===== */
-  .advisory-card {
-    background: #fffbeb;
-    border: 1px solid #fde68a;
-    border-radius: 10px;
-    padding: 1rem 1.25rem;
-    margin-top: 1rem;
-  }
-  .advisory-card h3 {
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: #92400e;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 0.5rem;
-  }
-  .advisory-list {
-    padding-left: 1.25rem;
-    font-size: 0.88rem;
-    color: #78350f;
-  }
-  .advisory-list li { margin-bottom: 0.3rem; }
+      /* ===== ADVISORY ===== */
+      .advisory-card {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-top: 1rem;
+      }
+      .advisory-card h3 {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #92400e;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.5rem;
+      }
+      .advisory-list {
+        padding-left: 1.25rem;
+        font-size: 0.88rem;
+        color: #78350f;
+      }
+      .advisory-list li {
+        margin-bottom: 0.3rem;
+      }
 
-  /* ===== PRINT ===== */
-  @media print {
-    body { background: #fff; }
-    .hero { background: #2563eb !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .toc { display: none; }
-    .proposal { max-width: 100%; padding: 1rem 0; }
-    .section { opacity: 1 !important; transform: none !important; animation: none !important; }
-    .issue-card, .scope-column, .feasibility-box, .review-card { break-inside: avoid; box-shadow: none; }
-    .mermaid-container { break-inside: avoid; }
-    .wireframe-embed { display: none; }
-    .wireframe-link::after { content: " (see attached wireframe)"; }
-  }
+      /* ===== PRINT ===== */
+      @media print {
+        body {
+          background: #fff;
+        }
+        .hero {
+          background: #2563eb !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        .toc {
+          display: none;
+        }
+        .proposal {
+          max-width: 100%;
+          padding: 1rem 0;
+        }
+        .section {
+          opacity: 1 !important;
+          transform: none !important;
+          animation: none !important;
+        }
+        .issue-card,
+        .scope-column,
+        .feasibility-box,
+        .review-card {
+          break-inside: avoid;
+          box-shadow: none;
+        }
+        .mermaid-container {
+          break-inside: avoid;
+        }
+        .wireframe-embed {
+          display: none;
+        }
+        .wireframe-link::after {
+          content: " (see attached wireframe)";
+        }
+      }
 
-  /* ===== RESPONSIVE ===== */
-  @media (max-width: 640px) {
-    .hero h1 { font-size: 1.5rem; }
-    .metrics-strip { flex-wrap: wrap; }
-    .metric { min-width: 50%; }
-    .scope-grid, .feasibility-grid { grid-template-columns: 1fr; }
-    .issue-card.child { margin-left: 1rem; }
-    .review-cards { grid-template-columns: 1fr; }
-    .toc-inner { padding: 0 0.5rem; }
-  }
-</style>
-</head>
-<body>
-
-<!-- ============================================
+      /* ===== RESPONSIVE ===== */
+      @media (max-width: 640px) {
+        .hero h1 {
+          font-size: 1.5rem;
+        }
+        .metrics-strip {
+          flex-wrap: wrap;
+        }
+        .metric {
+          min-width: 50%;
+        }
+        .scope-grid,
+        .feasibility-grid {
+          grid-template-columns: 1fr;
+        }
+        .issue-card.child {
+          margin-left: 1rem;
+        }
+        .review-cards {
+          grid-template-columns: 1fr;
+        }
+        .toc-inner {
+          padding: 0 0.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ============================================
      HERO HEADER
      ============================================ -->
-<header class="hero">
-  <div class="hero-inner">
-    <div class="hero-eyebrow">Feature Proposal</div>
-    <h1>Dashboard Filtering System</h1>
-    <p class="subtitle">Users can narrow dashboard data to their team's metrics without requesting custom queries from engineering.</p>
-    <div class="metrics-strip">
-      <div class="metric">
-        <span class="metric-value">High</span>
-        <span class="metric-label">Priority</span>
+    <header class="hero">
+      <div class="hero-inner">
+        <div class="hero-eyebrow">Feature Proposal</div>
+        <h1>Dashboard Filtering System</h1>
+        <p class="subtitle">
+          Users can narrow dashboard data to their team's metrics without requesting custom queries
+          from engineering.
+        </p>
+        <div class="metrics-strip">
+          <div class="metric">
+            <span class="metric-value">High</span>
+            <span class="metric-label">Priority</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">10x</span>
+            <span class="metric-label">Differentiator</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">-50%</span>
+            <span class="metric-label">Eng Support Requests</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">Team Leads</span>
+            <span class="metric-label">ICP Segment</span>
+          </div>
+          <div class="metric">
+            <span class="metric-value">5 issues</span>
+            <span class="metric-label">Scope Size</span>
+          </div>
+        </div>
       </div>
-      <div class="metric">
-        <span class="metric-value">10x</span>
-        <span class="metric-label">Differentiator</span>
-      </div>
-      <div class="metric">
-        <span class="metric-value">-50%</span>
-        <span class="metric-label">Eng Support Requests</span>
-      </div>
-      <div class="metric">
-        <span class="metric-value">Team Leads</span>
-        <span class="metric-label">ICP Segment</span>
-      </div>
-      <div class="metric">
-        <span class="metric-value">5 issues</span>
-        <span class="metric-label">Scope Size</span>
-      </div>
-    </div>
-  </div>
-</header>
+    </header>
 
-<!-- ============================================
+    <!-- ============================================
      STICKY TABLE OF CONTENTS
      ============================================ -->
-<nav class="toc">
-  <div class="toc-inner">
-    <a href="#problem">Problem</a>
-    <a href="#scope">Scope</a>
-    <a href="#flows">Flows</a>
-    <a href="#wireframes">Wireframes</a>
-    <a href="#competitive">Competitive</a>
-    <a href="#feasibility">Feasibility</a>
-    <a href="#issues">Issues</a>
-    <a href="#review">Review</a>
-    <a href="#questions">Questions</a>
-  </div>
-</nav>
+    <nav class="toc">
+      <div class="toc-inner">
+        <a href="#problem">Problem</a>
+        <a href="#scope">Scope</a>
+        <a href="#flows">Flows</a>
+        <a href="#wireframes">Wireframes</a>
+        <a href="#competitive">Competitive</a>
+        <a href="#feasibility">Feasibility</a>
+        <a href="#issues">Issues</a>
+        <a href="#review">Review</a>
+        <a href="#questions">Questions</a>
+      </div>
+    </nav>
 
-<div class="proposal">
-
-  <!-- ============================================
+    <div class="proposal">
+      <!-- ============================================
        SECTION 2: PROBLEM & CONTEXT
        ============================================ -->
-  <div class="section" id="problem">
-    <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
-    <p>Team leads currently rely on engineering to create custom SQL queries when they need filtered views of dashboard data. This creates a 2-3 day turnaround for what should be a self-service operation, consuming ~15% of engineering support time.</p>
-    <div class="callout">
-      <strong>Research signal:</strong> 8 of 12 team leads interviewed have requested filtered views in the past quarter. Both FilterCo and DashPro offer self-service filtering, making this a switching motivator for prospects evaluating alternatives.
-    </div>
-  </div>
+      <div class="section" id="problem">
+        <h2 class="section-title"><span class="icon">!</span> Problem &amp; Context</h2>
+        <p>
+          Team leads currently rely on engineering to create custom SQL queries when they need
+          filtered views of dashboard data. This creates a 2-3 day turnaround for what should be a
+          self-service operation, consuming ~15% of engineering support time.
+        </p>
+        <div class="callout">
+          <strong>Research signal:</strong> 8 of 12 team leads interviewed have requested filtered
+          views in the past quarter. Both FilterCo and DashPro offer self-service filtering, making
+          this a switching motivator for prospects evaluating alternatives.
+        </div>
+      </div>
 
-  <!-- ============================================
+      <!-- ============================================
        SECTION 3: SCOPE OVERVIEW
        ============================================ -->
-  <div class="section" id="scope">
-    <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
-    <div class="scope-grid">
-      <div class="scope-column in-scope">
-        <h4>&#10003; In Scope</h4>
-        <ul>
-          <li>Date range filter (preset ranges + custom)</li>
-          <li>Team/department filter (multi-select)</li>
-          <li>Metric type filter (revenue, usage, engagement)</li>
-          <li>Filter persistence across sessions</li>
-          <li>Shareable filtered views via URL params</li>
-        </ul>
+      <div class="section" id="scope">
+        <h2 class="section-title"><span class="icon">&#9634;</span> Scope Overview</h2>
+        <div class="scope-grid">
+          <div class="scope-column in-scope">
+            <h4>&#10003; In Scope</h4>
+            <ul>
+              <li>Date range filter (preset ranges + custom)</li>
+              <li>Team/department filter (multi-select)</li>
+              <li>Metric type filter (revenue, usage, engagement)</li>
+              <li>Filter persistence across sessions</li>
+              <li>Shareable filtered views via URL params</li>
+            </ul>
+          </div>
+          <div class="scope-column out-of-scope">
+            <h4>&#10007; Out of Scope</h4>
+            <ul>
+              <li>
+                Custom calculated metrics
+                <span style="color: #999">(deferred — requires formula engine)</span>
+              </li>
+              <li>
+                Export filtered data to CSV <span style="color: #999">(Phase 2 candidate)</span>
+              </li>
+              <li>Scheduled filter reports <span style="color: #999">(low demand signal)</span></li>
+              <li>
+                Filter-level access control <span style="color: #999">(revisit post-launch)</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <span class="filter-badge"
+          >&#9889; 10x — single-step filtering vs competitors' 3-screen flow</span
+        >
       </div>
-      <div class="scope-column out-of-scope">
-        <h4>&#10007; Out of Scope</h4>
-        <ul>
-          <li>Custom calculated metrics <span style="color:#999;">(deferred — requires formula engine)</span></li>
-          <li>Export filtered data to CSV <span style="color:#999;">(Phase 2 candidate)</span></li>
-          <li>Scheduled filter reports <span style="color:#999;">(low demand signal)</span></li>
-          <li>Filter-level access control <span style="color:#999;">(revisit post-launch)</span></li>
-        </ul>
-      </div>
-    </div>
-    <span class="filter-badge">&#9889; 10x — single-step filtering vs competitors' 3-screen flow</span>
-  </div>
 
-  <!-- ============================================
+      <!-- ============================================
        USER FLOWS
        ============================================ -->
-  <div class="section" id="flows">
-    <h2 class="section-title"><span class="icon">&#8644;</span> User Flows</h2>
-    <div class="mermaid-container">
-      <pre class="mermaid">
+      <div class="section" id="flows">
+        <h2 class="section-title"><span class="icon">&#8644;</span> User Flows</h2>
+        <div class="mermaid-container">
+          <pre class="mermaid">
 graph TD
     A[User opens dashboard] --> B{Filters in URL?}
     B -->|Yes| C[Apply URL filters]
@@ -717,335 +909,453 @@ graph TD
     O --> F
     %% Source: pm/research/dashboard-filters/findings.md — Finding 3: users expect filters to survive refresh
     %% Source: pm/competitors/filterico/features.md — gap: no URL sharing
-      </pre>
-    </div>
-  </div>
+      </pre
+          >
+        </div>
+      </div>
 
-  <!-- ============================================
+      <!-- ============================================
        SECTION 6: WIREFRAMES
        ============================================ -->
-  <div class="section" id="wireframes">
-    <h2 class="section-title"><span class="icon">&#9633;</span> Wireframes</h2>
-    <div class="wireframe-embed">
-      <iframe src="../wireframes/dashboard-filtering-system.html" title="Dashboard Filtering Wireframe"></iframe>
-    </div>
-    <a class="wireframe-link" href="../wireframes/dashboard-filtering-system.html" target="_blank">Open wireframe in new tab &#8599;</a>
-  </div>
+      <div class="section" id="wireframes">
+        <h2 class="section-title"><span class="icon">&#9633;</span> Wireframes</h2>
+        <div class="wireframe-embed">
+          <iframe
+            src="../wireframes/dashboard-filtering-system.html"
+            title="Dashboard Filtering Wireframe"
+          ></iframe>
+        </div>
+        <a
+          class="wireframe-link"
+          href="../wireframes/dashboard-filtering-system.html"
+          target="_blank"
+          >Open wireframe in new tab &#8599;</a
+        >
+      </div>
 
-  <!-- ============================================
+      <!-- ============================================
        SECTION 7: COMPETITIVE CONTEXT
        ============================================ -->
-  <div class="section" id="competitive">
-    <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
-    <div class="comp-table-wrap">
-      <table class="comp-table">
-        <thead>
-          <tr>
-            <th>Capability</th>
-            <th>FilterCo</th>
-            <th>DashPro</th>
-            <th>Our Approach</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Filter application</td>
-            <td class="competitor-weak">3 screens (select, configure, apply)</td>
-            <td class="competitor-weak">Sidebar panel, requires "Apply" click</td>
-            <td class="us"><strong>Inline filter bar, instant apply on selection</strong></td>
-          </tr>
-          <tr>
-            <td>URL sharing</td>
-            <td class="competitor-weak">Not supported</td>
-            <td class="competitor-weak">Manual "share" button generates link</td>
-            <td class="us"><strong>Automatic URL encoding, copy-paste ready</strong></td>
-          </tr>
-          <tr>
-            <td>Session persistence</td>
-            <td class="competitor-weak">Server-side, requires login</td>
-            <td class="competitor-weak">Cookie-based, clears on logout</td>
-            <td class="us"><strong>localStorage + URL, works across devices via link</strong></td>
-          </tr>
-          <tr>
-            <td>Custom date ranges</td>
-            <td class="competitor-weak">Presets only</td>
-            <td>Full date picker</td>
-            <td class="us"><strong>Presets + date picker (best of both)</strong></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="callout">
-      <strong>Key differentiator:</strong> Single-step filtering with instant feedback vs competitors' multi-step workflows. URL-based sharing is a capability gap in both competitors that creates a meaningful collaboration advantage.
-    </div>
-  </div>
+      <div class="section" id="competitive">
+        <h2 class="section-title"><span class="icon">&#9878;</span> Competitive Context</h2>
+        <div class="comp-table-wrap">
+          <table class="comp-table">
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>FilterCo</th>
+                <th>DashPro</th>
+                <th>Our Approach</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Filter application</td>
+                <td class="competitor-weak">3 screens (select, configure, apply)</td>
+                <td class="competitor-weak">Sidebar panel, requires "Apply" click</td>
+                <td class="us"><strong>Inline filter bar, instant apply on selection</strong></td>
+              </tr>
+              <tr>
+                <td>URL sharing</td>
+                <td class="competitor-weak">Not supported</td>
+                <td class="competitor-weak">Manual "share" button generates link</td>
+                <td class="us"><strong>Automatic URL encoding, copy-paste ready</strong></td>
+              </tr>
+              <tr>
+                <td>Session persistence</td>
+                <td class="competitor-weak">Server-side, requires login</td>
+                <td class="competitor-weak">Cookie-based, clears on logout</td>
+                <td class="us">
+                  <strong>localStorage + URL, works across devices via link</strong>
+                </td>
+              </tr>
+              <tr>
+                <td>Custom date ranges</td>
+                <td class="competitor-weak">Presets only</td>
+                <td>Full date picker</td>
+                <td class="us"><strong>Presets + date picker (best of both)</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <strong>Key differentiator:</strong> Single-step filtering with instant feedback vs
+          competitors' multi-step workflows. URL-based sharing is a capability gap in both
+          competitors that creates a meaningful collaboration advantage.
+        </div>
+      </div>
 
-  <!-- ============================================
+      <!-- ============================================
        SECTION 8: TECHNICAL FEASIBILITY
        ============================================ -->
-  <div class="section" id="feasibility">
-    <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
-    <p style="margin-bottom: 1rem;"><strong>Verdict:</strong> <span class="verdict-badge ready">&#10003; Feasible as scoped</span></p>
-    <div class="feasibility-grid">
-      <div class="feasibility-box build-on">
-        <h4>&#9654; Build On</h4>
-        <ul>
-          <li><code>src/api/dashboard.ts</code> — existing endpoints, add query param support</li>
-          <li><code>src/components/Dashboard/</code> — widget rendering, already accepts data props</li>
-          <li><code>src/middleware/auth.ts</code> — auth pattern, reuse as-is</li>
-          <li><code>src/hooks/useQueryParams.ts</code> — existing URL param utility</li>
-        </ul>
+      <div class="section" id="feasibility">
+        <h2 class="section-title"><span class="icon">&#9881;</span> Technical Feasibility</h2>
+        <p style="margin-bottom: 1rem">
+          <strong>Verdict:</strong>
+          <span class="verdict-badge ready">&#10003; Feasible as scoped</span>
+        </p>
+        <div class="feasibility-grid">
+          <div class="feasibility-box build-on">
+            <h4>&#9654; Build On</h4>
+            <ul>
+              <li>
+                <code>src/api/dashboard.ts</code> — existing endpoints, add query param support
+              </li>
+              <li>
+                <code>src/components/Dashboard/</code> — widget rendering, already accepts data
+                props
+              </li>
+              <li><code>src/middleware/auth.ts</code> — auth pattern, reuse as-is</li>
+              <li><code>src/hooks/useQueryParams.ts</code> — existing URL param utility</li>
+            </ul>
+          </div>
+          <div class="feasibility-box build-new">
+            <h4>&#10010; Build New</h4>
+            <ul>
+              <li>Filter bar component (new, ~300 lines estimated)</li>
+              <li>Filter query engine on API side (extend existing endpoint)</li>
+              <li>localStorage sync hook (small utility)</li>
+              <li>Date picker integration (use existing design system component)</li>
+            </ul>
+          </div>
+          <div class="feasibility-box risks">
+            <h4>&#9888; Risks</h4>
+            <ul>
+              <li>Query performance on large datasets — need indexing on date + team columns</li>
+              <li>URL param encoding for complex filter states — test with edge cases</li>
+            </ul>
+          </div>
+          <div class="feasibility-box sequencing">
+            <h4>&#8594; Sequencing</h4>
+            <ul>
+              <li>1. API query engine (PM-027) — everything depends on this</li>
+              <li>2. Filter bar component (PM-026) — UI shell</li>
+              <li>3. Date range filter (PM-029) — most complex UI control</li>
+              <li>4. Persistence + URL sharing (PM-028) — polish layer</li>
+            </ul>
+          </div>
+        </div>
       </div>
-      <div class="feasibility-box build-new">
-        <h4>&#10010; Build New</h4>
-        <ul>
-          <li>Filter bar component (new, ~300 lines estimated)</li>
-          <li>Filter query engine on API side (extend existing endpoint)</li>
-          <li>localStorage sync hook (small utility)</li>
-          <li>Date picker integration (use existing design system component)</li>
-        </ul>
-      </div>
-      <div class="feasibility-box risks">
-        <h4>&#9888; Risks</h4>
-        <ul>
-          <li>Query performance on large datasets — need indexing on date + team columns</li>
-          <li>URL param encoding for complex filter states — test with edge cases</li>
-        </ul>
-      </div>
-      <div class="feasibility-box sequencing">
-        <h4>&#8594; Sequencing</h4>
-        <ul>
-          <li>1. API query engine (PM-027) — everything depends on this</li>
-          <li>2. Filter bar component (PM-026) — UI shell</li>
-          <li>3. Date range filter (PM-029) — most complex UI control</li>
-          <li>4. Persistence + URL sharing (PM-028) — polish layer</li>
-        </ul>
-      </div>
-    </div>
-  </div>
 
-  <!-- ============================================
+      <!-- ============================================
        ISSUE BREAKDOWN
        ============================================ -->
-  <div class="section" id="issues">
-    <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
+      <div class="section" id="issues">
+        <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
 
-    <div class="issue-group">
-      <!-- Parent issue -->
-      <div class="issue-card parent">
-        <div class="issue-header">
-          <span class="issue-id">PM-025</span>
-          <span class="issue-title">Dashboard Filtering System</span>
+        <div class="issue-group">
+          <!-- Parent issue -->
+          <div class="issue-card parent">
+            <div class="issue-header">
+              <span class="issue-id">PM-025</span>
+              <span class="issue-title">Dashboard Filtering System</span>
+            </div>
+            <p class="issue-outcome">
+              Users can narrow dashboard data to their team's metrics without requesting custom
+              queries from engineering.
+            </p>
+            <div class="issue-labels">
+              <span class="label">feature</span>
+              <span class="label">dashboard</span>
+              <span class="label priority-high">high priority</span>
+            </div>
+            <ol class="ac-list">
+              <li>
+                Dashboard renders a filter bar above the main content area with date, team, and
+                metric type controls.
+              </li>
+              <li>
+                Applying any filter updates all dashboard widgets within 2 seconds for datasets up
+                to 100k rows.
+              </li>
+              <li>
+                Active filters persist across browser sessions via localStorage, restored on next
+                visit.
+              </li>
+              <li>
+                Filtered state is encoded in URL query params; sharing the URL reproduces the exact
+                filtered view.
+              </li>
+              <li>
+                Clearing all filters restores the default unfiltered dashboard in under 500ms.
+              </li>
+            </ol>
+          </div>
+
+          <!-- Child issue 1 -->
+          <div class="issue-card child">
+            <div class="issue-header">
+              <span class="issue-id">PM-026</span>
+              <span class="issue-title">Filter bar component and layout</span>
+            </div>
+            <p class="issue-outcome">
+              Dashboard has a persistent, accessible filter bar that doesn't compete with data
+              visibility.
+            </p>
+            <div class="issue-labels">
+              <span class="label">frontend</span>
+              <span class="label priority-high">high priority</span>
+            </div>
+            <ol class="ac-list">
+              <li>
+                Filter bar renders horizontally above dashboard widgets on screens >= 768px;
+                collapses to a toggle drawer on mobile.
+              </li>
+              <li>
+                Each filter control has a visible label, current selection indicator, and clear
+                button.
+              </li>
+              <li>Filter bar consumes no more than 64px of vertical space in its default state.</li>
+              <li>
+                All filter controls are keyboard-navigable and announce state changes to screen
+                readers.
+              </li>
+            </ol>
+          </div>
+
+          <!-- Child issue 2 -->
+          <div class="issue-card child">
+            <div class="issue-header">
+              <span class="issue-id">PM-027</span>
+              <span class="issue-title">Filter query engine and API</span>
+            </div>
+            <p class="issue-outcome">
+              Dashboard widgets receive filtered data from a performant query layer, replacing
+              manual SQL requests to engineering.
+            </p>
+            <div class="issue-labels">
+              <span class="label">backend</span>
+              <span class="label priority-high">high priority</span>
+            </div>
+            <ol class="ac-list">
+              <li>
+                GET /api/dashboard?date_from=X&amp;date_to=Y&amp;teams=A,B&amp;metrics=C returns
+                filtered widget data.
+              </li>
+              <li>
+                Query response time &lt; 500ms for datasets up to 100k rows (p95, measured at API
+                layer).
+              </li>
+              <li>
+                Invalid filter combinations return a 400 response with a human-readable error
+                message, not a 500.
+              </li>
+              <li>
+                API follows existing auth pattern in <code>src/middleware/auth.ts</code> — no new
+                auth mechanism.
+              </li>
+            </ol>
+          </div>
+
+          <!-- Child issue 3 -->
+          <div class="issue-card child">
+            <div class="issue-header">
+              <span class="issue-id">PM-028</span>
+              <span class="issue-title">Filter persistence and URL sharing</span>
+            </div>
+            <p class="issue-outcome">
+              Users don't lose their filter configuration between sessions, and can share exact
+              views with teammates via URL.
+            </p>
+            <div class="issue-labels">
+              <span class="label">frontend</span>
+              <span class="label priority-medium">medium priority</span>
+            </div>
+            <ol class="ac-list">
+              <li>
+                On filter change, URL query params update without a page reload
+                (history.replaceState).
+              </li>
+              <li>
+                On page load, filters initialize from URL params first; fall back to localStorage;
+                fall back to defaults.
+              </li>
+              <li>
+                localStorage key follows existing pattern: <code>dashboard:filters:{userId}</code>.
+              </li>
+              <li>
+                Copying the URL and opening in a new tab reproduces the identical filtered view.
+              </li>
+            </ol>
+          </div>
+
+          <!-- Child issue 4 -->
+          <div class="issue-card child">
+            <div class="issue-header">
+              <span class="issue-id">PM-029</span>
+              <span class="issue-title">Date range filter with presets</span>
+            </div>
+            <p class="issue-outcome">
+              Users can filter by time period using one click for common ranges or a custom date
+              picker for specific analysis.
+            </p>
+            <div class="issue-labels">
+              <span class="label">frontend</span>
+              <span class="label priority-medium">medium priority</span>
+            </div>
+            <ol class="ac-list">
+              <li>
+                Preset options: Today, Last 7 days, Last 30 days, Last quarter, Year to date, Custom
+                range.
+              </li>
+              <li>
+                Custom range opens a date picker; selecting an invalid range (end before start)
+                shows inline error.
+              </li>
+              <li>
+                Selecting a preset visually highlights it; selecting custom deselects all presets.
+              </li>
+              <li>Default selection on first visit: Last 30 days.</li>
+            </ol>
+          </div>
         </div>
-        <p class="issue-outcome">Users can narrow dashboard data to their team's metrics without requesting custom queries from engineering.</p>
-        <div class="issue-labels">
-          <span class="label">feature</span>
-          <span class="label">dashboard</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <ol class="ac-list">
-          <li>Dashboard renders a filter bar above the main content area with date, team, and metric type controls.</li>
-          <li>Applying any filter updates all dashboard widgets within 2 seconds for datasets up to 100k rows.</li>
-          <li>Active filters persist across browser sessions via localStorage, restored on next visit.</li>
-          <li>Filtered state is encoded in URL query params; sharing the URL reproduces the exact filtered view.</li>
-          <li>Clearing all filters restores the default unfiltered dashboard in under 500ms.</li>
-        </ol>
       </div>
 
-      <!-- Child issue 1 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-026</span>
-          <span class="issue-title">Filter bar component and layout</span>
-        </div>
-        <p class="issue-outcome">Dashboard has a persistent, accessible filter bar that doesn't compete with data visibility.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <ol class="ac-list">
-          <li>Filter bar renders horizontally above dashboard widgets on screens >= 768px; collapses to a toggle drawer on mobile.</li>
-          <li>Each filter control has a visible label, current selection indicator, and clear button.</li>
-          <li>Filter bar consumes no more than 64px of vertical space in its default state.</li>
-          <li>All filter controls are keyboard-navigable and announce state changes to screen readers.</li>
-        </ol>
-      </div>
-
-      <!-- Child issue 2 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-027</span>
-          <span class="issue-title">Filter query engine and API</span>
-        </div>
-        <p class="issue-outcome">Dashboard widgets receive filtered data from a performant query layer, replacing manual SQL requests to engineering.</p>
-        <div class="issue-labels">
-          <span class="label">backend</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <ol class="ac-list">
-          <li>GET /api/dashboard?date_from=X&amp;date_to=Y&amp;teams=A,B&amp;metrics=C returns filtered widget data.</li>
-          <li>Query response time &lt; 500ms for datasets up to 100k rows (p95, measured at API layer).</li>
-          <li>Invalid filter combinations return a 400 response with a human-readable error message, not a 500.</li>
-          <li>API follows existing auth pattern in <code>src/middleware/auth.ts</code> — no new auth mechanism.</li>
-        </ol>
-      </div>
-
-      <!-- Child issue 3 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-028</span>
-          <span class="issue-title">Filter persistence and URL sharing</span>
-        </div>
-        <p class="issue-outcome">Users don't lose their filter configuration between sessions, and can share exact views with teammates via URL.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-medium">medium priority</span>
-        </div>
-        <ol class="ac-list">
-          <li>On filter change, URL query params update without a page reload (history.replaceState).</li>
-          <li>On page load, filters initialize from URL params first; fall back to localStorage; fall back to defaults.</li>
-          <li>localStorage key follows existing pattern: <code>dashboard:filters:{userId}</code>.</li>
-          <li>Copying the URL and opening in a new tab reproduces the identical filtered view.</li>
-        </ol>
-      </div>
-
-      <!-- Child issue 4 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-029</span>
-          <span class="issue-title">Date range filter with presets</span>
-        </div>
-        <p class="issue-outcome">Users can filter by time period using one click for common ranges or a custom date picker for specific analysis.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-medium">medium priority</span>
-        </div>
-        <ol class="ac-list">
-          <li>Preset options: Today, Last 7 days, Last 30 days, Last quarter, Year to date, Custom range.</li>
-          <li>Custom range opens a date picker; selecting an invalid range (end before start) shows inline error.</li>
-          <li>Selecting a preset visually highlights it; selecting custom deselects all presets.</li>
-          <li>Default selection on first visit: Last 30 days.</li>
-        </ol>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============================================
+      <!-- ============================================
        REVIEW SUMMARY
        ============================================ -->
-  <div class="section" id="review">
-    <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
+      <div class="section" id="review">
+        <h2 class="section-title"><span class="icon">&#10003;</span> Review Summary</h2>
 
-    <!-- Review pipeline stepper -->
-    <div class="review-pipeline">
-      <div class="pipeline-step passed">
-        <div class="pipeline-dot">&#10003;</div>
-        <span class="pipeline-label">Scope Review</span>
-      </div>
-      <div class="pipeline-connector done"></div>
-      <div class="pipeline-step passed">
-        <div class="pipeline-dot">&#10003;</div>
-        <span class="pipeline-label">Team Review</span>
-      </div>
-      <div class="pipeline-connector done"></div>
-      <div class="pipeline-step passed">
-        <div class="pipeline-dot">&#10003;</div>
-        <span class="pipeline-label">Bar Raiser</span>
-      </div>
-      <div class="pipeline-connector done"></div>
-      <div class="pipeline-step current">
-        <div class="pipeline-dot">&#9654;</div>
-        <span class="pipeline-label">Decision</span>
-      </div>
-    </div>
+        <!-- Review pipeline stepper -->
+        <div class="review-pipeline">
+          <div class="pipeline-step passed">
+            <div class="pipeline-dot">&#10003;</div>
+            <span class="pipeline-label">Scope Review</span>
+          </div>
+          <div class="pipeline-connector done"></div>
+          <div class="pipeline-step passed">
+            <div class="pipeline-dot">&#10003;</div>
+            <span class="pipeline-label">Team Review</span>
+          </div>
+          <div class="pipeline-connector done"></div>
+          <div class="pipeline-step passed">
+            <div class="pipeline-dot">&#10003;</div>
+            <span class="pipeline-label">Bar Raiser</span>
+          </div>
+          <div class="pipeline-connector done"></div>
+          <div class="pipeline-step current">
+            <div class="pipeline-dot">&#9654;</div>
+            <span class="pipeline-label">Decision</span>
+          </div>
+        </div>
 
-    <!-- Verdict cards -->
-    <div class="review-cards">
-      <div class="review-card">
-        <div class="review-card-header">
-          <span class="review-card-role">Product Manager</span>
-          <span class="verdict-badge ready">&#10003; Ready</span>
+        <!-- Verdict cards -->
+        <div class="review-cards">
+          <div class="review-card">
+            <div class="review-card-header">
+              <span class="review-card-role">Product Manager</span>
+              <span class="verdict-badge ready">&#10003; Ready</span>
+            </div>
+            <p class="review-card-note">All 5 scope items covered. ACs testable.</p>
+          </div>
+          <div class="review-card">
+            <div class="review-card-header">
+              <span class="review-card-role">Competitive Strategist</span>
+              <span class="verdict-badge ready">&#10003; Sharp</span>
+            </div>
+            <p class="review-card-note">
+              URL sharing gap well-exploited. Differentiation encoded in ACs.
+            </p>
+          </div>
+          <div class="review-card">
+            <div class="review-card-header">
+              <span class="review-card-role">Engineering Manager</span>
+              <span class="verdict-badge ready">&#10003; Ready</span>
+            </div>
+            <p class="review-card-note">Clean decomposition. PM-027 is the critical path.</p>
+          </div>
+          <div class="review-card">
+            <div class="review-card-header">
+              <span class="review-card-role">Design Reviewer</span>
+              <span class="verdict-badge ready">&#10003; Complete</span>
+            </div>
+            <p class="review-card-note">
+              Wireframe-flow alignment confirmed. Mobile collapse consistent with existing nav.
+            </p>
+          </div>
+          <div class="review-card">
+            <div class="review-card-header">
+              <span class="review-card-role">Bar Raiser</span>
+              <span class="verdict-badge ready">&#10003; Present</span>
+            </div>
+            <p class="review-card-note">
+              Narrative is tight. Scope is right-sized for the problem.
+            </p>
+          </div>
         </div>
-        <p class="review-card-note">All 5 scope items covered. ACs testable.</p>
-      </div>
-      <div class="review-card">
-        <div class="review-card-header">
-          <span class="review-card-role">Competitive Strategist</span>
-          <span class="verdict-badge ready">&#10003; Sharp</span>
-        </div>
-        <p class="review-card-note">URL sharing gap well-exploited. Differentiation encoded in ACs.</p>
-      </div>
-      <div class="review-card">
-        <div class="review-card-header">
-          <span class="review-card-role">Engineering Manager</span>
-          <span class="verdict-badge ready">&#10003; Ready</span>
-        </div>
-        <p class="review-card-note">Clean decomposition. PM-027 is the critical path.</p>
-      </div>
-      <div class="review-card">
-        <div class="review-card-header">
-          <span class="review-card-role">Design Reviewer</span>
-          <span class="verdict-badge ready">&#10003; Complete</span>
-        </div>
-        <p class="review-card-note">Wireframe-flow alignment confirmed. Mobile collapse consistent with existing nav.</p>
-      </div>
-      <div class="review-card">
-        <div class="review-card-header">
-          <span class="review-card-role">Bar Raiser</span>
-          <span class="verdict-badge ready">&#10003; Present</span>
-        </div>
-        <p class="review-card-note">Narrative is tight. Scope is right-sized for the problem.</p>
-      </div>
-    </div>
 
-    <div class="advisory-card">
-      <h3>&#128161; Advisory (non-blocking)</h3>
-      <ul class="advisory-list">
-        <li><strong>[PM-026]</strong> Consider adding a "filter active" indicator badge on the collapsed mobile toggle so users know filters are applied.</li>
-        <li><strong>[PM-027]</strong> Add query plan analysis before launch to confirm index usage on production data volumes.</li>
-        <li><strong>[PM-029]</strong> Fiscal quarter presets may be more useful than calendar quarters for enterprise users — validate with 2-3 customers post-launch.</li>
-      </ul>
-    </div>
-  </div>
+        <div class="advisory-card">
+          <h3>&#128161; Advisory (non-blocking)</h3>
+          <ul class="advisory-list">
+            <li>
+              <strong>[PM-026]</strong> Consider adding a "filter active" indicator badge on the
+              collapsed mobile toggle so users know filters are applied.
+            </li>
+            <li>
+              <strong>[PM-027]</strong> Add query plan analysis before launch to confirm index usage
+              on production data volumes.
+            </li>
+            <li>
+              <strong>[PM-029]</strong> Fiscal quarter presets may be more useful than calendar
+              quarters for enterprise users — validate with 2-3 customers post-launch.
+            </li>
+          </ul>
+        </div>
+      </div>
 
-  <!-- ============================================
+      <!-- ============================================
        SECTION 10: OPEN QUESTIONS
        ============================================ -->
-  <div class="section" id="questions">
-    <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
-    <div class="questions-card">
-      <p>Questions the decision-maker should be prepared to discuss:</p>
-      <ul class="question-list">
-        <li>What is the expected reduction in engineering support requests? (Currently ~15% of support time goes to custom query requests.)</li>
-        <li>Why prioritize this over the CSV export feature that was also requested? (Filtering enables self-service for the common case; export is a power-user feature with lower demand signal.)</li>
-        <li>How do we measure success in 90 days? (Suggested: 70%+ of active team leads using filters weekly, and engineering custom query requests drop by 50%.)</li>
-        <li>What is the migration path for existing saved custom queries? (Out of scope for v1 — existing queries continue to work, filters are additive.)</li>
-      </ul>
+      <div class="section" id="questions">
+        <h2 class="section-title"><span class="icon">?</span> Open Questions</h2>
+        <div class="questions-card">
+          <p>Questions the decision-maker should be prepared to discuss:</p>
+          <ul class="question-list">
+            <li>
+              What is the expected reduction in engineering support requests? (Currently ~15% of
+              support time goes to custom query requests.)
+            </li>
+            <li>
+              Why prioritize this over the CSV export feature that was also requested? (Filtering
+              enables self-service for the common case; export is a power-user feature with lower
+              demand signal.)
+            </li>
+            <li>
+              How do we measure success in 90 days? (Suggested: 70%+ of active team leads using
+              filters weekly, and engineering custom query requests drop by 50%.)
+            </li>
+            <li>
+              What is the migration path for existing saved custom queries? (Out of scope for v1 —
+              existing queries continue to work, filters are additive.)
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
-  </div>
 
-</div>
-
-<!-- ===== STICKY TOC HIGHLIGHT ===== -->
-<script>
-  const sections = document.querySelectorAll('.section[id]');
-  const tocLinks = document.querySelectorAll('.toc a');
-  function updateToc() {
-    const scrollY = window.scrollY + 100;
-    const pageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
-    let current = sections[0];
-    if (pageBottom) {
-      current = sections[sections.length - 1];
-    } else {
-      sections.forEach(s => { if (s.offsetTop <= scrollY) current = s; });
-    }
-    tocLinks.forEach(l => l.classList.remove('active'));
-    const active = document.querySelector(`.toc a[href="#${current.id}"]`);
-    if (active) active.classList.add('active');
-  }
-  window.addEventListener('scroll', updateToc, { passive: true });
-  updateToc();
-</script>
-
-</body>
+    <!-- ===== STICKY TOC HIGHLIGHT ===== -->
+    <script>
+      const sections = document.querySelectorAll(".section[id]");
+      const tocLinks = document.querySelectorAll(".toc a");
+      function updateToc() {
+        const scrollY = window.scrollY + 100;
+        const pageBottom =
+          window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 10;
+        let current = sections[0];
+        if (pageBottom) {
+          current = sections[sections.length - 1];
+        } else {
+          sections.forEach((s) => {
+            if (s.offsetTop <= scrollY) current = s;
+          });
+        }
+        tocLinks.forEach((l) => l.classList.remove("active"));
+        const active = document.querySelector(`.toc a[href="#${current.id}"]`);
+        if (active) active.classList.add("active");
+      }
+      window.addEventListener("scroll", updateToc, { passive: true });
+      updateToc();
+    </script>
+  </body>
 </html>

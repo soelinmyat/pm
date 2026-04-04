@@ -1,10 +1,10 @@
-'use strict';
+"use strict";
 
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,10 +15,10 @@ const os = require('os');
  * Returns the temp dir path and a cleanup function.
  */
 function withTmpDir(configContent) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "seo-test-"));
   if (configContent !== undefined) {
-    fs.mkdirSync(path.join(dir, '.pm'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.pm', 'config.json'), JSON.stringify(configContent));
+    fs.mkdirSync(path.join(dir, ".pm"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pm", "config.json"), JSON.stringify(configContent));
   }
   return {
     dir,
@@ -33,8 +33,8 @@ function withTmpDir(configContent) {
  */
 function loadProvider() {
   // Clear require cache so each test gets a fresh module
-  delete require.cache[require.resolve('../scripts/seo-provider.js')];
-  return require('../scripts/seo-provider.js');
+  delete require.cache[require.resolve("../scripts/seo-provider.js")];
+  return require("../scripts/seo-provider.js");
 }
 
 /**
@@ -54,10 +54,10 @@ function withCwd(dir, fn) {
 // 1. loadConfig — happy path
 // ---------------------------------------------------------------------------
 
-test('loadConfig reads .pm/config.json and returns parsed config', () => {
+test("loadConfig reads .pm/config.json and returns parsed config", () => {
   const cfg = {
     config_schema: 1,
-    integrations: { seo: { provider: 'ahrefs', api_key: 'key123' } },
+    integrations: { seo: { provider: "ahrefs", api_key: "key123" } },
   };
   const { dir, cleanup } = withTmpDir(cfg);
   try {
@@ -73,7 +73,7 @@ test('loadConfig reads .pm/config.json and returns parsed config', () => {
 // 2. loadConfig — missing file
 // ---------------------------------------------------------------------------
 
-test('loadConfig returns null when .pm/config.json does not exist', () => {
+test("loadConfig returns null when .pm/config.json does not exist", () => {
   const { dir, cleanup } = withTmpDir(); // no config written
   try {
     const { loadConfig } = loadProvider();
@@ -90,7 +90,7 @@ test('loadConfig returns null when .pm/config.json does not exist', () => {
 
 const AHREFS_CONFIG = {
   config_schema: 1,
-  integrations: { seo: { provider: 'ahrefs', api_key: 'TEST_KEY' } },
+  integrations: { seo: { provider: "ahrefs", api_key: "TEST_KEY" } },
 };
 
 // ---------------------------------------------------------------------------
@@ -112,11 +112,11 @@ function mockTransport(statusCode, body) {
       statusCode,
       headers: {},
       on(event, handler) {
-        if (event === 'data') {
+        if (event === "data") {
           // deliver data synchronously via setImmediate to mimic async stream
-          setImmediate(() => handler(chunks[idx++] || ''));
+          setImmediate(() => handler(chunks[idx++] || ""));
         }
-        if (event === 'end') {
+        if (event === "end") {
           setImmediate(() => {
             // ensure data was delivered first
             setImmediate(() => handler());
@@ -127,7 +127,9 @@ function mockTransport(statusCode, body) {
     };
     cb(res);
     return {
-      on() { return this; },
+      on() {
+        return this;
+      },
       end() {},
     };
   };
@@ -146,20 +148,25 @@ function mockTransport429Then200(retryAfter, successBody) {
     calls.push({ options });
     const statusCode = current === 1 ? 429 : 200;
     const bodyObj = current === 1 ? {} : successBody;
-    const headers = current === 1 ? { 'retry-after': String(retryAfter) } : {};
+    const headers = current === 1 ? { "retry-after": String(retryAfter) } : {};
     const chunks = [JSON.stringify(bodyObj)];
     let idx = 0;
     const res = {
       statusCode,
       headers,
       on(event, handler) {
-        if (event === 'data') setImmediate(() => handler(chunks[idx++] || ''));
-        if (event === 'end') setImmediate(() => setImmediate(() => handler()));
+        if (event === "data") setImmediate(() => handler(chunks[idx++] || ""));
+        if (event === "end") setImmediate(() => setImmediate(() => handler()));
         return res;
       },
     };
     cb(res);
-    return { on() { return this; }, end() {} };
+    return {
+      on() {
+        return this;
+      },
+      end() {},
+    };
   };
   return { transport, calls };
 }
@@ -173,15 +180,20 @@ function mockTransportAlways429(retryAfter) {
     calls.push({ options });
     const res = {
       statusCode: 429,
-      headers: { 'retry-after': String(retryAfter) },
+      headers: { "retry-after": String(retryAfter) },
       on(event, handler) {
-        if (event === 'data') setImmediate(() => handler('{}'));
-        if (event === 'end') setImmediate(() => setImmediate(() => handler()));
+        if (event === "data") setImmediate(() => handler("{}"));
+        if (event === "end") setImmediate(() => setImmediate(() => handler()));
         return res;
       },
     };
     cb(res);
-    return { on() { return this; }, end() {} };
+    return {
+      on() {
+        return this;
+      },
+      end() {},
+    };
   };
   return { transport, calls };
 }
@@ -190,20 +202,20 @@ function mockTransportAlways429(retryAfter) {
 // 3. Ahrefs getKeywords — correct URL and auth header
 // ---------------------------------------------------------------------------
 
-test('Ahrefs getKeywords constructs correct URL and auth header', async () => {
+test("Ahrefs getKeywords constructs correct URL and auth header", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const { transport, calls } = mockTransport(200, { keywords: [] });
 
-    await getKeywords('example.com', AHREFS_CONFIG, transport);
+    await getKeywords("example.com", AHREFS_CONFIG, transport);
 
     assert.equal(calls.length, 1);
     const { options } = calls[0];
-    assert.equal(options.hostname, 'api.ahrefs.com');
+    assert.equal(options.hostname, "api.ahrefs.com");
     assert.match(options.path, /\/v3\//);
     assert.match(options.path, /example\.com/);
-    assert.equal(options.headers['Authorization'], 'Bearer TEST_KEY');
+    assert.equal(options.headers["Authorization"], "Bearer TEST_KEY");
   } finally {
     cleanup();
   }
@@ -213,20 +225,20 @@ test('Ahrefs getKeywords constructs correct URL and auth header', async () => {
 // 4. Ahrefs getTraffic — correct URL and auth header
 // ---------------------------------------------------------------------------
 
-test('Ahrefs getTraffic constructs correct URL and auth header', async () => {
+test("Ahrefs getTraffic constructs correct URL and auth header", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getTraffic } = loadProvider();
     const { transport, calls } = mockTransport(200, { metrics: {} });
 
-    await getTraffic('example.com', AHREFS_CONFIG, transport);
+    await getTraffic("example.com", AHREFS_CONFIG, transport);
 
     assert.equal(calls.length, 1);
     const { options } = calls[0];
-    assert.equal(options.hostname, 'api.ahrefs.com');
+    assert.equal(options.hostname, "api.ahrefs.com");
     assert.match(options.path, /\/v3\//);
     assert.match(options.path, /example\.com/);
-    assert.equal(options.headers['Authorization'], 'Bearer TEST_KEY');
+    assert.equal(options.headers["Authorization"], "Bearer TEST_KEY");
   } finally {
     cleanup();
   }
@@ -236,20 +248,20 @@ test('Ahrefs getTraffic constructs correct URL and auth header', async () => {
 // 5. Ahrefs getBacklinks — correct URL and auth header
 // ---------------------------------------------------------------------------
 
-test('Ahrefs getBacklinks constructs correct URL and auth header', async () => {
+test("Ahrefs getBacklinks constructs correct URL and auth header", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getBacklinks } = loadProvider();
     const { transport, calls } = mockTransport(200, { backlinks: [] });
 
-    await getBacklinks('example.com', AHREFS_CONFIG, transport);
+    await getBacklinks("example.com", AHREFS_CONFIG, transport);
 
     assert.equal(calls.length, 1);
     const { options } = calls[0];
-    assert.equal(options.hostname, 'api.ahrefs.com');
+    assert.equal(options.hostname, "api.ahrefs.com");
     assert.match(options.path, /\/v3\//);
     assert.match(options.path, /example\.com/);
-    assert.equal(options.headers['Authorization'], 'Bearer TEST_KEY');
+    assert.equal(options.headers["Authorization"], "Bearer TEST_KEY");
   } finally {
     cleanup();
   }
@@ -259,23 +271,23 @@ test('Ahrefs getBacklinks constructs correct URL and auth header', async () => {
 // 6. Response parsing — keyword data extraction
 // ---------------------------------------------------------------------------
 
-test('Ahrefs response parsing extracts keyword data correctly', async () => {
+test("Ahrefs response parsing extracts keyword data correctly", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const rawResponse = {
       keywords: [
-        { keyword: 'cleaning service', volume: 5000, difficulty: 42 },
-        { keyword: 'office cleaning', volume: 2200, difficulty: 38 },
+        { keyword: "cleaning service", volume: 5000, difficulty: 42 },
+        { keyword: "office cleaning", volume: 2200, difficulty: 38 },
       ],
     };
     const { transport } = mockTransport(200, rawResponse);
 
-    const result = await getKeywords('example.com', AHREFS_CONFIG, transport);
+    const result = await getKeywords("example.com", AHREFS_CONFIG, transport);
 
-    assert.ok(Array.isArray(result.keywords), 'result.keywords should be an array');
+    assert.ok(Array.isArray(result.keywords), "result.keywords should be an array");
     assert.equal(result.keywords.length, 2);
-    assert.equal(result.keywords[0].keyword, 'cleaning service');
+    assert.equal(result.keywords[0].keyword, "cleaning service");
     assert.equal(result.keywords[0].volume, 5000);
     assert.equal(result.keywords[0].difficulty, 42);
   } finally {
@@ -287,7 +299,7 @@ test('Ahrefs response parsing extracts keyword data correctly', async () => {
 // 7. CLI interface routing
 // ---------------------------------------------------------------------------
 
-test('CLI interface routes getKeywords command to correct function', async () => {
+test("CLI interface routes getKeywords command to correct function", async () => {
   // We test this indirectly: run the script as a child process with mocked
   // transport not feasible via CLI injection, so we test the exported
   // routing logic directly by checking that main() dispatches correctly.
@@ -296,13 +308,13 @@ test('CLI interface routes getKeywords command to correct function', async () =>
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const mod = loadProvider();
-    assert.equal(typeof mod.getKeywords, 'function', 'getKeywords must be exported');
-    assert.equal(typeof mod.getTraffic, 'function', 'getTraffic must be exported');
-    assert.equal(typeof mod.getBacklinks, 'function', 'getBacklinks must be exported');
-    assert.equal(typeof mod.getCompetitors, 'function', 'getCompetitors must be exported');
-    assert.equal(typeof mod.verify, 'function', 'verify must be exported');
-    assert.equal(typeof mod.loadConfig, 'function', 'loadConfig must be exported');
-    assert.equal(typeof mod.ahrefsRequest, 'function', 'ahrefsRequest must be exported');
+    assert.equal(typeof mod.getKeywords, "function", "getKeywords must be exported");
+    assert.equal(typeof mod.getTraffic, "function", "getTraffic must be exported");
+    assert.equal(typeof mod.getBacklinks, "function", "getBacklinks must be exported");
+    assert.equal(typeof mod.getCompetitors, "function", "getCompetitors must be exported");
+    assert.equal(typeof mod.verify, "function", "verify must be exported");
+    assert.equal(typeof mod.loadConfig, "function", "loadConfig must be exported");
+    assert.equal(typeof mod.ahrefsRequest, "function", "ahrefsRequest must be exported");
   } finally {
     cleanup();
   }
@@ -312,12 +324,12 @@ test('CLI interface routes getKeywords command to correct function', async () =>
 // 8. verify — returns { ok: true } on valid credentials
 // ---------------------------------------------------------------------------
 
-test('verify returns { ok: true } on valid credentials', async () => {
+test("verify returns { ok: true } on valid credentials", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { verify } = loadProvider();
     // A 200 response means credentials are valid
-    const { transport } = mockTransport(200, { subscription: { plan: 'lite' } });
+    const { transport } = mockTransport(200, { subscription: { plan: "lite" } });
 
     const result = await verify(AHREFS_CONFIG, transport);
 
@@ -335,12 +347,12 @@ test('verify returns { error: "..." } on auth failure', async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { verify } = loadProvider();
-    const { transport } = mockTransport(401, { error: 'Unauthorized' });
+    const { transport } = mockTransport(401, { error: "Unauthorized" });
 
     const result = await verify(AHREFS_CONFIG, transport);
 
-    assert.ok('error' in result, 'result should have an error key');
-    assert.ok(typeof result.error === 'string');
+    assert.ok("error" in result, "result should have an error key");
+    assert.ok(typeof result.error === "string");
   } finally {
     cleanup();
   }
@@ -357,7 +369,7 @@ test('verify returns { error: "no config" } when .pm/config.json is missing', as
     // Pass null config (as loadConfig() would return when file missing)
     const result = await verify(null);
 
-    assert.deepEqual(result, { error: 'no config' });
+    assert.deepEqual(result, { error: "no config" });
   } finally {
     cleanup();
   }
@@ -367,19 +379,19 @@ test('verify returns { error: "no config" } when .pm/config.json is missing', as
 // 11. 429 triggers one retry, returns data on second success
 // ---------------------------------------------------------------------------
 
-test('429 response triggers one retry after delay, returns data on second success', async () => {
+test("429 response triggers one retry after delay, returns data on second success", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
-    const successBody = { keywords: [{ keyword: 'test', volume: 100, difficulty: 10 }] };
+    const successBody = { keywords: [{ keyword: "test", volume: 100, difficulty: 10 }] };
     const { transport, calls } = mockTransport429Then200(1, successBody);
 
     // Override delay to 0ms for test speed
-    const result = await getKeywords('example.com', AHREFS_CONFIG, transport, { retryDelay: 0 });
+    const result = await getKeywords("example.com", AHREFS_CONFIG, transport, { retryDelay: 0 });
 
-    assert.equal(calls.length, 2, 'should have made exactly 2 requests');
+    assert.equal(calls.length, 2, "should have made exactly 2 requests");
     assert.ok(Array.isArray(result.keywords));
-    assert.equal(result.keywords[0].keyword, 'test');
+    assert.equal(result.keywords[0].keyword, "test");
   } finally {
     cleanup();
   }
@@ -395,10 +407,10 @@ test('429 on both attempts returns { error: "rate_limited", retry_after: N }', a
     const { getKeywords } = loadProvider();
     const { transport } = mockTransportAlways429(30);
 
-    const result = await getKeywords('example.com', AHREFS_CONFIG, transport, { retryDelay: 0 });
+    const result = await getKeywords("example.com", AHREFS_CONFIG, transport, { retryDelay: 0 });
 
-    assert.equal(result.error, 'rate_limited');
-    assert.equal(typeof result.retry_after, 'number');
+    assert.equal(result.error, "rate_limited");
+    assert.equal(typeof result.retry_after, "number");
     assert.equal(result.retry_after, 30);
   } finally {
     cleanup();
@@ -409,13 +421,13 @@ test('429 on both attempts returns { error: "rate_limited", retry_after: N }', a
 // 13. --limit is passed through to getKeywords (Ahrefs)
 // ---------------------------------------------------------------------------
 
-test('getKeywords passes limit option to Ahrefs request', async () => {
+test("getKeywords passes limit option to Ahrefs request", async () => {
   const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const { transport, calls } = mockTransport(200, { keywords: [] });
 
-    await getKeywords('example.com', AHREFS_CONFIG, transport, { limit: 20 });
+    await getKeywords("example.com", AHREFS_CONFIG, transport, { limit: 20 });
 
     assert.equal(calls.length, 1);
     assert.match(calls[0].options.path, /limit=20/);
@@ -423,4 +435,3 @@ test('getKeywords passes limit option to Ahrefs request', async () => {
     cleanup();
   }
 });
-

@@ -2,6 +2,8 @@
 # Pre-push checks:
 # 1. Block direct pushes to main
 # 2. Verify git tag exists for the current manifest version
+# 3. Run test suite
+# 4. Validate skill directory structure
 
 remote="$1"
 while read -r local_ref local_oid remote_ref remote_oid; do
@@ -24,6 +26,39 @@ if [[ -f "$manifest" ]]; then
       exit 1
     fi
   fi
+fi
+
+# --- Run test suite ---
+if [[ -d "tests" ]]; then
+  echo "Running tests..."
+  node --test tests/*.test.js
+fi
+
+# --- Validate skill directory structure ---
+# Every skill dir with a SKILL.md must have name/description frontmatter
+# Dirs without SKILL.md are warned but not blocked (may be structural sub-dirs)
+errors=0
+for skill_dir in skills/*/; do
+  skill_name=$(basename "$skill_dir")
+  skill_file="$skill_dir/SKILL.md"
+  if [[ ! -f "$skill_file" ]]; then
+    echo "WARN: No SKILL.md in $skill_dir (skipping validation)"
+    continue
+  fi
+  # Check for required frontmatter fields (name and description)
+  if ! head -20 "$skill_file" | grep -q "^name:"; then
+    echo "ERROR: $skill_file missing 'name:' in frontmatter"
+    errors=$((errors + 1))
+  fi
+  if ! head -20 "$skill_file" | grep -q "^description:"; then
+    echo "ERROR: $skill_file missing 'description:' in frontmatter"
+    errors=$((errors + 1))
+  fi
+done
+
+if [[ $errors -gt 0 ]]; then
+  echo "ERROR: $errors skill validation error(s) found."
+  exit 1
 fi
 
 exit 0
