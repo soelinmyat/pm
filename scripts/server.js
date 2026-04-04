@@ -1318,7 +1318,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .meta-sep { color: var(--text-muted); opacity: 0.4; }
 .detail-section { margin-top: var(--space-12); }
 .detail-section-title { font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: var(--space-3); }
-.detail-action-hint { margin-top: var(--space-12); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; }
+.detail-action-hint { margin-left: auto; }
 .click-to-copy { cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--accent-subtle); border-radius: var(--radius-sm); transition: background var(--transition); border: none; font-family: inherit; }
 .click-to-copy:hover { background: var(--accent); color: var(--text-on-accent); }
 .click-to-copy:hover code { color: var(--text-on-accent); background: transparent; }
@@ -4268,19 +4268,23 @@ function handleBacklogItem(res, pmDir, slug) {
 </section>`);
   }
 
-  // Action hint: click-to-copy /dev PM-XXX when status is not done
-  let actionHint = '';
+  // Action hint: click-to-copy /dev PM-XXX inline in meta bar
+  let actionHintHtml = '';
   if (itemId && status !== 'done') {
-    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/dev ' + itemId)}</div>`;
+    actionHintHtml = `<div class="detail-action-hint">${renderClickToCopy('/dev ' + itemId)}</div>`;
   } else if (status !== 'done') {
-    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + (itemId || slug))}</div>`;
+    actionHintHtml = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + (itemId || slug))}</div>`;
   }
+
+  // Inject action hint into meta bar (before closing tag)
+  const metaBarWithAction = actionHintHtml
+    ? metaBar.replace('</div>', actionHintHtml + '</div>')
+    : metaBar;
 
   const pageBody = `<div class="detail-page">
 ${breadcrumb}
 ${titleHtml}
-${metaBar}
-${actionHint}
+${metaBarWithAction}
 ${sections.join('\n')}
 </div>`;
 
