@@ -72,7 +72,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/writing-plans.md` (reference) | Single: Plan (M/L/XL) |
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
-| `dev/references/epic-implementation-flow.md` (reference) | Epic: Stage 4 implementation |
+| `dev/references/implementation-flow.md` (reference) | Single: Stages 5–7, Epic: Stage 4 implementation |
 | `pm:tdd` | Single: Implement (all) |
 | `pm:subagent-dev` | Single: Implement (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |

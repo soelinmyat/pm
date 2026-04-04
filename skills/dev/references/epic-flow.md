@@ -24,7 +24,7 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 **Reference files (read on-demand, NOT upfront):**
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC agent prompts (Stage 2, raw issues only)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review agent prompts (Stage 3)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md` - Sub-issue agent instructions (Stage 4)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue agent instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
 **Codex runtime mapping:**
@@ -477,7 +477,7 @@ Phase 2 — Implementation approved. Go implement.
 **Merge strategy:** {PR required | direct push allowed}
 **Mode:** {sequential | parallel}
 
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-implementation-flow.md for the full
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
 **IMPORTANT — Progress heartbeat:** Reply in this worker thread after each commit
@@ -522,7 +522,7 @@ On resume (session crash/restart): read the state file, skip sub-issues marked "
 API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST run a 5-minute watchdog to detect dead agents promptly.
 </HARD-RULE>
 
-**How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `epic-implementation-flow.md`). The orchestrator uses silence as the death signal.
+**How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `implementation-flow.md`). The orchestrator uses silence as the death signal.
 
 **Watchdog protocol:** After dispatching or resuming a worker, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
 
