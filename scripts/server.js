@@ -1348,6 +1348,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 }
 .detail-proposal-link:hover { background: var(--surface-raised); }
 
+/* Template wrappers (PM-140) */
+.list-template { }
+.kanban-template { }
+
 /* Toast notifications */
 .toast-container { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; pointer-events: none; }
 .toast { background: var(--dark); color: var(--text-on-accent); padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; animation: fadeIn 150ms ease-out; pointer-events: auto; }
@@ -2314,6 +2318,100 @@ function parseStrategySnapshot(pmDir) {
 
   const stale = stalenessInfo(getUpdatedDate(strategyPath));
   return { focus, priorities, staleness: stale || { level: 'fresh', label: 'Current' } };
+}
+
+function renderListTemplate(opts) {
+  const { breadcrumb, title, subtitle, sections = [], emptyState, contentBefore } = opts;
+
+  const parts = [];
+
+  // Page header
+  parts.push('<div class="list-template">');
+  parts.push('<div class="page-header">');
+  if (breadcrumb) parts.push(`<p class="breadcrumb">${breadcrumb}</p>`);
+  parts.push(`<h1>${escHtml(title)}</h1>`);
+  if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
+  parts.push('</div>');
+
+  // Empty state: shown when all sections have 0 items and no contentBefore
+  const totalItems = sections.reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
+  if (emptyState && totalItems === 0 && !contentBefore) {
+    parts.push(emptyState);
+    parts.push('</div>');
+    return parts.join('\n');
+  }
+
+  // Optional content before sections
+  if (contentBefore) parts.push(contentBefore);
+
+  // Sections
+  for (const section of sections) {
+    if (!section.items || section.items.length === 0) continue;
+    parts.push('<section class="section">');
+    if (section.title) {
+      parts.push('<div class="section-header">');
+      parts.push(`<span class="section-title">${escHtml(section.title)}</span>`);
+      if (section.count) parts.push(`<span class="section-count">${escHtml(section.count)}</span>`);
+      parts.push('</div>');
+    }
+    const containerClass = section.itemsClass || (section.layout === 'cards' ? 'card-grid' : 'item-list');
+    parts.push(`<div class="${containerClass}">${section.items.join('\n')}</div>`);
+    parts.push('</section>');
+  }
+
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+function renderKanbanTemplate(opts) {
+  const { title, subtitle, legend, columns = [], emptyState } = opts;
+
+  const parts = [];
+
+  // Page header
+  parts.push('<div class="kanban-template">');
+  parts.push('<div class="page-header">');
+  parts.push(`<h1>${escHtml(title)}</h1>`);
+  if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
+  parts.push('</div>');
+
+  // Optional legend
+  if (legend) parts.push(legend);
+
+  // Empty state: shown when all columns have 0 items
+  const totalItems = columns.reduce((sum, c) => sum + (c.items ? c.items.length : 0), 0);
+  if (emptyState && totalItems === 0) {
+    parts.push(emptyState);
+    parts.push('</div>');
+    return parts.join('\n');
+  }
+
+  // Columns
+  const colsHtml = columns.map(col => {
+    const totalCount = col.totalCount || (col.items ? col.items.length : 0);
+    const emptyClass = totalCount === 0 ? ' col-empty' : '';
+    const extraClass = col.cssClass ? ` ${col.cssClass}` : '';
+    const cards = (col.items || []).join('');
+    const hintHtml = col.hint ? `<div class="col-hint">${col.hint}</div>` : '';
+    const viewAllHtml = col.viewAllHref && col.totalCount > (col.displayCount || 0)
+      ? `<a href="${escHtml(col.viewAllHref)}" class="kanban-view-all">View all ${col.totalCount} ${escHtml(col.viewAllLabel || col.label.toLowerCase())} &rarr;</a>`
+      : '';
+    const bodyContent = totalCount === 0
+      ? '<div class="col-body"><span>No items</span></div>'
+      : `<div class="col-body">${cards}</div>${viewAllHtml}`;
+
+    return `<div class="kanban-col${extraClass}${emptyClass}">
+  <div class="col-header">${escHtml(col.label)} <span class="col-count">${totalCount}</span></div>
+  ${hintHtml}${bodyContent}
+</div>`;
+  }).join('');
+
+  if (totalItems > 0) {
+    parts.push(`<div class="kanban">${colsHtml}</div>`);
+  }
+
+  parts.push('</div>');
+  return parts.join('\n');
 }
 
 function handleProposalsPage(res, pmDir) {
@@ -4458,4 +4556,6 @@ module.exports = {
   hashProjectPort, isPortAvailable, resolvePort,
   DASHBOARD_CSS,
   renderTemplate,
+  renderListTemplate,
+  renderKanbanTemplate,
 };
