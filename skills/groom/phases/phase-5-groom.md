@@ -74,6 +74,11 @@ The HTML wireframe file also works standalone — users can open it directly in 
 
 #### Step 3: Draft issues
 
+Before writing any issue files, read the dashboard template schemas so frontmatter and content structure match what the dashboard expects:
+
+- `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail.md` — backlog issue detail page schema (required frontmatter, allowed status values, content sections)
+- `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/kanban.md` — kanban board schema (status-to-column mapping, card data fields)
+
 Draft a structured issue set: one parent issue + child issues for discrete work.
 
 Each issue must contain:

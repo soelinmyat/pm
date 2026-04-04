@@ -86,7 +86,7 @@ First research activity in a new project. Produces the market overview that make
 3. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
-4. **Write `pm/landscape.md`** (see structure below). Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
+4. **Write `pm/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
 
 5. **Dashboard session view.** If `dashboard_session_view: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the landscape and positioning map visually.
 
@@ -185,7 +185,8 @@ Determine dispatch strategy based on candidate count and environment:
 
 **1 competitor:** Profile inline. Create all 5 files per competitor:
 1. Read methodology in `skills/research/competitor-profiling.md`
-2. Create `pm/competitors/{slug}/profile.md`
+2. Read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md` — this documents the 5-file directory structure and frontmatter the dashboard expects for competitor detail pages.
+3. Create `pm/competitors/{slug}/profile.md`
 3. Create `pm/competitors/{slug}/features.md`
 4. Create `pm/competitors/{slug}/api.md`
 5. Create `pm/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
@@ -278,7 +279,7 @@ For targeted deep dives not covered by landscape or competitor profiling.
    - `serp-overview` — see who currently ranks for the topic keyword and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
 4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
-5. **Write findings** to `pm/research/{topic-slug}/findings.md` using the shared topic schema:
+5. **Write findings** to `pm/research/{topic-slug}/findings.md` using the shared topic schema. Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the frontmatter fields and content structure the dashboard expects for research topic pages:
 
 ```markdown
 ---
