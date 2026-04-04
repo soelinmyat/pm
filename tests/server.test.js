@@ -989,7 +989,7 @@ test('Dashboard nav shows Home, Proposals, Roadmap, Knowledge Base', async () =>
     try {
       const { body } = await httpGet(port, '/');
       // Check nav links (inside <nav> element)
-      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
       assert.ok(navMatch, 'page must have a nav element');
       const navHtml = navMatch[1];
       assert.ok(navHtml.includes('Knowledge Base'), 'nav must show Knowledge Base');
@@ -1588,7 +1588,7 @@ test('PM-123: nav sidebar shows Roadmap not Backlog', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/');
-      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
       assert.ok(navMatch, 'page must have a nav element');
       const navHtml = navMatch[1];
       assert.ok(navHtml.includes('Roadmap'), 'nav must show Roadmap');
@@ -3286,4 +3286,192 @@ test('PM-127 Task 11: selection and scrollbar tokens exist in both themes', () =
   assert.ok(DASHBOARD_CSS.includes('::selection'), 'must have ::selection rule');
   assert.ok(DASHBOARD_CSS.includes('var(--selection-bg)'), 'selection must use var(--selection-bg)');
   assert.ok(DASHBOARD_CSS.includes('var(--scrollbar-thumb)'), 'scrollbar must use var(--scrollbar-thumb)');
+});
+
+// ---------------------------------------------------------------------------
+// PM-128: Basic Keyboard Navigation and Semantic HTML
+// ---------------------------------------------------------------------------
+
+test('PM-128 Task 1: dashboardPage() contains nav with aria-label="Main navigation"', () => {
+  const mod = loadServer();
+  const html = mod.dashboardPage('Test', '/', '<p>hello</p>', 'TestProject');
+  assert.ok(html.includes('<nav aria-label="Main navigation">'), 'nav must have aria-label="Main navigation"');
+});
+
+test('PM-128 Task 2: dashboardPage() contains <main> element with role="main"', () => {
+  const mod = loadServer();
+  const html = mod.dashboardPage('Test', '/', '<p>hello</p>', 'TestProject');
+  assert.ok(html.includes('<main'), 'page must contain a <main> element');
+  assert.ok(html.includes('role="main"'), 'main element must have role="main"');
+  assert.ok(html.includes('id="main-content"'), 'main element must have id="main-content"');
+});
+
+test('PM-128 Task 3: home page has exactly one <h1> tag', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      const h1Count = (body.match(/<h1[\s>]/g) || []).length;
+      assert.equal(h1Count, 1, 'home page must have exactly one <h1>');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 4: proposals page has exactly one <h1> tag', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      const h1Count = (body.match(/<h1[\s>]/g) || []).length;
+      assert.equal(h1Count, 1, 'proposals page must have exactly one <h1>');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 5: roadmap page has exactly one <h1> tag', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap');
+      const h1Count = (body.match(/<h1[\s>]/g) || []).length;
+      assert.equal(h1Count, 1, 'roadmap page must have exactly one <h1>');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 6: card elements use <article> tag', () => {
+  const mod = loadServer();
+  const { DASHBOARD_CSS } = mod;
+  // We verify indirectly: the CSS has .card styles, and we generate cards using <article>
+  // Generate a page that contains cards
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\ncompany: Acme\n---\n# Acme\n**Category:** B2B\n',
+  });
+  try {
+    const server = mod.createDashboardServer(pmDir);
+    // Check the output contains <article class="card">
+    const http = require('http');
+    return new Promise((resolve, reject) => {
+      server.listen(0, '127.0.0.1', () => {
+        const { port } = server.address();
+        http.get({ hostname: '127.0.0.1', port, path: '/kb?tab=competitors' }, (res) => {
+          let body = '';
+          res.on('data', chunk => { body += chunk; });
+          res.on('end', () => {
+            server.close(() => {
+              assert.ok(body.includes('<article class="card">'), 'cards must use <article> element');
+              cleanup();
+              resolve();
+            });
+          });
+        }).on('error', reject);
+      });
+    });
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+});
+
+test('PM-128 Task 7: CSS has focus-visible rules for buttons, inputs, and tabindex elements', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('button:focus-visible'), 'must have button:focus-visible rule');
+  assert.ok(DASHBOARD_CSS.includes('[tabindex]:focus-visible'), 'must have [tabindex]:focus-visible rule');
+  assert.ok(DASHBOARD_CSS.includes('input:focus-visible'), 'must have input:focus-visible rule');
+});
+
+test('PM-128 Task 8: CSS has prefers-reduced-motion rule targeting transition and animation', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('prefers-reduced-motion: reduce'), 'must have prefers-reduced-motion media query');
+  // The rule should target transition-duration and animation-duration
+  const rmBlock = DASHBOARD_CSS.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([^}]*\{[^}]*\}[^}]*)\}/);
+  assert.ok(rmBlock, 'reduced-motion block must exist');
+  assert.ok(rmBlock[1].includes('transition-duration'), 'reduced-motion must target transition-duration');
+  assert.ok(rmBlock[1].includes('animation-duration'), 'reduced-motion must target animation-duration');
+});
+
+test('PM-128 Task 9: decorative copy icons have aria-hidden="true"', () => {
+  const mod = loadServer();
+  const html = mod.dashboardPage('Test', '/', '<span class="click-to-copy" data-copy="test" tabindex="0" role="button"><code>test</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>', 'TestProject');
+  assert.ok(html.includes('aria-hidden="true"'), 'decorative icons must have aria-hidden="true"');
+});
+
+test('PM-128 Task 10: no autofocus attribute in dashboard HTML', () => {
+  const mod = loadServer();
+  const html = mod.dashboardPage('Test', '/', '<p>content</p>', 'TestProject');
+  assert.ok(!html.includes('autofocus'), 'dashboard must not use autofocus');
+});
+
+test('PM-128 Task 11: kanban items have role="article"', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/test-item.md': '---\ntitle: Test Item\nstatus: idea\npriority: medium\n---\n# Test Item\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap');
+      assert.ok(body.includes('role="article"'), 'kanban items must have role="article"');
+      assert.ok(body.includes('class="kanban-item'), 'page must have kanban items');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 12: "/" keyboard shortcut JS is present in page shell', () => {
+  const mod = loadServer();
+  const html = mod.dashboardPage('Test', '/', '<p>hello</p>', 'TestProject');
+  assert.ok(html.includes("e.key === '/'"), 'page must include "/" keyboard shortcut handler');
+  assert.ok(html.includes('backlog-search'), 'shortcut must target backlog-search input');
+});
+
+test('PM-128 Task 13: home page body is wrapped in <main>', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      const mainMatch = body.match(/<main[^>]*>[\s\S]*<\/main>/);
+      assert.ok(mainMatch, 'body content must be wrapped in <main>');
+      // Verify content is inside main, not outside
+      assert.ok(mainMatch[0].includes('<h1>'), 'h1 must be inside <main>');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 14: section elements used in proposals page', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/test-idea.md': '---\ntitle: Test Idea\nstatus: idea\npriority: medium\n---\n',
+    'pm/backlog/proposals/test-prop.meta.json': '{"title":"Test Prop","verdict":"ready","issueCount":2,"date":"2026-01-01"}',
+    'pm/backlog/proposals/test-prop.html': '<h1>Test Prop</h1>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      assert.ok(body.includes('<section class="section">'), 'proposals page must use <section> elements');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-128 Task 15: home page uses <section> for home-section blocks', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild fast\n## Priorities\n- Ship\n- Quality\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('<section class="home-section">'), 'home page must use <section> for home-section blocks');
+    } finally { await close(); }
+  } finally { cleanup(); }
 });

@@ -492,6 +492,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--accent-hover); text-decoration: underline; }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+button:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  outline: none;
+  border-radius: 4px;
+}
 
 /* Nav */
 nav { background: var(--dark); padding: 0 1.5rem; display: flex; gap: 0; align-items: stretch; min-height: 48px; }
@@ -505,6 +511,7 @@ nav a.active { color: var(--text-on-accent); border-bottom-color: var(--accent);
 nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* Layout */
+main.main-content { display: block; }
 .container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
 
 /* Typography */
@@ -1281,14 +1288,16 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose'});</script>
 </head>
 <body>
-<nav>
+<nav aria-label="Main navigation">
   <span class="brand">${escHtml(projectName)}</span>
   ${navHtml}
   <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme">&#9681;</button>
 </nav>
+<main class="main-content" role="main" id="main-content">
 <div class="container">
 ${bodyContent}
 </div>
+</main>
 <div id="toast-container" class="toast-container"></div>
 <script>
 (function() {
@@ -1338,6 +1347,15 @@ function showCopyToast(msg) {
   }
   btn.addEventListener('click', function() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); });
 })();
+// "/" keyboard shortcut to focus search/filter input
+document.addEventListener('keydown', function(e) {
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    var input = document.getElementById('backlog-search') || document.getElementById('roadmap-filter');
+    if (input) { e.preventDefault(); input.focus(); }
+  }
+});
 </script>
 </body>
 </html>`;
@@ -1959,13 +1977,13 @@ function handleProposalsPage(res, pmDir) {
       }).join('\n');
 
       groomedHtml = `
-<div class="section">
+<section class="section">
   <div class="section-header">
     <span class="section-title">Groomed</span>
     <span class="section-count">${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}</span>
   </div>
   <div class="proposal-grid">${rows}</div>
-</div>`;
+</section>`;
     }
 
     // Ideas section
@@ -1977,13 +1995,13 @@ function handleProposalsPage(res, pmDir) {
       }).join('\n');
 
       ideasHtml = `
-<div class="section">
+<section class="section">
   <div class="section-header">
     <span class="section-title">Ideas</span>
     <span class="section-count">${ideas.length} ungroomed</span>
   </div>
   <div class="idea-list">${ideaRows}</div>
-</div>`;
+</section>`;
     }
 
     body = `<div class="page-header"><h1>Proposals</h1>
@@ -2067,7 +2085,7 @@ function handleDashboardHome(res, pmDir) {
   // ===== 1. Strategy snapshot =====
   const strategyData = parseStrategySnapshot(pmDir);
   const strategySection = strategyData ? `
-<div class="home-section">
+<section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">Strategy</span>
     <a href="/kb?tab=strategy" class="home-section-link">View full strategy</a>
@@ -2082,7 +2100,7 @@ function handleDashboardHome(res, pmDir) {
       Updated ${escHtml(strategyData.staleness.label)}
     </div>
   </div>
-</div>` : '';
+</section>` : '';
 
   // ===== 2. What's coming (active proposals) =====
   const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
@@ -2116,7 +2134,7 @@ function handleDashboardHome(res, pmDir) {
   }
 
   const proposalsSection = activeProposals.length > 0 ? `
-<div class="home-section">
+<section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">What's coming</span>
     <a href="/proposals" class="home-section-link">All proposals</a>
@@ -2132,7 +2150,7 @@ function handleDashboardHome(res, pmDir) {
       </span>
     </a>`).join('')}
   </div>
-</div>` : '';
+</section>` : '';
 
   // ===== 3. Recently shipped =====
   const recentShipped = [];
@@ -2165,7 +2183,7 @@ function handleDashboardHome(res, pmDir) {
   }
 
   const shippedSection = recentShipped.length > 0 ? `
-<div class="home-section">
+<section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">Recently shipped</span>
     <a href="/roadmap/shipped" class="home-section-link">All shipped</a>
@@ -2177,7 +2195,7 @@ function handleDashboardHome(res, pmDir) {
       <span class="home-shipped-date">${escHtml(s.dateLabel)}</span>
     </a>`).join('')}
   </div>
-</div>` : '';
+</section>` : '';
 
   // ===== 4. KB health =====
   const researchFreshness = stalenessInfo(updatedDates.research) || { level: 'stale', label: 'No data' };
@@ -2203,7 +2221,7 @@ function handleDashboardHome(res, pmDir) {
     : { level: 'stale', label: 'No evidence' };
 
   const kbSection = `
-<div class="home-section">
+<section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">Knowledge base</span>
     <a href="/kb" class="home-section-link">Browse</a>
@@ -2234,7 +2252,7 @@ function handleDashboardHome(res, pmDir) {
       </div>
     </a>
   </div>
-</div>`;
+</section>`;
 
   const firstWorkflowActions = status.next === '/pm:start (choose your first workflow)' ? `
   <div class="session-brief-actions">
@@ -2276,14 +2294,14 @@ ${suggestedHtml}`;
   } else if (proposalCount === 0 && !shippedSection) {
     // Partial state: strategy/KB exists but no proposals yet
     const partialProposals = `
-<div class="home-section">
+<section class="home-section">
   <div class="home-section-header"><span class="home-section-title">What's coming</span></div>
   <div class="empty-state">
     <h3>Ready for your first feature</h3>
     <p>Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.</p>
     <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
   </div>
-</div>`;
+</section>`;
     body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
@@ -2366,12 +2384,12 @@ function handleResearchPage(res, pmDir) {
           badge = '<span class="badge">' + present + '/5</span>';
         }
 
-        return '<div class="card">' +
+        return '<article class="card">' +
           '<h3><a href="/competitors/' + escHtml(slug) + '">' + escHtml(name) + '</a></h3>' +
           cat +
           '<div class="card-footer">' + badge +
           '<a href="/competitors/' + escHtml(slug) + '" class="view-link">View &rarr;</a></div>' +
-          '</div>';
+          '</article>';
       }).join('');
       competitorsHtml = '<div class="action-hint">Run <code>/pm:research competitors</code> to re-profile or <code>/pm:refresh</code> to update</div>' +
         '<div class="card-grid">' + cards + '</div>';
@@ -2381,7 +2399,7 @@ function handleResearchPage(res, pmDir) {
       if (fs.existsSync(matrixPath)) {
         const matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
         const matrixParsed = parseFrontmatter(matrixRaw);
-        competitorsHtml += '<div class="content-section">' + renderFeatureHeatmap(matrixParsed.body) + '</div>';
+        competitorsHtml += '<section class="content-section">' + renderFeatureHeatmap(matrixParsed.body) + '</section>';
       }
 
       // Sentiment gap analysis
@@ -2505,11 +2523,11 @@ function handleResearchPage(res, pmDir) {
             const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
             meta = buildTopicMeta(t, parsed.data, findingsPath);
           }
-          return '<div class="card">' +
+          return '<article class="card">' +
             '<h3><a href="/research/' + escHtml(t) + '">' + escHtml(meta.label) + '</a></h3>' +
             '<p class="meta">' + escHtml(meta.subtitle) + '</p>' +
             '<div class="card-footer"><span>' + meta.badgesHtml + '</span><a href="/research/' + escHtml(t) + '" class="view-link">View &rarr;</a></div>' +
-            '</div>';
+            '</article>';
         }).join('');
         topicsHtml = '<div class="card-grid">' + topicCards + '</div>';
       }
@@ -2885,9 +2903,9 @@ function renderSentimentGap(compDir, slugs) {
     return '<div class="bar-group"><div class="bar-group-label">' + escHtml(comp.name) + gap + '</div>' + rows + '</div>';
   }).join('');
 
-  return '<div class="content-section"><h2>User Satisfaction Gap Analysis</h2>' +
+  return '<section class="content-section"><h2>User Satisfaction Gap Analysis</h2>' +
     '<p class="chart-description">B2B review ratings (manager perspective) vs. app store ratings (field worker perspective). The gap reveals mobile app quality issues.</p>' +
-    '<div class="bar-chart">' + groups + '</div></div>';
+    '<div class="bar-chart">' + groups + '</div></section>';
 }
 
 function renderSeoComparison(compDir, slugs) {
@@ -2971,9 +2989,9 @@ function renderSeoComparison(compDir, slugs) {
       drBar + trafficBar + metaHtml + '</div>';
   }).join('');
 
-  return '<div class="content-section"><h2>SEO Competitive Position</h2>' +
+  return '<section class="content-section"><h2>SEO Competitive Position</h2>' +
     '<p class="chart-description">Domain authority and organic traffic comparison. Higher DR = harder to outrank.</p>' +
-    '<div class="bar-chart">' + rows + '</div></div>';
+    '<div class="bar-chart">' + rows + '</div></section>';
 }
 
 function renderFeatureHeatmap(body) {
@@ -3101,7 +3119,7 @@ function handleCompetitorsList(res, pmDir) {
     var parsed = parseFrontmatter(raw);
     var gapsMatch = parsed.body.match(/## Market Gaps\n([\s\S]*?)(?=\n## |$)/);
     if (gapsMatch) {
-      indexContent = '<div class="content-section"><h2>Market Gaps</h2>' + renderMarkdown(gapsMatch[1].trim()) + '</div>';
+      indexContent = '<section class="content-section"><h2>Market Gaps</h2>' + renderMarkdown(gapsMatch[1].trim()) + '</section>';
     }
   }
 
@@ -3110,7 +3128,7 @@ function handleCompetitorsList(res, pmDir) {
   if (fs.existsSync(matrixPath)) {
     var matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
     var matrixParsed = parseFrontmatter(matrixRaw);
-    matrixContent = '<div class="content-section">' + renderMarkdown(matrixParsed.body) + '</div>';
+    matrixContent = '<section class="content-section">' + renderMarkdown(matrixParsed.body) + '</section>';
   }
 
   if (fs.existsSync(compDir)) {
@@ -3138,12 +3156,12 @@ function handleCompetitorsList(res, pmDir) {
         badge = '<span class="badge">' + present + '/5</span>';
       }
 
-      return '<div class="card">' +
+      return '<article class="card">' +
         '<h3><a href="/competitors/' + escHtml(slug) + '">' + escHtml(name) + '</a></h3>' +
         cat +
         '<div class="card-footer">' + badge +
         '<a href="/competitors/' + escHtml(slug) + '" class="view-link">View &rarr;</a></div>' +
-        '</div>';
+        '</article>';
     }).join('');
   }
 
@@ -3319,33 +3337,33 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   <p class="subtitle">Everything the team knows -- strategy, market, competitors, and research</p>
 </div>
 ${strategyBanner}
-${landscapeCard ? `<div class="section">
+${landscapeCard ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Market Landscape</span>
   </div>
   ${landscapeCard}
-</div>` : ''}
-${compCount > 0 ? `<div class="section">
+</section>` : ''}
+${compCount > 0 ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Competitors</span>
     ${matrixLink}
   </div>
   ${competitorGrid}
-</div>` : ''}
-${topicCount > 0 ? `<div class="section">
+</section>` : ''}
+${topicCount > 0 ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Research</span>
     <span class="section-count">${topicCount} topics</span>
   </div>
   ${topicRows}
   ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/kb?tab=topics" class="section-link">View all ${topicCount} topics</a></div>` : ''}
-</div>` : ''}
-<div class="section">
+</section>` : ''}
+<section class="section">
   <div class="section-header">
     <span class="section-title">Customer Evidence</span>
   </div>
   ${evidenceHtml}
-</div>`;
+</section>`;
 
   const html = dashboardPage('Knowledge Base', '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3383,11 +3401,11 @@ function handleKbCompetitorsDetail(res, pmDir) {
       const summary = extractProfileSummary(parseFrontmatter(fs.readFileSync(profilePath, 'utf-8')).body);
       const stale = stalenessInfo(getUpdatedDate(profilePath));
       const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
-      return `<div class="card">
+      return `<article class="card">
         <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
         <p class="meta">${escHtml(summary.category || '')}</p>
         <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
-      </div>`;
+      </article>`;
     }).join('');
   }
   const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
@@ -3446,11 +3464,11 @@ function handleKbTopicsDetail(res, pmDir) {
         const raw = fs.readFileSync(findingsPath, 'utf-8');
         const { data } = parseFrontmatter(raw);
         const meta = buildTopicMeta(t.name, data, findingsPath);
-        return `<div class="card">
+        return `<article class="card">
           <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
           <p class="meta">${escHtml(meta.subtitle)}</p>
           <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
-        </div>`;
+        </article>`;
       }).join('');
       topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
     }
@@ -3686,7 +3704,7 @@ function handleBacklog(res, pmDir) {
     const hintHtml = status === 'idea'
       ? `<div class="kanban-item-hint">/pm:groom ${escHtml(item.slug)}</div>`
       : '';
-    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
+    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}" role="article">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
   };
 
   const COL_HINTS = {
@@ -4530,7 +4548,7 @@ if (require.main === module) {
 module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
-  createDashboardServer,
+  createDashboardServer, dashboardPage,
   readProposalMeta, readGroomState, proposalGradient, buildProposalRows,
   formatRelativeDate, parseStrategySnapshot,
   resolveResearchRefs, resolveStrategyAlignment, resolveCompetitiveContext,
