@@ -1,18 +1,18 @@
 #!/bin/bash
 # Start the PM dashboard server and output connection info
-# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--mode <dashboard>] [--foreground] [--background]
+# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background] [--server-dir <path>]
 #
-# Starts the dashboard on a random high port and outputs JSON with the URL.
+# Starts server on a stable port derived from the project directory, outputs JSON with URL.
 #
 # Options:
-#   --project-dir <path>  Store session files under <path>/.pm/sessions/
-#                         instead of the default. Files persist after server stops.
+#   --project-dir <path>  Project root directory (default: cwd).
 #   --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
 #                         Use 0.0.0.0 in remote/containerized environments.
 #   --url-host <host>     Hostname shown in returned URL JSON.
-#   --mode <mode>         Server mode. Only dashboard is supported.
 #   --foreground          Run server in the current terminal (no backgrounding).
 #   --background          Force background mode (overrides Codex auto-foreground).
+#   --server-dir <path>   Directory containing server.js (default: same as this script).
+#                         Use this to run server.js from source during development.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CALLER_DIR="$(pwd)"
@@ -23,7 +23,7 @@ FOREGROUND="false"
 FORCE_BACKGROUND="false"
 BIND_HOST="127.0.0.1"
 URL_HOST=""
-MODE="dashboard"
+SERVER_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project-dir)
@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mode)
-      MODE="$2"
+      # Deprecated — dashboard is now the only mode. Accept and ignore for backwards compat.
       shift 2
       ;;
     --foreground|--no-daemon)
@@ -50,17 +50,16 @@ while [[ $# -gt 0 ]]; do
       FORCE_BACKGROUND="true"
       shift
       ;;
+    --server-dir)
+      SERVER_DIR="$2"
+      shift 2
+      ;;
     *)
       echo "{\"error\": \"Unknown argument: $1\"}"
       exit 1
       ;;
   esac
 done
-
-if [[ "$MODE" != "dashboard" ]]; then
-  echo "{\"error\": \"Unsupported PM server mode: $MODE. Use --mode dashboard.\"}"
-  exit 1
-fi
 
 if [[ -z "$URL_HOST" ]]; then
   if [[ "$BIND_HOST" == "127.0.0.1" || "$BIND_HOST" == "localhost" ]]; then
@@ -84,12 +83,10 @@ else
   SCREEN_DIR="/tmp/pm-${SESSION_ID}"
 fi
 
-if [[ "$MODE" == "dashboard" ]]; then
-  if [[ -n "$PROJECT_DIR" ]]; then
-    DASHBOARD_DIR="${PROJECT_DIR}/pm"
-  else
-    DASHBOARD_DIR="${CALLER_DIR}/pm"
-  fi
+if [[ -n "$PROJECT_DIR" ]]; then
+  DASHBOARD_DIR="${PROJECT_DIR}/pm"
+else
+  DASHBOARD_DIR="${CALLER_DIR}/pm"
 fi
 
 PID_FILE="${SCREEN_DIR}/.server.pid"
@@ -98,14 +95,15 @@ LOG_FILE="${SCREEN_DIR}/.server.log"
 # Create fresh session directory
 mkdir -p "$SCREEN_DIR"
 
-# Kill any existing server
+# Kill any existing server from this session
 if [[ -f "$PID_FILE" ]]; then
   old_pid=$(cat "$PID_FILE")
   kill "$old_pid" 2>/dev/null
   rm -f "$PID_FILE"
 fi
 
-cd "$SCRIPT_DIR"
+# Use --server-dir if provided (dev mode), otherwise use this script's directory (production)
+cd "${SERVER_DIR:-$SCRIPT_DIR}"
 
 # Resolve the harness PID (grandparent of this script).
 # $PPID is the ephemeral shell the harness spawned to run us — it dies
@@ -115,16 +113,37 @@ if [[ -z "$OWNER_PID" || "$OWNER_PID" == "1" ]]; then
   OWNER_PID="$PPID"
 fi
 
+# Resolve the project directory for stable port hashing.
+# Use --project-dir if provided, otherwise use the caller's working directory.
+RESOLVED_PROJECT_DIR="${PROJECT_DIR:-$CALLER_DIR}"
+
+# Kill any previous server occupying our stable port (from a prior session)
+STABLE_PORT=$(node -e "
+  const crypto = require('crypto');
+  const hash = crypto.createHash('md5').update('$RESOLVED_PROJECT_DIR').digest();
+  console.log(3000 + (hash.readUInt32BE(0) % 7000));
+")
+if [[ -n "$STABLE_PORT" ]]; then
+  old_pids=$(lsof -iTCP:"$STABLE_PORT" -sTCP:LISTEN -t 2>/dev/null)
+  if [[ -n "$old_pids" ]]; then
+    echo "$old_pids" | xargs kill -9 2>/dev/null
+    for i in {1..10}; do
+      lsof -iTCP:"$STABLE_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+  fi
+fi
+
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
   echo "$$" > "$PID_FILE"
-  env PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR"
+  env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR"
   exit $?
 fi
 
 # Start server, capturing output to log file
 # Use nohup to survive shell exit; disown to remove from job table
-nohup env PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_MODE="$MODE" node server.js --mode "$MODE" --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
+nohup env PM_DIR="$SCREEN_DIR" PM_HOST="$BIND_HOST" PM_URL_HOST="$URL_HOST" PM_OWNER_PID="$OWNER_PID" PM_PROJECT_DIR="$RESOLVED_PROJECT_DIR" node server.js --dir "$DASHBOARD_DIR" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
 echo "$SERVER_PID" > "$PID_FILE"

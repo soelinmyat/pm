@@ -20,7 +20,7 @@ fi
 
 # Always go through start-server.sh so stale dashboard instances are replaced
 # with a fresh server for the current session.
-OUTPUT=$(bash "$PLUGIN_ROOT/scripts/start-server.sh" --project-dir "$PROJECT_DIR" --mode dashboard 2>/dev/null)
+OUTPUT=$(bash "$PLUGIN_ROOT/scripts/start-server.sh" --project-dir "$PROJECT_DIR" 2>/dev/null)
 if [ -n "$OUTPUT" ]; then
   URL=$(echo "$OUTPUT" | node -e "
     let d=''; process.stdin.on('data',c=>d+=c);
