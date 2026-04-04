@@ -18,30 +18,17 @@ if [ -f "$PROJECT_DIR/.pm/config.json" ]; then
   [ "$AUTO_LAUNCH" = "false" ] && exit 0
 fi
 
-# Check if server already running on stable port
-PORT=$(PM_HASH_DIR="$PROJECT_DIR" node -e "
-  const crypto = require('crypto');
-  const hash = crypto.createHash('md5').update(process.env.PM_HASH_DIR).digest();
-  console.log(3000 + (hash.readUInt32BE(0) % 7000));
-" 2>/dev/null)
-# Verify something is actually listening
-if [ -n "$PORT" ] && ! lsof -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
-  PORT=""
-fi
-if [ -n "$PORT" ]; then
-  echo "Dashboard: http://localhost:${PORT}"
-else
-  # Start server in background
-  OUTPUT=$(bash "$PLUGIN_ROOT/scripts/start-server.sh" --project-dir "$PROJECT_DIR" --mode dashboard 2>/dev/null)
-  if [ -n "$OUTPUT" ]; then
-    URL=$(echo "$OUTPUT" | node -e "
-      let d=''; process.stdin.on('data',c=>d+=c);
-      process.stdin.on('end',()=>{
-        try { const u = JSON.parse(d).url; if(u) console.log(u); }
-        catch(e) {}
-      });" 2>/dev/null)
-    [ -n "$URL" ] && echo "Dashboard: ${URL}"
-  fi
+# Always go through start-server.sh — it kills stale servers (including leftover
+# companion-mode instances from prior sessions) and starts a fresh dashboard.
+OUTPUT=$(bash "$PLUGIN_ROOT/scripts/start-server.sh" --project-dir "$PROJECT_DIR" 2>/dev/null)
+if [ -n "$OUTPUT" ]; then
+  URL=$(echo "$OUTPUT" | node -e "
+    let d=''; process.stdin.on('data',c=>d+=c);
+    process.stdin.on('end',()=>{
+      try { const u = JSON.parse(d).url; if(u) console.log(u); }
+      catch(e) {}
+    });" 2>/dev/null)
+  [ -n "$URL" ] && echo "Dashboard: ${URL}"
 fi
 
 # ---------------------------------------------------------------------------

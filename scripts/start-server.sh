@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mode)
-      # Deprecated — dashboard is now the only mode. Accept and ignore for backwards compat.
+      # Ignored — dashboard is the only mode. Accepted for backwards compat.
       shift 2
       ;;
     --foreground|--no-daemon)

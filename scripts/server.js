@@ -79,10 +79,6 @@ function decodeFrame(buffer) {
 const HOST = process.env.PM_HOST || '127.0.0.1';
 const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
 
-// Default SCREEN_DIR to .pm/sessions/{timestamp} relative to cwd
-const DEFAULT_SCREEN_DIR = path.join(process.cwd(), '.pm', 'sessions', String(Date.now()));
-const SCREEN_DIR = process.env.PM_DIR || DEFAULT_SCREEN_DIR;
-
 const OWNER_PID = process.env.PM_OWNER_PID ? Number(process.env.PM_OWNER_PID) : null;
 
 // ========== Stable Port Resolution ==========
@@ -148,14 +144,7 @@ async function resolvePort(host) {
   return { port: 0, hashed, shifted: true };
 }
 
-// --mode flag: 'companion' (default) or 'dashboard'
-const MODE = (() => {
-  const idx = process.argv.indexOf('--mode');
-  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env.PM_MODE || 'companion';
-})();
-
-// --dir flag: directory for dashboard mode (default: 'pm/' relative to cwd)
+// --dir flag: pm/ directory to serve (default: 'pm/' relative to cwd)
 const DIR_FLAG = (() => {
   const idx = process.argv.indexOf('--dir');
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
@@ -169,23 +158,6 @@ const MIME_TYPES = {
 };
 
 // ========== Templates and Constants ==========
-
-const WAITING_PAGE = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PM Companion</title>
-<style>body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; }
-h1 { color: #333; } p { color: #666; }</style>
-</head>
-<body><h1>PM Companion</h1>
-<p>Waiting for Claude to push a screen...</p></body></html>`;
-
-// ========== Mode Parsing (exported for testing) ==========
-
-function parseMode(argv) {
-  const idx = argv.indexOf('--mode');
-  if (idx !== -1 && argv[idx + 1]) return argv[idx + 1];
-  return process.env.PM_MODE || 'companion';
-}
 
 // ========== YAML Frontmatter Parser ==========
 
@@ -2981,52 +2953,6 @@ function readDevState(pmDir) {
   return sessions;
 }
 
-function readActiveDesignSessions(pmDir) {
-  const sessionsDir = path.resolve(pmDir, '..', '.pm', 'sessions');
-  if (!fs.existsSync(sessionsDir)) return [];
-
-  const results = [];
-  const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const sessionDir = path.join(sessionsDir, entry.name);
-    const infoPath = path.join(sessionDir, '.server-info');
-    const stoppedPath = path.join(sessionDir, '.server-stopped');
-
-    // Must have .server-info and no .server-stopped
-    if (!fs.existsSync(infoPath) || fs.existsSync(stoppedPath)) continue;
-
-    try {
-      const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
-      if (info.mode !== 'companion') continue;
-
-      // Verify the server process is still running
-      const pidPath = path.join(sessionDir, '.server.pid');
-      if (!fs.existsSync(pidPath)) continue; // no pid file — stale session
-      const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
-      try { process.kill(pid, 0); } catch { continue; } // process dead
-
-      // Get the newest HTML file to determine the session topic
-      const htmlFiles = fs.readdirSync(sessionDir).filter(f => f.endsWith('.html')).sort();
-      const newestFile = htmlFiles.length > 0 ? htmlFiles[htmlFiles.length - 1] : null;
-      const mtime = fs.statSync(infoPath).mtimeMs;
-
-      results.push({
-        id: entry.name,
-        url: info.url,
-        port: info.port,
-        screenDir: info.screen_dir || sessionDir,
-        currentScreen: newestFile ? newestFile.replace('.html', '').replace(/-/g, ' ') : null,
-        screenCount: htmlFiles.length,
-        mtime,
-      });
-    } catch { /* skip corrupted sessions */ }
-  }
-
-  return results.sort((a, b) => b.mtime - a.mtime);
-}
-
 function readAllActiveSessions(pmDir) {
   const groomSessions = readGroomState(pmDir).map(s => {
     const sessionsDir = path.resolve(pmDir, '..', '.pm', 'groom-sessions');
@@ -3583,17 +3509,13 @@ function handleDashboardHome(res, pmDir) {
       const link = slug ? `/session/${encodeURIComponent(slug)}` : '#';
       if (s._type === 'groom') {
         const d = groomSessionDisplay(s);
-        const companionDir = path.resolve(pmDir, '..', '.pm', 'sessions', 'groom-' + (s._slug || ''));
-        const hasCompanion = s._slug && fs.existsSync(companionDir);
-        const tag = hasCompanion ? 'a' : 'div';
-        const hrefAttr = hasCompanion ? ` href="${link}"` : '';
-        return `<${tag}${hrefAttr} class="groom-session">
+        return `<a href="${link}" class="groom-session">
   <div class="groom-session-dot" style="background:#2563eb"></div>
   <div>
     <div class="groom-session-topic">${d.topic}</div>
     <div class="groom-session-meta">Grooming · Phase: ${d.phase} · Started ${d.started}</div>
   </div>
-</${tag}>`;
+</a>`;
       } else {
         const d = devSessionDisplay(s);
         return `<a href="${link}" class="groom-session">
@@ -3606,25 +3528,6 @@ function handleDashboardHome(res, pmDir) {
       }
     }).join('\n');
     sessionBannerHtml = `\n<div class="groom-session-label">${label}</div>\n${sessionItems}`;
-  }
-
-  // Active design sessions (visual companion instances)
-  const designSessions = readActiveDesignSessions(pmDir);
-  let designBannerHtml = '';
-  if (designSessions.length > 0) {
-    const dLabel = designSessions.length === 1 ? 'Design Session' : `Design Sessions (${designSessions.length})`;
-    const designItems = designSessions.map(ds => {
-      const screenLabel = ds.currentScreen || 'No screens yet';
-      const screenCount = ds.screenCount > 0 ? `${ds.screenCount} screen${ds.screenCount !== 1 ? 's' : ''}` : '';
-      return `<a href="${escHtml(ds.url)}" target="_blank" rel="noopener" class="groom-session">
-  <div class="groom-session-dot" style="background:#f59e0b"></div>
-  <div>
-    <div class="groom-session-topic">${escHtml(screenLabel)}</div>
-    <div class="groom-session-meta">Design · ${escHtml(screenCount)} · <span style="color:var(--text-muted);">${escHtml(ds.url)}</span></div>
-  </div>
-</a>`;
-    }).join('\n');
-    designBannerHtml = `\n<div class="groom-session-label">${dLabel}</div>\n${designItems}`;
   }
 
   // Proposal cards section — pass pre-loaded sessions to avoid redundant I/O
@@ -3742,7 +3645,6 @@ ${pulseScoreHtml}
 ${canvasTabsHtml}
 ${controlCards}
 ${sessionBannerHtml}
-${designBannerHtml}
 ${proposalsHtml}
 ${kbReferenceHtml}
 ${suggestedHtml}`;
@@ -5617,7 +5519,7 @@ function createDashboardServer(pmDir) {
     }
   }
 
-  // Watch .pm/sessions/ for companion HTML changes (PM-060 AC4)
+  // Watch .pm/sessions/ for HTML changes (PM-060 AC4)
   const sessionsWatchDir = path.resolve(pmDir, '..', '.pm', 'sessions');
   fs.mkdirSync(sessionsWatchDir, { recursive: true });
 
@@ -5651,150 +5553,11 @@ function createDashboardServer(pmDir) {
   return server;
 }
 
-const frameTemplate = fs.readFileSync(path.join(__dirname, 'frame-template.html'), 'utf-8');
-const helperScript = fs.readFileSync(path.join(__dirname, 'helper.js'), 'utf-8');
-const helperInjection = '<script>\n' + helperScript + '\n</script>';
-
 // ========== Helper Functions ==========
 
 function isFullDocument(html) {
   const trimmed = html.trimStart().toLowerCase();
   return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
-}
-
-function wrapInFrame(content) {
-  return frameTemplate.replace('<!-- CONTENT -->', content);
-}
-
-function getNewestScreen() {
-  const files = fs.readdirSync(SCREEN_DIR)
-    .filter(f => f.endsWith('.html'))
-    .map(f => {
-      const fp = path.join(SCREEN_DIR, f);
-      return { path: fp, mtime: fs.statSync(fp).mtime.getTime() };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length > 0 ? files[0].path : null;
-}
-
-// ========== HTTP Request Handler ==========
-
-function handleRequest(req, res) {
-  touchActivity();
-  if (req.method === 'GET' && req.url === '/') {
-    const screenFile = getNewestScreen();
-    let html = screenFile
-      ? (raw => isFullDocument(raw) ? raw : wrapInFrame(raw))(fs.readFileSync(screenFile, 'utf-8'))
-      : WAITING_PAGE;
-
-    if (html.includes('</body>')) {
-      html = html.replace('</body>', helperInjection + '\n</body>');
-    } else {
-      html += helperInjection;
-    }
-
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
-  } else if (req.method === 'GET' && req.url.startsWith('/files/')) {
-    const fileName = req.url.slice(7);
-    const filePath = path.join(SCREEN_DIR, path.basename(fileName));
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(fs.readFileSync(filePath));
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-}
-
-// ========== WebSocket Connection Handling ==========
-
-const clients = new Set();
-
-function handleUpgrade(req, socket) {
-  const key = req.headers['sec-websocket-key'];
-  if (!key) { socket.destroy(); return; }
-
-  const accept = computeAcceptKey(key);
-  socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\n' +
-    'Upgrade: websocket\r\n' +
-    'Connection: Upgrade\r\n' +
-    'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
-  );
-
-  let buffer = Buffer.alloc(0);
-  clients.add(socket);
-
-  socket.on('data', (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length > 0) {
-      let result;
-      try {
-        result = decodeFrame(buffer);
-      } catch (e) {
-        socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
-        clients.delete(socket);
-        return;
-      }
-      if (!result) break;
-      buffer = buffer.slice(result.bytesConsumed);
-
-      switch (result.opcode) {
-        case OPCODES.TEXT:
-          handleMessage(result.payload.toString());
-          break;
-        case OPCODES.CLOSE:
-          socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
-          clients.delete(socket);
-          return;
-        case OPCODES.PING:
-          socket.write(encodeFrame(OPCODES.PONG, result.payload));
-          break;
-        case OPCODES.PONG:
-          break;
-        default: {
-          const closeBuf = Buffer.alloc(2);
-          closeBuf.writeUInt16BE(1003);
-          socket.end(encodeFrame(OPCODES.CLOSE, closeBuf));
-          clients.delete(socket);
-          return;
-        }
-      }
-    }
-  });
-
-  socket.on('close', () => clients.delete(socket));
-  socket.on('error', () => clients.delete(socket));
-}
-
-function handleMessage(text) {
-  let event;
-  try {
-    event = JSON.parse(text);
-  } catch (e) {
-    console.error('Failed to parse WebSocket message:', e.message);
-    return;
-  }
-  touchActivity();
-  console.log(JSON.stringify({ source: 'user-event', ...event }));
-  if (event.choice) {
-    const eventsFile = path.join(SCREEN_DIR, '.events');
-    fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
-  }
-}
-
-function broadcast(msg) {
-  const frame = encodeFrame(OPCODES.TEXT, Buffer.from(JSON.stringify(msg)));
-  for (const socket of clients) {
-    try { socket.write(frame); } catch (e) { clients.delete(socket); }
-  }
 }
 
 // ========== Activity Tracking ==========
@@ -5820,110 +5583,32 @@ async function startServer() {
     console.error(`Port ${hashed} occupied, using ${PORT} instead`);
   }
 
-  // ---- Dashboard mode ----
-  if (MODE === 'dashboard') {
-    const pmDir = DIR_FLAG
-      ? path.resolve(process.cwd(), DIR_FLAG)
-      : path.join(process.cwd(), 'pm');
+  const pmDir = DIR_FLAG
+    ? path.resolve(process.cwd(), DIR_FLAG)
+    : path.join(process.cwd(), 'pm');
 
-    const server = createDashboardServer(pmDir);
-
-    function ownerAliveDash() {
-      if (!OWNER_PID) return true;
-      try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
-    }
-
-    const lifecycleCheck = setInterval(() => {
-      if (!ownerAliveDash()) {
-        console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
-        clearInterval(lifecycleCheck);
-        server.close(() => process.exit(0));
-      } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
-        console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
-        clearInterval(lifecycleCheck);
-        server.close(() => process.exit(0));
-      }
-    }, 60 * 1000);
-    lifecycleCheck.unref();
-
-    // Archive completed canvases older than 24 hours on startup
-    archiveCompletedCanvases(pmDir);
-
-    server.listen(PORT, HOST, () => {
-      const address = server.address();
-      const boundPort = address && typeof address === 'object' ? Number(address.port) : Number(PORT);
-      const info = JSON.stringify({
-        type: 'server-started', port: boundPort, host: HOST,
-        url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
-        pm_dir: pmDir, mode: MODE
-      });
-      console.log(info);
-    });
-    return;
-  }
-
-  // ---- Companion mode (default) ----
-  if (!fs.existsSync(SCREEN_DIR)) fs.mkdirSync(SCREEN_DIR, { recursive: true });
-
-  // Track known files to distinguish new screens from updates.
-  // macOS fs.watch reports 'rename' for both new files and overwrites,
-  // so we can't rely on eventType alone.
-  const knownFiles = new Set(
-    fs.readdirSync(SCREEN_DIR).filter(f => f.endsWith('.html'))
-  );
-
-  const server = http.createServer(handleRequest);
-  server.on('upgrade', handleUpgrade);
-
-  const watcher = fs.watch(SCREEN_DIR, (eventType, filename) => {
-    if (!filename || !filename.endsWith('.html')) return;
-
-    if (debounceTimers.has(filename)) clearTimeout(debounceTimers.get(filename));
-    debounceTimers.set(filename, setTimeout(() => {
-      debounceTimers.delete(filename);
-      const filePath = path.join(SCREEN_DIR, filename);
-
-      if (!fs.existsSync(filePath)) return; // file was deleted
-      touchActivity();
-
-      if (!knownFiles.has(filename)) {
-        knownFiles.add(filename);
-        const eventsFile = path.join(SCREEN_DIR, '.events');
-        if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
-        console.log(JSON.stringify({ type: 'screen-added', file: filePath }));
-      } else {
-        console.log(JSON.stringify({ type: 'screen-updated', file: filePath }));
-      }
-
-      broadcast({ type: 'reload' });
-    }, 100));
-  });
-  watcher.on('error', (err) => console.error('fs.watch error:', err.message));
-
-  function shutdown(reason) {
-    console.log(JSON.stringify({ type: 'server-stopped', reason }));
-    const infoFile = path.join(SCREEN_DIR, '.server-info');
-    if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
-    fs.writeFileSync(
-      path.join(SCREEN_DIR, '.server-stopped'),
-      JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
-    );
-    watcher.close();
-    clearInterval(lifecycleCheck);
-    server.close(() => process.exit(0));
-  }
+  const server = createDashboardServer(pmDir);
 
   function ownerAlive() {
     if (!OWNER_PID) return true;
     try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
   }
 
-  // Check every 60s: exit if owner process died or idle for 30 minutes
   const lifecycleCheck = setInterval(() => {
-    if (!ownerAlive()) shutdown('owner process exited');
-    else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) shutdown('idle timeout');
+    if (!ownerAlive()) {
+      console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
+      clearInterval(lifecycleCheck);
+      server.close(() => process.exit(0));
+    } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+      console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
+      clearInterval(lifecycleCheck);
+      server.close(() => process.exit(0));
+    }
   }, 60 * 1000);
   lifecycleCheck.unref();
+
+  // Archive completed canvases older than 24 hours on startup
+  archiveCompletedCanvases(pmDir);
 
   server.listen(PORT, HOST, () => {
     const address = server.address();
@@ -5931,10 +5616,9 @@ async function startServer() {
     const info = JSON.stringify({
       type: 'server-started', port: boundPort, host: HOST,
       url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
-      screen_dir: SCREEN_DIR, mode: MODE
+      pm_dir: pmDir, mode: 'dashboard'
     });
     console.log(info);
-    fs.writeFileSync(path.join(SCREEN_DIR, '.server-info'), info + '\n');
   });
 }
 
@@ -5944,7 +5628,7 @@ if (require.main === module) {
 
 module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
-  parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
+  parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
   readProposalMeta, proposalGradient, sanitizeGradient,
   readGroomState, groomPhaseLabel, buildProposalCards, findProposalAncestor, buildBacklogGrouped, buildBacklogKanban,
