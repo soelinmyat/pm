@@ -27,13 +27,19 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue agent instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
-**Codex runtime mapping:**
-- Create persistent worker: `spawn_agent`
-- Wait for planning/implementation summary: `wait_agent`
-- Resume an existing worker: `resume_agent`, then `send_input`
-- Ping a worker or deliver "merge now": `send_input`
-- Shutdown a worker at cleanup: `close_agent`
-- Task lists and worker metadata live in `.pm/dev-sessions/epic-{parent-slug}.md` — there is no separate team/task API
+**Runtime mapping:**
+
+| Action | Claude Code | Codex |
+|--------|------------|-------|
+| Create persistent worker | `Agent({ name: "agent-{slug}", subagent_type: "pm:developer", prompt: "..." })` | `spawn_agent` |
+| Wait for result | Agent returns when done | `wait_agent` |
+| Resume worker for implementation | `SendMessage({ to: "agent-{slug}", content: "Phase 2 — go implement..." })` | `resume_agent` + `send_input` |
+| Ping / deliver "merge now" | `SendMessage({ to: "agent-{slug}", content: "..." })` | `send_input` |
+| Shutdown | Agent terminates on final response | `close_agent` |
+
+<HARD-RULE>
+In Claude Code, you MUST use named agents (`name: "agent-{slug}"`) and `SendMessage` to resume them. Do NOT spawn a fresh `Agent()` for implementation — that loses the codebase context from planning. The whole point of combined workers is context preservation.
+</HARD-RULE>
 
 ---
 
@@ -191,7 +197,7 @@ In the epic state file, create one worker slot per sub-issue. This is the source
 | 1 | {ISSUE_ID} | {TITLE} | {SIZE} | {DEPS} | agent-{slug} | pending | feat/{slug} | .worktrees/{slug} | planning |
 ```
 
-Set `Worker ID` to `pending` until the worker is spawned. Update it immediately after `spawn_agent` returns.
+Set `Worker ID` to `pending` until the worker is spawned. Update it immediately after the `Agent()` call returns or `spawn_agent` completes.
 
 ---
 
@@ -229,10 +235,13 @@ Spawn a **persistent worker** per sub-issue using `subagent_type: "pm:developer"
 
 **Always use `subagent_type: "pm:developer"`** — never spawn a generic agent. The developer agent has TDD methodology, plan structure conventions, epic worker communication protocol, and anti-pattern awareness built in.
 
-Prompt template for the worker:
+Spawn with a **name** so the same agent can be resumed later:
 
 ```
-Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
+Agent({
+  name: "agent-{slug}",
+  subagent_type: "pm:developer",
+  prompt: `Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -256,10 +265,11 @@ PLAN_COMPLETE
 - summary: {3-line summary}
 - tasks: {N}
 
-Stop after sending the summary. You will be resumed for implementation after epic review.
+Stop after sending the summary. You will be resumed for implementation after epic review.`
+})
 ```
 
-The orchestrator waits for the worker's planning result (Codex: `wait_agent`). Only the returned summary enters the orchestrator's context — not the worker's internal work.
+The orchestrator waits for the worker's planning result (the named Agent returns when done). Only the returned summary enters the orchestrator's context — not the worker's internal work.
 
 **Skip individual RFC review for groomed issues.** Epic review (Stage 3) is the quality gate.
 
@@ -449,15 +459,24 @@ For waves with 2+ sub-issues:
 
 2. **Set all issue statuses** to In Progress.
 
-3. **Resume all workers simultaneously.** The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
+3. **Resume all workers simultaneously** via `SendMessage`. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
+
+   ```
+   // Resume each named worker in parallel
+   SendMessage({ to: "agent-{slug-A}", content: "Phase 2 — go implement. Mode: parallel. ..." })
+   SendMessage({ to: "agent-{slug-B}", content: "Phase 2 — go implement. Mode: parallel. ..." })
+   ```
 
 4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
    - If any agent reports "Blocked": pause, report to user.
    - If all report "Ready to merge": proceed to sequential merge.
 
-5. **Sequential merge.** For each PR in the wave, in dependency order, resume the saved worker id (Codex: `resume_agent`, then `send_input`) with:
+5. **Sequential merge.** For each PR in the wave, in dependency order, send merge instruction to the named worker:
    ```
-   Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup.
+   SendMessage({
+     to: "agent-{slug}",
+     content: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
+   })
    ```
    Wait for "Merged." before telling the next worker to merge.
 
@@ -468,10 +487,12 @@ For waves with 2+ sub-issues:
 
 #### "Go implement" instruction template
 
-Resume worker `{worker_id}` (Codex: `resume_agent`, then `send_input`) with:
+Resume the named worker via `SendMessage`:
 
 ```
-Phase 2 — Implementation approved. Go implement.
+SendMessage({
+  to: "agent-{slug}",
+  content: `Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
@@ -501,7 +522,8 @@ Lifecycle:
    If Mode is "parallel": STOP after PR creation, report "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed."
 
 If blocked, reply:
-Blocked: {reason}
+Blocked: {reason}`
+})
 ```
 
 ### 4.4 Checkpoint after each sub-issue
@@ -530,9 +552,9 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 
 | Step | Action |
 |------|--------|
-| 1 | **Ping:** send the saved worker id `Status check: are you still working on {ISSUE_ID}?` |
+| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", content: "Status check: are you still working on {ISSUE_ID}?" })` |
 | 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
-| 3 | If no response to ping → the worker is dead. Spawn a **fresh persistent worker** (`subagent_type: "pm:developer"`) with the recovery prompt below |
+| 3 | If no response to ping → the worker is dead. Spawn a **fresh named worker** with the same name (`name: "agent-{slug}"`, `subagent_type: "pm:developer"`) and the recovery prompt below |
 | 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
 | 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
 
@@ -605,13 +627,16 @@ After all sub-issues are merged and tracker is updated:
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
-**5.3.1 Close workers individually:**
+**5.3.1 Close workers:**
+
+Named agents in Claude Code terminate naturally when they return their final response ("Merged." or "Blocked."). No explicit close needed — they're already done by the time wrap-up runs.
+
+If any agent is still alive (stuck, waiting), send a shutdown message:
 ```
-for each remaining worker id:
-  close_agent({ target: "{worker_id}" })
+SendMessage({ to: "agent-{slug}", content: "Epic complete. Shut down." })
 ```
 
-Note: Workers for fully-implemented sub-issues (0 tasks) should already have been closed in Stage 4.0. Only workers that performed implementation need cleanup here.
+Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
 
 **5.3.2 Remove state files:**
 ```bash

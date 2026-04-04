@@ -95,10 +95,10 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
 | `dev/references/implementation-flow.md` (reference) | Single: Stages 5–7, Epic: Stage 4 implementation |
-| `pm:tdd` | Single: Implement (all) |
-| `pm:subagent-dev` | Single: Implement (all) |
+| `pm:tdd` | Single: Implement via `dev-{slug}` agent (all) |
+| `pm:subagent-dev` | Single: Implement via `dev-{slug}` agent (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (all sizes with UI) |
+| `pm:qa` | Single: QA ship gate (named agent `qa-{slug}`, persistent across re-verify iterations) |
 | `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery

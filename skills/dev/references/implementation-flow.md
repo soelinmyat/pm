@@ -2,8 +2,9 @@
 
 Shared implementation lifecycle used by both single-issue dev and epic sub-issue workers. Everything from "plan approved" through "merged and cleaned up" lives here.
 
-**Context:** This flow is invoked in two ways:
-- **Single-issue:** The dev orchestrator follows this inline after plan approval (or directly after intake for XS/S).
+**Context:** This flow is invoked by named/persistent agents:
+- **Single-issue (M/L/XL):** The named `dev-{slug}` agent follows this after the orchestrator sends "go implement" via SendMessage. The agent preserves codebase context from the planning phase.
+- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase, no named agent).
 - **Epic sub-issue:** A persistent worker agent follows this after the orchestrator sends "go implement." The worker may be in sequential or parallel mode.
 
 **Mode** (epic only — single-issue is always sequential):
@@ -15,8 +16,9 @@ Shared implementation lifecycle used by both single-issue dev and epic sub-issue
 ## Lifecycle
 
 ```
-Setup -> Implement -> Simplify -> Design Critique (if UI) -> QA (if UI) ->
-Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Push + PR ->
+Setup -> Implement -> Simplify -> Design Critique (if UI) ->
+  QA named agent (if UI, iterates on Fail) ->
+  Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Push + PR ->
   Merge -> Cleanup -> Done
   [epic parallel] STOP -> "Ready to merge." -> (wait for "Merge now") -> Merge -> Cleanup -> "Merged."
 ```
@@ -241,9 +243,11 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ---
 
-## Step 5: QA — `pm:qa`
+## Step 5: QA — Named Agent
 
-Runs after simplify and design critique for any task that changes UI. Invokes `pm:qa` to test the feature like a senior human QA: generate a risk-based test charter, execute exploratory and scripted testing via Playwright CLI (web) or Maestro (mobile), and issue a ship verdict with health score.
+Runs after simplify and design critique for any task that changes UI. Spawns a **persistent named QA agent** that retains servers, auth, design tokens, test charter, and previous findings across fix-and-retest iterations. The agent runs assertion-driven testing via Playwright MCP (web) or Maestro (mobile) and issues a ship verdict with health score.
+
+**Why a named agent instead of skill re-invocation:** Each `pm:qa` skill invocation paid a full Phase 0 cold start (server startup, auth, design token discovery, seed verification) plus Phase 1-2 rebuild (orient, charter). On re-verify after fixing issues, that's ~60-70% wasted work. A named agent runs Phase 0-2 once and retains everything for subsequent iterations.
 
 **Why here (after simplify and design critique, before review):** QA tests the final state of the code. Simplify and Design Critique both modify code and UI. Running QA after them means the verdict applies to what will actually ship, not an intermediate build.
 
@@ -252,58 +256,131 @@ Runs after simplify and design critique for any task that changes UI. Invokes `p
 - **Backend-only, config-only, docs-only:** skip
 - **Dev servers can't start** (e.g. DB not running): skip, log reason in `.pm/dev-sessions/{slug}.md`
 
-### How to invoke
+### Spawn the QA agent
 
-`pm:qa` reads context from the dev session automatically. Pass the relevant flags:
+Spawn a named agent that stays alive for the QA iteration loop. The agent reads context from the dev session and follows `pm:qa` (SKILL.md) in persistent mode.
 
-| Size | Invocation | What `/qa` does |
-|------|------------|-----------------|
-| **XS** (UI) | `pm:qa --quick --page <affected-route>` | Smoke check: navigate, render, console. ~1 min. |
-| **S** (UI) | `pm:qa --page <affected-route> --diff` | Focused QA on affected route. Builds test charter from diff. ~2-3 min. |
-| **M/L/XL** (UI) | `pm:qa --feature "<description>" --diff` | Full QA with test charter, exploratory + scripted testing, health score. ~5-8 min. |
+```
+Agent({
+  name: "qa-{slug}",
+  subagent_type: "pm:qa-tester",
+  prompt: `You are the QA agent for this dev session. Follow the pm:qa skill
+in persistent agent mode.
 
-For mobile tasks, add `--mobile` and use `--screen` instead of `--page`.
+**Session file:** .pm/dev-sessions/{slug}.md
+**Feature:** {feature description from ticket/spec}
+**Acceptance criteria:**
+{acceptance criteria list}
+**Affected routes:** {routes from plan or git diff}
+**Platform:** {web | mobile}
+**Tier:** {Quick | Focused | Full}
+**Design critique passed:** {yes | no}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
-### Context handoff
+Run full QA (Phase 0-6). Report your verdict.
+Stay alive — I will send you re-verify messages if fixes are needed.`
+})
+```
 
-When invoking `/qa` from `/dev`, pass this context:
-- **Feature description:** from the ticket or spec
-- **Affected routes/screens:** from the plan or implementation changes
-- **Acceptance criteria:** from the ticket or spec
-- **Platform:** web or mobile (from platform detection in implement stage)
+| Size | Tier | What the agent does |
+|------|------|---------------------|
+| **XS** (UI) | Quick | Smoke: readiness gate, console errors, render check via DOM. ~1 min. |
+| **S** (UI) | Focused | Diff-aware assertions for changed components + affected routes. ~2-3 min. |
+| **M/L/XL** (UI) | Full | AC-driven assertions + interaction testing + 3 viewports. ~5-8 min. |
+
+For mobile tasks, include `Platform: mobile` in the prompt.
 
 ### Gate behavior
 
-`pm:qa` returns a structured verdict. This is a **ship gate**:
+The QA agent returns a structured verdict. This is a **ship gate**:
 
 | QA Verdict | Action |
 |------------|--------|
 | **Pass** | Proceed to Review / Code Scan |
 | **Pass with concerns** | Proceed to Review / Code Scan. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
-| **Fail** | Return to Implement. Fix the issues `/qa` found, re-run affected tests, then re-run `/qa`. |
+| **Fail** | Fix the issues, then send re-verify message to the same agent. |
 | **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
 
-**Shipping does not continue after QA Fail.** Fix issues and `pm:qa --re-verify` re-tests the affected areas. No silent downgrades.
+**Shipping does not continue after QA Fail.** Fix issues and re-verify. No silent downgrades.
+
+### Re-verify via SendMessage (not re-invocation)
+
+When the QA agent returns **Fail**, fix the issues, run tests, then send a message to the same agent:
+
+```
+SendMessage({
+  to: "qa-{slug}",
+  content: `Fixed the following issues:
+1. {finding-id}: {what was fixed}
+2. {finding-id}: {what was fixed}
+
+Re-verify these specific findings. Also smoke-check adjacent routes for regressions.
+Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
+})
+```
+
+**What the agent retains across iterations:**
+- Running servers (no restart)
+- Auth session (no re-login)
+- Design token lookup (no re-discovery)
+- Test charter (no rebuild)
+- Previous findings (no re-parse from state file)
+- Browser session (no new session)
+
+**What the agent does on re-verify:**
+- Re-runs the exact assertions from failed findings
+- Marks each as **Fixed** or **Still present**
+- Smoke-checks adjacent routes for regressions
+- Recomputes health score
+- Returns updated verdict
+
+### Iteration limits
+
+| Limit | Value | Action on exceed |
+|-------|-------|-----------------|
+| Max re-verify iterations | 3 | After 3 Fail cycles, ask user for guidance |
+| Agent context saturation | ~3 iterations of verbose DOM results | Respawn fresh agent with state file context |
+| Agent death (API overload, timeout) | Detected by no response | Respawn fresh agent, include previous findings from `.pm/dev-sessions/{slug}.md` |
+
+**Respawn pattern** (when agent dies or context saturates):
+
+```
+Agent({
+  name: "qa-{slug}",
+  subagent_type: "pm:qa-tester",
+  prompt: `You are a RESPAWNED QA agent. A previous QA agent ran but was terminated.
+
+**Session file:** .pm/dev-sessions/{slug}.md
+Read the ## QA section for previous findings and run history.
+
+Previous verdict: {Fail}. Issues were fixed since last run.
+Run in re-verify mode: re-check previous Critical/High findings,
+smoke-check routes, recompute health score.
+
+Start from Phase 0 (fresh environment setup needed after respawn).`
+})
+```
 
 ### Handling issues found
 
-- **Critical/High bugs:** Fix immediately, re-run tests, re-run `pm:qa --re-verify` on affected areas.
+- **Critical/High bugs:** Fix immediately, re-run tests, send re-verify to agent.
 - **Medium bugs in core flow:** Fix before proceeding (likely a Fail verdict).
 - **Medium bugs in edge flows:** Note in `.pm/dev-sessions/{slug}.md`, create backlog items after merge.
 - **Low bugs:** Note in `.pm/dev-sessions/{slug}.md`, do not fix in this session.
 
 ### State file update
 
-After QA completes, update `.pm/dev-sessions/{slug}.md`:
+After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 ```
 ## QA
 - QA verdict: Pass | Pass with concerns | Fail | Blocked
 - Ship recommendation: Ship | Ship with caution | Do not ship | Blocked
 - Issues found: none | Critical: N, High: N, Medium: N, Low: N
-- Issues fixed: [list of issues fixed in this cycle]
+- Issues fixed: [list of issues fixed across all iterations]
 - Issues deferred: [list of issues for backlog]
 - Confidence: High | Medium | Low
-- Re-runs: 0 | N (after fixing issues)
+- Iterations: 1 | N (initial + re-verify rounds)
+- Agent: qa-{slug} (named, persistent)
 ```
 
 ---
