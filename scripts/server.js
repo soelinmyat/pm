@@ -3475,14 +3475,20 @@ function handleKbStrategyDetail(res, pmDir) {
   const filePath = path.join(pmDir, 'strategy.md');
   let contentHtml;
   if (!fs.existsSync(filePath)) {
-    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
+    contentHtml = `<div class="detail-page">
+<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<h1>Strategy</h1>
+</div>` +
       renderEmptyState('No strategy defined', 'Your product strategy defines ICP, value proposition, competitive positioning, and priorities.', '/pm:strategy', 'Define your strategy');
   } else {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = parseFrontmatter(raw);
     const rendered = renderStrategyWithViz(parsed.body);
-    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
-      '<div class="markdown-body">' + rendered + '</div>';
+    contentHtml = `<div class="detail-page">
+<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<h1>Strategy</h1>
+<div class="markdown-body">${rendered}</div>
+</div>`;
   }
   const html = dashboardPage('Strategy', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

@@ -3973,3 +3973,34 @@ test('PM-140: renderKanbanTemplate renders legend when provided', () => {
   assert.ok(html.includes('backlog-legend'), 'must include legend HTML');
   assert.ok(html.includes('Legend here'), 'must include legend content');
 });
+
+// --- handleKbStrategyDetail uses detail-page pattern (Task 7) ---
+
+test('PM-140: handleKbStrategyDetail uses .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntitle: Strategy\n---\n# Strategy\nOur ICP is startups.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=strategy');
+      assert.ok(body.includes('detail-page'), 'must use .detail-page wrapper');
+      assert.ok(body.includes('detail-breadcrumb'), 'must use .detail-breadcrumb nav');
+      assert.ok(body.includes('Knowledge Base'), 'breadcrumb must link to KB');
+      assert.ok(body.includes('Strategy'), 'must show title');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-140: handleKbStrategyDetail empty state uses .detail-page wrapper', async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=strategy');
+      assert.ok(body.includes('detail-page'), 'empty state must use .detail-page wrapper');
+      assert.ok(body.includes('detail-breadcrumb'), 'empty state must use .detail-breadcrumb');
+      assert.ok(body.includes('No strategy defined'), 'must show empty state message');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
