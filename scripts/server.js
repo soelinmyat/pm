@@ -3570,6 +3570,7 @@ function handleKbLandscapeDetail(res, pmDir) {
 }
 
 function handleKbTopicsDetail(res, pmDir) {
+  // Landscape content (shown before topic cards)
   let landscapeHtml = '';
   const landscapePath = path.join(pmDir, 'landscape.md');
   if (fs.existsSync(landscapePath)) {
@@ -3581,33 +3582,40 @@ function handleKbTopicsDetail(res, pmDir) {
     if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
-  } else {
-    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
 
-  let topicsHtml = '';
+  // Topic cards (HTML stays in handler)
+  const topicCards = [];
   const researchDir = path.join(pmDir, 'research');
   if (fs.existsSync(researchDir)) {
     const topics = fs.readdirSync(researchDir, { withFileTypes: true })
       .filter(e => e.isDirectory());
-    if (topics.length > 0) {
-      const cards = topics.map(t => {
-        const findingsPath = path.join(researchDir, t.name, 'findings.md');
-        if (!fs.existsSync(findingsPath)) return '';
-        const raw = fs.readFileSync(findingsPath, 'utf-8');
-        const { data } = parseFrontmatter(raw);
-        const meta = buildTopicMeta(t.name, data, findingsPath);
-        return `<article class="card">
+    for (const t of topics) {
+      const findingsPath = path.join(researchDir, t.name, 'findings.md');
+      if (!fs.existsSync(findingsPath)) continue;
+      const raw = fs.readFileSync(findingsPath, 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const meta = buildTopicMeta(t.name, data, findingsPath);
+      topicCards.push(`<article class="card">
           <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
           <p class="meta">${escHtml(meta.subtitle)}</p>
           <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
-        </article>`;
-      }).join('');
-      topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
+        </article>`);
     }
   }
 
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Research</h1></div>' + landscapeHtml + topicsHtml;
+  const sections = [];
+  if (topicCards.length > 0) {
+    sections.push({ title: 'Topics', items: topicCards, layout: 'cards' });
+  }
+
+  const contentHtml = renderListTemplate({
+    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
+    title: 'Research',
+    contentBefore: landscapeHtml || undefined,
+    sections,
+    emptyState: !landscapeHtml ? renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market') : undefined,
+  });
   const html = dashboardPage('Research', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
