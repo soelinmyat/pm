@@ -3573,24 +3573,6 @@ function handleResearchTopic(res, pmDir, topic) {
   const { data, body } = parseFrontmatter(raw);
   const meta = buildTopicMeta(topic, data, findingsPath);
 
-  // Breadcrumb
-  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
-  <a href="/kb?tab=research">Knowledge Base</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(meta.label)}</span>
-</nav>`;
-
-  // Title + subtitle
-  const titleHtml = `<h1 class="detail-title">${escHtml(meta.label)}</h1>
-<p class="subtitle">${escHtml(meta.subtitle)}</p>`;
-
-  // Meta bar: origin badge + evidence badge + freshness badge + action hint
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:refresh ' + topic)}</div>`;
-  const metaBar = `<div class="detail-meta-bar">${meta.badgesHtml}${actionHint}</div>`;
-
-  // Sections
-  const sections = [];
-
   // Split body into main findings and sources/references
   const sourcesRe = /\n## (?:Sources|References)\s*\n/;
   const sourcesMatch = body.match(sourcesRe);
@@ -3604,26 +3586,24 @@ function handleResearchTopic(res, pmDir, topic) {
   // Strip leading h1 if it duplicates the page title
   findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, '');
 
-  // Main findings section
-  sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Findings</h2>
-  <div class="markdown-body">${renderMarkdown(findingsBody)}</div>
-</section>`);
-
-  // Sources section (if present)
+  // Build sections
+  const templateSections = [];
+  templateSections.push({ title: 'Findings', html: `<div class="markdown-body">${renderMarkdown(findingsBody)}</div>` });
   if (sourcesBody.trim()) {
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Sources</h2>
-  <div class="markdown-body">${renderMarkdown(sourcesBody)}</div>
-</section>`);
+    templateSections.push({ title: 'Sources', html: `<div class="markdown-body">${renderMarkdown(sourcesBody)}</div>` });
   }
 
-  const pageBody = `<div class="detail-page">
-${breadcrumb}
-${titleHtml}
-${metaBar}
-${sections.join('\n')}
-</div>`;
+  const pageBody = renderTemplate('detail', {
+    breadcrumb: [
+      { label: 'Knowledge Base', href: '/kb?tab=research' },
+      { label: meta.label },
+    ],
+    title: meta.label,
+    subtitle: meta.subtitle,
+    metaBadges: [{ html: meta.badgesHtml }],
+    sections: templateSections,
+    actionHint: '/pm:refresh ' + topic,
+  });
 
   const html = dashboardPage(meta.label, '/kb', pageBody);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
