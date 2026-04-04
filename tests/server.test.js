@@ -220,7 +220,7 @@ test('GET /roadmap/<slug> shows contextual action hint', async () => {
 // 2d. Kanban cards show action hints for idea items
 // ---------------------------------------------------------------------------
 
-test('GET /roadmap kanban shows per-card hints for ideas', async () => {
+test('GET /roadmap kanban does not show per-card groom hints', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/my-idea.md': '---\nstatus: idea\ntitle: My Idea\n---\n# Idea\n',
     'pm/backlog/shipped-item.md': '---\nstatus: done\ntitle: Shipped\n---\n# Shipped\n',
@@ -229,7 +229,7 @@ test('GET /roadmap kanban shows per-card hints for ideas', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/roadmap');
-      assert.ok(body.includes('/pm:groom my-idea'), 'idea card must show groom hint with slug');
+      assert.ok(!body.includes('/pm:groom my-idea'), 'idea card must not show groom hint');
       assert.ok(!body.includes('/pm:groom shipped-item'), 'shipped card must not show groom hint');
     } finally { await close(); }
   } finally { cleanup(); }
@@ -2532,110 +2532,67 @@ test('PM-125: DASHBOARD_CSS contains detail page classes', () => {
   }
 });
 
-test('PM-125: GET /proposals/{slug} renders .detail-page wrapper', async () => {
-  const meta = { title: 'Dashboard Redesign', status: 'approved', issueCount: 3, date: '2026-03-17', outcome: 'Improve dashboard UX' };
+test('PM-125: GET /proposals/{slug} serves proposal HTML with back link', async () => {
+  const meta = { title: 'Dashboard Redesign', verdict: 'ready', id: 'P-05' };
+  const proposalHtml = '<!DOCTYPE html><html><head><title>Test</title></head><body><h1>Proposal</h1></body></html>';
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/proposals/dashboard-redesign.meta.json': JSON.stringify(meta),
+    'pm/backlog/proposals/dashboard-redesign.html': proposalHtml,
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { statusCode, body } = await httpGet(port, '/proposals/dashboard-redesign');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('class="detail-page"'), 'must have .detail-page wrapper');
+      assert.ok(body.includes('Back'), 'must have back link');
+      assert.ok(body.includes('history.back()'), 'back link must use browser history');
+      assert.ok(body.includes('<h1>Proposal</h1>'), 'must include original proposal HTML');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('PM-125: GET /proposals/{slug} renders .detail-breadcrumb with link to /proposals', async () => {
-  const meta = { title: 'My Proposal', status: 'draft' };
+test('PM-125: GET /proposals/{slug} shows /pm:dev for ready proposals', async () => {
+  const meta = { title: 'My Proposal', verdict: 'ready', id: 'P-05' };
+  const proposalHtml = '<!DOCTYPE html><html><head></head><body><h1>Ready</h1></body></html>';
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
+    'pm/backlog/proposals/my-proposal.html': proposalHtml,
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals/my-proposal');
+      assert.ok(body.includes('/pm:dev P-05'), 'ready proposals must show /pm:dev with ID');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-125: GET /proposals/{slug} shows /pm:groom for non-ready proposals', async () => {
+  const meta = { title: 'My Proposal', verdict: 'draft' };
+  const proposalHtml = '<!DOCTYPE html><html><head></head><body><h1>Draft</h1></body></html>';
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
+    'pm/backlog/proposals/my-proposal.html': proposalHtml,
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals/my-proposal');
+      assert.ok(body.includes('/pm:groom my-proposal'), 'draft proposals must show /pm:groom');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-125: GET /proposals/{slug} returns 404 without HTML file', async () => {
+  const meta = { title: 'My Proposal', verdict: 'draft' };
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('class="detail-breadcrumb"'), 'must have .detail-breadcrumb');
-      assert.ok(body.includes('href="/proposals"'), 'breadcrumb must link to /proposals');
-    } finally { await close(); }
-  } finally { cleanup(); }
-});
-
-test('PM-125: GET /proposals/{slug} renders .detail-meta-bar', async () => {
-  const meta = { title: 'My Proposal', status: 'approved', issueCount: 5, date: '2026-04-01' };
-  const { pmDir, cleanup } = withPmDir({
-    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('class="detail-meta-bar"'), 'must have .detail-meta-bar');
-      assert.ok(body.includes('approved'), 'meta bar must show status');
-      assert.ok(body.includes('5 issues'), 'meta bar must show issue count');
-    } finally { await close(); }
-  } finally { cleanup(); }
-});
-
-test('PM-125: GET /proposals/{slug} renders .detail-section elements', async () => {
-  const meta = { title: 'My Proposal', status: 'draft', outcome: 'Better UX for users' };
-  const { pmDir, cleanup } = withPmDir({
-    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('class="detail-section"'), 'must have .detail-section');
-      assert.ok(body.includes('Better UX for users'), 'must show outcome');
-    } finally { await close(); }
-  } finally { cleanup(); }
-});
-
-test('PM-125: GET /proposals/{slug} renders .click-to-copy element', async () => {
-  const meta = { title: 'My Proposal', status: 'draft' };
-  const { pmDir, cleanup } = withPmDir({
-    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('class="click-to-copy"'), 'must have .click-to-copy');
-      assert.ok(body.includes('/pm:groom my-proposal'), 'click-to-copy must contain groom command');
-    } finally { await close(); }
-  } finally { cleanup(); }
-});
-
-test('PM-125: GET /proposals/{slug} renders strategy alignment section', async () => {
-  const meta = { title: 'My Proposal', status: 'approved', strategy_alignment: 'Aligns with Q2 goal of improving retention' };
-  const { pmDir, cleanup } = withPmDir({
-    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('Strategy Alignment'), 'must show strategy alignment section');
-      assert.ok(body.includes('detail-strategy-card'), 'must use strategy card styling');
-      assert.ok(body.includes('Aligns with Q2 goal'), 'must show alignment text');
-    } finally { await close(); }
-  } finally { cleanup(); }
-});
-
-test('PM-125: GET /proposals/{slug} renders research refs as tags', async () => {
-  const meta = { title: 'My Proposal', status: 'draft', research_refs: ['dashboard-linear-quality'] };
-  const { pmDir, cleanup } = withPmDir({
-    'pm/backlog/proposals/my-proposal.meta.json': JSON.stringify(meta),
-    'pm/research/dashboard-linear-quality/findings.md': '---\ntopic: Dashboard Linear Quality\n---\n# Findings\n',
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, '/proposals/my-proposal');
-      assert.ok(body.includes('detail-research-tag'), 'must render research refs as tags');
-      assert.ok(body.includes('Dashboard Linear Quality'), 'must resolve research topic label');
+      const { statusCode } = await httpGet(port, '/proposals/my-proposal');
+      assert.equal(statusCode, 404);
     } finally { await close(); }
   } finally { cleanup(); }
 });

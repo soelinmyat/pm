@@ -581,6 +581,18 @@ If an issue tracker is available, you MUST update ALL issue statuses before proc
 2. **Update parent issue:** Set parent issue to "Done". Comment with summary table (sub-issue | PR | commit).
 3. **Announce:** Report the tracker update to the user: "Updated {N} issues to Done in {tracker}."
 
+### 5.1b Knowledge base update
+
+After all sub-issues are merged and tracker is updated:
+
+1. **Backlog items:** For each sub-issue, if `pm/backlog/{slug}.md` exists, update frontmatter `status` to `done` and `updated` to today's date.
+
+2. **Parent backlog item:** If `pm/backlog/{parent-slug}.md` exists, update its `status` to `done`.
+
+3. **Proposal status:** Proposals have two status fields — `verdict` (grooming outcome, owned by groom) and `status` (implementation lifecycle, owned by dev). **Never overwrite `verdict` or `verdictLabel`.**
+
+   If `pm/backlog/proposals/{parent-slug}.meta.json` exists, set `"status": "shipped"`. If the proposal slug differs from the parent slug, also check child backlog items' `parent` fields to find the matching proposal and update it.
+
 ### 5.2 Retro
 
 - What was smooth, what was hard

@@ -563,7 +563,7 @@ const DASHBOARD_CSS = `
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
-a:hover { color: var(--accent-hover); text-decoration: underline; }
+a:hover { color: var(--accent-hover); }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 button:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible,
 input:focus-visible, select:focus-visible, textarea:focus-visible {
@@ -1064,17 +1064,18 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 /* Shipped items (home) */
 .home-shipped-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .home-shipped-item {
-  display: flex; align-items: baseline; gap: var(--space-3);
+  display: flex; flex-direction: column; gap: 2px;
   padding: var(--space-3) var(--space-4); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   text-decoration: none; color: var(--text);
   transition: background 150ms;
 }
 .home-shipped-item:hover { background: var(--surface-raised, var(--surface)); }
+.home-shipped-top { display: flex; align-items: baseline; gap: var(--space-3); }
 .home-shipped-title { font-size: var(--text-base); font-weight: 500; flex: 1; }
-.home-shipped-context { font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); }
+.home-shipped-context { font-size: var(--text-xs); color: var(--text-muted); }
 .home-shipped-date {
-  font-size: var(--text-xs); color: var(--text-faint, var(--text-muted));
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
@@ -1306,7 +1307,13 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .detail-issue-list a { color: var(--text); text-decoration: none; font-size: var(--text-base); }
 .detail-issue-list a:hover { color: var(--accent); }
 .detail-issue-id { font-size: var(--text-xs); font-weight: 600; color: var(--accent); margin-right: var(--space-1); }
-.detail-proposal-iframe { height: 600px; }
+.detail-proposal-link {
+  display: block; padding: var(--space-3) var(--space-4); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); text-align: center;
+  color: var(--accent); font-size: var(--text-sm); font-weight: 500;
+  transition: background 150ms;
+}
+.detail-proposal-link:hover { background: var(--surface-raised); }
 
 /* Toast notifications */
 .toast-container { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; pointer-events: none; }
@@ -1649,6 +1656,10 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  } else if (/^\/proposals\/[^/]+\/wireframes\//.test(urlPath)) {
+    // /proposals/{proposal}/wireframes/{wireframe} → serve from pm/backlog/wireframes/
+    const wfSlug = decodeURIComponent(urlPath.replace(/^\/proposals\/[^/]+\/wireframes\//, '')).replace(/\/$/, '').replace(/\.html$/, '');
+    handleWireframe(res, pmDir, wfSlug);
   } else if (urlPath.startsWith('/proposals/')) {
     const slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
@@ -1899,22 +1910,61 @@ function readProposalMeta(slug, pmDir) {
 
 function buildProposalRows(pmDir) {
   const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const backlogDir = path.resolve(pmDir, 'backlog');
   const proposals = [];
+
+  // Build a map of parent → child statuses from backlog
+  const childStatuses = {};
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const parent = data.parent;
+      if (parent && parent !== 'null') {
+        if (!childStatuses[parent]) childStatuses[parent] = [];
+        childStatuses[parent].push(data.status || 'idea');
+      }
+    }
+  }
+
   if (fs.existsSync(proposalsDir)) {
     const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
     for (const file of files) {
       const slug = file.replace('.meta.json', '');
       const meta = readProposalMeta(slug, pmDir);
       if (!meta) continue;
+      // Skip shipped proposals — check both status field and legacy verdict
+      const metaStatus = (meta.status || '').toLowerCase();
       const verdict = (meta.verdict || '').toLowerCase();
-      if (verdict === 'shipped') continue;
+      if (metaStatus === 'shipped' || verdict === 'shipped') continue;
+
+      // Auto-detect shipped: if proposal has children and ALL are done
+      const children = childStatuses[slug];
+      if (children && children.length > 0 && children.every(s => s === 'done')) continue;
+
+      // Also check if a matching backlog item (same slug) is done
+      const backlogFile = path.join(backlogDir, slug + '.md');
+      if (fs.existsSync(backlogFile)) {
+        const blRaw = fs.readFileSync(backlogFile, 'utf-8');
+        const { data: blData } = parseFrontmatter(blRaw);
+        if (blData.status === 'done') continue;
+      }
+
+      // Determine display status: implementation status takes precedence over verdict
+      const displayStatus = meta.status === 'in-progress' ? 'In Progress'
+        : meta.verdict === 'ready' ? 'Ready'
+        : meta.verdict === 'pause' ? 'Paused'
+        : meta.verdictLabel || meta.verdict || 'Groomed';
+      const displayBadge = meta.status === 'in-progress' ? 'in-progress'
+        : meta.verdict || 'groomed';
+
       proposals.push({
         slug,
         id: meta.id || '',
         title: typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug),
         outcome: meta.outcome || '',
-        verdict: meta.verdict || '',
-        verdictLabel: meta.verdictLabel || '',
+        verdict: displayBadge,
+        verdictLabel: displayStatus,
         issueCount: meta.issueCount || 0,
         date: meta.date || '',
       });
@@ -2012,13 +2062,43 @@ function parseStrategySnapshot(pmDir) {
   const raw = fs.readFileSync(strategyPath, 'utf-8');
   const { body } = parseFrontmatter(raw);
 
-  // Extract focus: first non-empty paragraph or ## Focus section
+  // Extract focus: a one-liner value prop / positioning statement.
+  // Priority: ## Focus/Vision > **Value prop:** > ## Value Prop > ## Product Identity first para
   let focus = '';
   const focusMatch = body.match(/## (?:Focus|Vision)\s*\n+(.*?)(?:\n\n|\n##)/s);
   if (focusMatch) focus = focusMatch[1].replace(/\n/g, ' ').trim();
   if (!focus) {
-    const firstPara = body.split(/\n\n/)[0];
-    focus = firstPara.replace(/^#.*\n/, '').trim();
+    // Look for **Value prop:** bold inline label
+    const vpInline = body.match(/\*\*Value prop[^*]*\*\*[:\s]*(.*?)(?:\n\n|\n-|\n\*|\n\d+\.|\n##)/s);
+    if (vpInline) {
+      let text = vpInline[1].replace(/\n/g, ' ').trim();
+      // Accept . ! ? or trailing : as sentence end
+      const sentence = text.match(/^[^.!?:]*[.!?:]/);
+      focus = sentence ? sentence[0].replace(/:$/, '.').trim() : text.slice(0, 200);
+    }
+  }
+  if (!focus) {
+    // Look for ## Core Value Prop or ## Value Prop section
+    const vpSection = body.match(/## (?:Core )?Value Prop[^\n]*\s*\n+([\s\S]*?)(?:\n##|$)/);
+    if (vpSection) {
+      // Find first non-heading, non-empty line
+      for (const line of vpSection[1].split('\n')) {
+        const stripped = line.replace(/^#+\s+.*$/, '').replace(/^\*\*[^*]+\*\*[:\s]*/, '').trim();
+        if (stripped) {
+          const sentence = stripped.match(/^[^.!?]*[.!?]/);
+          focus = sentence ? sentence[0].trim() : stripped.slice(0, 200);
+          break;
+        }
+      }
+    }
+  }
+  if (!focus) {
+    // Fallback: ## Product Identity first meaningful paragraph
+    const idSection = body.match(/## (?:\d+\.\s*)?Product Identity\s*\n+([\s\S]*?)(?:\n##|$)/);
+    if (idSection) {
+      const sentence = idSection[1].replace(/\n/g, ' ').trim().match(/^[^.!?]*[.!?]/);
+      if (sentence) focus = sentence[0].trim();
+    }
   }
 
   // Extract priorities from ## Priorities section
@@ -2195,7 +2275,7 @@ function handleDashboardHome(res, pmDir) {
     </div>
     <div class="staleness">
       <span class="staleness-dot ${strategyData.staleness.level}"></span>
-      Updated ${escHtml(strategyData.staleness.label)}
+      ${escHtml(strategyData.staleness.label)}
     </div>
   </div>
 </section>` : '';
@@ -2288,9 +2368,11 @@ function handleDashboardHome(res, pmDir) {
   </div>
   <div class="home-shipped-list">
     ${recentShipped.map(s => `<a href="/roadmap/${escHtml(encodeURIComponent(s.slug))}" class="home-shipped-item">
-      <span class="home-shipped-title">${escHtml(s.title)}</span>
-      <span class="home-shipped-context">${escHtml(s.outcome)}</span>
-      <span class="home-shipped-date">${escHtml(s.dateLabel)}</span>
+      <span class="home-shipped-top">
+        <span class="home-shipped-title">${escHtml(s.title)}</span>
+        <span class="home-shipped-date">${escHtml(s.dateLabel)}</span>
+      </span>
+      ${s.outcome ? `<span class="home-shipped-context">${escHtml(s.outcome)}</span>` : ''}
     </a>`).join('')}
   </div>
 </section>` : '';
@@ -2341,7 +2423,7 @@ function handleDashboardHome(res, pmDir) {
         ${escHtml(competitorFreshness.label)}
       </div>
     </a>
-    <a href="/kb?tab=research" class="kb-health-card">
+    <a href="/kb" class="kb-health-card">
       <div class="kb-health-value">${evidenceCount}</div>
       <div class="kb-health-label">Customer evidence</div>
       <div class="kb-health-freshness">
@@ -3220,7 +3302,7 @@ function handleCompetitorsList(res, pmDir) {
   if (fs.existsSync(matrixPath)) {
     var matrixRaw = fs.readFileSync(matrixPath, 'utf-8');
     var matrixParsed = parseFrontmatter(matrixRaw);
-    matrixContent = '<section class="content-section">' + renderMarkdown(matrixParsed.body) + '</section>';
+    matrixContent = '<section id="feature-matrix" class="content-section">' + renderMarkdown(matrixParsed.body) + '</section>';
   }
 
   if (fs.existsSync(compDir)) {
@@ -3283,7 +3365,7 @@ function buildStrategyBanner(pmDir) {
   <div class="strategy-banner-actions">
     <div class="strategy-banner-meta">
       <span class="staleness-dot ${snapshot.staleness.level}"></span>
-      Updated ${escHtml(snapshot.staleness.label)}
+      ${escHtml(snapshot.staleness.label)}
     </div>
     <a href="/kb?tab=strategy" class="btn-sm">View strategy</a>
     ${deckExists ? '<a href="/strategy-deck" target="_blank" class="btn-sm">Slide deck</a>' : ''}
@@ -3422,7 +3504,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     ? fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory()).length
     : 0;
   const matrixPath = path.join(pmDir, 'competitors', 'matrix.md');
-  const matrixLink = fs.existsSync(matrixPath) ? '<a href="/kb?tab=competitors" class="section-link">Feature matrix</a>' : '';
+  const matrixLink = fs.existsSync(matrixPath) ? '<a href="/competitors#feature-matrix" class="section-link">Feature matrix</a>' : '';
 
   const body = `
 <div class="page-header">
@@ -3721,6 +3803,42 @@ ${actionHint}
   res.end(html);
 }
 
+/**
+ * Build an injectable header bar (style + html) for standalone HTML pages.
+ * @param {string} backLabel - Label for the back button
+ * @param {string} [title] - Optional center title
+ * @param {string} [copyCommand] - Optional command to show as click-to-copy
+ * @returns {{style: string, html: string}}
+ */
+function injectableHeaderBar(backLabel, title, copyCommand) {
+  const style = `<style>
+.pm-hdr{position:sticky;top:0;z-index:9999;display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:rgba(13,15,18,0.95);backdrop-filter:blur(8px);border-bottom:1px solid rgba(255,255,255,0.08);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.pm-hdr-back{color:#a0a4ab;text-decoration:none;font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px}
+.pm-hdr-back span{font-size:16px}
+.pm-hdr-title{color:#e8eaed;font-size:13px;font-weight:500}
+.pm-hdr-cmd{cursor:pointer;padding:4px 12px;background:rgba(94,106,210,0.15);border:1px solid rgba(94,106,210,0.3);border-radius:4px;color:#7c85e0;font-size:12px;font-family:ui-monospace,SFMono-Regular,monospace;display:flex;align-items:center;gap:6px}
+.pm-hdr-cmd code{color:inherit;background:none;padding:0}
+.pm-hdr-cmd .pm-hdr-icon{opacity:0.6;flex-shrink:0}
+.pm-hdr-toast{position:fixed;top:48px;right:16px;padding:4px 12px;background:#222;color:#4ade80;font-size:12px;border-radius:4px;opacity:0;transition:opacity 0.3s;pointer-events:none}
+</style>`;
+
+  const titleHtml = title ? `<span class="pm-hdr-title">${escHtml(title)}</span>` : '';
+  let rightHtml = '';
+  if (copyCommand) {
+    const escaped = escHtml(copyCommand);
+    rightHtml = `<span class="pm-hdr-cmd" onclick="navigator.clipboard.writeText('${escaped}').then(function(){var t=document.getElementById('pm-hdr-toast');t.style.opacity=1;setTimeout(function(){t.style.opacity=0},1500)})"><code>${escaped}</code><svg class="pm-hdr-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+  <span id="pm-hdr-toast" class="pm-hdr-toast">Copied!</span>`;
+  }
+
+  const html = `<div class="pm-hdr">
+  <a href="#" onclick="history.back();return false" class="pm-hdr-back"><span>&larr;</span> ${escHtml(backLabel)}</a>
+  ${titleHtml}
+  ${rightHtml}
+</div>`;
+
+  return { style, html };
+}
+
 function handleWireframe(res, pmDir, slug) {
   if (!slug || slug.includes('/') || slug.includes('..')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3736,8 +3854,11 @@ function handleWireframe(res, pmDir, slug) {
   }
   try {
     const content = fs.readFileSync(wfPath, 'utf-8');
+    const label = slug.replace(/^mockup-/, '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const wfHeader = injectableHeaderBar('Back', label);
+    const injected = content.replace(/(<\/head>)/i, wfHeader.style + '$1').replace(/(<body[^>]*>)/i, '$1' + wfHeader.html);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(content);
+    res.end(injected);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(dashboardPage('Wireframe Not Found', '/roadmap', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
@@ -3769,7 +3890,10 @@ function handleBacklog(res, pmDir) {
       if (!columns[status]) columns[status] = [];
       slugLookup[slug] = { id, title };
       const updated = data.updated || data.created || '';
-      columns[status].push({ slug, title, badge, priority, labels, scope, id, parent, updated });
+      // Only show top-level items on the kanban — skip sub-issues
+      if (!parent || parent === 'null') {
+        columns[status].push({ slug, title, badge, priority, labels, scope, id, parent, updated });
+      }
     }
   }
 
@@ -3785,16 +3909,10 @@ function handleBacklog(res, pmDir) {
     const parentInfo = item.parent && slugLookup[item.parent] ? slugLookup[item.parent] : null;
     const parentHtml = parentInfo ? `<span class="kanban-parent">&uarr; ${escHtml(parentInfo.id || item.parent)}</span>` : '';
     const topLine = (idHtml || parentHtml) ? `<div class="kanban-item-ids">${idHtml}${parentHtml}${badgeHtml}</div>` : '';
-    const hintHtml = status === 'idea'
-      ? `<div class="kanban-item-hint">/pm:groom ${escHtml(item.slug)}</div>`
-      : '';
-    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}" role="article">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
+    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}" role="article">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div></a>`;
   };
 
-  const COL_HINTS = {
-    'idea': 'Run <code>/pm:groom &lt;slug&gt;</code> to scope an idea',
-    'groomed': 'Edit <code>pm/backlog/&lt;slug&gt;.md</code> to update status',
-  };
+  const COL_HINTS = {};
 
   const VIEW_ALL_LABELS = { 'idea': 'ideas', 'groomed': 'groomed', 'shipped': 'shipped' };
 
@@ -3931,120 +4049,23 @@ function handleProposalDetail(res, pmDir, slug) {
     return;
   }
 
-  const title = meta.title || humanizeSlug(slug);
-  const status = meta.status || meta.verdict || 'draft';
-  const issueCount = meta.issueCount || (Array.isArray(meta.issues) ? meta.issues.length : 0);
-  const date = meta.date || meta.created || '';
-  const outcome = meta.outcome || '';
-  const strategyAlignment = meta.strategy_alignment || meta.strategy_check || '';
-  const researchRefs = Array.isArray(meta.research_refs) ? meta.research_refs : [];
-  const issues = Array.isArray(meta.issues) ? meta.issues : [];
-
-  // Breadcrumb
-  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
-  <a href="/proposals">Proposals</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(title)}</span>
-</nav>`;
-
-  // Title
-  const titleHtml = `<h1 class="detail-title">${escHtml(title)}</h1>`;
-
-  // Meta bar
-  const metaParts = [];
-  metaParts.push(`<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>`);
-  if (issueCount > 0) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="meta-item">${issueCount} issue${issueCount !== 1 ? 's' : ''}</span>`);
-  }
-  if (date) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="meta-item">${escHtml(date)}</span>`);
-  }
-  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
-
-  // Sections
-  const sections = [];
-
-  // Outcome section
-  if (outcome) {
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Outcome</h2>
-  <p>${escHtml(outcome)}</p>
-</section>`);
-  }
-
-  // Strategy alignment section
-  if (strategyAlignment) {
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Strategy Alignment</h2>
-  <div class="detail-strategy-card"><p>${escHtml(strategyAlignment)}</p></div>
-</section>`);
-  }
-
-  // Research references section
-  if (researchRefs.length > 0) {
-    const resolvedRefs = resolveResearchRefs(researchRefs, pmDir);
-    const tags = resolvedRefs.map(r =>
-      `<a href="/research/${escHtml(r.slug)}" class="detail-research-tag">${escHtml(r.label)}</a>`
-    ).join('');
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Research</h2>
-  <div class="detail-research-tags">${tags}</div>
-</section>`);
-  }
-
-  // Issues list section
-  if (issues.length > 0) {
-    const backlogDir = path.join(pmDir, 'backlog');
-    const issueItems = issues.map(issue => {
-      const issueSlug = typeof issue === 'object' ? (issue.slug || '') : String(issue);
-      if (!issueSlug) return '';
-      let issueTitle = humanizeSlug(issueSlug);
-      let issueId = '';
-      const issuePath = path.join(backlogDir, issueSlug + '.md');
-      if (fs.existsSync(issuePath)) {
-        const parsed = parseFrontmatter(fs.readFileSync(issuePath, 'utf-8'));
-        if (parsed.data.title) issueTitle = parsed.data.title;
-        if (parsed.data.id) issueId = parsed.data.id;
-      }
-      const idSpan = issueId ? `<span class="detail-issue-id">${escHtml(issueId)}</span>` : '';
-      return `<li><a href="/roadmap/${escHtml(issueSlug)}">${idSpan}${escHtml(issueTitle)}</a></li>`;
-    }).filter(Boolean).join('\n');
-    if (issueItems) {
-      sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Issues</h2>
-  <ul class="detail-issue-list">${issueItems}</ul>
-</section>`);
-    }
-  }
-
-  // Proposal embed (iframe) section
+  // Serve the proposal HTML directly with a sticky header bar
   const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
-  if (fs.existsSync(htmlPath)) {
-    sections.push(`<section class="detail-section">
-  <h2 class="detail-section-title">Full Proposal</h2>
-  <div class="wireframe-embed">
-    <div class="wireframe-header"><span class="wireframe-label">Proposal Document</span><a href="/proposals/${encodeURIComponent(slug)}/raw" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
-    <iframe src="/proposals/${encodeURIComponent(slug)}/raw" class="wireframe-iframe"></iframe>
-  </div>
-</section>`);
+  if (!fs.existsSync(htmlPath)) {
+    res.writeHead(404); res.end('Not found');
+    return;
   }
 
-  // Action hint
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + slug)}</div>`;
+  const status = meta.status || meta.verdict || 'draft';
+  const actionId = meta.id || slug;
+  const actionCommand = status === 'ready' ? `/pm:dev ${actionId}` : `/pm:groom ${actionId}`;
+  const title = meta.title || humanizeSlug(slug);
 
-  const body = `<div class="detail-page">
-${breadcrumb}
-${titleHtml}
-${metaBar}
-${sections.join('\n')}
-${actionHint}
-</div>`;
-
-  const page = dashboardPage(title, '/proposals', body);
+  const header = injectableHeaderBar('Back', title, actionCommand);
+  const proposalHtml = fs.readFileSync(htmlPath, 'utf-8');
+  const injected = proposalHtml.replace(/(<\/head>)/i, header.style + '$1').replace(/(<body[^>]*>)/i, '$1' + header.html);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(page);
+  res.end(injected);
 }
 
 function handleBacklogItem(res, pmDir, slug) {
@@ -4196,8 +4217,8 @@ function handleBacklogItem(res, pmDir, slug) {
   let actionHint = '';
   if (itemId && status !== 'done') {
     actionHint = `<div class="detail-action-hint">${renderClickToCopy('/dev ' + itemId)}</div>`;
-  } else if (!itemId && status !== 'done') {
-    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + slug)}</div>`;
+  } else if (status !== 'done') {
+    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + (itemId || slug))}</div>`;
   }
 
   const pageBody = `<div class="detail-page">

@@ -89,6 +89,7 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
 6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
+7. **Update proposal status:** If `pm/backlog/{slug}.md` exists and has a `parent` field pointing to a proposal, or if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"` in the proposal's meta.json (only if current status is `"proposed"` or absent). This keeps the dashboard accurate from the moment work begins.
 
 ### Worktree environment prep
 
@@ -527,6 +528,20 @@ When an issue tracker is detected:
 | Retro | Comment with learnings summary | M/L/XL |
 
 If no issue tracker is configured, skip these updates.
+
+## Knowledge Base Updates (after merge)
+
+After merge, update the local knowledge base to reflect shipped work:
+
+1. **Backlog item:** If `pm/backlog/{slug}.md` exists, update its frontmatter `status` to `done` and set `updated` to today's date.
+
+2. **Proposal status:** Proposals have two status dimensions — `verdict` (grooming outcome, never changed by dev) and `status` (implementation lifecycle). Dev only updates `status`. **Never overwrite `verdict` or `verdictLabel`** — those belong to the groom skill.
+
+   After merge: if the backlog item has a `parent` field pointing to a proposal slug, check if **all** sibling issues (same parent) are now `done`. If so, update `pm/backlog/proposals/{parent}.meta.json` — set `"status": "shipped"`.
+
+   Also check if a proposal meta.json exists matching the current issue's slug directly (for proposals that are single-issue). If it does and the issue is done, set `"status": "shipped"`.
+
+These updates keep the dashboard accurate without manual bookkeeping.
 
 ## State File (.pm/dev-sessions/{slug}.md)
 
