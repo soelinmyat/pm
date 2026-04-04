@@ -234,6 +234,17 @@ For **scoped mode**, show only relevant files with status and estimated calls.
 
 ## Phase 2: Execute
 
+### Dashboard Schema Reference
+
+Before patching any file, read the relevant template schema doc so updated content matches what the dashboard expects:
+
+- Backlog issues: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail.md` and `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/kanban.md`
+- Landscape: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md`
+- Research topics: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md`
+- Competitor files: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md`
+
+Read only the schemas relevant to the files being refreshed in this run.
+
 ### Trust Levels
 
 Before execution, ask the user to choose a mode:
