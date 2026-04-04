@@ -23,6 +23,18 @@ It does two things in one workflow:
 
 The user should think: "I have customer evidence. Ingest it."
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `pm:ingest`:
+- run start / run end
+- one step span for `intake`
+- one step span for `normalize`
+- one step span for `synthesize`
+
+If a manifest or findings file is updated, pass the artifact path as `--output-file` so token estimates are tied to the real artifact size.
+
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.

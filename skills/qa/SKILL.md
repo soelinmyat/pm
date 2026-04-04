@@ -11,6 +11,18 @@ Report-only QA gate for the dev lifecycle (Stage 6.5). Tests the running app usi
 
 **Separation of concerns:** QA finds problems. The dev flow fixes them. QA re-verifies.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `pm:qa`:
+- run start / run end
+- one step span for `environment-readiness`
+- one step span for `orient`
+- one step span for `charter`
+- one step span for `execute`
+- one step span for `score-and-report`
+
 ## Tiers
 
 | Tier | Dev Size | What | Duration |

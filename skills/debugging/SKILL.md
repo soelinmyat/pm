@@ -9,6 +9,14 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 Random fixes waste time and create new bugs. Quick patches mask underlying issues.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `debugging`:
+- run start / run end
+- one step span for each completed phase: `root-cause-investigation`, `pattern-analysis`, `hypothesis-testing`, and `implementation`
+
 **Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.
 
 **Violating the letter of this process is violating the spirit of debugging.**

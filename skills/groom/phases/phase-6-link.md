@@ -32,7 +32,7 @@ issues:
     linear_id: "{ID}" | null
 ```
 
-Delete `.pm/.groom-state.md` after successful link. Grooming is complete.
+Delete `.pm/groom-sessions/{topic-slug}.md` after successful link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.

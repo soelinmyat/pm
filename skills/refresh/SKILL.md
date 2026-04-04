@@ -9,6 +9,17 @@ description: "Use when updating existing research to backfill gaps from newly ad
 
 Re-run data collection on existing research to backfill gaps from newly added tools and update stale data — without losing user-written content or burning unnecessary API budget.
 
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Minimum coverage for `pm:refresh`:
+- run start / run end
+- one step span for `audit`
+- one step span for `cost-guardrail`
+- one step span per executed refresh batch (`seo-refresh`, `landscape-refresh`, `topic-refresh`, `competitor-refresh`)
+- one step span for synthesis updates
+
 ---
 
 ## Mode Routing
