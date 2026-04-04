@@ -104,6 +104,19 @@ Review-heavy flows should also store iteration counts, review verdict timestamps
 - File-writing skills: include `--output-file`
 - Stateful skills: mirror run and phase/stage timestamps into the state file
 
+## Automatic agent tracking
+
+Agent dispatches are tracked automatically via PostToolUse hook (`hooks/agent-step.sh`). When analytics is enabled, every Agent tool call logs a step span to `steps.jsonl` with:
+
+- **actor**: `agent:{subagent_type}` (e.g., `agent:pm:code-reviewer`)
+- **input_chars / est_input_tokens**: prompt size sent to the agent
+- **output_chars / est_output_tokens**: result size returned from the agent
+- **run_id**: correlated to the active skill run via `.pm/analytics/.current-run`
+
+These estimates reflect orchestrator I/O only (prompt briefing + result summary). Actual agent token consumption (internal file reads, tool calls, thinking) is higher. The data answers: "how much context flows between orchestrator and agents?"
+
+Run lifecycle is also automatic. Each `pm:` skill invocation emits `run-start` and closes the previous run. No manual instrumentation needed for run boundaries.
+
 ## Baseline generation
 
 After telemetry exists, generate a maintainer summary with:

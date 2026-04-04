@@ -230,8 +230,46 @@ function buildBaseline(projectRoot) {
   }
   lines.push('');
 
+  const byActor = aggregateBy(steps, record => record.actor || 'orchestrator', ['duration_ms', 'est_input_tokens', 'est_output_tokens']);
+  byActor.sort((a, b) => {
+    const aTokens = (b.est_input_tokens || 0) + (b.est_output_tokens || 0);
+    const bTokens = (a.est_input_tokens || 0) + (a.est_output_tokens || 0);
+    return aTokens - bTokens;
+  });
+  lines.push('## Actor Breakdown (Orchestrator vs Agents)', '');
+  if (byActor.length === 0) {
+    lines.push('- No actor data available yet.');
+  } else {
+    let totalAllTokens = 0;
+    for (const bucket of byActor) {
+      totalAllTokens += (bucket.est_input_tokens || 0) + (bucket.est_output_tokens || 0);
+    }
+    for (const bucket of byActor) {
+      const totalTokens = (bucket.est_input_tokens || 0) + (bucket.est_output_tokens || 0);
+      const pct = totalAllTokens > 0 ? Math.round((totalTokens / totalAllTokens) * 100) : 0;
+      lines.push(`- ${bucket.key}: ${bucket.count} steps, ${formatDuration(bucket.duration_ms || 0)}, ${totalTokens} est tokens (${pct}%)`);
+    }
+  }
+  lines.push('');
+
+  const agentSteps = steps.filter(record => (record.actor || '').startsWith('agent:'));
+  const byAgentType = aggregateBy(agentSteps, record => record.actor, ['duration_ms', 'est_input_tokens', 'est_output_tokens']);
+  byAgentType.sort((a, b) => b.count - a.count);
+  lines.push('## Agent Dispatch Frequency', '');
+  if (byAgentType.length === 0) {
+    lines.push('- No agent dispatches recorded yet.');
+  } else {
+    for (const bucket of byAgentType) {
+      const totalTokens = (bucket.est_input_tokens || 0) + (bucket.est_output_tokens || 0);
+      const avgTokens = bucket.count > 0 ? Math.round(totalTokens / bucket.count) : 0;
+      lines.push(`- ${bucket.key}: ${bucket.count} dispatches, avg ${avgTokens} est tokens/dispatch`);
+    }
+  }
+  lines.push('');
+
   lines.push('## Notes', '');
   lines.push('- Exact token usage is used when supplied by the workflow. Otherwise the logger falls back to character-based estimates.');
+  lines.push('- Agent token estimates reflect prompt/result I/O size only — actual agent consumption (file reads, tool calls, thinking) is higher.');
   lines.push('- Review/send-back signals are currently inferred from step status fields and should be interpreted as directional until more corpus exists.');
   lines.push('');
 
