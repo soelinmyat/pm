@@ -5183,19 +5183,29 @@ function handleWireframe(res, pmDir, slug) {
     } catch {}
     const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) + '#wireframes' : '/';
     const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
-    // Wrap wireframe in a proper page shell matching flows page style
-    // Extract wireframe styles and body content, wrap in our shell
-    let wfStyles = '';
-    const styleMatch = content.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-    if (styleMatch) wfStyles = styleMatch[1];
-    let wfBody = content;
-    const bodyMatch = content.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    if (bodyMatch) wfBody = bodyMatch[1];
-    else {
-      // Strip html/head/doctype if no body tag
-      wfBody = wfBody.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '').replace(/<head>[\s\S]*?<\/head>/i, '');
-    }
-    const wrapped = `<!DOCTYPE html>
+
+    const isFullPage = isFullDocument(content) && /<style[^>]*>[\s\S]*?(\.sidebar|\.app|display:\s*flex|display:\s*grid)[\s\S]*?<\/style>/i.test(content);
+
+    if (isFullPage) {
+      const hrefJson = JSON.stringify(backHref);
+      const labelJson = JSON.stringify('\u2190 ' + backLabel);
+      const backScript = `<script>(function(){var b=document.createElement('a');b.href=${hrefJson};b.textContent=${labelJson};b.style.cssText='position:fixed;top:12px;left:12px;z-index:99999;background:rgba(124,58,237,0.92);color:#fff;padding:6px 14px;border-radius:8px;font-weight:500;font-size:13px;font-family:-apple-system,system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,0.15);backdrop-filter:blur(4px);transition:opacity 0.2s';b.onmouseenter=function(){this.style.opacity='0.85'};b.onmouseleave=function(){this.style.opacity='1'};document.body.appendChild(b);})()</script>`;
+      const injected = content.replace(/<\/body>/i, backScript + '</body>');
+      const output = injected !== content ? injected : content + backScript;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(output);
+    } else {
+      let wfStyles = '';
+      const styleMatch = content.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (styleMatch) wfStyles = styleMatch[1];
+      let wfBody = content;
+      const bodyMatch = content.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (bodyMatch) wfBody = bodyMatch[1];
+      else {
+        // Strip html/head/doctype if no body tag
+        wfBody = wfBody.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '').replace(/<head>[\s\S]*?<\/head>/i, '');
+      }
+      const wrapped = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -5228,8 +5238,9 @@ ${wfBody}
 </div>
 </body>
 </html>`;
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(wrapped);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(wrapped);
+    }
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(dashboardPage('Wireframe Not Found', '/backlog', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));

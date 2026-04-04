@@ -2252,3 +2252,120 @@ test('Session page serves canvas current.html for dev prefix', async () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Wireframe viewer: full-page detection (PM-131)
+// ---------------------------------------------------------------------------
+
+test('wireframe viewer wraps lo-fi fragment in dashboard shell', async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/wireframes/login-form.html': '<div class="form"><input placeholder="Email" /><button>Login</button></div>',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog/wireframes/login-form');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('wf-header'), 'lo-fi fragment must be wrapped in dashboard shell');
+      assert.ok(body.includes('Lo-fi wireframe'), 'must show lo-fi wireframe label');
+      assert.ok(body.includes('Login</button>'), 'must contain the fragment content');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('wireframe viewer serves full-page HTML raw with floating back button', async () => {
+  const fullPageHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings Dashboard</title>
+<style>
+  .app { display: flex; min-height: 100vh; }
+  .sidebar { width: 240px; background: #1a1a2e; color: #fff; }
+  .main { flex: 1; padding: 2rem; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar"><nav>Settings</nav></div>
+  <div class="main"><h1>Account Settings</h1></div>
+</div>
+</body>
+</html>`;
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/wireframes/settings-dashboard.html': fullPageHtml,
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog/wireframes/settings-dashboard');
+      assert.equal(statusCode, 200);
+      assert.ok(!body.includes('wf-header'), 'full-page must NOT be wrapped in dashboard shell');
+      assert.ok(!body.includes('Lo-fi wireframe'), 'must NOT show lo-fi label');
+      assert.ok(body.includes('Settings Dashboard'), 'must preserve original title');
+      assert.ok(body.includes('.sidebar'), 'must preserve original CSS');
+      assert.ok(body.includes('Account Settings'), 'must preserve original content');
+      assert.ok(body.includes('Back to'), 'must have floating back button');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('wireframe viewer detects full-page by display:grid layout CSS', async () => {
+  const gridPage = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  .app { display: grid; grid-template-columns: 250px 1fr; }
+</style>
+</head>
+<body><div class="app"><aside>Nav</aside><main>Content</main></div></body>
+</html>`;
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/wireframes/grid-layout.html': gridPage,
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog/wireframes/grid-layout');
+      assert.equal(statusCode, 200);
+      assert.ok(!body.includes('wf-header'), 'grid layout must be treated as full-page');
+      assert.ok(body.includes('display: grid'), 'must preserve grid CSS');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('wireframe viewer still wraps HTML with doctype but no layout CSS', async () => {
+  const simpleDoc = `<!DOCTYPE html>
+<html>
+<head><style>body { font-family: sans-serif; }</style></head>
+<body><h1>Simple Wireframe</h1><p>Just a heading and text</p></body>
+</html>`;
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/wireframes/simple-doc.html': simpleDoc,
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/backlog/wireframes/simple-doc');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('wf-header'), 'doctype without layout CSS must still be wrapped');
+      assert.ok(body.includes('Lo-fi wireframe'), 'must show lo-fi label');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
