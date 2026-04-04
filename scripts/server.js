@@ -1367,19 +1367,17 @@ const SEGMENT_COLORS = {
   'mid-market':  '#5e6ad2',
   'smb':         '#16a34a',
   'horizontal':  '#ea580c',
-  'self':        '#044842',
+  'self':        '#ef4444',
   'default':     '#6b7280',
 };
 
 // ========== Reusable HTML Helpers ==========
 
 function renderClickToCopy(command) {
-  if (typeof command !== 'string' || !command) return '';
   return `<span class="click-to-copy" data-copy="${escHtml(command)}" tabindex="0" role="button"><code>${escHtml(command)}</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>`;
 }
 
 function renderEmptyState(title, desc, command, ctaLabel) {
-  // NOTE: desc is raw HTML — callers must escape user-supplied values with escHtml()
   // class="empty-state"><h2> pattern kept inline for PM-126 static source scan
   return '<div class="empty-state"><h2>' + escHtml(title) + '</h2><p>' + desc + '</p>' +
     (command ? renderClickToCopy(command) : '') +
@@ -3499,7 +3497,7 @@ function handleKbTopicsDetail(res, pmDir) {
 function handleCompetitorDetail(res, pmDir, slug) {
   const compDir = path.join(pmDir, 'competitors', slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Competitor not found', 'This competitor profile does not exist.') + '<p><a href="/competitors">&larr; Back to competitors</a></p>');
+    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Competitor not found', 'This competitor profile does not exist.</p><p><a href="/competitors">&larr; Back to competitors</a>'));
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3578,7 +3576,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const findingsPath = path.join(topicDir, 'findings.md');
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Research topic not found', 'This research topic does not exist.') + '<p><a href="/research">&larr; Back to research</a></p>');
+    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Research topic not found', 'This research topic does not exist.</p><p><a href="/research">&larr; Back to research</a>'));
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3968,7 +3966,7 @@ ${actionHint}
 function handleBacklogItem(res, pmDir, slug) {
   const filePath = path.join(pmDir, 'backlog', slug + '.md');
   if (!fs.existsSync(filePath)) {
-    const html = dashboardPage('Not Found', '/roadmap', renderEmptyState('Backlog item not found', 'This backlog item does not exist.') + '<p><a href="/roadmap">&larr; Back to roadmap</a></p>');
+    const html = dashboardPage('Not Found', '/roadmap', renderEmptyState('Backlog item not found', 'This backlog item does not exist.</p><p><a href="/roadmap">&larr; Back to roadmap</a>'));
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -4437,7 +4435,7 @@ function handleSessionPage(res, pmDir, slug) {
   const session = loadSessionState(pmDir, slug);
   if (!session) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Session Not Found', '/', renderEmptyState('Session not found', 'No session found for <code>' + escHtml(slug) + '</code>.') + '<p><a href="/">&larr; Back to Home</a></p>', projectName));
+    res.end(dashboardPage('Session Not Found', '/', renderEmptyState('Session not found', 'No session found for <code>' + escHtml(slug) + '</code>.</p><p><a href="/">&larr; Back to Home</a>'), projectName));
     return;
   }
 
