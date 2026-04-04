@@ -24,7 +24,13 @@
     "workflow"
   ],
   "commands": [
-    "merge"
+    "groom",
+    "ingest",
+    "merge",
+    "refresh",
+    "research",
+    "setup",
+    "strategy"
   ],
   "codex": {
     "fallbackSkillAliases": {

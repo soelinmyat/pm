@@ -106,11 +106,8 @@ When dispatched as a combined worker in an epic:
 ### Implementation Phase
 1. Receive approval to implement
 2. Read your plan (it's committed — don't rely on conversation context)
-3. Implement with TDD
-4. Run `/simplify` after implementation
-5. Run `/design-critique` if UI changes
-6. Push and create PR (or report ready for merge)
-7. Reply to the orchestrator: "Implementation complete. PR: {url}" or "Ready to merge."
+3. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` — it covers implement, simplify, design critique, QA, review, merge, and cleanup
+4. Reply to the orchestrator per the implementation flow's Step 9 reporting format
 
 ### Communication
 - Use short worker-thread replies to report status
@@ -134,4 +131,4 @@ When dispatched as a combined worker in an epic:
 - **Bash** — Run tests, install dependencies, git operations
 - **Grep** — Search for patterns, imports, function usages
 - **Glob** — Find files by pattern
-- **Skill** — Invoke pm:tdd, /simplify, /design-critique, /review
+- **Skill** — Invoke pm:tdd, /simplify (if available), /design-critique (if available), /review

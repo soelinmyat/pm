@@ -28,7 +28,7 @@ If no bugs found, report "No bugs in this cycle" and stop.
 
 Build project context per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md`. Build the `{PROJECT_CONTEXT}` block.
 
-Spawn investigation agents in batches of 10 (or fewer if less than 10 bugs). Each agent: `subagent_type: general-purpose, model: opus`.
+Spawn investigation agents in batches of 10 (or fewer if less than 10 bugs). Each agent: `subagent_type: "general-purpose"` (investigation is read-only codebase search, not implementation).
 
 Wait for each batch to complete before spawning the next (avoids resource contention).
 
@@ -89,7 +89,7 @@ Approve this triage? You can override any verdict before I proceed.
 
 ## Step 4: Sequential Fix Agents
 
-**Each approved bug gets its own sub-agent** (`subagent_type: general-purpose, model: opus`). Run them **sequentially** (one at a time) to prevent git conflicts.
+**Each approved bug gets its own sub-agent** (`subagent_type: "pm:developer"`). Run them **sequentially** (one at a time) to prevent git conflicts.
 
 For each approved bug:
 
