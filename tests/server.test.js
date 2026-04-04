@@ -951,23 +951,25 @@ test('Dashboard nav shows Home, Proposals, Roadmap, Knowledge Base', async () =>
   } finally { cleanup(); }
 });
 
-test('GET /kb defaults to research tab', async () => {
+test('GET /kb renders the KB hub page (PM-122)', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\n',
-    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n- Ship fast\n- Quality\n- Delight users\n',
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { statusCode, body } = await httpGet(port, '/kb');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
-      assert.ok(body.includes('Market Landscape'), 'default tab must show research content');
+      assert.ok(body.includes('Knowledge Base'), 'must show KB heading');
+      assert.ok(body.includes('strategy-banner'), 'hub must have strategy-banner');
+      assert.ok(body.includes('landscape-card'), 'hub must have landscape-card');
+      assert.ok(!body.includes('class="kb-tab'), 'hub must NOT render old KB sub-tab elements');
     } finally { await close(); }
   } finally { cleanup(); }
 });
 
-test('GET /kb?tab=strategy shows strategy content', async () => {
+test('GET /kb?tab=strategy shows strategy detail page (PM-122)', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -976,8 +978,8 @@ test('GET /kb?tab=strategy shows strategy content', async () => {
     try {
       const { statusCode, body } = await httpGet(port, '/kb?tab=strategy');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('kb-tab'), 'must render KB sub-tabs');
-      assert.ok(body.includes('Strategy'), 'strategy tab must show strategy content');
+      assert.ok(body.includes('Strategy'), 'strategy detail must show strategy content');
+      assert.ok(body.includes('Knowledge Base'), 'must have breadcrumb back to KB hub');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -2062,6 +2064,171 @@ test('PM-121: Proposals page section headers are uppercase with section-count', 
       assert.ok(body.includes('section-count'), 'must have section-count');
       assert.ok(body.includes('1 proposal'), 'groomed section count');
       assert.ok(body.includes('1 ungroomed'), 'ideas section count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// PM-122: Knowledge Base Page Redesign
+// ---------------------------------------------------------------------------
+
+test('PM-122: KB hub has strategy-banner, landscape-card, competitor-grid, topic-list', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n- Ship fast\n- Quality\n- Delight users\n',
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\nOverview of the market.\n',
+    'pm/competitors/acme/profile.md': '---\ncompany: Acme Corp\n---\n# Acme Corp\n**Category claim:** Project management\n',
+    'pm/research/user-onboarding/findings.md': '---\ntopic: User Onboarding\nsource_origin: external\nupdated: 2026-04-01\n---\n# User Onboarding\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('strategy-banner'), 'must have strategy-banner');
+      assert.ok(body.includes('landscape-card'), 'must have landscape-card');
+      assert.ok(body.includes('competitor-grid'), 'must have competitor-grid');
+      assert.ok(body.includes('topic-list'), 'must have topic-list');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: KB hub does NOT contain tablist or kb-tab classes', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n- Ship fast\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(!body.includes('role="tablist"'), 'hub must not contain role="tablist"');
+      assert.ok(!body.includes('class="kb-tab'), 'hub must not contain kb-tab element class');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: KB hub shows origin and freshness badges in topic rows', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/user-feedback/findings.md': '---\ntopic: User Feedback\nsource_origin: internal\nupdated: 2026-04-01\n---\n# User Feedback\n',
+    'pm/research/market-trends/findings.md': '---\ntopic: Market Trends\nsource_origin: external\nupdated: 2025-01-01\n---\n# Market Trends\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      // Origin badges
+      assert.ok(
+        body.includes('badge-external') || body.includes('badge-customer') || body.includes('badge-mixed'),
+        'must contain at least one origin badge'
+      );
+      // Freshness badges
+      assert.ok(
+        body.includes('badge-fresh') || body.includes('badge-aging') || body.includes('badge-stale'),
+        'must contain at least one freshness badge'
+      );
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: KB hub shows customer evidence empty state', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n## Focus\nTest\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(body.includes('Customer Evidence'), 'must have Customer Evidence section');
+      assert.ok(body.includes('empty-state-hub'), 'must use empty-state-hub class for empty evidence');
+      assert.ok(body.includes('/pm:ingest'), 'must suggest /pm:ingest for adding evidence');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: /kb?tab=competitors still renders competitors detail page', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\ncompany: Acme\n---\n# Acme\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=competitors');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Competitors'), 'must show Competitors heading');
+      assert.ok(body.includes('Knowledge Base'), 'must have breadcrumb back to KB hub');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: /kb?tab=landscape renders landscape detail page', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\nThe market is growing.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=landscape');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Market Landscape'), 'must show landscape content');
+      assert.ok(body.includes('Knowledge Base'), 'must have breadcrumb back to KB hub');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: KB hub CSS uses design tokens, not raw px/rem (except borders)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const kbStart = DASHBOARD_CSS.indexOf('/* ===== KB HUB PAGE =====');
+  assert.ok(kbStart !== -1, 'KB HUB CSS section must exist');
+  const kbSection = DASHBOARD_CSS.slice(kbStart);
+  // Padding, margin, gap, font-size, etc. should use var(--space-*) or var(--text-*)
+  // 1px in borders is conventional and acceptable
+  assert.ok(kbSection.includes('var(--space-'), 'KB HUB CSS must use spacing tokens');
+  assert.ok(kbSection.includes('var(--text-'), 'KB HUB CSS must use text tokens');
+  // No raw rem values
+  const rawRemMatches = kbSection.match(/\b\d+(\.\d+)?rem\b/g) || [];
+  assert.deepEqual(rawRemMatches, [], `Raw rem values found in KB HUB CSS: ${rawRemMatches.join(', ')}`);
+});
+
+test('PM-122: competitor grid shows 6-item cap with View all link', async () => {
+  // Create 8 competitors to exceed the 6-item cap
+  const files = {};
+  for (let i = 1; i <= 8; i++) {
+    files[`pm/competitors/comp-${i}/profile.md`] = `---\ncompany: Company ${i}\n---\n# Company ${i}\n**Category claim:** Cat ${i}\n`;
+  }
+  const { pmDir, cleanup } = withPmDir(files);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(body.includes('competitor-grid'), 'must have competitor grid');
+      assert.ok(body.includes('View all 8'), 'must show View all link when > 6 competitors');
+      // Count actual card elements (class="competitor-card" in HTML, not CSS defs)
+      const cardCount = (body.match(/class="competitor-card"/g) || []).length;
+      assert.equal(cardCount, 6, 'must cap at 6 competitor cards');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-122: research topics sorted by freshness, capped at 8', async () => {
+  const files = {};
+  for (let i = 1; i <= 10; i++) {
+    const month = String(i).padStart(2, '0');
+    files[`pm/research/topic-${i}/findings.md`] = `---\ntopic: Topic ${i}\nsource_origin: external\nupdated: 2026-${month}-15\n---\n# Topic ${i}\n`;
+  }
+  const { pmDir, cleanup } = withPmDir(files);
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb');
+      assert.ok(body.includes('topic-list'), 'must have topic list');
+      // Count actual topic-row elements (class="topic-row" in HTML)
+      const rowCount = (body.match(/class="topic-row"/g) || []).length;
+      assert.equal(rowCount, 8, 'must cap at 8 topic rows');
+      assert.ok(body.includes('View all 10 topics'), 'must show View all link when > 8 topics');
+      // Newest topic (Topic 10, October) should appear before Topic 3 (March)
+      const topic10Pos = body.indexOf('Topic 10');
+      const topic3Pos = body.indexOf('Topic 3');
+      assert.ok(topic10Pos !== -1 && topic3Pos !== -1, 'both topics must be in the display');
+      assert.ok(topic10Pos < topic3Pos, 'topics must be sorted by freshness (newest first)');
     } finally { await close(); }
   } finally { cleanup(); }
 });

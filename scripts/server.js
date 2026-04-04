@@ -946,6 +946,114 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== KB HUB PAGE ===== */
+
+/* Strategy banner */
+.strategy-banner {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); padding: var(--space-6);
+  display: flex; align-items: flex-start; gap: var(--space-6);
+  margin-bottom: var(--space-12);
+}
+.strategy-banner-content { flex: 1; }
+.strategy-banner-label {
+  font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--accent); margin-bottom: var(--space-2);
+}
+.strategy-banner-headline {
+  font-size: var(--text-md); font-weight: 600; letter-spacing: -0.01em;
+  line-height: 1.4; margin-bottom: var(--space-3);
+}
+.strategy-banner-priorities {
+  display: flex; gap: var(--space-6); font-size: var(--text-sm); color: var(--text-muted);
+}
+.strategy-banner-priority { display: flex; align-items: baseline; gap: var(--space-2); }
+.strategy-banner-actions {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  flex-shrink: 0; align-items: flex-end;
+}
+.strategy-banner-meta {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+}
+.btn-sm {
+  padding: var(--space-1) var(--space-3); font-size: var(--text-xs); font-weight: 500;
+  border-radius: var(--space-1); text-decoration: none;
+  background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent);
+  border: none; cursor: pointer; font-family: inherit;
+  transition: background 150ms;
+}
+.btn-sm:hover { background: var(--accent); color: white; }
+
+/* Landscape card */
+.landscape-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); padding: var(--space-5) var(--space-6);
+  text-decoration: none; color: var(--text); display: block;
+  transition: background 150ms;
+}
+.landscape-card:hover { background: var(--surface-raised, var(--surface)); }
+.landscape-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-2); }
+.landscape-summary {
+  font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; margin-bottom: var(--space-3);
+}
+.landscape-stats { display: flex; gap: var(--space-6); }
+.landscape-stat {
+  font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.landscape-stat-label { font-size: var(--text-xs); color: var(--text-dim, var(--text-muted)); margin-top: var(--space-1); }
+
+/* Competitor grid */
+.competitor-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3);
+}
+.competitor-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); padding: var(--space-4) var(--space-5);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.competitor-card:hover { background: var(--surface-raised, var(--surface)); }
+.competitor-name { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
+.competitor-category { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* Research topic rows */
+.topic-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.topic-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.topic-row:hover { background: var(--surface); }
+.topic-name { font-size: var(--text-base); font-weight: 500; flex: 1; }
+.topic-badges { display: flex; align-items: center; gap: var(--space-2); }
+.topic-date {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* Origin badges */
+.badge-external { background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
+.badge-customer { background: var(--badge-success-bg); color: var(--badge-success-text); }
+.badge-mixed { background: var(--badge-info-bg); color: var(--badge-info-text); }
+
+/* Section link */
+.section-link {
+  font-size: var(--text-sm); color: var(--accent); text-decoration: none; font-weight: 500;
+}
+.section-link:hover { color: var(--accent-hover, var(--accent)); }
+.view-all-wrap { text-align: center; margin-top: var(--space-3); }
+
+/* Empty state for KB hub sections */
+.empty-state-hub {
+  border: 1px dashed var(--border); border-radius: var(--space-2);
+  padding: var(--space-6); text-align: center;
+}
+.empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
+.empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1191,7 +1299,7 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404); res.end('Not found');
     }
   } else if (urlPath === '/kb') {
-    handleKnowledgeBasePage(res, pmDir, tab || 'research');
+    handleKnowledgeBasePage(res, pmDir, tab || null);
   } else if (urlPath === '/research') {
     // Redirect old route to KB
     res.writeHead(302, { 'Location': '/kb?tab=research' }); res.end();
@@ -2673,94 +2781,308 @@ function handleCompetitorsList(res, pmDir) {
   res.end(html);
 }
 
-function handleKnowledgeBasePage(res, pmDir, tab) {
-  const validTabs = ['research', 'competitors', 'strategy'];
-  const activeTab = validTabs.includes(tab) ? tab : 'research';
-  const subTabs = buildKbSubTabs(activeTab);
+// ========== KB Hub Helpers (PM-122) ==========
 
-  let contentHtml = '';
-  let title = 'Knowledge Base';
+function buildStrategyBanner(pmDir) {
+  const snapshot = parseStrategySnapshot(pmDir);
+  if (!snapshot) return '';
+  const deckExists = fs.existsSync(path.join(pmDir, 'strategy-deck.html'));
+  return `<div class="strategy-banner">
+  <div class="strategy-banner-content">
+    <div class="strategy-banner-label">Strategy</div>
+    <div class="strategy-banner-headline">${escHtml(snapshot.focus)}</div>
+    <div class="strategy-banner-priorities">
+      ${snapshot.priorities.map((p, i) => `<div class="strategy-banner-priority"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join('')}
+    </div>
+  </div>
+  <div class="strategy-banner-actions">
+    <div class="strategy-banner-meta">
+      <span class="staleness-dot ${snapshot.staleness.level}"></span>
+      Updated ${escHtml(snapshot.staleness.label)}
+    </div>
+    <a href="/kb?tab=strategy" class="btn-sm">View strategy</a>
+    ${deckExists ? '<a href="/strategy-deck" target="_blank" class="btn-sm">Slide deck</a>' : ''}
+  </div>
+</div>`;
+}
 
-  if (activeTab === 'research') {
-    title = 'Knowledge Base — Research';
-    // Reuse research page content building
-    let landscapeHtml = '';
-    const landscapePath = path.join(pmDir, 'landscape.md');
-    if (fs.existsSync(landscapePath)) {
-      const raw = fs.readFileSync(landscapePath, 'utf-8');
-      const { body } = parseFrontmatter(raw);
-      const statsData = parseStatsData(body);
-      const statsHtml = renderStatsCards(statsData);
-      var rendered = renderLandscapeWithViz(body);
-      if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-      landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
-        '<div class="markdown-body">' + rendered + '</div>';
-    } else {
-      landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
-    }
+function buildLandscapeCard(pmDir) {
+  const landscapePath = path.join(pmDir, 'landscape.md');
+  if (!fs.existsSync(landscapePath)) return '';
+  const raw = fs.readFileSync(landscapePath, 'utf-8');
+  const { body } = parseFrontmatter(raw);
+  const titleMatch = body.match(/^#\s+(.+)/m);
+  const title = titleMatch ? titleMatch[1] : 'Market Landscape';
+  const paragraphs = body.split(/\n\n/).filter(p => !p.startsWith('#'));
+  const summary = paragraphs[0] ? paragraphs[0].replace(/\n/g, ' ').trim().slice(0, 200) : '';
+  const statsData = parseStatsData(body);
+  const topStats = (statsData || []).slice(0, 3);
+  return `<a href="/kb?tab=landscape" class="landscape-card">
+  <div class="landscape-title">${escHtml(title)}</div>
+  <div class="landscape-summary">${escHtml(summary)}</div>
+  ${topStats.length > 0 ? `<div class="landscape-stats">${topStats.map(s =>
+    `<div><div class="landscape-stat">${escHtml(s.value)}</div><div class="landscape-stat-label">${escHtml(s.label)}</div></div>`
+  ).join('')}</div>` : ''}
+</a>`;
+}
 
-    // Topics
-    let topicsHtml = '';
-    const researchDir = path.join(pmDir, 'research');
-    if (fs.existsSync(researchDir)) {
-      const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-        .filter(e => e.isDirectory());
-      if (topics.length > 0) {
-        const cards = topics.map(t => {
-          const findingsPath = path.join(researchDir, t.name, 'findings.md');
-          if (!fs.existsSync(findingsPath)) return '';
-          const raw = fs.readFileSync(findingsPath, 'utf-8');
-          const { data } = parseFrontmatter(raw);
-          const meta = buildTopicMeta(t.name, data, findingsPath);
-          return `<div class="card">
-            <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
-            <p class="meta">${escHtml(meta.subtitle)}</p>
-            <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View →</a></div>
-          </div>`;
-        }).join('');
-        topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
-      }
-    }
-
-    contentHtml = '<div class="page-header"><h1>Research</h1></div>' + landscapeHtml + topicsHtml;
-  } else if (activeTab === 'strategy') {
-    title = 'Knowledge Base — Strategy';
-    const filePath = path.join(pmDir, 'strategy.md');
-    if (!fs.existsSync(filePath)) {
-      contentHtml = '<div class="page-header"><h1>Strategy</h1></div>' +
-        '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>';
-    } else {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+function buildCompetitorGrid(pmDir) {
+  const compDir = path.join(pmDir, 'competitors');
+  if (!fs.existsSync(compDir)) return '';
+  const slugs = fs.readdirSync(compDir, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name);
+  if (slugs.length === 0) return '';
+  const displaySlugs = slugs.length > 6 ? slugs.slice(0, 6) : slugs;
+  const cards = displaySlugs.map(slug => {
+    const profilePath = path.join(compDir, slug, 'profile.md');
+    let name = humanizeSlug(slug);
+    let category = '';
+    if (fs.existsSync(profilePath)) {
+      const raw = fs.readFileSync(profilePath, 'utf-8');
       const parsed = parseFrontmatter(raw);
-      const rendered = renderStrategyWithViz(parsed.body);
-      contentHtml = '<div class="page-header"><h1>Strategy</h1></div>' +
-        '<div class="markdown-body">' + rendered + '</div>';
+      if (parsed.data.company) name = parsed.data.company;
+      const summary = extractProfileSummary(parsed.body);
+      if (summary.company) name = summary.company;
+      if (summary.category) category = summary.category;
     }
-  } else if (activeTab === 'competitors') {
-    title = 'Knowledge Base — Competitors';
-    const compDir = path.join(pmDir, 'competitors');
-    let cardsHtml = '';
-    if (fs.existsSync(compDir)) {
-      const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
-      cardsHtml = dirs.map(d => {
-        const profilePath = path.join(compDir, d.name, 'profile.md');
-        if (!fs.existsSync(profilePath)) return '';
-        const summary = parseCompetitorSummary(fs.readFileSync(profilePath, 'utf-8'));
-        const stale = stalenessInfo(getUpdatedDate(profilePath));
-        const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
-        return `<div class="card">
-          <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
-          <p class="meta">${escHtml(summary.category || '')}</p>
-          <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View →</a></div>
-        </div>`;
-      }).join('');
+    return `<a href="/competitors/${escHtml(slug)}" class="competitor-card">
+  <div class="competitor-name">${escHtml(name)}</div>
+  <div class="competitor-category">${escHtml(category)}</div>
+</a>`;
+  }).join('');
+  const viewAll = slugs.length > 6 ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>` : '';
+  return `<div class="competitor-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ''}`;
+}
+
+function buildTopicRows(pmDir, maxTopics) {
+  const researchDir = path.join(pmDir, 'research');
+  if (!fs.existsSync(researchDir)) return { html: '', total: 0 };
+  const topics = fs.readdirSync(researchDir, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name);
+  if (topics.length === 0) return { html: '', total: 0 };
+
+  const topicData = topics.map(t => {
+    const findingsPath = path.join(researchDir, t, 'findings.md');
+    let label = humanizeSlug(t);
+    let origin = 'external';
+    let stale = null;
+    let dateStr = '';
+    if (fs.existsSync(findingsPath)) {
+      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+      const meta = buildTopicMeta(t, parsed.data, findingsPath);
+      label = meta.label;
+      origin = normalizeSourceOrigin(parsed.data.source_origin);
+      dateStr = getUpdatedDate(findingsPath) || '';
+      stale = stalenessInfo(dateStr);
     }
-    contentHtml = '<div class="page-header"><h1>Competitors</h1></div>' +
-      (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to profile competitors.</p></div>');
+    return { slug: t, label, origin, stale, dateStr };
+  });
+
+  // Sort by freshness (newest first)
+  topicData.sort((a, b) => (b.dateStr || '').localeCompare(a.dateStr || ''));
+  const display = maxTopics ? topicData.slice(0, maxTopics) : topicData;
+
+  const originLabels = { external: 'External', internal: 'Customer', mixed: 'Mixed' };
+  const originBadge = o => `badge-${o === 'internal' ? 'customer' : o}`;
+  const freshBadge = s => s ? `<span class="badge badge-${s.level}">${s.level.charAt(0).toUpperCase() + s.level.slice(1)}</span>` : '';
+
+  const rows = display.map(t => `<a href="/research/${escHtml(t.slug)}" class="topic-row">
+  <span class="topic-name">${escHtml(t.label)}</span>
+  <div class="topic-badges">
+    <span class="badge ${originBadge(t.origin)}">${escHtml(originLabels[t.origin] || 'External')}</span>
+    ${freshBadge(t.stale)}
+    <span class="topic-date">${escHtml(formatRelativeDate(t.dateStr))}</span>
+  </div>
+</a>`).join('');
+
+  return { html: `<div class="topic-list">${rows}</div>`, total: topicData.length };
+}
+
+function handleKnowledgeBasePage(res, pmDir, tab) {
+  // If a specific sub-tab is requested, render the existing detail view
+  if (tab === 'strategy') {
+    return handleKbStrategyDetail(res, pmDir);
+  }
+  if (tab === 'competitors') {
+    return handleKbCompetitorsDetail(res, pmDir);
+  }
+  if (tab === 'landscape') {
+    return handleKbLandscapeDetail(res, pmDir);
+  }
+  if (tab === 'topics' || tab === 'research') {
+    return handleKbTopicsDetail(res, pmDir);
   }
 
-  const body = subTabs + contentHtml;
-  const html = dashboardPage(title, '/kb', body);
+  // Hub page (default) -- single scrollable view
+  const strategyBanner = buildStrategyBanner(pmDir);
+  const landscapeCard = buildLandscapeCard(pmDir);
+  const competitorGrid = buildCompetitorGrid(pmDir);
+  const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, 8);
+
+  // Customer evidence section
+  const evidenceDir = path.join(pmDir, 'evidence');
+  const hasEvidence = fs.existsSync(evidenceDir) &&
+    fs.readdirSync(evidenceDir, { withFileTypes: true }).some(e => e.isDirectory() || e.name.endsWith('.md'));
+  const evidenceHtml = hasEvidence
+    ? '' // TODO: build evidence summary in PM-125
+    : `<div class="empty-state-hub">
+  <div class="empty-state-hub-title">No customer evidence yet</div>
+  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
+  <code>/pm:ingest path/to/evidence</code>
+</div>`;
+
+  const compDir = path.join(pmDir, 'competitors');
+  const compCount = fs.existsSync(compDir)
+    ? fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory()).length
+    : 0;
+  const matrixPath = path.join(pmDir, 'competitors', 'matrix.md');
+  const matrixLink = fs.existsSync(matrixPath) ? '<a href="/kb?tab=competitors" class="section-link">Feature matrix</a>' : '';
+
+  const body = `
+<div class="page-header">
+  <h1>Knowledge Base</h1>
+  <p class="subtitle">Everything the team knows -- strategy, market, competitors, and research</p>
+</div>
+${strategyBanner}
+${landscapeCard ? `<div class="section">
+  <div class="section-header">
+    <span class="section-title">Market Landscape</span>
+  </div>
+  ${landscapeCard}
+</div>` : ''}
+${compCount > 0 ? `<div class="section">
+  <div class="section-header">
+    <span class="section-title">Competitors</span>
+    ${matrixLink}
+  </div>
+  ${competitorGrid}
+</div>` : ''}
+${topicCount > 0 ? `<div class="section">
+  <div class="section-header">
+    <span class="section-title">Research</span>
+    <span class="section-count">${topicCount} topics</span>
+  </div>
+  ${topicRows}
+  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/kb?tab=topics" class="section-link">View all ${topicCount} topics</a></div>` : ''}
+</div>` : ''}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Customer Evidence</span>
+  </div>
+  ${evidenceHtml}
+</div>`;
+
+  const html = dashboardPage('Knowledge Base', '/kb', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+// ========== KB Detail Handlers (PM-122) ==========
+
+function handleKbStrategyDetail(res, pmDir) {
+  const filePath = path.join(pmDir, 'strategy.md');
+  let contentHtml;
+  if (!fs.existsSync(filePath)) {
+    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
+      '<div class="empty-state"><p>No <code>strategy.md</code> found.</p><p>Run <code>/pm:strategy</code> to create one.</p></div>';
+  } else {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = parseFrontmatter(raw);
+    const rendered = renderStrategyWithViz(parsed.body);
+    contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
+      '<div class="markdown-body">' + rendered + '</div>';
+  }
+  const html = dashboardPage('Strategy', '/kb', contentHtml);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleKbCompetitorsDetail(res, pmDir) {
+  const compDir = path.join(pmDir, 'competitors');
+  let cardsHtml = '';
+  if (fs.existsSync(compDir)) {
+    const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    cardsHtml = dirs.map(d => {
+      const profilePath = path.join(compDir, d.name, 'profile.md');
+      if (!fs.existsSync(profilePath)) return '';
+      const summary = extractProfileSummary(parseFrontmatter(fs.readFileSync(profilePath, 'utf-8')).body);
+      const stale = stalenessInfo(getUpdatedDate(profilePath));
+      const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
+      return `<div class="card">
+        <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
+        <p class="meta">${escHtml(summary.category || '')}</p>
+        <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
+      </div>`;
+    }).join('');
+  }
+  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><p>No competitor profiles yet.</p><p>Run <code>/pm:research competitors</code> to profile competitors.</p></div>');
+  const html = dashboardPage('Competitors', '/kb', contentHtml);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleKbLandscapeDetail(res, pmDir) {
+  let landscapeHtml = '';
+  const landscapePath = path.join(pmDir, 'landscape.md');
+  if (fs.existsSync(landscapePath)) {
+    const raw = fs.readFileSync(landscapePath, 'utf-8');
+    const { body } = parseFrontmatter(raw);
+    const statsData = parseStatsData(body);
+    const statsHtml = renderStatsCards(statsData);
+    var rendered = renderLandscapeWithViz(body);
+    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+    landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
+      '<div class="markdown-body">' + rendered + '</div>';
+  } else {
+    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+  }
+  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeHtml;
+  const html = dashboardPage('Landscape', '/kb', contentHtml);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function handleKbTopicsDetail(res, pmDir) {
+  let landscapeHtml = '';
+  const landscapePath = path.join(pmDir, 'landscape.md');
+  if (fs.existsSync(landscapePath)) {
+    const raw = fs.readFileSync(landscapePath, 'utf-8');
+    const { body } = parseFrontmatter(raw);
+    const statsData = parseStatsData(body);
+    const statsHtml = renderStatsCards(statsData);
+    var rendered = renderLandscapeWithViz(body);
+    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+    landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
+      '<div class="markdown-body">' + rendered + '</div>';
+  } else {
+    landscapeHtml = '<div class="empty-state"><p>No landscape research yet.</p><p>Run <code>/pm:research landscape</code> to generate a market overview.</p></div>';
+  }
+
+  let topicsHtml = '';
+  const researchDir = path.join(pmDir, 'research');
+  if (fs.existsSync(researchDir)) {
+    const topics = fs.readdirSync(researchDir, { withFileTypes: true })
+      .filter(e => e.isDirectory());
+    if (topics.length > 0) {
+      const cards = topics.map(t => {
+        const findingsPath = path.join(researchDir, t.name, 'findings.md');
+        if (!fs.existsSync(findingsPath)) return '';
+        const raw = fs.readFileSync(findingsPath, 'utf-8');
+        const { data } = parseFrontmatter(raw);
+        const meta = buildTopicMeta(t.name, data, findingsPath);
+        return `<div class="card">
+          <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
+          <p class="meta">${escHtml(meta.subtitle)}</p>
+          <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
+        </div>`;
+      }).join('');
+      topicsHtml = '<h2>Topics</h2><div class="card-grid">' + cards + '</div>';
+    }
+  }
+
+  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Research</h1></div>' + landscapeHtml + topicsHtml;
+  const html = dashboardPage('Research', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
