@@ -74,7 +74,7 @@ pm/                   # Committed knowledge base
 .pm/                  # Gitignored runtime/config
   imports/            # $pm-ingest manifest + source tracking
   evidence/           # $pm-ingest normalized customer evidence
-  sessions/           # Visual companion session state
+  sessions/           # Dashboard session canvas state
 ```
 
 ## Step 2: Gitignore
@@ -134,7 +134,7 @@ Write `.pm/config.json` with the values collected above. Use this schema:
     "seo": { "provider": "none" }
   },
   "preferences": {
-    "visual_companion": true,
+    "dashboard_session_view": true,
     "backlog_format": "markdown"
   }
 }

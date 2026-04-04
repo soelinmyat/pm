@@ -263,6 +263,23 @@ git -C ~/.agents/vendor/pm pull --ff-only
 
 Your \`~/.agents/skills/pm-*\` and \`~/.agents/skills/dev-*\` symlinks do not need to be recreated unless you move the clone.
 
+## Dogfooding Local Source
+
+If you are developing PM from a local checkout and want Codex to use that checkout immediately, sync the local source into the vendor clone, then restart Codex and start a new session:
+
+\`\`\`bash
+rsync -a --delete \\
+  --exclude '.git/' \\
+  --exclude 'node_modules/' \\
+  /absolute/path/to/pm_plugin/ \\
+  ~/.agents/vendor/pm/
+\`\`\`
+
+Notes:
+
+1. Codex reads PM from \`~/.agents/vendor/pm\` in a fresh session. Existing sessions do not hot-reload skills.
+2. If you added or renamed skills, rerun the symlink commands from step 2 so \`~/.agents/skills\` stays in sync.
+
 ## Windows Notes
 
 If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks can be created successfully.

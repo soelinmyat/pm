@@ -77,18 +77,15 @@ const PORT = process.env.PM_PORT || (49152 + Math.floor(Math.random() * 16383));
 const HOST = process.env.PM_HOST || '127.0.0.1';
 const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
 
-// Default SCREEN_DIR to .pm/sessions/{timestamp} relative to cwd
-const DEFAULT_SCREEN_DIR = path.join(process.cwd(), '.pm', 'sessions', String(Date.now()));
-const SCREEN_DIR = process.env.PM_DIR || DEFAULT_SCREEN_DIR;
-
 const OWNER_PID = process.env.PM_OWNER_PID ? Number(process.env.PM_OWNER_PID) : null;
 
-// --mode flag: 'companion' (default) or 'dashboard'
-const MODE = (() => {
-  const idx = process.argv.indexOf('--mode');
-  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env.PM_MODE || 'companion';
-})();
+function requireDashboardMode(value) {
+  const mode = value || 'dashboard';
+  if (mode !== 'dashboard') {
+    throw new Error(`Unsupported PM server mode "${mode}". Use --mode dashboard.`);
+  }
+  return mode;
+}
 
 // --dir flag: directory for dashboard mode (default: 'pm/' relative to cwd)
 const DIR_FLAG = (() => {
@@ -97,29 +94,12 @@ const DIR_FLAG = (() => {
   return null;
 })();
 
-const MIME_TYPES = {
-  '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
-  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml'
-};
-
-// ========== Templates and Constants ==========
-
-const WAITING_PAGE = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>PM Companion</title>
-<style>body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; }
-h1 { color: #333; } p { color: #666; }</style>
-</head>
-<body><h1>PM Companion</h1>
-<p>Waiting for Claude to push a screen...</p></body></html>`;
-
 // ========== Mode Parsing (exported for testing) ==========
 
 function parseMode(argv) {
   const idx = argv.indexOf('--mode');
-  if (idx !== -1 && argv[idx + 1]) return argv[idx + 1];
-  return process.env.PM_MODE || 'companion';
+  if (idx !== -1 && argv[idx + 1]) return requireDashboardMode(argv[idx + 1]);
+  return requireDashboardMode(process.env.PM_MODE || 'dashboard');
 }
 
 // ========== YAML Frontmatter Parser ==========
@@ -1394,6 +1374,20 @@ function routeDashboard(req, res, pmDir) {
 
   if (urlPath === '/') {
     handleDashboardHome(res, pmDir);
+  } else if (urlPath.startsWith('/groom/')) {
+    const slug = decodeURIComponent(urlPath.slice('/groom/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleSessionPage(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (urlPath.startsWith('/session/')) {
+    const slug = decodeURIComponent(urlPath.slice('/session/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleSessionPage(res, pmDir, slug);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
   } else if (urlPath.startsWith('/proposals/') && urlPath.endsWith('/raw')) {
@@ -3879,6 +3873,7 @@ function createDashboardServer(pmDir) {
   // Track all raw connections so we can force-close them when stopping
   const allConnections = new Set();
   const dirWatchers = new Map();
+  const pmRuntimeRoot = getPmRuntimeRoot(pmDir);
 
   function handleDashboardUpgrade(req, socket) {
     touchActivity();
@@ -3893,6 +3888,73 @@ function createDashboardServer(pmDir) {
     );
     dashClients.add(socket);
     allConnections.add(socket);
+    let buffer = Buffer.alloc(0);
+
+    function handleDashboardMessage(text) {
+      let event;
+      try {
+        event = JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e.message);
+        return;
+      }
+
+      touchActivity();
+      console.log(JSON.stringify({ source: 'user-event', ...event }));
+
+      if (!event.choice) return;
+
+      const slug = sessionSlugFromPath(event.path);
+      if (!slug) return;
+
+      const sessionDir = resolveSessionDir(pmDir, slug);
+      if (!sessionDir) return;
+
+      const eventsFile = path.join(sessionDir, '.events');
+      fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
+    }
+
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length > 0) {
+        let result;
+        try {
+          result = decodeFrame(buffer);
+        } catch (e) {
+          socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
+          dashClients.delete(socket);
+          allConnections.delete(socket);
+          return;
+        }
+        if (!result) break;
+        buffer = buffer.slice(result.bytesConsumed);
+
+        switch (result.opcode) {
+          case OPCODES.TEXT:
+            handleDashboardMessage(result.payload.toString());
+            break;
+          case OPCODES.CLOSE:
+            socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
+            dashClients.delete(socket);
+            allConnections.delete(socket);
+            return;
+          case OPCODES.PING:
+            socket.write(encodeFrame(OPCODES.PONG, result.payload));
+            break;
+          case OPCODES.PONG:
+            break;
+          default: {
+            const closeBuf = Buffer.alloc(2);
+            closeBuf.writeUInt16BE(1003);
+            socket.end(encodeFrame(OPCODES.CLOSE, closeBuf));
+            dashClients.delete(socket);
+            allConnections.delete(socket);
+            return;
+          }
+        }
+      }
+    });
+
     socket.on('close', () => { dashClients.delete(socket); allConnections.delete(socket); });
     socket.on('error', () => { dashClients.delete(socket); allConnections.delete(socket); });
   }
@@ -3980,6 +4042,10 @@ function createDashboardServer(pmDir) {
     watcherActive = true;
     watchDirectoryTree(pmDir);
   }
+  if (fs.existsSync(pmRuntimeRoot)) {
+    watcherActive = true;
+    watchDirectoryTree(pmRuntimeRoot);
+  }
 
   // Patch server.close to also destroy all open connections and close watcher
   const origClose = server.close.bind(server);
@@ -3987,6 +4053,7 @@ function createDashboardServer(pmDir) {
     // Stop the watcher first so no more broadcasts fire during teardown
     watcherActive = false;
     closeWatchersUnder(pmDir);
+    closeWatchersUnder(pmRuntimeRoot);
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
       try { sock.destroy(); } catch (e) {}
@@ -3999,150 +4066,145 @@ function createDashboardServer(pmDir) {
   return server;
 }
 
-const frameTemplate = fs.readFileSync(path.join(__dirname, 'frame-template.html'), 'utf-8');
 const helperScript = fs.readFileSync(path.join(__dirname, 'helper.js'), 'utf-8');
 const helperInjection = '<script>\n' + helperScript + '\n</script>';
 
 // ========== Helper Functions ==========
 
-function isFullDocument(html) {
-  const trimmed = html.trimStart().toLowerCase();
-  return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+function slugifySessionTopic(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-function wrapInFrame(content) {
-  return frameTemplate.replace('<!-- CONTENT -->', content);
+function getPmRuntimeRoot(pmDir) {
+  return path.resolve(pmDir, '..', '.pm');
 }
 
-function getNewestScreen() {
-  const files = fs.readdirSync(SCREEN_DIR)
-    .filter(f => f.endsWith('.html'))
-    .map(f => {
-      const fp = path.join(SCREEN_DIR, f);
-      return { path: fp, mtime: fs.statSync(fp).mtime.getTime() };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length > 0 ? files[0].path : null;
-}
-
-// ========== HTTP Request Handler ==========
-
-function handleRequest(req, res) {
-  touchActivity();
-  if (req.method === 'GET' && req.url === '/') {
-    const screenFile = getNewestScreen();
-    let html = screenFile
-      ? (raw => isFullDocument(raw) ? raw : wrapInFrame(raw))(fs.readFileSync(screenFile, 'utf-8'))
-      : WAITING_PAGE;
-
-    if (html.includes('</body>')) {
-      html = html.replace('</body>', helperInjection + '\n</body>');
-    } else {
-      html += helperInjection;
+function resolveSessionDir(pmDir, slug) {
+  const sessionsDir = path.resolve(getPmRuntimeRoot(pmDir), 'sessions');
+  if (!fs.existsSync(sessionsDir)) return null;
+  const prefixes = ['groom-', 'dev-', 'epic-', 'research-', ''];
+  for (const prefix of prefixes) {
+    const candidate = path.join(sessionsDir, prefix + slug);
+    if (candidate.startsWith(sessionsDir + path.sep) && fs.existsSync(candidate)) {
+      return candidate;
     }
+  }
+  return null;
+}
 
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
-  } else if (req.method === 'GET' && req.url.startsWith('/files/')) {
-    const fileName = req.url.slice(7);
-    const filePath = path.join(SCREEN_DIR, path.basename(fileName));
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
+function sessionSlugFromPath(requestPath) {
+  const cleanPath = String(requestPath || '').split('?')[0];
+  if (cleanPath.startsWith('/session/')) {
+    return decodeURIComponent(cleanPath.slice('/session/'.length)).split('/')[0] || null;
+  }
+  if (cleanPath.startsWith('/groom/')) {
+    return decodeURIComponent(cleanPath.slice('/groom/'.length)).split('/')[0] || null;
+  }
+  return null;
+}
+
+function injectSessionPageHelpers(html, slug) {
+  const bootstrapScript = `<script>window.__PM_SESSION_SLUG = ${JSON.stringify(slug)};</script>`;
+  const combined = bootstrapScript + '\n' + helperInjection;
+  if (html.includes('window.__PM_SESSION_SLUG') || html.includes(helperScript.slice(0, 40))) {
+    return html;
+  }
+  if (html.includes('</body>')) {
+    return html.replace('</body>', combined + '\n</body>');
+  }
+  return html + combined;
+}
+
+function loadSessionState(pmDir, slug) {
+  const pmRoot = getPmRuntimeRoot(pmDir);
+  const groomPath = path.join(pmRoot, 'groom-sessions', slug + '.md');
+  if (fs.existsSync(groomPath)) {
+    const raw = fs.readFileSync(groomPath, 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    return { type: 'groom', data, raw };
+  }
+
+  const devPath = path.join(pmRoot, 'dev-sessions', slug + '.md');
+  if (fs.existsSync(devPath)) {
+    const raw = fs.readFileSync(devPath, 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    return { type: 'dev', data, raw };
+  }
+
+  const legacyPath = path.join(pmRoot, '.groom-state.md');
+  if (fs.existsSync(legacyPath)) {
+    const raw = fs.readFileSync(legacyPath, 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    if (slugifySessionTopic(data.topic) === slug) {
+      return { type: 'groom', data, raw, legacy: true };
+    }
+  }
+
+  return null;
+}
+
+function handleSessionPage(res, pmDir, slug) {
+  const projectName = getProjectName(pmDir);
+  const sessionDir = resolveSessionDir(pmDir, slug);
+  if (sessionDir) {
+    const currentHtml = path.join(sessionDir, 'current.html');
+    if (currentHtml.startsWith(sessionDir + path.sep) && fs.existsSync(currentHtml)) {
+      const html = injectSessionPageHelpers(fs.readFileSync(currentHtml, 'utf-8'), slug);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
       return;
     }
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(fs.readFileSync(filePath));
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
   }
-}
 
-// ========== WebSocket Connection Handling ==========
-
-const clients = new Set();
-
-function handleUpgrade(req, socket) {
-  const key = req.headers['sec-websocket-key'];
-  if (!key) { socket.destroy(); return; }
-
-  const accept = computeAcceptKey(key);
-  socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\n' +
-    'Upgrade: websocket\r\n' +
-    'Connection: Upgrade\r\n' +
-    'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
-  );
-
-  let buffer = Buffer.alloc(0);
-  clients.add(socket);
-
-  socket.on('data', (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length > 0) {
-      let result;
-      try {
-        result = decodeFrame(buffer);
-      } catch (e) {
-        socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
-        clients.delete(socket);
-        return;
-      }
-      if (!result) break;
-      buffer = buffer.slice(result.bytesConsumed);
-
-      switch (result.opcode) {
-        case OPCODES.TEXT:
-          handleMessage(result.payload.toString());
-          break;
-        case OPCODES.CLOSE:
-          socket.end(encodeFrame(OPCODES.CLOSE, Buffer.alloc(0)));
-          clients.delete(socket);
-          return;
-        case OPCODES.PING:
-          socket.write(encodeFrame(OPCODES.PONG, result.payload));
-          break;
-        case OPCODES.PONG:
-          break;
-        default: {
-          const closeBuf = Buffer.alloc(2);
-          closeBuf.writeUInt16BE(1003);
-          socket.end(encodeFrame(OPCODES.CLOSE, closeBuf));
-          clients.delete(socket);
-          return;
-        }
-      }
-    }
-  });
-
-  socket.on('close', () => clients.delete(socket));
-  socket.on('error', () => clients.delete(socket));
-}
-
-function handleMessage(text) {
-  let event;
-  try {
-    event = JSON.parse(text);
-  } catch (e) {
-    console.error('Failed to parse WebSocket message:', e.message);
+  const session = loadSessionState(pmDir, slug);
+  if (!session) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(dashboardPage('Session Not Found', '/', `
+<div class="empty-state">
+  <p>No session found for <code>${escHtml(slug)}</code>.</p>
+  <p><a href="/">&larr; Back to Home</a></p>
+</div>`, projectName));
     return;
   }
-  touchActivity();
-  console.log(JSON.stringify({ source: 'user-event', ...event }));
-  if (event.choice) {
-    const eventsFile = path.join(SCREEN_DIR, '.events');
-    fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
-  }
-}
 
-function broadcast(msg) {
-  const frame = encodeFrame(OPCODES.TEXT, Buffer.from(JSON.stringify(msg)));
-  for (const socket of clients) {
-    try { socket.write(frame); } catch (e) { clients.delete(socket); }
-  }
+  const topic = session.data.topic || humanizeSlug(slug);
+  const phase = session.type === 'groom'
+    ? humanizeSlug(String(session.data.phase || 'in-progress'))
+    : humanizeSlug(String(session.data.stage || session.data.phase || 'in-progress'));
+  const started = session.data.started || session.data.updated || '';
+  const typeLabel = session.type === 'groom' ? 'Grooming Session' : 'Development Session';
+  const resumeCommand = session.type === 'groom' ? `/pm:groom ${slug}` : `/dev ${slug}`;
+  const statePath = session.type === 'groom'
+    ? (session.legacy ? '.pm/.groom-state.md' : `.pm/groom-sessions/${slug}.md`)
+    : `.pm/dev-sessions/${slug}.md`;
+
+  const body = `<div class="detail-page">
+  <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+    <a href="/">Dashboard</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">${escHtml(topic)}</span>
+  </nav>
+  <h1 class="detail-title">${escHtml(topic)}</h1>
+  <div class="detail-meta-bar">
+    <span class="meta-item">${escHtml(typeLabel)}</span>
+    ${started ? `<span class="meta-sep">&middot;</span><span class="meta-item">Started ${escHtml(started)}</span>` : ''}
+    <span class="meta-sep">&middot;</span><span class="meta-item">Phase ${escHtml(phase)}</span>
+  </div>
+  <section class="detail-section">
+    <h2 class="detail-section-title">Resume</h2>
+    <div class="markdown-body">
+      <p>Resume this session from the terminal with <code>${escHtml(resumeCommand)}</code>.</p>
+      <p>State file: <code>${escHtml(statePath)}</code></p>
+    </div>
+  </section>
+</div>`;
+
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(dashboardPage(`Session: ${topic}`, `/session/${slug}`, body, projectName));
 }
 
 // ========== Activity Tracking ==========
@@ -4161,105 +4223,27 @@ const debounceTimers = new Map();
 // ========== Server Startup ==========
 
 function startServer() {
-  // ---- Dashboard mode ----
-  if (MODE === 'dashboard') {
-    const pmDir = DIR_FLAG
-      ? path.resolve(process.cwd(), DIR_FLAG)
-      : path.join(process.cwd(), 'pm');
+  const pmDir = DIR_FLAG
+    ? path.resolve(process.cwd(), DIR_FLAG)
+    : path.join(process.cwd(), 'pm');
 
-    const server = createDashboardServer(pmDir);
+  const server = createDashboardServer(pmDir);
 
-    function ownerAliveDash() {
-      if (!OWNER_PID) return true;
-      try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
-    }
-
-    const lifecycleCheck = setInterval(() => {
-      if (!ownerAliveDash()) {
-        console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
-        clearInterval(lifecycleCheck);
-        server.close(() => process.exit(0));
-      } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
-        console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
-        clearInterval(lifecycleCheck);
-        server.close(() => process.exit(0));
-      }
-    }, 60 * 1000);
-    lifecycleCheck.unref();
-
-    server.listen(PORT, HOST, () => {
-      const address = server.address();
-      const boundPort = address && typeof address === 'object' ? Number(address.port) : Number(PORT);
-      const info = JSON.stringify({
-        type: 'server-started', port: boundPort, host: HOST,
-        url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
-        pm_dir: pmDir, mode: MODE
-      });
-      console.log(info);
-    });
-    return;
-  }
-
-  // ---- Companion mode (default) ----
-  if (!fs.existsSync(SCREEN_DIR)) fs.mkdirSync(SCREEN_DIR, { recursive: true });
-
-  // Track known files to distinguish new screens from updates.
-  // macOS fs.watch reports 'rename' for both new files and overwrites,
-  // so we can't rely on eventType alone.
-  const knownFiles = new Set(
-    fs.readdirSync(SCREEN_DIR).filter(f => f.endsWith('.html'))
-  );
-
-  const server = http.createServer(handleRequest);
-  server.on('upgrade', handleUpgrade);
-
-  const watcher = fs.watch(SCREEN_DIR, (eventType, filename) => {
-    if (!filename || !filename.endsWith('.html')) return;
-
-    if (debounceTimers.has(filename)) clearTimeout(debounceTimers.get(filename));
-    debounceTimers.set(filename, setTimeout(() => {
-      debounceTimers.delete(filename);
-      const filePath = path.join(SCREEN_DIR, filename);
-
-      if (!fs.existsSync(filePath)) return; // file was deleted
-      touchActivity();
-
-      if (!knownFiles.has(filename)) {
-        knownFiles.add(filename);
-        const eventsFile = path.join(SCREEN_DIR, '.events');
-        if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
-        console.log(JSON.stringify({ type: 'screen-added', file: filePath }));
-      } else {
-        console.log(JSON.stringify({ type: 'screen-updated', file: filePath }));
-      }
-
-      broadcast({ type: 'reload' });
-    }, 100));
-  });
-  watcher.on('error', (err) => console.error('fs.watch error:', err.message));
-
-  function shutdown(reason) {
-    console.log(JSON.stringify({ type: 'server-stopped', reason }));
-    const infoFile = path.join(SCREEN_DIR, '.server-info');
-    if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
-    fs.writeFileSync(
-      path.join(SCREEN_DIR, '.server-stopped'),
-      JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
-    );
-    watcher.close();
-    clearInterval(lifecycleCheck);
-    server.close(() => process.exit(0));
-  }
-
-  function ownerAlive() {
+  function ownerAliveDash() {
     if (!OWNER_PID) return true;
     try { process.kill(OWNER_PID, 0); return true; } catch (e) { return false; }
   }
 
-  // Check every 60s: exit if owner process died or idle for 30 minutes
   const lifecycleCheck = setInterval(() => {
-    if (!ownerAlive()) shutdown('owner process exited');
-    else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) shutdown('idle timeout');
+    if (!ownerAliveDash()) {
+      console.log(JSON.stringify({ type: 'server-stopped', reason: 'owner process exited' }));
+      clearInterval(lifecycleCheck);
+      server.close(() => process.exit(0));
+    } else if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+      console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout' }));
+      clearInterval(lifecycleCheck);
+      server.close(() => process.exit(0));
+    }
   }, 60 * 1000);
   lifecycleCheck.unref();
 
@@ -4269,10 +4253,9 @@ function startServer() {
     const info = JSON.stringify({
       type: 'server-started', port: boundPort, host: HOST,
       url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
-      screen_dir: SCREEN_DIR, mode: MODE
+      pm_dir: pmDir, mode: 'dashboard'
     });
     console.log(info);
-    fs.writeFileSync(path.join(SCREEN_DIR, '.server-info'), info + '\n');
   });
 }
 
