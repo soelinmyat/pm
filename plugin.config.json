@@ -24,18 +24,17 @@
     "workflow"
   ],
   "commands": [
+    "start",
     "groom",
     "ingest",
     "merge",
     "refresh",
     "research",
-    "setup",
     "strategy"
   ],
   "codex": {
     "fallbackSkillAliases": {
       "pm": [
-        "setup",
         "start",
         "research",
         "strategy",
