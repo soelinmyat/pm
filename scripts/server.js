@@ -1105,6 +1105,47 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
+/* Detail page layout */
+.detail-page { max-width: 720px; margin: 0 auto; }
+.detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
+.detail-breadcrumb a { color: var(--text-muted); text-decoration: none; }
+.detail-breadcrumb a:hover { color: var(--accent); }
+.breadcrumb-sep { color: var(--text-muted); opacity: 0.5; }
+.breadcrumb-current { color: var(--text); }
+.detail-title { font-size: var(--text-2xl); font-weight: 700; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.detail-id-badge { font-size: var(--text-sm); font-weight: 600; color: var(--accent); background: var(--accent-subtle); padding: 0.15em 0.5em; border-radius: 4px; margin-right: var(--space-2); vertical-align: middle; }
+.detail-meta-bar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-8); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border); }
+.detail-meta-bar .meta-item a { color: var(--accent); text-decoration: none; }
+.detail-meta-bar .meta-item a:hover { text-decoration: underline; }
+.meta-sep { color: var(--text-muted); opacity: 0.4; }
+.detail-section { margin-top: var(--space-12); }
+.detail-section-title { font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: var(--space-3); }
+.detail-action-hint { margin-top: var(--space-12); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; }
+.click-to-copy { cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--accent-subtle); border-radius: var(--radius-sm); transition: background var(--transition); border: none; font-family: inherit; }
+.click-to-copy:hover { background: var(--accent); color: var(--text-on-accent); }
+.click-to-copy:hover code { color: var(--text-on-accent); background: transparent; }
+.click-to-copy code { font-size: var(--text-base); color: var(--accent); background: transparent; }
+.copy-icon { font-size: var(--text-xs); opacity: 0.6; }
+.detail-ac-list { list-style: none; padding: 0; margin: 0; }
+.detail-ac-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-base); display: flex; align-items: flex-start; gap: var(--space-2); }
+.detail-ac-list li:last-child { border-bottom: none; }
+.detail-ac-list li::before { content: '\\2610'; color: var(--text-muted); flex-shrink: 0; }
+.detail-strategy-card { padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.detail-research-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.detail-research-tag { display: inline-block; padding: var(--space-1) var(--space-2); border-radius: var(--space-1); font-size: var(--text-xs); font-weight: 500; background: var(--accent-subtle); color: var(--accent); text-decoration: none; }
+.detail-research-tag:hover { background: var(--accent); color: var(--text-on-accent); }
+.detail-issue-list { list-style: none; padding: 0; margin: 0; }
+.detail-issue-list li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.detail-issue-list li:last-child { border-bottom: none; }
+.detail-issue-list a { color: var(--text); text-decoration: none; font-size: var(--text-base); }
+.detail-issue-list a:hover { color: var(--accent); }
+.detail-issue-id { font-size: var(--text-xs); font-weight: 600; color: var(--accent); margin-right: var(--space-1); }
+
+/* Toast notifications */
+.toast-container { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; pointer-events: none; }
+.toast { background: var(--dark); color: var(--text-on-accent); padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 500; animation: fadeIn 150ms ease-out; pointer-events: auto; }
+.toast-out { opacity: 0; transition: opacity 200ms ease-out; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1144,6 +1185,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <div class="container">
 ${bodyContent}
 </div>
+<div id="toast-container" class="toast-container"></div>
 <script>
 (function() {
   var ws = new WebSocket('ws://' + location.host + '/ws');
@@ -1151,6 +1193,34 @@ ${bodyContent}
     try { var d = JSON.parse(e.data); if (d.type === 'reload') location.reload(); } catch(err) {}
   };
 })();
+// Click-to-copy
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('.click-to-copy');
+  if (!el) return;
+  var text = el.getAttribute('data-copy');
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function() {
+    showCopyToast('Copied!');
+  });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Enter') return;
+  var el = e.target.closest('.click-to-copy');
+  if (!el) return;
+  el.click();
+});
+function showCopyToast(msg) {
+  var container = document.getElementById('toast-container');
+  if (!container) return;
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(function() {
+    el.classList.add('toast-out');
+    setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
+  }, 1500);
+}
 </script>
 </body>
 </html>`;
@@ -1325,27 +1395,24 @@ function routeDashboard(req, res, pmDir) {
     handleDashboardHome(res, pmDir);
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
-  } else if (urlPath.startsWith('/proposals/')) {
-    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, '');
+  } else if (urlPath.startsWith('/proposals/') && urlPath.endsWith('/raw')) {
+    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length, -'/raw'.length)).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
-      // For now, redirect proposal detail to a placeholder (detail page comes in a future ticket)
-      const meta = readProposalMeta(slug, pmDir);
-      if (meta) {
-        const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
-        if (fs.existsSync(htmlPath)) {
-          const html = fs.readFileSync(htmlPath, 'utf-8');
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end(html);
-        } else {
-          const body = `<div class="page-header"><h1>${escHtml(meta.title || humanizeSlug(slug))}</h1></div>
-<div class="empty-state"><p>Proposal detail page coming soon.</p></div>`;
-          const page = dashboardPage(meta.title || humanizeSlug(slug), '/proposals', body);
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end(page);
-        }
+      const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
+      if (fs.existsSync(htmlPath)) {
+        const html = fs.readFileSync(htmlPath, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
       } else {
         res.writeHead(404); res.end('Not found');
       }
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+  } else if (urlPath.startsWith('/proposals/')) {
+    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      handleProposalDetail(res, pmDir, slug);
     } else {
       res.writeHead(404); res.end('Not found');
     }
@@ -3491,6 +3558,134 @@ function handleShipped(res, pmDir) {
   res.end(html);
 }
 
+function handleProposalDetail(res, pmDir, slug) {
+  const meta = readProposalMeta(slug, pmDir);
+  if (!meta) {
+    res.writeHead(404); res.end('Not found');
+    return;
+  }
+
+  const title = meta.title || humanizeSlug(slug);
+  const status = meta.status || meta.verdict || 'draft';
+  const issueCount = meta.issueCount || (Array.isArray(meta.issues) ? meta.issues.length : 0);
+  const date = meta.date || meta.created || '';
+  const outcome = meta.outcome || '';
+  const strategyAlignment = meta.strategy_alignment || meta.strategy_check || '';
+  const researchRefs = Array.isArray(meta.research_refs) ? meta.research_refs : [];
+  const issues = Array.isArray(meta.issues) ? meta.issues : [];
+
+  // Breadcrumb
+  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
+  <a href="/proposals">Proposals</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">${escHtml(title)}</span>
+</nav>`;
+
+  // Title
+  const titleHtml = `<h1 class="detail-title">${escHtml(title)}</h1>`;
+
+  // Meta bar
+  const metaParts = [];
+  metaParts.push(`<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>`);
+  if (issueCount > 0) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="meta-item">${issueCount} issue${issueCount !== 1 ? 's' : ''}</span>`);
+  }
+  if (date) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="meta-item">${escHtml(date)}</span>`);
+  }
+  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
+
+  // Sections
+  const sections = [];
+
+  // Outcome section
+  if (outcome) {
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Outcome</h2>
+  <p>${escHtml(outcome)}</p>
+</section>`);
+  }
+
+  // Strategy alignment section
+  if (strategyAlignment) {
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Strategy Alignment</h2>
+  <div class="detail-strategy-card"><p>${escHtml(strategyAlignment)}</p></div>
+</section>`);
+  }
+
+  // Research references section
+  if (researchRefs.length > 0) {
+    const resolvedRefs = resolveResearchRefs(researchRefs, pmDir);
+    const tags = resolvedRefs.map(r =>
+      `<a href="/research/${escHtml(r.slug)}" class="detail-research-tag">${escHtml(r.label)}</a>`
+    ).join('');
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Research</h2>
+  <div class="detail-research-tags">${tags}</div>
+</section>`);
+  }
+
+  // Issues list section
+  if (issues.length > 0) {
+    const backlogDir = path.join(pmDir, 'backlog');
+    const issueItems = issues.map(issue => {
+      const issueSlug = typeof issue === 'object' ? (issue.slug || '') : String(issue);
+      if (!issueSlug) return '';
+      let issueTitle = humanizeSlug(issueSlug);
+      let issueId = '';
+      const issuePath = path.join(backlogDir, issueSlug + '.md');
+      if (fs.existsSync(issuePath)) {
+        const parsed = parseFrontmatter(fs.readFileSync(issuePath, 'utf-8'));
+        if (parsed.data.title) issueTitle = parsed.data.title;
+        if (parsed.data.id) issueId = parsed.data.id;
+      }
+      const idSpan = issueId ? `<span class="detail-issue-id">${escHtml(issueId)}</span>` : '';
+      return `<li><a href="/roadmap/${escHtml(issueSlug)}">${idSpan}${escHtml(issueTitle)}</a></li>`;
+    }).filter(Boolean).join('\n');
+    if (issueItems) {
+      sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Issues</h2>
+  <ul class="detail-issue-list">${issueItems}</ul>
+</section>`);
+    }
+  }
+
+  // Proposal embed (iframe) section
+  const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
+  if (fs.existsSync(htmlPath)) {
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Full Proposal</h2>
+  <div class="wireframe-embed">
+    <div class="wireframe-header"><span class="wireframe-label">Proposal Document</span><a href="/proposals/${encodeURIComponent(slug)}/raw" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
+    <iframe src="/proposals/${encodeURIComponent(slug)}/raw" class="wireframe-iframe"></iframe>
+  </div>
+</section>`);
+  }
+
+  // Action hint
+  const actionHint = `<div class="detail-action-hint">
+  <span class="click-to-copy" data-copy="/pm:groom ${slug}" tabindex="0" role="button">
+    <code>/pm:groom ${escHtml(slug)}</code>
+    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
+  </span>
+</div>`;
+
+  const body = `<div class="detail-page">
+${breadcrumb}
+${titleHtml}
+${metaBar}
+${sections.join('\n')}
+${actionHint}
+</div>`;
+
+  const page = dashboardPage(title, '/proposals', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(page);
+}
+
 function handleBacklogItem(res, pmDir, slug) {
   const filePath = path.join(pmDir, 'backlog', slug + '.md');
   if (!fs.existsSync(filePath)) {
@@ -3501,6 +3696,10 @@ function handleBacklogItem(res, pmDir, slug) {
   const raw = fs.readFileSync(filePath, 'utf-8');
   const { data, body } = parseFrontmatter(raw);
   const title = data.title || slug;
+  const status = data.status || 'idea';
+  const priority = data.priority || '';
+  const itemId = data.id || '';
+  const date = data.updated || data.created || '';
 
   // Build slug lookup for resolving parent/children references
   const backlogDir = path.join(pmDir, 'backlog');
@@ -3515,58 +3714,150 @@ function handleBacklogItem(res, pmDir, slug) {
     }
   }
 
-  const idTag = data.id ? `<span class="backlog-item-id">${escHtml(data.id)}</span> ` : '';
-
-  // Parent link
-  let parentHtml = '';
-  if (data.parent && slugLookup[data.parent]) {
-    const p = slugLookup[data.parent];
-    const pLabel = p.id ? `${escHtml(p.id)} ${escHtml(p.title)}` : escHtml(p.title);
-    parentHtml = `<div class="issue-relation"><span class="relation-label">Parent:</span> <a href="/roadmap/${escHtml(data.parent)}">${pLabel}</a></div>`;
+  // Resolve parent info for breadcrumb
+  let parentSlug = data.parent || '';
+  let parentTitle = '';
+  if (parentSlug && slugLookup[parentSlug]) {
+    parentTitle = slugLookup[parentSlug].title;
   }
 
-  // Children links
-  let childrenHtml = '';
+  // Breadcrumb: Proposals / {Parent} / PM-XXX  OR  Roadmap / PM-XXX
+  let breadcrumbInner = '';
+  if (parentSlug && parentTitle) {
+    breadcrumbInner = `<a href="/proposals">Proposals</a>
+  <span class="breadcrumb-sep">/</span>
+  <a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">${escHtml(itemId ? itemId + ' ' + title : title)}</span>`;
+  } else {
+    breadcrumbInner = `<a href="/roadmap">Roadmap</a>
+  <span class="breadcrumb-sep">/</span>
+  <span class="breadcrumb-current">${escHtml(itemId ? itemId + ' ' + title : title)}</span>`;
+  }
+  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
+  ${breadcrumbInner}
+</nav>`;
+
+  // Title with ID badge
+  const idBadge = itemId ? `<span class="detail-id-badge">${escHtml(itemId)}</span>` : '';
+  const titleHtml = `<h1 class="detail-title">${idBadge}${escHtml(title)}</h1>`;
+
+  // Metadata bar
+  const metaParts = [];
+  metaParts.push(`<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>`);
+  if (priority) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="meta-item">${escHtml(priority)} priority</span>`);
+  }
+  if (parentSlug && parentTitle) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="meta-item"><a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a></span>`);
+  }
+  if (date) {
+    metaParts.push(`<span class="meta-sep">&middot;</span>`);
+    metaParts.push(`<span class="meta-item">${escHtml(date)}</span>`);
+  }
+  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
+
+  // Sections
+  const sections = [];
+
+  // Outcome section
+  if (data.outcome) {
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Outcome</h2>
+  <p>${escHtml(data.outcome)}</p>
+</section>`);
+  }
+
+  // Acceptance Criteria section — parse from body or frontmatter
+  const acItems = [];
+  if (Array.isArray(data.acceptance_criteria)) {
+    data.acceptance_criteria.forEach(ac => acItems.push(String(ac)));
+  } else {
+    // Parse from markdown body: look for ## Acceptance Criteria section
+    const acMatch = body.match(/## Acceptance Criteria\s*\n([\s\S]*?)(?=\n## |\n# |$)/i);
+    if (acMatch) {
+      const acBlock = acMatch[1];
+      const acLines = acBlock.split('\n');
+      for (const line of acLines) {
+        const m = line.match(/^\s*[-*]\s+\[?\s*[xX ]?\]?\s*(.*)/);
+        if (m && m[1].trim()) acItems.push(m[1].trim());
+      }
+    }
+  }
+  if (acItems.length > 0) {
+    const acListItems = acItems.map(ac => `<li>${escHtml(ac)}</li>`).join('\n');
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Acceptance Criteria</h2>
+  <ul class="detail-ac-list">${acListItems}</ul>
+</section>`);
+  }
+
+  // Children section
   const children = Array.isArray(data.children) ? data.children.filter(c => c && slugLookup[c]) : [];
   if (children.length > 0) {
-    const childLinks = children.map(c => {
+    const childItems = children.map(c => {
       const ch = slugLookup[c];
-      const cLabel = ch.id ? `${escHtml(ch.id)} ${escHtml(ch.title)}` : escHtml(ch.title);
-      return `<li><a href="/roadmap/${escHtml(c)}">${cLabel}</a></li>`;
-    }).join('');
-    childrenHtml = `<div class="issue-relation"><span class="relation-label">Children:</span><ul class="issue-children">${childLinks}</ul></div>`;
+      const cId = ch.id ? `<span class="detail-issue-id">${escHtml(ch.id)}</span>` : '';
+      return `<li><a href="/roadmap/${escHtml(c)}">${cId}${escHtml(ch.title)}</a></li>`;
+    }).join('\n');
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Child Issues</h2>
+  <ul class="detail-issue-list">${childItems}</ul>
+</section>`);
   }
 
-  const relationsHtml = (parentHtml || childrenHtml) ? `<div class="issue-relations">${parentHtml}${childrenHtml}</div>` : '';
-
-  // Wireframe embed
-  let wireframeHtml = '';
+  // Wireframe embed section
   try {
     fs.accessSync(path.join(pmDir, 'backlog', 'wireframes', slug + '.html'));
-    wireframeHtml = `<div class="wireframe-embed">
-  <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/roadmap/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
-  <iframe src="/roadmap/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
-</div>`;
+    sections.push(`<section class="detail-section">
+  <h2 class="detail-section-title">Wireframe</h2>
+  <div class="wireframe-embed">
+    <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/roadmap/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
+    <iframe src="/roadmap/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
+  </div>
+</section>`);
   } catch { /* no wireframe for this item */ }
 
-  // Action hint based on status
-  const rawStatus = data.status || 'idea';
-  let actionHint = '';
-  if (rawStatus === 'idea') {
-    actionHint = `<div class="action-hint">Run <code>/pm:groom ${escHtml(slug)}</code> to scope and research this idea</div>`;
-  } else if (rawStatus === 'drafted' || rawStatus === 'approved' || rawStatus === 'in-progress') {
-    actionHint = `<div class="action-hint">Edit <code>pm/backlog/${escHtml(slug)}.md</code> to update status</div>`;
+  // Remaining markdown body section (strip AC section to avoid duplication)
+  let remainingBody = body;
+  if (acItems.length > 0) {
+    remainingBody = remainingBody.replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, '').trim();
+  }
+  if (remainingBody.trim()) {
+    sections.push(`<section class="detail-section">
+  <div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>
+</section>`);
   }
 
-  const html = dashboardPage(title, '/roadmap', `
-<div class="page-header">
-  <p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
-  <h1>${idTag}${escHtml(title)}</h1>
-  ${actionHint}
-  ${relationsHtml}
-</div>
-${wireframeHtml}
-<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(body))}</div>`);
+  // Action hint: click-to-copy /dev PM-XXX when status is not done
+  let actionHint = '';
+  if (itemId && status !== 'done') {
+    actionHint = `<div class="detail-action-hint">
+  <span class="click-to-copy" data-copy="/dev ${itemId}" tabindex="0" role="button">
+    <code>/dev ${escHtml(itemId)}</code>
+    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
+  </span>
+</div>`;
+  } else if (!itemId && status !== 'done') {
+    actionHint = `<div class="detail-action-hint">
+  <span class="click-to-copy" data-copy="/pm:groom ${slug}" tabindex="0" role="button">
+    <code>/pm:groom ${escHtml(slug)}</code>
+    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
+  </span>
+</div>`;
+  }
+
+  const pageBody = `<div class="detail-page">
+${breadcrumb}
+${titleHtml}
+${metaBar}
+${sections.join('\n')}
+${actionHint}
+</div>`;
+
+  const html = dashboardPage(title, '/roadmap', pageBody);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
