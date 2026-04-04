@@ -1242,6 +1242,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   transition: background 150ms;
 }
 .landscape-card:hover { background: var(--surface-raised, var(--surface)); }
+.landscape-view-link { display: block; font-size: var(--text-sm); color: var(--accent); margin-top: var(--space-3); }
 .landscape-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-2); }
 .landscape-summary {
   font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; margin-bottom: var(--space-3);
@@ -1925,7 +1926,10 @@ function getUpdatedDate(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     const { data } = parseFrontmatter(content);
-    return data.updated || data.created || null;
+    const raw = data.updated || data.created || null;
+    if (!raw) return null;
+    // Strip trailing YAML comments (e.g. "2026-03-13  # note")
+    return String(raw).replace(/#.*$/, '').trim() || null;
   } catch { return null; }
 }
 
@@ -3306,8 +3310,15 @@ function buildLandscapeCard(pmDir) {
   const { body } = parseFrontmatter(raw);
   const titleMatch = body.match(/^#\s+(.+)/m);
   const title = titleMatch ? titleMatch[1] : 'Market Landscape';
-  const paragraphs = body.split(/\n\n/).filter(p => !p.startsWith('#'));
-  const summary = paragraphs[0] ? paragraphs[0].replace(/\n/g, ' ').trim().slice(0, 200) : '';
+  const paragraphs = body.split(/\n\n/).filter(p => {
+    const t = p.trim();
+    if (!t || /^#{1,6}\s/.test(t)) return false;
+    // Skip blocks that are only HTML comments (stat annotations)
+    if (/^<!--[\s\S]*-->$/.test(t.replace(/\n/g, ''))) return false;
+    if (/^(<!--.*-->\s*)+$/.test(t.replace(/\n/g, ' ').trim())) return false;
+    return true;
+  });
+  const summary = paragraphs[0] ? paragraphs[0].replace(/\n/g, ' ').replace(/[*_`#]/g, '').replace(/<!--.*?-->/g, '').trim().slice(0, 200) : '';
   const statsData = parseStatsData(body);
   const topStats = (statsData || []).slice(0, 3);
   return `<a href="/kb?tab=landscape" class="landscape-card">
@@ -3316,6 +3327,7 @@ function buildLandscapeCard(pmDir) {
   ${topStats.length > 0 ? `<div class="landscape-stats">${topStats.map(s =>
     `<div><div class="landscape-stat">${escHtml(s.value)}</div><div class="landscape-stat-label">${escHtml(s.label)}</div></div>`
   ).join('')}</div>` : ''}
+  <span class="landscape-view-link">View &rarr;</span>
 </a>`;
 }
 
@@ -3338,14 +3350,14 @@ function buildCompetitorGrid(pmDir) {
       if (summary.company) name = summary.company;
       if (summary.category) category = summary.category;
     }
-    return `<a href="/competitors/${escHtml(slug)}" class="competitor-card">
-  <div class="competitor-name">${escHtml(name)}</div>
-  <div class="competitor-category">${escHtml(category)}</div>
-  <span class="competitor-view-link">View profile &rarr;</span>
-</a>`;
+    return `<article class="card">
+  <h3><a href="/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
+  <p class="meta">${escHtml(category)}</p>
+  <div class="card-footer"><a href="/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
+</article>`;
   }).join('');
   const viewAll = slugs.length > 6 ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>` : '';
-  return `<div class="competitor-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ''}`;
+  return `<div class="card-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ''}`;
 }
 
 function buildTopicRows(pmDir, maxTopics) {
@@ -3429,8 +3441,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   const compCount = fs.existsSync(compDir)
     ? fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory()).length
     : 0;
-  const matrixPath = path.join(pmDir, 'competitors', 'matrix.md');
-  const matrixLink = fs.existsSync(matrixPath) ? '<a href="/competitors#feature-matrix" class="section-link">Feature matrix</a>' : '';
+  const compViewAllLink = compCount > 0 ? `<a href="/kb?tab=competitors" class="section-link">View all ${compCount} competitors</a>` : '';
 
   const body = `
 <div class="page-header">
@@ -3447,7 +3458,7 @@ ${landscapeCard ? `<section class="section">
 ${compCount > 0 ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Competitors</span>
-    ${matrixLink}
+    ${compViewAllLink}
   </div>
   ${competitorGrid}
 </section>` : ''}
@@ -3541,35 +3552,40 @@ function handleKbLandscapeDetail(res, pmDir) {
   const statsData = parseStatsData(body);
   const statsHtml = renderStatsCards(statsData);
 
-  // Extract h2 headings for TOC
-  const headings = [];
-  const headingRe = /^## (.+)$/gm;
-  let hm;
-  while ((hm = headingRe.exec(body)) !== null) {
-    const text = hm[1].replace(/[*_`#]/g, '').trim();
-    const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    headings.push({ text, slug });
+  // Split body into sections by ## headings
+  const sectionTabs = [];
+  const parts = body.split(/^(?=## )/m);
+  for (const part of parts) {
+    const h2Match = part.match(/^## (.+)$/m);
+    if (!h2Match) continue;
+    const label = h2Match[1].replace(/[*_`#]/g, '').trim();
+    const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let rendered = renderLandscapeWithViz(part);
+    sectionTabs.push({ id, label, rendered });
   }
 
-  var rendered = renderLandscapeWithViz(body);
-  if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+  // Inject stats cards into the first tab if available
+  if (statsHtml && sectionTabs.length > 0) {
+    sectionTabs[0].rendered = statsHtml + sectionTabs[0].rendered;
+  }
 
-  // Inject id attributes on h2 elements for anchor links
-  headings.forEach(function(h) {
-    const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    rendered = rendered.replace(
-      new RegExp('<h2>(' + escaped + ')</h2>'),
-      '<h2 id="' + h.slug + '">$1</h2>'
-    );
-  });
+  // Build meta badges
+  const metaBadges = [];
+  const stale = stalenessInfo(getUpdatedDate(landscapePath));
+  if (stale) {
+    metaBadges.push({ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` });
+  }
+  metaBadges.push({ html: `<span class="meta-item">${sectionTabs.length} sections</span>` });
 
-  const contentHtml = renderTemplate('detail-toc', {
-    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }],
+  const contentHtml = renderTemplate('detail-tabs', {
+    breadcrumb: [
+      { href: '/kb', label: 'Knowledge Base' },
+      { label: 'Market Landscape' },
+    ],
     title: 'Market Landscape',
-    metaBadges: [],
-    toc: headings,
-    bodyHtml: rendered,
-    actionHint: '/pm:refresh',
+    metaBadges,
+    tabs: sectionTabs.map(s => ({ id: s.id, label: s.label, html: s.rendered })),
+    actionHint: '/pm:research landscape',
   });
 
   const html = dashboardPage('Landscape', '/kb', contentHtml);
@@ -3578,53 +3594,19 @@ function handleKbLandscapeDetail(res, pmDir) {
 }
 
 function handleKbTopicsDetail(res, pmDir) {
-  // Landscape content (shown before topic cards)
-  let landscapeHtml = '';
-  const landscapePath = path.join(pmDir, 'landscape.md');
-  if (fs.existsSync(landscapePath)) {
-    const raw = fs.readFileSync(landscapePath, 'utf-8');
-    const { body } = parseFrontmatter(raw);
-    const statsData = parseStatsData(body);
-    const statsHtml = renderStatsCards(statsData);
-    var rendered = renderLandscapeWithViz(body);
-    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-    landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
-      '<div class="markdown-body">' + rendered + '</div>';
-  }
+  const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, null);
 
-  // Topic cards (HTML stays in handler)
-  const topicCards = [];
-  const researchDir = path.join(pmDir, 'research');
-  if (fs.existsSync(researchDir)) {
-    const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-      .filter(e => e.isDirectory());
-    for (const t of topics) {
-      const findingsPath = path.join(researchDir, t.name, 'findings.md');
-      if (!fs.existsSync(findingsPath)) continue;
-      const raw = fs.readFileSync(findingsPath, 'utf-8');
-      const { data } = parseFrontmatter(raw);
-      const meta = buildTopicMeta(t.name, data, findingsPath);
-      topicCards.push(`<article class="card">
-          <h3><a href="/research/${escHtml(t.name)}">${escHtml(meta.label)}</a></h3>
-          <p class="meta">${escHtml(meta.subtitle)}</p>
-          <div class="card-footer"><div class="topic-badges">${meta.badgesHtml}</div><a href="/research/${escHtml(t.name)}" class="view-link">View &rarr;</a></div>
-        </article>`);
-    }
-  }
+  const body = `
+<div class="page-header">
+  <div class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></div>
+  <h1>Research</h1>
+  <p class="subtitle">${topicCount} topic${topicCount !== 1 ? 's' : ''}</p>
+</div>
+${topicCount > 0 ? `<section class="section">
+  ${topicRows}
+</section>` : renderEmptyState('No research topics', 'Run research to build your knowledge base.', '/pm:research', 'Start research')}`;
 
-  const sections = [];
-  if (topicCards.length > 0) {
-    sections.push({ title: 'Topics', items: topicCards, layout: 'cards' });
-  }
-
-  const contentHtml = renderListTemplate({
-    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
-    title: 'Research',
-    contentBefore: landscapeHtml || undefined,
-    sections,
-    emptyState: !landscapeHtml ? renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market') : undefined,
-  });
-  const html = dashboardPage('Research', '/kb', contentHtml);
+  const html = dashboardPage('Research', '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -3653,7 +3635,8 @@ function handleCompetitorDetail(res, pmDir, slug) {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const { data, body } = parseFrontmatter(raw);
     if (sec === 'profile') {
-      if (data.name) name = data.name;
+      if (data.company) name = data.company;
+      else if (data.name) name = data.name;
       const summary = extractProfileSummary(body);
       if (summary.category) category = summary.category;
       profileUpdatedDate = data.updated || data.created || null;
@@ -3666,7 +3649,8 @@ function handleCompetitorDetail(res, pmDir, slug) {
   // Build meta badges
   const metaBadges = [];
   if (category) {
-    metaBadges.push({ html: `<span class="meta-item">${escHtml(category)}</span>` });
+    const truncated = category.length > 80 ? category.slice(0, 80).trim() + '\u2026' : category;
+    metaBadges.push({ html: `<span class="meta-item">${escHtml(truncated)}</span>` });
   }
   metaBadges.push({ html: `<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>` });
   const stale = stalenessInfo(profileUpdatedDate);
@@ -4121,12 +4105,15 @@ function handleBacklogItem(res, pmDir, slug) {
     templateSections.push({ title: null, html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>` });
   }
 
-  // Action hint
+  // Action hint: ideas need grooming, groomed items need dev
   let actionHintCmd = '';
-  if (itemId && status !== 'done') {
-    actionHintCmd = '/dev ' + itemId;
-  } else if (status !== 'done') {
-    actionHintCmd = '/pm:groom ' + (itemId || slug);
+  if (status !== 'done') {
+    const ref = itemId || slug;
+    if (status === 'idea') {
+      actionHintCmd = '/groom ' + ref;
+    } else {
+      actionHintCmd = '/dev ' + ref;
+    }
   }
 
   const pageBody = renderTemplate('detail', {
