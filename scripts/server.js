@@ -1522,6 +1522,60 @@ function renderEmptyState(title, desc, command, ctaLabel) {
     '</div>';
 }
 
+// ========== Template Engine ==========
+
+/**
+ * Render a detail page template from structured data.
+ * @param {object} data - Template data matching the detail schema
+ * @returns {string} HTML string for the detail page body
+ */
+function renderDetailTemplate(data) {
+  const { breadcrumb = [], title = '', titlePrefix = '', subtitle = '', metaBadges = [], sections = [], actionHint = '' } = data;
+
+  // Breadcrumb
+  const breadcrumbItems = breadcrumb.map((item, i) => {
+    const isLast = i === breadcrumb.length - 1;
+    const sep = i > 0 ? `\n  <span class="breadcrumb-sep">/</span>\n  ` : '';
+    if (isLast) {
+      return `${sep}<span class="breadcrumb-current">${escHtml(item.label)}</span>`;
+    }
+    return `${sep}<a href="${escHtml(item.href)}">${escHtml(item.label)}</a>`;
+  });
+  const breadcrumbHtml = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">\n  ${breadcrumbItems.join('')}\n</nav>`;
+
+  // Title
+  const titleHtml = `<h1 class="detail-title">${titlePrefix}${escHtml(title)}</h1>`;
+
+  // Subtitle
+  const subtitleHtml = subtitle ? `\n<p class="subtitle">${escHtml(subtitle)}</p>` : '';
+
+  // Meta bar with optional action hint inside
+  const badgesSeparated = metaBadges.map(b => b.html).join('<span class="meta-sep">&middot;</span>');
+  const actionHintHtml = actionHint ? `<div class="detail-action-hint">${renderClickToCopy(actionHint)}</div>` : '';
+  const metaBarHtml = `<div class="detail-meta-bar">${badgesSeparated}${actionHintHtml}</div>`;
+
+  // Sections
+  const sectionsHtml = sections.map(s => {
+    const sectionTitle = s.title ? `\n  <h2 class="detail-section-title">${s.title}</h2>` : '';
+    return `<section class="detail-section">${sectionTitle}\n  ${s.html}\n</section>`;
+  }).join('\n');
+
+  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${sectionsHtml}\n</div>`;
+}
+
+/**
+ * Dispatch to the right template renderer.
+ * @param {string} type - Template type (currently only 'detail')
+ * @param {object} data - Template data
+ * @returns {string} Rendered HTML
+ */
+function renderTemplate(type, data) {
+  switch (type) {
+    case 'detail': return renderDetailTemplate(data);
+    default: throw new Error(`Unknown template type: ${type}`);
+  }
+}
+
 function parseStatsData(mdBody) {
   var regex = /<!--\s*stat:\s*([^,]+),\s*(.+?)\s*-->/g;
   var stats = [];
@@ -4415,4 +4469,5 @@ module.exports = {
   resolveResearchRefs, resolveStrategyAlignment, resolveCompetitiveContext,
   hashProjectPort, isPortAvailable, resolvePort,
   DASHBOARD_CSS,
+  renderTemplate,
 };

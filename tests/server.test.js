@@ -3420,3 +3420,179 @@ test('PM-128 Task 15: home page uses <section> for home-section blocks', async (
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// PM-138: Core Template Engine — renderTemplate('detail', data)
+// ---------------------------------------------------------------------------
+
+test('PM-138: renderTemplate is exported and callable', () => {
+  const mod = loadServer();
+  assert.equal(typeof mod.renderTemplate, 'function', 'renderTemplate must be exported');
+});
+
+test('PM-138: renderTemplate("detail", data) returns HTML with expected structure', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [
+      { label: 'Knowledge Base', href: '/kb?tab=research' },
+      { label: 'AI Agents' },
+    ],
+    title: 'AI Agents',
+    metaBadges: [
+      { html: '<span class="badge badge-origin-external">External</span>' },
+    ],
+    sections: [
+      { title: 'Findings', html: '<div class="markdown-body">Results here.</div>' },
+    ],
+  });
+  assert.ok(html.includes('class="detail-page"'), 'must have .detail-page');
+  assert.ok(html.includes('class="detail-breadcrumb"'), 'must have .detail-breadcrumb');
+  assert.ok(html.includes('class="detail-title"'), 'must have .detail-title');
+  assert.ok(html.includes('class="detail-meta-bar"'), 'must have .detail-meta-bar');
+  assert.ok(html.includes('class="detail-section"'), 'must have .detail-section');
+  assert.ok(html.includes('class="detail-section-title"'), 'must have .detail-section-title');
+});
+
+test('PM-138: breadcrumb with 2 items — first is link, second is current', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [
+      { label: 'Roadmap', href: '/roadmap' },
+      { label: 'My Issue' },
+    ],
+    title: 'My Issue',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(html.includes('href="/roadmap"'), 'first breadcrumb item must be a link');
+  assert.ok(html.includes('class="breadcrumb-current"'), 'last item must be breadcrumb-current');
+  assert.ok(html.includes('>Roadmap<'), 'first item must show Roadmap label');
+  assert.ok(html.includes('>My Issue<'), 'last item must show current label');
+});
+
+test('PM-138: breadcrumb with 3 items — first two are links with separators, third is current', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [
+      { label: 'Proposals', href: '/proposals' },
+      { label: 'Parent', href: '/roadmap/parent' },
+      { label: 'Child' },
+    ],
+    title: 'Child',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(html.includes('href="/proposals"'), 'first item must link to /proposals');
+  assert.ok(html.includes('href="/roadmap/parent"'), 'second item must link to parent');
+  assert.ok(html.includes('class="breadcrumb-current"'), 'last item must be breadcrumb-current');
+  // Count separators — should be 2
+  const sepCount = (html.match(/breadcrumb-sep/g) || []).length;
+  assert.equal(sepCount, 2, 'must have 2 breadcrumb separators for 3 items');
+});
+
+test('PM-138: titlePrefix appears inside h1 before title text', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'Roadmap', href: '/roadmap' }, { label: 'Issue' }],
+    title: 'Issue Title',
+    titlePrefix: '<span class="detail-id-badge">PM-042</span>',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(html.includes('<h1 class="detail-title"><span class="detail-id-badge">PM-042</span>'), 'titlePrefix must appear inside h1 before title');
+  assert.ok(html.includes('Issue Title'), 'title text must appear');
+});
+
+test('PM-138: subtitle renders <p class="subtitle"> when present, omitted when falsy', () => {
+  const mod = loadServer();
+  const withSub = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    subtitle: 'A subtitle',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(withSub.includes('<p class="subtitle">'), 'subtitle must render when present');
+  assert.ok(withSub.includes('A subtitle'), 'subtitle text must appear');
+
+  const withoutSub = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(!withoutSub.includes('class="subtitle"'), 'subtitle must be omitted when falsy');
+});
+
+test('PM-138: metaBadges joined with meta-sep middot separators', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [
+      { html: '<span class="badge">A</span>' },
+      { html: '<span class="meta-item">B</span>' },
+    ],
+    sections: [],
+  });
+  assert.ok(html.includes('meta-sep'), 'must have meta-sep separator between badges');
+  assert.ok(html.includes('&middot;'), 'separator must contain middot');
+});
+
+test('PM-138: empty metaBadges array still renders the meta-bar div', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(html.includes('class="detail-meta-bar"'), 'meta-bar must render even with empty badges');
+});
+
+test('PM-138: sections with title render h2; sections with title: null skip h2', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [],
+    sections: [
+      { title: 'Findings', html: '<p>Found stuff</p>' },
+      { title: null, html: '<p>Raw content</p>' },
+    ],
+  });
+  assert.ok(html.includes('<h2 class="detail-section-title">Findings</h2>'), 'section with title must render h2');
+  assert.ok(html.includes('Raw content'), 'section without title must render html');
+  // The null-title section should not have an h2 before its content
+  const nullSection = html.split('Raw content')[0];
+  const lastSectionTag = nullSection.lastIndexOf('<section class="detail-section">');
+  const sectionSlice = nullSection.slice(lastSectionTag);
+  assert.ok(!sectionSlice.includes('detail-section-title'), 'null-title section must not have h2');
+});
+
+test('PM-138: actionHint renders detail-action-hint with click-to-copy; omitted when falsy', () => {
+  const mod = loadServer();
+  const withHint = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [],
+    sections: [],
+    actionHint: '/pm:refresh topic',
+  });
+  assert.ok(withHint.includes('class="detail-action-hint"'), 'must have detail-action-hint');
+  assert.ok(withHint.includes('click-to-copy'), 'must have click-to-copy inside action hint');
+  assert.ok(withHint.includes('/pm:refresh topic'), 'must show the command');
+
+  const withoutHint = mod.renderTemplate('detail', {
+    breadcrumb: [{ label: 'X' }],
+    title: 'T',
+    metaBadges: [],
+    sections: [],
+  });
+  assert.ok(!withoutHint.includes('detail-action-hint'), 'must omit action hint when falsy');
+});
+
+test('PM-138: unknown template type throws an error', () => {
+  const mod = loadServer();
+  assert.throws(() => mod.renderTemplate('unknown-type', {}), /unknown template type/i, 'must throw for unknown type');
+});
