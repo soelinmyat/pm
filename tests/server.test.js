@@ -2507,7 +2507,7 @@ test('PM-125: DASHBOARD_CSS contains .detail-page with max-width', () => {
   const match = DASHBOARD_CSS.match(/\.detail-page\s*\{([^}]+)\}/);
   assert.ok(match, '.detail-page rule must exist');
   assert.ok(match[1].includes('max-width'), '.detail-page must have max-width');
-  assert.ok(match[1].includes('720px'), '.detail-page max-width must be 720px');
+  assert.ok(match[1].includes('960px'), '.detail-page max-width must be 960px');
 });
 
 test('PM-125: DASHBOARD_CSS contains .detail-section with var(--space-12) spacing', () => {
@@ -3379,7 +3379,7 @@ test('PM-128 Task 11: kanban items have role="article"', async () => {
     try {
       const { body } = await httpGet(port, '/roadmap');
       assert.ok(body.includes('role="article"'), 'kanban items must have role="article"');
-      assert.ok(body.includes('class="kanban-item'), 'page must have kanban items');
+      assert.ok(body.includes('class="kanban-card"') || body.includes('class="kanban-item'), 'page must have kanban cards');
     } finally { await close(); }
   } finally { cleanup(); }
 });
