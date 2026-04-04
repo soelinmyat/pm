@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 
 // Zero-dependency Ahrefs API adapter
 // Usage: node seo-provider.js <command> <domain> [options]
@@ -8,9 +8,9 @@
 // This script provides a direct Ahrefs API fallback for environments
 // where MCP is unavailable. Requires seo.api_key in .pm/config.json.
 
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
+const https = require("https");
+const fs = require("fs");
+const path = require("path");
 
 // ---------------------------------------------------------------------------
 // Config
@@ -20,9 +20,9 @@ const path = require('path');
  * Read .pm/config.json from cwd. Returns parsed object or null if missing.
  */
 function loadConfig() {
-  const configPath = path.join(process.cwd(), '.pm', 'config.json');
+  const configPath = path.join(process.cwd(), ".pm", "config.json");
   try {
-    const raw = fs.readFileSync(configPath, 'utf8');
+    const raw = fs.readFileSync(configPath, "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -48,9 +48,9 @@ function httpsGet(options, transport) {
   return new Promise((resolve, reject) => {
     const req = _transport(options, (res) => {
       const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = chunks.join('');
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const raw = chunks.join("");
         let body;
         try {
           body = JSON.parse(raw);
@@ -60,7 +60,7 @@ function httpsGet(options, transport) {
         resolve({ statusCode: res.statusCode, headers: res.headers || {}, body });
       });
     });
-    req.on('error', reject);
+    req.on("error", reject);
     req.end();
   });
 }
@@ -76,7 +76,7 @@ function sleep(ms) {
 // Ahrefs adapter
 // ---------------------------------------------------------------------------
 
-const AHREFS_HOST = 'api.ahrefs.com';
+const AHREFS_HOST = "api.ahrefs.com";
 
 /**
  * Low-level Ahrefs HTTPS GET.
@@ -92,10 +92,10 @@ function ahrefsRequest(endpoint, params, apiKey, transport) {
     hostname: AHREFS_HOST,
     port: 443,
     path: fullPath,
-    method: 'GET',
+    method: "GET",
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      Accept: 'application/json',
+      Accept: "application/json",
     },
   };
   return httpsGet(options, transport);
@@ -114,7 +114,7 @@ async function ahrefsRequestWithRetry(endpoint, params, apiKey, transport, opts)
   }
 
   // Determine delay: opt override (ms) > Retry-After header (seconds->ms) > 5s
-  const retryAfterHeader = parseInt(first.headers['retry-after'] || '5', 10);
+  const retryAfterHeader = parseInt(first.headers["retry-after"] || "5", 10);
   const delayMs = retryDelay !== undefined ? retryDelay : retryAfterHeader * 1000;
   await sleep(delayMs);
 
@@ -126,7 +126,7 @@ async function ahrefsRequestWithRetry(endpoint, params, apiKey, transport, opts)
   // Both attempts hit 429
   return {
     statusCode: 429,
-    body: { error: 'rate_limited', retry_after: retryAfterHeader },
+    body: { error: "rate_limited", retry_after: retryAfterHeader },
   };
 }
 
@@ -135,8 +135,9 @@ async function ahrefsRequestWithRetry(endpoint, params, apiKey, transport, opts)
  * Throws a descriptive error if missing.
  */
 function getApiKey(config) {
-  const key = config && config.integrations && config.integrations.seo && config.integrations.seo.api_key;
-  if (!key) throw new Error('Missing seo.api_key in config');
+  const key =
+    config && config.integrations && config.integrations.seo && config.integrations.seo.api_key;
+  if (!key) throw new Error("Missing seo.api_key in config");
   return key;
 }
 
@@ -148,7 +149,7 @@ function parseResponse(response) {
   if (response.statusCode === 200) {
     return response.body;
   }
-  if (response.statusCode === 429 && response.body && response.body.error === 'rate_limited') {
+  if (response.statusCode === 429 && response.body && response.body.error === "rate_limited") {
     return response.body;
   }
   const message =
@@ -168,11 +169,11 @@ async function getKeywords(domain, config, transport, opts) {
   const limit = (opts && opts.limit) || 100;
   const apiKey = getApiKey(config);
   const response = await ahrefsRequestWithRetry(
-    '/v3/site-explorer/organic-keywords',
-    { select: 'keyword,volume,difficulty', target: domain, limit },
+    "/v3/site-explorer/organic-keywords",
+    { select: "keyword,volume,difficulty", target: domain, limit },
     apiKey,
     transport,
-    opts,
+    opts
   );
   return parseResponse(response);
 }
@@ -183,11 +184,11 @@ async function getKeywords(domain, config, transport, opts) {
 async function getTraffic(domain, config, transport, opts) {
   const apiKey = getApiKey(config);
   const response = await ahrefsRequestWithRetry(
-    '/v3/site-explorer/metrics',
-    { target: domain, date_from: '2024-01-01' },
+    "/v3/site-explorer/metrics",
+    { target: domain, date_from: "2024-01-01" },
     apiKey,
     transport,
-    opts,
+    opts
   );
   return parseResponse(response);
 }
@@ -198,11 +199,11 @@ async function getTraffic(domain, config, transport, opts) {
 async function getBacklinks(domain, config, transport, opts) {
   const apiKey = getApiKey(config);
   const response = await ahrefsRequestWithRetry(
-    '/v3/site-explorer/backlinks',
-    { select: 'url_from,domain_rating,traffic', target: domain, limit: 100 },
+    "/v3/site-explorer/backlinks",
+    { select: "url_from,domain_rating,traffic", target: domain, limit: 100 },
     apiKey,
     transport,
-    opts,
+    opts
   );
   return parseResponse(response);
 }
@@ -212,13 +213,13 @@ async function getBacklinks(domain, config, transport, opts) {
  */
 async function getCompetitors(keywords, config, transport, opts) {
   const apiKey = getApiKey(config);
-  const keywordList = Array.isArray(keywords) ? keywords.join(',') : keywords;
+  const keywordList = Array.isArray(keywords) ? keywords.join(",") : keywords;
   const response = await ahrefsRequestWithRetry(
-    '/v3/keywords-explorer/serp-overview',
-    { select: 'domain,position,traffic', keywords: keywordList },
+    "/v3/keywords-explorer/serp-overview",
+    { select: "domain,position,traffic", keywords: keywordList },
     apiKey,
     transport,
-    opts,
+    opts
   );
   return parseResponse(response);
 }
@@ -229,7 +230,7 @@ async function getCompetitors(keywords, config, transport, opts) {
  */
 async function verify(config, transport) {
   if (!config) {
-    return { error: 'no config' };
+    return { error: "no config" };
   }
 
   let apiKey;
@@ -239,12 +240,7 @@ async function verify(config, transport) {
     return { error: e.message };
   }
 
-  const response = await ahrefsRequest(
-    '/v3/subscription-info',
-    {},
-    apiKey,
-    transport,
-  );
+  const response = await ahrefsRequest("/v3/subscription-info", {}, apiKey, transport);
 
   if (response.statusCode === 200) {
     return { ok: true };
@@ -266,8 +262,8 @@ async function main() {
   const domain = args[1];
 
   // Parse --limit flag from argv (default 100)
-  const limitIdx = args.indexOf('--limit');
-  const limit = (limitIdx !== -1 && args[limitIdx + 1]) ? Number(args[limitIdx + 1]) : 100;
+  const limitIdx = args.indexOf("--limit");
+  const limit = limitIdx !== -1 && args[limitIdx + 1] ? Number(args[limitIdx + 1]) : 100;
 
   const config = loadConfig();
 
@@ -275,22 +271,22 @@ async function main() {
 
   try {
     switch (command) {
-      case 'getKeywords':
+      case "getKeywords":
         result = await getKeywords(domain, config, undefined, { limit });
         break;
-      case 'getTraffic':
+      case "getTraffic":
         result = await getTraffic(domain, config);
         break;
-      case 'getBacklinks':
+      case "getBacklinks":
         result = await getBacklinks(domain, config);
         break;
-      case 'getCompetitors': {
+      case "getCompetitors": {
         // domain arg contains comma-separated keywords
-        const keywords = domain ? domain.split(',') : [];
+        const keywords = domain ? domain.split(",") : [];
         result = await getCompetitors(keywords, config);
         break;
       }
-      case 'verify':
+      case "verify":
         result = await verify(config);
         break;
       default:
@@ -300,7 +296,7 @@ async function main() {
     result = { error: e.message };
   }
 
-  process.stdout.write(JSON.stringify(result) + '\n');
+  process.stdout.write(JSON.stringify(result) + "\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +316,7 @@ module.exports = {
 // Run CLI only when invoked directly
 if (require.main === module) {
   main().catch((e) => {
-    process.stdout.write(JSON.stringify({ error: e.message }) + '\n');
+    process.stdout.write(JSON.stringify({ error: e.message }) + "\n");
     process.exit(1);
   });
 }

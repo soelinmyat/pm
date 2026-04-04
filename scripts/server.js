@@ -1,17 +1,20 @@
-const crypto = require('crypto');
-const http = require('http');
-const net = require('net');
-const fs = require('fs');
-const path = require('path');
-const { buildStatus } = require('./start-status.js');
+const crypto = require("crypto");
+const http = require("http");
+const net = require("net");
+const fs = require("fs");
+const path = require("path");
+const { buildStatus } = require("./start-status.js");
 
 // ========== WebSocket Protocol (RFC 6455) ==========
 
-const OPCODES = { TEXT: 0x01, CLOSE: 0x08, PING: 0x09, PONG: 0x0A };
-const WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+const OPCODES = { TEXT: 0x01, CLOSE: 0x08, PING: 0x09, PONG: 0x0a };
+const WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 function computeAcceptKey(clientKey) {
-  return crypto.createHash('sha1').update(clientKey + WS_MAGIC).digest('base64');
+  return crypto
+    .createHash("sha1")
+    .update(clientKey + WS_MAGIC)
+    .digest("base64");
 }
 
 function encodeFrame(opcode, payload) {
@@ -42,12 +45,12 @@ function decodeFrame(buffer) {
   if (buffer.length < 2) return null;
 
   const secondByte = buffer[1];
-  const opcode = buffer[0] & 0x0F;
+  const opcode = buffer[0] & 0x0f;
   const masked = (secondByte & 0x80) !== 0;
-  let payloadLen = secondByte & 0x7F;
+  let payloadLen = secondByte & 0x7f;
   let offset = 2;
 
-  if (!masked) throw new Error('Client frames must be masked');
+  if (!masked) throw new Error("Client frames must be masked");
 
   if (payloadLen === 126) {
     if (buffer.length < 4) return null;
@@ -77,8 +80,8 @@ function decodeFrame(buffer) {
 
 // Port is resolved at startup inside startServer() via resolvePort().
 // PM_PORT env var overrides; otherwise hash project dir to 3000-9999.
-const HOST = process.env.PM_HOST || '127.0.0.1';
-const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
+const HOST = process.env.PM_HOST || "127.0.0.1";
+const URL_HOST = process.env.PM_URL_HOST || (HOST === "127.0.0.1" ? "localhost" : HOST);
 
 // Owner PID tracking removed — server lifecycle is managed by idle timeout only.
 
@@ -90,7 +93,7 @@ const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' 
  * @returns {number} Port in range [3000, 9999]
  */
 function hashProjectPort(dir) {
-  const hash = crypto.createHash('md5').update(dir).digest();
+  const hash = crypto.createHash("md5").update(dir).digest();
   const num = hash.readUInt32BE(0);
   return 3000 + (num % 7000);
 }
@@ -105,8 +108,13 @@ function isPortAvailable(port, host) {
   return new Promise((resolve) => {
     const srv = net.createServer();
     let done = false;
-    const finish = (val) => { if (!done) { done = true; resolve(val); } };
-    srv.once('error', () => srv.close(() => finish(false)));
+    const finish = (val) => {
+      if (!done) {
+        done = true;
+        resolve(val);
+      }
+    };
+    srv.once("error", () => srv.close(() => finish(false)));
     srv.listen(port, host, () => srv.close(() => finish(true)));
   });
 }
@@ -146,8 +154,8 @@ async function resolvePort(host) {
 }
 
 function requireDashboardMode(value) {
-  const mode = value || 'dashboard';
-  if (mode !== 'dashboard') {
+  const mode = value || "dashboard";
+  if (mode !== "dashboard") {
     throw new Error(`Unsupported PM server mode "${mode}". Use --mode dashboard.`);
   }
   return mode;
@@ -155,7 +163,7 @@ function requireDashboardMode(value) {
 
 // --dir flag: directory for dashboard mode (default: 'pm/' relative to cwd)
 const DIR_FLAG = (() => {
-  const idx = process.argv.indexOf('--dir');
+  const idx = process.argv.indexOf("--dir");
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
   return null;
 })();
@@ -163,9 +171,9 @@ const DIR_FLAG = (() => {
 // ========== Mode Parsing (exported for testing) ==========
 
 function parseMode(argv) {
-  const idx = argv.indexOf('--mode');
+  const idx = argv.indexOf("--mode");
   if (idx !== -1 && argv[idx + 1]) return requireDashboardMode(argv[idx + 1]);
-  return requireDashboardMode(process.env.PM_MODE || 'dashboard');
+  return requireDashboardMode(process.env.PM_MODE || "dashboard");
 }
 
 // ========== YAML Frontmatter Parser ==========
@@ -185,28 +193,34 @@ function parseFrontmatter(content) {
   if (!match) return { data: {}, body: content };
 
   const rawYaml = match[1];
-  const body = match[2] || '';
+  const body = match[2] || "";
   const data = {};
 
-  const lines = rawYaml.split('\n');
+  const lines = rawYaml.split("\n");
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
 
     // Skip empty lines
-    if (line.trim() === '') { i++; continue; }
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
 
     // Top-level key (not indented, not a list item)
     const keyMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-    if (!keyMatch) { i++; continue; }
+    if (!keyMatch) {
+      i++;
+      continue;
+    }
 
     const key = keyMatch[1];
     const inlineVal = keyMatch[2].trim();
 
-    if (inlineVal !== '') {
+    if (inlineVal !== "") {
       // Flat key-value — strip surrounding quotes
-      data[key] = inlineVal.replace(/^["'](.*)["']$/, '$1');
+      data[key] = inlineVal.replace(/^["'](.*)["']$/, "$1");
       i++;
       continue;
     }
@@ -224,14 +238,14 @@ function parseFrontmatter(content) {
       if (objItemMatch) {
         // Start of an object item
         const obj = {};
-        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
+        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
         i++;
         // Collect continuation lines for this object
         while (i < lines.length) {
           const cont = lines[i];
           const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
           if (contMatch && !cont.match(/^[ \t]+-\s/)) {
-            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
+            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
             i++;
           } else {
             break;
@@ -239,11 +253,13 @@ function parseFrontmatter(content) {
         }
         items.push(obj);
       } else if (scalarItemMatch) {
-        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, '$1'));
+        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, "$1"));
         i++;
-      } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === 'object') {
+      } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === "object") {
         // Continuation of last object (shouldn't normally reach here but be safe)
-        items[items.length - 1][contObjMatch[1]] = contObjMatch[2].trim().replace(/^["'](.*)["']$/, '$1');
+        items[items.length - 1][contObjMatch[1]] = contObjMatch[2]
+          .trim()
+          .replace(/^["'](.*)["']$/, "$1");
         i++;
       } else {
         // No more items for this key
@@ -263,7 +279,7 @@ function parseFrontmatter(content) {
 // ========== Simple Markdown-to-HTML Renderer ==========
 
 function renderMarkdown(md) {
-  const lines = md.split('\n');
+  const lines = md.split("\n");
   const out = [];
   let inCodeBlock = false;
   let inMermaid = false;
@@ -272,21 +288,38 @@ function renderMarkdown(md) {
   let tableHeaderDone = false;
 
   function closeList() {
-    if (inList) { out.push('</ul>'); inList = false; }
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
   }
   function closeTable() {
-    if (inTable) { out.push('</tbody></table>'); inTable = false; tableHeaderDone = false; }
+    if (inTable) {
+      out.push("</tbody></table>");
+      inTable = false;
+      tableHeaderDone = false;
+    }
   }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    if (line.startsWith('```')) {
-      closeList(); closeTable();
-      if (inCodeBlock) { out.push('</code></pre>'); inCodeBlock = false; }
-      else if (inMermaid) { out.push('</pre>'); inMermaid = false; }
-      else if (line.trim() === '```mermaid') { out.push('<pre class="mermaid">'); inMermaid = true; }
-      else { out.push('<pre><code>'); inCodeBlock = true; }
+    if (line.startsWith("```")) {
+      closeList();
+      closeTable();
+      if (inCodeBlock) {
+        out.push("</code></pre>");
+        inCodeBlock = false;
+      } else if (inMermaid) {
+        out.push("</pre>");
+        inMermaid = false;
+      } else if (line.trim() === "```mermaid") {
+        out.push('<pre class="mermaid">');
+        inMermaid = true;
+      } else {
+        out.push("<pre><code>");
+        inCodeBlock = true;
+      }
       continue;
     }
 
@@ -301,28 +334,32 @@ function renderMarkdown(md) {
     }
 
     // Table detection: line contains |
-    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
       closeList();
-      const cells = line.trim().slice(1, -1).split('|').map(c => c.trim());
+      const cells = line
+        .trim()
+        .slice(1, -1)
+        .split("|")
+        .map((c) => c.trim());
       // Separator row?
-      if (cells.every(c => /^[-: ]+$/.test(c))) {
+      if (cells.every((c) => /^[-: ]+$/.test(c))) {
         if (!tableHeaderDone) {
-          out.push('</thead><tbody>');
+          out.push("</thead><tbody>");
           tableHeaderDone = true;
         }
         continue;
       }
       if (!inTable) {
-        out.push('<table><thead>');
+        out.push("<table><thead>");
         inTable = true;
         tableHeaderDone = false;
-        const row = cells.map(c => '<th>' + inlineMarkdown(c) + '</th>').join('');
-        out.push('<tr>' + row + '</tr>');
+        const row = cells.map((c) => "<th>" + inlineMarkdown(c) + "</th>").join("");
+        out.push("<tr>" + row + "</tr>");
         continue;
       }
-      const tag = tableHeaderDone ? 'td' : 'th';
-      const row = cells.map(c => '<' + tag + '>' + inlineMarkdown(c) + '</' + tag + '>').join('');
-      out.push('<tr>' + row + '</tr>');
+      const tag = tableHeaderDone ? "td" : "th";
+      const row = cells.map((c) => "<" + tag + ">" + inlineMarkdown(c) + "</" + tag + ">").join("");
+      out.push("<tr>" + row + "</tr>");
       continue;
     } else {
       closeTable();
@@ -335,23 +372,52 @@ function renderMarkdown(md) {
     const h3 = line.match(/^###\s+(.*)/);
     const h2 = line.match(/^##\s+(.*)/);
     const h1 = line.match(/^#\s+(.*)/);
-    if (h6) { closeList(); out.push('<h6>' + inlineMarkdown(h6[1]) + '</h6>'); continue; }
-    if (h5) { closeList(); out.push('<h5>' + inlineMarkdown(h5[1]) + '</h5>'); continue; }
-    if (h4) { closeList(); out.push('<h4>' + inlineMarkdown(h4[1]) + '</h4>'); continue; }
-    if (h3) { closeList(); out.push('<h3>' + inlineMarkdown(h3[1]) + '</h3>'); continue; }
-    if (h2) { closeList(); out.push('<h2>' + inlineMarkdown(h2[1]) + '</h2>'); continue; }
-    if (h1) { closeList(); out.push('<h1>' + inlineMarkdown(h1[1]) + '</h1>'); continue; }
+    if (h6) {
+      closeList();
+      out.push("<h6>" + inlineMarkdown(h6[1]) + "</h6>");
+      continue;
+    }
+    if (h5) {
+      closeList();
+      out.push("<h5>" + inlineMarkdown(h5[1]) + "</h5>");
+      continue;
+    }
+    if (h4) {
+      closeList();
+      out.push("<h4>" + inlineMarkdown(h4[1]) + "</h4>");
+      continue;
+    }
+    if (h3) {
+      closeList();
+      out.push("<h3>" + inlineMarkdown(h3[1]) + "</h3>");
+      continue;
+    }
+    if (h2) {
+      closeList();
+      out.push("<h2>" + inlineMarkdown(h2[1]) + "</h2>");
+      continue;
+    }
+    if (h1) {
+      closeList();
+      out.push("<h1>" + inlineMarkdown(h1[1]) + "</h1>");
+      continue;
+    }
 
     // Horizontal rule
     if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
-      closeList(); out.push('<hr>'); continue;
+      closeList();
+      out.push("<hr>");
+      continue;
     }
 
     // List items
     const liMatch = line.match(/^[ \t]*[-*+]\s+(.*)/);
     if (liMatch) {
-      if (!inList) { out.push('<ul>'); inList = true; }
-      out.push('<li>' + inlineMarkdown(liMatch[1]) + '</li>');
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push("<li>" + inlineMarkdown(liMatch[1]) + "</li>");
       continue;
     } else {
       closeList();
@@ -365,41 +431,46 @@ function renderMarkdown(md) {
     }
 
     // Empty line
-    if (line.trim() === '') {
+    if (line.trim() === "") {
       continue;
     }
 
     // Paragraph
-    out.push('<p>' + inlineMarkdown(line) + '</p>');
+    out.push("<p>" + inlineMarkdown(line) + "</p>");
   }
 
   closeList();
   closeTable();
-  if (inCodeBlock) out.push('</code></pre>');
+  if (inCodeBlock) out.push("</code></pre>");
 
-  return out.join('\n');
+  return out.join("\n");
 }
 
 function escHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function inlineMarkdown(str) {
   // Escape HTML entities first to prevent XSS
   str = escHtml(str);
   // Bold+italic
-  str = str.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  str = str.replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>");
   // Bold
-  str = str.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  str = str.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
   // Italic
-  str = str.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  str = str.replace(/\*(.*?)\*/g, "<em>$1</em>");
   // Inline code
-  str = str.replace(/`([^`]+)`/g, '<code>$1</code>');
+  str = str.replace(/`([^`]+)`/g, "<code>$1</code>");
   // Links — sanitize href to block javascript:/data:/vbscript: schemes
   str = str.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
     const scheme = url.trim().toLowerCase();
     if (/^(javascript|data|vbscript):/i.test(scheme)) return text;
-    return '<a href="' + url + '">' + text + '</a>';
+    return '<a href="' + url + '">' + text + "</a>";
   });
   return str;
 }
@@ -1377,16 +1448,35 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 // ========== Dashboard HTML Shell ==========
 
 function dashboardPage(title, activeNav, bodyContent, projectName) {
-  projectName = projectName || _cachedProjectName || 'PM';
+  projectName = projectName || _cachedProjectName || "PM";
   const navLinks = [
-    { href: '/', label: 'Home', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6l6-4 6 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1V6z"/></svg>' },
-    { href: '/proposals', label: 'Proposals', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 9h4"/></svg>' },
-    { href: '/kb', label: 'Knowledge Base', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>' },
-    { href: '/roadmap', label: 'Roadmap', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>' },
+    {
+      href: "/",
+      label: "Home",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6l6-4 6 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1V6z"/></svg>',
+    },
+    {
+      href: "/proposals",
+      label: "Proposals",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 9h4"/></svg>',
+    },
+    {
+      href: "/kb",
+      label: "Knowledge Base",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>',
+    },
+    {
+      href: "/roadmap",
+      label: "Roadmap",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>',
+    },
   ];
-  const navHtml = navLinks.map(l =>
-    `<a href="${l.href}" class="nav-item${activeNav === l.href ? ' active' : ''}">${l.icon}${l.label}</a>`
-  ).join('\n      ');
+  const navHtml = navLinks
+    .map(
+      (l) =>
+        `<a href="${l.href}" class="nav-item${activeNav === l.href ? " active" : ""}">${l.icon}${l.label}</a>`
+    )
+    .join("\n      ");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1490,28 +1580,34 @@ document.addEventListener('keydown', function(e) {
 // ========== Positioning Map Renderer ==========
 
 const SEGMENT_COLORS = {
-  'enterprise':  '#5e6ad2',
-  'mid-market':  '#5e6ad2',
-  'smb':         '#16a34a',
-  'horizontal':  '#ea580c',
-  'self':        '#044842',
-  'default':     '#6b7280',
+  enterprise: "#5e6ad2",
+  "mid-market": "#5e6ad2",
+  smb: "#16a34a",
+  horizontal: "#ea580c",
+  self: "#044842",
+  default: "#6b7280",
 };
 
 // ========== Reusable HTML Helpers ==========
 
 function renderClickToCopy(command) {
-  if (typeof command !== 'string' || !command) return '';
+  if (typeof command !== "string" || !command) return "";
   return `<span class="click-to-copy" data-copy="${escHtml(command)}" tabindex="0" role="button"><code>${escHtml(command)}</code><svg class="copy-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>`;
 }
 
 function renderEmptyState(title, desc, command, ctaLabel) {
   // NOTE: desc is raw HTML — callers must escape user-supplied values with escHtml()
   // class="empty-state"><h2> pattern kept inline for PM-126 static source scan
-  return '<div class="empty-state"><h2>' + escHtml(title) + '</h2><p>' + desc + '</p>' +
-    (command ? renderClickToCopy(command) : '') +
-    (ctaLabel ? '<p class="empty-state-cta-label">' + escHtml(ctaLabel) + '</p>' : '') +
-    '</div>';
+  return (
+    '<div class="empty-state"><h2>' +
+    escHtml(title) +
+    "</h2><p>" +
+    desc +
+    "</p>" +
+    (command ? renderClickToCopy(command) : "") +
+    (ctaLabel ? '<p class="empty-state-cta-label">' + escHtml(ctaLabel) + "</p>" : "") +
+    "</div>"
+  );
 }
 
 // ========== Template Engine ==========
@@ -1526,23 +1622,34 @@ function renderEmptyState(title, desc, command, ctaLabel) {
  * Returns { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml }.
  */
 function renderDetailHeader(data) {
-  const { breadcrumb = [], title = '', titlePrefix = '', subtitle = '', metaBadges = [], actionHint = '' } = data;
+  const {
+    breadcrumb = [],
+    title = "",
+    titlePrefix = "",
+    subtitle = "",
+    metaBadges = [],
+    actionHint = "",
+  } = data;
 
   const breadcrumbItems = breadcrumb.map((item, i) => {
     const isLast = i === breadcrumb.length - 1;
-    const sep = i > 0 ? `\n  <span class="breadcrumb-sep">/</span>\n  ` : '';
+    const sep = i > 0 ? `\n  <span class="breadcrumb-sep">/</span>\n  ` : "";
     if (isLast) {
       return `${sep}<span class="breadcrumb-current">${escHtml(item.label)}</span>`;
     }
     return `${sep}<a href="${escHtml(item.href)}">${escHtml(item.label)}</a>`;
   });
-  const breadcrumbHtml = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">\n  ${breadcrumbItems.join('')}\n</nav>`;
+  const breadcrumbHtml = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">\n  ${breadcrumbItems.join("")}\n</nav>`;
 
   const titleHtml = `<h1 class="detail-title">${titlePrefix}${escHtml(title)}</h1>`;
-  const subtitleHtml = subtitle ? `\n<p class="subtitle">${escHtml(subtitle)}</p>` : '';
+  const subtitleHtml = subtitle ? `\n<p class="subtitle">${escHtml(subtitle)}</p>` : "";
 
-  const badgesSeparated = metaBadges.map(b => b.html).join('<span class="meta-sep">&middot;</span>');
-  const actionHintHtml = actionHint ? `<div class="detail-action-hint">${renderClickToCopy(actionHint)}</div>` : '';
+  const badgesSeparated = metaBadges
+    .map((b) => b.html)
+    .join('<span class="meta-sep">&middot;</span>');
+  const actionHintHtml = actionHint
+    ? `<div class="detail-action-hint">${renderClickToCopy(actionHint)}</div>`
+    : "";
   const metaBarHtml = `<div class="detail-meta-bar">${badgesSeparated}${actionHintHtml}</div>`;
 
   return { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml };
@@ -1552,10 +1659,12 @@ function renderDetailTemplate(data) {
   const { sections = [] } = data;
   const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
 
-  const sectionsHtml = sections.map(s => {
-    const sectionTitle = s.title ? `\n  <h2 class="detail-section-title">${s.title}</h2>` : '';
-    return `<section class="detail-section">${sectionTitle}\n  ${s.html}\n</section>`;
-  }).join('\n');
+  const sectionsHtml = sections
+    .map((s) => {
+      const sectionTitle = s.title ? `\n  <h2 class="detail-section-title">${s.title}</h2>` : "";
+      return `<section class="detail-section">${sectionTitle}\n  ${s.html}\n</section>`;
+    })
+    .join("\n");
 
   return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${sectionsHtml}\n</div>`;
 }
@@ -1566,19 +1675,28 @@ function renderDetailTabsTemplate(data) {
   const { tabs = [] } = data;
   const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
 
-  const prefix = 't' + (_tabCounter++);
+  const prefix = "t" + _tabCounter++;
 
-  const tabHeaders = tabs.map((t, i) =>
-    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="${prefix}-${t.id}" onclick="${prefix}Switch(this,'${prefix}-${t.id}')" onkeydown="${prefix}Key(event,this,'${prefix}-${t.id}')">${escHtml(t.label)}</div>`
-  ).join('');
+  const tabHeaders = tabs
+    .map(
+      (t, i) =>
+        `<div class="tab${i === 0 ? " active" : ""}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="${prefix}-${t.id}" onclick="${prefix}Switch(this,'${prefix}-${t.id}')" onkeydown="${prefix}Key(event,this,'${prefix}-${t.id}')">${escHtml(t.label)}</div>`
+    )
+    .join("");
 
-  const tabPanels = tabs.map((t, i) =>
-    `<div id="${prefix}-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${t.html}</div></div>`
-  ).join('');
+  const tabPanels = tabs
+    .map(
+      (t, i) =>
+        `<div id="${prefix}-${t.id}" class="tab-panel${i === 0 ? " active" : ""}" role="tabpanel"><div class="markdown-body">${t.html}</div></div>`
+    )
+    .join("");
 
-  const tabBar = tabs.length > 1
-    ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}`
-    : (tabs.length === 1 ? `<div class="markdown-body">${tabs[0].html}</div>` : '');
+  const tabBar =
+    tabs.length > 1
+      ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}`
+      : tabs.length === 1
+        ? `<div class="markdown-body">${tabs[0].html}</div>`
+        : "";
 
   const script = `<script>
 function ${prefix}Switch(el, panelId) {
@@ -1607,14 +1725,15 @@ function ${prefix}Key(e, el, panelId) {
 }
 
 function renderDetailTocTemplate(data) {
-  const { toc = [], bodyHtml = '' } = data;
+  const { toc = [], bodyHtml = "" } = data;
   const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
 
-  const tocNav = toc.length > 0
-    ? `<nav class="tabs" role="navigation" aria-label="Sections">${toc.map(t =>
-        `<a class="tab" href="#${t.slug}">${escHtml(t.text)}</a>`
-      ).join('')}</nav>`
-    : '';
+  const tocNav =
+    toc.length > 0
+      ? `<nav class="tabs" role="navigation" aria-label="Sections">${toc
+          .map((t) => `<a class="tab" href="#${t.slug}">${escHtml(t.text)}</a>`)
+          .join("")}</nav>`
+      : "";
 
   const script = `<script>
 (function() {
@@ -1646,12 +1765,18 @@ function renderDetailTocTemplate(data) {
  */
 function renderTemplate(type, data) {
   switch (type) {
-    case 'detail': return renderDetailTemplate(data);
-    case 'detail-tabs': return renderDetailTabsTemplate(data);
-    case 'detail-toc': return renderDetailTocTemplate(data);
-    case 'list': return renderListTemplate(data);
-    case 'kanban': return renderKanbanTemplate(data);
-    default: throw new Error(`Unknown template type: ${type}`);
+    case "detail":
+      return renderDetailTemplate(data);
+    case "detail-tabs":
+      return renderDetailTabsTemplate(data);
+    case "detail-toc":
+      return renderDetailTocTemplate(data);
+    case "list":
+      return renderListTemplate(data);
+    case "kanban":
+      return renderKanbanTemplate(data);
+    default:
+      throw new Error(`Unknown template type: ${type}`);
   }
 }
 
@@ -1666,32 +1791,42 @@ function parseStatsData(mdBody) {
 }
 
 function renderStatsCards(stats) {
-  if (!stats) return '';
-  var cards = stats.map(function(s) {
-    return '<div class="stat-card"><div class="value">' + escHtml(s.value) + '</div><div class="label">' + escHtml(s.label) + '</div></div>';
-  }).join('');
-  return '<div class="stat-grid">' + cards + '</div>';
+  if (!stats) return "";
+  var cards = stats
+    .map(function (s) {
+      return (
+        '<div class="stat-card"><div class="value">' +
+        escHtml(s.value) +
+        '</div><div class="label">' +
+        escHtml(s.label) +
+        "</div></div>"
+      );
+    })
+    .join("");
+  return '<div class="stat-grid">' + cards + "</div>";
 }
 
 function parsePositioningData(mdBody) {
-  const headerMatch = mdBody.match(/<!--\s*positioning:\s*company,\s*x\s*\(0-100,?\s*([^)]*)\),\s*y\s*\(0-100,?\s*([^)]*)\),\s*traffic,\s*segment-color\s*-->/i);
+  const headerMatch = mdBody.match(
+    /<!--\s*positioning:\s*company,\s*x\s*\(0-100,?\s*([^)]*)\),\s*y\s*\(0-100,?\s*([^)]*)\),\s*traffic,\s*segment-color\s*-->/i
+  );
   if (!headerMatch) return null;
 
   const xDesc = headerMatch[1].trim();
   const yDesc = headerMatch[2].trim();
 
   const xParts = xDesc.split(/\s+to\s+/i);
-  const xLabelLeft = xParts[0] || '';
-  const xLabelRight = xParts[1] || '';
+  const xLabelLeft = xParts[0] || "";
+  const xLabelRight = xParts[1] || "";
   const yParts = yDesc.split(/\s+to\s+/i);
-  const yLabelBottom = yParts[0] || '';
-  const yLabelTop = yParts[1] || '';
+  const yLabelBottom = yParts[0] || "";
+  const yLabelTop = yParts[1] || "";
 
   const dataRegex = /<!--\s*([^,]+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\w[\w-]*)\s*-->/g;
   const points = [];
   let match;
   while ((match = dataRegex.exec(mdBody)) !== null) {
-    if (match[1].trim().toLowerCase() === 'positioning') continue;
+    if (match[1].trim().toLowerCase() === "positioning") continue;
     points.push({
       name: match[1].trim(),
       x: parseInt(match[2]),
@@ -1707,62 +1842,169 @@ function parsePositioningData(mdBody) {
 }
 
 function renderPositioningMap(data) {
-  if (!data) return '';
+  if (!data) return "";
 
-  const W = 600, H = 400;
+  const W = 600,
+    H = 400;
   const PAD = { top: 20, right: 30, bottom: 40, left: 30 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  const maxTraffic = Math.max(...data.points.map(function(p) { return p.traffic; }), 1);
+  const maxTraffic = Math.max(
+    ...data.points.map(function (p) {
+      return p.traffic;
+    }),
+    1
+  );
   function bubbleRadius(traffic) {
     if (traffic <= 0) return 4;
-    var minR = 4, maxR = 16;
+    var minR = 4,
+      maxR = 16;
     var logVal = Math.log10(traffic + 1);
     var logMax = Math.log10(maxTraffic + 1);
     return minR + (maxR - minR) * (logVal / logMax);
   }
 
-  var bubbles = data.points.map(function(p) {
-    var cx = PAD.left + (p.x / 100) * plotW;
-    var cy = PAD.top + (1 - p.y / 100) * plotH;
-    var r = bubbleRadius(p.traffic);
-    var color = SEGMENT_COLORS[p.segment] || SEGMENT_COLORS['default'];
-    var labelY = cy - r - 6 > PAD.top ? cy - r - 6 : cy + r + 14;
-    return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + color + '" fill-opacity="0.7" stroke="' + color + '" stroke-width="1.5"/>' +
-      '<text x="' + cx + '" y="' + labelY + '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">' + escHtml(p.name) + '</text>';
-  }).join('\n    ');
+  var bubbles = data.points
+    .map(function (p) {
+      var cx = PAD.left + (p.x / 100) * plotW;
+      var cy = PAD.top + (1 - p.y / 100) * plotH;
+      var r = bubbleRadius(p.traffic);
+      var color = SEGMENT_COLORS[p.segment] || SEGMENT_COLORS["default"];
+      var labelY = cy - r - 6 > PAD.top ? cy - r - 6 : cy + r + 14;
+      return (
+        '<circle cx="' +
+        cx +
+        '" cy="' +
+        cy +
+        '" r="' +
+        r +
+        '" fill="' +
+        color +
+        '" fill-opacity="0.7" stroke="' +
+        color +
+        '" stroke-width="1.5"/>' +
+        '<text x="' +
+        cx +
+        '" y="' +
+        labelY +
+        '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">' +
+        escHtml(p.name) +
+        "</text>"
+      );
+    })
+    .join("\n    ");
 
   var gridLines = [];
   for (var i = 0; i <= 4; i++) {
     var gx = PAD.left + (i / 4) * plotW;
     var gy = PAD.top + (i / 4) * plotH;
-    gridLines.push('<line x1="' + gx + '" y1="' + PAD.top + '" x2="' + gx + '" y2="' + (PAD.top + plotH) + '" stroke="var(--border)" stroke-dasharray="4,4"/>');
-    gridLines.push('<line x1="' + PAD.left + '" y1="' + gy + '" x2="' + (PAD.left + plotW) + '" y2="' + gy + '" stroke="var(--border)" stroke-dasharray="4,4"/>');
+    gridLines.push(
+      '<line x1="' +
+        gx +
+        '" y1="' +
+        PAD.top +
+        '" x2="' +
+        gx +
+        '" y2="' +
+        (PAD.top + plotH) +
+        '" stroke="var(--border)" stroke-dasharray="4,4"/>'
+    );
+    gridLines.push(
+      '<line x1="' +
+        PAD.left +
+        '" y1="' +
+        gy +
+        '" x2="' +
+        (PAD.left + plotW) +
+        '" y2="' +
+        gy +
+        '" stroke="var(--border)" stroke-dasharray="4,4"/>'
+    );
   }
 
   var segments = [];
-  data.points.forEach(function(p) { if (segments.indexOf(p.segment) === -1) segments.push(p.segment); });
-  var legendItems = segments.map(function(s) {
-    var color = SEGMENT_COLORS[s] || SEGMENT_COLORS['default'];
-    return '<span class="legend-item"><span class="legend-dot" style="background:' + color + '"></span>' + escHtml(s) + '</span>';
-  }).join('');
+  data.points.forEach(function (p) {
+    if (segments.indexOf(p.segment) === -1) segments.push(p.segment);
+  });
+  var legendItems = segments
+    .map(function (s) {
+      var color = SEGMENT_COLORS[s] || SEGMENT_COLORS["default"];
+      return (
+        '<span class="legend-item"><span class="legend-dot" style="background:' +
+        color +
+        '"></span>' +
+        escHtml(s) +
+        "</span>"
+      );
+    })
+    .join("");
 
-  return '<div class="positioning-map">' +
-    '<h3>Market Positioning Map</h3>' +
+  return (
+    '<div class="positioning-map">' +
+    "<h3>Market Positioning Map</h3>" +
     '<div class="map-container">' +
-    '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="max-width:' + W + 'px">' +
-    gridLines.join('\n') +
-    '<rect x="' + PAD.left + '" y="' + PAD.top + '" width="' + plotW + '" height="' + plotH + '" fill="none" stroke="var(--border)" stroke-width="1"/>' +
+    '<svg viewBox="0 0 ' +
+    W +
+    " " +
+    H +
+    '" width="100%" style="max-width:' +
+    W +
+    'px">' +
+    gridLines.join("\n") +
+    '<rect x="' +
+    PAD.left +
+    '" y="' +
+    PAD.top +
+    '" width="' +
+    plotW +
+    '" height="' +
+    plotH +
+    '" fill="none" stroke="var(--border)" stroke-width="1"/>' +
     bubbles +
-    '<text x="' + PAD.left + '" y="' + (H - 4) + '" font-size="10" fill="var(--text-muted)">' + escHtml(data.xLabelLeft) + '</text>' +
-    '<text x="' + (W - PAD.right) + '" y="' + (H - 4) + '" font-size="10" fill="var(--text-muted)" text-anchor="end">' + escHtml(data.xLabelRight) + '</text>' +
-    '<text x="' + (PAD.left - 4) + '" y="' + (PAD.top + 4) + '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' + (PAD.left - 4) + ', ' + (PAD.top + 4) + ')">' + escHtml(data.yLabelTop) + '</text>' +
-    '<text x="' + (PAD.left - 4) + '" y="' + (PAD.top + plotH) + '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' + (PAD.left - 4) + ', ' + (PAD.top + plotH) + ')">' + escHtml(data.yLabelBottom) + '</text>' +
-    '</svg>' +
-    '</div>' +
-    '<div class="map-legend">' + legendItems + '<span class="legend-item scatter-legend-note">Bubble size = organic traffic</span></div>' +
-    '</div>';
+    '<text x="' +
+    PAD.left +
+    '" y="' +
+    (H - 4) +
+    '" font-size="10" fill="var(--text-muted)">' +
+    escHtml(data.xLabelLeft) +
+    "</text>" +
+    '<text x="' +
+    (W - PAD.right) +
+    '" y="' +
+    (H - 4) +
+    '" font-size="10" fill="var(--text-muted)" text-anchor="end">' +
+    escHtml(data.xLabelRight) +
+    "</text>" +
+    '<text x="' +
+    (PAD.left - 4) +
+    '" y="' +
+    (PAD.top + 4) +
+    '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' +
+    (PAD.left - 4) +
+    ", " +
+    (PAD.top + 4) +
+    ')">' +
+    escHtml(data.yLabelTop) +
+    "</text>" +
+    '<text x="' +
+    (PAD.left - 4) +
+    '" y="' +
+    (PAD.top + plotH) +
+    '" font-size="10" fill="var(--text-muted)" text-anchor="end" transform="rotate(-90, ' +
+    (PAD.left - 4) +
+    ", " +
+    (PAD.top + plotH) +
+    ')">' +
+    escHtml(data.yLabelBottom) +
+    "</text>" +
+    "</svg>" +
+    "</div>" +
+    '<div class="map-legend">' +
+    legendItems +
+    '<span class="legend-item scatter-legend-note">Bubble size = organic traffic</span></div>' +
+    "</div>"
+  );
 }
 
 // ========== Project Name ==========
@@ -1772,12 +2014,14 @@ let _cachedProjectPmDir = null;
 
 function getProjectName(pmDir) {
   if (_cachedProjectPmDir === pmDir && _cachedProjectName) return _cachedProjectName;
-  const configPath = path.join(path.dirname(pmDir), '.pm', 'config.json');
-  let name = path.basename(path.dirname(pmDir)) || 'PM';
+  const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
+  let name = path.basename(path.dirname(pmDir)) || "PM";
   try {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     if (config.project_name) name = config.project_name;
-  } catch { /* no config or invalid JSON */ }
+  } catch {
+    /* no config or invalid JSON */
+  }
   _cachedProjectPmDir = pmDir;
   _cachedProjectName = name;
   return name;
@@ -1788,149 +2032,182 @@ function getProjectName(pmDir) {
 function routeDashboard(req, res, pmDir) {
   touchActivity();
   const rawUrl = req.url;
-  const url = rawUrl.split('?')[0];
+  const url = rawUrl.split("?")[0];
   const pmExists = fs.existsSync(pmDir);
-  const projectName = pmExists ? getProjectName(pmDir) : 'PM';
+  const projectName = pmExists ? getProjectName(pmDir) : "PM";
 
   if (!pmExists) {
-    const html = dashboardPage('PM Dashboard', '/', renderEmptyState(
-      'Welcome to PM',
-      'PM is your team\'s shared product brain — strategy, research, proposals, and roadmap in one place. To get started, an engineer needs to initialize the knowledge base.',
-      '/pm:setup',
-      'Initialize knowledge base'
-    ));
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const html = dashboardPage(
+      "PM Dashboard",
+      "/",
+      renderEmptyState(
+        "Welcome to PM",
+        "PM is your team's shared product brain — strategy, research, proposals, and roadmap in one place. To get started, an engineer needs to initialize the knowledge base.",
+        "/pm:setup",
+        "Initialize knowledge base"
+      )
+    );
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
   }
 
   // Parse query params from the full URL (before ? stripping)
-  const urlObj = new URL(rawUrl, 'http://localhost');
+  const urlObj = new URL(rawUrl, "http://localhost");
   const urlPath = urlObj.pathname;
-  const tab = urlObj.searchParams.get('tab');
+  const tab = urlObj.searchParams.get("tab");
 
-  if (urlPath === '/') {
+  if (urlPath === "/") {
     handleDashboardHome(res, pmDir);
-  } else if (urlPath.startsWith('/groom/')) {
-    const slug = decodeURIComponent(urlPath.slice('/groom/'.length)).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
+  } else if (urlPath.startsWith("/groom/")) {
+    const slug = decodeURIComponent(urlPath.slice("/groom/".length)).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleSessionPage(res, pmDir, slug);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath.startsWith('/session/')) {
-    const slug = decodeURIComponent(urlPath.slice('/session/'.length)).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
+  } else if (urlPath.startsWith("/session/")) {
+    const slug = decodeURIComponent(urlPath.slice("/session/".length)).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleSessionPage(res, pmDir, slug);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath === '/proposals') {
+  } else if (urlPath === "/proposals") {
     handleProposalsPage(res, pmDir);
-  } else if (urlPath.startsWith('/proposals/') && urlPath.endsWith('/raw')) {
-    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length, -'/raw'.length)).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
-      const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
+  } else if (urlPath.startsWith("/proposals/") && urlPath.endsWith("/raw")) {
+    const slug = decodeURIComponent(urlPath.slice("/proposals/".length, -"/raw".length)).replace(
+      /\/$/,
+      ""
+    );
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
+      const htmlPath = path.resolve(pmDir, "backlog", "proposals", slug + ".html");
       if (fs.existsSync(htmlPath)) {
-        const html = fs.readFileSync(htmlPath, 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        const html = fs.readFileSync(htmlPath, "utf-8");
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
       } else {
-        res.writeHead(404); res.end('Not found');
+        res.writeHead(404);
+        res.end("Not found");
       }
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
   } else if (/^\/proposals\/[^/]+\/wireframes\//.test(urlPath)) {
     // /proposals/{proposal}/wireframes/{wireframe} → serve from pm/backlog/wireframes/
-    const wfSlug = decodeURIComponent(urlPath.replace(/^\/proposals\/[^/]+\/wireframes\//, '')).replace(/\/$/, '').replace(/\.html$/, '');
+    const wfSlug = decodeURIComponent(urlPath.replace(/^\/proposals\/[^/]+\/wireframes\//, ""))
+      .replace(/\/$/, "")
+      .replace(/\.html$/, "");
     handleWireframe(res, pmDir, wfSlug);
-  } else if (urlPath.startsWith('/proposals/')) {
-    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
+  } else if (urlPath.startsWith("/proposals/")) {
+    const slug = decodeURIComponent(urlPath.slice("/proposals/".length)).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleProposalDetail(res, pmDir, slug);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath === '/kb') {
+  } else if (urlPath === "/kb") {
     handleKnowledgeBasePage(res, pmDir, tab || null);
-  } else if (urlPath === '/research') {
+  } else if (urlPath === "/research") {
     // Redirect old route to KB
-    res.writeHead(302, { 'Location': '/kb?tab=research' }); res.end();
-  } else if (urlPath === '/landscape') {
+    res.writeHead(302, { Location: "/kb?tab=research" });
+    res.end();
+  } else if (urlPath === "/landscape") {
     // Redirect old route
-    res.writeHead(302, { 'Location': '/kb?tab=landscape' }); res.end();
-  } else if (urlPath === '/competitors') {
+    res.writeHead(302, { Location: "/kb?tab=landscape" });
+    res.end();
+  } else if (urlPath === "/competitors") {
     // Redirect old route to KB
-    res.writeHead(302, { 'Location': '/kb?tab=competitors' }); res.end();
-  } else if (urlPath === '/strategy') {
+    res.writeHead(302, { Location: "/kb?tab=competitors" });
+    res.end();
+  } else if (urlPath === "/strategy") {
     // Redirect old route to KB
-    res.writeHead(302, { 'Location': '/kb?tab=strategy' }); res.end();
-  } else if (urlPath === '/strategy-deck') {
-    const deckPath = path.resolve(pmDir, 'strategy-deck.html');
+    res.writeHead(302, { Location: "/kb?tab=strategy" });
+    res.end();
+  } else if (urlPath === "/strategy-deck") {
+    const deckPath = path.resolve(pmDir, "strategy-deck.html");
     if (fs.existsSync(deckPath)) {
-      const content = fs.readFileSync(deckPath, 'utf-8');
-      const header = injectableHeaderBar('Back', 'Strategy Deck');
-      const injected = content.replace(/(<\/head>)/i, header.style + '$1').replace(/(<body[^>]*>)/i, '$1' + header.html);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      const content = fs.readFileSync(deckPath, "utf-8");
+      const header = injectableHeaderBar("Back", "Strategy Deck");
+      const injected = content
+        .replace(/(<\/head>)/i, header.style + "$1")
+        .replace(/(<body[^>]*>)/i, "$1" + header.html);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(injected);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath.startsWith('/competitors/')) {
-    const slug = urlPath.slice('/competitors/'.length).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
+  } else if (urlPath.startsWith("/competitors/")) {
+    const slug = urlPath.slice("/competitors/".length).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleCompetitorDetail(res, pmDir, slug);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath.startsWith('/research/')) {
-    const topic = urlPath.slice('/research/'.length).replace(/\/$/, '');
-    if (topic && !topic.includes('/') && !topic.includes('..')) {
+  } else if (urlPath.startsWith("/research/")) {
+    const topic = urlPath.slice("/research/".length).replace(/\/$/, "");
+    if (topic && !topic.includes("/") && !topic.includes("..")) {
       handleResearchTopic(res, pmDir, topic);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  } else if (urlPath === '/roadmap') {
+  } else if (urlPath === "/roadmap") {
     handleBacklog(res, pmDir);
-  } else if (urlPath === '/roadmap/shipped') {
+  } else if (urlPath === "/roadmap/shipped") {
     handleShipped(res, pmDir);
-  } else if (urlPath.startsWith('/roadmap/wireframes/')) {
-    const slug = decodeURIComponent(urlPath.slice('/roadmap/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
+  } else if (urlPath.startsWith("/roadmap/wireframes/")) {
+    const slug = decodeURIComponent(urlPath.slice("/roadmap/wireframes/".length))
+      .replace(/\/$/, "")
+      .replace(/\.html$/, "");
     handleWireframe(res, pmDir, slug);
-  } else if (urlPath.startsWith('/roadmap/')) {
-    const slug = urlPath.slice('/roadmap/'.length).replace(/\/$/, '');
-    if (slug && !slug.includes('/') && !slug.includes('..')) {
+  } else if (urlPath.startsWith("/roadmap/")) {
+    const slug = urlPath.slice("/roadmap/".length).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleBacklogItem(res, pmDir, slug);
     } else {
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end("Not found");
     }
-  // Legacy /backlog redirects
-  } else if (urlPath === '/backlog') {
-    res.writeHead(302, { 'Location': '/roadmap' }); res.end();
-  } else if (urlPath === '/backlog/shipped') {
-    res.writeHead(302, { 'Location': '/roadmap/shipped' }); res.end();
-  } else if (urlPath.startsWith('/backlog/wireframes/')) {
-    const rest = urlPath.slice('/backlog/wireframes'.length);
-    res.writeHead(302, { 'Location': '/roadmap/wireframes' + rest }); res.end();
-  } else if (urlPath.startsWith('/backlog/')) {
-    const rest = urlPath.slice('/backlog'.length);
-    res.writeHead(302, { 'Location': '/roadmap' + rest }); res.end();
+    // Legacy /backlog redirects
+  } else if (urlPath === "/backlog") {
+    res.writeHead(302, { Location: "/roadmap" });
+    res.end();
+  } else if (urlPath === "/backlog/shipped") {
+    res.writeHead(302, { Location: "/roadmap/shipped" });
+    res.end();
+  } else if (urlPath.startsWith("/backlog/wireframes/")) {
+    const rest = urlPath.slice("/backlog/wireframes".length);
+    res.writeHead(302, { Location: "/roadmap/wireframes" + rest });
+    res.end();
+  } else if (urlPath.startsWith("/backlog/")) {
+    const rest = urlPath.slice("/backlog".length);
+    res.writeHead(302, { Location: "/roadmap" + rest });
+    res.end();
   } else {
-    res.writeHead(404); res.end('Not found');
+    res.writeHead(404);
+    res.end("Not found");
   }
 }
 
 function getUpdatedDate(filePath) {
   if (!fs.existsSync(filePath)) return null;
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, "utf-8");
     const { data } = parseFrontmatter(content);
     const raw = data.updated || data.created || null;
     if (!raw) return null;
     // Strip trailing YAML comments (e.g. "2026-03-13  # note")
-    return String(raw).replace(/#.*$/, '').trim() || null;
-  } catch { return null; }
+    return String(raw).replace(/#.*$/, "").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function getNewestUpdated(dir) {
@@ -1942,10 +2219,10 @@ function getNewestUpdated(dir) {
       const fp = path.join(dir, e.name);
       let d = null;
       if (e.isDirectory()) {
-        const idx = path.join(fp, 'profile.md');
+        const idx = path.join(fp, "profile.md");
         if (fs.existsSync(idx)) d = getUpdatedDate(idx);
         if (!d) d = getNewestUpdated(fp);
-      } else if (e.name.endsWith('.md')) {
+      } else if (e.name.endsWith(".md")) {
         d = getUpdatedDate(fp);
       }
       if (d && (!newest || d > newest)) newest = d;
@@ -1962,29 +2239,34 @@ function stalenessInfo(dateStr) {
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   let label, level;
-  if (days === 0) label = 'Updated today';
-  else if (days === 1) label = 'Updated yesterday';
+  if (days === 0) label = "Updated today";
+  else if (days === 1) label = "Updated yesterday";
   else if (days < 7) label = `Updated ${days}d ago`;
-  else if (days < 30) { const w = Math.floor(days / 7); label = `Updated ${w}w ago`; }
-  else { const m = Math.floor(days / 30); label = `Updated ${m}mo ago`; }
+  else if (days < 30) {
+    const w = Math.floor(days / 7);
+    label = `Updated ${w}w ago`;
+  } else {
+    const m = Math.floor(days / 30);
+    label = `Updated ${m}mo ago`;
+  }
 
-  if (days < 7) level = 'fresh';
-  else if (days < 30) level = 'aging';
-  else level = 'stale';
+  if (days < 7) level = "fresh";
+  else if (days < 30) level = "aging";
+  else level = "stale";
 
   return { label, level };
 }
 
 function formatRelativeDate(dateStr) {
-  if (!dateStr) return '';
+  if (!dateStr) return "";
   const now = Date.now();
   const then = new Date(dateStr).getTime();
   if (isNaN(then)) return dateStr;
   const diffMs = now - then;
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return dateStr;
-  if (diffDays === 0) return 'today';
-  if (diffDays === 1) return 'yesterday';
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
   if (diffDays < 7) return `${diffDays}d ago`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
@@ -1992,7 +2274,7 @@ function formatRelativeDate(dateStr) {
 }
 
 function humanizeSlug(slug) {
-  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ========== Shipped Enrichment Helpers ==========
@@ -2004,14 +2286,14 @@ function humanizeSlug(slug) {
  */
 function resolveResearchRefs(refs, pmDir) {
   if (!Array.isArray(refs) || refs.length === 0) return [];
-  const researchDir = path.join(pmDir, 'research');
-  return refs.map(ref => {
+  const researchDir = path.join(pmDir, "research");
+  return refs.map((ref) => {
     // Extract topic slug from path
     const match = String(ref).match(/research\/([^/]+)/);
     const slug = match ? match[1] : String(ref);
-    const findingsPath = path.join(researchDir, slug, 'findings.md');
+    const findingsPath = path.join(researchDir, slug, "findings.md");
     if (fs.existsSync(findingsPath)) {
-      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
       const topic = parsed.data.topic || humanizeSlug(slug);
       return { slug, label: topic };
     }
@@ -2026,12 +2308,14 @@ function resolveResearchRefs(refs, pmDir) {
  */
 function resolveStrategyAlignment(item, allItems, pmDir) {
   if (item.parent) {
-    const metaPath = path.join(pmDir, 'backlog', 'proposals', item.parent + '.meta.json');
+    const metaPath = path.join(pmDir, "backlog", "proposals", item.parent + ".meta.json");
     if (fs.existsSync(metaPath)) {
       try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
         if (meta.strategy_check) return meta.strategy_check;
-      } catch { /* ignore malformed JSON */ }
+      } catch {
+        /* ignore malformed JSON */
+      }
     }
   }
   return null;
@@ -2049,17 +2333,19 @@ function resolveCompetitiveContext(item, allItems, pmDir) {
     refs.push(...parentRefs);
   }
   const competitors = [];
-  const compDir = path.join(pmDir, 'competitors');
+  const compDir = path.join(pmDir, "competitors");
   if (fs.existsSync(compDir)) {
-    const compSlugs = fs.readdirSync(compDir, { withFileTypes: true })
-      .filter(e => e.isDirectory()).map(e => e.name);
+    const compSlugs = fs
+      .readdirSync(compDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
     for (const ref of refs) {
       for (const comp of compSlugs) {
         if (String(ref).toLowerCase().includes(comp.toLowerCase())) {
-          const profilePath = path.join(compDir, comp, 'profile.md');
+          const profilePath = path.join(compDir, comp, "profile.md");
           let name = humanizeSlug(comp);
           if (fs.existsSync(profilePath)) {
-            const parsed = parseFrontmatter(fs.readFileSync(profilePath, 'utf-8'));
+            const parsed = parseFrontmatter(fs.readFileSync(profilePath, "utf-8"));
             if (parsed.data.company) name = parsed.data.company;
           }
           if (!competitors.includes(name)) competitors.push(name);
@@ -2073,14 +2359,14 @@ function resolveCompetitiveContext(item, allItems, pmDir) {
 // ========== Proposal Metadata Helpers ==========
 
 const PROPOSAL_GRADIENTS = [
-  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-  'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-  'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-  'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-  'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
-  'linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)',
-  'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+  "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+  "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+  "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
+  "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+  "linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)",
+  "linear-gradient(135deg, #fccb90 0%, #d57eeb 100%)",
+  "linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)",
 ];
 
 function proposalGradient(slug) {
@@ -2093,14 +2379,14 @@ function proposalGradient(slug) {
 }
 
 function readProposalMeta(slug, pmDir) {
-  if (!slug || slug.includes('..') || slug.includes('/') || slug.includes('\\')) return null;
-  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
-  const metaPath = path.resolve(proposalsDir, slug + '.meta.json');
+  if (!slug || slug.includes("..") || slug.includes("/") || slug.includes("\\")) return null;
+  const proposalsDir = path.resolve(pmDir, "backlog", "proposals");
+  const metaPath = path.resolve(proposalsDir, slug + ".meta.json");
   if (!metaPath.startsWith(proposalsDir + path.sep)) return null;
   try {
-    const raw = fs.readFileSync(metaPath, 'utf-8');
+    const raw = fs.readFileSync(metaPath, "utf-8");
     const parsed = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return parsed;
   } catch {
     return null;
@@ -2108,83 +2394,88 @@ function readProposalMeta(slug, pmDir) {
 }
 
 function buildProposalRows(pmDir) {
-  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
-  const backlogDir = path.resolve(pmDir, 'backlog');
+  const proposalsDir = path.resolve(pmDir, "backlog", "proposals");
+  const backlogDir = path.resolve(pmDir, "backlog");
   const proposals = [];
 
   // Build a map of parent → child statuses from backlog
   const childStatuses = {};
   if (fs.existsSync(backlogDir)) {
-    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
       const parent = data.parent;
-      if (parent && parent !== 'null') {
+      if (parent && parent !== "null") {
         if (!childStatuses[parent]) childStatuses[parent] = [];
-        childStatuses[parent].push(data.status || 'idea');
+        childStatuses[parent].push(data.status || "idea");
       }
     }
   }
 
   if (fs.existsSync(proposalsDir)) {
-    const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    const files = fs.readdirSync(proposalsDir).filter((f) => f.endsWith(".meta.json"));
     for (const file of files) {
-      const slug = file.replace('.meta.json', '');
+      const slug = file.replace(".meta.json", "");
       const meta = readProposalMeta(slug, pmDir);
       if (!meta) continue;
       // Skip shipped proposals — check both status field and legacy verdict
-      const metaStatus = (meta.status || '').toLowerCase();
-      const verdict = (meta.verdict || '').toLowerCase();
-      if (metaStatus === 'shipped' || verdict === 'shipped') continue;
+      const metaStatus = (meta.status || "").toLowerCase();
+      const verdict = (meta.verdict || "").toLowerCase();
+      if (metaStatus === "shipped" || verdict === "shipped") continue;
 
       // Auto-detect shipped: if proposal has children and ALL are done
       const children = childStatuses[slug];
-      if (children && children.length > 0 && children.every(s => s === 'done')) continue;
+      if (children && children.length > 0 && children.every((s) => s === "done")) continue;
 
       // Also check if a matching backlog item (same slug) is done
-      const backlogFile = path.join(backlogDir, slug + '.md');
+      const backlogFile = path.join(backlogDir, slug + ".md");
       if (fs.existsSync(backlogFile)) {
-        const blRaw = fs.readFileSync(backlogFile, 'utf-8');
+        const blRaw = fs.readFileSync(backlogFile, "utf-8");
         const { data: blData } = parseFrontmatter(blRaw);
-        if (blData.status === 'done') continue;
+        if (blData.status === "done") continue;
       }
 
       // Determine display status: implementation status takes precedence over verdict
-      const displayStatus = meta.status === 'in-progress' ? 'In Progress'
-        : meta.verdict === 'ready' ? 'Ready'
-        : meta.verdict === 'pause' ? 'Paused'
-        : meta.verdictLabel || meta.verdict || 'Groomed';
-      const displayBadge = meta.status === 'in-progress' ? 'in-progress'
-        : meta.verdict || 'groomed';
+      const displayStatus =
+        meta.status === "in-progress"
+          ? "In Progress"
+          : meta.verdict === "ready"
+            ? "Ready"
+            : meta.verdict === "pause"
+              ? "Paused"
+              : meta.verdictLabel || meta.verdict || "Groomed";
+      const displayBadge =
+        meta.status === "in-progress" ? "in-progress" : meta.verdict || "groomed";
 
       proposals.push({
         slug,
-        id: meta.id || '',
-        title: typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug),
-        outcome: meta.outcome || '',
+        id: meta.id || "",
+        title:
+          typeof meta.title === "string" && meta.title.trim() ? meta.title : humanizeSlug(slug),
+        outcome: meta.outcome || "",
         verdict: displayBadge,
         verdictLabel: displayStatus,
         issueCount: meta.issueCount || 0,
-        date: meta.date || '',
+        date: meta.date || "",
       });
     }
   }
-  proposals.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  proposals.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   return proposals;
 }
 
 function readGroomState(pmDir) {
-  const runtimeRoot = path.resolve(pmDir, '..', '.pm');
+  const runtimeRoot = path.resolve(pmDir, "..", ".pm");
   const candidates = [];
-  const sessionsDir = path.join(runtimeRoot, 'groom-sessions');
+  const sessionsDir = path.join(runtimeRoot, "groom-sessions");
   if (fs.existsSync(sessionsDir)) {
     for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
         candidates.push(path.join(sessionsDir, entry.name));
       }
     }
   }
-  const legacyPath = path.join(runtimeRoot, '.groom-state.md');
+  const legacyPath = path.join(runtimeRoot, ".groom-state.md");
   if (fs.existsSync(legacyPath)) {
     candidates.push(legacyPath);
   }
@@ -2192,12 +2483,12 @@ function readGroomState(pmDir) {
   let best = null;
   for (const statePath of candidates) {
     try {
-      const raw = fs.readFileSync(statePath, 'utf-8');
+      const raw = fs.readFileSync(statePath, "utf-8");
       const { data } = parseFrontmatter(raw);
-      if (typeof data.topic !== 'string' || data.topic.trim() === '') {
+      if (typeof data.topic !== "string" || data.topic.trim() === "") {
         continue;
       }
-      const updatedAt = Date.parse(data.updated || data.started_at || '') || 0;
+      const updatedAt = Date.parse(data.updated || data.started_at || "") || 0;
       if (!best || updatedAt > best.updatedAt) {
         best = { data, updatedAt };
       }
@@ -2209,38 +2500,35 @@ function readGroomState(pmDir) {
 }
 
 function normalizeSourceOrigin(value) {
-  const origin = String(value || 'external').toLowerCase();
-  return origin === 'internal' || origin === 'mixed' || origin === 'external'
-    ? origin
-    : 'external';
+  const origin = String(value || "external").toLowerCase();
+  return origin === "internal" || origin === "mixed" || origin === "external" ? origin : "external";
 }
 
 function parseCount(value) {
-  const count = Number.parseInt(String(value || ''), 10);
+  const count = Number.parseInt(String(value || ""), 10);
   return Number.isFinite(count) ? count : null;
 }
 
 function buildTopicMeta(slug, data, findingsPath) {
   const origin = normalizeSourceOrigin(data.source_origin);
   const evidenceCount = parseCount(data.evidence_count);
-  const label = typeof data.topic === 'string' && data.topic.trim() !== ''
-    ? data.topic.trim()
-    : humanizeSlug(slug);
+  const label =
+    typeof data.topic === "string" && data.topic.trim() !== ""
+      ? data.topic.trim()
+      : humanizeSlug(slug);
   const originLabel = origin.charAt(0).toUpperCase() + origin.slice(1);
   const subtitleParts = [
-    origin === 'internal'
-      ? 'Customer evidence'
-      : origin === 'mixed'
-        ? 'Customer + market evidence'
-        : 'External research'
+    origin === "internal"
+      ? "Customer evidence"
+      : origin === "mixed"
+        ? "Customer + market evidence"
+        : "External research",
   ];
 
-  const badges = [
-    `<span class="badge badge-origin-${origin}">${escHtml(originLabel)}</span>`
-  ];
+  const badges = [`<span class="badge badge-origin-${origin}">${escHtml(originLabel)}</span>`];
 
-  if ((origin === 'internal' || origin === 'mixed') && evidenceCount) {
-    const evidenceLabel = `${evidenceCount} evidence record${evidenceCount === 1 ? '' : 's'}`;
+  if ((origin === "internal" || origin === "mixed") && evidenceCount) {
+    const evidenceLabel = `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`;
     subtitleParts.push(evidenceLabel);
     badges.push(`<span class="badge badge-evidence">${escHtml(evidenceLabel)}</span>`);
   }
@@ -2250,30 +2538,32 @@ function buildTopicMeta(slug, data, findingsPath) {
 
   return {
     label,
-    subtitle: subtitleParts.join(' · '),
-    badgesHtml: badges.join(' ')
+    subtitle: subtitleParts.join(" · "),
+    badgesHtml: badges.join(" "),
   };
 }
 
 function parseStrategySnapshot(pmDir) {
-  const strategyPath = path.join(pmDir, 'strategy.md');
+  const strategyPath = path.join(pmDir, "strategy.md");
   if (!fs.existsSync(strategyPath)) return null;
-  const raw = fs.readFileSync(strategyPath, 'utf-8');
+  const raw = fs.readFileSync(strategyPath, "utf-8");
   const { body } = parseFrontmatter(raw);
 
   // Extract focus: a one-liner value prop / positioning statement.
   // Priority: ## Focus/Vision > **Value prop:** > ## Value Prop > ## Product Identity first para
-  let focus = '';
+  let focus = "";
   const focusMatch = body.match(/## (?:Focus|Vision)\s*\n+(.*?)(?:\n\n|\n##)/s);
-  if (focusMatch) focus = focusMatch[1].replace(/\n/g, ' ').trim();
+  if (focusMatch) focus = focusMatch[1].replace(/\n/g, " ").trim();
   if (!focus) {
     // Look for **Value prop:** bold inline label
-    const vpInline = body.match(/\*\*Value prop[^*]*\*\*[:\s]*(.*?)(?:\n\n|\n-|\n\*|\n\d+\.|\n##)/s);
+    const vpInline = body.match(
+      /\*\*Value prop[^*]*\*\*[:\s]*(.*?)(?:\n\n|\n-|\n\*|\n\d+\.|\n##)/s
+    );
     if (vpInline) {
-      let text = vpInline[1].replace(/\n/g, ' ').trim();
+      let text = vpInline[1].replace(/\n/g, " ").trim();
       // Accept . ! ? or trailing : as sentence end
       const sentence = text.match(/^[^.!?:]*[.!?:]/);
-      focus = sentence ? sentence[0].replace(/:$/, '.').trim() : text.slice(0, 200);
+      focus = sentence ? sentence[0].replace(/:$/, ".").trim() : text.slice(0, 200);
     }
   }
   if (!focus) {
@@ -2281,8 +2571,11 @@ function parseStrategySnapshot(pmDir) {
     const vpSection = body.match(/## (?:Core )?Value Prop[^\n]*\s*\n+([\s\S]*?)(?:\n##|$)/);
     if (vpSection) {
       // Find first non-heading, non-empty line
-      for (const line of vpSection[1].split('\n')) {
-        const stripped = line.replace(/^#+\s+.*$/, '').replace(/^\*\*[^*]+\*\*[:\s]*/, '').trim();
+      for (const line of vpSection[1].split("\n")) {
+        const stripped = line
+          .replace(/^#+\s+.*$/, "")
+          .replace(/^\*\*[^*]+\*\*[:\s]*/, "")
+          .trim();
         if (stripped) {
           const sentence = stripped.match(/^[^.!?]*[.!?]/);
           focus = sentence ? sentence[0].trim() : stripped.slice(0, 200);
@@ -2295,21 +2588,25 @@ function parseStrategySnapshot(pmDir) {
     // Fallback: ## Product Identity first meaningful paragraph
     const idSection = body.match(/## (?:\d+\.\s*)?Product Identity\s*\n+([\s\S]*?)(?:\n##|$)/);
     if (idSection) {
-      const sentence = idSection[1].replace(/\n/g, ' ').trim().match(/^[^.!?]*[.!?]/);
+      const sentence = idSection[1]
+        .replace(/\n/g, " ")
+        .trim()
+        .match(/^[^.!?]*[.!?]/);
       if (sentence) focus = sentence[0].trim();
     }
   }
 
   // Extract priorities: look for ## Priorities section or **Top N priorities:** label
   const priorities = [];
-  const priSection = body.match(/## (?:\d+\.\s*)?(?:.*[Pp]riorities.*)\s*\n([\s\S]*?)(?:\n##|$)/)
-    || body.match(/\*\*Top \d+ priorities[^*]*\*\*[:\s]*\n([\s\S]*?)(?:\n##|$)/);
+  const priSection =
+    body.match(/## (?:\d+\.\s*)?(?:.*[Pp]riorities.*)\s*\n([\s\S]*?)(?:\n##|$)/) ||
+    body.match(/\*\*Top \d+ priorities[^*]*\*\*[:\s]*\n([\s\S]*?)(?:\n##|$)/);
   if (priSection) {
     // Only match numbered list items (1. 2. 3.) — skip prose and bold labels
-    const lines = priSection[1].split('\n').filter(l => /^\s*\d+[\.\)]\s/.test(l));
+    const lines = priSection[1].split("\n").filter((l) => /^\s*\d+[\.\)]\s/.test(l));
     for (const line of lines.slice(0, 3)) {
       // Strip list marker, extract bold title if present, take first sentence
-      let text = line.replace(/^\s*\d+[\.\)]\s*/, '').trim();
+      let text = line.replace(/^\s*\d+[\.\)]\s*/, "").trim();
       const boldTitle = text.match(/^\*\*([^*]+)\*\*\.?\s*/);
       if (boldTitle) {
         text = boldTitle[1];
@@ -2323,7 +2620,7 @@ function parseStrategySnapshot(pmDir) {
   }
 
   const stale = stalenessInfo(getUpdatedDate(strategyPath));
-  return { focus, priorities, staleness: stale || { level: 'fresh', label: 'Current' } };
+  return { focus, priorities, staleness: stale || { level: "fresh", label: "Current" } };
 }
 
 function renderListTemplate(opts) {
@@ -2337,14 +2634,14 @@ function renderListTemplate(opts) {
   if (breadcrumb) parts.push(`<p class="breadcrumb">${breadcrumb}</p>`);
   parts.push(`<h1>${escHtml(title)}</h1>`);
   if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
-  parts.push('</div>');
+  parts.push("</div>");
 
   // Empty state: shown when all sections have 0 items and no contentBefore
   const totalItems = sections.reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
   if (emptyState && totalItems === 0 && !contentBefore) {
     parts.push(emptyState);
-    parts.push('</div>');
-    return parts.join('\n');
+    parts.push("</div>");
+    return parts.join("\n");
   }
 
   // Optional content before sections
@@ -2358,15 +2655,16 @@ function renderListTemplate(opts) {
       parts.push('<div class="section-header">');
       parts.push(`<span class="section-title">${escHtml(section.title)}</span>`);
       if (section.count) parts.push(`<span class="section-count">${escHtml(section.count)}</span>`);
-      parts.push('</div>');
+      parts.push("</div>");
     }
-    const containerClass = section.itemsClass || (section.layout === 'cards' ? 'card-grid' : 'item-list');
-    parts.push(`<div class="${containerClass}">${section.items.join('\n')}</div>`);
-    parts.push('</section>');
+    const containerClass =
+      section.itemsClass || (section.layout === "cards" ? "card-grid" : "item-list");
+    parts.push(`<div class="${containerClass}">${section.items.join("\n")}</div>`);
+    parts.push("</section>");
   }
 
-  parts.push('</div>');
-  return parts.join('\n');
+  parts.push("</div>");
+  return parts.join("\n");
 }
 
 function renderKanbanTemplate(opts) {
@@ -2379,7 +2677,7 @@ function renderKanbanTemplate(opts) {
   parts.push('<div class="page-header">');
   parts.push(`<h1>${escHtml(title)}</h1>`);
   if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
-  parts.push('</div>');
+  parts.push("</div>");
 
   // Optional legend
   if (legend) parts.push(legend);
@@ -2388,50 +2686,54 @@ function renderKanbanTemplate(opts) {
   const totalItems = columns.reduce((sum, c) => sum + (c.items ? c.items.length : 0), 0);
   if (emptyState && totalItems === 0) {
     parts.push(emptyState);
-    parts.push('</div>');
-    return parts.join('\n');
+    parts.push("</div>");
+    return parts.join("\n");
   }
 
   // Columns
-  const colsHtml = columns.map(col => {
-    const totalCount = col.totalCount || (col.items ? col.items.length : 0);
-    const emptyClass = totalCount === 0 ? ' col-empty' : '';
-    const extraClass = col.cssClass ? ` ${col.cssClass}` : '';
-    const cards = (col.items || []).join('');
-    const hintHtml = col.hint ? `<div class="col-hint">${col.hint}</div>` : '';
-    const viewAllHtml = col.viewAllHref && col.totalCount > (col.displayCount || 0)
-      ? `<a href="${escHtml(col.viewAllHref)}" class="kanban-view-all">View all ${col.totalCount} ${escHtml(col.viewAllLabel || col.label.toLowerCase())} &rarr;</a>`
-      : '';
-    const bodyContent = totalCount === 0
-      ? '<div class="col-body"><span>No items</span></div>'
-      : `<div class="col-body">${cards}</div>${viewAllHtml}`;
+  const colsHtml = columns
+    .map((col) => {
+      const totalCount = col.totalCount || (col.items ? col.items.length : 0);
+      const emptyClass = totalCount === 0 ? " col-empty" : "";
+      const extraClass = col.cssClass ? ` ${col.cssClass}` : "";
+      const cards = (col.items || []).join("");
+      const hintHtml = col.hint ? `<div class="col-hint">${col.hint}</div>` : "";
+      const viewAllHtml =
+        col.viewAllHref && col.totalCount > (col.displayCount || 0)
+          ? `<a href="${escHtml(col.viewAllHref)}" class="kanban-view-all">View all ${col.totalCount} ${escHtml(col.viewAllLabel || col.label.toLowerCase())} &rarr;</a>`
+          : "";
+      const bodyContent =
+        totalCount === 0
+          ? '<div class="col-body"><span>No items</span></div>'
+          : `<div class="col-body">${cards}</div>${viewAllHtml}`;
 
-    return `<div class="kanban-col${extraClass}${emptyClass}">
+      return `<div class="kanban-col${extraClass}${emptyClass}">
   <div class="col-header">${escHtml(col.label)} <span class="col-count">${totalCount}</span></div>
   ${hintHtml}${bodyContent}
 </div>`;
-  }).join('');
+    })
+    .join("");
 
   if (totalItems > 0) {
     parts.push(`<div class="kanban">${colsHtml}</div>`);
   }
 
-  parts.push('</div>');
-  return parts.join('\n');
+  parts.push("</div>");
+  return parts.join("\n");
 }
 
 function handleProposalsPage(res, pmDir) {
   const proposals = buildProposalRows(pmDir);
 
   // Collect ideas (ungroomed backlog items)
-  const backlogDir = path.join(pmDir, 'backlog');
+  const backlogDir = path.join(pmDir, "backlog");
   const ideas = [];
   if (fs.existsSync(backlogDir)) {
-    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
-      const slug = file.replace('.md', '');
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
+      const slug = file.replace(".md", "");
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
-      if ((data.status || 'idea') === 'idea') {
+      if ((data.status || "idea") === "idea") {
         ideas.push({ slug, title: data.title || humanizeSlug(slug), id: data.id || null });
       }
     }
@@ -2439,62 +2741,87 @@ function handleProposalsPage(res, pmDir) {
 
   const subtitle = [
     proposals.length > 0 ? `${proposals.length} groomed` : null,
-    ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
-  ].filter(Boolean).join(', ');
+    ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? "s" : ""}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   // Groomed card rows (HTML stays in handler)
-  const groomedItems = proposals.map(p => {
-    const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
-      : p.verdict === 'paused' ? 'badge-paused'
-      : p.verdict === 'ready' ? 'badge-ready'
-      : 'badge-groomed';
-    const statusLabel = p.verdictLabel || 'Groomed';
+  const groomedItems = proposals.map((p) => {
+    const badgeClass =
+      p.verdict === "in-progress"
+        ? "badge-in-progress"
+        : p.verdict === "paused"
+          ? "badge-paused"
+          : p.verdict === "ready"
+            ? "badge-ready"
+            : "badge-groomed";
+    const statusLabel = p.verdictLabel || "Groomed";
     return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
   <div class="proposal-card-body">
-    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
-    ${p.outcome ? `<div class="proposal-card-outcome">${escHtml(p.outcome)}</div>` : ''}
+    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ""}${escHtml(p.title)}</div>
+    ${p.outcome ? `<div class="proposal-card-outcome">${escHtml(p.outcome)}</div>` : ""}
   </div>
   <div class="proposal-card-meta">
     <span class="badge ${badgeClass}">${escHtml(statusLabel)}</span>
-    ${p.issueCount > 0 ? `<span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>` : ''}
-    ${p.date ? `<span class="updated">${escHtml(formatRelativeDate(p.date))}</span>` : ''}
+    ${p.issueCount > 0 ? `<span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? "s" : ""}</span>` : ""}
+    ${p.date ? `<span class="updated">${escHtml(formatRelativeDate(p.date))}</span>` : ""}
   </div>
 </a>`;
   });
 
   // Idea rows (HTML stays in handler)
-  const ideaItems = ideas.map(i => {
-    const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
+  const ideaItems = ideas.map((i) => {
+    const idHtml = i.id
+      ? `<span class="idea-id">${escHtml(i.id)}</span>`
+      : '<span class="idea-id"></span>';
     return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
   });
 
   const sections = [];
   if (groomedItems.length > 0) {
-    sections.push({ title: 'Groomed', count: `${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}`, items: groomedItems, layout: 'rows', itemsClass: 'proposal-grid' });
+    sections.push({
+      title: "Groomed",
+      count: `${proposals.length} proposal${proposals.length !== 1 ? "s" : ""}`,
+      items: groomedItems,
+      layout: "rows",
+      itemsClass: "proposal-grid",
+    });
   }
   if (ideaItems.length > 0) {
-    sections.push({ title: 'Ideas', count: `${ideas.length} ungroomed`, items: ideaItems, layout: 'rows', itemsClass: 'idea-list' });
+    sections.push({
+      title: "Ideas",
+      count: `${ideas.length} ungroomed`,
+      items: ideaItems,
+      layout: "rows",
+      itemsClass: "idea-list",
+    });
   }
 
   const body = renderListTemplate({
-    title: 'Proposals',
+    title: "Proposals",
     subtitle: subtitle || undefined,
     sections,
-    emptyState: renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal'),
+    emptyState: renderEmptyState(
+      "No proposals yet",
+      "Proposals are structured feature plans with research, strategy alignment, and scoped issues.",
+      "/pm:groom",
+      "Create your first proposal"
+    ),
   });
 
-  const html = dashboardPage('Proposals', '/proposals', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Proposals", "/proposals", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function renderBriefValue(label, value) {
   if (!value) {
-    return '';
+    return "";
   }
 
   let renderedValue = escHtml(value);
-  if (label === 'Next' && value.startsWith('/')) {
+  if (label === "Next" && value.startsWith("/")) {
     renderedValue = `Run <code>${escHtml(value)}</code>`;
   }
 
@@ -2510,10 +2837,10 @@ function handleDashboardHome(res, pmDir) {
 
   function renderActionValue(value) {
     if (!value) {
-      return '';
+      return "";
     }
 
-    if (value.startsWith('/')) {
+    if (value.startsWith("/")) {
       return `Run <code>${escHtml(value)}</code>`;
     }
 
@@ -2527,19 +2854,19 @@ function handleDashboardHome(res, pmDir) {
     research: status.counts.researchTopics,
   };
 
-  const backlogDir = path.join(pmDir, 'backlog');
-  const compDir = path.join(pmDir, 'competitors');
-  const researchDir = path.join(pmDir, 'research');
+  const backlogDir = path.join(pmDir, "backlog");
+  const compDir = path.join(pmDir, "competitors");
+  const researchDir = path.join(pmDir, "research");
 
   // Collect updated dates for staleness
   const updatedDates = {
-    strategy: getUpdatedDate(path.join(pmDir, 'strategy.md')),
-    backlog: getNewestUpdated(path.join(pmDir, 'backlog')),
+    strategy: getUpdatedDate(path.join(pmDir, "strategy.md")),
+    backlog: getNewestUpdated(path.join(pmDir, "backlog")),
   };
   const researchDates = [
-    getUpdatedDate(path.join(pmDir, 'landscape.md')),
-    getNewestUpdated(path.join(pmDir, 'competitors')),
-    getNewestUpdated(path.join(pmDir, 'research')),
+    getUpdatedDate(path.join(pmDir, "landscape.md")),
+    getNewestUpdated(path.join(pmDir, "competitors")),
+    getNewestUpdated(path.join(pmDir, "research")),
   ].filter(Boolean);
   updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
 
@@ -2547,144 +2874,178 @@ function handleDashboardHome(res, pmDir) {
 
   // ===== 1. Strategy snapshot =====
   const strategyData = parseStrategySnapshot(pmDir);
-  const strategySection = strategyData ? `
+  const strategySection = strategyData
+    ? `
 <section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">Strategy</span>
     <a href="/kb?tab=strategy" class="home-section-link">View full strategy</a>
   </div>
   <div class="strategy-card">
-    ${strategyData.focus ? `<div class="strategy-focus">${escHtml(strategyData.focus)}</div>` : ''}
+    ${strategyData.focus ? `<div class="strategy-focus">${escHtml(strategyData.focus)}</div>` : ""}
     <div class="strategy-priorities">
-      ${strategyData.priorities.map((p, i) => `<div class="priority-item"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join('')}
+      ${strategyData.priorities.map((p, i) => `<div class="priority-item"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join("")}
     </div>
     <div class="staleness">
       <span class="staleness-dot ${strategyData.staleness.level}"></span>
       ${escHtml(strategyData.staleness.label)}
     </div>
   </div>
-</section>` : '';
+</section>`
+    : "";
 
   // ===== 2. What's coming (active proposals) =====
-  const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
+  const proposalsDir = path.join(pmDir, "backlog", "proposals");
   const activeProposals = [];
   if (fs.existsSync(proposalsDir)) {
-    const metaFiles = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    const metaFiles = fs.readdirSync(proposalsDir).filter((f) => f.endsWith(".meta.json"));
     for (const file of metaFiles) {
       try {
-        const raw = fs.readFileSync(path.join(proposalsDir, file), 'utf-8');
+        const raw = fs.readFileSync(path.join(proposalsDir, file), "utf-8");
         const meta = JSON.parse(raw);
-        if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
-          const slug = file.replace('.meta.json', '');
+        if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+          const slug = file.replace(".meta.json", "");
           // Include non-shipped, non-draft proposals
-          const verdict = (meta.verdict || '').toLowerCase();
-          if (verdict !== 'shipped' && verdict !== 'draft') {
+          const verdict = (meta.verdict || "").toLowerCase();
+          if (verdict !== "shipped" && verdict !== "draft") {
             activeProposals.push({
               slug,
-              id: meta.id || '',
+              id: meta.id || "",
               title: meta.title || humanizeSlug(slug),
-              statusLabel: meta.verdictLabel || meta.verdict || 'Active',
-              badgeClass: verdict === 'ready' ? 'ready' : verdict === 'in-progress' ? 'in-progress' : 'neutral',
+              statusLabel: meta.verdictLabel || meta.verdict || "Active",
+              badgeClass:
+                verdict === "ready"
+                  ? "ready"
+                  : verdict === "in-progress"
+                    ? "in-progress"
+                    : "neutral",
               issueCount: meta.issueCount || 0,
-              updated: meta.date || '',
+              updated: meta.date || "",
             });
           }
         }
-      } catch { /* skip invalid JSON */ }
+      } catch {
+        /* skip invalid JSON */
+      }
     }
     activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
     activeProposals.splice(5);
   }
 
-  const proposalsSection = activeProposals.length > 0 ? `
+  const proposalsSection =
+    activeProposals.length > 0
+      ? `
 <section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">What's coming</span>
     <a href="/proposals" class="home-section-link">All proposals</a>
   </div>
   <div class="home-proposal-list">
-    ${activeProposals.map(p => `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
+    ${activeProposals
+      .map(
+        (
+          p
+        ) => `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
   <div class="proposal-card-body">
-    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
+    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ""}${escHtml(p.title)}</div>
   </div>
   <div class="proposal-card-meta">
     <span class="badge badge-${escHtml(p.badgeClass)}">${escHtml(p.statusLabel)}</span>
-    <span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>
+    <span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? "s" : ""}</span>
     <span class="updated">${escHtml(formatRelativeDate(p.updated))}</span>
   </div>
-</a>`).join('')}
+</a>`
+      )
+      .join("")}
   </div>
-</section>` : '';
+</section>`
+      : "";
 
   // ===== 3. Recently shipped =====
   const recentShipped = [];
   if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
     const allItems = {};
     for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
-      const slug = file.replace('.md', '');
+      const slug = file.replace(".md", "");
       allItems[slug] = { slug, ...data };
     }
     const childSlugs = new Set();
     for (const item of Object.values(allItems)) {
-      if (item.parent && item.parent !== 'null' && allItems[item.parent]) childSlugs.add(item.slug);
+      if (item.parent && item.parent !== "null" && allItems[item.parent]) childSlugs.add(item.slug);
     }
     const shipped = Object.values(allItems)
-      .filter(i => i.status === 'done' && !childSlugs.has(i.slug))
-      .sort((a, b) => ((b.updated || b.created || '') > (a.updated || a.created || '') ? 1 : -1))
+      .filter((i) => i.status === "done" && !childSlugs.has(i.slug))
+      .sort((a, b) => ((b.updated || b.created || "") > (a.updated || a.created || "") ? 1 : -1))
       .slice(0, 5);
     for (const s of shipped) {
-      const dateStr = s.updated || s.created || '';
+      const dateStr = s.updated || s.created || "";
       recentShipped.push({
         slug: s.slug,
         title: s.title || s.slug,
-        outcome: s.outcome || '',
+        outcome: s.outcome || "",
         dateLabel: formatRelativeDate(dateStr),
       });
     }
   }
 
-  const shippedSection = recentShipped.length > 0 ? `
+  const shippedSection =
+    recentShipped.length > 0
+      ? `
 <section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">Recently shipped</span>
     <a href="/roadmap/shipped" class="home-section-link">All shipped</a>
   </div>
   <div class="home-shipped-list">
-    ${recentShipped.map(s => `<a href="/roadmap/${escHtml(encodeURIComponent(s.slug))}" class="home-shipped-item">
+    ${recentShipped
+      .map(
+        (s) => `<a href="/roadmap/${escHtml(encodeURIComponent(s.slug))}" class="home-shipped-item">
       <span class="home-shipped-top">
         <span class="home-shipped-title">${escHtml(s.title)}</span>
         <span class="home-shipped-date">${escHtml(s.dateLabel)}</span>
       </span>
-      ${s.outcome ? `<span class="home-shipped-context">${escHtml(s.outcome)}</span>` : ''}
-    </a>`).join('')}
+      ${s.outcome ? `<span class="home-shipped-context">${escHtml(s.outcome)}</span>` : ""}
+    </a>`
+      )
+      .join("")}
   </div>
-</section>` : '';
+</section>`
+      : "";
 
   // ===== 4. KB health =====
-  const researchFreshness = stalenessInfo(updatedDates.research) || { level: 'stale', label: 'No data' };
-  const competitorFreshness = stalenessInfo(getNewestUpdated(compDir)) || { level: 'stale', label: 'No data' };
+  const researchFreshness = stalenessInfo(updatedDates.research) || {
+    level: "stale",
+    label: "No data",
+  };
+  const competitorFreshness = stalenessInfo(getNewestUpdated(compDir)) || {
+    level: "stale",
+    label: "No data",
+  };
 
   // Customer evidence count from research topics with source_origin internal/mixed
   let evidenceCount = 0;
   if (fs.existsSync(researchDir)) {
-    const topics = fs.readdirSync(researchDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    const topics = fs
+      .readdirSync(researchDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory());
     for (const t of topics) {
-      const findingsPath = path.join(researchDir, t.name, 'findings.md');
+      const findingsPath = path.join(researchDir, t.name, "findings.md");
       if (fs.existsSync(findingsPath)) {
-        const { data } = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
-        const origin = (data.source_origin || '').toLowerCase();
-        if ((origin === 'internal' || origin === 'mixed') && data.evidence_count) {
+        const { data } = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
+        const origin = (data.source_origin || "").toLowerCase();
+        if ((origin === "internal" || origin === "mixed") && data.evidence_count) {
           evidenceCount += parseInt(data.evidence_count, 10) || 0;
         }
       }
     }
   }
-  const evidenceFreshness = evidenceCount > 0
-    ? { level: 'fresh', label: `${evidenceCount} records` }
-    : { level: 'stale', label: 'No evidence' };
+  const evidenceFreshness =
+    evidenceCount > 0
+      ? { level: "fresh", label: `${evidenceCount} records` }
+      : { level: "stale", label: "No evidence" };
 
   const kbSection = `
 <section class="home-section">
@@ -2720,7 +3081,9 @@ function handleDashboardHome(res, pmDir) {
   </div>
 </section>`;
 
-  const firstWorkflowActions = status.next === '/pm:start (choose your first workflow)' ? `
+  const firstWorkflowActions =
+    status.next === "/pm:start (choose your first workflow)"
+      ? `
   <div class="session-brief-actions">
     <div class="session-brief-actions-label">Good first moves</div>
     <ul>
@@ -2729,29 +3092,38 @@ function handleDashboardHome(res, pmDir) {
       <li><code>/pm:research competitors</code> to profile alternatives</li>
       <li><code>/pm:groom &lt;idea&gt;</code> if you already know what feature to scope</li>
     </ul>
-  </div>` : '';
+  </div>`
+      : "";
 
-  const alternativeActions = Array.isArray(status.alternatives) && status.alternatives.length > 0 ? `
+  const alternativeActions =
+    Array.isArray(status.alternatives) && status.alternatives.length > 0
+      ? `
   <div class="session-brief-actions">
     <div class="session-brief-actions-label">Also consider</div>
     <ul>
-      ${status.alternatives.map((action) => `<li>${renderActionValue(action)}</li>`).join('')}
+      ${status.alternatives.map((action) => `<li>${renderActionValue(action)}</li>`).join("")}
     </ul>
-  </div>` : '';
+  </div>`
+      : "";
 
   const suggestedHtml = `<div class="suggested-next">
   <div class="suggested-next-label">Session brief</div>
-  ${status.update.available ? renderBriefValue('Update', status.update.message) : ''}
-  ${renderBriefValue('Focus', status.focus)}
-  ${renderBriefValue('Backlog', status.backlog)}
-  ${renderBriefValue('Next', status.next)}
+  ${status.update.available ? renderBriefValue("Update", status.update.message) : ""}
+  ${renderBriefValue("Focus", status.focus)}
+  ${renderBriefValue("Backlog", status.backlog)}
+  ${renderBriefValue("Next", status.next)}
   ${alternativeActions}
   ${firstWorkflowActions}
 </div>`;
 
   const proposalCount = activeProposals.length;
-  const isFullyEmpty = !strategyData && proposalCount === 0 && recentShipped.length === 0 &&
-    stats.backlog === 0 && stats.competitors === 0 && stats.research === 0;
+  const isFullyEmpty =
+    !strategyData &&
+    proposalCount === 0 &&
+    recentShipped.length === 0 &&
+    stats.backlog === 0 &&
+    stats.competitors === 0 &&
+    stats.research === 0;
 
   let body;
   if (isFullyEmpty) {
@@ -2760,14 +3132,14 @@ function handleDashboardHome(res, pmDir) {
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Product knowledge base</p>
 </div>
-${renderEmptyState('Your team\'s shared product brain', 'Strategy, research, proposals, and roadmap in one place. Once content is added, you\'ll see project health, active sessions, and recent proposals here.', '/pm:groom', 'Start your first feature')}
+${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:groom", "Start your first feature")}
 ${suggestedHtml}`;
   } else if (proposalCount === 0 && !shippedSection) {
     // Partial state: strategy/KB exists but no proposals yet
     const partialProposals = `
 <section class="home-section">
   <div class="home-section-header"><span class="home-section-title">What's coming</span></div>
-  ${renderEmptyState('Ready for your first feature', 'Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.', '/pm:groom')}
+  ${renderEmptyState("Ready for your first feature", "Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.", "/pm:groom")}
 </section>`;
     body = `
 <div class="page-header">
@@ -2791,24 +3163,32 @@ ${kbSection}
 ${suggestedHtml}`;
   }
 
-  const html = dashboardPage('Home', '/', body, projectName);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Home", "/", body, projectName);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function buildKbSubTabs(activeTab) {
   const tabs = [
-    { id: 'research', label: 'Research', href: '/kb?tab=research' },
-    { id: 'competitors', label: 'Competitors', href: '/kb?tab=competitors' },
-    { id: 'strategy', label: 'Strategy', href: '/kb?tab=strategy' },
+    { id: "research", label: "Research", href: "/kb?tab=research" },
+    { id: "competitors", label: "Competitors", href: "/kb?tab=competitors" },
+    { id: "strategy", label: "Strategy", href: "/kb?tab=strategy" },
   ];
-  return '<div class="kb-tabs">' + tabs.map(t =>
-    `<a href="${t.href}" class="kb-tab${t.id === activeTab ? ' active' : ''}">${t.label}</a>`
-  ).join('') + '</div>';
+  return (
+    '<div class="kb-tabs">' +
+    tabs
+      .map(
+        (t) =>
+          `<a href="${t.href}" class="kb-tab${t.id === activeTab ? " active" : ""}">${t.label}</a>`
+      )
+      .join("") +
+    "</div>"
+  );
 }
 
 function renderSwotGrid(body) {
-  const swotRe = /### (Strengths|Weaknesses|Opportunities|Threats)\s*\n([\s\S]*?)(?=\n### |\n## |$)/g;
+  const swotRe =
+    /### (Strengths|Weaknesses|Opportunities|Threats)\s*\n([\s\S]*?)(?=\n### |\n## |$)/g;
   const sections = {};
   let match;
   while ((match = swotRe.exec(body)) !== null) {
@@ -2816,22 +3196,41 @@ function renderSwotGrid(body) {
   }
   if (!sections.strengths && !sections.weaknesses) return null;
 
-  const keys = ['strengths', 'weaknesses', 'opportunities', 'threats'];
-  const labels = { strengths: 'Strengths', weaknesses: 'Weaknesses', opportunities: 'Opportunities', threats: 'Threats' };
-  const boxes = keys.map(k => {
-    const items = (sections[k] || '').split('\n').filter(l => l.match(/^[-*]\s/)).map(l => {
-      return '<li>' + inlineMarkdown(l.replace(/^[-*]\s+/, '')) + '</li>';
-    }).join('');
-    return '<div class="swot-box swot-' + k + '"><h4>' + labels[k] + '</h4><ul>' + (items || '<li class="swot-empty">Not yet analyzed</li>') + '</ul></div>';
-  }).join('');
+  const keys = ["strengths", "weaknesses", "opportunities", "threats"];
+  const labels = {
+    strengths: "Strengths",
+    weaknesses: "Weaknesses",
+    opportunities: "Opportunities",
+    threats: "Threats",
+  };
+  const boxes = keys
+    .map((k) => {
+      const items = (sections[k] || "")
+        .split("\n")
+        .filter((l) => l.match(/^[-*]\s/))
+        .map((l) => {
+          return "<li>" + inlineMarkdown(l.replace(/^[-*]\s+/, "")) + "</li>";
+        })
+        .join("");
+      return (
+        '<div class="swot-box swot-' +
+        k +
+        '"><h4>' +
+        labels[k] +
+        "</h4><ul>" +
+        (items || '<li class="swot-empty">Not yet analyzed</li>') +
+        "</ul></div>"
+      );
+    })
+    .join("");
 
-  return '<div class="swot-grid">' + boxes + '</div>';
+  return '<div class="swot-grid">' + boxes + "</div>";
 }
 
 function renderProfileWithSwot(body) {
-  if (body.indexOf('## SWOT Analysis') === -1) return renderMarkdown(body);
+  if (body.indexOf("## SWOT Analysis") === -1) return renderMarkdown(body);
 
-  var swotStart = body.indexOf('## SWOT Analysis');
+  var swotStart = body.indexOf("## SWOT Analysis");
   var beforeSwot = body.substring(0, swotStart);
   var rest = body.substring(swotStart);
   var afterSwotMatch = rest.match(/\n## (?!SWOT)[^\n]+/);
@@ -2841,14 +3240,16 @@ function renderProfileWithSwot(body) {
     afterSwot = rest.substring(afterSwotMatch.index);
   } else {
     swotSection = rest;
-    afterSwot = '';
+    afterSwot = "";
   }
 
   var swotGrid = renderSwotGrid(swotSection);
-  return renderMarkdown(beforeSwot) +
-    '<h2>SWOT Analysis</h2>' +
+  return (
+    renderMarkdown(beforeSwot) +
+    "<h2>SWOT Analysis</h2>" +
     (swotGrid || renderMarkdown(swotSection)) +
-    renderMarkdown(afterSwot);
+    renderMarkdown(afterSwot)
+  );
 }
 
 function renderPositioningScatter(body) {
@@ -2856,38 +3257,96 @@ function renderPositioningScatter(body) {
   var dots = [];
   var m;
   while ((m = posRe.exec(body)) !== null) {
-    dots.push({ name: m[1].trim(), x: parseInt(m[2]), y: parseInt(m[3]), traffic: parseInt(m[4]), segment: m[5] });
+    dots.push({
+      name: m[1].trim(),
+      x: parseInt(m[2]),
+      y: parseInt(m[3]),
+      traffic: parseInt(m[4]),
+      segment: m[5],
+    });
   }
   if (dots.length === 0) return null;
 
-  var maxTraffic = Math.max.apply(null, dots.map(function(d) { return d.traffic || 1; }));
+  var maxTraffic = Math.max.apply(
+    null,
+    dots.map(function (d) {
+      return d.traffic || 1;
+    })
+  );
 
-  var dotsHtml = dots.map(function(d) {
-    var size = d.segment === 'self' ? 16 : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
-    var color = SEGMENT_COLORS[d.segment] || SEGMENT_COLORS['default'];
-    var cls = d.segment === 'self' ? ' highlight' : '';
-    var yFlipped = 100 - d.y;
-    return '<div class="scatter-dot' + cls + '" style="left:' + d.x + '%;top:' + yFlipped + '%;width:' + size + 'px;height:' + size + 'px;background:' + color + ';" title="' + escHtml(d.name) + '"></div>' +
-      '<div class="scatter-label" style="left:' + d.x + '%;top:calc(' + yFlipped + '% + ' + (size / 2 + 4) + 'px);">' + escHtml(d.name) + '</div>';
-  }).join('');
+  var dotsHtml = dots
+    .map(function (d) {
+      var size =
+        d.segment === "self"
+          ? 16
+          : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
+      var color = SEGMENT_COLORS[d.segment] || SEGMENT_COLORS["default"];
+      var cls = d.segment === "self" ? " highlight" : "";
+      var yFlipped = 100 - d.y;
+      return (
+        '<div class="scatter-dot' +
+        cls +
+        '" style="left:' +
+        d.x +
+        "%;top:" +
+        yFlipped +
+        "%;width:" +
+        size +
+        "px;height:" +
+        size +
+        "px;background:" +
+        color +
+        ';" title="' +
+        escHtml(d.name) +
+        '"></div>' +
+        '<div class="scatter-label" style="left:' +
+        d.x +
+        "%;top:calc(" +
+        yFlipped +
+        "% + " +
+        (size / 2 + 4) +
+        'px);">' +
+        escHtml(d.name) +
+        "</div>"
+      );
+    })
+    .join("");
 
-  var legendItems = Object.keys(SEGMENT_COLORS).filter(function(seg) { return seg !== 'default'; }).map(function(seg) {
-    return '<span class="scatter-legend-item"><span class="scatter-legend-dot" style="background:' + SEGMENT_COLORS[seg] + '"></span>' +
-      seg.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) + '</span>';
-  }).join('');
+  var legendItems = Object.keys(SEGMENT_COLORS)
+    .filter(function (seg) {
+      return seg !== "default";
+    })
+    .map(function (seg) {
+      return (
+        '<span class="scatter-legend-item"><span class="scatter-legend-dot" style="background:' +
+        SEGMENT_COLORS[seg] +
+        '"></span>' +
+        seg.replace(/-/g, " ").replace(/\b\w/g, function (c) {
+          return c.toUpperCase();
+        }) +
+        "</span>"
+      );
+    })
+    .join("");
 
-  return '<div class="scatter-container">' +
+  return (
+    '<div class="scatter-container">' +
     '<div class="scatter-axis-y">Target Segment</div>' +
     '<div class="scatter-axis-label scatter-axis-label-top">Enterprise</div>' +
     '<div class="scatter-axis-label scatter-axis-label-bottom">SMB</div>' +
     '<div class="scatter-gridline scatter-gridline-h"></div>' +
     '<div class="scatter-gridline scatter-gridline-v"></div>' +
-    '<div class="scatter-area">' + dotsHtml + '</div>' +
+    '<div class="scatter-area">' +
+    dotsHtml +
+    "</div>" +
     '<div class="scatter-axis-x">Feature Specificity</div>' +
     '<div class="scatter-axis-label scatter-axis-label-bl">Vertical-specific</div>' +
     '<div class="scatter-axis-label scatter-axis-label-br">Horizontal</div>' +
-    '</div>' +
-    '<div class="scatter-legend">' + legendItems + '</div>';
+    "</div>" +
+    '<div class="scatter-legend">' +
+    legendItems +
+    "</div>"
+  );
 }
 
 function renderKeywordQuadrant(body) {
@@ -2899,25 +3358,43 @@ function renderKeywordQuadrant(body) {
 
   var keywords = [];
   for (var i = 1; i < rows.length; i++) {
-    var cells = rows[i].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+    var cells = rows[i]
+      .split("|")
+      .map(function (c) {
+        return c.trim();
+      })
+      .filter(Boolean);
     if (cells.length >= 4) {
       keywords.push({
         name: cells[0],
         volume: parseInt(cells[1]) || 0,
         difficulty: parseInt(cells[2]) || 0,
-        cpc: parseFloat(cells[3].replace('$', '')) || 0
+        cpc: parseFloat(cells[3].replace("$", "")) || 0,
       });
     }
   }
   if (keywords.length === 0) return null;
 
-  var maxVol = Math.max.apply(null, keywords.map(function(k) { return k.volume; }));
-  var maxDiff = Math.max.apply(null, keywords.map(function(k) { return k.difficulty; }));
+  var maxVol = Math.max.apply(
+    null,
+    keywords.map(function (k) {
+      return k.volume;
+    })
+  );
+  var maxDiff = Math.max.apply(
+    null,
+    keywords.map(function (k) {
+      return k.difficulty;
+    })
+  );
   var diffMid = maxDiff / 2;
   var volMid = maxVol / 2;
 
-  var q1 = [], q2 = [], q3 = [], q4 = [];
-  keywords.forEach(function(kw) {
+  var q1 = [],
+    q2 = [],
+    q3 = [],
+    q4 = [];
+  keywords.forEach(function (kw) {
     if (kw.volume >= volMid && kw.difficulty <= diffMid) q1.push(kw);
     else if (kw.volume >= volMid && kw.difficulty > diffMid) q2.push(kw);
     else if (kw.volume < volMid && kw.difficulty <= diffMid) q3.push(kw);
@@ -2925,20 +3402,44 @@ function renderKeywordQuadrant(body) {
   });
 
   function renderItems(arr, cls) {
-    return arr.map(function(kw) {
-      return '<span class="quadrant-item ' + cls + '" title="Vol: ' + kw.volume + ' | KD: ' + kw.difficulty + ' | CPC: $' + kw.cpc.toFixed(2) + '">' + escHtml(kw.name) + '</span>';
-    }).join('');
+    return arr
+      .map(function (kw) {
+        return (
+          '<span class="quadrant-item ' +
+          cls +
+          '" title="Vol: ' +
+          kw.volume +
+          " | KD: " +
+          kw.difficulty +
+          " | CPC: $" +
+          kw.cpc.toFixed(2) +
+          '">' +
+          escHtml(kw.name) +
+          "</span>"
+        );
+      })
+      .join("");
   }
 
-  return '<div class="quadrant-container">' +
+  return (
+    '<div class="quadrant-container">' +
     '<div class="quadrant-grid">' +
-    '<div class="quadrant-cell"><div class="quadrant-cell-label">Quick Wins</div><div class="quadrant-items">' + renderItems(q1, 'quadrant-q1') + '</div></div>' +
-    '<div class="quadrant-cell"><div class="quadrant-cell-label">Long-term Bets</div><div class="quadrant-items">' + renderItems(q2, 'quadrant-q2') + '</div></div>' +
-    '<div class="quadrant-cell"><div class="quadrant-cell-label">Niche Plays</div><div class="quadrant-items">' + renderItems(q3, 'quadrant-q3') + '</div></div>' +
-    '<div class="quadrant-cell"><div class="quadrant-cell-label">Avoid</div><div class="quadrant-items">' + renderItems(q4, 'quadrant-q4') + '</div></div>' +
-    '</div>' +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Quick Wins</div><div class="quadrant-items">' +
+    renderItems(q1, "quadrant-q1") +
+    "</div></div>" +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Long-term Bets</div><div class="quadrant-items">' +
+    renderItems(q2, "quadrant-q2") +
+    "</div></div>" +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Niche Plays</div><div class="quadrant-items">' +
+    renderItems(q3, "quadrant-q3") +
+    "</div></div>" +
+    '<div class="quadrant-cell"><div class="quadrant-cell-label">Avoid</div><div class="quadrant-items">' +
+    renderItems(q4, "quadrant-q4") +
+    "</div></div>" +
+    "</div>" +
     '<div class="quadrant-axis-x">Difficulty &rarr;</div>' +
-    '</div>';
+    "</div>"
+  );
 }
 
 function renderTimeline(body) {
@@ -2949,37 +3450,68 @@ function renderTimeline(body) {
     phases.push({
       name: m[1].trim(),
       status: m[2].trim(),
-      focus: m[3].trim().split('|').map(function(s) { return s.trim(); }),
-      gate: m[4].trim()
+      focus: m[3]
+        .trim()
+        .split("|")
+        .map(function (s) {
+          return s.trim();
+        }),
+      gate: m[4].trim(),
     });
   }
   if (phases.length === 0) return null;
 
-  var phasesHtml = phases.map(function(p, i) {
-    var cls = p.status === 'active' ? ' active' : '';
-    var focusHtml = '<ul class="timeline-phase-focus">' +
-      p.focus.map(function(f) { return '<li>' + escHtml(f) + '</li>'; }).join('') +
-      '</ul>';
-    var arrow = i < phases.length - 1 ? '<div class="timeline-arrow"></div>' : '';
-    return '<div class="timeline-phase' + cls + '">' +
-      '<div class="timeline-phase-name">Phase ' + (i + 1) + ': ' + escHtml(p.name) + '</div>' +
-      focusHtml +
-      '<div class="timeline-phase-gate">' + escHtml(p.gate) + '</div>' +
-      arrow +
-      '</div>';
-  }).join('');
+  var phasesHtml = phases
+    .map(function (p, i) {
+      var cls = p.status === "active" ? " active" : "";
+      var focusHtml =
+        '<ul class="timeline-phase-focus">' +
+        p.focus
+          .map(function (f) {
+            return "<li>" + escHtml(f) + "</li>";
+          })
+          .join("") +
+        "</ul>";
+      var arrow = i < phases.length - 1 ? '<div class="timeline-arrow"></div>' : "";
+      return (
+        '<div class="timeline-phase' +
+        cls +
+        '">' +
+        '<div class="timeline-phase-name">Phase ' +
+        (i + 1) +
+        ": " +
+        escHtml(p.name) +
+        "</div>" +
+        focusHtml +
+        '<div class="timeline-phase-gate">' +
+        escHtml(p.gate) +
+        "</div>" +
+        arrow +
+        "</div>"
+      );
+    })
+    .join("");
 
-  var labelsHtml = phases.map(function(p) {
-    var badge = p.status === 'active'
-      ? '<span class="badge badge-fresh">Active</span>'
-      : '<span class="badge">Planned</span>';
-    return '<div class="timeline-label">' + badge + '</div>';
-  }).join('');
+  var labelsHtml = phases
+    .map(function (p) {
+      var badge =
+        p.status === "active"
+          ? '<span class="badge badge-fresh">Active</span>'
+          : '<span class="badge">Planned</span>';
+      return '<div class="timeline-label">' + badge + "</div>";
+    })
+    .join("");
 
-  return '<div class="timeline-container">' +
-    '<div class="timeline-track">' + phasesHtml + '</div>' +
-    '<div class="timeline-labels">' + labelsHtml + '</div>' +
-    '</div>';
+  return (
+    '<div class="timeline-container">' +
+    '<div class="timeline-track">' +
+    phasesHtml +
+    "</div>" +
+    '<div class="timeline-labels">' +
+    labelsHtml +
+    "</div>" +
+    "</div>"
+  );
 }
 
 function renderStrategyWithViz(body) {
@@ -2990,10 +3522,13 @@ function renderStrategyWithViz(body) {
     if (timeline) {
       var before = body.substring(0, roadmapMatch.index);
       var after = body.substring(roadmapMatch.index + roadmapMatch[0].length);
-      body = before + '## 10. Execution Roadmap\n\n<!-- VIZ_PLACEHOLDER_TIMELINE -->\n' +
-        roadmapMatch[1].replace(/<!-- phase:[^>]+-->\n?/g, '') + after;
+      body =
+        before +
+        "## 10. Execution Roadmap\n\n<!-- VIZ_PLACEHOLDER_TIMELINE -->\n" +
+        roadmapMatch[1].replace(/<!-- phase:[^>]+-->\n?/g, "") +
+        after;
       var html = renderMarkdown(body);
-      html = html.replace('<!-- VIZ_PLACEHOLDER_TIMELINE -->', timeline);
+      html = html.replace("<!-- VIZ_PLACEHOLDER_TIMELINE -->", timeline);
       return html;
     }
   }
@@ -3002,10 +3537,10 @@ function renderStrategyWithViz(body) {
 
 function renderSentimentGap(compDir, slugs) {
   var competitors = [];
-  slugs.forEach(function(slug) {
-    var sentimentPath = path.join(compDir, slug, 'sentiment.md');
+  slugs.forEach(function (slug) {
+    var sentimentPath = path.join(compDir, slug, "sentiment.md");
     if (!fs.existsSync(sentimentPath)) return;
-    var raw = fs.readFileSync(sentimentPath, 'utf-8');
+    var raw = fs.readFileSync(sentimentPath, "utf-8");
     var parsed = parseFrontmatter(raw);
     var name = parsed.data.company || humanizeSlug(slug);
 
@@ -3016,22 +3551,31 @@ function renderSentimentGap(compDir, slugs) {
 
     var tableRows = parsed.body.match(/^\|[^|]+\|[^|]+\|[^|]+\|.*\|$/gm);
     if (tableRows) {
-      tableRows.forEach(function(row) {
-        var cells = row.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+      tableRows.forEach(function (row) {
+        var cells = row
+          .split("|")
+          .map(function (c) {
+            return c.trim();
+          })
+          .filter(Boolean);
         if (cells.length < 2) return;
         var platform = cells[0].toLowerCase();
         var ratingMatch = cells[1].match(/([\d.]+)\s*\/\s*5/);
         if (!ratingMatch) return;
         var rating = parseFloat(ratingMatch[1]);
-        if (platform.indexOf('capterra') !== -1 || platform.indexOf('g2') !== -1 || platform.indexOf('getapp') !== -1) {
+        if (
+          platform.indexOf("capterra") !== -1 ||
+          platform.indexOf("g2") !== -1 ||
+          platform.indexOf("getapp") !== -1
+        ) {
           if (!b2bRating || rating > b2bRating) b2bRating = rating;
         }
-        if (platform.indexOf('apple') !== -1 || platform.indexOf('ios') !== -1) {
-          if (platform.indexOf('legacy') === -1) {
+        if (platform.indexOf("apple") !== -1 || platform.indexOf("ios") !== -1) {
+          if (platform.indexOf("legacy") === -1) {
             if (!iosRating || rating < iosRating) iosRating = rating;
           }
         }
-        if (platform.indexOf('google') !== -1 || platform.indexOf('android') !== -1) {
+        if (platform.indexOf("google") !== -1 || platform.indexOf("android") !== -1) {
           androidRating = rating;
         }
       });
@@ -3042,52 +3586,87 @@ function renderSentimentGap(compDir, slugs) {
     }
   });
 
-  if (competitors.length === 0) return '';
+  if (competitors.length === 0) return "";
 
-  var groups = competitors.map(function(comp) {
-    var rows = '';
-    function barRow(label, value, colorCls) {
-      if (!value) return '';
-      var pct = (value / 5) * 100;
-      return '<div class="bar-row">' +
-        '<div class="bar-row-label">' + label + '</div>' +
-        '<div class="bar-track"><div class="bar-fill ' + colorCls + '" style="width:' + pct + '%">' + value.toFixed(1) + '</div></div>' +
-        '</div>';
-    }
-    rows += barRow('B2B Reviews', comp.b2b, 'bar-fill-blue');
-    rows += barRow('iOS App Store', comp.ios, comp.ios >= 4.0 ? 'bar-fill-green' : comp.ios >= 3.0 ? 'bar-fill-yellow' : 'bar-fill-red');
-    rows += barRow('Google Play', comp.android, comp.android >= 4.0 ? 'bar-fill-green' : comp.android >= 3.0 ? 'bar-fill-yellow' : 'bar-fill-red');
-
-    var gap = '';
-    var mobileAvg = null;
-    if (comp.ios && comp.android) mobileAvg = (comp.ios + comp.android) / 2;
-    else if (comp.ios) mobileAvg = comp.ios;
-    else if (comp.android) mobileAvg = comp.android;
-    if (comp.b2b && mobileAvg) {
-      var diff = comp.b2b - mobileAvg;
-      if (diff > 0.3) {
-        gap = ' <span class="badge badge-stale">Gap: ' + diff.toFixed(1) + '</span>';
+  var groups = competitors
+    .map(function (comp) {
+      var rows = "";
+      function barRow(label, value, colorCls) {
+        if (!value) return "";
+        var pct = (value / 5) * 100;
+        return (
+          '<div class="bar-row">' +
+          '<div class="bar-row-label">' +
+          label +
+          "</div>" +
+          '<div class="bar-track"><div class="bar-fill ' +
+          colorCls +
+          '" style="width:' +
+          pct +
+          '%">' +
+          value.toFixed(1) +
+          "</div></div>" +
+          "</div>"
+        );
       }
-    }
+      rows += barRow("B2B Reviews", comp.b2b, "bar-fill-blue");
+      rows += barRow(
+        "iOS App Store",
+        comp.ios,
+        comp.ios >= 4.0 ? "bar-fill-green" : comp.ios >= 3.0 ? "bar-fill-yellow" : "bar-fill-red"
+      );
+      rows += barRow(
+        "Google Play",
+        comp.android,
+        comp.android >= 4.0
+          ? "bar-fill-green"
+          : comp.android >= 3.0
+            ? "bar-fill-yellow"
+            : "bar-fill-red"
+      );
 
-    return '<div class="bar-group"><div class="bar-group-label">' + escHtml(comp.name) + gap + '</div>' + rows + '</div>';
-  }).join('');
+      var gap = "";
+      var mobileAvg = null;
+      if (comp.ios && comp.android) mobileAvg = (comp.ios + comp.android) / 2;
+      else if (comp.ios) mobileAvg = comp.ios;
+      else if (comp.android) mobileAvg = comp.android;
+      if (comp.b2b && mobileAvg) {
+        var diff = comp.b2b - mobileAvg;
+        if (diff > 0.3) {
+          gap = ' <span class="badge badge-stale">Gap: ' + diff.toFixed(1) + "</span>";
+        }
+      }
 
-  return '<section class="content-section"><h2>User Satisfaction Gap Analysis</h2>' +
+      return (
+        '<div class="bar-group"><div class="bar-group-label">' +
+        escHtml(comp.name) +
+        gap +
+        "</div>" +
+        rows +
+        "</div>"
+      );
+    })
+    .join("");
+
+  return (
+    '<section class="content-section"><h2>User Satisfaction Gap Analysis</h2>' +
     '<p class="chart-description">B2B review ratings (manager perspective) vs. app store ratings (field worker perspective). The gap reveals mobile app quality issues.</p>' +
-    '<div class="bar-chart">' + groups + '</div></section>';
+    '<div class="bar-chart">' +
+    groups +
+    "</div></section>"
+  );
 }
 
 function renderSeoComparison(compDir, slugs) {
   var competitors = [];
-  slugs.forEach(function(slug) {
-    var seoPath = path.join(compDir, slug, 'seo.md');
-    var profilePath = path.join(compDir, slug, 'profile.md');
+  slugs.forEach(function (slug) {
+    var seoPath = path.join(compDir, slug, "seo.md");
+    var profilePath = path.join(compDir, slug, "profile.md");
     var name = humanizeSlug(slug);
 
     // Try profile first for company name
     if (fs.existsSync(profilePath)) {
-      var profRaw = fs.readFileSync(profilePath, 'utf-8');
+      var profRaw = fs.readFileSync(profilePath, "utf-8");
       var profParsed = parseFrontmatter(profRaw);
       if (profParsed.data.company) name = profParsed.data.company;
     }
@@ -3095,73 +3674,124 @@ function renderSeoComparison(compDir, slugs) {
     // Extract SEO data from seo.md or profile.md (some have inline SEO tables)
     var source = null;
     if (fs.existsSync(seoPath)) {
-      source = fs.readFileSync(seoPath, 'utf-8');
+      source = fs.readFileSync(seoPath, "utf-8");
     } else if (fs.existsSync(profilePath)) {
-      var raw = fs.readFileSync(profilePath, 'utf-8');
-      if (raw.indexOf('Domain Rating') !== -1) source = raw;
+      var raw = fs.readFileSync(profilePath, "utf-8");
+      if (raw.indexOf("Domain Rating") !== -1) source = raw;
     }
     if (!source) return;
 
-    var dr = null, traffic = null, keywords = null, top3 = null, trafficValue = null;
+    var dr = null,
+      traffic = null,
+      keywords = null,
+      top3 = null,
+      trafficValue = null;
     var tableRows = source.match(/^\|[^|]+\|[^|]+\|$/gm);
     if (tableRows) {
-      tableRows.forEach(function(row) {
-        var cells = row.split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+      tableRows.forEach(function (row) {
+        var cells = row
+          .split("|")
+          .map(function (c) {
+            return c.trim();
+          })
+          .filter(Boolean);
         if (cells.length < 2) return;
         var metric = cells[0].toLowerCase();
-        var val = cells[1].replace(/[,$]/g, '').replace(/\/mo$/, '');
-        if (metric.indexOf('domain rating') !== -1) dr = parseInt(val) || null;
-        if (metric.indexOf('organic traffic') !== -1 && metric.indexOf('value') === -1) traffic = parseInt(val) || null;
-        if (metric.indexOf('organic keywords') !== -1) {
+        var val = cells[1].replace(/[,$]/g, "").replace(/\/mo$/, "");
+        if (metric.indexOf("domain rating") !== -1) dr = parseInt(val) || null;
+        if (metric.indexOf("organic traffic") !== -1 && metric.indexOf("value") === -1)
+          traffic = parseInt(val) || null;
+        if (metric.indexOf("organic keywords") !== -1) {
           var kwMatch = val.match(/^(\d+)/);
           keywords = kwMatch ? parseInt(kwMatch[1]) : null;
         }
-        if (metric.indexOf('top 3') !== -1) top3 = parseInt(val) || null;
-        if (metric.indexOf('traffic value') !== -1) trafficValue = parseInt(val) || null;
+        if (metric.indexOf("top 3") !== -1) top3 = parseInt(val) || null;
+        if (metric.indexOf("traffic value") !== -1) trafficValue = parseInt(val) || null;
       });
     }
 
     if (dr || traffic) {
-      competitors.push({ name: name, dr: dr, traffic: traffic, keywords: keywords, top3: top3, trafficValue: trafficValue });
+      competitors.push({
+        name: name,
+        dr: dr,
+        traffic: traffic,
+        keywords: keywords,
+        top3: top3,
+        trafficValue: trafficValue,
+      });
     }
   });
 
-  if (competitors.length === 0) return '';
+  if (competitors.length === 0) return "";
 
   // Sort by DR descending
-  competitors.sort(function(a, b) { return (b.dr || 0) - (a.dr || 0); });
+  competitors.sort(function (a, b) {
+    return (b.dr || 0) - (a.dr || 0);
+  });
 
-  var maxDr = Math.max.apply(null, competitors.map(function(c) { return c.dr || 0; }));
-  var maxTraffic = Math.max.apply(null, competitors.map(function(c) { return c.traffic || 0; }));
+  var maxDr = Math.max.apply(
+    null,
+    competitors.map(function (c) {
+      return c.dr || 0;
+    })
+  );
+  var maxTraffic = Math.max.apply(
+    null,
+    competitors.map(function (c) {
+      return c.traffic || 0;
+    })
+  );
 
-  var rows = competitors.map(function(comp) {
-    var drPct = maxDr > 0 ? ((comp.dr || 0) / 100) * 100 : 0;
-    var trafficPct = maxTraffic > 0 ? ((comp.traffic || 0) / maxTraffic) * 100 : 0;
+  var rows = competitors
+    .map(function (comp) {
+      var drPct = maxDr > 0 ? ((comp.dr || 0) / 100) * 100 : 0;
+      var trafficPct = maxTraffic > 0 ? ((comp.traffic || 0) / maxTraffic) * 100 : 0;
 
-    var drBar = '<div class="bar-row">' +
-      '<div class="bar-row-label">DR</div>' +
-      '<div class="bar-track"><div class="bar-fill bar-fill-teal" style="width:' + drPct + '%">' + (comp.dr || '-') + '</div></div>' +
-      '</div>';
-    var trafficBar = '<div class="bar-row">' +
-      '<div class="bar-row-label">Traffic/mo</div>' +
-      '<div class="bar-track"><div class="bar-fill bar-fill-blue" style="width:' + trafficPct + '%">' + (comp.traffic ? comp.traffic.toLocaleString() : '-') + '</div></div>' +
-      '</div>';
+      var drBar =
+        '<div class="bar-row">' +
+        '<div class="bar-row-label">DR</div>' +
+        '<div class="bar-track"><div class="bar-fill bar-fill-teal" style="width:' +
+        drPct +
+        '%">' +
+        (comp.dr || "-") +
+        "</div></div>" +
+        "</div>";
+      var trafficBar =
+        '<div class="bar-row">' +
+        '<div class="bar-row-label">Traffic/mo</div>' +
+        '<div class="bar-track"><div class="bar-fill bar-fill-blue" style="width:' +
+        trafficPct +
+        '%">' +
+        (comp.traffic ? comp.traffic.toLocaleString() : "-") +
+        "</div></div>" +
+        "</div>";
 
-    var meta = [];
-    if (comp.keywords) meta.push(comp.keywords + ' keywords');
-    if (comp.top3) meta.push(comp.top3 + ' in top 3');
-    if (comp.trafficValue) meta.push('$' + comp.trafficValue.toLocaleString() + '/mo value');
-    var metaHtml = meta.length > 0
-      ? '<div class="bar-group-meta">' + meta.join(' \u00b7 ') + '</div>'
-      : '';
+      var meta = [];
+      if (comp.keywords) meta.push(comp.keywords + " keywords");
+      if (comp.top3) meta.push(comp.top3 + " in top 3");
+      if (comp.trafficValue) meta.push("$" + comp.trafficValue.toLocaleString() + "/mo value");
+      var metaHtml =
+        meta.length > 0 ? '<div class="bar-group-meta">' + meta.join(" \u00b7 ") + "</div>" : "";
 
-    return '<div class="bar-group"><div class="bar-group-label">' + escHtml(comp.name) + '</div>' +
-      drBar + trafficBar + metaHtml + '</div>';
-  }).join('');
+      return (
+        '<div class="bar-group"><div class="bar-group-label">' +
+        escHtml(comp.name) +
+        "</div>" +
+        drBar +
+        trafficBar +
+        metaHtml +
+        "</div>"
+      );
+    })
+    .join("");
 
-  return '<section class="content-section"><h2>SEO Competitive Position</h2>' +
+  return (
+    '<section class="content-section"><h2>SEO Competitive Position</h2>' +
     '<p class="chart-description">Domain authority and organic traffic comparison. Higher DR = harder to outrank.</p>' +
-    '<div class="bar-chart">' + rows + '</div></section>';
+    '<div class="bar-chart">' +
+    rows +
+    "</div></section>"
+  );
 }
 
 function renderFeatureHeatmap(body) {
@@ -3175,10 +3805,20 @@ function renderFeatureHeatmap(body) {
     var rows = tableContent.match(/^\|(?!\s*[-:]).+\|$/gm);
     if (!rows || rows.length < 2) continue;
 
-    var headers = rows[0].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+    var headers = rows[0]
+      .split("|")
+      .map(function (c) {
+        return c.trim();
+      })
+      .filter(Boolean);
     var features = [];
     for (var i = 1; i < rows.length; i++) {
-      var cells = rows[i].split('|').map(function(c) { return c.trim(); }).filter(Boolean);
+      var cells = rows[i]
+        .split("|")
+        .map(function (c) {
+          return c.trim();
+        })
+        .filter(Boolean);
       if (cells.length >= 2) features.push(cells);
     }
     pillars.push({ name: pillarName, headers: headers, features: features });
@@ -3186,50 +3826,65 @@ function renderFeatureHeatmap(body) {
 
   if (pillars.length === 0) return renderMarkdown(body);
 
-  var ratingClass = function(val) {
+  var ratingClass = function (val) {
     var v = val.toLowerCase();
-    if (v === 'full') return 'heatmap-full';
-    if (v === 'partial') return 'heatmap-partial';
-    if (v === 'missing') return 'heatmap-missing';
-    if (v === 'differentiator') return 'heatmap-diff';
-    return '';
+    if (v === "full") return "heatmap-full";
+    if (v === "partial") return "heatmap-partial";
+    if (v === "missing") return "heatmap-missing";
+    if (v === "differentiator") return "heatmap-diff";
+    return "";
   };
 
-  var ratingLabel = function(val) {
+  var ratingLabel = function (val) {
     var v = val.toLowerCase();
-    if (v === 'full') return '\u2713';
-    if (v === 'partial') return '\u00BD';
-    if (v === 'missing') return '\u2717';
-    if (v === 'differentiator') return '\u2605';
+    if (v === "full") return "\u2713";
+    if (v === "partial") return "\u00BD";
+    if (v === "missing") return "\u2717";
+    if (v === "differentiator") return "\u2605";
     return escHtml(val);
   };
 
   // Build single unified table
   var allHeaders = pillars[0].headers;
-  var colHeaders = allHeaders.slice(1).map(function(h) { return '<th>' + escHtml(h) + '</th>'; }).join('');
-  var tableRows = '';
+  var colHeaders = allHeaders
+    .slice(1)
+    .map(function (h) {
+      return "<th>" + escHtml(h) + "</th>";
+    })
+    .join("");
+  var tableRows = "";
 
-  pillars.forEach(function(p) {
-    tableRows += '<tr><td colspan="' + allHeaders.length + '" class="heatmap-pillar">' + escHtml(p.name) + '</td></tr>';
-    p.features.forEach(function(row) {
-      var cells = '<td>' + escHtml(row[0]) + '</td>';
+  pillars.forEach(function (p) {
+    tableRows +=
+      '<tr><td colspan="' +
+      allHeaders.length +
+      '" class="heatmap-pillar">' +
+      escHtml(p.name) +
+      "</td></tr>";
+    p.features.forEach(function (row) {
+      var cells = "<td>" + escHtml(row[0]) + "</td>";
       for (var j = 1; j < row.length; j++) {
         var cls = ratingClass(row[j]);
-        cells += '<td class="' + cls + '">' + ratingLabel(row[j]) + '</td>';
+        cells += '<td class="' + cls + '">' + ratingLabel(row[j]) + "</td>";
       }
-      tableRows += '<tr>' + cells + '</tr>';
+      tableRows += "<tr>" + cells + "</tr>";
     });
   });
 
-  return '<h2>Feature Parity Matrix</h2>' +
+  return (
+    "<h2>Feature Parity Matrix</h2>" +
     '<div class="heatmap-legend">' +
     '<span class="heatmap-full heatmap-legend-badge">\u2713 Full</span>' +
     '<span class="heatmap-partial heatmap-legend-badge">\u00BD Partial</span>' +
     '<span class="heatmap-missing heatmap-legend-badge">\u2717 Missing</span>' +
     '<span class="heatmap-diff heatmap-legend-badge">\u2605 Differentiator</span>' +
-    '</div>' +
-    '<table class="heatmap-table"><thead><tr><th>Capability</th>' + colHeaders + '</tr></thead><tbody>' +
-    tableRows + '</tbody></table>';
+    "</div>" +
+    '<table class="heatmap-table"><thead><tr><th>Capability</th>' +
+    colHeaders +
+    "</tr></thead><tbody>" +
+    tableRows +
+    "</tbody></table>"
+  );
 }
 
 function renderLandscapeWithViz(body) {
@@ -3241,7 +3896,7 @@ function renderLandscapeWithViz(body) {
     if (scatter) {
       var before = body.substring(0, posMatch.index);
       var after = body.substring(posMatch.index + posMatch[0].length);
-      body = before + '## Market Positioning Map\n\n<!-- VIZ_PLACEHOLDER_SCATTER -->\n' + after;
+      body = before + "## Market Positioning Map\n\n<!-- VIZ_PLACEHOLDER_SCATTER -->\n" + after;
     }
   }
 
@@ -3252,7 +3907,10 @@ function renderLandscapeWithViz(body) {
   if (kwQuadrant && kwMatch) {
     var kwBefore = body.substring(0, kwMatch.index);
     var kwAfter = body.substring(kwMatch.index + kwMatch[0].length);
-    body = kwBefore + '### Keyword Opportunity Matrix (US)\n\n<!-- VIZ_PLACEHOLDER_KEYWORDS -->\n' + kwAfter;
+    body =
+      kwBefore +
+      "### Keyword Opportunity Matrix (US)\n\n<!-- VIZ_PLACEHOLDER_KEYWORDS -->\n" +
+      kwAfter;
   }
 
   var html = renderMarkdown(body);
@@ -3260,10 +3918,10 @@ function renderLandscapeWithViz(body) {
   // Inject visualizations
   if (posMatch) {
     var scatterPlot = renderPositioningScatter(posMatch[1]);
-    if (scatterPlot) html = html.replace('<!-- VIZ_PLACEHOLDER_SCATTER -->', scatterPlot);
+    if (scatterPlot) html = html.replace("<!-- VIZ_PLACEHOLDER_SCATTER -->", scatterPlot);
   }
   if (kwQuadrant) {
-    html = html.replace('<!-- VIZ_PLACEHOLDER_KEYWORDS -->', kwQuadrant);
+    html = html.replace("<!-- VIZ_PLACEHOLDER_KEYWORDS -->", kwQuadrant);
   }
 
   return html;
@@ -3282,14 +3940,14 @@ function extractProfileSummary(profileContent) {
 
 function buildStrategyBanner(pmDir) {
   const snapshot = parseStrategySnapshot(pmDir);
-  if (!snapshot) return '';
-  const deckExists = fs.existsSync(path.join(pmDir, 'strategy-deck.html'));
+  if (!snapshot) return "";
+  const deckExists = fs.existsSync(path.join(pmDir, "strategy-deck.html"));
   return `<div class="strategy-banner">
   <div class="strategy-banner-content">
     <div class="strategy-banner-label">Strategy</div>
     <div class="strategy-banner-headline">${escHtml(snapshot.focus)}</div>
     <div class="strategy-banner-priorities">
-      ${snapshot.priorities.map((p, i) => `<div class="strategy-banner-priority"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join('')}
+      ${snapshot.priorities.map((p, i) => `<div class="strategy-banner-priority"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join("")}
     </div>
   </div>
   <div class="strategy-banner-actions">
@@ -3298,124 +3956,154 @@ function buildStrategyBanner(pmDir) {
       ${escHtml(snapshot.staleness.label)}
     </div>
     <a href="/kb?tab=strategy" class="btn-sm">View strategy</a>
-    ${deckExists ? '<a href="/strategy-deck" class="btn-sm">Slide deck</a>' : ''}
+    ${deckExists ? '<a href="/strategy-deck" class="btn-sm">Slide deck</a>' : ""}
   </div>
 </div>`;
 }
 
 function buildLandscapeCard(pmDir) {
-  const landscapePath = path.join(pmDir, 'landscape.md');
-  if (!fs.existsSync(landscapePath)) return '';
-  const raw = fs.readFileSync(landscapePath, 'utf-8');
+  const landscapePath = path.join(pmDir, "landscape.md");
+  if (!fs.existsSync(landscapePath)) return "";
+  const raw = fs.readFileSync(landscapePath, "utf-8");
   const { body } = parseFrontmatter(raw);
   const titleMatch = body.match(/^#\s+(.+)/m);
-  const title = titleMatch ? titleMatch[1] : 'Market Landscape';
-  const paragraphs = body.split(/\n\n/).filter(p => {
+  const title = titleMatch ? titleMatch[1] : "Market Landscape";
+  const paragraphs = body.split(/\n\n/).filter((p) => {
     const t = p.trim();
     if (!t || /^#{1,6}\s/.test(t)) return false;
     // Skip blocks that are only HTML comments (stat annotations)
-    if (/^<!--[\s\S]*-->$/.test(t.replace(/\n/g, ''))) return false;
-    if (/^(<!--.*-->\s*)+$/.test(t.replace(/\n/g, ' ').trim())) return false;
+    if (/^<!--[\s\S]*-->$/.test(t.replace(/\n/g, ""))) return false;
+    if (/^(<!--.*-->\s*)+$/.test(t.replace(/\n/g, " ").trim())) return false;
     return true;
   });
-  const summary = paragraphs[0] ? paragraphs[0].replace(/\n/g, ' ').replace(/[*_`#]/g, '').replace(/<!--.*?-->/g, '').trim().slice(0, 200) : '';
+  const summary = paragraphs[0]
+    ? paragraphs[0]
+        .replace(/\n/g, " ")
+        .replace(/[*_`#]/g, "")
+        .replace(/<!--.*?-->/g, "")
+        .trim()
+        .slice(0, 200)
+    : "";
   const statsData = parseStatsData(body);
   const topStats = (statsData || []).slice(0, 3);
   return `<a href="/kb?tab=landscape" class="landscape-card">
   <div class="landscape-title">${escHtml(title)}</div>
   <div class="landscape-summary">${escHtml(summary)}</div>
-  ${topStats.length > 0 ? `<div class="landscape-stats">${topStats.map(s =>
-    `<div><div class="landscape-stat">${escHtml(s.value)}</div><div class="landscape-stat-label">${escHtml(s.label)}</div></div>`
-  ).join('')}</div>` : ''}
+  ${
+    topStats.length > 0
+      ? `<div class="landscape-stats">${topStats
+          .map(
+            (s) =>
+              `<div><div class="landscape-stat">${escHtml(s.value)}</div><div class="landscape-stat-label">${escHtml(s.label)}</div></div>`
+          )
+          .join("")}</div>`
+      : ""
+  }
   <span class="landscape-view-link">View &rarr;</span>
 </a>`;
 }
 
 function buildCompetitorGrid(pmDir) {
-  const compDir = path.join(pmDir, 'competitors');
-  if (!fs.existsSync(compDir)) return '';
-  const slugs = fs.readdirSync(compDir, { withFileTypes: true })
-    .filter(e => e.isDirectory()).map(e => e.name);
-  if (slugs.length === 0) return '';
+  const compDir = path.join(pmDir, "competitors");
+  if (!fs.existsSync(compDir)) return "";
+  const slugs = fs
+    .readdirSync(compDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+  if (slugs.length === 0) return "";
   const displaySlugs = slugs.length > 6 ? slugs.slice(0, 6) : slugs;
-  const cards = displaySlugs.map(slug => {
-    const profilePath = path.join(compDir, slug, 'profile.md');
-    let name = humanizeSlug(slug);
-    let category = '';
-    if (fs.existsSync(profilePath)) {
-      const raw = fs.readFileSync(profilePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
-      if (parsed.data.company) name = parsed.data.company;
-      const summary = extractProfileSummary(parsed.body);
-      if (summary.company) name = summary.company;
-      if (summary.category) category = summary.category;
-    }
-    return `<article class="card">
+  const cards = displaySlugs
+    .map((slug) => {
+      const profilePath = path.join(compDir, slug, "profile.md");
+      let name = humanizeSlug(slug);
+      let category = "";
+      if (fs.existsSync(profilePath)) {
+        const raw = fs.readFileSync(profilePath, "utf-8");
+        const parsed = parseFrontmatter(raw);
+        if (parsed.data.company) name = parsed.data.company;
+        const summary = extractProfileSummary(parsed.body);
+        if (summary.company) name = summary.company;
+        if (summary.category) category = summary.category;
+      }
+      return `<article class="card">
   <h3><a href="/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
   <p class="meta">${escHtml(category)}</p>
   <div class="card-footer"><a href="/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
 </article>`;
-  }).join('');
-  const viewAll = slugs.length > 6 ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>` : '';
-  return `<div class="card-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ''}`;
+    })
+    .join("");
+  const viewAll =
+    slugs.length > 6
+      ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>`
+      : "";
+  return `<div class="card-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ""}`;
 }
 
 function buildTopicRows(pmDir, maxTopics) {
-  const researchDir = path.join(pmDir, 'research');
-  if (!fs.existsSync(researchDir)) return { html: '', total: 0 };
-  const topics = fs.readdirSync(researchDir, { withFileTypes: true })
-    .filter(e => e.isDirectory()).map(e => e.name);
-  if (topics.length === 0) return { html: '', total: 0 };
+  const researchDir = path.join(pmDir, "research");
+  if (!fs.existsSync(researchDir)) return { html: "", total: 0 };
+  const topics = fs
+    .readdirSync(researchDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+  if (topics.length === 0) return { html: "", total: 0 };
 
-  const topicData = topics.map(t => {
-    const findingsPath = path.join(researchDir, t, 'findings.md');
+  const topicData = topics.map((t) => {
+    const findingsPath = path.join(researchDir, t, "findings.md");
     let label = humanizeSlug(t);
-    let origin = 'external';
+    let origin = "external";
     let stale = null;
-    let dateStr = '';
+    let dateStr = "";
     if (fs.existsSync(findingsPath)) {
-      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
       const meta = buildTopicMeta(t, parsed.data, findingsPath);
       label = meta.label;
       origin = normalizeSourceOrigin(parsed.data.source_origin);
-      dateStr = getUpdatedDate(findingsPath) || '';
+      dateStr = getUpdatedDate(findingsPath) || "";
       stale = stalenessInfo(dateStr);
     }
     return { slug: t, label, origin, stale, dateStr };
   });
 
   // Sort by freshness (newest first)
-  topicData.sort((a, b) => (b.dateStr || '').localeCompare(a.dateStr || ''));
+  topicData.sort((a, b) => (b.dateStr || "").localeCompare(a.dateStr || ""));
   const display = maxTopics ? topicData.slice(0, maxTopics) : topicData;
 
-  const originLabels = { external: 'External', internal: 'Customer', mixed: 'Mixed' };
-  const originBadge = o => `badge-${o === 'internal' ? 'customer' : o}`;
-  const freshBadge = s => s ? `<span class="badge badge-${s.level}">${s.level.charAt(0).toUpperCase() + s.level.slice(1)}</span>` : '';
+  const originLabels = { external: "External", internal: "Customer", mixed: "Mixed" };
+  const originBadge = (o) => `badge-${o === "internal" ? "customer" : o}`;
+  const freshBadge = (s) =>
+    s
+      ? `<span class="badge badge-${s.level}">${s.level.charAt(0).toUpperCase() + s.level.slice(1)}</span>`
+      : "";
 
-  const rows = display.map(t => `<a href="/research/${escHtml(t.slug)}" class="topic-row">
+  const rows = display
+    .map(
+      (t) => `<a href="/research/${escHtml(t.slug)}" class="topic-row">
   <span class="topic-name">${escHtml(t.label)}</span>
   <div class="topic-badges">
-    <span class="badge ${originBadge(t.origin)}">${escHtml(originLabels[t.origin] || 'External')}</span>
+    <span class="badge ${originBadge(t.origin)}">${escHtml(originLabels[t.origin] || "External")}</span>
     ${freshBadge(t.stale)}
     <span class="topic-date">${escHtml(formatRelativeDate(t.dateStr))}</span>
   </div>
-</a>`).join('');
+</a>`
+    )
+    .join("");
 
   return { html: `<div class="topic-list">${rows}</div>`, total: topicData.length };
 }
 
 function handleKnowledgeBasePage(res, pmDir, tab) {
   // If a specific sub-tab is requested, render the existing detail view
-  if (tab === 'strategy') {
+  if (tab === "strategy") {
     return handleKbStrategyDetail(res, pmDir);
   }
-  if (tab === 'competitors') {
+  if (tab === "competitors") {
     return handleKbCompetitorsDetail(res, pmDir);
   }
-  if (tab === 'landscape') {
+  if (tab === "landscape") {
     return handleKbLandscapeDetail(res, pmDir);
   }
-  if (tab === 'topics' || tab === 'research') {
+  if (tab === "topics" || tab === "research") {
     return handleKbTopicsDetail(res, pmDir);
   }
 
@@ -3426,22 +4114,28 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, 8);
 
   // Customer evidence section
-  const evidenceDir = path.join(pmDir, 'evidence');
-  const hasEvidence = fs.existsSync(evidenceDir) &&
-    fs.readdirSync(evidenceDir, { withFileTypes: true }).some(e => e.isDirectory() || e.name.endsWith('.md'));
+  const evidenceDir = path.join(pmDir, "evidence");
+  const hasEvidence =
+    fs.existsSync(evidenceDir) &&
+    fs
+      .readdirSync(evidenceDir, { withFileTypes: true })
+      .some((e) => e.isDirectory() || e.name.endsWith(".md"));
   const evidenceHtml = hasEvidence
-    ? '' // TODO: build evidence summary in PM-125
+    ? "" // TODO: build evidence summary in PM-125
     : `<div class="empty-state-hub">
   <div class="empty-state-hub-title">No customer evidence yet</div>
   <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  ${renderClickToCopy('/pm:ingest path/to/evidence')}
+  ${renderClickToCopy("/pm:ingest path/to/evidence")}
 </div>`;
 
-  const compDir = path.join(pmDir, 'competitors');
+  const compDir = path.join(pmDir, "competitors");
   const compCount = fs.existsSync(compDir)
-    ? fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory()).length
+    ? fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory()).length
     : 0;
-  const compViewAllLink = compCount > 0 ? `<a href="/kb?tab=competitors" class="section-link">View all ${compCount} competitors</a>` : '';
+  const compViewAllLink =
+    compCount > 0
+      ? `<a href="/kb?tab=competitors" class="section-link">View all ${compCount} competitors</a>`
+      : "";
 
   const body = `
 <div class="page-header">
@@ -3449,27 +4143,39 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   <p class="subtitle">Everything the team knows -- strategy, market, competitors, and research</p>
 </div>
 ${strategyBanner}
-${landscapeCard ? `<section class="section">
+${
+  landscapeCard
+    ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Market Landscape</span>
   </div>
   ${landscapeCard}
-</section>` : ''}
-${compCount > 0 ? `<section class="section">
+</section>`
+    : ""
+}
+${
+  compCount > 0
+    ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Competitors</span>
     ${compViewAllLink}
   </div>
   ${competitorGrid}
-</section>` : ''}
-${topicCount > 0 ? `<section class="section">
+</section>`
+    : ""
+}
+${
+  topicCount > 0
+    ? `<section class="section">
   <div class="section-header">
     <span class="section-title">Research</span>
     <span class="section-count">${topicCount} topics</span>
   </div>
   ${topicRows}
-  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/kb?tab=topics" class="section-link">View all ${topicCount} topics</a></div>` : ''}
-</section>` : ''}
+  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/kb?tab=topics" class="section-link">View all ${topicCount} topics</a></div>` : ""}
+</section>`
+    : ""
+}
 <section class="section">
   <div class="section-header">
     <span class="section-title">Customer Evidence</span>
@@ -3477,24 +4183,30 @@ ${topicCount > 0 ? `<section class="section">
   ${evidenceHtml}
 </section>`;
 
-  const html = dashboardPage('Knowledge Base', '/kb', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Knowledge Base", "/kb", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 // ========== KB Detail Handlers (PM-122) ==========
 
 function handleKbStrategyDetail(res, pmDir) {
-  const filePath = path.join(pmDir, 'strategy.md');
+  const filePath = path.join(pmDir, "strategy.md");
   let contentHtml;
   if (!fs.existsSync(filePath)) {
-    contentHtml = `<div class="detail-page">
+    contentHtml =
+      `<div class="detail-page">
 <nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
 <h1>Strategy</h1>
 </div>` +
-      renderEmptyState('No strategy defined', 'Your product strategy defines ICP, value proposition, competitive positioning, and priorities.', '/pm:strategy', 'Define your strategy');
+      renderEmptyState(
+        "No strategy defined",
+        "Your product strategy defines ICP, value proposition, competitive positioning, and priorities.",
+        "/pm:strategy",
+        "Define your strategy"
+      );
   } else {
-    const raw = fs.readFileSync(filePath, 'utf-8');
+    const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = parseFrontmatter(raw);
     const rendered = renderStrategyWithViz(parsed.body);
     contentHtml = `<div class="detail-page">
@@ -3503,51 +4215,65 @@ function handleKbStrategyDetail(res, pmDir) {
 <div class="markdown-body">${rendered}</div>
 </div>`;
   }
-  const html = dashboardPage('Strategy', '/kb', contentHtml);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Strategy", "/kb", contentHtml);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleKbCompetitorsDetail(res, pmDir) {
-  const compDir = path.join(pmDir, 'competitors');
+  const compDir = path.join(pmDir, "competitors");
   const cardItems = [];
   if (fs.existsSync(compDir)) {
-    const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory());
     for (const d of dirs) {
-      const profilePath = path.join(compDir, d.name, 'profile.md');
+      const profilePath = path.join(compDir, d.name, "profile.md");
       if (!fs.existsSync(profilePath)) continue;
-      const summary = extractProfileSummary(parseFrontmatter(fs.readFileSync(profilePath, 'utf-8')).body);
+      const summary = extractProfileSummary(
+        parseFrontmatter(fs.readFileSync(profilePath, "utf-8")).body
+      );
       const stale = stalenessInfo(getUpdatedDate(profilePath));
-      const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
+      const staleBadge = stale
+        ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
+        : "";
       cardItems.push(`<article class="card">
         <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
-        <p class="meta">${escHtml(summary.category || '')}</p>
+        <p class="meta">${escHtml(summary.category || "")}</p>
         <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
       </article>`);
     }
   }
   const contentHtml = renderListTemplate({
     breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
-    title: 'Competitors',
-    sections: [{ items: cardItems, layout: 'cards' }],
-    emptyState: renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'),
+    title: "Competitors",
+    sections: [{ items: cardItems, layout: "cards" }],
+    emptyState: renderEmptyState(
+      "No competitor profiles",
+      "Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.",
+      "/pm:research competitors",
+      "Profile your competitors"
+    ),
   });
-  const html = dashboardPage('Competitors', '/kb', contentHtml);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Competitors", "/kb", contentHtml);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleKbLandscapeDetail(res, pmDir) {
-  const landscapePath = path.join(pmDir, 'landscape.md');
+  const landscapePath = path.join(pmDir, "landscape.md");
   if (!fs.existsSync(landscapePath)) {
-    const emptyHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
-    const html = dashboardPage('Landscape', '/kb', emptyHtml);
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const emptyHtml = renderEmptyState(
+      "No landscape research",
+      "The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.",
+      "/pm:research landscape",
+      "Map your market"
+    );
+    const html = dashboardPage("Landscape", "/kb", emptyHtml);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
   }
 
-  const raw = fs.readFileSync(landscapePath, 'utf-8');
+  const raw = fs.readFileSync(landscapePath, "utf-8");
   const { body } = parseFrontmatter(raw);
   const statsData = parseStatsData(body);
   const statsHtml = renderStatsCards(statsData);
@@ -3558,8 +4284,11 @@ function handleKbLandscapeDetail(res, pmDir) {
   for (const part of parts) {
     const h2Match = part.match(/^## (.+)$/m);
     if (!h2Match) continue;
-    const label = h2Match[1].replace(/[*_`#]/g, '').trim();
-    const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const label = h2Match[1].replace(/[*_`#]/g, "").trim();
+    const id = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
     let rendered = renderLandscapeWithViz(part);
     sectionTabs.push({ id, label, rendered });
   }
@@ -3573,23 +4302,22 @@ function handleKbLandscapeDetail(res, pmDir) {
   const metaBadges = [];
   const stale = stalenessInfo(getUpdatedDate(landscapePath));
   if (stale) {
-    metaBadges.push({ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` });
+    metaBadges.push({
+      html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`,
+    });
   }
   metaBadges.push({ html: `<span class="meta-item">${sectionTabs.length} sections</span>` });
 
-  const contentHtml = renderTemplate('detail-tabs', {
-    breadcrumb: [
-      { href: '/kb', label: 'Knowledge Base' },
-      { label: 'Market Landscape' },
-    ],
-    title: 'Market Landscape',
+  const contentHtml = renderTemplate("detail-tabs", {
+    breadcrumb: [{ href: "/kb", label: "Knowledge Base" }, { label: "Market Landscape" }],
+    title: "Market Landscape",
     metaBadges,
-    tabs: sectionTabs.map(s => ({ id: s.id, label: s.label, html: s.rendered })),
-    actionHint: '/pm:research landscape',
+    tabs: sectionTabs.map((s) => ({ id: s.id, label: s.label, html: s.rendered })),
+    actionHint: "/pm:research landscape",
   });
 
-  const html = dashboardPage('Landscape', '/kb', contentHtml);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Landscape", "/kb", contentHtml);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
@@ -3600,41 +4328,62 @@ function handleKbTopicsDetail(res, pmDir) {
 <div class="page-header">
   <div class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></div>
   <h1>Research</h1>
-  <p class="subtitle">${topicCount} topic${topicCount !== 1 ? 's' : ''}</p>
+  <p class="subtitle">${topicCount} topic${topicCount !== 1 ? "s" : ""}</p>
 </div>
-${topicCount > 0 ? `<section class="section">
+${
+  topicCount > 0
+    ? `<section class="section">
   ${topicRows}
-</section>` : renderEmptyState('No research topics', 'Run research to build your knowledge base.', '/pm:research', 'Start research')}`;
+</section>`
+    : renderEmptyState(
+        "No research topics",
+        "Run research to build your knowledge base.",
+        "/pm:research",
+        "Start research"
+      )
+}`;
 
-  const html = dashboardPage('Research', '/kb', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Research", "/kb", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleCompetitorDetail(res, pmDir, slug) {
-  const compDir = path.join(pmDir, 'competitors', slug);
+  const compDir = path.join(pmDir, "competitors", slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Competitor not found', 'This competitor profile does not exist.') + '<p><a href="/competitors">&larr; Back to competitors</a></p>');
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    const html = dashboardPage(
+      "Not Found",
+      "/kb",
+      renderEmptyState("Competitor not found", "This competitor profile does not exist.") +
+        '<p><a href="/competitors">&larr; Back to competitors</a></p>'
+    );
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
-  const sectionKeys = ['profile', 'features', 'api', 'seo', 'sentiment'];
-  const SECTION_LABELS = { profile: 'Profile', features: 'Features', api: 'API', seo: 'SEO', sentiment: 'Sentiment' };
+  const sectionKeys = ["profile", "features", "api", "seo", "sentiment"];
+  const SECTION_LABELS = {
+    profile: "Profile",
+    features: "Features",
+    api: "API",
+    seo: "SEO",
+    sentiment: "Sentiment",
+  };
   let name = slug;
-  let category = '';
+  let category = "";
   let profileUpdatedDate = null;
 
   // Build tab sections
   const sectionTabs = [];
   let availableCount = 0;
   sectionKeys.forEach((sec) => {
-    const filePath = path.join(compDir, sec + '.md');
+    const filePath = path.join(compDir, sec + ".md");
     if (!fs.existsSync(filePath)) return;
     availableCount++;
-    const raw = fs.readFileSync(filePath, 'utf-8');
+    const raw = fs.readFileSync(filePath, "utf-8");
     const { data, body } = parseFrontmatter(raw);
-    if (sec === 'profile') {
+    if (sec === "profile") {
       if (data.company) name = data.company;
       else if (data.name) name = data.name;
       const summary = extractProfileSummary(body);
@@ -3642,49 +4391,56 @@ function handleCompetitorDetail(res, pmDir, slug) {
       profileUpdatedDate = data.updated || data.created || null;
     }
     const label = SECTION_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
-    const rendered = sec === 'profile' ? renderProfileWithSwot(body) : renderMarkdown(body);
+    const rendered = sec === "profile" ? renderProfileWithSwot(body) : renderMarkdown(body);
     sectionTabs.push({ id: sec, label, rendered });
   });
 
   // Build meta badges
   const metaBadges = [];
   if (category) {
-    const truncated = category.length > 80 ? category.slice(0, 80).trim() + '\u2026' : category;
+    const truncated = category.length > 80 ? category.slice(0, 80).trim() + "\u2026" : category;
     metaBadges.push({ html: `<span class="meta-item">${escHtml(truncated)}</span>` });
   }
-  metaBadges.push({ html: `<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>` });
+  metaBadges.push({
+    html: `<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>`,
+  });
   const stale = stalenessInfo(profileUpdatedDate);
   if (stale) {
-    metaBadges.push({ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` });
+    metaBadges.push({
+      html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`,
+    });
   }
 
-  const body = renderTemplate('detail-tabs', {
-    breadcrumb: [
-      { href: '/kb?tab=competitors', label: 'Knowledge Base' },
-      { label: name },
-    ],
+  const body = renderTemplate("detail-tabs", {
+    breadcrumb: [{ href: "/kb?tab=competitors", label: "Knowledge Base" }, { label: name }],
     title: name,
     metaBadges,
-    tabs: sectionTabs.map(s => ({ id: s.id, label: s.label, html: s.rendered })),
-    actionHint: '/pm:refresh ' + slug,
+    tabs: sectionTabs.map((s) => ({ id: s.id, label: s.label, html: s.rendered })),
+    actionHint: "/pm:refresh " + slug,
   });
 
-  const html = dashboardPage(name, '/kb', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage(name, "/kb", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleResearchTopic(res, pmDir, topic) {
-  const topicDir = path.join(pmDir, 'research', topic);
-  const findingsPath = path.join(topicDir, 'findings.md');
+  const topicDir = path.join(pmDir, "research", topic);
+  const findingsPath = path.join(topicDir, "findings.md");
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Research topic not found', 'This research topic does not exist.') + '<p><a href="/research">&larr; Back to research</a></p>');
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    const html = dashboardPage(
+      "Not Found",
+      "/kb",
+      renderEmptyState("Research topic not found", "This research topic does not exist.") +
+        '<p><a href="/research">&larr; Back to research</a></p>'
+    );
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
-  const raw = fs.readFileSync(findingsPath, 'utf-8');
+  const raw = fs.readFileSync(findingsPath, "utf-8");
   const { data, body } = parseFrontmatter(raw);
   const meta = buildTopicMeta(topic, data, findingsPath);
 
@@ -3692,36 +4448,39 @@ function handleResearchTopic(res, pmDir, topic) {
   const sourcesRe = /\n## (?:Sources|References)\s*\n/;
   const sourcesMatch = body.match(sourcesRe);
   let findingsBody = body;
-  let sourcesBody = '';
+  let sourcesBody = "";
   if (sourcesMatch) {
     findingsBody = body.substring(0, sourcesMatch.index);
     sourcesBody = body.substring(sourcesMatch.index + sourcesMatch[0].length);
   }
 
   // Strip leading h1 if it duplicates the page title
-  findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, '');
+  findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, "");
 
   // Build sections
   const templateSections = [];
-  templateSections.push({ title: 'Findings', html: `<div class="markdown-body">${renderMarkdown(findingsBody)}</div>` });
+  templateSections.push({
+    title: "Findings",
+    html: `<div class="markdown-body">${renderMarkdown(findingsBody)}</div>`,
+  });
   if (sourcesBody.trim()) {
-    templateSections.push({ title: 'Sources', html: `<div class="markdown-body">${renderMarkdown(sourcesBody)}</div>` });
+    templateSections.push({
+      title: "Sources",
+      html: `<div class="markdown-body">${renderMarkdown(sourcesBody)}</div>`,
+    });
   }
 
-  const pageBody = renderTemplate('detail', {
-    breadcrumb: [
-      { label: 'Knowledge Base', href: '/kb?tab=research' },
-      { label: meta.label },
-    ],
+  const pageBody = renderTemplate("detail", {
+    breadcrumb: [{ label: "Knowledge Base", href: "/kb?tab=research" }, { label: meta.label }],
     title: meta.label,
     subtitle: meta.subtitle,
     metaBadges: [{ html: meta.badgesHtml }],
     sections: templateSections,
-    actionHint: '/pm:refresh ' + topic,
+    actionHint: "/pm:refresh " + topic,
   });
 
-  const html = dashboardPage(meta.label, '/kb', pageBody);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage(meta.label, "/kb", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
@@ -3744,8 +4503,8 @@ function injectableHeaderBar(backLabel, title, copyCommand) {
 .pm-hdr-toast{position:fixed;top:48px;right:16px;padding:4px 12px;background:#222;color:#4ade80;font-size:12px;border-radius:4px;opacity:0;transition:opacity 0.3s;pointer-events:none}
 </style>`;
 
-  const titleHtml = title ? `<span class="pm-hdr-title">${escHtml(title)}</span>` : '';
-  let rightHtml = '';
+  const titleHtml = title ? `<span class="pm-hdr-title">${escHtml(title)}</span>` : "";
+  let rightHtml = "";
   if (copyCommand) {
     const escaped = escHtml(copyCommand);
     rightHtml = `<span class="pm-hdr-cmd" onclick="navigator.clipboard.writeText('${escaped}').then(function(){var t=document.getElementById('pm-hdr-toast');t.style.opacity=1;setTimeout(function(){t.style.opacity=0},1500)})"><code>${escaped}</code><svg class="pm-hdr-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
@@ -3762,97 +4521,125 @@ function injectableHeaderBar(backLabel, title, copyCommand) {
 }
 
 function handleWireframe(res, pmDir, slug) {
-  if (!slug || slug.includes('/') || slug.includes('..')) {
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/roadmap', '<div class="markdown-body"><h1>Not found</h1></div>'));
+  if (!slug || slug.includes("/") || slug.includes("..")) {
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(
+      dashboardPage("Not Found", "/roadmap", '<div class="markdown-body"><h1>Not found</h1></div>')
+    );
     return;
   }
-  const wireframesDir = path.resolve(pmDir, 'backlog', 'wireframes');
-  const wfPath = path.resolve(wireframesDir, slug + '.html');
+  const wireframesDir = path.resolve(pmDir, "backlog", "wireframes");
+  const wfPath = path.resolve(wireframesDir, slug + ".html");
   if (!wfPath.startsWith(wireframesDir + path.sep)) {
-    res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Forbidden', '/roadmap', '<div class="markdown-body"><h1>Forbidden</h1></div>'));
+    res.writeHead(403, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(
+      dashboardPage("Forbidden", "/roadmap", '<div class="markdown-body"><h1>Forbidden</h1></div>')
+    );
     return;
   }
   try {
-    const content = fs.readFileSync(wfPath, 'utf-8');
-    const label = slug.replace(/^mockup-/, '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const wfHeader = injectableHeaderBar('Back', label);
-    const injected = content.replace(/(<\/head>)/i, wfHeader.style + '$1').replace(/(<body[^>]*>)/i, '$1' + wfHeader.html);
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const content = fs.readFileSync(wfPath, "utf-8");
+    const label = slug
+      .replace(/^mockup-/, "")
+      .replace(/-/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    const wfHeader = injectableHeaderBar("Back", label);
+    const injected = content
+      .replace(/(<\/head>)/i, wfHeader.style + "$1")
+      .replace(/(<body[^>]*>)/i, "$1" + wfHeader.html);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(injected);
   } catch {
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Wireframe Not Found', '/roadmap', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(
+      dashboardPage(
+        "Wireframe Not Found",
+        "/roadmap",
+        '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'
+      )
+    );
   }
 }
 
 function handleBacklog(res, pmDir) {
-  const backlogDir = path.join(pmDir, 'backlog');
+  const backlogDir = path.join(pmDir, "backlog");
   const columns = {};
   const childCounts = {};
-  const STATUS_ORDER = ['groomed', 'in-progress', 'shipped'];
-  const STATUS_MAP = { 'idea': 'groomed', 'drafted': 'groomed', 'approved': 'groomed', 'in-progress': 'in-progress', 'done': 'shipped' };
-  const COL_LABELS = { 'groomed': 'Groomed', 'in-progress': 'In Progress', 'shipped': 'Shipped' };
+  const STATUS_ORDER = ["groomed", "in-progress", "shipped"];
+  const STATUS_MAP = {
+    idea: "groomed",
+    drafted: "groomed",
+    approved: "groomed",
+    "in-progress": "in-progress",
+    done: "shipped",
+  };
+  const COL_LABELS = { groomed: "Groomed", "in-progress": "In Progress", shipped: "Shipped" };
   const COL_LIMIT = 10;
 
   if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
     // First pass: count children per parent
     for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
       const parent = data.parent || null;
-      if (parent && parent !== 'null') {
+      if (parent && parent !== "null") {
         childCounts[parent] = (childCounts[parent] || 0) + 1;
       }
     }
     // Second pass: build columns with parent items only
     for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
-      const slug = file.replace('.md', '');
+      const slug = file.replace(".md", "");
       const parent = data.parent || null;
-      if (parent && parent !== 'null') continue; // skip sub-issues
-      const rawStatus = data.status || 'idea';
-      const status = STATUS_MAP[rawStatus] || 'groomed';
+      if (parent && parent !== "null") continue; // skip sub-issues
+      const rawStatus = data.status || "idea";
+      const status = STATUS_MAP[rawStatus] || "groomed";
       if (!columns[status]) columns[status] = [];
       columns[status].push({
         slug,
         title: data.title || slug,
         id: data.id || null,
         subCount: childCounts[slug] || 0,
-        updated: data.updated || data.created || '',
+        updated: data.updated || data.created || "",
       });
     }
   }
 
   const renderCard = (item) => {
-    const idHtml = item.id ? `<span class="kanban-card-id">${escHtml(item.id)}</span>` : '';
-    const subHtml = item.subCount > 0 ? `<span class="kanban-card-sub">${item.subCount} sub-issue${item.subCount !== 1 ? 's' : ''}</span>` : '';
-    const header = (idHtml || subHtml) ? `<div class="kanban-card-header">${idHtml}${subHtml}</div>` : '';
+    const idHtml = item.id ? `<span class="kanban-card-id">${escHtml(item.id)}</span>` : "";
+    const subHtml =
+      item.subCount > 0
+        ? `<span class="kanban-card-sub">${item.subCount} sub-issue${item.subCount !== 1 ? "s" : ""}</span>`
+        : "";
+    const header =
+      idHtml || subHtml ? `<div class="kanban-card-header">${idHtml}${subHtml}</div>` : "";
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
-  const templateColumns = STATUS_ORDER.map(status => {
-    const allItems = (columns[status] || []).sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+  const templateColumns = STATUS_ORDER.map((status) => {
+    const allItems = (columns[status] || []).sort((a, b) =>
+      (b.updated || "").localeCompare(a.updated || "")
+    );
     const totalCount = allItems.length;
     const isCapped = totalCount > COL_LIMIT;
     const displayItems = isCapped ? allItems.slice(0, COL_LIMIT) : allItems;
-    const isShipped = status === 'shipped';
+    const isShipped = status === "shipped";
     return {
       label: COL_LABELS[status],
       status,
       items: displayItems.map(renderCard),
       totalCount,
       displayCount: displayItems.length,
-      viewAllHref: isShipped ? '/roadmap/shipped' : undefined,
-      viewAllLabel: 'shipped',
-      cssClass: isShipped ? 'shipped' : '',
+      viewAllHref: isShipped ? "/roadmap/shipped" : undefined,
+      viewAllLabel: "shipped",
+      cssClass: isShipped ? "shipped" : "",
     };
   });
 
-  const filterBar = '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
+  const filterBar =
+    '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
   const filterScript = `<script>
 document.getElementById('roadmap-filter').addEventListener('input', function(e) {
   var q = e.target.value.toLowerCase();
@@ -3862,40 +4649,46 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
 });
 </script>`;
 
-  const body = renderKanbanTemplate({
-    title: 'Roadmap',
-    subtitle: "What's coming, what's in progress, and what just shipped",
-    legend: filterBar,
-    columns: templateColumns,
-    emptyState: renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming'),
-  }) + filterScript;
+  const body =
+    renderKanbanTemplate({
+      title: "Roadmap",
+      subtitle: "What's coming, what's in progress, and what just shipped",
+      legend: filterBar,
+      columns: templateColumns,
+      emptyState: renderEmptyState(
+        "No backlog items",
+        "Backlog items are scoped issues created during grooming.",
+        "/pm:groom",
+        "Start grooming"
+      ),
+    }) + filterScript;
 
-  const html = dashboardPage('Roadmap', '/roadmap', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Roadmap", "/roadmap", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleShipped(res, pmDir) {
-  const backlogDir = path.join(pmDir, 'backlog');
+  const backlogDir = path.join(pmDir, "backlog");
   const allItems = {};
   const childCount = {};
 
   if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
     for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
-      const slug = file.replace('.md', '');
+      const slug = file.replace(".md", "");
       allItems[slug] = {
         slug,
         title: data.title || slug,
-        status: data.status || 'idea',
+        status: data.status || "idea",
         id: data.id || null,
         parent: data.parent || null,
-        priority: data.priority || 'medium',
-        labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
-        updated: data.updated || data.created || '',
-        outcome: data.outcome || '',
+        priority: data.priority || "medium",
+        labels: Array.isArray(data.labels) ? data.labels.filter((l) => l !== "ideate") : [],
+        updated: data.updated || data.created || "",
+        outcome: data.outcome || "",
         research_refs: Array.isArray(data.research_refs) ? data.research_refs : [],
       };
     }
@@ -3903,18 +4696,18 @@ function handleShipped(res, pmDir) {
 
   // Build child counts
   for (const item of Object.values(allItems)) {
-    if (item.parent && item.parent !== 'null' && allItems[item.parent]) {
+    if (item.parent && item.parent !== "null" && allItems[item.parent]) {
       childCount[item.parent] = (childCount[item.parent] || 0) + 1;
     }
   }
 
   // Filter to done root items only
-  const roots = Object.values(allItems).filter(i =>
-    i.status === 'done' && (!i.parent || i.parent === 'null' || !allItems[i.parent])
+  const roots = Object.values(allItems).filter(
+    (i) => i.status === "done" && (!i.parent || i.parent === "null" || !allItems[i.parent])
   );
-  roots.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+  roots.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
 
-  const cardItems = roots.map(item => {
+  const cardItems = roots.map((item) => {
     const subCount = childCount[item.slug] || 0;
     const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
     const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
@@ -3923,126 +4716,147 @@ function handleShipped(res, pmDir) {
     // Build tag HTML
     const tags = [];
     for (const topic of researchTopics) {
-      tags.push(`<span class="shipped-tag shipped-tag-research shipped-item-research">${escHtml(topic.label)}</span>`);
+      tags.push(
+        `<span class="shipped-tag shipped-tag-research shipped-item-research">${escHtml(topic.label)}</span>`
+      );
     }
     if (strategyNote) {
       tags.push(`<span class="shipped-tag shipped-tag-strategy">${escHtml(strategyNote)}</span>`);
     }
     for (const comp of competitorGaps) {
-      tags.push(`<span class="shipped-tag shipped-tag-competitor">Addresses gap in ${escHtml(comp)}</span>`);
+      tags.push(
+        `<span class="shipped-tag shipped-tag-competitor">Addresses gap in ${escHtml(comp)}</span>`
+      );
     }
-    const labelTags = item.labels.map(l => `<span class="shipped-tag-label kanban-label">${escHtml(l)}</span>`);
+    const labelTags = item.labels.map(
+      (l) => `<span class="shipped-tag-label kanban-label">${escHtml(l)}</span>`
+    );
 
     return `<a class="shipped-item-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}">
   <div class="shipped-item-header">
-    ${item.id ? `<span class="shipped-item-id">${escHtml(item.id)}</span>` : ''}
+    ${item.id ? `<span class="shipped-item-id">${escHtml(item.id)}</span>` : ""}
     <span class="shipped-item-title">${escHtml(item.title)}</span>
-    ${subCount > 0 ? `<span class="shipped-item-sub">${subCount} sub-issue${subCount !== 1 ? 's' : ''}</span>` : ''}
+    ${subCount > 0 ? `<span class="shipped-item-sub">${subCount} sub-issue${subCount !== 1 ? "s" : ""}</span>` : ""}
     <span class="shipped-item-date">${escHtml(formatRelativeDate(item.updated))}</span>
   </div>
-  ${item.outcome ? `<div class="shipped-item-outcome">${escHtml(item.outcome)}</div>` : ''}
-  ${tags.length > 0 || labelTags.length > 0 ? `<div class="shipped-item-tags">${[...tags, ...labelTags].join('')}</div>` : ''}
+  ${item.outcome ? `<div class="shipped-item-outcome">${escHtml(item.outcome)}</div>` : ""}
+  ${tags.length > 0 || labelTags.length > 0 ? `<div class="shipped-item-tags">${[...tags, ...labelTags].join("")}</div>` : ""}
 </a>`;
   });
 
   const body = renderListTemplate({
     breadcrumb: '<a href="/roadmap">&larr; Roadmap</a>',
-    title: 'Shipped',
-    subtitle: `${roots.length} item${roots.length !== 1 ? 's' : ''} shipped`,
-    sections: [{ items: cardItems, layout: 'rows', itemsClass: 'shipped-items' }],
-    emptyState: renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.'),
+    title: "Shipped",
+    subtitle: `${roots.length} item${roots.length !== 1 ? "s" : ""} shipped`,
+    sections: [{ items: cardItems, layout: "rows", itemsClass: "shipped-items" }],
+    emptyState: renderEmptyState(
+      "Nothing shipped yet",
+      "Completed items appear here once their status is set to done."
+    ),
   });
 
-  const html = dashboardPage('Shipped', '/roadmap', body);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage("Shipped", "/roadmap", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function handleProposalDetail(res, pmDir, slug) {
   const meta = readProposalMeta(slug, pmDir);
   if (!meta) {
-    res.writeHead(404); res.end('Not found');
+    res.writeHead(404);
+    res.end("Not found");
     return;
   }
 
   // Serve the proposal HTML directly with a sticky header bar
-  const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
+  const htmlPath = path.resolve(pmDir, "backlog", "proposals", slug + ".html");
   if (!fs.existsSync(htmlPath)) {
-    res.writeHead(404); res.end('Not found');
+    res.writeHead(404);
+    res.end("Not found");
     return;
   }
 
-  const status = meta.status || meta.verdict || 'draft';
+  const status = meta.status || meta.verdict || "draft";
   const actionId = meta.id || slug;
-  const actionCommand = status === 'ready' ? `/pm:dev ${actionId}` : `/pm:groom ${actionId}`;
+  const actionCommand = status === "ready" ? `/pm:dev ${actionId}` : `/pm:groom ${actionId}`;
   const title = meta.title || humanizeSlug(slug);
 
-  const header = injectableHeaderBar('Back', title, actionCommand);
-  const proposalHtml = fs.readFileSync(htmlPath, 'utf-8');
-  const injected = proposalHtml.replace(/(<\/head>)/i, header.style + '$1').replace(/(<body[^>]*>)/i, '$1' + header.html);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const header = injectableHeaderBar("Back", title, actionCommand);
+  const proposalHtml = fs.readFileSync(htmlPath, "utf-8");
+  const injected = proposalHtml
+    .replace(/(<\/head>)/i, header.style + "$1")
+    .replace(/(<body[^>]*>)/i, "$1" + header.html);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(injected);
 }
 
 function handleBacklogItem(res, pmDir, slug) {
-  const filePath = path.join(pmDir, 'backlog', slug + '.md');
+  const filePath = path.join(pmDir, "backlog", slug + ".md");
   if (!fs.existsSync(filePath)) {
-    const html = dashboardPage('Not Found', '/roadmap', renderEmptyState('Backlog item not found', 'This backlog item does not exist.') + '<p><a href="/roadmap">&larr; Back to roadmap</a></p>');
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+    const html = dashboardPage(
+      "Not Found",
+      "/roadmap",
+      renderEmptyState("Backlog item not found", "This backlog item does not exist.") +
+        '<p><a href="/roadmap">&larr; Back to roadmap</a></p>'
+    );
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
-  const raw = fs.readFileSync(filePath, 'utf-8');
+  const raw = fs.readFileSync(filePath, "utf-8");
   const { data, body } = parseFrontmatter(raw);
   const title = data.title || slug;
-  const status = data.status || 'idea';
-  const priority = data.priority || '';
-  const itemId = data.id || '';
-  const date = data.updated || data.created || '';
+  const status = data.status || "idea";
+  const priority = data.priority || "";
+  const itemId = data.id || "";
+  const date = data.updated || data.created || "";
 
   // Build slug lookup for resolving parent/children references
-  const backlogDir = path.join(pmDir, 'backlog');
+  const backlogDir = path.join(pmDir, "backlog");
   const slugLookup = {};
   if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
     for (const file of files) {
-      const s = file.replace('.md', '');
-      const r = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const s = file.replace(".md", "");
+      const r = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data: d } = parseFrontmatter(r);
       slugLookup[s] = { id: d.id || null, title: d.title || s };
     }
   }
 
   // Resolve parent info for breadcrumb
-  let parentSlug = data.parent || '';
-  let parentTitle = '';
+  let parentSlug = data.parent || "";
+  let parentTitle = "";
   if (parentSlug && slugLookup[parentSlug]) {
     parentTitle = slugLookup[parentSlug].title;
   }
 
   // Breadcrumb
-  const currentLabel = itemId ? itemId + ' ' + title : title;
-  const breadcrumbItems = (parentSlug && parentTitle)
-    ? [
-        { label: 'Proposals', href: '/proposals' },
-        { label: parentTitle, href: '/roadmap/' + escHtml(parentSlug) },
-        { label: currentLabel },
-      ]
-    : [
-        { label: 'Roadmap', href: '/roadmap' },
-        { label: currentLabel },
-      ];
+  const currentLabel = itemId ? itemId + " " + title : title;
+  const breadcrumbItems =
+    parentSlug && parentTitle
+      ? [
+          { label: "Proposals", href: "/proposals" },
+          { label: parentTitle, href: "/roadmap/" + escHtml(parentSlug) },
+          { label: currentLabel },
+        ]
+      : [{ label: "Roadmap", href: "/roadmap" }, { label: currentLabel }];
 
   // Title prefix (ID badge)
-  const idBadge = itemId ? `<span class="detail-id-badge">${escHtml(itemId)}</span>` : '';
+  const idBadge = itemId ? `<span class="detail-id-badge">${escHtml(itemId)}</span>` : "";
 
   // Meta badges (content items only — template adds separators)
   const metaBadges = [];
-  metaBadges.push({ html: `<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>` });
+  metaBadges.push({
+    html: `<span class="badge badge-${escHtml(status)}">${escHtml(status)}</span>`,
+  });
   if (priority) {
     metaBadges.push({ html: `<span class="meta-item">${escHtml(priority)} priority</span>` });
   }
   if (parentSlug && parentTitle) {
-    metaBadges.push({ html: `<span class="meta-item"><a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a></span>` });
+    metaBadges.push({
+      html: `<span class="meta-item"><a href="/roadmap/${escHtml(parentSlug)}">${escHtml(parentTitle)}</a></span>`,
+    });
   }
   if (date) {
     metaBadges.push({ html: `<span class="meta-item">${escHtml(date)}</span>` });
@@ -4053,18 +4867,18 @@ function handleBacklogItem(res, pmDir, slug) {
 
   // Outcome section
   if (data.outcome) {
-    templateSections.push({ title: 'Outcome', html: `<p>${escHtml(data.outcome)}</p>` });
+    templateSections.push({ title: "Outcome", html: `<p>${escHtml(data.outcome)}</p>` });
   }
 
   // Acceptance Criteria section — parse from body or frontmatter
   const acItems = [];
   if (Array.isArray(data.acceptance_criteria)) {
-    data.acceptance_criteria.forEach(ac => acItems.push(String(ac)));
+    data.acceptance_criteria.forEach((ac) => acItems.push(String(ac)));
   } else {
     const acMatch = body.match(/## Acceptance Criteria\s*\n([\s\S]*?)(?=\n## |\n# |$)/i);
     if (acMatch) {
       const acBlock = acMatch[1];
-      const acLines = acBlock.split('\n');
+      const acLines = acBlock.split("\n");
       for (const line of acLines) {
         const m = line.match(/^\s*[-*]\s+\[?\s*[xX ]?\]?\s*(.*)/);
         if (m && m[1].trim()) acItems.push(m[1].trim());
@@ -4072,51 +4886,71 @@ function handleBacklogItem(res, pmDir, slug) {
     }
   }
   if (acItems.length > 0) {
-    const acListItems = acItems.map(ac => `<li>${escHtml(ac)}</li>`).join('\n');
-    templateSections.push({ title: 'Acceptance Criteria', html: `<ul class="detail-ac-list">${acListItems}</ul>` });
+    const acListItems = acItems.map((ac) => `<li>${escHtml(ac)}</li>`).join("\n");
+    templateSections.push({
+      title: "Acceptance Criteria",
+      html: `<ul class="detail-ac-list">${acListItems}</ul>`,
+    });
   }
 
   // Children section
-  const children = Array.isArray(data.children) ? data.children.filter(c => c && slugLookup[c]) : [];
+  const children = Array.isArray(data.children)
+    ? data.children.filter((c) => c && slugLookup[c])
+    : [];
   if (children.length > 0) {
-    const childItems = children.map(c => {
-      const ch = slugLookup[c];
-      const cId = ch.id ? `<span class="detail-issue-id">${escHtml(ch.id)}</span>` : '';
-      return `<li><a href="/roadmap/${escHtml(c)}">${cId}${escHtml(ch.title)}</a></li>`;
-    }).join('\n');
-    templateSections.push({ title: 'Child Issues', html: `<ul class="detail-issue-list">${childItems}</ul>` });
+    const childItems = children
+      .map((c) => {
+        const ch = slugLookup[c];
+        const cId = ch.id ? `<span class="detail-issue-id">${escHtml(ch.id)}</span>` : "";
+        return `<li><a href="/roadmap/${escHtml(c)}">${cId}${escHtml(ch.title)}</a></li>`;
+      })
+      .join("\n");
+    templateSections.push({
+      title: "Child Issues",
+      html: `<ul class="detail-issue-list">${childItems}</ul>`,
+    });
   }
 
   // Wireframe embed section
   try {
-    fs.accessSync(path.join(pmDir, 'backlog', 'wireframes', slug + '.html'));
-    templateSections.push({ title: 'Wireframe', html: `<div class="wireframe-embed">
+    fs.accessSync(path.join(pmDir, "backlog", "wireframes", slug + ".html"));
+    templateSections.push({
+      title: "Wireframe",
+      html: `<div class="wireframe-embed">
     <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/roadmap/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
     <iframe src="/roadmap/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
-  </div>` });
-  } catch { /* no wireframe for this item */ }
+  </div>`,
+    });
+  } catch {
+    /* no wireframe for this item */
+  }
 
   // Remaining markdown body section (strip AC section to avoid duplication)
   let remainingBody = body;
   if (acItems.length > 0) {
-    remainingBody = remainingBody.replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, '').trim();
+    remainingBody = remainingBody
+      .replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, "")
+      .trim();
   }
   if (remainingBody.trim()) {
-    templateSections.push({ title: null, html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>` });
+    templateSections.push({
+      title: null,
+      html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>`,
+    });
   }
 
   // Action hint: ideas need grooming, groomed items need dev
-  let actionHintCmd = '';
-  if (status !== 'done') {
+  let actionHintCmd = "";
+  if (status !== "done") {
     const ref = itemId || slug;
-    if (status === 'idea') {
-      actionHintCmd = '/groom ' + ref;
+    if (status === "idea") {
+      actionHintCmd = "/groom " + ref;
     } else {
-      actionHintCmd = '/dev ' + ref;
+      actionHintCmd = "/dev " + ref;
     }
   }
 
-  const pageBody = renderTemplate('detail', {
+  const pageBody = renderTemplate("detail", {
     breadcrumb: breadcrumbItems,
     title,
     titlePrefix: idBadge,
@@ -4125,18 +4959,18 @@ function handleBacklogItem(res, pmDir, slug) {
     actionHint: actionHintCmd,
   });
 
-  const html = dashboardPage(title, '/roadmap', pageBody);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const html = dashboardPage(title, "/roadmap", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
 function rewriteKnowledgeBaseLinks(md) {
   return md
-    .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, '](/roadmap/wireframes/$1)')
-    .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, '](/research/$1)')
-    .replace(/\]\(pm\/research\/([^)]+)\)/g, '](/research/$1)')
-    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, '](/competitors/$1#$2)')
-    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, '](/competitors/$1)');
+    .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, "](/roadmap/wireframes/$1)")
+    .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, "](/research/$1)")
+    .replace(/\]\(pm\/research\/([^)]+)\)/g, "](/research/$1)")
+    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, "](/competitors/$1#$2)")
+    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, "](/competitors/$1)");
 }
 
 // ========== Dashboard Server Factory ==========
@@ -4150,14 +4984,19 @@ function createDashboardServer(pmDir) {
 
   function handleDashboardUpgrade(req, socket) {
     touchActivity();
-    const key = req.headers['sec-websocket-key'];
-    if (!key) { socket.destroy(); return; }
+    const key = req.headers["sec-websocket-key"];
+    if (!key) {
+      socket.destroy();
+      return;
+    }
     const accept = computeAcceptKey(key);
     socket.write(
-      'HTTP/1.1 101 Switching Protocols\r\n' +
-      'Upgrade: websocket\r\n' +
-      'Connection: Upgrade\r\n' +
-      'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n'
+      "HTTP/1.1 101 Switching Protocols\r\n" +
+        "Upgrade: websocket\r\n" +
+        "Connection: Upgrade\r\n" +
+        "Sec-WebSocket-Accept: " +
+        accept +
+        "\r\n\r\n"
     );
     dashClients.add(socket);
     allConnections.add(socket);
@@ -4168,12 +5007,12 @@ function createDashboardServer(pmDir) {
       try {
         event = JSON.parse(text);
       } catch (e) {
-        console.error('Failed to parse WebSocket message:', e.message);
+        console.error("Failed to parse WebSocket message:", e.message);
         return;
       }
 
       touchActivity();
-      console.log(JSON.stringify({ source: 'user-event', ...event }));
+      console.log(JSON.stringify({ source: "user-event", ...event }));
 
       if (!event.choice) return;
 
@@ -4183,11 +5022,11 @@ function createDashboardServer(pmDir) {
       const sessionDir = resolveSessionDir(pmDir, slug);
       if (!sessionDir) return;
 
-      const eventsFile = path.join(sessionDir, '.events');
-      fs.appendFileSync(eventsFile, JSON.stringify(event) + '\n');
+      const eventsFile = path.join(sessionDir, ".events");
+      fs.appendFileSync(eventsFile, JSON.stringify(event) + "\n");
     }
 
-    socket.on('data', (chunk) => {
+    socket.on("data", (chunk) => {
       buffer = Buffer.concat([buffer, chunk]);
       while (buffer.length > 0) {
         let result;
@@ -4228,38 +5067,51 @@ function createDashboardServer(pmDir) {
       }
     });
 
-    socket.on('close', () => { dashClients.delete(socket); allConnections.delete(socket); });
-    socket.on('error', () => { dashClients.delete(socket); allConnections.delete(socket); });
+    socket.on("close", () => {
+      dashClients.delete(socket);
+      allConnections.delete(socket);
+    });
+    socket.on("error", () => {
+      dashClients.delete(socket);
+      allConnections.delete(socket);
+    });
   }
 
   function broadcastDashboard(msg) {
     const frame = encodeFrame(OPCODES.TEXT, Buffer.from(JSON.stringify(msg)));
     for (const socket of dashClients) {
-      try { socket.write(frame); } catch (e) { dashClients.delete(socket); }
+      try {
+        socket.write(frame);
+      } catch (e) {
+        dashClients.delete(socket);
+      }
     }
   }
 
   const server = http.createServer((req, res) => {
-    if (req.method === 'GET') {
+    if (req.method === "GET") {
       routeDashboard(req, res, pmDir);
     } else {
-      res.writeHead(405); res.end('Method Not Allowed');
+      res.writeHead(405);
+      res.end("Method Not Allowed");
     }
   });
 
   // Track HTTP connections too
-  server.on('connection', (socket) => {
+  server.on("connection", (socket) => {
     allConnections.add(socket);
-    socket.on('close', () => allConnections.delete(socket));
+    socket.on("close", () => allConnections.delete(socket));
   });
 
-  server.on('upgrade', handleDashboardUpgrade);
+  server.on("upgrade", handleDashboardUpgrade);
 
   let watcherActive = false;
   function closeWatchersUnder(prefixPath) {
     for (const [watchPath, watcher] of dirWatchers) {
       if (watchPath === prefixPath || watchPath.startsWith(prefixPath + path.sep)) {
-        try { watcher.close(); } catch (e) {}
+        try {
+          watcher.close();
+        } catch (e) {}
         dirWatchers.delete(watchPath);
       }
     }
@@ -4280,10 +5132,10 @@ function createDashboardServer(pmDir) {
       const watcher = fs.watch(dirPath, (eventType, filename) => {
         if (!watcherActive) return;
 
-        const name = filename ? filename.toString() : '';
+        const name = filename ? filename.toString() : "";
         const changedPath = name ? path.join(dirPath, name) : dirPath;
 
-        if (eventType === 'rename') {
+        if (eventType === "rename") {
           try {
             const changedStat = fs.statSync(changedPath);
             if (changedStat.isDirectory()) {
@@ -4294,11 +5146,11 @@ function createDashboardServer(pmDir) {
           }
         }
 
-        broadcastDashboard({ type: 'reload' });
+        broadcastDashboard({ type: "reload" });
       });
 
       dirWatchers.set(dirPath, watcher);
-      watcher.on('error', () => closeWatchersUnder(dirPath));
+      watcher.on("error", () => closeWatchersUnder(dirPath));
     } catch (e) {
       return;
     }
@@ -4322,14 +5174,16 @@ function createDashboardServer(pmDir) {
 
   // Patch server.close to also destroy all open connections and close watcher
   const origClose = server.close.bind(server);
-  server.close = function(cb) {
+  server.close = function (cb) {
     // Stop the watcher first so no more broadcasts fire during teardown
     watcherActive = false;
     closeWatchersUnder(pmDir);
     closeWatchersUnder(pmRuntimeRoot);
     // Destroy all open sockets so server.close callback fires promptly
     for (const sock of allConnections) {
-      try { sock.destroy(); } catch (e) {}
+      try {
+        sock.destroy();
+      } catch (e) {}
     }
     allConnections.clear();
     dashClients.clear();
@@ -4339,27 +5193,27 @@ function createDashboardServer(pmDir) {
   return server;
 }
 
-const helperScript = fs.readFileSync(path.join(__dirname, 'helper.js'), 'utf-8');
-const helperInjection = '<script>\n' + helperScript + '\n</script>';
+const helperScript = fs.readFileSync(path.join(__dirname, "helper.js"), "utf-8");
+const helperInjection = "<script>\n" + helperScript + "\n</script>";
 
 // ========== Helper Functions ==========
 
 function slugifySessionTopic(value) {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function getPmRuntimeRoot(pmDir) {
-  return path.resolve(pmDir, '..', '.pm');
+  return path.resolve(pmDir, "..", ".pm");
 }
 
 function resolveSessionDir(pmDir, slug) {
-  const sessionsDir = path.resolve(getPmRuntimeRoot(pmDir), 'sessions');
+  const sessionsDir = path.resolve(getPmRuntimeRoot(pmDir), "sessions");
   if (!fs.existsSync(sessionsDir)) return null;
-  const prefixes = ['groom-', 'dev-', 'epic-', 'research-', ''];
+  const prefixes = ["groom-", "dev-", "epic-", "research-", ""];
   for (const prefix of prefixes) {
     const candidate = path.join(sessionsDir, prefix + slug);
     if (candidate.startsWith(sessionsDir + path.sep) && fs.existsSync(candidate)) {
@@ -4370,50 +5224,50 @@ function resolveSessionDir(pmDir, slug) {
 }
 
 function sessionSlugFromPath(requestPath) {
-  const cleanPath = String(requestPath || '').split('?')[0];
-  if (cleanPath.startsWith('/session/')) {
-    return decodeURIComponent(cleanPath.slice('/session/'.length)).split('/')[0] || null;
+  const cleanPath = String(requestPath || "").split("?")[0];
+  if (cleanPath.startsWith("/session/")) {
+    return decodeURIComponent(cleanPath.slice("/session/".length)).split("/")[0] || null;
   }
-  if (cleanPath.startsWith('/groom/')) {
-    return decodeURIComponent(cleanPath.slice('/groom/'.length)).split('/')[0] || null;
+  if (cleanPath.startsWith("/groom/")) {
+    return decodeURIComponent(cleanPath.slice("/groom/".length)).split("/")[0] || null;
   }
   return null;
 }
 
 function injectSessionPageHelpers(html, slug) {
   const bootstrapScript = `<script>window.__PM_SESSION_SLUG = ${JSON.stringify(slug)};</script>`;
-  const combined = bootstrapScript + '\n' + helperInjection;
-  if (html.includes('window.__PM_SESSION_SLUG') || html.includes(helperScript.slice(0, 40))) {
+  const combined = bootstrapScript + "\n" + helperInjection;
+  if (html.includes("window.__PM_SESSION_SLUG") || html.includes(helperScript.slice(0, 40))) {
     return html;
   }
-  if (html.includes('</body>')) {
-    return html.replace('</body>', combined + '\n</body>');
+  if (html.includes("</body>")) {
+    return html.replace("</body>", combined + "\n</body>");
   }
   return html + combined;
 }
 
 function loadSessionState(pmDir, slug) {
   const pmRoot = getPmRuntimeRoot(pmDir);
-  const groomPath = path.join(pmRoot, 'groom-sessions', slug + '.md');
+  const groomPath = path.join(pmRoot, "groom-sessions", slug + ".md");
   if (fs.existsSync(groomPath)) {
-    const raw = fs.readFileSync(groomPath, 'utf-8');
+    const raw = fs.readFileSync(groomPath, "utf-8");
     const { data } = parseFrontmatter(raw);
-    return { type: 'groom', data, raw };
+    return { type: "groom", data, raw };
   }
 
-  const devPath = path.join(pmRoot, 'dev-sessions', slug + '.md');
+  const devPath = path.join(pmRoot, "dev-sessions", slug + ".md");
   if (fs.existsSync(devPath)) {
-    const raw = fs.readFileSync(devPath, 'utf-8');
+    const raw = fs.readFileSync(devPath, "utf-8");
     const { data } = parseFrontmatter(raw);
-    return { type: 'dev', data, raw };
+    return { type: "dev", data, raw };
   }
 
-  const legacyPath = path.join(pmRoot, '.groom-state.md');
+  const legacyPath = path.join(pmRoot, ".groom-state.md");
   if (fs.existsSync(legacyPath)) {
-    const raw = fs.readFileSync(legacyPath, 'utf-8');
+    const raw = fs.readFileSync(legacyPath, "utf-8");
     const { data } = parseFrontmatter(raw);
     if (slugifySessionTopic(data.topic) === slug) {
-      return { type: 'groom', data, raw, legacy: true };
+      return { type: "groom", data, raw, legacy: true };
     }
   }
 
@@ -4424,10 +5278,10 @@ function handleSessionPage(res, pmDir, slug) {
   const projectName = getProjectName(pmDir);
   const sessionDir = resolveSessionDir(pmDir, slug);
   if (sessionDir) {
-    const currentHtml = path.join(sessionDir, 'current.html');
+    const currentHtml = path.join(sessionDir, "current.html");
     if (currentHtml.startsWith(sessionDir + path.sep) && fs.existsSync(currentHtml)) {
-      const html = injectSessionPageHelpers(fs.readFileSync(currentHtml, 'utf-8'), slug);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      const html = injectSessionPageHelpers(fs.readFileSync(currentHtml, "utf-8"), slug);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
       return;
     }
@@ -4435,21 +5289,35 @@ function handleSessionPage(res, pmDir, slug) {
 
   const session = loadSessionState(pmDir, slug);
   if (!session) {
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Session Not Found', '/', renderEmptyState('Session not found', 'No session found for <code>' + escHtml(slug) + '</code>.') + '<p><a href="/">&larr; Back to Home</a></p>', projectName));
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(
+      dashboardPage(
+        "Session Not Found",
+        "/",
+        renderEmptyState(
+          "Session not found",
+          "No session found for <code>" + escHtml(slug) + "</code>."
+        ) + '<p><a href="/">&larr; Back to Home</a></p>',
+        projectName
+      )
+    );
     return;
   }
 
   const topic = session.data.topic || humanizeSlug(slug);
-  const phase = session.type === 'groom'
-    ? humanizeSlug(String(session.data.phase || 'in-progress'))
-    : humanizeSlug(String(session.data.stage || session.data.phase || 'in-progress'));
-  const started = session.data.started || session.data.updated || '';
-  const typeLabel = session.type === 'groom' ? 'Grooming Session' : 'Development Session';
-  const resumeCommand = session.type === 'groom' ? `/pm:groom ${slug}` : `/dev ${slug}`;
-  const statePath = session.type === 'groom'
-    ? (session.legacy ? '.pm/.groom-state.md' : `.pm/groom-sessions/${slug}.md`)
-    : `.pm/dev-sessions/${slug}.md`;
+  const phase =
+    session.type === "groom"
+      ? humanizeSlug(String(session.data.phase || "in-progress"))
+      : humanizeSlug(String(session.data.stage || session.data.phase || "in-progress"));
+  const started = session.data.started || session.data.updated || "";
+  const typeLabel = session.type === "groom" ? "Grooming Session" : "Development Session";
+  const resumeCommand = session.type === "groom" ? `/pm:groom ${slug}` : `/dev ${slug}`;
+  const statePath =
+    session.type === "groom"
+      ? session.legacy
+        ? ".pm/.groom-state.md"
+        : `.pm/groom-sessions/${slug}.md`
+      : `.pm/dev-sessions/${slug}.md`;
 
   // Build meta badges
   const metaBadges = [{ html: `<span class="meta-item">${escHtml(typeLabel)}</span>` }];
@@ -4458,23 +5326,22 @@ function handleSessionPage(res, pmDir, slug) {
   }
   metaBadges.push({ html: `<span class="meta-item">Phase ${escHtml(phase)}</span>` });
 
-  const body = renderTemplate('detail', {
-    breadcrumb: [
-      { label: 'Dashboard', href: '/' },
-      { label: topic },
-    ],
+  const body = renderTemplate("detail", {
+    breadcrumb: [{ label: "Dashboard", href: "/" }, { label: topic }],
     title: topic,
     metaBadges,
-    sections: [{
-      title: 'Resume',
-      html: `<div class="markdown-body">
+    sections: [
+      {
+        title: "Resume",
+        html: `<div class="markdown-body">
       <p>Resume this session from the terminal with <code>${escHtml(resumeCommand)}</code>.</p>
       <p>State file: <code>${escHtml(statePath)}</code></p>
     </div>`,
-    }],
+      },
+    ],
   });
 
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(dashboardPage(`Session: ${topic}`, `/session/${slug}`, body, projectName));
 }
 
@@ -4501,15 +5368,13 @@ async function startServer() {
     console.error(`Port ${hashed} occupied, using ${PORT} instead`);
   }
 
-  const pmDir = DIR_FLAG
-    ? path.resolve(process.cwd(), DIR_FLAG)
-    : path.join(process.cwd(), 'pm');
+  const pmDir = DIR_FLAG ? path.resolve(process.cwd(), DIR_FLAG) : path.join(process.cwd(), "pm");
 
   const server = createDashboardServer(pmDir);
 
   const lifecycleCheck = setInterval(() => {
     if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
-      console.log(JSON.stringify({ type: 'server-stopped', reason: 'idle timeout (60 min)' }));
+      console.log(JSON.stringify({ type: "server-stopped", reason: "idle timeout (60 min)" }));
       clearInterval(lifecycleCheck);
       server.close(() => process.exit(0));
     }
@@ -4518,11 +5383,15 @@ async function startServer() {
 
   server.listen(PORT, HOST, () => {
     const address = server.address();
-    const boundPort = address && typeof address === 'object' ? Number(address.port) : Number(PORT);
+    const boundPort = address && typeof address === "object" ? Number(address.port) : Number(PORT);
     const info = JSON.stringify({
-      type: 'server-started', port: boundPort, host: HOST,
-      url_host: URL_HOST, url: 'http://' + URL_HOST + ':' + boundPort,
-      pm_dir: pmDir, mode: 'dashboard'
+      type: "server-started",
+      port: boundPort,
+      host: HOST,
+      url_host: URL_HOST,
+      url: "http://" + URL_HOST + ":" + boundPort,
+      pm_dir: pmDir,
+      mode: "dashboard",
     });
     console.log(info);
   });
@@ -4533,13 +5402,29 @@ if (require.main === module) {
 }
 
 module.exports = {
-  computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
-  parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
-  createDashboardServer, dashboardPage,
-  readProposalMeta, readGroomState, proposalGradient, buildProposalRows,
-  formatRelativeDate, parseStrategySnapshot,
-  resolveResearchRefs, resolveStrategyAlignment, resolveCompetitiveContext,
-  hashProjectPort, isPortAvailable, resolvePort,
+  computeAcceptKey,
+  encodeFrame,
+  decodeFrame,
+  OPCODES,
+  parseMode,
+  parseFrontmatter,
+  renderMarkdown,
+  inlineMarkdown,
+  escHtml,
+  createDashboardServer,
+  dashboardPage,
+  readProposalMeta,
+  readGroomState,
+  proposalGradient,
+  buildProposalRows,
+  formatRelativeDate,
+  parseStrategySnapshot,
+  resolveResearchRefs,
+  resolveStrategyAlignment,
+  resolveCompetitiveContext,
+  hashProjectPort,
+  isPortAvailable,
+  resolvePort,
   DASHBOARD_CSS,
   renderTemplate,
   renderListTemplate,

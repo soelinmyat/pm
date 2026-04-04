@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "name": "pm-plugin",
+  "description": "Code quality tooling for the PM plugin",
+  "scripts": {
+    "lint": "eslint scripts/ tests/",
+    "lint:fix": "eslint scripts/ tests/ --fix",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "test": "node --test tests/*.test.js",
+    "validate": "node scripts/validate.js --dir pm",
+    "quality": "npm run lint && npm run format && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.0.0"
+  }
+}

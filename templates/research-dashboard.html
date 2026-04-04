@@ -1,406 +1,564 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>PM - Research Dashboard</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; }
-
-    :root {
-      --bg-primary: #f8f9fa;
-      --bg-secondary: #ffffff;
-      --bg-tertiary: #e9ecef;
-      --border: #dee2e6;
-      --text-primary: #212529;
-      --text-secondary: #6c757d;
-      --text-tertiary: #adb5bd;
-      --accent: #0d6efd;
-      --accent-hover: #0b5ed7;
-      --success: #198754;
-      --warning: #ffc107;
-      --error: #dc3545;
-      --selected-bg: #e8f0fe;
-      --selected-border: #0d6efd;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-primary: #1a1a2e;
-        --bg-secondary: #16213e;
-        --bg-tertiary: #0f3460;
-        --border: #2d3561;
-        --text-primary: #f8f9fa;
-        --text-secondary: #adb5bd;
-        --text-tertiary: #6c757d;
-        --accent: #4d94ff;
-        --accent-hover: #6ba3ff;
-        --selected-bg: rgba(13, 110, 253, 0.15);
-        --selected-border: #4d94ff;
+  <head>
+    <meta charset="utf-8" />
+    <title>PM - Research Dashboard</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
 
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      display: flex;
-      flex-direction: column;
-      line-height: 1.5;
-    }
+      :root {
+        --bg-primary: #f8f9fa;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #e9ecef;
+        --border: #dee2e6;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+        --text-tertiary: #adb5bd;
+        --accent: #0d6efd;
+        --accent-hover: #0b5ed7;
+        --success: #198754;
+        --warning: #ffc107;
+        --error: #dc3545;
+        --selected-bg: #e8f0fe;
+        --selected-border: #0d6efd;
+      }
 
-    .header {
-      background: var(--bg-secondary);
-      padding: 0.5rem 1.5rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .header h1 { font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); }
-    .header .status { font-size: 0.7rem; color: var(--success); display: flex; align-items: center; gap: 0.4rem; }
-    .header .status::before { content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-primary: #1a1a2e;
+          --bg-secondary: #16213e;
+          --bg-tertiary: #0f3460;
+          --border: #2d3561;
+          --text-primary: #f8f9fa;
+          --text-secondary: #adb5bd;
+          --text-tertiary: #6c757d;
+          --accent: #4d94ff;
+          --accent-hover: #6ba3ff;
+          --selected-bg: rgba(13, 110, 253, 0.15);
+          --selected-border: #4d94ff;
+        }
+      }
 
-    .main { flex: 1; overflow-y: auto; }
-    #claude-content { padding: 2rem; min-height: 100%; }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        display: flex;
+        flex-direction: column;
+        line-height: 1.5;
+      }
 
-    .indicator-bar {
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-      padding: 0.5rem 1.5rem;
-      flex-shrink: 0;
-      text-align: center;
-    }
-    .indicator-bar span { font-size: 0.75rem; color: var(--text-secondary); }
-    .indicator-bar .selected-text { color: var(--accent); font-weight: 500; }
+      .header {
+        background: var(--bg-secondary);
+        padding: 0.5rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .header h1 {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+      .header .status {
+        font-size: 0.7rem;
+        color: var(--success);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .header .status::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--success);
+        border-radius: 50%;
+      }
 
-    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
-    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
-    .section { margin-bottom: 2rem; }
-    .label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+      .main {
+        flex: 1;
+        overflow-y: auto;
+      }
+      #claude-content {
+        padding: 2rem;
+        min-height: 100%;
+      }
 
-    .options { display: flex; flex-direction: column; gap: 0.75rem; }
-    .option {
-      background: var(--bg-secondary);
-      border: 2px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.25rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: flex-start;
-      gap: 1rem;
-    }
-    .option:hover { border-color: var(--accent); }
-    .option.selected { background: var(--selected-bg); border-color: var(--selected-border); }
-    .option .letter {
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      width: 1.75rem; height: 1.75rem;
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 600; font-size: 0.85rem; flex-shrink: 0;
-    }
-    .option.selected .letter { background: var(--accent); color: white; }
-    .option .content { flex: 1; }
-    .option .content h3 { font-size: 0.95rem; margin-bottom: 0.15rem; }
-    .option .content p { color: var(--text-secondary); font-size: 0.85rem; margin: 0; }
+      .indicator-bar {
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        padding: 0.5rem 1.5rem;
+        flex-shrink: 0;
+        text-align: center;
+      }
+      .indicator-bar span {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+      .indicator-bar .selected-text {
+        color: var(--accent);
+        font-weight: 500;
+      }
 
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-    .card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    .card.selected { border-color: var(--selected-border); border-width: 2px; }
-    .card-body { padding: 1rem; }
-    .card-body h3 { margin-bottom: 0.25rem; }
-    .card-body p { color: var(--text-secondary); font-size: 0.85rem; }
+      h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+      h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+      .subtitle {
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+      }
+      .section {
+        margin-bottom: 2rem;
+      }
+      .label {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+      }
 
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-    @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+      .options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .option {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      .option:hover {
+        border-color: var(--accent);
+      }
+      .option.selected {
+        background: var(--selected-bg);
+        border-color: var(--selected-border);
+      }
+      .option .letter {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+      }
+      .option.selected .letter {
+        background: var(--accent);
+        color: white;
+      }
+      .option .content {
+        flex: 1;
+      }
+      .option .content h3 {
+        font-size: 0.95rem;
+        margin-bottom: 0.15rem;
+      }
+      .option .content p {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin: 0;
+      }
 
-    /* ===== RESEARCH DASHBOARD SPECIFIC ===== */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+      .card.selected {
+        border-color: var(--selected-border);
+        border-width: 2px;
+      }
+      .card-body {
+        padding: 1rem;
+      }
+      .card-body h3 {
+        margin-bottom: 0.25rem;
+      }
+      .card-body p {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+      }
 
-    /* Stats row */
-    .stats-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 1rem;
-      margin-bottom: 2rem;
-    }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+      }
+      @media (max-width: 700px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
 
-    .stat-card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem 1rem;
-      text-align: center;
-    }
-    .stat-card .stat-value {
-      font-size: 1.75rem;
-      font-weight: 700;
-      color: var(--text-primary);
-      line-height: 1.1;
-    }
-    .stat-card .stat-label {
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-top: 0.25rem;
-    }
-    .stat-card .stat-delta {
-      font-size: 0.75rem;
-      margin-top: 0.35rem;
-      font-weight: 500;
-    }
-    .stat-delta.positive { color: var(--success); }
-    .stat-delta.negative { color: var(--error); }
-    .stat-delta.neutral  { color: var(--text-tertiary); }
+      /* ===== RESEARCH DASHBOARD SPECIFIC ===== */
 
-    /* Data tables */
-    .table-wrapper {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 1.5rem;
-    }
+      /* Stats row */
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
 
-    table.data-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--bg-secondary);
-      font-size: 0.85rem;
-    }
+      .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem 1rem;
+        text-align: center;
+      }
+      .stat-card .stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.1;
+      }
+      .stat-card .stat-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 0.25rem;
+      }
+      .stat-card .stat-delta {
+        font-size: 0.75rem;
+        margin-top: 0.35rem;
+        font-weight: 500;
+      }
+      .stat-delta.positive {
+        color: var(--success);
+      }
+      .stat-delta.negative {
+        color: var(--error);
+      }
+      .stat-delta.neutral {
+        color: var(--text-tertiary);
+      }
 
-    table.data-table thead th {
-      padding: 0.6rem 1rem;
-      text-align: left;
-      font-weight: 600;
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      border-bottom: 2px solid var(--border);
-      background: var(--bg-tertiary);
-      white-space: nowrap;
-      cursor: pointer;
-      user-select: none;
-      transition: background 0.1s ease;
-    }
-    table.data-table thead th:hover { background: var(--selected-bg); }
-    table.data-table thead th.sort-asc::after  { content: ' ▲'; font-size: 0.6rem; color: var(--accent); }
-    table.data-table thead th.sort-desc::after { content: ' ▼'; font-size: 0.6rem; color: var(--accent); }
+      /* Data tables */
+      .table-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 1.5rem;
+      }
 
-    table.data-table tbody tr {
-      border-bottom: 1px solid var(--border);
-      transition: background 0.1s ease;
-      cursor: pointer;
-    }
-    table.data-table tbody tr:last-child { border-bottom: none; }
-    table.data-table tbody tr:hover { background: var(--bg-primary); }
-    table.data-table tbody tr.selected { background: var(--selected-bg); }
+      table.data-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--bg-secondary);
+        font-size: 0.85rem;
+      }
 
-    table.data-table td {
-      padding: 0.6rem 1rem;
-      vertical-align: middle;
-    }
-    table.data-table td.keyword-cell { font-weight: 500; }
-    table.data-table td.url-cell {
-      max-width: 240px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--accent);
-      font-size: 0.8rem;
-    }
-    table.data-table td.num-cell {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      color: var(--text-secondary);
-    }
+      table.data-table thead th {
+        padding: 0.6rem 1rem;
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 2px solid var(--border);
+        background: var(--bg-tertiary);
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.1s ease;
+      }
+      table.data-table thead th:hover {
+        background: var(--selected-bg);
+      }
+      table.data-table thead th.sort-asc::after {
+        content: " ▲";
+        font-size: 0.6rem;
+        color: var(--accent);
+      }
+      table.data-table thead th.sort-desc::after {
+        content: " ▼";
+        font-size: 0.6rem;
+        color: var(--accent);
+      }
 
-    /* Difficulty bar */
-    .diff-bar {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .diff-track {
-      flex: 1;
-      height: 6px;
-      background: var(--bg-tertiary);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .diff-fill {
-      height: 100%;
-      border-radius: 3px;
-      background: var(--success);
-    }
-    .diff-fill.medium { background: var(--warning); }
-    .diff-fill.hard   { background: var(--error); }
-    .diff-value { font-size: 0.75rem; color: var(--text-secondary); min-width: 2rem; text-align: right; font-variant-numeric: tabular-nums; }
+      table.data-table tbody tr {
+        border-bottom: 1px solid var(--border);
+        transition: background 0.1s ease;
+        cursor: pointer;
+      }
+      table.data-table tbody tr:last-child {
+        border-bottom: none;
+      }
+      table.data-table tbody tr:hover {
+        background: var(--bg-primary);
+      }
+      table.data-table tbody tr.selected {
+        background: var(--selected-bg);
+      }
 
-    /* Position badge */
-    .pos-badge {
-      display: inline-block;
-      padding: 0.1rem 0.5rem;
-      border-radius: 20px;
-      font-size: 0.7rem;
-      font-weight: 600;
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-    }
-    .pos-badge.top3  { background: rgba(25, 135, 84, 0.15); color: var(--success); }
-    .pos-badge.top10 { background: rgba(255, 193, 7, 0.15); color: #b38600; }
-    @media (prefers-color-scheme: dark) {
-      .pos-badge.top10 { color: var(--warning); }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>PM - Research Dashboard</h1>
-    <div class="status">Connected</div>
-  </div>
+      table.data-table td {
+        padding: 0.6rem 1rem;
+        vertical-align: middle;
+      }
+      table.data-table td.keyword-cell {
+        font-weight: 500;
+      }
+      table.data-table td.url-cell {
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--accent);
+        font-size: 0.8rem;
+      }
+      table.data-table td.num-cell {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-secondary);
+      }
 
-  <div class="main">
-    <div id="claude-content">
-      <div class="section">
-        <h2>Research Dashboard</h2>
-        <p class="subtitle">Keyword data, top pages, and market overview</p>
+      /* Difficulty bar */
+      .diff-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .diff-track {
+        flex: 1;
+        height: 6px;
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .diff-fill {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--success);
+      }
+      .diff-fill.medium {
+        background: var(--warning);
+      }
+      .diff-fill.hard {
+        background: var(--error);
+      }
+      .diff-value {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        min-width: 2rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
 
-        <!-- Summary stats -->
-        <div class="label">Summary</div>
-        <div class="stats-row">
-          {{STATS}}
+      /* Position badge */
+      .pos-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
+      .pos-badge.top3 {
+        background: rgba(25, 135, 84, 0.15);
+        color: var(--success);
+      }
+      .pos-badge.top10 {
+        background: rgba(255, 193, 7, 0.15);
+        color: #b38600;
+      }
+      @media (prefers-color-scheme: dark) {
+        .pos-badge.top10 {
+          color: var(--warning);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>PM - Research Dashboard</h1>
+      <div class="status">Connected</div>
+    </div>
+
+    <div class="main">
+      <div id="claude-content">
+        <div class="section">
+          <h2>Research Dashboard</h2>
+          <p class="subtitle">Keyword data, top pages, and market overview</p>
+
+          <!-- Summary stats -->
+          <div class="label">Summary</div>
+          <div class="stats-row">{{STATS}}</div>
+
+          <!-- Keywords table -->
+          <div class="label">Keywords</div>
+          <div class="table-wrapper">
+            <table class="data-table" id="keywords-table">
+              <thead>
+                <tr>
+                  <th>Keyword</th>
+                  <th class="num-cell">Volume</th>
+                  <th>Difficulty</th>
+                  <th class="num-cell">Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{KEYWORDS_TABLE}}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Top pages table -->
+          <div class="label">Top Pages</div>
+          <div class="table-wrapper">
+            <table class="data-table" id="pages-table">
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th class="num-cell">Traffic</th>
+                  <th>Primary Keyword</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{TOP_PAGES_TABLE}}
+              </tbody>
+            </table>
+          </div>
         </div>
-
-        <!-- Keywords table -->
-        <div class="label">Keywords</div>
-        <div class="table-wrapper">
-          <table class="data-table" id="keywords-table">
-            <thead>
-              <tr>
-                <th>Keyword</th>
-                <th class="num-cell">Volume</th>
-                <th>Difficulty</th>
-                <th class="num-cell">Position</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{KEYWORDS_TABLE}}
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Top pages table -->
-        <div class="label">Top Pages</div>
-        <div class="table-wrapper">
-          <table class="data-table" id="pages-table">
-            <thead>
-              <tr>
-                <th>URL</th>
-                <th class="num-cell">Traffic</th>
-                <th>Primary Keyword</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{TOP_PAGES_TABLE}}
-            </tbody>
-          </table>
-        </div>
-
       </div>
     </div>
-  </div>
 
-  <div class="indicator-bar">
-    <span id="indicator-text">Click a keyword or page row to select it, then return to the terminal</span>
-  </div>
+    <div class="indicator-bar">
+      <span id="indicator-text"
+        >Click a keyword or page row to select it, then return to the terminal</span
+      >
+    </div>
 
-  <script>
-    function toggleSelect(el, group) {
-      var isSelected = el.classList.contains('selected');
-      if (group) {
-        document.querySelectorAll('[data-group="' + group + '"]').forEach(function(item) {
-          item.classList.remove('selected');
-        });
-      }
-      if (!isSelected) {
-        el.classList.add('selected');
-      }
-      updateIndicator();
-    }
-
-    function updateIndicator() {
-      var selected = document.querySelectorAll('tr.selected[data-choice]');
-      var bar = document.getElementById('indicator-text');
-      if (selected.length === 0) {
-        bar.textContent = 'Click a keyword or page row to select it, then return to the terminal';
-        return;
-      }
-      var choices = Array.from(selected).map(function(el) {
-        return el.getAttribute('data-choice');
-      });
-      bar.textContent = 'Selected (' + selected.length + '): ' + choices.join(', ');
-    }
-
-    // Wire up table row clicks
-    document.querySelectorAll('tbody tr[data-choice]').forEach(function(row) {
-      row.addEventListener('click', function() {
-        var group = this.getAttribute('data-group');
+    <script>
+      function toggleSelect(el, group) {
+        var isSelected = el.classList.contains("selected");
         if (group) {
-          document.querySelectorAll('[data-group="' + group + '"]').forEach(function(r) {
-            r.classList.remove('selected');
+          document.querySelectorAll('[data-group="' + group + '"]').forEach(function (item) {
+            item.classList.remove("selected");
           });
-          this.classList.add('selected');
-        } else {
-          this.classList.toggle('selected');
+        }
+        if (!isSelected) {
+          el.classList.add("selected");
         }
         updateIndicator();
-      });
-    });
+      }
 
-    // Sortable column headers
-    document.querySelectorAll('table.data-table thead th').forEach(function(th) {
-      th.addEventListener('click', function() {
-        var table = this.closest('table');
-        var idx = Array.from(this.parentElement.children).indexOf(this);
-        var currentDir = this.classList.contains('sort-asc') ? 'asc' : (this.classList.contains('sort-desc') ? 'desc' : null);
-
-        // Clear other sort indicators
-        this.parentElement.querySelectorAll('th').forEach(function(h) {
-          h.classList.remove('sort-asc', 'sort-desc');
+      function updateIndicator() {
+        var selected = document.querySelectorAll("tr.selected[data-choice]");
+        var bar = document.getElementById("indicator-text");
+        if (selected.length === 0) {
+          bar.textContent = "Click a keyword or page row to select it, then return to the terminal";
+          return;
+        }
+        var choices = Array.from(selected).map(function (el) {
+          return el.getAttribute("data-choice");
         });
+        bar.textContent = "Selected (" + selected.length + "): " + choices.join(", ");
+      }
 
-        var newDir = (currentDir === 'asc') ? 'desc' : 'asc';
-        this.classList.add('sort-' + newDir);
-
-        var tbody = table.querySelector('tbody');
-        var rows = Array.from(tbody.querySelectorAll('tr'));
-        rows.sort(function(a, b) {
-          var aVal = (a.cells[idx] ? a.cells[idx].textContent.trim() : '');
-          var bVal = (b.cells[idx] ? b.cells[idx].textContent.trim() : '');
-          var aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ''));
-          var bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ''));
-          if (!isNaN(aNum) && !isNaN(bNum)) {
-            return newDir === 'asc' ? aNum - bNum : bNum - aNum;
+      // Wire up table row clicks
+      document.querySelectorAll("tbody tr[data-choice]").forEach(function (row) {
+        row.addEventListener("click", function () {
+          var group = this.getAttribute("data-group");
+          if (group) {
+            document.querySelectorAll('[data-group="' + group + '"]').forEach(function (r) {
+              r.classList.remove("selected");
+            });
+            this.classList.add("selected");
+          } else {
+            this.classList.toggle("selected");
           }
-          return newDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+          updateIndicator();
         });
-        rows.forEach(function(row) { tbody.appendChild(row); });
       });
-    });
-  </script>
-</body>
+
+      // Sortable column headers
+      document.querySelectorAll("table.data-table thead th").forEach(function (th) {
+        th.addEventListener("click", function () {
+          var table = this.closest("table");
+          var idx = Array.from(this.parentElement.children).indexOf(this);
+          var currentDir = this.classList.contains("sort-asc")
+            ? "asc"
+            : this.classList.contains("sort-desc")
+              ? "desc"
+              : null;
+
+          // Clear other sort indicators
+          this.parentElement.querySelectorAll("th").forEach(function (h) {
+            h.classList.remove("sort-asc", "sort-desc");
+          });
+
+          var newDir = currentDir === "asc" ? "desc" : "asc";
+          this.classList.add("sort-" + newDir);
+
+          var tbody = table.querySelector("tbody");
+          var rows = Array.from(tbody.querySelectorAll("tr"));
+          rows.sort(function (a, b) {
+            var aVal = a.cells[idx] ? a.cells[idx].textContent.trim() : "";
+            var bVal = b.cells[idx] ? b.cells[idx].textContent.trim() : "";
+            var aNum = parseFloat(aVal.replace(/[^0-9.-]/g, ""));
+            var bNum = parseFloat(bVal.replace(/[^0-9.-]/g, ""));
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+              return newDir === "asc" ? aNum - bNum : bNum - aNum;
+            }
+            return newDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+          });
+          rows.forEach(function (row) {
+            tbody.appendChild(row);
+          });
+        });
+      });
+    </script>
+  </body>
 </html>

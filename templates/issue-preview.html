@@ -1,376 +1,541 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>PM - Issue Preview</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; }
-
-    :root {
-      --bg-primary: #f8f9fa;
-      --bg-secondary: #ffffff;
-      --bg-tertiary: #e9ecef;
-      --border: #dee2e6;
-      --text-primary: #212529;
-      --text-secondary: #6c757d;
-      --text-tertiary: #adb5bd;
-      --accent: #0d6efd;
-      --accent-hover: #0b5ed7;
-      --success: #198754;
-      --warning: #ffc107;
-      --error: #dc3545;
-      --selected-bg: #e8f0fe;
-      --selected-border: #0d6efd;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-primary: #1a1a2e;
-        --bg-secondary: #16213e;
-        --bg-tertiary: #0f3460;
-        --border: #2d3561;
-        --text-primary: #f8f9fa;
-        --text-secondary: #adb5bd;
-        --text-tertiary: #6c757d;
-        --accent: #4d94ff;
-        --accent-hover: #6ba3ff;
-        --selected-bg: rgba(13, 110, 253, 0.15);
-        --selected-border: #4d94ff;
+  <head>
+    <meta charset="utf-8" />
+    <title>PM - Issue Preview</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
 
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      display: flex;
-      flex-direction: column;
-      line-height: 1.5;
-    }
+      :root {
+        --bg-primary: #f8f9fa;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #e9ecef;
+        --border: #dee2e6;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+        --text-tertiary: #adb5bd;
+        --accent: #0d6efd;
+        --accent-hover: #0b5ed7;
+        --success: #198754;
+        --warning: #ffc107;
+        --error: #dc3545;
+        --selected-bg: #e8f0fe;
+        --selected-border: #0d6efd;
+      }
 
-    .header {
-      background: var(--bg-secondary);
-      padding: 0.5rem 1.5rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .header h1 { font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); }
-    .header .status { font-size: 0.7rem; color: var(--success); display: flex; align-items: center; gap: 0.4rem; }
-    .header .status::before { content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-primary: #1a1a2e;
+          --bg-secondary: #16213e;
+          --bg-tertiary: #0f3460;
+          --border: #2d3561;
+          --text-primary: #f8f9fa;
+          --text-secondary: #adb5bd;
+          --text-tertiary: #6c757d;
+          --accent: #4d94ff;
+          --accent-hover: #6ba3ff;
+          --selected-bg: rgba(13, 110, 253, 0.15);
+          --selected-border: #4d94ff;
+        }
+      }
 
-    .main { flex: 1; overflow-y: auto; }
-    #claude-content { padding: 2rem; min-height: 100%; }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        display: flex;
+        flex-direction: column;
+        line-height: 1.5;
+      }
 
-    .indicator-bar {
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-      padding: 0.5rem 1.5rem;
-      flex-shrink: 0;
-      text-align: center;
-    }
-    .indicator-bar span { font-size: 0.75rem; color: var(--text-secondary); }
-    .indicator-bar .selected-text { color: var(--accent); font-weight: 500; }
+      .header {
+        background: var(--bg-secondary);
+        padding: 0.5rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .header h1 {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+      .header .status {
+        font-size: 0.7rem;
+        color: var(--success);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .header .status::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--success);
+        border-radius: 50%;
+      }
 
-    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
-    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
-    .section { margin-bottom: 2rem; }
-    .label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+      .main {
+        flex: 1;
+        overflow-y: auto;
+      }
+      #claude-content {
+        padding: 2rem;
+        min-height: 100%;
+      }
 
-    .options { display: flex; flex-direction: column; gap: 0.75rem; }
-    .option {
-      background: var(--bg-secondary);
-      border: 2px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.25rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: flex-start;
-      gap: 1rem;
-    }
-    .option:hover { border-color: var(--accent); }
-    .option.selected { background: var(--selected-bg); border-color: var(--selected-border); }
-    .option .letter {
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      width: 1.75rem; height: 1.75rem;
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 600; font-size: 0.85rem; flex-shrink: 0;
-    }
-    .option.selected .letter { background: var(--accent); color: white; }
-    .option .content { flex: 1; }
-    .option .content h3 { font-size: 0.95rem; margin-bottom: 0.15rem; }
-    .option .content p { color: var(--text-secondary); font-size: 0.85rem; margin: 0; }
+      .indicator-bar {
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        padding: 0.5rem 1.5rem;
+        flex-shrink: 0;
+        text-align: center;
+      }
+      .indicator-bar span {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+      .indicator-bar .selected-text {
+        color: var(--accent);
+        font-weight: 500;
+      }
 
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-    .card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    .card.selected { border-color: var(--selected-border); border-width: 2px; }
-    .card-body { padding: 1rem; }
-    .card-body h3 { margin-bottom: 0.25rem; }
-    .card-body p { color: var(--text-secondary); font-size: 0.85rem; }
+      h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+      h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+      .subtitle {
+        color: var(--text-secondary);
+        margin-bottom: 1.5rem;
+      }
+      .section {
+        margin-bottom: 2rem;
+      }
+      .label {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+      }
 
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-    @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+      .options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .option {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      .option:hover {
+        border-color: var(--accent);
+      }
+      .option.selected {
+        background: var(--selected-bg);
+        border-color: var(--selected-border);
+      }
+      .option .letter {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+      }
+      .option.selected .letter {
+        background: var(--accent);
+        color: white;
+      }
+      .option .content {
+        flex: 1;
+      }
+      .option .content h3 {
+        font-size: 0.95rem;
+        margin-bottom: 0.15rem;
+      }
+      .option .content p {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin: 0;
+      }
 
-    /* ===== ISSUE PREVIEW SPECIFIC ===== */
-    .issue-tree { display: flex; flex-direction: column; gap: 1rem; }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+      .card.selected {
+        border-color: var(--selected-border);
+        border-width: 2px;
+      }
+      .card-body {
+        padding: 1rem;
+      }
+      .card-body h3 {
+        margin-bottom: 0.25rem;
+      }
+      .card-body p {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+      }
 
-    .issue-card {
-      background: var(--bg-secondary);
-      border: 2px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      transition: all 0.15s ease;
-    }
-    .issue-card.parent-issue { border-left: 4px solid var(--accent); }
-    .issue-card.child-issue {
-      margin-left: 2rem;
-      border-left: 4px solid var(--text-tertiary);
-    }
-    .issue-card.child-issue.selected { border-left-color: var(--selected-border); }
-    .issue-card.approved { border-color: var(--success); border-left-color: var(--success); }
-    .issue-card.rejected { border-color: var(--error); border-left-color: var(--error); opacity: 0.6; }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+      }
+      @media (max-width: 700px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
 
-    .issue-card-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.875rem 1rem;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      user-select: none;
-    }
-    .issue-card-header:hover { background: var(--bg-primary); }
+      /* ===== ISSUE PREVIEW SPECIFIC ===== */
+      .issue-tree {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
 
-    .issue-type-badge {
-      font-size: 0.65rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      flex-shrink: 0;
-    }
-    .badge-parent { background: var(--accent); color: white; }
-    .badge-child { background: var(--bg-tertiary); color: var(--text-secondary); }
+      .issue-card {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        transition: all 0.15s ease;
+      }
+      .issue-card.parent-issue {
+        border-left: 4px solid var(--accent);
+      }
+      .issue-card.child-issue {
+        margin-left: 2rem;
+        border-left: 4px solid var(--text-tertiary);
+      }
+      .issue-card.child-issue.selected {
+        border-left-color: var(--selected-border);
+      }
+      .issue-card.approved {
+        border-color: var(--success);
+        border-left-color: var(--success);
+      }
+      .issue-card.rejected {
+        border-color: var(--error);
+        border-left-color: var(--error);
+        opacity: 0.6;
+      }
 
-    .issue-title { font-weight: 600; font-size: 0.9rem; flex: 1; }
+      .issue-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        user-select: none;
+      }
+      .issue-card-header:hover {
+        background: var(--bg-primary);
+      }
 
-    .issue-actions { display: flex; gap: 0.5rem; }
-    .action-btn {
-      padding: 0.25rem 0.75rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      border: 1px solid;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      background: transparent;
-    }
-    .action-btn.approve {
-      color: var(--success);
-      border-color: var(--success);
-    }
-    .action-btn.approve:hover { background: rgba(25, 135, 84, 0.1); }
-    .action-btn.reject {
-      color: var(--error);
-      border-color: var(--error);
-    }
-    .action-btn.reject:hover { background: rgba(220, 53, 69, 0.1); }
+      .issue-type-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .badge-parent {
+        background: var(--accent);
+        color: white;
+      }
+      .badge-child {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
 
-    .issue-card-body { padding: 1rem; }
+      .issue-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+        flex: 1;
+      }
 
-    .issue-outcome {
-      background: var(--bg-primary);
-      border-radius: 8px;
-      padding: 0.75rem 1rem;
-      margin-bottom: 1rem;
-      font-size: 0.85rem;
-    }
-    .issue-outcome .label { margin-bottom: 0.25rem; }
-    .issue-outcome .value { color: var(--text-primary); font-style: italic; }
+      .issue-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .action-btn {
+        padding: 0.25rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        background: transparent;
+      }
+      .action-btn.approve {
+        color: var(--success);
+        border-color: var(--success);
+      }
+      .action-btn.approve:hover {
+        background: rgba(25, 135, 84, 0.1);
+      }
+      .action-btn.reject {
+        color: var(--error);
+        border-color: var(--error);
+      }
+      .action-btn.reject:hover {
+        background: rgba(220, 53, 69, 0.1);
+      }
 
-    .ac-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      margin-bottom: 1rem;
-    }
-    .ac-list li {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      font-size: 0.825rem;
-      color: var(--text-secondary);
-    }
-    .ac-list li::before {
-      content: '[ ]';
-      font-family: monospace;
-      font-size: 0.75rem;
-      color: var(--text-tertiary);
-      flex-shrink: 0;
-      margin-top: 0.1rem;
-    }
+      .issue-card-body {
+        padding: 1rem;
+      }
 
-    .issue-meta {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-    }
-    .meta-tag {
-      font-size: 0.7rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 20px;
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-    }
+      .issue-outcome {
+        background: var(--bg-primary);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+      }
+      .issue-outcome .label {
+        margin-bottom: 0.25rem;
+      }
+      .issue-outcome .value {
+        color: var(--text-primary);
+        font-style: italic;
+      }
 
-    .research-links {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      margin-top: 0.75rem;
-    }
-    .research-link {
-      font-size: 0.75rem;
-      color: var(--accent);
-      text-decoration: none;
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      padding: 0.2rem 0.5rem;
-      border: 1px solid var(--accent);
-      border-radius: 4px;
-      opacity: 0.8;
-      transition: opacity 0.15s;
-    }
-    .research-link:hover { opacity: 1; }
-    .research-link::before { content: '↗'; font-size: 0.7rem; }
+      .ac-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-bottom: 1rem;
+      }
+      .ac-list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        font-size: 0.825rem;
+        color: var(--text-secondary);
+      }
+      .ac-list li::before {
+        content: "[ ]";
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+        flex-shrink: 0;
+        margin-top: 0.1rem;
+      }
 
-    .collapse-indicator {
-      font-size: 0.65rem;
-      color: var(--text-tertiary);
-      margin-left: auto;
-      transition: transform 0.15s ease;
-    }
-    .issue-card.collapsed .collapse-indicator { transform: rotate(-90deg); }
-    .issue-card.collapsed .issue-card-body { display: none; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>PM - Issue Preview</h1>
-    <div class="status">Connected</div>
-  </div>
+      .issue-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .meta-tag {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 20px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
 
-  <div class="main">
-    <div id="claude-content">
-      <div class="section">
-        <h2>Issue Preview</h2>
-        <p class="subtitle">Review and approve issues before creating them in Linear</p>
+      .research-links {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+      }
+      .research-link {
+        font-size: 0.75rem;
+        color: var(--accent);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid var(--accent);
+        border-radius: 4px;
+        opacity: 0.8;
+        transition: opacity 0.15s;
+      }
+      .research-link:hover {
+        opacity: 1;
+      }
+      .research-link::before {
+        content: "↗";
+        font-size: 0.7rem;
+      }
 
-        <!-- Hidden flat list for skill reference -->
-        <div id="issues-data" style="display:none">{{ISSUES}}</div>
+      .collapse-indicator {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        margin-left: auto;
+        transition: transform 0.15s ease;
+      }
+      .issue-card.collapsed .collapse-indicator {
+        transform: rotate(-90deg);
+      }
+      .issue-card.collapsed .issue-card-body {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>PM - Issue Preview</h1>
+      <div class="status">Connected</div>
+    </div>
 
-        <div class="issue-tree">
-          {{ISSUE_CARDS}}
+    <div class="main">
+      <div id="claude-content">
+        <div class="section">
+          <h2>Issue Preview</h2>
+          <p class="subtitle">Review and approve issues before creating them in Linear</p>
+
+          <!-- Hidden flat list for skill reference -->
+          <div id="issues-data" style="display: none">{{ISSUES}}</div>
+
+          <div class="issue-tree">{{ISSUE_CARDS}}</div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="indicator-bar">
-    <span id="indicator-text">Approve or reject issues above, then return to the terminal</span>
-  </div>
+    <div class="indicator-bar">
+      <span id="indicator-text">Approve or reject issues above, then return to the terminal</span>
+    </div>
 
-  <script>
-    function toggleSelect(el, group) {
-      var isSelected = el.classList.contains('selected');
-      if (group) {
-        document.querySelectorAll('[data-group="' + group + '"]').forEach(function(item) {
-          item.classList.remove('selected');
+    <script>
+      function toggleSelect(el, group) {
+        var isSelected = el.classList.contains("selected");
+        if (group) {
+          document.querySelectorAll('[data-group="' + group + '"]').forEach(function (item) {
+            item.classList.remove("selected");
+          });
+        }
+        if (!isSelected) {
+          el.classList.add("selected");
+        }
+        updateIndicator();
+      }
+
+      function approveIssue(cardEl, choice) {
+        cardEl.classList.remove("rejected");
+        cardEl.classList.add("approved");
+        cardEl.setAttribute("data-choice", choice);
+        cardEl.setAttribute("data-decision", "approved");
+        updateIndicator();
+      }
+
+      function rejectIssue(cardEl, choice) {
+        cardEl.classList.remove("approved");
+        cardEl.classList.add("rejected");
+        cardEl.setAttribute("data-choice", choice + ":rejected");
+        cardEl.setAttribute("data-decision", "rejected");
+        updateIndicator();
+      }
+
+      function toggleCollapse(cardEl) {
+        cardEl.classList.toggle("collapsed");
+      }
+
+      function updateIndicator() {
+        var approved = document.querySelectorAll('.issue-card[data-decision="approved"]');
+        var rejected = document.querySelectorAll('.issue-card[data-decision="rejected"]');
+        var bar = document.getElementById("indicator-text");
+        var total = approved.length + rejected.length;
+        var all = document.querySelectorAll(".issue-card[data-choice]");
+        if (total === 0) {
+          bar.textContent = "Approve or reject issues above, then return to the terminal";
+          return;
+        }
+        bar.textContent =
+          approved.length +
+          " approved, " +
+          rejected.length +
+          " rejected of " +
+          all.length +
+          " total";
+      }
+
+      // Wire up approve/reject buttons
+      document.querySelectorAll(".action-btn.approve").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var card = this.closest(".issue-card");
+          var choice = card.getAttribute("data-choice") || card.getAttribute("data-id") || "issue";
+          approveIssue(card, choice);
         });
-      }
-      if (!isSelected) {
-        el.classList.add('selected');
-      }
-      updateIndicator();
-    }
-
-    function approveIssue(cardEl, choice) {
-      cardEl.classList.remove('rejected');
-      cardEl.classList.add('approved');
-      cardEl.setAttribute('data-choice', choice);
-      cardEl.setAttribute('data-decision', 'approved');
-      updateIndicator();
-    }
-
-    function rejectIssue(cardEl, choice) {
-      cardEl.classList.remove('approved');
-      cardEl.classList.add('rejected');
-      cardEl.setAttribute('data-choice', choice + ':rejected');
-      cardEl.setAttribute('data-decision', 'rejected');
-      updateIndicator();
-    }
-
-    function toggleCollapse(cardEl) {
-      cardEl.classList.toggle('collapsed');
-    }
-
-    function updateIndicator() {
-      var approved = document.querySelectorAll('.issue-card[data-decision="approved"]');
-      var rejected = document.querySelectorAll('.issue-card[data-decision="rejected"]');
-      var bar = document.getElementById('indicator-text');
-      var total = approved.length + rejected.length;
-      var all = document.querySelectorAll('.issue-card[data-choice]');
-      if (total === 0) {
-        bar.textContent = 'Approve or reject issues above, then return to the terminal';
-        return;
-      }
-      bar.textContent = approved.length + ' approved, ' + rejected.length + ' rejected of ' + all.length + ' total';
-    }
-
-    // Wire up approve/reject buttons
-    document.querySelectorAll('.action-btn.approve').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var card = this.closest('.issue-card');
-        var choice = card.getAttribute('data-choice') || card.getAttribute('data-id') || 'issue';
-        approveIssue(card, choice);
       });
-    });
 
-    document.querySelectorAll('.action-btn.reject').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var card = this.closest('.issue-card');
-        var choice = card.getAttribute('data-choice') || card.getAttribute('data-id') || 'issue';
-        rejectIssue(card, choice);
+      document.querySelectorAll(".action-btn.reject").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var card = this.closest(".issue-card");
+          var choice = card.getAttribute("data-choice") || card.getAttribute("data-id") || "issue";
+          rejectIssue(card, choice);
+        });
       });
-    });
 
-    // Wire up header click to collapse
-    document.querySelectorAll('.issue-card-header').forEach(function(header) {
-      header.addEventListener('click', function() {
-        toggleCollapse(this.closest('.issue-card'));
+      // Wire up header click to collapse
+      document.querySelectorAll(".issue-card-header").forEach(function (header) {
+        header.addEventListener("click", function () {
+          toggleCollapse(this.closest(".issue-card"));
+        });
       });
-    });
-  </script>
-</body>
+    </script>
+  </body>
 </html>

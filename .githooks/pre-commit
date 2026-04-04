@@ -3,8 +3,16 @@
 # 1. Version consistency across all 4 manifests
 # 2. JSON validity for manifest files
 # 3. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
+# 4. ESLint on staged .js files
+# 5. Prettier format check on staged .js/.json/.html files
+# 6. ShellCheck on staged .sh files
 
 set -euo pipefail
+
+# --- Collect staged files by type ---
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' | grep -v '^node_modules/' | grep -v '^1\.0\.' | grep -v '^\.worktrees/' || true)
+STAGED_SH=$(git diff --cached --name-only --diff-filter=ACM -- '*.sh' | grep -v '^node_modules/' || true)
+STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' '*.json' '*.html' | grep -v '^node_modules/' | grep -v '^1\.0\.' | grep -v '^\.worktrees/' || true)
 
 MANIFESTS=(
   ".claude-plugin/plugin.json"
@@ -65,6 +73,29 @@ for d in data.get('details', []):
         print(f\"  {d['file']}: {d['message']}\")
 " 2>/dev/null
     exit 1
+  fi
+fi
+
+# --- ESLint on staged .js files ---
+if [[ -n "$STAGED_JS" ]]; then
+  if command -v npx > /dev/null 2>&1 && [[ -f "eslint.config.js" ]]; then
+    echo "$STAGED_JS" | xargs npx --no-install eslint
+  fi
+fi
+
+# --- Prettier format check on staged files ---
+if [[ -n "$STAGED_FMT" ]]; then
+  if command -v npx > /dev/null 2>&1 && [[ -f ".prettierrc" ]]; then
+    echo "$STAGED_FMT" | xargs npx --no-install prettier --check
+  fi
+fi
+
+# --- ShellCheck on staged .sh files ---
+if [[ -n "$STAGED_SH" ]]; then
+  if command -v shellcheck > /dev/null 2>&1; then
+    echo "$STAGED_SH" | xargs shellcheck
+  else
+    echo "WARN: shellcheck not installed — skipping shell lint (brew install shellcheck)"
   fi
 fi
 

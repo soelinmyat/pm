@@ -23,26 +23,10 @@
     "orchestration",
     "workflow"
   ],
-  "commands": [
-    "start",
-    "groom",
-    "ingest",
-    "merge",
-    "refresh",
-    "research",
-    "strategy"
-  ],
+  "commands": ["start", "groom", "ingest", "merge", "refresh", "research", "strategy"],
   "codex": {
     "fallbackSkillAliases": {
-      "pm": [
-        "start",
-        "research",
-        "strategy",
-        "groom",
-        "think",
-        "ingest",
-        "refresh"
-      ],
+      "pm": ["start", "research", "strategy", "groom", "think", "ingest", "refresh"],
       "dev": [
         "debugging",
         "design-critique",
@@ -61,10 +45,7 @@
       "longDescription": "PM helps product engineers research markets, define strategy, groom ideas into sprint-ready work, and ship with TDD, review, QA, and merge loops.",
       "developerName": "Soe Lin Myat",
       "category": "Productivity",
-      "capabilities": [
-        "Interactive",
-        "Write"
-      ],
+      "capabilities": ["Interactive", "Write"],
       "websiteURL": "https://github.com/soelinmyat/pm",
       "privacyPolicyURL": "https://github.com/soelinmyat/pm",
       "termsOfServiceURL": "https://github.com/soelinmyat/pm",
