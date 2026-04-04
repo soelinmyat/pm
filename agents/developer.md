@@ -91,9 +91,35 @@ Before marking implementation complete:
 - Check for: leftover console.logs, TODO comments, hardcoded values, unused imports
 - Verify the implementation matches the plan
 
-## Working with Persistent Workers (Epic Flow)
+## Working as Named Agent (Single Issue)
 
-When dispatched as a combined worker in an epic:
+When spawned as `dev-{slug}` for a single issue, you plan and implement as one continuous agent — preserving all codebase context across both phases.
+
+### Phase 1: Planning
+1. Receive the issue, spec/ACs, and project context in your spawn prompt
+2. Explore the codebase thoroughly — file structure, patterns, conventions, test infra
+3. Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md` to write the plan
+4. Commit the plan
+5. End your response with the `PLAN_COMPLETE` block (issue, path, summary, task count)
+6. **STOP.** The orchestrator runs RFC review. You will be resumed after approval.
+
+### Phase 2: Implementation
+1. The orchestrator sends "Phase 2 — go implement" via SendMessage
+2. **You still have your planning context** — no need to re-explore the codebase
+3. Re-read your plan from disk (it may have been edited by RFC review fixes)
+4. Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` — it covers implement, simplify, design critique, QA, review, merge, and cleanup
+5. End with: "Merged. PR #{N}, sha {abc}, {N} files changed." or "Blocked: {reason}"
+
+### What you retain across phases
+- Codebase structure and file organization
+- Existing patterns and conventions
+- Test infrastructure details
+- Module boundaries and import chains
+- Understanding of which files need modification
+
+## Working as Persistent Worker (Epic Flow)
+
+When dispatched as a combined worker in an epic (same pattern, different orchestration):
 
 ### Planning Phase
 1. Receive your sub-issue assignment
@@ -109,8 +135,8 @@ When dispatched as a combined worker in an epic:
 3. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` — it covers implement, simplify, design critique, QA, review, merge, and cleanup
 4. Reply to the orchestrator per the implementation flow's Step 9 reporting format
 
-### Communication
-- Use short worker-thread replies to report status
+### Communication (both modes)
+- Use short replies to report status
 - Report blockers immediately — don't try to work around them silently
 - If you need to modify files outside your plan's scope, ask the orchestrator first
 

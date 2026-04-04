@@ -54,12 +54,12 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | Groom readiness | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
 | Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
 | Spec review | — | — | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) | Skip (from groom) or full (3 agents) |
-| Written plan | — | — | `dev:writing-plans` | `dev:writing-plans` + design doc | `dev:writing-plans` + design doc |
+| Plan (named agent) | — | — | `dev-{slug}` writes plan, stops | `dev-{slug}` writes plan, stops | `dev-{slug}` writes plan, stops |
 | Plan review | — | — | Engineering RFC (3 agents) | Engineering RFC (3 agents) | Engineering RFC (3 agents) |
-| Implement | TDD | TDD | Inside-out TDD | Inside-out TDD | Inside-out TDD |
+| Implement (named agent) | TDD | TDD | `dev-{slug}` resumes, inside-out TDD | `dev-{slug}` resumes, inside-out TDD | `dev-{slug}` resumes, inside-out TDD |
 | Simplify | `/simplify` | `/simplify` | `/simplify` | `/simplify` | `/simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
-| QA (`/qa`) | If UI (`--quick`) | If UI (focused) | If UI (full, with charter + critique) | If UI (full, with charter + critique) | If UI (full, with charter + critique) |
+| QA (named agent) | If UI (Quick, L1+3+4) | If UI (Focused, L1+3+4 or all 5) | If UI (Full, named agent, iterative) | If UI (Full, named agent, iterative) | If UI (Full, named agent, iterative) |
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) |
 | Finish | Direct merge (verified) | Direct merge (verified) | PR → merge-loop (self-healing) | PR → merge-loop (self-healing) | PR → merge-loop (self-healing) |
@@ -349,11 +349,49 @@ Agent({
 6. Commit spec updates before proceeding.
 7. Update `.pm/dev-sessions/{slug}.md` with `Spec review: passed (commit <sha>)`.
 
-## Stage 4: Plan (M/L/XL)
+## Stage 4: Plan via Named Developer Agent (M/L/XL)
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md`. It handles task decomposition, file structure, TDD steps, and the plan review loop.
+Spawn a **named `pm:developer` agent** that writes the plan. This is the same agent that will later implement the feature — preserving all codebase context (file structure, patterns, conventions, test infrastructure) discovered during planning. No duplicate exploration.
 
-**If groomed (from Stage 2.5):** Pass the groom context so the plan can inject upstream research:
+**Why a named agent:** Planning requires deep codebase exploration. That context is expensive to build and immediately useful for implementation. Previously, the orchestrator planned inline, then started implementation from scratch. Now the developer agent keeps everything it learned.
+
+### Spawn the developer agent
+
+```
+Agent({
+  name: "dev-{slug}",
+  subagent_type: "pm:developer",
+  prompt: `Phase 1 — Planning for {ISSUE_ID}: {ISSUE_TITLE}.
+
+## Project Context
+{PROJECT_CONTEXT}
+
+**CWD:** {WORKTREE_PATH}
+**Branch:** {BRANCH}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**Session file:** .pm/dev-sessions/{slug}.md
+**Spec:** {SPEC_FILE_PATH or "none — use ACs below"}
+
+**Issue description + ACs:**
+{ISSUE_DESCRIPTION_AND_ACS}
+
+{GROOM_CONTEXT_IF_AVAILABLE}
+
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
+Save plan to docs/plans/{DATE}-{SLUG}.md.
+Commit the plan, then end your response with:
+
+PLAN_COMPLETE
+- issue: {ISSUE_ID}
+- path: docs/plans/{file}
+- summary: {3-line summary}
+- tasks: {N}
+
+Stop after sending the summary. You will be resumed for implementation after plan review.`
+})
+```
+
+**If groomed (from Stage 2.5):** Include groom context in the prompt:
 
 ```
 **Groom context:**
@@ -365,47 +403,49 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md`. 
 
 The writing-plans reference will use this to produce a `## Upstream Context` section in the plan.
 
-After the plan is written and committed, proceed to Stage 4.5.
+### Orchestrator waits for plan
+
+The orchestrator waits for the agent to return. Only the plan path + summary enters the orchestrator's context — not the agent's internal codebase exploration. The agent stops after planning.
+
+After receiving `PLAN_COMPLETE`, update `.pm/dev-sessions/{slug}.md` with the plan path and proceed to Stage 4.5.
 
 ## Stage 4.5: Plan Review — Engineering RFC Review (M/L/XL)
 
-The plan has been through the writing-plans review loop. This stage is different: it's an **engineering RFC review**. Three senior engineers challenge architecture decisions, poke at risks, and push back on complexity. Their job is adversarial: find the problems before implementation discovers them the hard way.
+The plan has been through the writing-plans review loop (inside the developer agent). This stage runs in the **orchestrator** — three senior engineers challenge architecture decisions, poke at risks, and push back on complexity. Their job is adversarial: find the problems before implementation discovers them the hard way.
 
-This is the last human-interactive gate. After this passes, the agent runs continuously through implementation, review, PR, merge, and cleanup without interruption.
+This is the last human-interactive gate. After this passes, the named developer agent is resumed for continuous execution through implementation, review, PR, merge, and cleanup.
 
 ```dot
 digraph plan_review {
-    "Plan written" [shape=box];
-    "Dispatch 3 RFC reviewers\n(parallel)" [shape=box, style=filled, fillcolor="#ffffcc"];
+    "dev-{slug} returns plan" [shape=box];
+    "Dispatch 3 RFC reviewers\n(parallel, short-lived)" [shape=box, style=filled, fillcolor="#ffffcc"];
     "Merge findings" [shape=box];
     "Real issues?" [shape=diamond];
-    "Fix issues in plan" [shape=box];
+    "Fix issues in plan\n(orchestrator edits)" [shape=box];
     "Re-dispatch reviewers" [shape=box];
     "Max 2 iterations?" [shape=diamond];
     "Surface to user" [shape=box];
     "User approves plan" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "CONTINUOUS EXECUTION\n(no more user gates)" [shape=doublecircle, style=filled, fillcolor="#ccffcc"];
+    "SendMessage to dev-{slug}:\ngo implement" [shape=doublecircle, style=filled, fillcolor="#ccffcc"];
 
-    "Plan written" -> "Dispatch 3 RFC reviewers\n(parallel)";
-    "Dispatch 3 RFC reviewers\n(parallel)" -> "Merge findings";
+    "dev-{slug} returns plan" -> "Dispatch 3 RFC reviewers\n(parallel, short-lived)";
+    "Dispatch 3 RFC reviewers\n(parallel, short-lived)" -> "Merge findings";
     "Merge findings" -> "Real issues?";
-    "Real issues?" -> "Fix issues in plan" [label="yes"];
-    "Fix issues in plan" -> "Re-dispatch reviewers";
+    "Real issues?" -> "Fix issues in plan\n(orchestrator edits)" [label="yes"];
+    "Fix issues in plan\n(orchestrator edits)" -> "Re-dispatch reviewers";
     "Re-dispatch reviewers" -> "Max 2 iterations?";
-    "Max 2 iterations?" -> "Dispatch 3 RFC reviewers\n(parallel)" [label="no"];
+    "Max 2 iterations?" -> "Dispatch 3 RFC reviewers\n(parallel, short-lived)" [label="no"];
     "Max 2 iterations?" -> "Surface to user" [label="yes"];
     "Real issues?" -> "User approves plan" [label="no"];
-    "User approves plan" -> "CONTINUOUS EXECUTION\n(no more user gates)";
+    "User approves plan" -> "SendMessage to dev-{slug}:\ngo implement";
 }
 ```
 
 ### The 3 RFC reviewers
 
-Dispatch all 3 as sub-agents in parallel:
+Dispatch all 3 as **short-lived sub-agents** in parallel (same as before — these are NOT persistent):
 
 **Agent 1: Senior Engineer — Architecture & Risk**
-
-Challenges whether the technical approach is sound and proportionate.
 
 ```
 Agent({
@@ -423,8 +463,6 @@ Agent({
 
 **Agent 2: Senior Engineer — Testing & Quality**
 
-Challenges whether the testing strategy will actually catch bugs.
-
 ```
 Agent({
   subagent_type: "pm:test-engineer",
@@ -440,8 +478,6 @@ Agent({
 ```
 
 **Agent 3: Staff Engineer — Complexity & Maintainability**
-
-Challenges whether a future engineer (or agent) can understand and maintain this code.
 
 ```
 Agent({
@@ -460,20 +496,64 @@ Agent({
 ### Handling findings
 
 1. Merge all 3 RFC reviewer outputs. Deduplicate.
-3. Fix all **Blocking issues**. Non-blocking items are advisory: apply if they reduce complexity, skip if YAGNI.
+3. Fix all **Blocking issues** in the plan file (orchestrator edits directly). Non-blocking items are advisory: apply if they reduce complexity, skip if YAGNI.
 4. If blocking issues were fixed, re-dispatch reviewers on the updated plan (max 2 iterations).
 5. Commit plan updates.
 6. **ADR extraction (M/L/XL only).** Scan the approved plan for non-obvious technical choices (library selections, architectural patterns, data modeling decisions, tradeoff resolutions). For each, write an ADR to `docs/decisions/NNNN-slug.md`. See ADR conventions below. Commit ADRs with the plan.
 7. Present the final plan to the user: "Plan reviewed by 3 RFC agents. [N] blocking issues found and fixed. Here's the final plan: `{PLAN_FILE_PATH}`. Approve to begin continuous execution through to merge?"
 8. Wait for user approval. This is the **last interactive gate**.
-8. Update `.pm/dev-sessions/{slug}.md` with `Plan review: passed (commit <sha>)` and `Continuous execution: authorized`.
+9. Update `.pm/dev-sessions/{slug}.md` with `Plan review: passed (commit <sha>)` and `Continuous execution: authorized`.
 
-## Continuous Execution (after Plan Review)
+## Stages 5–7: Implementation via Named Developer Agent
+
+After user approval, resume the same `dev-{slug}` agent for implementation. The agent already has full codebase context from the planning phase — no duplicate exploration needed.
+
+```
+SendMessage({
+  to: "dev-{slug}",
+  content: `Phase 2 — Implementation approved. Go implement.
+
+**CWD:** {WORKTREE_PATH}
+**Branch:** {BRANCH}
+**Plan:** {PLAN_FILE_PATH}
+**Merge strategy:** {PR required | direct push allowed}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
+implementation lifecycle, then execute it.
+
+Lifecycle:
+1. cd {WORKTREE_PATH}
+2. Install deps (read AGENTS.md), verify clean test baseline
+3. Read the plan end-to-end and implement all tasks
+4. Invoke /simplify — fix findings, run tests, commit
+5. If UI changes: invoke /design-critique if available, else skip
+6. If UI changes: QA runs as named agent (spawned by implementation-flow.md)
+7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
+   If SIZE is XS/S: run code scan (single sub-agent per implementation-flow.md)
+8. Run full test suite as final verification
+9. Push branch, create PR, squash merge via merge-loop
+10. Cleanup worktree and branch
+11. Report: "Merged. PR #{N}, sha {abc}, {N} files changed."
+
+If blocked, report: "Blocked: {reason}"
+Do NOT pause for confirmation — the plan is the contract. Execute it.`
+})
+```
+
+**What the agent retains from planning:**
+- Codebase structure and file organization
+- Existing patterns and conventions discovered during exploration
+- Test infrastructure and runner details
+- Module boundaries and import chains
+- Understanding of which files need modification
+
+### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of Stage 4.5, the agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the plan at the end of Stage 4.5, the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
-The rationale: by this point, the spec has been reviewed by 3 product/design agents and the plan has been reviewed by 3 engineering agents, plus the user has explicitly approved. The plan is the contract. Execute it.
+The rationale: by this point, the spec has been reviewed by 3 product/design agents, the plan has been reviewed by 3 engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
 **Only stop for:**
 - QA verdict of **Fail** (fix issues, re-run QA, then continue)
@@ -484,13 +564,56 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 - Review feedback from human reviewers on the PR (use `review/references/handling-feedback.md`)
 </HARD-RULE>
 
-## Stages 5–7: Implementation through Merge
+### Agent lifecycle
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md`.
+```
+dev-{slug} spawned (Stage 4)
+  → explores codebase, writes plan, commits
+  → returns PLAN_COMPLETE summary
+  → stops (idle, context preserved)
 
-This is the shared implementation lifecycle. It covers: Setup → Implement (platform detection, contract gate, sub-agent TDD) → Simplify → Design Critique → QA → Review/Code Scan → Verification → Push + PR → Merge (self-healing verification via merge-loop) → Cleanup.
+Orchestrator runs RFC review (Stage 4.5)
+  → fixes blocking issues in plan
+  → user approves
 
-After the implementation flow completes (merge verified, cleanup done), continue to Stage 9 below.
+SendMessage to dev-{slug}: "go implement" (Stage 5-7)
+  → agent resumes with full planning context
+  → implements → simplify → design critique → QA → review → merge → cleanup
+  → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
+```
+
+### Agent death recovery
+
+If the developer agent dies during implementation (API overload, timeout):
+
+1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
+2. Read `.pm/dev-sessions/{slug}.md` for progress
+3. Spawn a **fresh** `dev-{slug}` agent with recovery context:
+
+```
+Agent({
+  name: "dev-{slug}",
+  subagent_type: "pm:developer",
+  prompt: `You are a RECOVERY agent. The previous developer agent died during implementation.
+
+**Session file:** .pm/dev-sessions/{slug}.md
+**Plan:** {PLAN_FILE_PATH}
+**CWD:** {WORKTREE_PATH}
+**Branch:** {BRANCH}
+
+Check what was already done before continuing:
+- git log --oneline to see committed work
+- git status for uncommitted changes
+- Read the plan to identify remaining tasks
+
+Continue from where the previous agent left off.
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md.`
+})
+```
+
+The recovery agent loses the codebase context from planning but has the committed plan and partial implementation to work from. This is the tradeoff — recovery is slightly less efficient than the original agent, but functional.
+
+After the developer agent returns (merged or blocked), continue to Stage 9 below.
 
 ## Stage 9: Retro — Compound Learning
 

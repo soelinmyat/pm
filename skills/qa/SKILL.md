@@ -5,11 +5,31 @@ description: "QA testing ship gate. Assertion-driven: verifies acceptance criter
 
 # QA — Assertion-Driven Testing Gate
 
-Report-only QA gate for the dev lifecycle (Stage 6.5). Tests the running app using DOM assertions as primary evidence and screenshots as supporting evidence. Never modifies source code.
+Report-only QA gate for the dev lifecycle. Tests the running app using DOM assertions as primary evidence and screenshots as supporting evidence. Never modifies source code.
 
 **Core shift:** The LLM designs assertions and interprets structured results. It does NOT judge pixels in screenshots.
 
 **Separation of concerns:** QA finds problems. The dev flow fixes them. QA re-verifies.
+
+## Two Modes
+
+| Mode | How invoked | Lifecycle |
+|------|-------------|-----------|
+| **Persistent agent** (preferred) | Dev spawns a named agent `qa-{slug}` | Stays alive across fix-and-retest iterations. Phase 0-2 run once. Re-verify via message. |
+| **Standalone** | User invokes `pm:qa` directly | One-shot. Full Phase 0-6 each time. |
+
+**Persistent agent mode** is the default when called from `/dev`. The dev orchestrator spawns this skill as a named agent. On re-verify, the orchestrator sends a message — the agent skips environment setup and re-runs only the relevant assertions.
+
+**Standalone mode** is for ad-hoc QA outside a dev session (e.g., `pm:qa --page /dashboard`). Runs the full lifecycle as a one-shot.
+
+### Detecting mode
+
+```
+Spawned as named agent with feature/AC context in prompt  →  Persistent
+Invoked as pm:qa skill with arguments                     →  Standalone
+```
+
+In persistent mode, all context (feature, ACs, routes, platform, tier) comes from the spawn prompt. In standalone mode, context comes from arguments and the session file.
 
 ## Telemetry (opt-in)
 
@@ -22,6 +42,7 @@ Minimum coverage for `pm:qa`:
 - one step span for `charter`
 - one step span for `execute`
 - one step span for `score-and-report`
+- one step span for each `re-verify` iteration (persistent mode)
 
 ## Tiers
 
@@ -33,13 +54,9 @@ Minimum coverage for `pm:qa`:
 
 ## Invocation
 
-**From /dev (embedded):**
+**From /dev (persistent agent — preferred):**
 
-```
-pm:qa
-```
-
-Context passed automatically from `.pm/dev-sessions/{slug}.md`: feature description, affected routes, acceptance criteria, platform.
+The dev orchestrator spawns this as a named agent. See `implementation-flow.md` Step 5 for the spawn pattern. The agent receives all context in its prompt and stays alive for re-verify iterations.
 
 **Standalone:**
 
@@ -49,7 +66,7 @@ pm:qa --feature "user onboarding flow"
 pm:qa --diff
 ```
 
-**Arguments:**
+**Arguments (standalone only):**
 
 | Arg | Effect |
 |-----|--------|
@@ -58,7 +75,6 @@ pm:qa --diff
 | `--feature <desc>` | Test by feature description |
 | `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` |
 | `--mobile` | Force mobile platform (Maestro MCP) |
-| `--re-verify` | Re-test only previous failures, update verdict |
 
 ---
 
@@ -188,12 +204,13 @@ If server or auth fails: Blocked. If seed or routes partially fail: note finding
 
 ## Phase 1: Orient
 
-### Read session state
+### Read context
 
-If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current`, stripping `feat/`/`fix/`/`chore/` prefix):
+**Persistent agent mode:** All context (feature, ACs, routes, platform, tier, design critique status) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}.md` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
+
+**Standalone mode:** If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current`, stripping `feat/`/`fix/`/`chore/` prefix):
 
 - Extract: feature description, platform, affected routes, **acceptance criteria**, dev size
-- If `--re-verify`: also read previous QA findings from `## QA` section
 
 If no session file and no `--page`/`--feature` arg: ask user what to test.
 
@@ -327,9 +344,34 @@ For Full tier: every acceptance criterion MUST have at least one DOM assertion. 
 
 ---
 
-## Phase 3: Five-Layer Execution
+## Phase 3: Layer Execution
 
-For each route in the charter, execute all 5 layers. Each layer uses the right tool for the job.
+For each route in the charter, execute the applicable layers. Each layer uses the right tool for the job.
+
+### Layer selection (conditional skipping)
+
+When design critique has already passed for this session, Layers 2 and 5 overlap heavily with what the designers already verified (visual fidelity, design token compliance, layout composition). Skip them to avoid redundant work.
+
+```
+Read "Design critique passed" from spawn prompt or .pm/dev-sessions/{slug}.md
+
+If design critique passed:
+  Run: Layer 1 (Structural) + Layer 3 (Data) + Layer 4 (Interaction)
+  Skip: Layer 2 (Visual Fidelity) + Layer 5 (Visual Judgment)
+  Reason: Design critique already verified tokens, styles, layout
+
+If design critique did NOT pass (or not applicable):
+  Run: All 5 layers
+```
+
+Log the decision:
+```
+Layer selection: 3 of 5 (skipped L2+L5: design critique passed)
+```
+
+<HARD-RULE>
+Layer skipping ONLY applies when design critique is confirmed passed. If design critique was skipped (backend-only, XS, skill unavailable), run all 5 layers.
+</HARD-RULE>
 
 ### Layer 1: Structural (deterministic)
 
@@ -673,21 +715,51 @@ QA Complete
 
 ---
 
-## Re-verification Mode (`--re-verify`)
+## Re-verification (Persistent Agent Mode)
 
-Triggered after the dev flow fixes issues from a previous QA run.
+In persistent agent mode, re-verify is triggered by a **message from the dev orchestrator**, not a `--re-verify` flag. The agent already has servers running, auth session active, design tokens discovered, test charter built, and previous findings in context.
 
-### Flow
+### What the orchestrator sends
+
+```
+SendMessage({
+  to: "qa-{slug}",
+  content: `Fixed the following issues:
+1. {finding-id}: {what was fixed}
+2. {finding-id}: {what was fixed}
+
+Re-verify these specific findings. Also smoke-check adjacent routes for regressions.
+Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
+})
+```
+
+### Re-verify flow (persistent agent)
+
+1. Parse the fix list from the message
+2. Match each fix to a previous finding (already in agent context — no state file re-parse needed)
+3. Filter to Critical and High findings (skip Medium/Low unless the message explicitly requests them)
+4. **Re-run the exact assertions** from those findings (not just re-screenshot)
+5. For each finding: mark as **Fixed** or **Still present** with updated evidence
+6. Smoke-check adjacent routes for regressions (navigate, check console, verify key elements)
+7. Recompute health score with updated findings
+8. Update verdict
+9. Write results to `.pm/dev-sessions/{slug}.md` and return verdict to orchestrator
+
+**What the agent skips on re-verify:**
+- Phase 0 (servers already running, auth active, tokens discovered)
+- Phase 1 (already oriented)
+- Phase 2 (charter already built)
+- Layers 2+5 if design critique passed (same skip as initial run)
+
+### Re-verify flow (standalone mode)
+
+For standalone invocations, re-verify works the old way:
 
 1. Read previous findings from `.pm/dev-sessions/{slug}.md` `## QA` section
-2. Filter to Critical and High findings (skip Medium/Low unless explicitly requested)
-3. **Re-run the exact assertions** from those findings (not just re-screenshot)
-4. For each previous finding: mark as **Fixed** or **Still present** with updated evidence
-5. Re-check for regressions introduced by fixes (quick smoke of adjacent routes)
-6. Recompute health score with updated findings
-7. Update verdict
+2. Re-run Phase 0 (environment readiness — cold start needed)
+3. Filter to Critical and High, re-run assertions, update verdict
 
-### Report format (re-verify)
+### Report format (re-verify, both modes)
 
 Append to existing `## QA` section. Do NOT overwrite previous runs.
 
@@ -697,6 +769,7 @@ Append to existing `## QA` section. Do NOT overwrite previous runs.
 - **Updated verdict:** {Pass/Pass with concerns/Fail}
 - **Previous health:** {score}/100
 - **Updated health:** {score}/100
+- **Mode:** persistent-agent | standalone
 
 #### Fixed
 - [HIGH] Font size mismatch on .card-title — FIXED (now 18px, was 14px)
@@ -706,18 +779,34 @@ Append to existing `## QA` section. Do NOT overwrite previous runs.
 - [HIGH] {description} — NOT FIXED (browser_evaluate still returns {wrong value})
 
 #### New Issues
-- {any regressions found during re-check}
+- {any regressions found during smoke-check}
 ```
 
 ---
 
 ## Server Lifecycle
 
+### Persistent agent mode
+
+The agent owns its servers for its entire lifetime. Servers start in Phase 0 and stay running across all re-verify iterations. Cleanup happens only when the agent receives a final "done" message or is terminated.
+
 ```
-Start: detect framework, run dev server, wait for port ready
-Track: store PID
-Cleanup: kill PID when QA completes (pass or fail)
+Phase 0: start servers, record PIDs/ports
+Re-verify 1..N: servers still running (verify with health check, restart if crashed)
+Final verdict (Pass/Pass with concerns): kill servers, report done
 ```
+
+**Server health check on re-verify:** Before re-running assertions, verify servers are still responding. If a server crashed (e.g., dev fix caused a build error), restart it once. If restart fails, report Blocked.
+
+```bash
+# Health check
+curl -sf http://localhost:3000/health > /dev/null 2>&1 || echo "API down"
+curl -sf http://localhost:5173 > /dev/null 2>&1 || echo "Vite down"
+```
+
+### Standalone mode
+
+Same as before — start servers at Phase 0, kill on completion:
 
 ```bash
 # Cleanup by port (more reliable than PID)
@@ -727,7 +816,7 @@ lsof -ti :8081 | xargs kill 2>/dev/null || true   # Metro
 ```
 
 <HARD-RULE>
-ALWAYS kill servers you started, even on early exit or Blocked verdict.
+ALWAYS kill servers you started when QA is fully done (final passing verdict in persistent mode, or completion in standalone mode). In persistent mode, do NOT kill servers between re-verify iterations.
 </HARD-RULE>
 
 ---
@@ -737,13 +826,13 @@ ALWAYS kill servers you started, even on early exit or Blocked verdict.
 QA reads from and writes to `.pm/dev-sessions/{slug}.md`.
 
 **Reads:**
-- Feature description, platform, affected routes, **acceptance criteria** (Phase 1)
+- Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — standalone only; persistent agent gets these from spawn prompt)
 - Dev session size for tier detection (Phase 1)
-- Previous QA findings for re-verify (Phase 1, `--re-verify`)
+- Design critique status for layer selection (Phase 3)
 
 **Writes:**
 - `## QA` section with verdict, health score, assertion results, findings (Phase 6)
-- Re-verify results appended to same section (Re-verify mode)
+- Re-verify results appended to same section (both modes)
 
 If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before writing.
 
@@ -762,6 +851,7 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 | Routes per Focused run | 8 | Prioritize by diff coverage |
 | Routes per Full run | 15 | Cover all charter routes |
 | Re-verify scope | Previous Critical + High only | Skip Medium/Low unless asked |
+| Re-verify iterations (persistent) | 3 | After 3 Fail cycles, return Blocked |
 
 ---
 
@@ -770,10 +860,13 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 1. <NEVER>Modify source code. QA is read-only + browser interaction only.</NEVER>
 2. <NEVER>Skip the health score. Even zero-finding runs report 100/100.</NEVER>
 3. <NEVER>Report findings without evidence. Assertion result, ARIA tree finding, console output, or screenshot required.</NEVER>
-4. <NEVER>Leave servers running. Kill all servers started by QA on completion.</NEVER>
+4. <NEVER>Leave servers running after QA is fully done. In persistent mode, kill on final verdict. In standalone, kill on completion.</NEVER>
 5. <NEVER>Report a visual finding from a screenshot when it can be measured via DOM. Use `browser_evaluate` first.</NEVER>
-6. <MUST>For Full tier: every acceptance criterion must have at least one DOM assertion.</MUST>
-7. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>
-8. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
-9. <MUST>For re-verify: append to existing QA section, never overwrite previous runs.</MUST>
-10. <MUST>Print the summary to user on every run, regardless of mode.</MUST>
+6. <NEVER>Re-run Phase 0 on re-verify in persistent mode. The environment is already ready.</NEVER>
+7. <NEVER>Run Layers 2+5 when design critique is confirmed passed. Those concerns are already covered.</NEVER>
+8. <MUST>For Full tier: every acceptance criterion must have at least one DOM assertion.</MUST>
+9. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>
+10. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
+11. <MUST>For re-verify: append to existing QA section, never overwrite previous runs.</MUST>
+12. <MUST>Print the summary to orchestrator/user on every run, regardless of mode.</MUST>
+13. <MUST>Verify server health before re-running assertions in persistent mode.</MUST>
