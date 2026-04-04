@@ -4447,6 +4447,7 @@ function handleSessionPage(res, pmDir, slug) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(dashboardPage('Session Not Found', '/', `
 <div class="empty-state">
+  <h2>Session not found</h2>
   <p>No session found for <code>${escHtml(slug)}</code>.</p>
   <p><a href="/">&larr; Back to Home</a></p>
 </div>`, projectName));
