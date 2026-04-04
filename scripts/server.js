@@ -354,6 +354,7 @@ const DASHBOARD_CSS = `
   --text: #1e2128;
   --text-secondary: #555;
   --text-muted: #6b7280;
+  --text-dim: #6d7585;
   --text-faint: #9ca3af;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -401,6 +402,8 @@ const DASHBOARD_CSS = `
   --text-sm: 0.8125rem;   /* 13px */
   --text-base: 0.875rem;  /* 14px */
   --text-md: 1rem;         /* 16px */
+  --text-xl: 1.25rem;      /* 20px */
+  --text-2xl: 1.5rem;      /* 24px */
   --text-lg: 1.5rem;       /* 24px */
 }
 
@@ -416,6 +419,7 @@ const DASHBOARD_CSS = `
   --text: #1e2128;
   --text-secondary: #555;
   --text-muted: #6b7280;
+  --text-dim: #6d7585;
   --text-faint: #9ca3af;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -443,6 +447,8 @@ const DASHBOARD_CSS = `
   --selection-bg: rgba(94,106,210,0.2);
   --scrollbar-thumb: #d1d5db;
   --scrollbar-thumb-hover: #9ca3af;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
 }
 
 /* ===== DARK THEME ===== */
@@ -457,6 +463,7 @@ const DASHBOARD_CSS = `
   --text: #e8eaed;
   --text-secondary: #a0a4ab;
   --text-muted: #8b8f96;
+  --text-dim: #6e7380;
   --text-faint: #4a4f57;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -484,9 +491,11 @@ const DASHBOARD_CSS = `
   --selection-bg: rgba(94,106,210,0.3);
   --scrollbar-thumb: rgba(255,255,255,0.1);
   --scrollbar-thumb-hover: rgba(255,255,255,0.18);
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -1159,6 +1168,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .competitor-card:hover { background: var(--surface-raised, var(--surface)); }
 .competitor-name { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .competitor-category { font-size: var(--text-xs); color: var(--text-muted); }
+.competitor-view-link { display: block; font-size: var(--text-xs); color: var(--accent); margin-top: var(--space-2); }
 
 /* Research topic rows */
 .topic-list { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -1278,6 +1288,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f7f8fb">
+<link rel="preconnect" href="https://rsms.me"><link href="https://rsms.me/inter/inter.css" rel="stylesheet">
 <title>${escHtml(title)} - ${escHtml(projectName)}</title>
 <script>
 (function(){var t=localStorage.getItem('pm-theme');if(!t){t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);document.querySelector('meta[name=theme-color]')&&document.querySelector('meta[name=theme-color]').setAttribute('content',t==='dark'?'#0d0f12':'#f7f8fb');})();
@@ -3257,6 +3268,7 @@ function buildCompetitorGrid(pmDir) {
     return `<a href="/competitors/${escHtml(slug)}" class="competitor-card">
   <div class="competitor-name">${escHtml(name)}</div>
   <div class="competitor-category">${escHtml(category)}</div>
+  <span class="competitor-view-link">View profile &rarr;</span>
 </a>`;
   }).join('');
   const viewAll = slugs.length > 6 ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>` : '';
@@ -3698,7 +3710,7 @@ function handleBacklog(res, pmDir) {
 
   const allStatuses = STATUS_ORDER;
 
-  const SHIPPED_LIMIT = 10;
+  const COL_LIMIT = 10;
 
   const renderItem = (item, status) => {
     const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
@@ -3719,19 +3731,24 @@ function handleBacklog(res, pmDir) {
     'groomed': 'Edit <code>pm/backlog/&lt;slug&gt;.md</code> to update status',
   };
 
+  const VIEW_ALL_LABELS = { 'idea': 'ideas', 'groomed': 'groomed', 'shipped': 'shipped' };
+
   const cols = allStatuses.map(status => {
     const allItems = columns[status] || [];
     const isShipped = status === 'shipped';
     const totalCount = allItems.length;
-    const displayItems = isShipped && totalCount > SHIPPED_LIMIT
-      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, SHIPPED_LIMIT)
+    const isCapped = totalCount > COL_LIMIT;
+    const displayItems = isCapped
+      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, COL_LIMIT)
       : allItems;
     const items = displayItems.map(item => renderItem(item, status)).join('');
-    const viewAllLink = isShipped && totalCount > SHIPPED_LIMIT
-      ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
+    const viewAllLink = isCapped
+      ? (isShipped
+        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`
+        : `<a href="/roadmap?col=${status}" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`)
       : '';
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const countLabel = isShipped && totalCount > SHIPPED_LIMIT ? ` <span class="col-count">${totalCount}</span>` : '';
+    const countLabel = isCapped ? ` <span class="col-count">${totalCount}</span>` : '';
     const emptyClass = totalCount === 0 ? ' col-empty' : '';
     const colHint = COL_HINTS[status] && totalCount > 0 ? `<div class="col-hint">${COL_HINTS[status]}</div>` : '';
     const shippedClass = isShipped ? ' shipped' : '';
