@@ -1648,6 +1648,8 @@ function renderTemplate(type, data) {
     case 'detail': return renderDetailTemplate(data);
     case 'detail-tabs': return renderDetailTabsTemplate(data);
     case 'detail-toc': return renderDetailTocTemplate(data);
+    case 'list': return renderListTemplate(data);
+    case 'kanban': return renderKanbanTemplate(data);
     default: throw new Error(`Unknown template type: ${type}`);
   }
 }
