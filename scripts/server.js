@@ -2380,15 +2380,16 @@ function handleDashboardHome(res, pmDir) {
     <a href="/proposals" class="home-section-link">All proposals</a>
   </div>
   <div class="home-proposal-list">
-    ${activeProposals.map(p => `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="home-proposal-row">
-      <span class="proposal-id">${escHtml(p.id)}</span>
-      <span class="proposal-title">${escHtml(p.title)}</span>
-      <span class="proposal-meta">
-        <span class="badge badge-${escHtml(p.badgeClass)}">${escHtml(p.statusLabel)}</span>
-        <span>${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>
-        <span>${escHtml(formatRelativeDate(p.updated))}</span>
-      </span>
-    </a>`).join('')}
+    ${activeProposals.map(p => `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
+  <div class="proposal-card-body">
+    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
+  </div>
+  <div class="proposal-card-meta">
+    <span class="badge badge-${escHtml(p.badgeClass)}">${escHtml(p.statusLabel)}</span>
+    <span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>
+    <span class="updated">${escHtml(formatRelativeDate(p.updated))}</span>
+  </div>
+</a>`).join('')}
   </div>
 </section>` : '';
 
