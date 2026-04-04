@@ -177,7 +177,7 @@ test('GET / shows suggested next action based on knowledge base state', async ()
 // 2c. Backlog detail page shows action hint based on status
 // ---------------------------------------------------------------------------
 
-test('GET /backlog/<slug> shows contextual action hint', async () => {
+test('GET /roadmap/<slug> shows contextual action hint', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/idea-item.md': '---\nstatus: idea\ntitle: Idea Item\n---\n# Idea\n',
     'pm/backlog/done-item.md': '---\nstatus: done\ntitle: Done Item\n---\n# Done\n',
@@ -185,10 +185,10 @@ test('GET /backlog/<slug> shows contextual action hint', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body: ideaBody } = await httpGet(port, '/backlog/idea-item');
+      const { body: ideaBody } = await httpGet(port, '/roadmap/idea-item');
       assert.ok(ideaBody.includes('/pm:groom idea-item'), 'idea page must show groom hint with slug');
 
-      const { body: doneBody } = await httpGet(port, '/backlog/done-item');
+      const { body: doneBody } = await httpGet(port, '/roadmap/done-item');
       assert.ok(!doneBody.includes('/pm:groom'), 'done page must not show groom hint');
     } finally { await close(); }
   } finally { cleanup(); }
@@ -198,7 +198,7 @@ test('GET /backlog/<slug> shows contextual action hint', async () => {
 // 2d. Kanban cards show action hints for idea items
 // ---------------------------------------------------------------------------
 
-test('GET /backlog kanban shows per-card hints for ideas', async () => {
+test('GET /roadmap kanban shows per-card hints for ideas', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/my-idea.md': '---\nstatus: idea\ntitle: My Idea\n---\n# Idea\n',
     'pm/backlog/shipped-item.md': '---\nstatus: done\ntitle: Shipped\n---\n# Shipped\n',
@@ -206,7 +206,7 @@ test('GET /backlog kanban shows per-card hints for ideas', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, '/backlog');
+      const { body } = await httpGet(port, '/roadmap');
       assert.ok(body.includes('/pm:groom my-idea'), 'idea card must show groom hint with slug');
       assert.ok(!body.includes('/pm:groom shipped-item'), 'shipped card must not show groom hint');
     } finally { await close(); }
@@ -296,7 +296,7 @@ test('GET /competitors/acme returns tabbed detail HTML', async () => {
 // 6. GET /backlog returns kanban HTML grouped by status
 // ---------------------------------------------------------------------------
 
-test('GET /backlog returns kanban HTML grouped by status', async () => {
+test('GET /roadmap returns kanban HTML grouped by status', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/backlog/issue-1.md': '---\nstatus: open\ntitle: First Issue\n---\n# First Issue\n',
     'pm/backlog/issue-2.md': '---\nstatus: in-progress\ntitle: In Progress Issue\n---\n# In Progress Issue\n',
@@ -305,11 +305,11 @@ test('GET /backlog returns kanban HTML grouped by status', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/backlog');
+      const { statusCode, body } = await httpGet(port, '/roadmap');
       assert.equal(statusCode, 200);
-      assert.ok(body.includes('open') || body.includes('Open') || body.includes('OPEN'), 'must show open column');
-      assert.ok(body.includes('in-progress') || body.includes('In Progress') || body.includes('in_progress'), 'must show in-progress column');
-      assert.ok(body.includes('done') || body.includes('Done') || body.includes('DONE'), 'must show done column');
+      assert.ok(body.includes('Idea') || body.includes('idea'), 'must show idea column');
+      assert.ok(body.includes('Groomed') || body.includes('groomed'), 'must show groomed column');
+      assert.ok(body.includes('Shipped') || body.includes('shipped'), 'must show shipped column');
     } finally {
       await close();
     }
@@ -322,7 +322,7 @@ test('GET /backlog returns kanban HTML grouped by status', async () => {
 // 6b. Shipped column caps at 10 items with view-all link
 // ---------------------------------------------------------------------------
 
-test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', async () => {
+test('GET /roadmap caps shipped column at 10 and links to /roadmap/shipped', async () => {
   const files = {};
   for (let i = 1; i <= 15; i++) {
     const n = String(i).padStart(3, '0');
@@ -332,7 +332,7 @@ test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', asy
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/backlog');
+      const { statusCode, body } = await httpGet(port, '/roadmap');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('View all 15 shipped'), 'must show view-all link with total count');
       // Should show the 10 most recently updated (PM-006 through PM-015)
@@ -350,7 +350,7 @@ test('GET /backlog caps shipped column at 10 and links to /backlog/shipped', asy
 // 6c. GET /backlog/shipped returns all shipped items
 // ---------------------------------------------------------------------------
 
-test('GET /backlog/shipped returns all shipped items', async () => {
+test('GET /roadmap/shipped returns all shipped items', async () => {
   const files = {};
   for (let i = 1; i <= 15; i++) {
     const n = String(i).padStart(3, '0');
@@ -361,14 +361,14 @@ test('GET /backlog/shipped returns all shipped items', async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, '/backlog/shipped');
+      const { statusCode, body } = await httpGet(port, '/roadmap/shipped');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('Shipped'), 'must have Shipped heading');
       assert.ok(body.includes('15 items'), 'must show total count');
       assert.ok(body.includes('PM-001'), 'must include oldest shipped item');
       assert.ok(body.includes('PM-015'), 'must include newest shipped item');
       assert.ok(!body.includes('PM-100'), 'must not include non-shipped items');
-      assert.ok(body.includes('Backlog'), 'must have breadcrumb back to backlog');
+      assert.ok(body.includes('Roadmap'), 'must have breadcrumb back to roadmap');
     } finally {
       await close();
     }
@@ -929,7 +929,7 @@ test('start-server.sh launches dashboard mode against the provided project direc
 // 28. Nav restructure — KB umbrella
 // ---------------------------------------------------------------------------
 
-test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () => {
+test('Dashboard nav shows Home, Proposals, Roadmap, Knowledge Base', async () => {
   const { pmDir, cleanup } = withPmDir({
     'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
   });
@@ -943,7 +943,8 @@ test('Dashboard nav shows Home, Proposals, Backlog, Knowledge Base', async () =>
       const navHtml = navMatch[1];
       assert.ok(navHtml.includes('Knowledge Base'), 'nav must show Knowledge Base');
       assert.ok(navHtml.includes('Proposals'), 'nav must show Proposals');
-      assert.ok(navHtml.includes('Backlog'), 'nav must show Backlog');
+      assert.ok(navHtml.includes('Roadmap'), 'nav must show Roadmap');
+      assert.ok(!navHtml.includes('>Backlog<'), 'nav must NOT show Backlog');
       assert.ok(!navHtml.includes('>Research<'), 'nav must NOT show Research as top-level');
       assert.ok(!navHtml.includes('>Strategy<'), 'nav must NOT show Strategy as top-level');
     } finally { await close(); }
@@ -1459,4 +1460,161 @@ test('PM-119: accent color unified to #5e6ad2', () => {
   assert.ok(rootMatch, ':root block must exist');
   assert.ok(rootMatch[1].includes('--accent: #5e6ad2'),
     '--accent must be unified to #5e6ad2');
+});
+
+// ---------------------------------------------------------------------------
+// PM-123: Roadmap Page (rename Backlog)
+// ---------------------------------------------------------------------------
+
+test('PM-123: GET /backlog redirects 302 to /roadmap', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/issue-1.md': '---\nstatus: idea\ntitle: Issue 1\n---\n# Issue 1\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers, body } = await httpGet(port, '/backlog');
+      assert.equal(statusCode, 302, 'GET /backlog must return 302');
+      assert.equal(headers.location, '/roadmap', 'must redirect to /roadmap');
+      assert.equal(body, '', 'redirect body must be empty');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: GET /backlog/shipped redirects 302 to /roadmap/shipped', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/done-1.md': '---\nstatus: done\ntitle: Done 1\n---\n# Done 1\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, '/backlog/shipped');
+      assert.equal(statusCode, 302, 'GET /backlog/shipped must return 302');
+      assert.equal(headers.location, '/roadmap/shipped');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: GET /backlog/<slug> redirects 302 to /roadmap/<slug>', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/my-feature.md': '---\nstatus: idea\ntitle: My Feature\n---\n# My Feature\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, '/backlog/my-feature');
+      assert.equal(statusCode, 302, 'GET /backlog/<slug> must return 302');
+      assert.equal(headers.location, '/roadmap/my-feature');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: GET /roadmap returns 200 with Roadmap heading', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/issue-1.md': '---\nstatus: idea\ntitle: Issue 1\n---\n# Issue 1\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/roadmap');
+      assert.equal(statusCode, 200, 'GET /roadmap must return 200');
+      assert.ok(body.includes('<h1>Roadmap</h1>'), 'must have Roadmap heading');
+      assert.ok(!body.includes('<h1>Backlog</h1>'), 'must NOT have Backlog heading');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: nav sidebar shows Roadmap not Backlog', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      const navMatch = body.match(/<nav>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, 'page must have a nav element');
+      const navHtml = navMatch[1];
+      assert.ok(navHtml.includes('Roadmap'), 'nav must show Roadmap');
+      assert.ok(!navHtml.includes('Backlog'), 'nav must NOT show Backlog');
+      assert.ok(navHtml.includes('href="/roadmap"'), 'nav must link to /roadmap');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: kanban columns are labeled Groomed / In Progress / Shipped', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/idea-1.md': '---\nstatus: idea\ntitle: Idea One\n---\n# Idea\n',
+    'pm/backlog/wip-1.md': '---\nstatus: in-progress\ntitle: WIP One\n---\n# WIP\n',
+    'pm/backlog/done-1.md': '---\nstatus: done\ntitle: Done One\n---\n# Done\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap');
+      assert.ok(body.includes('>Idea<') || body.includes('>Idea '), 'must show Idea column');
+      assert.ok(body.includes('>Groomed<') || body.includes('>Groomed '), 'must show Groomed column');
+      assert.ok(body.includes('>Shipped<') || body.includes('>Shipped '), 'must show Shipped column');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: shipped column has dimming CSS', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('.kanban-col.shipped'),
+    'DASHBOARD_CSS must contain .kanban-col.shipped rule');
+  assert.ok(DASHBOARD_CSS.includes('opacity: 0.7') || DASHBOARD_CSS.includes('opacity:0.7'),
+    'shipped column items must have opacity 0.7');
+});
+
+test('PM-123: rendered HTML has no remaining /backlog/ hrefs', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/idea-1.md': '---\nstatus: idea\ntitle: Idea One\nid: PM-001\n---\n# Idea\n',
+    'pm/backlog/done-1.md': '---\nstatus: done\ntitle: Done One\nid: PM-002\n---\n# Done\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Check roadmap page
+      const { body: roadmapBody } = await httpGet(port, '/roadmap');
+      const backlogHrefs = (roadmapBody.match(/href="\/backlog/g) || []);
+      assert.equal(backlogHrefs.length, 0,
+        `Roadmap page must have no /backlog hrefs, found ${backlogHrefs.length}: ${backlogHrefs.join(', ')}`);
+
+      // Check home page
+      const { body: homeBody } = await httpGet(port, '/');
+      const homeBacklogHrefs = (homeBody.match(/href="\/backlog/g) || []);
+      assert.equal(homeBacklogHrefs.length, 0,
+        `Home page must have no /backlog hrefs, found ${homeBacklogHrefs.length}`);
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: breadcrumbs say Roadmap not Backlog', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/my-item.md': '---\nstatus: idea\ntitle: My Item\n---\n# My Item\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/roadmap/my-item');
+      assert.ok(body.includes('Roadmap</a>'), 'breadcrumb must say Roadmap');
+      assert.ok(!body.includes('Backlog</a>'), 'breadcrumb must NOT say Backlog');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-123: GET /roadmap/shipped returns 200', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/done-1.md': '---\nstatus: done\ntitle: Done 1\n---\n# Done 1\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/roadmap/shipped');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('Shipped'), 'must have Shipped heading');
+      assert.ok(body.includes('Roadmap</a>'), 'breadcrumb must say Roadmap');
+    } finally { await close(); }
+  } finally { cleanup(); }
 });

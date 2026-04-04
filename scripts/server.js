@@ -464,6 +464,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-col .col-body { padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .kanban-col.col-empty { opacity: 0.45; }
 .kanban-col.col-empty .col-body { min-height: 3rem; }
+.kanban-col.shipped .kanban-item { opacity: 0.7; }
+.kanban-col.shipped .kanban-item:hover { opacity: 1; }
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
 .badge-in-progress { background: var(--badge-info-bg); color: var(--accent); }
 .badge-approved { background: var(--badge-success-bg); color: var(--badge-success-text); }
@@ -774,7 +776,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
   const navLinks = [
     { href: '/', label: 'Home' },
     { href: '/proposals', label: 'Proposals' },
-    { href: '/backlog', label: 'Backlog' },
+    { href: '/roadmap', label: 'Roadmap' },
     { href: '/kb', label: 'Knowledge Base' },
   ];
   const navHtml = navLinks.map(l =>
@@ -1006,20 +1008,31 @@ function routeDashboard(req, res, pmDir) {
     } else {
       res.writeHead(404); res.end('Not found');
     }
-  } else if (urlPath === '/backlog') {
+  } else if (urlPath === '/roadmap') {
     handleBacklog(res, pmDir);
-  } else if (urlPath === '/backlog/shipped') {
+  } else if (urlPath === '/roadmap/shipped') {
     handleShipped(res, pmDir);
-  } else if (urlPath.startsWith('/backlog/wireframes/')) {
-    const slug = decodeURIComponent(urlPath.slice('/backlog/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
+  } else if (urlPath.startsWith('/roadmap/wireframes/')) {
+    const slug = decodeURIComponent(urlPath.slice('/roadmap/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
-  } else if (urlPath.startsWith('/backlog/')) {
-    const slug = urlPath.slice('/backlog/'.length).replace(/\/$/, '');
+  } else if (urlPath.startsWith('/roadmap/')) {
+    const slug = urlPath.slice('/roadmap/'.length).replace(/\/$/, '');
     if (slug && !slug.includes('/') && !slug.includes('..')) {
       handleBacklogItem(res, pmDir, slug);
     } else {
       res.writeHead(404); res.end('Not found');
     }
+  // Legacy /backlog redirects
+  } else if (urlPath === '/backlog') {
+    res.writeHead(302, { 'Location': '/roadmap' }); res.end();
+  } else if (urlPath === '/backlog/shipped') {
+    res.writeHead(302, { 'Location': '/roadmap/shipped' }); res.end();
+  } else if (urlPath.startsWith('/backlog/wireframes/')) {
+    const rest = urlPath.slice('/backlog/wireframes'.length);
+    res.writeHead(302, { 'Location': '/roadmap/wireframes' + rest }); res.end();
+  } else if (urlPath.startsWith('/backlog/')) {
+    const rest = urlPath.slice('/backlog'.length);
+    res.writeHead(302, { 'Location': '/roadmap' + rest }); res.end();
   } else {
     res.writeHead(404); res.end('Not found');
   }
@@ -1234,7 +1247,7 @@ function handleDashboardHome(res, pmDir) {
   const sections = [
     { href: '/research', title: 'Research', desc: researchDesc, hasContent: researchHasContent, key: 'research' },
     { href: '/strategy', title: 'Strategy', desc: 'Product strategy and roadmap direction', hasContent: !!stats.strategy, key: 'strategy' },
-    { href: '/backlog', title: 'Backlog', desc: `${stats.backlog} backlog item${stats.backlog !== 1 ? 's' : ''}`, hasContent: stats.backlog > 0, key: 'backlog' },
+    { href: '/roadmap', title: 'Roadmap', desc: `${stats.backlog} backlog item${stats.backlog !== 1 ? 's' : ''}`, hasContent: stats.backlog > 0, key: 'backlog' },
   ].map(s => {
     const badge = s.hasContent
       ? '<span class="badge badge-ready">Ready</span>'
@@ -2318,14 +2331,14 @@ function handleResearchTopic(res, pmDir, topic) {
 function handleWireframe(res, pmDir, slug) {
   if (!slug || slug.includes('/') || slug.includes('..')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Not Found', '/backlog', '<div class="markdown-body"><h1>Not found</h1></div>'));
+    res.end(dashboardPage('Not Found', '/roadmap', '<div class="markdown-body"><h1>Not found</h1></div>'));
     return;
   }
   const wireframesDir = path.resolve(pmDir, 'backlog', 'wireframes');
   const wfPath = path.resolve(wireframesDir, slug + '.html');
   if (!wfPath.startsWith(wireframesDir + path.sep)) {
     res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Forbidden', '/backlog', '<div class="markdown-body"><h1>Forbidden</h1></div>'));
+    res.end(dashboardPage('Forbidden', '/roadmap', '<div class="markdown-body"><h1>Forbidden</h1></div>'));
     return;
   }
   try {
@@ -2334,7 +2347,7 @@ function handleWireframe(res, pmDir, slug) {
     res.end(content);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Wireframe Not Found', '/backlog', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
+    res.end(dashboardPage('Wireframe Not Found', '/roadmap', '<div class="markdown-body"><h1>Wireframe not found</h1><p>No wireframe exists for this backlog item.</p></div>'));
   }
 }
 
@@ -2382,7 +2395,7 @@ function handleBacklog(res, pmDir) {
     const hintHtml = status === 'idea'
       ? `<div class="kanban-item-hint">/pm:groom ${escHtml(item.slug)}</div>`
       : '';
-    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
+    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}">${topLine}<div class="kanban-item-title">${escHtml(item.title)}</div><div class="kanban-item-meta">${labelHtml}${scopeHtml}</div>${hintHtml}</a>`;
   };
 
   const COL_HINTS = {
@@ -2399,13 +2412,14 @@ function handleBacklog(res, pmDir) {
       : allItems;
     const items = displayItems.map(item => renderItem(item, status)).join('');
     const viewAllLink = isShipped && totalCount > SHIPPED_LIMIT
-      ? `<a href="/backlog/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
+      ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
       : '';
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const countLabel = isShipped && totalCount > SHIPPED_LIMIT ? ` <span class="col-count">${totalCount}</span>` : '';
     const emptyClass = totalCount === 0 ? ' col-empty' : '';
     const colHint = COL_HINTS[status] && totalCount > 0 ? `<div class="col-hint">${COL_HINTS[status]}</div>` : '';
-    return `<div class="kanban-col${emptyClass}">
+    const shippedClass = isShipped ? ' shipped' : '';
+    return `<div class="kanban-col${shippedClass}${emptyClass}">
   <div class="col-header">${label}${countLabel}</div>
   ${colHint}
   <div class="col-body">${items || '<div class="col-placeholder"></div>'}${viewAllLink}</div>
@@ -2419,10 +2433,12 @@ function handleBacklog(res, pmDir) {
 <span class="legend-item"><span class="legend-bar priority-low"></span>Low</span>
 </div>`;
   const body = `
-<div class="page-header"><h1>Backlog</h1>${legend}</div>
+<div class="page-header"><h1>Roadmap</h1>
+  <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
+${legend}</div>
 ${cols ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>'}`;
 
-  const html = dashboardPage('Backlog', '/backlog', body);
+  const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2454,7 +2470,7 @@ function handleShipped(res, pmDir) {
   const rows = items.map(item => {
     const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
     const labelHtml = item.labels.map(l => `<span class="kanban-label">${escHtml(l)}</span>`).join(' ');
-    return `<a class="kanban-item priority-${item.priority}" href="/backlog/${escHtml(item.slug)}">
+    return `<a class="kanban-item priority-${item.priority}" href="/roadmap/${escHtml(item.slug)}">
   <div class="kanban-item-ids">${idHtml}</div>
   <div class="kanban-item-title">${escHtml(item.title)}</div>
   <div class="kanban-item-meta">${labelHtml}<span class="shipped-date">${escHtml(item.updated)}</span></div>
@@ -2462,11 +2478,11 @@ function handleShipped(res, pmDir) {
   }).join('');
 
   const body = `
-<p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
+<p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
 <div class="page-header"><h1>Shipped</h1><span class="col-count page-count">${items.length} items</span></div>
 <div class="shipped-list">${rows || '<div class="empty-state"><p>No shipped items yet.</p></div>'}</div>`;
 
-  const html = dashboardPage('Shipped', '/backlog', body);
+  const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -2474,7 +2490,7 @@ function handleShipped(res, pmDir) {
 function handleBacklogItem(res, pmDir, slug) {
   const filePath = path.join(pmDir, 'backlog', slug + '.md');
   if (!fs.existsSync(filePath)) {
-    const html = dashboardPage('Not Found', '/backlog', '<div class="empty-state"><p>Backlog item not found.</p><p><a href="/backlog">&larr; Back to backlog</a></p></div>');
+    const html = dashboardPage('Not Found', '/roadmap', '<div class="empty-state"><p>Backlog item not found.</p><p><a href="/roadmap">&larr; Back to roadmap</a></p></div>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -2502,7 +2518,7 @@ function handleBacklogItem(res, pmDir, slug) {
   if (data.parent && slugLookup[data.parent]) {
     const p = slugLookup[data.parent];
     const pLabel = p.id ? `${escHtml(p.id)} ${escHtml(p.title)}` : escHtml(p.title);
-    parentHtml = `<div class="issue-relation"><span class="relation-label">Parent:</span> <a href="/backlog/${escHtml(data.parent)}">${pLabel}</a></div>`;
+    parentHtml = `<div class="issue-relation"><span class="relation-label">Parent:</span> <a href="/roadmap/${escHtml(data.parent)}">${pLabel}</a></div>`;
   }
 
   // Children links
@@ -2512,7 +2528,7 @@ function handleBacklogItem(res, pmDir, slug) {
     const childLinks = children.map(c => {
       const ch = slugLookup[c];
       const cLabel = ch.id ? `${escHtml(ch.id)} ${escHtml(ch.title)}` : escHtml(ch.title);
-      return `<li><a href="/backlog/${escHtml(c)}">${cLabel}</a></li>`;
+      return `<li><a href="/roadmap/${escHtml(c)}">${cLabel}</a></li>`;
     }).join('');
     childrenHtml = `<div class="issue-relation"><span class="relation-label">Children:</span><ul class="issue-children">${childLinks}</ul></div>`;
   }
@@ -2524,8 +2540,8 @@ function handleBacklogItem(res, pmDir, slug) {
   try {
     fs.accessSync(path.join(pmDir, 'backlog', 'wireframes', slug + '.html'));
     wireframeHtml = `<div class="wireframe-embed">
-  <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/backlog/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
-  <iframe src="/backlog/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
+  <div class="wireframe-header"><span class="wireframe-label">Wireframe Preview</span><a href="/roadmap/wireframes/${encodeURIComponent(slug)}" target="_blank" class="wireframe-open">Open in new tab &nearr;</a></div>
+  <iframe src="/roadmap/wireframes/${encodeURIComponent(slug)}" class="wireframe-iframe"></iframe>
 </div>`;
   } catch { /* no wireframe for this item */ }
 
@@ -2538,9 +2554,9 @@ function handleBacklogItem(res, pmDir, slug) {
     actionHint = `<div class="action-hint">Edit <code>pm/backlog/${escHtml(slug)}.md</code> to update status</div>`;
   }
 
-  const html = dashboardPage(title, '/backlog', `
+  const html = dashboardPage(title, '/roadmap', `
 <div class="page-header">
-  <p class="breadcrumb"><a href="/backlog">&larr; Backlog</a></p>
+  <p class="breadcrumb"><a href="/roadmap">&larr; Roadmap</a></p>
   <h1>${idTag}${escHtml(title)}</h1>
   ${actionHint}
   ${relationsHtml}
@@ -2553,7 +2569,7 @@ ${wireframeHtml}
 
 function rewriteKnowledgeBaseLinks(md) {
   return md
-    .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, '](/backlog/wireframes/$1)')
+    .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, '](/roadmap/wireframes/$1)')
     .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, '](/research/$1)')
     .replace(/\]\(pm\/research\/([^)]+)\)/g, '](/research/$1)')
     .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, '](/competitors/$1#$2)')
