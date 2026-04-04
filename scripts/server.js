@@ -426,6 +426,12 @@ const DASHBOARD_CSS = `
   --accent-hover: #4f5bc4;
   --accent-subtle: #eef0ff;
   --dark: #1a1a2e;
+  --sidebar-bg: #f0f1f4;
+  --sidebar-text: #1a1d23;
+  --sidebar-text-muted: rgba(30,33,40,0.5);
+  --sidebar-hover-bg: rgba(0,0,0,0.03);
+  --sidebar-active-bg: rgba(0,0,0,0.06);
+  --sidebar-width: 240px;
   --success: #16a34a;
   --warning: #ea580c;
   --info: #0891b2;
@@ -491,6 +497,12 @@ const DASHBOARD_CSS = `
   --accent-hover: #4f5bc4;
   --accent-subtle: #eef0ff;
   --dark: #1a1a2e;
+  --sidebar-bg: #f0f1f4;
+  --sidebar-text: #1a1d23;
+  --sidebar-text-muted: rgba(30,33,40,0.5);
+  --sidebar-hover-bg: rgba(0,0,0,0.03);
+  --sidebar-active-bg: rgba(0,0,0,0.06);
+  --sidebar-width: 240px;
   --success: #16a34a;
   --warning: #ea580c;
   --info: #0891b2;
@@ -535,6 +547,12 @@ const DASHBOARD_CSS = `
   --accent-hover: #7c85e0;
   --accent-subtle: #1e1f35;
   --dark: #111318;
+  --sidebar-bg: #111318;
+  --sidebar-text: rgba(255,255,255,0.9);
+  --sidebar-text-muted: rgba(255,255,255,0.45);
+  --sidebar-hover-bg: rgba(255,255,255,0.05);
+  --sidebar-active-bg: rgba(255,255,255,0.08);
+  --sidebar-width: 240px;
   --success: #4ade80;
   --warning: #fbbf24;
   --info: #38bdf8;
@@ -572,20 +590,25 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   border-radius: 4px;
 }
 
-/* Nav */
-nav { background: var(--dark); padding: 0 1.5rem; display: flex; gap: 0; align-items: stretch; min-height: 48px; }
-nav .brand { color: var(--text-on-accent); font-weight: 700; font-size: 0.9375rem; display: flex; align-items: center;
-  margin-right: 1.5rem; letter-spacing: -0.01em; }
-nav a { color: rgba(255,255,255,0.6); font-size: 0.8125rem; padding: 0 0.875rem;
-  display: flex; align-items: center; border-bottom: 2px solid transparent;
-  transition: color var(--transition), border-color var(--transition); text-decoration: none; }
-nav a:hover { color: rgba(255,255,255,0.9); text-decoration: none; }
-nav a.active { color: var(--text-on-accent); border-bottom-color: var(--accent); }
-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Sidebar nav */
+.sidebar { width: var(--sidebar-width); background: var(--sidebar-bg); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+.sidebar-brand { padding: 20px 16px 16px; font-weight: 700; font-size: 14px; color: var(--sidebar-text); letter-spacing: -0.02em; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 13px; font-weight: 500;
+  color: var(--sidebar-text-muted); border-radius: 6px; text-decoration: none; transition: background 150ms, color 150ms; }
+.nav-item:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text); }
+.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-text); }
+.nav-icon { width: 16px; height: 16px; opacity: 0.5; flex-shrink: 0; }
+.nav-item.active .nav-icon { opacity: 0.8; }
+.sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
+.sidebar-theme-toggle { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; font-weight: 500;
+  color: var(--sidebar-text-muted); border-radius: 6px; background: none; border: none; cursor: pointer; width: 100%; }
+.sidebar-theme-toggle:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text); }
 
 /* Layout */
-main.main-content { display: block; }
-.container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem; }
+main.main-content { display: block; margin-left: var(--sidebar-width); }
+.container { max-width: 960px; padding: 2rem 2rem; }
 
 /* Typography */
 h1 { font-size: 1.625rem; font-weight: 700; margin-bottom: 0.25rem; letter-spacing: -0.02em; }
@@ -1327,11 +1350,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
-/* Theme toggle */
-.theme-toggle { margin-left: auto; background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.6);
-  font-size: var(--text-md); padding: 0 var(--space-2); display: flex; align-items: center; transition: color var(--transition); }
-.theme-toggle:hover { color: rgba(255,255,255,0.9); }
-.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Theme toggle is in sidebar footer — see .sidebar-theme-toggle */
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1345,14 +1364,14 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 function dashboardPage(title, activeNav, bodyContent, projectName) {
   projectName = projectName || _cachedProjectName || 'PM';
   const navLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/proposals', label: 'Proposals' },
-    { href: '/roadmap', label: 'Roadmap' },
-    { href: '/kb', label: 'Knowledge Base' },
+    { href: '/', label: 'Home', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6l6-4 6 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1V6z"/></svg>' },
+    { href: '/proposals', label: 'Proposals', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6h6M5 9h4"/></svg>' },
+    { href: '/kb', label: 'Knowledge Base', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>' },
+    { href: '/roadmap', label: 'Roadmap', icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>' },
   ];
   const navHtml = navLinks.map(l =>
-    `<a href="${l.href}"${activeNav === l.href ? ' class="active"' : ''}>${l.label}</a>`
-  ).join('');
+    `<a href="${l.href}" class="nav-item${activeNav === l.href ? ' active' : ''}">${l.icon}${l.label}</a>`
+  ).join('\n      ');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1370,11 +1389,18 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose'});</script>
 </head>
 <body>
-<nav aria-label="Main navigation">
-  <span class="brand">${escHtml(projectName)}</span>
-  ${navHtml}
-  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme">&#9681;</button>
-</nav>
+<aside class="sidebar" aria-label="Main navigation">
+  <div class="sidebar-brand">${escHtml(projectName)}</div>
+  <nav>
+      ${navHtml}
+  </nav>
+  <div class="sidebar-footer">
+    <button class="sidebar-theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7"/></svg>
+      <span id="theme-label">Light mode</span>
+    </button>
+  </div>
+</aside>
 <main class="main-content" role="main" id="main-content">
 <div class="container">
 ${bodyContent}
@@ -1426,7 +1452,10 @@ function showCopyToast(msg) {
     localStorage.setItem('pm-theme', t);
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', t === 'dark' ? '#0d0f12' : '#f7f8fb');
+    var label = document.getElementById('theme-label');
+    if (label) label.textContent = t === 'dark' ? 'Light mode' : 'Dark mode';
   }
+  setTheme(getTheme());
   btn.addEventListener('click', function() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); });
 })();
 // "/" keyboard shortcut to focus search/filter input
@@ -2101,13 +2130,25 @@ function parseStrategySnapshot(pmDir) {
     }
   }
 
-  // Extract priorities from ## Priorities section
+  // Extract priorities: look for ## Priorities section or **Top N priorities:** label
   const priorities = [];
-  const priMatch = body.match(/## Priorities\s*\n([\s\S]*?)(?:\n##|$)/);
-  if (priMatch) {
-    const lines = priMatch[1].split('\n').filter(l => /^\s*[-*\d]/.test(l));
+  const priSection = body.match(/## (?:\d+\.\s*)?(?:.*[Pp]riorities.*)\s*\n([\s\S]*?)(?:\n##|$)/)
+    || body.match(/\*\*Top \d+ priorities[^*]*\*\*[:\s]*\n([\s\S]*?)(?:\n##|$)/);
+  if (priSection) {
+    // Only match numbered list items (1. 2. 3.) — skip prose and bold labels
+    const lines = priSection[1].split('\n').filter(l => /^\s*\d+[\.\)]\s/.test(l));
     for (const line of lines.slice(0, 3)) {
-      priorities.push(line.replace(/^\s*[-*\d.]+\s*/, '').trim());
+      // Strip list marker, extract bold title if present, take first sentence
+      let text = line.replace(/^\s*\d+[\.\)]\s*/, '').trim();
+      const boldTitle = text.match(/^\*\*([^*]+)\*\*\.?\s*/);
+      if (boldTitle) {
+        text = boldTitle[1];
+      } else {
+        const sentence = text.match(/^[^.]*\./);
+        if (sentence) text = sentence[0].trim();
+        else text = text.slice(0, 120);
+      }
+      priorities.push(text);
     }
   }
 
