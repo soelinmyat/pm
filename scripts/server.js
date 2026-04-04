@@ -597,7 +597,8 @@ a.stat-card-link .label { color: var(--accent, #2563eb); }
   overflow: hidden; box-shadow: none; border-right: 1px solid var(--border); }
 .kanban-col:last-child { border-right: none; }
 .kanban-col .col-header { background: transparent; padding: 0.5rem 1rem 0.75rem; font-weight: 600;
-  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+.col-count { font-size: 0.75rem; font-weight: 500; color: var(--text-muted); opacity: 0.7; }
 .kanban-col .col-body { padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .kanban-col.col-empty { opacity: 0.45; }
 .kanban-col.col-empty .col-body { min-height: 3rem; }
@@ -623,6 +624,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .done-arrow.open { transform: rotate(180deg); }
 .done-items { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.375rem; }
 .kanban-id { font-size: 0.6875rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.kanban-sub-count { font-size: 0.625rem; color: var(--text-muted); margin-left: 0.25rem; }
 .kanban-parent { font-size: 0.6875rem; color: var(--accent, #2563eb); white-space: nowrap; cursor: pointer; }
 .kanban-parent:hover { text-decoration: underline; }
 .backlog-item-id { font-size: 0.75em; font-weight: 600; color: var(--accent); }
@@ -659,7 +661,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .kanban-view-all { display: block; text-align: center; padding: 0.5rem; font-size: 0.8125rem; color: var(--accent); text-decoration: none; border-top: 1px solid var(--border); margin-top: 0.25rem; }
 .kanban-view-all:hover { text-decoration: underline; }
 .col-count { font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
-.shipped-list { display: flex; flex-direction: column; gap: 0.5rem; max-width: 40rem; }
+.shipped-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .shipped-date { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
 
 /* Tabs */
@@ -1005,90 +1007,6 @@ a.groom-session:hover { background: #1e2240; }
   padding: 0.5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
 .proposal-iframe { width: 100%; height: 800px; border: none; background: var(--surface); }
 
-/* ========== Activity Feed Panel ========== */
-.main-with-feed { display: flex; gap: 0; overflow: hidden; }
-.main-with-feed > .container { flex: 1; min-width: 0; overflow-y: auto; }
-
-.activity-feed {
-  width: 260px; flex-shrink: 0;
-  background: #12141a; border-left: 1px solid var(--border);
-  display: flex; flex-direction: column; height: 100vh;
-  position: sticky; top: 0;
-}
-[data-theme="light"] .activity-feed {
-  background: #f0f1f4;
-}
-
-.feed-header {
-  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--text-muted);
-}
-.feed-status {
-  display: flex; align-items: center; gap: 0.375rem;
-  font-size: 0.6875rem; font-weight: 500; text-transform: none;
-  letter-spacing: 0; color: var(--text-muted);
-}
-.feed-status-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--success);
-}
-.feed-status-dot.live {
-  animation: feed-pulse 2s ease-in-out infinite;
-}
-.feed-status-dot.idle {
-  background: var(--text-muted);
-  animation: none;
-}
-@keyframes feed-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.feed-body { flex: 1; overflow-y: auto; }
-
-.feed-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 100%; padding: 2rem 1rem; text-align: center;
-  font-size: 0.75rem; color: var(--text-muted); line-height: 1.5;
-}
-
-.feed-event {
-  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
-  display: flex; align-items: flex-start; gap: 0.5rem;
-}
-.feed-event.muted { opacity: 0.5; }
-
-.feed-event-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  flex-shrink: 0; margin-top: 5px;
-  background: var(--text-muted);
-}
-.feed-event-dot.success { background: var(--success); }
-.feed-event-dot.info { background: var(--info); }
-.feed-event-dot.warning { background: var(--warning); }
-.feed-event-dot.accent { background: var(--accent); }
-
-.feed-event-content { min-width: 0; }
-.feed-event-text {
-  font-size: 0.75rem; line-height: 1.4; color: var(--text);
-}
-.feed-event.muted .feed-event-text { color: var(--text-muted); }
-.feed-event-source { font-weight: 500; }
-.feed-event-time {
-  font-size: 0.625rem; color: var(--text-muted); margin-top: 1px;
-}
-
-.feed-time-sep {
-  font-size: 0.625rem; color: var(--text-muted); padding: 0.5rem 1rem 0.25rem;
-  text-transform: uppercase; letter-spacing: 0.03em;
-}
-
-@media (max-width: 1024px) {
-  .activity-feed { display: none; }
-}
-
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1218,9 +1136,9 @@ a.groom-session:hover { background: #1e2240; }
 [data-theme="light"] .standalone-header, [data-theme="light"] .standalone-header:hover { background: #f0f2f5; }
 [data-theme="light"] .proposal-card.draft { border-color: #c4b5fd; }
 [data-theme="light"] .card:hover { background: rgba(0,0,0,0.02); }
-[data-theme="light"] .nav-item { color: rgba(255,255,255,0.5); }
-[data-theme="light"] .nav-item:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.9); }
-[data-theme="light"] .nav-item.active { background: rgba(255,255,255,0.1); color: #fff; }
+[data-theme="light"] .nav-item { color: var(--sidebar-text-muted); }
+[data-theme="light"] .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text-hover); }
+[data-theme="light"] .nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-text); }
 [data-theme="light"] .suggested-next { background: #f8f9fb; }
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: #d1d5db; }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
@@ -1232,7 +1150,7 @@ a.groom-session:hover { background: #1e2240; }
   display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
 .sidebar-brand { color: var(--sidebar-text); font-weight: 700; font-size: 0.875rem; padding: 1.25rem 1rem 1rem;
   letter-spacing: -0.02em; border-bottom: 1px solid var(--border); }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 0.75rem 0.5rem; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 0.75rem 0.5rem; background: transparent; }
 .nav-item { display: flex; align-items: center; gap: 0.625rem; padding: 0.4375rem 0.75rem;
   font-size: 0.8125rem; font-weight: 500; color: var(--sidebar-text-muted); border-radius: 6px;
   text-decoration: none; transition: background 150ms, color 150ms; }
@@ -2111,6 +2029,15 @@ function discoverCanvases(pmDir) {
         const statePath = path.join(sessionsDir, name, '.state');
         let state = 'active';
         try { state = fs.readFileSync(statePath, 'utf-8').trim() || 'active'; } catch {}
+        // Cross-reference groom/dev session state — if session is done, mark canvas completed
+        if (state === 'active' && (type === 'groom' || type === 'dev')) {
+          const sessionFile = path.resolve(pmDir, '..', '.pm', type + '-sessions', slug + '.md');
+          try {
+            const raw = fs.readFileSync(sessionFile, 'utf-8');
+            const { data } = parseFrontmatter(raw);
+            if (data.phase === 'done' || data.stage === 'done') state = 'completed';
+          } catch {}
+        }
         return { dirName: name, slug, type, label: humanizeSlug(slug), mtime, state };
       })
       .sort((a, b) => b.mtime - a.mtime);
@@ -3163,9 +3090,12 @@ function buildBacklogGrouped(pmDir) {
     const slug = file.replace('.md', '');
     const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
     const { data } = parseFrontmatter(raw);
+    const itemStatus = data.status || 'idea';
+    if (itemStatus === 'idea') continue; // ideas belong on Proposals page, not backlog
+    const rawParent = data.parent || null;
     items[slug] = {
-      slug, title: data.title || humanizeSlug(slug), status: data.status || 'idea',
-      id: data.id || null, parent: data.parent || null, priority: data.priority || 'medium',
+      slug, title: data.title || humanizeSlug(slug), status: itemStatus,
+      id: data.id || null, parent: (rawParent === 'null' ? null : rawParent), priority: data.priority || 'medium',
       labels: Array.isArray(data.labels) ? data.labels.filter(l => l !== 'ideate') : [],
     };
   }
@@ -3218,49 +3148,23 @@ function buildBacklogGrouped(pmDir) {
     }
   }
 
-  // Render groups — active work first, fully-done groups last
+  // Render proposal groups — just name + link, skip fully-shipped proposals
   let html = '';
 
-  const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
-    const aHasActive = groups[a].some(i => i.status !== 'done');
-    const bHasActive = groups[b].some(i => i.status !== 'done');
-    if (aHasActive && !bHasActive) return -1;
-    if (!aHasActive && bHasActive) return 1;
-    return 0;
-  });
-
-  for (const proposalSlug of sortedGroupKeys) {
+  for (const proposalSlug of Object.keys(groups)) {
     const groupItems = groups[proposalSlug];
     const meta = readProposalMeta(proposalSlug, pmDir);
 
-    // Status breakdown
-    const statusCounts = {};
-    for (const item of groupItems) {
-      const s = item.status;
-      statusCounts[s] = (statusCounts[s] || 0) + 1;
-    }
-    const countParts = Object.entries(statusCounts).map(([s, n]) => `${n} ${s}`);
-    const countText = `${groupItems.length} issue${groupItems.length !== 1 ? 's' : ''} — ${countParts.join(', ')}`;
+    // Skip fully-shipped proposals — they belong on the Shipped page
+    const allShipped = groupItems.every(i => i.status === 'done');
+    if (allShipped) continue;
 
-    // Sort: root items first, then children after their parent
-    const roots = groupItems.filter(i => !i.parent || i.parent === proposalSlug);
-    const children = groupItems.filter(i => i.parent && i.parent !== proposalSlug);
-    const ordered = [];
-    for (const root of roots) {
-      ordered.push({ item: root, isChild: false });
-      for (const child of children) {
-        if (child.parent === root.slug) {
-          ordered.push({ item: child, isChild: true });
-        }
-      }
-    }
-    // Add any children whose parent isn't a root (deeper nesting)
-    const placed = new Set(ordered.map(o => o.item.slug));
-    for (const child of children) {
-      if (!placed.has(child.slug)) {
-        ordered.push({ item: child, isChild: true });
-      }
-    }
+    // Status breakdown
+    const activeCount = groupItems.filter(i => i.status !== 'done').length;
+    const shippedCount = groupItems.filter(i => i.status === 'done').length;
+    const countParts = [`${activeCount} active`];
+    if (shippedCount > 0) countParts.push(`${shippedCount} shipped`);
+    const countText = `${groupItems.length} issue${groupItems.length !== 1 ? 's' : ''} — ${countParts.join(', ')}`;
 
     if (meta) {
       const title = escHtml(meta.title || humanizeSlug(proposalSlug));
@@ -3275,7 +3179,7 @@ function buildBacklogGrouped(pmDir) {
     ${verdictBadge}
     <div class="group-count">${escHtml(countText)}</div>
   </a>
-  <div class="group-items">`;
+</div>\n`;
     } else {
       // Dead proposal — no gradient, no link
       const title = escHtml(humanizeSlug(proposalSlug));
@@ -3284,35 +3188,8 @@ function buildBacklogGrouped(pmDir) {
     <div class="group-title">${title}</div>
     <div class="group-count">${escHtml(countText)}</div>
   </div>
-  <div class="group-items">`;
+</div>\n`;
     }
-
-    const activeItems = ordered.filter(o => o.item.status !== 'done');
-    const doneItems = ordered.filter(o => o.item.status === 'done');
-
-    for (const { item, isChild } of activeItems) {
-      const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-      const badgeHtml = item.status ? `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>` : '';
-      const childClass = isChild ? ' child-item' : '';
-      html += `<a class="kanban-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}${badgeHtml}<span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
-    }
-
-    if (doneItems.length > 0) {
-      const doneId = 'done-' + escHtml(proposalSlug);
-      html += `<div class="done-collapse">
-  <button class="done-toggle" onclick="var el=document.getElementById('${doneId}');el.style.display=el.style.display==='none'?'flex':'none';this.querySelector('.done-arrow').classList.toggle('open')" type="button">
-    <span class="done-arrow"></span> ${doneItems.length} shipped
-  </button>
-  <div id="${doneId}" class="done-items" style="display:none">`;
-      for (const { item, isChild } of doneItems) {
-        const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-        const childClass = isChild ? ' child-item' : '';
-        html += `<a class="kanban-item done-item priority-${safePriority(item.priority)}${childClass}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="status-badge badge-done">done</span><span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
-      }
-      html += '</div></div>';
-    }
-
-    html += '</div></div>\n';
   }
 
   // Standalone section
@@ -3338,7 +3215,7 @@ function buildBacklogGrouped(pmDir) {
   <div id="done-standalone" class="done-items" style="display:none">`;
       for (const item of saDone) {
         const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span> ` : '';
-        html += `<a class="kanban-item done-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="status-badge badge-done">done</span><span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
+        html += `<a class="kanban-item done-item priority-${safePriority(item.priority)}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">${idHtml}<span class="status-badge badge-done">shipped</span><span class="kanban-item-title">${escHtml(item.title)}</span></a>\n`;
       }
       html += '</div></div>';
     }
@@ -3354,24 +3231,45 @@ function buildBacklogKanban(pmDir) {
     return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
   }
 
-  const items = fs.readdirSync(backlogDir)
-    .filter(f => f.endsWith('.md'))
-    .map(file => {
-      const slug = file.replace('.md', '');
-      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
-      const { data } = parseFrontmatter(raw);
-      return {
-        slug,
-        title: data.title || humanizeSlug(slug),
-        status: data.status || 'idea',
-        id: data.id || null,
-        updated: data.updated || data.created || '',
-        priority: safePriority(data.priority),
-      };
-    });
+  // Build full items map to identify parent/child relationships
+  const allItems = {};
+  const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+  for (const file of files) {
+    const slug = file.replace('.md', '');
+    const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+    const { data } = parseFrontmatter(raw);
+    const rawParent = data.parent || null;
+    allItems[slug] = {
+      slug,
+      title: data.title || humanizeSlug(slug),
+      status: data.status || 'idea',
+      id: data.id || null,
+      parent: (rawParent === 'null' ? null : rawParent),
+      updated: data.updated || data.created || '',
+      priority: safePriority(data.priority),
+    };
+  }
+
+  // Collect child slugs — any item whose parent is another backlog item
+  const childSlugs = new Set();
+  for (const slug of Object.keys(allItems)) {
+    const p = allItems[slug].parent;
+    if (p && allItems[p]) childSlugs.add(slug);
+  }
+
+  // Parent issues only: not a child, not an idea
+  const items = Object.values(allItems)
+    .filter(i => i.status !== 'idea' && !childSlugs.has(i.slug));
 
   if (items.length === 0) {
     return '<div class="empty-state"><p>No backlog items yet. Run <code>/pm:groom &lt;feature idea&gt;</code> to start grooming.</p></div>';
+  }
+
+  // Count sub-issues per parent
+  const subCount = {};
+  for (const slug of childSlugs) {
+    const p = allItems[slug].parent;
+    if (p) subCount[p] = (subCount[p] || 0) + 1;
   }
 
   items.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
@@ -3383,22 +3281,21 @@ function buildBacklogKanban(pmDir) {
   const columns = [
     { key: 'open', label: 'Open', items: openItems },
     { key: 'in-progress', label: 'In Progress', items: inProgressItems },
-    { key: 'done', label: 'Done', items: doneItems.slice(0, 10), total: doneItems.length },
+    { key: 'done', label: 'Shipped', items: doneItems.slice(0, 10), total: doneItems.length },
   ];
 
   return `<div class="kanban">${columns.map(column => {
     const rows = column.items.map(item => {
       const idHtml = item.id ? `<span class="kanban-id">${escHtml(item.id)}</span>` : '';
       const badgeHtml = column.key === 'done'
-        ? '<span class="status-badge badge-done">done</span>'
+        ? '<span class="status-badge badge-done">shipped</span>'
         : `<span class="status-badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>`;
-      const hintHtml = item.status === 'idea'
-        ? `<div class="kanban-item-hint">Run <code>/pm:groom ${escHtml(item.slug)}</code></div>`
+      const subHtml = subCount[item.slug]
+        ? `<span class="kanban-sub-count">${subCount[item.slug]} sub-issue${subCount[item.slug] !== 1 ? 's' : ''}</span>`
         : '';
       return `<a class="kanban-item${column.key === 'done' ? ' done-item' : ''} priority-${item.priority}" href="/backlog/${escHtml(encodeURIComponent(item.slug))}">
-  <div class="kanban-item-ids">${idHtml}${badgeHtml}</div>
+  <div class="kanban-item-ids">${idHtml}${badgeHtml}${subHtml}</div>
   <div class="kanban-item-title">${escHtml(item.title)}</div>
-  ${hintHtml}
 </a>`;
     }).join('\n');
 
@@ -3406,8 +3303,9 @@ function buildBacklogKanban(pmDir) {
       ? `<a href="/backlog/shipped" class="kanban-view-all">View all ${column.total} shipped</a>`
       : '';
 
+    const count = column.total || column.items.length;
     return `<div class="kanban-col${column.items.length === 0 ? ' col-empty' : ''}">
-  <div class="col-header">${column.label}</div>
+  <div class="col-header">${column.label} <span class="col-count">${count}</span></div>
   <div class="col-body">
     ${rows || '<div class="empty-state"><p>No items</p></div>'}
     ${viewAllHtml}
@@ -3805,11 +3703,11 @@ function handleDashboardHome(res, pmDir) {
 </div>
 <script>if(localStorage.getItem('pm-pulse-expanded')==='true')document.getElementById('pulse-breakdown').classList.add('open');</script>` : '';
 
-  // Discover active canvases
-  const canvases = discoverCanvases(pmDir);
+  // Discover active canvases (hide completed ones entirely)
+  const canvases = discoverCanvases(pmDir).filter(c => c.state !== 'completed');
   const canvasTabsHtml = canvases.length > 0 ? `
 <div class="canvas-tabs">
-  ${canvases.filter(c => c.state !== 'completed').map(c => {
+  ${canvases.map(c => {
     const dotClass = c.state === 'idle' ? 'canvas-tab-dot idle' : 'canvas-tab-dot';
     return `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab">
     <span class="${dotClass}"></span>
@@ -3817,12 +3715,6 @@ function handleDashboardHome(res, pmDir) {
     <span class="canvas-tab-label">${escHtml(c.label)}</span>
   </a>`;
   }).join('\n  ')}
-  ${canvases.filter(c => c.state === 'completed').length > 0 ? `<span class="canvas-tab-sep">|</span>
-  ${canvases.filter(c => c.state === 'completed').map(c => `<a href="/session/${encodeURIComponent(c.slug)}" class="canvas-tab completed">
-    <span class="canvas-tab-check">&#10003;</span>
-    <span class="canvas-tab-type">${escHtml(c.type)}</span>
-    <span class="canvas-tab-label">${escHtml(c.label)}</span>
-  </a>`).join('\n  ')}` : ''}
 </div>` : '';
 
   let body;
@@ -3856,25 +3748,7 @@ ${kbReferenceHtml}
 ${suggestedHtml}`;
   }
 
-  const feedPanelHtml = `
-    <aside class="activity-feed" id="activity-feed">
-      <div class="feed-header">
-        Activity
-        <div class="feed-status" id="feed-status">
-          <span class="feed-status-dot idle" id="feed-status-dot"></span>
-          <span id="feed-status-label">Idle</span>
-        </div>
-      </div>
-      <div class="feed-body" id="feed-body">
-        <div class="feed-empty" id="feed-empty">
-          No events yet.<br>
-          Activity appears here when<br>
-          terminal sessions are running.
-        </div>
-      </div>
-    </aside>`;
-
-  const html = dashboardPage('Home', '/', body, projectName, feedPanelHtml);
+  const html = dashboardPage('Home', '/', body, projectName);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
@@ -4153,18 +4027,52 @@ function handleProposalDetail(res, pmDir, slug) {
 
 function handleProposalsPage(res, pmDir) {
   const { cardsHtml, totalCount } = buildProposalCards(pmDir, null);
+
+  // Collect ideas (ungroomed backlog items)
+  const backlogDir = path.join(pmDir, 'backlog');
+  const ideas = [];
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
+      const slug = file.replace('.md', '');
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      if ((data.status || 'idea') === 'idea') {
+        ideas.push({ slug, title: data.title || humanizeSlug(slug), id: data.id || null });
+      }
+    }
+  }
+
+  let ideasHtml = '';
+  if (ideas.length > 0) {
+    const ideasItems = ideas.map(i => {
+      const idHtml = i.id ? `<span class="kanban-id">${escHtml(i.id)}</span> ` : '';
+      return `<a class="kanban-item" href="/backlog/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="kanban-item-title">${escHtml(i.title)}</span></a>`;
+    }).join('\n');
+    ideasHtml = `\n<div style="margin-top:2rem;">
+  <div class="group-header standalone-header">
+    <div class="group-title">Ideas</div>
+    <div class="group-count">${ideas.length} ungroomed</div>
+  </div>
+  <div class="group-items">${ideasItems}</div>
+</div>`;
+  }
+
   let body;
-  if (totalCount === 0) {
+  if (totalCount === 0 && ideas.length === 0) {
     body = `<div class="page-header"><h1>Proposals</h1></div>
 <div class="empty-state">
   <h2>No proposals yet</h2>
   <p>Run <code>/pm:groom</code> to create your first proposal.</p>
 </div>`;
   } else {
+    const subtitle = [
+      totalCount > 0 ? `${totalCount} groomed` : null,
+      ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
+    ].filter(Boolean).join(', ');
     body = `<div class="page-header"><h1>Proposals</h1>
-  <p class="subtitle">${totalCount} proposal${totalCount !== 1 ? 's' : ''}</p>
+  <p class="subtitle">${subtitle}</p>
 </div>
-<div class="card-grid">${cardsHtml}</div>`;
+${totalCount > 0 ? `<div class="card-grid">${cardsHtml}</div>` : ''}${ideasHtml}`;
   }
   const html = dashboardPage('Proposals', '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -5238,39 +5146,8 @@ ${wfBody}
 
 function handleBacklog(res, pmDir, view) {
   const backlogDir = path.join(pmDir, 'backlog');
-  const activeView = view === 'kanban' ? 'kanban' : 'proposals';
 
-  // Proposal cards — these ARE the backlog's primary view (built first for stats)
-  const { cardsHtml, totalCount: proposalCount, shippedCount: shippedProposalCount } = buildProposalCards(pmDir, 0);
-
-  // Read all backlog items for stats
-  const items = [];
-  if (fs.existsSync(backlogDir)) {
-    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
-      const { data } = parseFrontmatter(fs.readFileSync(path.join(backlogDir, file), 'utf-8'));
-      items.push({ status: data.status || 'idea' });
-    }
-  }
-
-  const ideaCount = items.filter(i => i.status === 'idea').length;
-  const doneCount = items.filter(i => i.status === 'done').length;
-  const archivedCount = items.filter(i => i.status === 'archived').length;
-
-  // Summary stats — proposal count matches what's shown below
-  const statsHtml = `<div class="backlog-stats">
-  <div class="stat-card"><div class="value">${proposalCount}</div><div class="label">Proposals</div></div>
-  <div class="stat-card"><div class="value">${ideaCount}</div><div class="label">Ideas</div></div>
-  <a href="/backlog/shipped" class="stat-card stat-card-link"><div class="value">${doneCount}</div><div class="label">Shipped →</div></a>
-  <a href="/backlog/archived" class="stat-card stat-card-link"><div class="value">${archivedCount}</div><div class="label">Archived →</div></a>
-</div>`;
-  const viewToggleHtml = `<div class="view-toggle">
-  <a href="/backlog?view=proposals" class="toggle-btn${activeView === 'proposals' ? ' active' : ''}">Proposals</a>
-  <a href="/backlog?view=kanban" class="toggle-btn${activeView === 'kanban' ? ' active' : ''}">Kanban</a>
-</div>`;
-
-  const contentHtml = activeView === 'kanban'
-    ? buildBacklogKanban(pmDir)
-    : buildBacklogGrouped(pmDir);
+  const contentHtml = buildBacklogKanban(pmDir);
 
   const searchHtml = `<div style="margin-bottom:1rem;">
 <input type="text" id="backlog-search" placeholder="Filter backlog..."
@@ -5283,7 +5160,7 @@ function handleBacklog(res, pmDir, view) {
   if (!input) return;
   input.addEventListener('input', function() {
     var q = this.value.toLowerCase();
-    document.querySelectorAll('.card-grid .card, .backlog-list .kanban-item, .proposal-group, .kanban .kanban-item').forEach(function(el) {
+    document.querySelectorAll('.kanban .kanban-item').forEach(function(el) {
       var text = el.textContent.toLowerCase();
       el.style.display = text.includes(q) ? '' : 'none';
     });
@@ -5292,8 +5169,6 @@ function handleBacklog(res, pmDir, view) {
 </script>`;
 
   const body = `<div class="page-header"><h1>Backlog</h1></div>
-${statsHtml}
-${viewToggleHtml}
 ${searchHtml}
 ${contentHtml}`;
 
@@ -5473,7 +5348,7 @@ function handleBacklogItem(res, pmDir, slug) {
   let actionHint = '';
   if (rawStatus === 'idea') {
     actionHint = `<div class="action-hint">Run <code>/pm:groom ${escHtml(slug)}</code> to scope and research this idea</div>`;
-  } else if (rawStatus === 'drafted' || rawStatus === 'approved' || rawStatus === 'in-progress') {
+  } else if (rawStatus === 'drafted' || rawStatus === 'in-progress') {
     actionHint = `<div class="action-hint">Edit <code>pm/backlog/${escHtml(slug)}.md</code> to update status</div>`;
   }
 

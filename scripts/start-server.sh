@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start the PM dashboard server and output connection info
-# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background]
+# Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background] [--server-dir <path>]
 #
 # Starts server on a stable port derived from the project directory, outputs JSON with URL.
 #
@@ -11,6 +11,8 @@
 #   --url-host <host>     Hostname shown in returned URL JSON.
 #   --foreground          Run server in the current terminal (no backgrounding).
 #   --background          Force background mode (overrides Codex auto-foreground).
+#   --server-dir <path>   Directory containing server.js (default: same as this script).
+#                         Use this to run server.js from source during development.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CALLER_DIR="$(pwd)"
@@ -21,6 +23,7 @@ FOREGROUND="false"
 FORCE_BACKGROUND="false"
 BIND_HOST="127.0.0.1"
 URL_HOST=""
+SERVER_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project-dir)
@@ -46,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     --background|--daemon)
       FORCE_BACKGROUND="true"
       shift
+      ;;
+    --server-dir)
+      SERVER_DIR="$2"
+      shift 2
       ;;
     *)
       echo "{\"error\": \"Unknown argument: $1\"}"
@@ -95,7 +102,8 @@ if [[ -f "$PID_FILE" ]]; then
   rm -f "$PID_FILE"
 fi
 
-cd "$SCRIPT_DIR"
+# Use --server-dir if provided (dev mode), otherwise use this script's directory (production)
+cd "${SERVER_DIR:-$SCRIPT_DIR}"
 
 # Resolve the harness PID (grandparent of this script).
 # $PPID is the ephemeral shell the harness spawned to run us — it dies

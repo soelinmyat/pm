@@ -51,7 +51,6 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | Import customer evidence | `pm:ingest` | Import files, transcripts, feedback into pm/ |
 | Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
 | Open dashboard / session greeting | `pm:start` | Project pulse, dashboard launch, onboarding |
-| Sync source to cache | `pm:sync` | Dev loop without publish cycle |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
 ## Shared References (consulted by skills, never invoked)
