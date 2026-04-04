@@ -1320,3 +1320,143 @@ test('PM-129: no static inline styles with hardcoded values remain', () => {
   assert.deepEqual(staticViolations, [],
     `Static inline styles found (should be CSS classes): ${staticViolations.join(' | ')}`);
 });
+
+// ---------------------------------------------------------------------------
+// PM-119: Color and Border Restraint Pass
+// ---------------------------------------------------------------------------
+
+test('PM-119 Task 1: :root contains new semantic color tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Extract the :root block (first one — light theme)
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const rootBlock = rootMatch[1];
+
+  const requiredTokens = ['--error', '--error-text', '--teal', '--text-on-accent', '--text-faint', '--border-strong'];
+  for (const token of requiredTokens) {
+    assert.ok(rootBlock.includes(token + ':'),
+      `:root must define ${token}`);
+  }
+});
+
+test('PM-119 Task 2: :root contains badge semantic tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const rootBlock = rootMatch[1];
+
+  const badgeTokens = [
+    '--badge-success-bg', '--badge-success-text',
+    '--badge-warning-bg', '--badge-warning-text',
+    '--badge-error-bg', '--badge-error-text',
+    '--badge-info-bg', '--badge-info-text',
+    '--badge-neutral-bg', '--badge-neutral-text',
+  ];
+  for (const token of badgeTokens) {
+    assert.ok(rootBlock.includes(token + ':'),
+      `:root must define ${token}`);
+  }
+});
+
+test('PM-119 Task 3: badge classes use var() instead of hardcoded hex', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Extract all badge class rules
+  const badgeClasses = [
+    '.badge-ready', '.badge-fresh', '.badge-aging', '.badge-stale',
+    '.badge-in-progress', '.badge-approved', '.badge-empty',
+    '.badge-origin-internal', '.badge-origin-external', '.badge-origin-mixed',
+    '.badge-evidence',
+  ];
+  for (const cls of badgeClasses) {
+    // Find the rule for this class
+    const re = new RegExp(cls.replace('.', '\\.') + '\\s*\\{([^}]+)\\}');
+    const m = DASHBOARD_CSS.match(re);
+    assert.ok(m, `${cls} rule must exist in DASHBOARD_CSS`);
+    const rule = m[1];
+    // Must not contain raw hex colors
+    assert.ok(!/#[0-9a-fA-F]{3,8}/.test(rule),
+      `${cls} must not contain hardcoded hex colors, found: ${rule.trim()}`);
+    // Must use var() references
+    assert.ok(rule.includes('var('),
+      `${cls} must use var() references`);
+  }
+});
+
+test('PM-119 Task 4: SWOT, quadrant, heatmap, scope classes use var() not hex', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const targetClasses = [
+    '.swot-strengths', '.swot-weaknesses', '.swot-opportunities', '.swot-threats',
+    '.quadrant-q1', '.quadrant-q2', '.quadrant-q3', '.quadrant-q4',
+    '.heatmap-full', '.heatmap-partial', '.heatmap-missing', '.heatmap-diff',
+    '.scope-small', '.scope-medium', '.scope-large',
+  ];
+  for (const cls of targetClasses) {
+    const re = new RegExp(cls.replace('.', '\\.') + '(?:\\s+h4)?\\s*\\{([^}]+)\\}');
+    const m = DASHBOARD_CSS.match(re);
+    assert.ok(m, `${cls} rule must exist`);
+    const rule = m[1];
+    assert.ok(!/#[0-9a-fA-F]{3,8}/.test(rule),
+      `${cls} must not contain hardcoded hex, found: ${rule.trim()}`);
+  }
+});
+
+test('PM-119 Task 5: bar-fill, scatter-dot.highlight, priority classes use var()', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const targetClasses = [
+    '.bar-fill-green', '.bar-fill-yellow', '.bar-fill-red', '.bar-fill-blue', '.bar-fill-teal',
+    '.scatter-dot.highlight',
+    '.priority-critical', '.priority-high', '.priority-medium', '.priority-low',
+  ];
+  for (const cls of targetClasses) {
+    // priority classes appear as .kanban-item.priority-* and .legend-bar.priority-*
+    const escaped = cls.replace(/\./g, '\\.');
+    const re = new RegExp(escaped + '\\s*\\{([^}]+)\\}');
+    const m = DASHBOARD_CSS.match(re);
+    assert.ok(m, `${cls} rule must exist`);
+    const rule = m[1];
+    assert.ok(!/#[0-9a-fA-F]{3,8}/.test(rule),
+      `${cls} must not contain hardcoded hex, found: ${rule.trim()}`);
+  }
+});
+
+test('PM-119 Task 6: no hardcoded hex outside :root token definitions', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Remove :root blocks (both light and dark themes if present)
+  const withoutRoot = DASHBOARD_CSS.replace(/:root\s*\{[^}]+\}/g, '');
+  // Find remaining hex colors
+  const hexMatches = withoutRoot.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  assert.deepEqual(hexMatches, [],
+    `Hardcoded hex colors found outside :root: ${hexMatches.join(', ')}`);
+});
+
+test('PM-119 Task 7: --border-strong token exists in :root', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  assert.ok(rootMatch[1].includes('--border-strong:'),
+    ':root must define --border-strong');
+});
+
+test('PM-119 Task 8: .card does not have border: 1px solid', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const cardMatch = DASHBOARD_CSS.match(/\.card\s*\{([^}]+)\}/);
+  assert.ok(cardMatch, '.card rule must exist');
+  assert.ok(!cardMatch[1].includes('border: 1px solid'),
+    '.card must not use border: 1px solid (use surface differentiation)');
+  assert.ok(!cardMatch[1].includes('border:1px solid'),
+    '.card must not use border:1px solid');
+});
+
+test('PM-119 Task 10: no var(--accent, #2563eb) fallback patterns', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(!DASHBOARD_CSS.includes('var(--accent, #2563eb)'),
+    'Must not contain old accent fallback var(--accent, #2563eb)');
+});
+
+test('PM-119: accent color unified to #5e6ad2', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  assert.ok(rootMatch[1].includes('--accent: #5e6ad2'),
+    '--accent must be unified to #5e6ad2');
+});
