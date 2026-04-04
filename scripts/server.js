@@ -3491,24 +3491,28 @@ function handleKbStrategyDetail(res, pmDir) {
 
 function handleKbCompetitorsDetail(res, pmDir) {
   const compDir = path.join(pmDir, 'competitors');
-  let cardsHtml = '';
+  const cardItems = [];
   if (fs.existsSync(compDir)) {
     const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter(e => e.isDirectory());
-    cardsHtml = dirs.map(d => {
+    for (const d of dirs) {
       const profilePath = path.join(compDir, d.name, 'profile.md');
-      if (!fs.existsSync(profilePath)) return '';
+      if (!fs.existsSync(profilePath)) continue;
       const summary = extractProfileSummary(parseFrontmatter(fs.readFileSync(profilePath, 'utf-8')).body);
       const stale = stalenessInfo(getUpdatedDate(profilePath));
       const staleBadge = stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : '';
-      return `<article class="card">
+      cardItems.push(`<article class="card">
         <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
         <p class="meta">${escHtml(summary.category || '')}</p>
         <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
-      </article>`;
-    }).join('');
+      </article>`);
+    }
   }
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'));
+  const contentHtml = renderListTemplate({
+    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
+    title: 'Competitors',
+    sections: [{ items: cardItems, layout: 'cards' }],
+    emptyState: renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'),
+  });
   const html = dashboardPage('Competitors', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
