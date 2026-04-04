@@ -3577,67 +3577,27 @@ function handleCompetitorDetail(res, pmDir, slug) {
     sectionTabs.push({ id: sec, label, rendered });
   });
 
-  // Breadcrumb
-  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
-  <a href="/kb?tab=competitors">Knowledge Base</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(name)}</span>
-</nav>`;
-
-  // Title
-  const titleHtml = `<h1 class="detail-title">${escHtml(name)}</h1>`;
-
-  // Meta bar
-  const metaParts = [];
+  // Build meta badges
+  const metaBadges = [];
   if (category) {
-    metaParts.push(`<span class="meta-item">${escHtml(category)}</span>`);
+    metaBadges.push({ html: `<span class="meta-item">${escHtml(category)}</span>` });
   }
-  metaParts.push(`<span class="meta-sep">&middot;</span>`);
-  metaParts.push(`<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>`);
+  metaBadges.push({ html: `<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>` });
   const stale = stalenessInfo(profileUpdatedDate);
   if (stale) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
+    metaBadges.push({ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` });
   }
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:refresh ' + slug)}</div>`;
-  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}${actionHint}</div>`;
 
-  // Tab headers + panels
-  const tabHeaders = sectionTabs.map((t, i) =>
-    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="comp-${t.id}" onclick="switchTab(this,'comp-tab-${t.id}')" onkeydown="tabKey(event,this,'comp-tab-${t.id}')">${escHtml(t.label)}</div>`
-  ).join('');
-  const tabPanels = sectionTabs.map((t, i) =>
-    `<div id="comp-tab-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${t.rendered}</div></div>`
-  ).join('');
-
-  const body = `<div class="detail-page">
-${breadcrumb}
-${titleHtml}
-${metaBar}
-${sectionTabs.length > 1 ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}` : (sectionTabs.length === 1 ? `<div class="markdown-body">${sectionTabs[0].rendered}</div>` : '')}
-</div>
-<script>
-function switchTab(el, panelId) {
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
-  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-  el.classList.add('active');
-  el.setAttribute('aria-selected','true');
-  document.getElementById(panelId).classList.add('active');
-  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
-}
-function tabKey(e, el, panelId) {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
-  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
-  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
-}
-(function() {
-  var hash = location.hash.slice(1);
-  if (hash) {
-    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
-    if (tab) switchTab(tab, hash.replace('comp-', 'comp-tab-'));
-  }
-})();
-</script>`;
+  const body = renderTemplate('detail-tabs', {
+    breadcrumb: [
+      { href: '/kb?tab=competitors', label: 'Knowledge Base' },
+      { label: name },
+    ],
+    title: name,
+    metaBadges,
+    tabs: sectionTabs.map(s => ({ id: s.id, label: s.label, html: s.rendered })),
+    actionHint: '/pm:refresh ' + slug,
+  });
 
   const html = dashboardPage(name, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
