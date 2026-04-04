@@ -3596,3 +3596,209 @@ test('PM-138: unknown template type throws an error', () => {
   const mod = loadServer();
   assert.throws(() => mod.renderTemplate('unknown-type', {}), /unknown template type/i, 'must throw for unknown type');
 });
+
+// ---------------------------------------------------------------------------
+// PM-139: detail-tabs template
+// ---------------------------------------------------------------------------
+
+test('PM-139: renderTemplate detail-tabs renders role=tablist with tab buttons', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-tabs', {
+    breadcrumb: [{ href: '/kb?tab=competitors', label: 'Knowledge Base' }],
+    title: 'Acme',
+    metaBadges: [],
+    tabs: [
+      { id: 'profile', label: 'Profile', html: '<p>Profile content</p>' },
+      { id: 'features', label: 'Features', html: '<p>Features content</p>' },
+    ],
+    actionHint: '/pm:refresh acme',
+  });
+  assert.ok(html.includes('role="tablist"'), 'must contain role=tablist');
+  assert.ok(html.includes('>Profile<'), 'must have Profile tab label');
+  assert.ok(html.includes('>Features<'), 'must have Features tab label');
+});
+
+test('PM-139: renderTemplate detail-tabs renders tab-panel for each tab', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-tabs', {
+    breadcrumb: [{ href: '/kb', label: 'KB' }],
+    title: 'Test',
+    metaBadges: [],
+    tabs: [
+      { id: 'a', label: 'A', html: '<p>AAA</p>' },
+      { id: 'b', label: 'B', html: '<p>BBB</p>' },
+      { id: 'c', label: 'C', html: '<p>CCC</p>' },
+    ],
+  });
+  const panelCount = (html.match(/class="tab-panel/g) || []).length;
+  assert.equal(panelCount, 3, 'must render 3 tab-panels for 3 tabs');
+  assert.ok(html.includes('AAA'), 'panel A content');
+  assert.ok(html.includes('BBB'), 'panel B content');
+  assert.ok(html.includes('CCC'), 'panel C content');
+});
+
+test('PM-139: renderTemplate detail-tabs uses unique function prefix (not global switchTab)', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-tabs', {
+    breadcrumb: [{ href: '/kb', label: 'KB' }],
+    title: 'T',
+    metaBadges: [],
+    tabs: [{ id: 'x', label: 'X', html: '<p>X</p>' }],
+  });
+  // Must NOT use bare "switchTab" — must use a prefixed name like "t0Switch"
+  assert.ok(!html.includes('function switchTab('), 'must NOT use global switchTab name');
+  // Must contain a prefixed Switch function
+  assert.ok(/function \w+Switch\(/.test(html), 'must define a prefixed Switch function');
+  assert.ok(/function \w+Key\(/.test(html), 'must define a prefixed Key function');
+});
+
+test('PM-139: renderTemplate detail-tabs wraps in .detail-page with breadcrumb, title, meta-bar', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-tabs', {
+    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }, { label: 'Acme' }],
+    title: 'Acme Corp',
+    metaBadges: [{ html: '<span class="meta-item">Analytics</span>' }],
+    tabs: [{ id: 'profile', label: 'Profile', html: '<p>P</p>' }],
+    actionHint: '/pm:refresh acme',
+  });
+  assert.ok(html.includes('detail-page'), 'must wrap in .detail-page');
+  assert.ok(html.includes('detail-breadcrumb'), 'must have .detail-breadcrumb');
+  assert.ok(html.includes('detail-meta-bar'), 'must have .detail-meta-bar');
+  assert.ok(html.includes('detail-title'), 'must have .detail-title');
+  assert.ok(html.includes('Acme Corp'), 'must show title text');
+});
+
+test('PM-139: renderTemplate detail-tabs first tab is active, rest are not', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-tabs', {
+    breadcrumb: [{ href: '/kb', label: 'KB' }],
+    title: 'T',
+    metaBadges: [],
+    tabs: [
+      { id: 'a', label: 'A', html: '<p>A</p>' },
+      { id: 'b', label: 'B', html: '<p>B</p>' },
+    ],
+  });
+  // First tab button should be active
+  const tabButtons = html.match(/<div class="tab[^"]*"[^>]*role="tab"[^>]*>[^<]+<\/div>/g) || [];
+  assert.ok(tabButtons.length >= 2, 'must have at least 2 tab buttons');
+  assert.ok(tabButtons[0].includes('active'), 'first tab button must be active');
+  assert.ok(!tabButtons[1].includes('active'), 'second tab button must not be active');
+  // First panel should be active
+  const panels = html.match(/<div[^>]*class="tab-panel[^"]*"[^>]*>/g) || [];
+  assert.ok(panels[0].includes('active'), 'first panel must be active');
+  assert.ok(!panels[1].includes('active'), 'second panel must not be active');
+});
+
+test('PM-139: GET /competitors/{slug} uses detail-tabs template (integration)', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme/profile.md': '---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n',
+    'pm/competitors/acme/features.md': '---\n---\n# Features\n- Feature A\n',
+    'pm/competitors/acme/seo.md': '---\n---\n# SEO\nGood rankings\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/competitors/acme');
+      // Must contain template structures
+      assert.ok(body.includes('role="tablist"'), 'must have tablist from template');
+      assert.ok(body.includes('detail-page'), 'must have .detail-page from template');
+      assert.ok(body.includes('detail-breadcrumb'), 'must have .detail-breadcrumb from template');
+      // Tab JS must use unique prefix, not bare switchTab
+      assert.ok(!body.includes('function switchTab('), 'must NOT use bare switchTab');
+      assert.ok(/function \w+Switch\(/.test(body), 'must use prefixed Switch function');
+      // Tab count
+      const panelCount = (body.match(/class="tab-panel/g) || []).length;
+      assert.equal(panelCount, 3, 'must render 3 tab panels');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// PM-139: detail-toc template
+// ---------------------------------------------------------------------------
+
+test('PM-139: renderTemplate detail-toc renders .tabs nav with anchor links', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }],
+    title: 'Market Landscape',
+    metaBadges: [],
+    toc: [
+      { text: 'Market Overview', slug: 'market-overview' },
+      { text: 'Trends', slug: 'trends' },
+    ],
+    bodyHtml: '<h2 id="market-overview">Market Overview</h2><p>Content</p><h2 id="trends">Trends</h2><p>Trend data</p>',
+  });
+  assert.ok(html.includes('class="tabs"'), 'must have .tabs nav');
+  assert.ok(html.includes('href="#market-overview"'), 'must have anchor link to market-overview');
+  assert.ok(html.includes('href="#trends"'), 'must have anchor link to trends');
+  assert.ok(html.includes('>Market Overview<'), 'must show TOC link text');
+  assert.ok(html.includes('>Trends<'), 'must show TOC link text');
+});
+
+test('PM-139: renderTemplate detail-toc TOC links use <a class="tab"> elements', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'KB' }],
+    title: 'T',
+    metaBadges: [],
+    toc: [{ text: 'Section', slug: 'section' }],
+    bodyHtml: '<p>Body</p>',
+  });
+  assert.ok(html.includes('<a class="tab"'), 'TOC links must use <a class="tab">');
+});
+
+test('PM-139: renderTemplate detail-toc does NOT contain role=tablist', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'KB' }],
+    title: 'T',
+    metaBadges: [],
+    toc: [{ text: 'S', slug: 's' }],
+    bodyHtml: '<p>B</p>',
+  });
+  assert.ok(!html.includes('role="tablist"'), 'TOC nav must NOT have role=tablist (it is navigation, not tabs)');
+  assert.ok(html.includes('role="navigation"'), 'TOC nav must have role=navigation');
+});
+
+test('PM-139: renderTemplate detail-toc wraps in .detail-page with breadcrumb, title, meta-bar', () => {
+  const mod = loadServer();
+  const html = mod.renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }, { label: 'Landscape' }],
+    title: 'Market Landscape',
+    metaBadges: [{ html: '<span class="meta-item">Full</span>' }],
+    toc: [{ text: 'Overview', slug: 'overview' }],
+    bodyHtml: '<p>Content</p>',
+    actionHint: '/pm:refresh',
+  });
+  assert.ok(html.includes('detail-page'), 'must wrap in .detail-page');
+  assert.ok(html.includes('detail-breadcrumb'), 'must have .detail-breadcrumb');
+  assert.ok(html.includes('detail-meta-bar'), 'must have .detail-meta-bar');
+  assert.ok(html.includes('detail-title'), 'must have .detail-title');
+  assert.ok(html.includes('Market Landscape'), 'must show title text');
+  assert.ok(html.includes('detail-action-hint'), 'must have action hint');
+});
+
+test('PM-139: GET /kb?tab=landscape uses detail-toc template (integration)', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Market Landscape\n\n## Industry Overview\nThe market is growing.\n\n## Key Trends\nTrend data here.\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/kb?tab=landscape');
+      // Must use .tabs class (not .landscape-toc)
+      assert.ok(body.includes('class="tabs"'), 'must use .tabs nav class');
+      assert.ok(!body.includes('landscape-toc'), 'must NOT use old .landscape-toc class');
+      // Must have anchor links
+      assert.ok(body.includes('href="#industry-overview"'), 'must have TOC anchor for industry-overview');
+      assert.ok(body.includes('href="#key-trends"'), 'must have TOC anchor for key-trends');
+      // Must have detail-page wrapper from template
+      assert.ok(body.includes('detail-page'), 'must have .detail-page from template');
+      assert.ok(body.includes('detail-breadcrumb'), 'must have .detail-breadcrumb from template');
+      // Must NOT have role=tablist (it is TOC navigation)
+      assert.ok(!body.includes('role="tablist"'), 'TOC must NOT have role=tablist');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});

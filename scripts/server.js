@@ -1305,19 +1305,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
-/* Landscape TOC — matches .tabs style */
-.landscape-toc {
-  display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: var(--space-6);
-}
-.landscape-toc-title { display: none; }
-.landscape-toc-item {
-  padding: var(--space-2) var(--space-4); font-size: var(--text-sm); font-weight: 500;
-  color: var(--text-muted); text-decoration: none; white-space: nowrap;
-  border-bottom: 2px solid transparent; margin-bottom: -2px;
-  transition: color var(--transition), border-color var(--transition);
-}
-.landscape-toc-item:hover { color: var(--text); }
-
 /* Detail page layout */
 .detail-page { max-width: 960px; }
 .detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
@@ -1529,10 +1516,13 @@ function renderEmptyState(title, desc, command, ctaLabel) {
  * @param {object} data - Template data matching the detail schema
  * @returns {string} HTML string for the detail page body
  */
-function renderDetailTemplate(data) {
-  const { breadcrumb = [], title = '', titlePrefix = '', subtitle = '', metaBadges = [], sections = [], actionHint = '' } = data;
+/**
+ * Shared header for all detail-* templates: breadcrumb, title, subtitle, meta bar.
+ * Returns { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml }.
+ */
+function renderDetailHeader(data) {
+  const { breadcrumb = [], title = '', titlePrefix = '', subtitle = '', metaBadges = [], actionHint = '' } = data;
 
-  // Breadcrumb
   const breadcrumbItems = breadcrumb.map((item, i) => {
     const isLast = i === breadcrumb.length - 1;
     const sep = i > 0 ? `\n  <span class="breadcrumb-sep">/</span>\n  ` : '';
@@ -1543,18 +1533,20 @@ function renderDetailTemplate(data) {
   });
   const breadcrumbHtml = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">\n  ${breadcrumbItems.join('')}\n</nav>`;
 
-  // Title
   const titleHtml = `<h1 class="detail-title">${titlePrefix}${escHtml(title)}</h1>`;
-
-  // Subtitle
   const subtitleHtml = subtitle ? `\n<p class="subtitle">${escHtml(subtitle)}</p>` : '';
 
-  // Meta bar with optional action hint inside
   const badgesSeparated = metaBadges.map(b => b.html).join('<span class="meta-sep">&middot;</span>');
   const actionHintHtml = actionHint ? `<div class="detail-action-hint">${renderClickToCopy(actionHint)}</div>` : '';
   const metaBarHtml = `<div class="detail-meta-bar">${badgesSeparated}${actionHintHtml}</div>`;
 
-  // Sections
+  return { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml };
+}
+
+function renderDetailTemplate(data) {
+  const { sections = [] } = data;
+  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+
   const sectionsHtml = sections.map(s => {
     const sectionTitle = s.title ? `\n  <h2 class="detail-section-title">${s.title}</h2>` : '';
     return `<section class="detail-section">${sectionTitle}\n  ${s.html}\n</section>`;
@@ -1563,15 +1555,95 @@ function renderDetailTemplate(data) {
   return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${sectionsHtml}\n</div>`;
 }
 
+var _tabCounter = 0;
+
+function renderDetailTabsTemplate(data) {
+  const { tabs = [] } = data;
+  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+
+  const prefix = 't' + (_tabCounter++);
+
+  const tabHeaders = tabs.map((t, i) =>
+    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="${prefix}-${t.id}" onclick="${prefix}Switch(this,'${prefix}-${t.id}')" onkeydown="${prefix}Key(event,this,'${prefix}-${t.id}')">${escHtml(t.label)}</div>`
+  ).join('');
+
+  const tabPanels = tabs.map((t, i) =>
+    `<div id="${prefix}-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${t.html}</div></div>`
+  ).join('');
+
+  const tabBar = tabs.length > 1
+    ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}`
+    : (tabs.length === 1 ? `<div class="markdown-body">${tabs[0].html}</div>` : '');
+
+  const script = `<script>
+function ${prefix}Switch(el, panelId) {
+  el.closest('.detail-page').querySelectorAll('.tabs .tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  el.closest('.detail-page').querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  el.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
+}
+function ${prefix}Key(e, el, panelId) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ${prefix}Switch(el, panelId); }
+  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
+  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
+}
+(function() {
+  var hash = location.hash.slice(1);
+  if (hash) {
+    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
+    if (tab) ${prefix}Switch(tab, hash.replace('${prefix}-', '${prefix}-'));
+  }
+})();
+</script>`;
+
+  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${tabBar}\n</div>\n${script}`;
+}
+
+function renderDetailTocTemplate(data) {
+  const { toc = [], bodyHtml = '' } = data;
+  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+
+  const tocNav = toc.length > 0
+    ? `<nav class="tabs" role="navigation" aria-label="Sections">${toc.map(t =>
+        `<a class="tab" href="#${t.slug}">${escHtml(t.text)}</a>`
+      ).join('')}</nav>`
+    : '';
+
+  const script = `<script>
+(function() {
+  var sections = document.querySelectorAll('.detail-page [id]');
+  var tocLinks = document.querySelectorAll('.tabs .tab');
+  if (!tocLinks.length) return;
+  function onScroll() {
+    var scrollY = window.scrollY || document.documentElement.scrollTop;
+    var current = null;
+    sections.forEach(function(s) { if (s.offsetTop <= scrollY + 80) current = s; });
+    tocLinks.forEach(function(l) {
+      if (current && l.getAttribute('href') === '#' + current.id) l.classList.add('active');
+      else l.classList.remove('active');
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>`;
+
+  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${tocNav}\n<div class="markdown-body">${bodyHtml}</div>\n</div>\n${script}`;
+}
+
 /**
  * Dispatch to the right template renderer.
- * @param {string} type - Template type (currently only 'detail')
+ * @param {string} type - Template type: 'detail', 'detail-tabs', 'detail-toc'
  * @param {object} data - Template data
  * @returns {string} Rendered HTML
  */
 function renderTemplate(type, data) {
   switch (type) {
     case 'detail': return renderDetailTemplate(data);
+    case 'detail-tabs': return renderDetailTabsTemplate(data);
+    case 'detail-toc': return renderDetailTocTemplate(data);
     default: throw new Error(`Unknown template type: ${type}`);
   }
 }
@@ -3365,50 +3437,51 @@ function handleKbCompetitorsDetail(res, pmDir) {
 }
 
 function handleKbLandscapeDetail(res, pmDir) {
-  let landscapeHtml = '';
   const landscapePath = path.join(pmDir, 'landscape.md');
-  if (fs.existsSync(landscapePath)) {
-    const raw = fs.readFileSync(landscapePath, 'utf-8');
-    const { body } = parseFrontmatter(raw);
-    const statsData = parseStatsData(body);
-    const statsHtml = renderStatsCards(statsData);
-
-    // Extract h2 headings for TOC
-    const headings = [];
-    const headingRe = /^## (.+)$/gm;
-    let hm;
-    while ((hm = headingRe.exec(body)) !== null) {
-      const text = hm[1].replace(/[*_`#]/g, '').trim();
-      const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      headings.push({ text, slug });
-    }
-
-    var rendered = renderLandscapeWithViz(body);
-    if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
-
-    // Inject id attributes on h2 elements for anchor links
-    headings.forEach(function(h) {
-      const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      rendered = rendered.replace(
-        new RegExp('<h2>(' + escaped + ')</h2>'),
-        '<h2 id="' + h.slug + '">$1</h2>'
-      );
-    });
-
-    const tocHtml = headings.length > 0
-      ? '<nav class="landscape-toc"><div class="landscape-toc-title">Contents</div>' +
-        headings.map(function(h) {
-          return '<a href="#' + h.slug + '" class="landscape-toc-item">' + escHtml(h.text) + '</a>';
-        }).join('') + '</nav>'
-      : '';
-
-    landscapeHtml = tocHtml +
-      '<div class="markdown-body">' + rendered + '</div>';
-  } else {
-    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
+  if (!fs.existsSync(landscapePath)) {
+    const emptyHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
+    const html = dashboardPage('Landscape', '/kb', emptyHtml);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
   }
-  const landscapeAction = '<div class="detail-meta-bar"><div class="detail-action-hint">' + renderClickToCopy('/pm:refresh') + '</div></div>';
-  const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeAction + landscapeHtml;
+
+  const raw = fs.readFileSync(landscapePath, 'utf-8');
+  const { body } = parseFrontmatter(raw);
+  const statsData = parseStatsData(body);
+  const statsHtml = renderStatsCards(statsData);
+
+  // Extract h2 headings for TOC
+  const headings = [];
+  const headingRe = /^## (.+)$/gm;
+  let hm;
+  while ((hm = headingRe.exec(body)) !== null) {
+    const text = hm[1].replace(/[*_`#]/g, '').trim();
+    const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    headings.push({ text, slug });
+  }
+
+  var rendered = renderLandscapeWithViz(body);
+  if (statsHtml) rendered = rendered.replace(/(<\/h1>)/, '$1' + statsHtml);
+
+  // Inject id attributes on h2 elements for anchor links
+  headings.forEach(function(h) {
+    const escaped = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rendered = rendered.replace(
+      new RegExp('<h2>(' + escaped + ')</h2>'),
+      '<h2 id="' + h.slug + '">$1</h2>'
+    );
+  });
+
+  const contentHtml = renderTemplate('detail-toc', {
+    breadcrumb: [{ href: '/kb', label: 'Knowledge Base' }],
+    title: 'Market Landscape',
+    metaBadges: [],
+    toc: headings,
+    bodyHtml: rendered,
+    actionHint: '/pm:refresh',
+  });
+
   const html = dashboardPage('Landscape', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3492,67 +3565,27 @@ function handleCompetitorDetail(res, pmDir, slug) {
     sectionTabs.push({ id: sec, label, rendered });
   });
 
-  // Breadcrumb
-  const breadcrumb = `<nav class="detail-breadcrumb" aria-label="Breadcrumb">
-  <a href="/kb?tab=competitors">Knowledge Base</a>
-  <span class="breadcrumb-sep">/</span>
-  <span class="breadcrumb-current">${escHtml(name)}</span>
-</nav>`;
-
-  // Title
-  const titleHtml = `<h1 class="detail-title">${escHtml(name)}</h1>`;
-
-  // Meta bar
-  const metaParts = [];
+  // Build meta badges
+  const metaBadges = [];
   if (category) {
-    metaParts.push(`<span class="meta-item">${escHtml(category)}</span>`);
+    metaBadges.push({ html: `<span class="meta-item">${escHtml(category)}</span>` });
   }
-  metaParts.push(`<span class="meta-sep">&middot;</span>`);
-  metaParts.push(`<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>`);
+  metaBadges.push({ html: `<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>` });
   const stale = stalenessInfo(profileUpdatedDate);
   if (stale) {
-    metaParts.push(`<span class="meta-sep">&middot;</span>`);
-    metaParts.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
+    metaBadges.push({ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` });
   }
-  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:refresh ' + slug)}</div>`;
-  const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}${actionHint}</div>`;
 
-  // Tab headers + panels
-  const tabHeaders = sectionTabs.map((t, i) =>
-    `<div class="tab${i === 0 ? ' active' : ''}" role="tab" tabindex="0" aria-selected="${i === 0}" data-tab="comp-${t.id}" onclick="switchTab(this,'comp-tab-${t.id}')" onkeydown="tabKey(event,this,'comp-tab-${t.id}')">${escHtml(t.label)}</div>`
-  ).join('');
-  const tabPanels = sectionTabs.map((t, i) =>
-    `<div id="comp-tab-${t.id}" class="tab-panel${i === 0 ? ' active' : ''}" role="tabpanel"><div class="markdown-body">${t.rendered}</div></div>`
-  ).join('');
-
-  const body = `<div class="detail-page">
-${breadcrumb}
-${titleHtml}
-${metaBar}
-${sectionTabs.length > 1 ? `<div class="tabs" role="tablist">${tabHeaders}</div>${tabPanels}` : (sectionTabs.length === 1 ? `<div class="markdown-body">${sectionTabs[0].rendered}</div>` : '')}
-</div>
-<script>
-function switchTab(el, panelId) {
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
-  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
-  el.classList.add('active');
-  el.setAttribute('aria-selected','true');
-  document.getElementById(panelId).classList.add('active');
-  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
-}
-function tabKey(e, el, panelId) {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchTab(el, panelId); }
-  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
-  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
-}
-(function() {
-  var hash = location.hash.slice(1);
-  if (hash) {
-    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
-    if (tab) switchTab(tab, hash.replace('comp-', 'comp-tab-'));
-  }
-})();
-</script>`;
+  const body = renderTemplate('detail-tabs', {
+    breadcrumb: [
+      { href: '/kb?tab=competitors', label: 'Knowledge Base' },
+      { label: name },
+    ],
+    title: name,
+    metaBadges,
+    tabs: sectionTabs.map(s => ({ id: s.id, label: s.label, html: s.rendered })),
+    actionHint: '/pm:refresh ' + slug,
+  });
 
   const html = dashboardPage(name, '/kb', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
