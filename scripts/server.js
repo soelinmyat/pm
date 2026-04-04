@@ -1171,9 +1171,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   display: flex; align-items: center; gap: var(--space-3);
   padding: 10px var(--space-4); border-radius: 6px;
   text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border);
   transition: background 150ms;
 }
-.idea-row:hover { background: var(--surface); }
+.idea-row:hover { background: var(--surface-hover); }
 .idea-id {
   font-size: var(--text-xs); font-weight: 600; color: var(--accent);
   font-variant-numeric: tabular-nums; width: 52px; flex-shrink: 0;
@@ -1273,9 +1274,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
   text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border);
   transition: background 150ms;
 }
-.topic-row:hover { background: var(--surface); }
+.topic-row:hover { background: var(--surface-hover); }
 .topic-name { font-size: var(--text-base); font-weight: 500; flex: 1; }
 .topic-badges { display: flex; align-items: center; gap: var(--space-2); }
 .topic-date {
