@@ -1140,6 +1140,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .detail-issue-list a { color: var(--text); text-decoration: none; font-size: var(--text-base); }
 .detail-issue-list a:hover { color: var(--accent); }
 .detail-issue-id { font-size: var(--text-xs); font-weight: 600; color: var(--accent); margin-right: var(--space-1); }
+.detail-proposal-iframe { height: 600px; }
 
 /* Toast notifications */
 .toast-container { position: fixed; bottom: var(--space-6); left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-2); align-items: center; pointer-events: none; }

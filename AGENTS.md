@@ -8,13 +8,11 @@ This repository contains the PM plugin itself, not a product that uses the plugi
 
 Use this file for repo conventions only. Do not treat it as the runtime source of truth for plugin behavior.
 
-## Two Roles, One Repo
+## Plugin Source
 
-This repo serves two purposes simultaneously. Keep them separate:
+This repo is for the plugin source code that gets published and installed by users.
 
-### 1. Plugin source code (the product)
-
-The plugin codebase that gets published and installed by users.
+Treat these directories as the runtime surface:
 
 | Directory | Contents |
 |---|---|
@@ -29,21 +27,16 @@ The plugin codebase that gets published and installed by users.
 | `.cursor-plugin/plugin.json` | Cursor plugin manifest |
 | `README.md`, `GEMINI.md`, `.codex/INSTALL.md` | Public docs and install guides |
 
-### 2. Dogfooded knowledge base (using the product on itself)
+Do not treat this repository itself as a PM project with its own checked-in `pm/`
+or `.pm/` directories.
 
-The `pm/` directory at the repo root is the knowledge base created by running PM commands on this project. It is product data, not source code.
+If you are working inside the private monorepo at `/Users/soelinmyat/Projects/PM`,
+the canonical PM knowledge base lives in the sibling project root:
 
-| Path | Contents |
-|---|---|
-| `pm/strategy.md` | Product strategy for PM itself |
-| `pm/landscape.md` | Market landscape |
-| `pm/competitors/` | Competitor profiles |
-| `pm/research/` | Topic research |
-| `pm/backlog/` | Backlog issues (ideas, groomed, shipped) |
+- `../pm/` for shared committed product data
+- `../.pm/` for shared runtime state
 
-The `.pm/` directory (gitignored) contains private runtime state like groom sessions and config.
-
-**Rule:** Never confuse editing plugin source code (`skills/`, `scripts/`) with editing dogfooded data (`pm/`). They have different change flows.
+Those directories are consumer-project data, not plugin source code.
 
 ## Plugin Architecture
 
@@ -93,7 +86,7 @@ git config core.hooksPath .githooks
 | Hook | What it does |
 |---|---|
 | `pre-push` | Blocks direct pushes to main; verifies git tag exists for manifest version |
-| `pre-commit` | Validates JSON, version consistency across all 4 manifests, and pm/ artifact schemas |
+| `pre-commit` | Validates JSON, version consistency across all 4 manifests, and `pm/` artifact schemas when a project knowledge base is present |
 
 ## Development Flow
 
@@ -120,9 +113,12 @@ This overwrites the cache with your local source. It will be overwritten again o
 
 **Never edit the cache directly.** Always edit source, then sync.
 
-### Editing dogfooded data (pm/)
+### Editing project data
 
-When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/.groom-state.md`).
+PM writes to `pm/` and `.pm/` in the consuming project, not in the plugin source
+repository. In the private monorepo, that means the shared product data belongs in
+the sibling root (`/Users/soelinmyat/Projects/PM/`), not under
+`/Users/soelinmyat/Projects/PM/pm_plugin/`.
 
 ### Dashboard testing
 
@@ -185,7 +181,7 @@ The pre-push hook will block pushes if the tag is missing.
 - Never commit real credentials.
 - Never commit private customer evidence or raw exports.
 - Private machine/runtime data belongs in `.pm/` in the consuming project, not in this repo.
-- Human-facing plugin outputs belong in `pm/` in the consuming project (committed as dogfooded data in this repo).
+- Human-facing plugin outputs belong in `pm/` in the consuming project, not in this repo.
 
 ## Testing
 

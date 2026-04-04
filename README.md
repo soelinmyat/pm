@@ -1,119 +1,196 @@
 # PM — Product Memory
 
-PM (Product Memory) is a Claude Code plugin for product discovery, competitive research, strategy, and backlog grooming.
+PM is a free, open-source plugin for AI coding assistants. It gives small squads a shared product brain inside the repo: market research, strategy, competitor context, groomed work, and delivery state in one place.
 
-LLMs and coding agents changed the cost of building. What used to take a team weeks now takes hours. But the bottleneck did not disappear. It moved upstream.
-
-Knowing what to build is now the hard part. Not the code. The research, the strategy, the scoping, and the "should we even do this?" conversations. Most teams still do this manually: scattered notes, ad hoc web searches, gut-feel prioritization, and tribal knowledge that lives in someone's head.
-
-PM gives product managers, founders, and builders structured workflows for that upstream work, inside the editor. Research compounds over time instead of getting lost. Strategy is checked before anyone writes code. Ideas are validated against competitors and market signals before they become issues.
+PM is built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead wants to know what is happening without asking for updates. PM keeps everyone working from the same context.
 
 Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
 
-> **Early release.** Strong on competitive research, customer evidence ingest, strategy, and grooming. Not yet focused on product analytics integration, A/B test planning, or several other things a PM does in a given week. If you have ideas for what should come next, open a [discussion](https://github.com/soelinmyat/pm/discussions).
+> **Early release.** PM already works well for research, strategy, grooming, and disciplined shipping. The dashboard and collaboration layer are still being polished.
 
 ---
 
-## Installation
+## Start Here
 
-### Claude Code
+### 1. Install PM
+
+#### Claude Code
 
 ```bash
 claude plugin marketplace add soelinmyat/pm
 claude plugin install pm@pm
 ```
 
-### Cursor
+#### Cursor
 
 Copy the `.cursor-plugin/` directory into your project root, or install via Cursor's plugin marketplace once published.
 
-### Codex
+#### Codex
 
-Codex installs PM as a bundle of skills, not a `plugins:` config entry. Follow the Codex-specific guide in [`.codex/INSTALL.md`](.codex/INSTALL.md).
+PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
 
-### OpenCode, Gemini CLI
+If your Codex install is not loading the plugin directly yet, use the fallback install steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
-These platforms do not have a one-line install. See the platform-specific guides:
+#### OpenCode and Gemini CLI
 
-- **OpenCode:** [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
-- **Gemini CLI:** Clone the repo and add it to your Gemini extensions. See [`GEMINI.md`](GEMINI.md).
+Use the platform-specific guides:
 
----
+- [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
+- [`GEMINI.md`](GEMINI.md)
 
-## About the `pm/` directory in this repo
+### 2. Run your first workflow
 
-The `pm/` directory contains Product Memory's own knowledge base — landscape research, competitor profiles, strategy, and backlog. This is PM dogfooding itself: the plugin is used to manage its own product development. It is not part of the plugin's source code or execution. When you install PM in your project, your own `pm/` directory will be generated fresh by `/pm:setup` or `$pm-setup` in Codex.
+If your client supports slash commands:
 
----
-
-## Quick Start
-
-The fastest path from zero to a groomed backlog depends on the client:
-
-### Command-Based Clients
-
-```
+```text
 /pm:setup
-/pm:ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
 /pm:research landscape
 /pm:strategy
-/pm:ideate
-/pm:research competitors
-/pm:research <topic>
-/pm:groom
+/pm:groom "feature idea"
 ```
 
-### Codex
+If you are using Codex explicit skills:
 
 ```text
 $pm-setup
-$pm-ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
 $pm-research landscape
 $pm-strategy
-$pm-ideate
-$pm-research competitors
-$pm-research <topic>
-$pm-groom
-$pm-view
+$pm-groom "feature idea"
 ```
 
-**`/pm:setup`** configures your product context, target market, and integrations (Linear, SEO providers).
+If you already have support tickets, interview notes, or sales call notes, ingest them before research:
 
-**`/pm:research landscape`** maps the competitive landscape: key players, categories, and whitespace in your market.
+```text
+/pm:ingest ~/path/to/customer-evidence
+```
 
-**`/pm:strategy`** synthesizes research into a positioning strategy. Defines your differentiated angle and strategic bets.
+### 3. What you will get
 
-**`/pm:research competitors`** deep-dives on specific competitors. Tracks features, pricing, messaging, and recent moves.
+After onboarding, PM gives you:
 
-**`/pm:research <topic>`** investigates a specific area — pricing models, API standards, regulatory requirements, or any question that needs grounded answers before building.
-
-**`/pm:groom`** converts strategy and research into groomed Linear issues with acceptance criteria, effort estimates, and priority scores.
-
-In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, `pm-refresh`, and `pm-view`.
+- a committed `pm/` knowledge base for strategy, research, competitors, proposals, and backlog context
+- a private `.pm/` runtime folder for config, evidence, sessions, and local state
+- a dashboard view so non-engineering teammates can see the current state without digging through files
+- workflows that reuse the same context for both product thinking and implementation
 
 ---
 
-## Commands (Command-Based Clients)
+## What PM Is Good At
 
-Codex uses the `pm-*` skills shown above instead of these slash commands.
+- **Research before building.** Market landscape, competitor profiles, and focused topic research.
+- **Turning ideas into strategy.** PM writes and updates product strategy so decisions stay aligned with ICP, positioning, priorities, and non-goals.
+- **Turning strategy into work.** PM grooms ideas into structured issues, proposals, and supporting artifacts.
+- **Carrying context into delivery.** PM supports development, review, QA, ship, deploy, and merge workflows so the why does not get lost after grooming.
+- **Keeping the whole squad aligned.** The dashboard reflects the same knowledge base the editor workflows write to.
 
-| Command | Description |
-|---------|-------------|
-| `/pm:setup` | First-time configuration: product context, market, integrations |
-| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
-| `/pm:strategy` | Generate and refine product positioning and strategic bets |
-| `/pm:research <topic>` | Landscape mapping, competitor deep-dives, market signal analysis |
-| `/pm:ideate` | Generate ranked feature ideas from your knowledge base |
-| `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
-| `/pm:dig <question>` | Quick inline research for mid-work decisions. No state, no issues. |
-| `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
-| `/pm:view` | Open the knowledge base dashboard in your browser |
+---
+
+## Who PM Is For
+
+PM is a strong fit if you are:
+
+- a product engineer or technical founder who both decides and builds
+- a small squad that wants research, strategy, and implementation context in one system
+- a team already using Linear or Jira for execution but missing an upstream thinking layer
+
+PM is not trying to replace project management tools. Linear and Jira still handle assignments, sprints, and team execution. PM handles the thinking layer: what to build, why it matters, and how that context carries through the work.
+
+---
+
+## What PM Creates In Your Repo
+
+PM writes committed product context to `pm/` and runtime state to `.pm/`.
+
+```text
+pm/
+  strategy.md
+  landscape.md
+  competitors/
+  research/
+  backlog/
+
+.pm/
+  config.json
+  evidence/
+  imports/
+  sessions/
+  dev-sessions/
+```
+
+In practice:
+
+- `pm/` is the durable product memory you usually want in git
+- `.pm/` is runtime state, integration config, and session data you usually do not want in git
+
+---
+
+## Core Commands
+
+### Command-based clients
+
+| Command | What it does |
+|---|---|
+| `/pm:setup` | Bootstrap the knowledge base and configure integrations |
+| `/pm:ingest <path>` | Import customer evidence from files or folders |
+| `/pm:research <topic>` | Research a landscape, competitors, or a focused topic |
+| `/pm:strategy` | Create or update the product strategy document |
+| `/pm:groom [idea]` | Turn an idea into scoped, reviewable work |
+| `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
+| `/merge` | Run the merge loop for an existing PR |
+
+### Codex explicit skills
+
+Product skills:
+
+- `pm-setup`
+- `pm-start`
+- `pm-research`
+- `pm-strategy`
+- `pm-groom`
+- `pm-think`
+- `pm-ingest`
+- `pm-refresh`
+
+Delivery skills:
+
+- `dev-dev`
+- `dev-review`
+- `dev-qa`
+- `dev-ship`
+- `dev-deploy`
+- `dev-tdd`
+- `dev-debugging`
+- `dev-design-critique`
+- `dev-subagent-dev`
+- `dev-using-pm`
+
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for install and verification details.
+
+---
+
+## How PM Fits Into A Team
+
+PM is the shared product brain for small squads:
+
+- Engineers use it in the editor
+- PMs and biz teammates use the dashboard for context
+- Designers use it to review proposals and implementation against the original intent
+
+The point is not just better prompts. The point is persistent context that compounds over time.
+
+---
+
+## What PM Is Not
+
+- Not a project management tool
+- Not a standalone analytics product
+- Not an enterprise workflow suite
+
+PM is free, open-source, and designed for bottom-up adoption by small squads.
 
 ---
 
 ## Feedback
-
-Ideas, bug reports, and workflow suggestions are welcome.
 
 - Open an [issue](https://github.com/soelinmyat/pm/issues)
 - Start a [discussion](https://github.com/soelinmyat/pm/discussions)
