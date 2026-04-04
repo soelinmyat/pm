@@ -1,6 +1,6 @@
 # PM — Product Memory
 
-PM is a free, open-source plugin for AI coding assistants. It gives small squads a shared product brain inside the repo: market research, strategy, competitor context, groomed work, and delivery state in one place.
+PM is a free, open-source plugin that gives small squads using AI coding assistants such as Claude Code and Codex a shared product brain. It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo.
 
 PM is built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead wants to know what is happening without asking for updates. PM keeps everyone working from the same context.
 
@@ -8,11 +8,7 @@ Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
 
 > **Early release.** PM already works well for research, strategy, grooming, and disciplined shipping. The dashboard and collaboration layer are still being polished.
 
----
-
-## Start Here
-
-### 1. Install PM
+## Install PM
 
 #### Claude Code
 
@@ -38,7 +34,7 @@ Use the platform-specific guides:
 - [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
 - [`GEMINI.md`](GEMINI.md)
 
-### 2. Run your first workflow
+## Run Your First Workflow
 
 If your client supports slash commands:
 
@@ -64,7 +60,7 @@ If you already have support tickets, interview notes, or sales call notes, inges
 /pm:ingest ~/path/to/customer-evidence
 ```
 
-### 3. What you will get
+## What You Will Get
 
 After onboarding, PM gives you:
 
@@ -138,33 +134,20 @@ In practice:
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
 | `/merge` | Run the merge loop for an existing PR |
 
-### Codex explicit skills
+### Codex
 
-Product skills:
+On Codex, PM is exposed through `pm-*` product skills and `dev-*` delivery skills.
 
-- `pm-setup`
-- `pm-start`
-- `pm-research`
-- `pm-strategy`
-- `pm-groom`
-- `pm-think`
-- `pm-ingest`
-- `pm-refresh`
+Common examples:
 
-Delivery skills:
+- `$pm-setup`
+- `$pm-research`
+- `$pm-groom`
+- `$dev-dev`
+- `$dev-review`
+- `$dev-qa`
 
-- `dev-dev`
-- `dev-review`
-- `dev-qa`
-- `dev-ship`
-- `dev-deploy`
-- `dev-tdd`
-- `dev-debugging`
-- `dev-design-critique`
-- `dev-subagent-dev`
-- `dev-using-pm`
-
-See [`.codex/INSTALL.md`](.codex/INSTALL.md) for install and verification details.
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for the exact install flow and current skill names.
 
 ---
 
