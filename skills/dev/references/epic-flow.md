@@ -225,7 +225,9 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Spawn a **persistent worker** per sub-issue. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+Spawn a **persistent worker** per sub-issue using `subagent_type: "pm:developer"`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+
+**Always use `subagent_type: "pm:developer"`** — never spawn a generic agent. The developer agent has TDD methodology, plan structure conventions, epic worker communication protocol, and anti-pattern awareness built in.
 
 Prompt template for the worker:
 
@@ -530,7 +532,7 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 |------|--------|
 | 1 | **Ping:** send the saved worker id `Status check: are you still working on {ISSUE_ID}?` |
 | 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
-| 3 | If no response to ping → the worker is dead. Spawn a **fresh persistent worker** with the recovery prompt below |
+| 3 | If no response to ping → the worker is dead. Spawn a **fresh persistent worker** (`subagent_type: "pm:developer"`) with the recovery prompt below |
 | 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
 | 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
 
