@@ -7,7 +7,7 @@ The bar raiser must NOT read team review findings — independent assessment is 
 
 After the team review converges (no blocking issues or max iterations reached), dispatch a single bar raiser agent for a senior-level holistic review. The bar raiser has not been involved in the iterative process and brings fresh eyes.
 
-Dispatch **1 agent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"`.
+Dispatch **1 agent** using the Agent tool with `subagent_type: "pm:product-director"`.
 
 **Agent: Product Director — Bar Raiser**
 
