@@ -2431,26 +2431,19 @@ function handleProposalsPage(res, pmDir) {
     }
   }
 
-  let body;
-  if (proposals.length === 0 && ideas.length === 0) {
-    body = `<div class="page-header"><h1>Proposals</h1></div>
-${renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal')}`;
-  } else {
-    const subtitle = [
-      proposals.length > 0 ? `${proposals.length} groomed` : null,
-      ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
-    ].filter(Boolean).join(', ');
+  const subtitle = [
+    proposals.length > 0 ? `${proposals.length} groomed` : null,
+    ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(', ');
 
-    // Groomed section
-    let groomedHtml = '';
-    if (proposals.length > 0) {
-      const rows = proposals.map(p => {
-        const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
-          : p.verdict === 'paused' ? 'badge-paused'
-          : p.verdict === 'ready' ? 'badge-ready'
-          : 'badge-groomed';
-        const statusLabel = p.verdictLabel || 'Groomed';
-        return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
+  // Groomed card rows (HTML stays in handler)
+  const groomedItems = proposals.map(p => {
+    const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
+      : p.verdict === 'paused' ? 'badge-paused'
+      : p.verdict === 'ready' ? 'badge-ready'
+      : 'badge-groomed';
+    const statusLabel = p.verdictLabel || 'Groomed';
+    return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
   <div class="proposal-card-body">
     <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
     ${p.outcome ? `<div class="proposal-card-outcome">${escHtml(p.outcome)}</div>` : ''}
@@ -2461,41 +2454,28 @@ ${renderEmptyState('No proposals yet', 'Proposals are structured feature plans w
     ${p.date ? `<span class="updated">${escHtml(formatRelativeDate(p.date))}</span>` : ''}
   </div>
 </a>`;
-      }).join('\n');
+  });
 
-      groomedHtml = `
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">Groomed</span>
-    <span class="section-count">${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}</span>
-  </div>
-  <div class="proposal-grid">${rows}</div>
-</section>`;
-    }
+  // Idea rows (HTML stays in handler)
+  const ideaItems = ideas.map(i => {
+    const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
+    return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
+  });
 
-    // Ideas section
-    let ideasHtml = '';
-    if (ideas.length > 0) {
-      const ideaRows = ideas.map(i => {
-        const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
-        return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
-      }).join('\n');
-
-      ideasHtml = `
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">Ideas</span>
-    <span class="section-count">${ideas.length} ungroomed</span>
-  </div>
-  <div class="idea-list">${ideaRows}</div>
-</section>`;
-    }
-
-    body = `<div class="page-header"><h1>Proposals</h1>
-  <p class="subtitle">${subtitle}</p>
-</div>
-${groomedHtml}${ideasHtml}`;
+  const sections = [];
+  if (groomedItems.length > 0) {
+    sections.push({ title: 'Groomed', count: `${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}`, items: groomedItems, layout: 'rows', itemsClass: 'proposal-grid' });
   }
+  if (ideaItems.length > 0) {
+    sections.push({ title: 'Ideas', count: `${ideas.length} ungroomed`, items: ideaItems, layout: 'rows', itemsClass: 'idea-list' });
+  }
+
+  const body = renderListTemplate({
+    title: 'Proposals',
+    subtitle: subtitle || undefined,
+    sections,
+    emptyState: renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal'),
+  });
 
   const html = dashboardPage('Proposals', '/proposals', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
