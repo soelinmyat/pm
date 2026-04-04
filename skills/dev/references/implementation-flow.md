@@ -274,7 +274,6 @@ in persistent agent mode.
 **Affected routes:** {routes from plan or git diff}
 **Platform:** {web | mobile}
 **Tier:** {Quick | Focused | Full}
-**Design critique passed:** {yes | no}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Run full QA (Phase 0-6). Report your verdict.

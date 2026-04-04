@@ -66,15 +66,16 @@ pm:qa --feature "user onboarding flow"
 pm:qa --diff
 ```
 
-**Arguments (standalone only):**
+**Arguments:**
 
-| Arg | Effect |
-|-----|--------|
-| `--quick` | Force Quick tier regardless of session size |
-| `--page <route>` | Test a specific route |
-| `--feature <desc>` | Test by feature description |
-| `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` |
-| `--mobile` | Force mobile platform (Maestro MCP) |
+| Arg | Effect | Mode |
+|-----|--------|------|
+| `--quick` | Force Quick tier regardless of session size | Both |
+| `--page <route>` | Test a specific route | Standalone |
+| `--feature <desc>` | Test by feature description | Standalone |
+| `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` | Standalone |
+| `--mobile` | Force mobile platform (Maestro MCP) | Both |
+| `--visual` | Include visual layers (L2: token/style fidelity, L5: layout judgment) | Both |
 
 ---
 
@@ -108,9 +109,11 @@ All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
 
 Before any testing, verify the agent can actually reach and interact with the app. Every failed QA run that dies on server startup or auth is wasted time.
 
-### 0a. Design System Discovery
+### 0a. Design System Discovery (only with `--visual`)
 
-Search the project for design tokens. This lookup table drives Layer 2 (Visual Fidelity) assertions. The source files ARE the design system — they can't drift from themselves.
+**Skip this step unless `--visual` is set.** Design token discovery is only needed for Layer 2 (Visual Fidelity) assertions, which don't run by default.
+
+Search the project for design tokens. This lookup table drives Layer 2 assertions. The source files ARE the design system — they can't drift from themselves.
 
 **Search order** (collect from all found, don't stop at first hit):
 
@@ -206,7 +209,7 @@ If server or auth fails: Blocked. If seed or routes partially fail: note finding
 
 ### Read context
 
-**Persistent agent mode:** All context (feature, ACs, routes, platform, tier, design critique status) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}.md` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
+**Persistent agent mode:** All context (feature, ACs, routes, platform, tier) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}.md` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
 
 **Standalone mode:** If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current`, stripping `feat/`/`fix/`/`chore/` prefix):
 
@@ -348,30 +351,25 @@ For Full tier: every acceptance criterion MUST have at least one DOM assertion. 
 
 For each route in the charter, execute the applicable layers. Each layer uses the right tool for the job.
 
-### Layer selection (conditional skipping)
+### Layer selection
 
-When design critique has already passed for this session, Layers 2 and 5 overlap heavily with what the designers already verified (visual fidelity, design token compliance, layout composition). Skip them to avoid redundant work.
+QA is **functional by default** — Layers 1, 3, and 4. Visual layers (2 and 5) are opt-in via `--visual`.
 
 ```
-Read "Design critique passed" from spawn prompt or .pm/dev-sessions/{slug}.md
-
-If design critique passed:
+Default (no --visual flag):
   Run: Layer 1 (Structural) + Layer 3 (Data) + Layer 4 (Interaction)
   Skip: Layer 2 (Visual Fidelity) + Layer 5 (Visual Judgment)
-  Reason: Design critique already verified tokens, styles, layout
 
-If design critique did NOT pass (or not applicable):
+With --visual flag:
   Run: All 5 layers
 ```
 
+**Rationale:** QA's unique value is functional correctness — does the data render right, do interactions work, do state transitions happen. Visual concerns (design tokens, layout composition, style consistency) are the domain of design critique, which runs as a separate stage. When visual QA is needed without design critique (e.g., standalone invocation), pass `--visual`.
+
 Log the decision:
 ```
-Layer selection: 3 of 5 (skipped L2+L5: design critique passed)
+Layers: functional (L1+L3+L4) | full (L1-L5, --visual)
 ```
-
-<HARD-RULE>
-Layer skipping ONLY applies when design critique is confirmed passed. If design critique was skipped (backend-only, XS, skill unavailable), run all 5 layers.
-</HARD-RULE>
 
 ### Layer 1: Structural (deterministic)
 
@@ -749,7 +747,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
 - Phase 0 (servers already running, auth active, tokens discovered)
 - Phase 1 (already oriented)
 - Phase 2 (charter already built)
-- Layers 2+5 if design critique passed (same skip as initial run)
+- Layers 2+5 (only run if `--visual` was set on initial spawn)
 
 ### Re-verify flow (standalone mode)
 
@@ -863,7 +861,7 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 4. <NEVER>Leave servers running after QA is fully done. In persistent mode, kill on final verdict. In standalone, kill on completion.</NEVER>
 5. <NEVER>Report a visual finding from a screenshot when it can be measured via DOM. Use `browser_evaluate` first.</NEVER>
 6. <NEVER>Re-run Phase 0 on re-verify in persistent mode. The environment is already ready.</NEVER>
-7. <NEVER>Run Layers 2+5 when design critique is confirmed passed. Those concerns are already covered.</NEVER>
+7. <NEVER>Run Layers 2+5 unless `--visual` is explicitly passed. QA is functional by default.</NEVER>
 8. <MUST>For Full tier: every acceptance criterion must have at least one DOM assertion.</MUST>
 9. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>
 10. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
