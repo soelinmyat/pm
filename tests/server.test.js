@@ -112,7 +112,7 @@ test('GET / returns home dashboard HTML with knowledge base stats', async () => 
       const { statusCode, body } = await httpGet(port, '/');
       assert.equal(statusCode, 200);
       assert.ok(body.includes('<!DOCTYPE html') || body.includes('<!doctype html'), 'must be a full HTML doc');
-      assert.ok(body.includes('Knowledge base overview'), 'must show dashboard subtitle');
+      assert.ok(body.includes('Product knowledge base'), 'must show dashboard subtitle');
     } finally {
       await close();
     }
@@ -912,8 +912,8 @@ test('start-server.sh launches dashboard mode against the provided project direc
     const url = new URL(info.url);
     const { statusCode: homeStatus, body: homeBody } = await httpGet(Number(url.port), '/');
     assert.equal(homeStatus, 200);
-    assert.ok(homeBody.includes('Knowledge base overview'), 'home route must render the dashboard shell');
-    assert.ok(homeBody.includes('Landscape'), 'home route must summarize landscape content from the target project');
+    assert.ok(homeBody.includes('Product knowledge base'), 'home route must render the dashboard shell');
+    assert.ok(homeBody.includes('Knowledge base'), 'home route must show KB health section');
 
     const { statusCode: researchStatus, body: researchBody } = await httpGet(Number(url.port), '/kb?tab=research');
     assert.equal(researchStatus, 200);
@@ -1617,4 +1617,265 @@ test('PM-123: GET /roadmap/shipped returns 200', async () => {
       assert.ok(body.includes('Roadmap</a>'), 'breadcrumb must say Roadmap');
     } finally { await close(); }
   } finally { cleanup(); }
+});
+
+// ---------------------------------------------------------------------------
+// PM-120: Home Page Redesign
+// ---------------------------------------------------------------------------
+
+test('PM-120: home page contains four section titles', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n\n## Focus\nBuild the best PM tool.\n\n## Priorities\n1. Ship dashboard\n2. Fix bugs\n3. Improve docs\n',
+    'pm/landscape.md': '---\ntype: landscape\n---\n# Landscape\n',
+    'pm/competitors/acme/profile.md': '---\ncompany: Acme\nupdated: 2026-04-01\n---\n# Acme\n',
+    'pm/backlog/done-1.md': '---\nstatus: done\ntitle: Done Item\nupdated: 2026-03-30\n---\n# Done\n',
+    'pm/research/onboarding/findings.md': '---\ntopic: Onboarding\nsource_origin: internal\nevidence_count: 5\nupdated: 2026-03-28\n---\n# Onboarding\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('<span class="home-section-title">Strategy</span>'), 'must have Strategy section');
+      assert.ok(body.includes('<span class="home-section-title">Recently shipped</span>'), 'must have Recently shipped section');
+      assert.ok(body.includes('<span class="home-section-title">Knowledge base</span>'), 'must have Knowledge base section');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: home page body does NOT contain pulse-score, card-grid, or canvas-tabs', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\n---\n# Strategy\n',
+    'pm/backlog/issue-1.md': '---\nstatus: idea\ntitle: Issue 1\n---\n# Issue 1\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      // Extract just the container content (after </style> and inside <div class="container">)
+      const containerMatch = body.match(/<div class="container">([\s\S]*?)<script>/);
+      assert.ok(containerMatch, 'must have a container div');
+      const content = containerMatch[1];
+      assert.ok(!content.includes('pulse-score'), 'home content must NOT contain pulse-score');
+      assert.ok(!content.includes('pulse-arc'), 'home content must NOT contain pulse-arc');
+      assert.ok(!content.includes('class="card-grid"'), 'home content must NOT contain card-grid');
+      assert.ok(!content.includes('canvas-tabs'), 'home content must NOT contain canvas-tabs');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: strategy snapshot shows focus, priorities, and staleness', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Product Strategy\n\n## Focus\nBuild the best PM tool for indie developers.\n\n## Priorities\n1. Ship fast dashboard\n2. Fix critical bugs\n3. Improve onboarding docs\n\n## Non-goals\n- Enterprise features\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('strategy-focus'), 'must have strategy-focus element');
+      assert.ok(body.includes('best PM tool'), 'must show focus statement');
+      assert.ok(body.includes('priority-item'), 'must have priority items');
+      assert.ok(body.includes('Ship fast dashboard'), 'must show first priority');
+      assert.ok(body.includes('staleness-dot'), 'must show staleness indicator');
+      assert.ok(body.includes('View full strategy'), 'must have link to full strategy');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: recently shipped shows done items', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/shipped-a.md': '---\nstatus: done\ntitle: Feature Alpha\nupdated: 2026-03-28\noutcome: Reduced churn by 15%\n---\n# Alpha\n',
+    'pm/backlog/shipped-b.md': '---\nstatus: done\ntitle: Feature Beta\nupdated: 2026-03-25\n---\n# Beta\n',
+    'pm/backlog/open-c.md': '---\nstatus: idea\ntitle: Not Shipped\n---\n# Open\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('Recently shipped'), 'must have shipped section');
+      assert.ok(body.includes('Feature Alpha'), 'must show shipped item title');
+      assert.ok(body.includes('Feature Beta'), 'must show second shipped item');
+      assert.ok(!body.includes('Not Shipped') || body.indexOf('Not Shipped') > body.indexOf('Suggested next'),
+        'must not show non-shipped items in shipped section');
+      assert.ok(body.includes('Reduced churn by 15%'), 'must show outcome context');
+      assert.ok(body.includes('home-shipped-date'), 'must show date');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: KB health shows 3 metric cards', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/topic-a/findings.md': '---\ntopic: Topic A\nsource_origin: internal\nevidence_count: 10\nupdated: 2026-03-20\n---\n# A\n',
+    'pm/research/topic-b/findings.md': '---\ntopic: Topic B\nsource_origin: external\nupdated: 2026-03-15\n---\n# B\n',
+    'pm/competitors/acme/profile.md': '---\ncompany: Acme\nupdated: 2026-03-18\n---\n# Acme\n',
+    'pm/competitors/beta/profile.md': '---\ncompany: Beta\nupdated: 2026-03-10\n---\n# Beta\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('kb-health-grid'), 'must have KB health grid');
+      assert.ok(body.includes('kb-health-card'), 'must have KB health cards');
+      assert.ok(body.includes('Research topics'), 'must show research topics label');
+      assert.ok(body.includes('Competitors profiled'), 'must show competitors label');
+      assert.ok(body.includes('Customer evidence'), 'must show evidence label');
+      // Check values
+      assert.ok(body.includes('>2<'), 'must show 2 research topics');
+      assert.ok(body.includes('>2<'), 'must show 2 competitors');
+      assert.ok(body.includes('>10<'), 'must show 10 evidence records');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: home CSS uses design tokens, not raw px/rem', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const homeSectionClasses = [
+    '.home-section', '.home-section-header', '.home-section-title',
+    '.home-section-link', '.strategy-card', '.strategy-focus',
+    '.home-proposal-list', '.home-proposal-row',
+    '.home-shipped-list', '.home-shipped-item',
+    '.kb-health-grid', '.kb-health-card', '.kb-health-value',
+    '.staleness-dot', '.staleness-dot.fresh', '.staleness-dot.aging', '.staleness-dot.stale',
+  ];
+  for (const cls of homeSectionClasses) {
+    const escaped = cls.replace(/\./g, '\\.').replace(/\s/g, '\\s');
+    const re = new RegExp(escaped);
+    assert.ok(re.test(DASHBOARD_CSS), `DASHBOARD_CSS must contain class "${cls}"`);
+  }
+
+  // Verify design tokens are used (not raw px in section spacing)
+  assert.ok(DASHBOARD_CSS.includes('var(--space-12)'), 'must use var(--space-12) for section spacing');
+  assert.ok(DASHBOARD_CSS.includes('var(--text-sm)'), 'must use var(--text-sm) token');
+  assert.ok(DASHBOARD_CSS.includes('var(--text-base)'), 'must use var(--text-base) token');
+  assert.ok(DASHBOARD_CSS.includes('var(--text-lg)'), 'must use var(--text-lg) token');
+});
+
+test('PM-120: home section class names do not collide with PROGRESSIVE_PROPOSAL_CSS', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Our home section classes use "home-" prefix to avoid collisions
+  assert.ok(DASHBOARD_CSS.includes('.home-section ') || DASHBOARD_CSS.includes('.home-section{'),
+    'home section must use home-section prefix');
+  assert.ok(DASHBOARD_CSS.includes('.home-section-title'),
+    'section title must use home-section-title prefix');
+  assert.ok(DASHBOARD_CSS.includes('.home-section-link'),
+    'section link must use home-section-link prefix');
+});
+
+test('PM-120: formatRelativeDate returns human-readable relative dates', () => {
+  const mod = loadServer();
+  assert.equal(typeof mod.formatRelativeDate, 'function', 'formatRelativeDate must be exported');
+  const now = new Date();
+  assert.equal(mod.formatRelativeDate(now.toISOString()), 'today');
+  const yesterday = new Date(now - 86400000);
+  assert.equal(mod.formatRelativeDate(yesterday.toISOString()), 'yesterday');
+  const threeDaysAgo = new Date(now - 3 * 86400000);
+  assert.equal(mod.formatRelativeDate(threeDaysAgo.toISOString()), '3d ago');
+  const twoWeeksAgo = new Date(now - 14 * 86400000);
+  assert.equal(mod.formatRelativeDate(twoWeeksAgo.toISOString()), '2w ago');
+  const twoMonthsAgo = new Date(now - 60 * 86400000);
+  assert.equal(mod.formatRelativeDate(twoMonthsAgo.toISOString()), '2mo ago');
+  assert.equal(mod.formatRelativeDate(''), '');
+  assert.equal(mod.formatRelativeDate(null), '');
+  assert.equal(mod.formatRelativeDate('not-a-date'), 'not-a-date');
+});
+
+test('PM-120: parseStrategySnapshot extracts focus, priorities, and staleness', () => {
+  const mod = loadServer();
+  assert.equal(typeof mod.parseStrategySnapshot, 'function', 'parseStrategySnapshot must be exported');
+
+  const { pmDir, cleanup } = withPmDir({
+    'pm/strategy.md': '---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n\n## Focus\nBuild the best PM tool.\n\n## Priorities\n1. Ship dashboard\n2. Fix bugs\n3. Write docs\n4. Ignored priority\n',
+  });
+  try {
+    const result = mod.parseStrategySnapshot(pmDir);
+    assert.ok(result, 'must return non-null for valid strategy');
+    assert.ok(result.focus.includes('best PM tool'), 'focus must contain the focus statement');
+    assert.equal(result.priorities.length, 3, 'must return top 3 priorities');
+    assert.ok(result.priorities[0].includes('Ship dashboard'), 'first priority must match');
+    assert.ok(result.staleness, 'must have staleness info');
+    assert.ok(['fresh', 'aging', 'stale'].includes(result.staleness.level), 'staleness level must be valid');
+  } finally { cleanup(); }
+});
+
+test('PM-120: parseStrategySnapshot returns null when no strategy.md', () => {
+  const mod = loadServer();
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const result = mod.parseStrategySnapshot(pmDir);
+    assert.equal(result, null, 'must return null when no strategy.md');
+  } finally { cleanup(); }
+});
+
+test('PM-120: What\'s coming section shows active proposals', async () => {
+  const meta = {
+    title: 'Dashboard Redesign',
+    date: '2026-03-28',
+    verdict: 'ready',
+    verdictLabel: 'Ready',
+    id: 'PM-120',
+    issueCount: 5,
+  };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/dashboard-redesign.meta.json': JSON.stringify(meta),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('What\'s coming') || body.includes("What&#39;s coming"), 'must have What\'s coming section');
+      assert.ok(body.includes('Dashboard Redesign'), 'must show proposal title');
+      assert.ok(body.includes('PM-120'), 'must show proposal ID');
+      assert.ok(body.includes('5 issues'), 'must show issue count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: shipped proposals are not shown in What\'s coming', async () => {
+  const shipped = {
+    title: 'Old Feature',
+    date: '2026-03-01',
+    verdict: 'shipped',
+    verdictLabel: 'Shipped',
+    id: 'PM-050',
+    issueCount: 3,
+  };
+  const active = {
+    title: 'New Feature',
+    date: '2026-03-28',
+    verdict: 'ready',
+    verdictLabel: 'Ready',
+    id: 'PM-060',
+    issueCount: 2,
+  };
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/old-feature.meta.json': JSON.stringify(shipped),
+    'pm/backlog/proposals/new-feature.meta.json': JSON.stringify(active),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/');
+      assert.ok(body.includes('New Feature'), 'must show active proposal');
+      // Shipped proposal title should not appear in the proposals section
+      const proposalSection = body.substring(
+        body.indexOf('What'),
+        body.indexOf('Knowledge base') !== -1 ? body.indexOf('Knowledge base') : body.length
+      );
+      assert.ok(!proposalSection.includes('Old Feature'), 'must NOT show shipped proposal in What\'s coming');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-120: :root contains design token scale variables', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root\s*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const rootBlock = rootMatch[1];
+  const requiredTokens = [
+    '--space-1', '--space-2', '--space-4', '--space-6', '--space-8', '--space-12',
+    '--text-xs', '--text-sm', '--text-base', '--text-md', '--text-lg',
+  ];
+  for (const token of requiredTokens) {
+    assert.ok(rootBlock.includes(token + ':'), `:root must define ${token}`);
+  }
 });

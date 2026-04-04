@@ -396,6 +396,24 @@ const DASHBOARD_CSS = `
   --badge-neutral-bg: #f3f4f6;
   --badge-neutral-text: #6b7280;
   --surface-raised: #eef0f4;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Text scale */
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-md: 1rem;         /* 16px */
+  --text-lg: 1.5rem;       /* 24px */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -762,6 +780,107 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .coverage-group-header--other { background: var(--badge-neutral-bg); }
 .coverage-group-header--default { background: var(--surface-raised); }
 
+/* ===== HOME SECTIONS ===== */
+.home-section { margin-bottom: var(--space-12); }
+.home-section-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.home-section-title {
+  font-size: var(--text-sm); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+.home-section-link {
+  font-size: var(--text-sm); color: var(--accent); text-decoration: none; font-weight: 500;
+}
+.home-section-link:hover { color: var(--accent-hover, var(--accent)); }
+.home-section-count {
+  font-size: var(--text-xs); color: var(--text-muted); margin-left: var(--space-2);
+}
+
+/* Strategy snapshot */
+.strategy-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); padding: var(--space-5) var(--space-6);
+}
+.strategy-focus {
+  font-size: var(--text-md); font-weight: 600; letter-spacing: -0.01em;
+  margin-bottom: var(--space-3); line-height: 1.4;
+}
+.strategy-priorities { display: flex; flex-direction: column; gap: var(--space-2); }
+.priority-item {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: var(--text-base); color: var(--text-muted);
+}
+.priority-num {
+  font-size: var(--text-xs); font-weight: 700; color: var(--accent);
+  width: var(--space-5); flex-shrink: 0;
+}
+.staleness {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-3);
+}
+.staleness-dot { width: 6px; height: 6px; border-radius: 50%; }
+.staleness-dot.fresh { background: var(--success); }
+.staleness-dot.aging { background: var(--warning); }
+.staleness-dot.stale { background: var(--error); }
+
+/* Proposal rows (home) */
+.home-proposal-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.home-proposal-row {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-4); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.home-proposal-row:hover { background: var(--surface-raised, var(--surface)); }
+.home-proposal-row .proposal-id {
+  font-size: var(--text-xs); font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums; width: 36px; flex-shrink: 0;
+}
+.home-proposal-row .proposal-title { font-size: var(--text-base); font-weight: 500; flex: 1; }
+.home-proposal-row .proposal-meta {
+  font-size: var(--text-xs); color: var(--text-faint, var(--text-muted));
+  display: flex; align-items: center; gap: var(--space-3);
+}
+
+/* Shipped items (home) */
+.home-shipped-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.home-shipped-item {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.home-shipped-item:hover { background: var(--surface-raised, var(--surface)); }
+.home-shipped-title { font-size: var(--text-base); font-weight: 500; flex: 1; }
+.home-shipped-context { font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); }
+.home-shipped-date {
+  font-size: var(--text-xs); color: var(--text-faint, var(--text-muted));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* KB health grid */
+.kb-health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.kb-health-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); padding: var(--space-4) var(--space-5);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.kb-health-card:hover { background: var(--surface-raised, var(--surface)); }
+.kb-health-value {
+  font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.kb-health-label { font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; }
+.kb-health-freshness {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-2);
+}
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1089,6 +1208,22 @@ function stalenessInfo(dateStr) {
   return { label, level };
 }
 
+function formatRelativeDate(dateStr) {
+  if (!dateStr) return '';
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  if (isNaN(then)) return dateStr;
+  const diffMs = now - then;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return dateStr;
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return `${Math.floor(diffDays / 365)}y ago`;
+}
+
 function humanizeSlug(slug) {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -1189,6 +1324,35 @@ function buildTopicMeta(slug, data, findingsPath) {
   };
 }
 
+function parseStrategySnapshot(pmDir) {
+  const strategyPath = path.join(pmDir, 'strategy.md');
+  if (!fs.existsSync(strategyPath)) return null;
+  const raw = fs.readFileSync(strategyPath, 'utf-8');
+  const { body } = parseFrontmatter(raw);
+
+  // Extract focus: first non-empty paragraph or ## Focus section
+  let focus = '';
+  const focusMatch = body.match(/## (?:Focus|Vision)\s*\n+(.*?)(?:\n\n|\n##)/s);
+  if (focusMatch) focus = focusMatch[1].replace(/\n/g, ' ').trim();
+  if (!focus) {
+    const firstPara = body.split(/\n\n/)[0];
+    focus = firstPara.replace(/^#.*\n/, '').trim();
+  }
+
+  // Extract priorities from ## Priorities section
+  const priorities = [];
+  const priMatch = body.match(/## Priorities\s*\n([\s\S]*?)(?:\n##|$)/);
+  if (priMatch) {
+    const lines = priMatch[1].split('\n').filter(l => /^\s*[-*\d]/.test(l));
+    for (const line of lines.slice(0, 3)) {
+      priorities.push(line.replace(/^\s*[-*\d.]+\s*/, '').trim());
+    }
+  }
+
+  const stale = stalenessInfo(getUpdatedDate(strategyPath));
+  return { focus, priorities, staleness: stale || { level: 'fresh', label: 'Current' } };
+}
+
 function handleDashboardHome(res, pmDir) {
   // Scan pm/ and count files by type
   const stats = { total: 0, landscape: 0, strategy: 0, competitors: 0, backlog: 0, research: 0 };
@@ -1228,7 +1392,6 @@ function handleDashboardHome(res, pmDir) {
     strategy: getUpdatedDate(path.join(pmDir, 'strategy.md')),
     backlog: getNewestUpdated(path.join(pmDir, 'backlog')),
   };
-  // Research staleness = newest across landscape, competitors, topics
   const researchDates = [
     getUpdatedDate(path.join(pmDir, 'landscape.md')),
     getNewestUpdated(path.join(pmDir, 'competitors')),
@@ -1236,34 +1399,181 @@ function handleDashboardHome(res, pmDir) {
   ].filter(Boolean);
   updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
 
-  // Build research sub-counts
-  const researchParts = [];
-  if (stats.landscape) researchParts.push('Landscape');
-  if (stats.competitors > 0) researchParts.push(`${stats.competitors} competitor${stats.competitors !== 1 ? 's' : ''}`);
-  if (stats.research > 0) researchParts.push(`${stats.research} topic${stats.research !== 1 ? 's' : ''}`);
-  const researchHasContent = researchParts.length > 0;
-  const researchDesc = researchHasContent ? researchParts.join(' · ') : 'Landscape, competitors, and topic research';
+  const projectName = getProjectName(pmDir);
 
-  const sections = [
-    { href: '/research', title: 'Research', desc: researchDesc, hasContent: researchHasContent, key: 'research' },
-    { href: '/strategy', title: 'Strategy', desc: 'Product strategy and roadmap direction', hasContent: !!stats.strategy, key: 'strategy' },
-    { href: '/roadmap', title: 'Roadmap', desc: `${stats.backlog} backlog item${stats.backlog !== 1 ? 's' : ''}`, hasContent: stats.backlog > 0, key: 'backlog' },
-  ].map(s => {
-    const badge = s.hasContent
-      ? '<span class="badge badge-ready">Ready</span>'
-      : '<span class="badge badge-empty">Empty</span>';
-    const stale = s.hasContent ? stalenessInfo(updatedDates[s.key]) : null;
-    const footerRight = stale
-      ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
-      : '';
-    return `<div class="card">
-      <h3><a href="${s.href}">${s.title}</a> ${badge}</h3>
-      <p class="meta">${s.desc}</p>
-      <div class="card-footer"><span></span>${footerRight}</div>
-    </div>`;
-  }).join('');
+  // ===== 1. Strategy snapshot =====
+  const strategyData = parseStrategySnapshot(pmDir);
+  const strategySection = strategyData ? `
+<div class="home-section">
+  <div class="home-section-header">
+    <span class="home-section-title">Strategy</span>
+    <a href="/kb?tab=strategy" class="home-section-link">View full strategy</a>
+  </div>
+  <div class="strategy-card">
+    ${strategyData.focus ? `<div class="strategy-focus">${escHtml(strategyData.focus)}</div>` : ''}
+    <div class="strategy-priorities">
+      ${strategyData.priorities.map((p, i) => `<div class="priority-item"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join('')}
+    </div>
+    <div class="staleness">
+      <span class="staleness-dot ${strategyData.staleness.level}"></span>
+      Updated ${escHtml(strategyData.staleness.label)}
+    </div>
+  </div>
+</div>` : '';
 
-  // Suggested next action based on knowledge base state
+  // ===== 2. What's coming (active proposals) =====
+  const proposalsDir = path.join(pmDir, 'backlog', 'proposals');
+  const activeProposals = [];
+  if (fs.existsSync(proposalsDir)) {
+    const metaFiles = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    for (const file of metaFiles) {
+      try {
+        const raw = fs.readFileSync(path.join(proposalsDir, file), 'utf-8');
+        const meta = JSON.parse(raw);
+        if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+          const slug = file.replace('.meta.json', '');
+          // Include non-shipped, non-draft proposals
+          const verdict = (meta.verdict || '').toLowerCase();
+          if (verdict !== 'shipped' && verdict !== 'draft') {
+            activeProposals.push({
+              slug,
+              id: meta.id || '',
+              title: meta.title || humanizeSlug(slug),
+              statusLabel: meta.verdictLabel || meta.verdict || 'Active',
+              badgeClass: verdict === 'ready' ? 'ready' : verdict === 'in-progress' ? 'in-progress' : 'neutral',
+              issueCount: meta.issueCount || 0,
+              updated: meta.date || '',
+            });
+          }
+        }
+      } catch { /* skip invalid JSON */ }
+    }
+    activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
+    activeProposals.splice(5);
+  }
+
+  const proposalsSection = activeProposals.length > 0 ? `
+<div class="home-section">
+  <div class="home-section-header">
+    <span class="home-section-title">What's coming</span>
+    <a href="/proposals" class="home-section-link">All proposals</a>
+  </div>
+  <div class="home-proposal-list">
+    ${activeProposals.map(p => `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="home-proposal-row">
+      <span class="proposal-id">${escHtml(p.id)}</span>
+      <span class="proposal-title">${escHtml(p.title)}</span>
+      <span class="proposal-meta">
+        <span class="badge badge-${escHtml(p.badgeClass)}">${escHtml(p.statusLabel)}</span>
+        <span>${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>
+        <span>${escHtml(formatRelativeDate(p.updated))}</span>
+      </span>
+    </a>`).join('')}
+  </div>
+</div>` : '';
+
+  // ===== 3. Recently shipped =====
+  const recentShipped = [];
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
+    const allItems = {};
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      const slug = file.replace('.md', '');
+      allItems[slug] = { slug, ...data };
+    }
+    const childSlugs = new Set();
+    for (const item of Object.values(allItems)) {
+      if (item.parent && item.parent !== 'null' && allItems[item.parent]) childSlugs.add(item.slug);
+    }
+    const shipped = Object.values(allItems)
+      .filter(i => i.status === 'done' && !childSlugs.has(i.slug))
+      .sort((a, b) => ((b.updated || b.created || '') > (a.updated || a.created || '') ? 1 : -1))
+      .slice(0, 5);
+    for (const s of shipped) {
+      const dateStr = s.updated || s.created || '';
+      recentShipped.push({
+        slug: s.slug,
+        title: s.title || s.slug,
+        outcome: s.outcome || '',
+        dateLabel: formatRelativeDate(dateStr),
+      });
+    }
+  }
+
+  const shippedSection = recentShipped.length > 0 ? `
+<div class="home-section">
+  <div class="home-section-header">
+    <span class="home-section-title">Recently shipped</span>
+    <a href="/roadmap/shipped" class="home-section-link">All shipped</a>
+  </div>
+  <div class="home-shipped-list">
+    ${recentShipped.map(s => `<a href="/roadmap/${escHtml(encodeURIComponent(s.slug))}" class="home-shipped-item">
+      <span class="home-shipped-title">${escHtml(s.title)}</span>
+      <span class="home-shipped-context">${escHtml(s.outcome)}</span>
+      <span class="home-shipped-date">${escHtml(s.dateLabel)}</span>
+    </a>`).join('')}
+  </div>
+</div>` : '';
+
+  // ===== 4. KB health =====
+  const researchFreshness = stalenessInfo(updatedDates.research) || { level: 'stale', label: 'No data' };
+  const competitorFreshness = stalenessInfo(getNewestUpdated(compDir)) || { level: 'stale', label: 'No data' };
+
+  // Customer evidence count from research topics with source_origin internal/mixed
+  let evidenceCount = 0;
+  if (fs.existsSync(researchDir)) {
+    const topics = fs.readdirSync(researchDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    for (const t of topics) {
+      const findingsPath = path.join(researchDir, t.name, 'findings.md');
+      if (fs.existsSync(findingsPath)) {
+        const { data } = parseFrontmatter(fs.readFileSync(findingsPath, 'utf-8'));
+        const origin = (data.source_origin || '').toLowerCase();
+        if ((origin === 'internal' || origin === 'mixed') && data.evidence_count) {
+          evidenceCount += parseInt(data.evidence_count, 10) || 0;
+        }
+      }
+    }
+  }
+  const evidenceFreshness = evidenceCount > 0
+    ? { level: 'fresh', label: `${evidenceCount} records` }
+    : { level: 'stale', label: 'No evidence' };
+
+  const kbSection = `
+<div class="home-section">
+  <div class="home-section-header">
+    <span class="home-section-title">Knowledge base</span>
+    <a href="/kb" class="home-section-link">Browse</a>
+  </div>
+  <div class="kb-health-grid">
+    <a href="/kb?tab=research" class="kb-health-card">
+      <div class="kb-health-value">${stats.research}</div>
+      <div class="kb-health-label">Research topics</div>
+      <div class="kb-health-freshness">
+        <span class="staleness-dot ${researchFreshness.level}"></span>
+        ${escHtml(researchFreshness.label)}
+      </div>
+    </a>
+    <a href="/kb?tab=competitors" class="kb-health-card">
+      <div class="kb-health-value">${stats.competitors}</div>
+      <div class="kb-health-label">Competitors profiled</div>
+      <div class="kb-health-freshness">
+        <span class="staleness-dot ${competitorFreshness.level}"></span>
+        ${escHtml(competitorFreshness.label)}
+      </div>
+    </a>
+    <a href="/kb?tab=research" class="kb-health-card">
+      <div class="kb-health-value">${evidenceCount}</div>
+      <div class="kb-health-label">Customer evidence</div>
+      <div class="kb-health-freshness">
+        <span class="staleness-dot ${evidenceFreshness.level}"></span>
+        ${escHtml(evidenceFreshness.label)}
+      </div>
+    </a>
+  </div>
+</div>`;
+
+  // ===== 5. Suggested next (retained for empty/new projects) =====
   let suggestedNext = '';
   if (!stats.strategy) {
     suggestedNext = 'Run <code>/pm:strategy</code> to define your product strategy';
@@ -1274,8 +1584,6 @@ function handleDashboardHome(res, pmDir) {
   } else if (stats.backlog === 0) {
     suggestedNext = 'Run <code>/pm:ideate</code> to generate feature ideas from your knowledge base';
   } else {
-    // Find first idea-status item to suggest grooming
-    const backlogDir = path.join(pmDir, 'backlog');
     let firstIdea = null;
     if (fs.existsSync(backlogDir)) {
       const files = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'));
@@ -1297,14 +1605,15 @@ function handleDashboardHome(res, pmDir) {
   <div>${suggestedNext}</div>
 </div>`;
 
-  const projectName = getProjectName(pmDir);
-
   const body = `
 <div class="page-header">
   <h1>${escHtml(projectName)}</h1>
-  <p class="subtitle">Knowledge base overview</p>
+  <p class="subtitle">Product knowledge base</p>
 </div>
-<div class="card-grid">${sections}</div>
+${strategySection}
+${proposalsSection}
+${shippedSection}
+${kbSection}
 ${suggestedHtml}`;
 
   const html = dashboardPage('Home', '/', body, projectName);
@@ -2989,5 +3298,6 @@ module.exports = {
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
   readProposalMeta, readGroomState, proposalGradient,
+  formatRelativeDate, parseStrategySnapshot,
   DASHBOARD_CSS,
 };
