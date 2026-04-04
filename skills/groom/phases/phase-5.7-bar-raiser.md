@@ -1,6 +1,4 @@
-### Phase 6.5: Bar Raiser Review
-
-**Review gate pattern:** Follow `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` for dispatch, collection, fix loop, and escalation mechanics.
+### Phase 5.7: Bar Raiser Review
 
 <HARD-GATE>
 The bar raiser review is required before presenting to the user. Do NOT skip based on team review results, time pressure, or perceived quality.
@@ -9,87 +7,85 @@ The bar raiser must NOT read team review findings — independent assessment is 
 
 After the team review converges (no blocking issues or max iterations reached), dispatch a single bar raiser agent for a senior-level holistic review. The bar raiser has not been involved in the iterative process and brings fresh eyes.
 
-Dispatch **1 agent** using the Agent tool with `model: "opus"`. The bar raiser performs the most judgment-heavy assessment in the pipeline — narrative coherence, ambition calibration, cross-cutting concerns — and benefits from stronger reasoning. If `.pm/config.json` has `agents.bar_raiser_model` set, use that model instead.
+Dispatch **1 agent** using the Agent tool with `subagent_type: "general-purpose"` and `model: "sonnet"`.
 
 **Agent: Product Director — Bar Raiser**
 
-Dispatch via Agent tool with `subagent_type: "pm:product-director"` and `model: "opus"`:
-
 ```
-prompt: |
-  Bar raiser review for "{topic}".
+You are a product director performing a bar raiser review on a feature proposal that has already passed team-level review. You are the last gate before this reaches the decision-maker.
 
-  Groom state: .pm/groom-sessions/{slug}.md (read ONLY: topic, scope, research_location, codebase_available — do NOT read review sections)
-  Issues: pm/backlog/{slug}.md
-  Wireframes: pm/backlog/wireframes/{slug}.html (if exists)
-  Research: {research_location from groom state}
-  Existing backlog: pm/backlog/*.md (for overlap check)
+You have fresh eyes. You have NOT been involved in the iterative drafting or team review. This is your advantage — use it to see what the team cannot.
 
-  Focus: bar raiser — narrative coherence, ambition calibration, "so what" test, cross-cutting concerns, executive anticipation, conviction check. Fresh eyes, independent assessment.
+CRITICAL: Do NOT read team review findings or groom state review sections. Form your own independent assessment. If you arrive at the same conclusion as the team, that is validation. If you disagree, that is the value you add.
+
+**Read before reviewing:**
+- pm/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
+- pm/landscape.md — market context
+- .pm/.groom-state.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
+- All drafted issue files (pm/backlog/{slug}.md) — the complete proposal
+- pm/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
+- pm/research/{topic}/ — the underlying research
+- pm/backlog/*.md — existing backlog items (for overlap check)
+- If codebase_available is true: explore the project source code for overlapping or related implementations
+
+**Review from these angles:**
+
+1. **Narrative coherence.** Read the entire proposal as a story: problem → research → scope → issues → expected impact. Does it hold together as a coherent argument for why this should be built?
+   - Can you explain in 2 sentences what this initiative does and why it matters?
+   - If not, identify where the narrative breaks down — vague problem statement, research that does not support the scope, scope that does not map to issues, or issues that do not add up to the stated outcome.
+
+2. **Ambition calibration.** Given the problem described, is this proposal thinking big enough? Or is the team playing it safe with incremental scope that will not move the needle? Conversely, is it overreaching beyond what the research supports?
+   - The right calibration: bold enough to matter, grounded enough to ship.
+   - Flag if the scope is timid relative to the problem, or ambitious relative to the evidence.
+
+3. **The "so what" test.** Imagine every issue in this proposal ships successfully. Does the combined result actually solve the problem stated in the scope? Or does it deliver components that do not add up to the claimed outcome?
+   - This is the most common failure mode of well-formatted proposals — each issue looks fine individually, but collectively they miss the point.
+
+4. **Cross-cutting concerns.** Scan existing backlog items (pm/backlog/*.md) AND the codebase (if available) for overlap, conflicts, or dependencies.
+   - Flag backlog items that duplicate work already planned
+   - Flag items that conflict with existing backlog priorities
+   - Flag dependencies on existing backlog items that are not acknowledged
+   - If codebase_available: check whether any proposed functionality already partially exists in code but wasn't surfaced during earlier phases. Existing dead code, feature flags, or abandoned implementations are common blind spots. Flag any "we're proposing to build what already exists" situations.
+
+5. **Executive anticipation.** If you were presenting this to a VP, what would they push back on? What question would they ask that the proposal cannot answer? Common executive questions:
+   - "What is the expected impact, in numbers?"
+   - "Why this approach and not {obvious alternative}?"
+   - "What are we NOT doing because we are doing this?"
+   - "How does this move our key metric?"
+   - "What happens if this fails?"
+   Flag every gap in the proposal's ability to answer these questions.
+
+6. **Conviction check.** After reading everything, do you believe this is the right thing to build right now? If you have doubt, articulate it precisely. A bar raiser who stays silent despite reservations has failed at their job.
+
+**Output format:**
+## Bar Raiser Review
+**Verdict:** Ready to present | Send back to team | Pause initiative
+**Rationale:** {2-3 sentences summarizing your overall assessment}
+**Blocking issues:** (must address before presenting to the decision-maker)
+- {issue} — {why this would get pushback and what needs to change}
+**Questions the proposal should answer:**
+- {question a decision-maker will ask that the proposal currently cannot answer}
+**Backlog overlap:** {list of overlapping backlog items with their slugs, or "None found"}
+**Conviction:** {your honest, unhedged assessment of whether this should be built now}
 ```
 
 **Handling bar raiser findings:**
 
-1. If verdict is **"Ready to present"**: proceed to Phase 7 (Present).
-2. If verdict is **"Ready if {condition}"**: persist the condition in `bar_raiser.conditions` in the state file. If the bar raiser also lists blocking issues, those must be fixed first (treat as "Send back" until resolved, then re-assess). If no blocking issues, treat as "Ready to present" and surface the condition to the user in Phase 7 as an open item requiring acknowledgment before approval.
-3. If verdict is **"Send back to team"**:
+1. If verdict is **"Ready to present"**: proceed to Phase 5.8.
+2. If verdict is **"Send back to team"**:
    - Address the bar raiser's blocking issues by revising the affected issues
-   - Re-run Phase 6 (Team Review) with the revised issues — the team must validate the fixes
+   - Re-run Phase 5.5 (Team Review) with the revised issues — the team must validate the fixes
    - After team review converges, re-run the bar raiser
    - Max **2 bar raiser iterations**. If iteration 2 still returns "Send back," present to the user with unresolved concerns flagged.
-4. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
+3. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
    > "The bar raiser recommends pausing this initiative. Rationale: {rationale}. How would you like to proceed?"
    Wait for user decision before continuing.
-5. **Companion screen (silent).**
-
-   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-   Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
-
-   Write `.pm/sessions/groom-{slug}/current.html` with:
-
-   - `{TOPIC}`: the topic from groom state
-   - `{PHASE_LABEL}`: "Bar Raiser"
-   - `{STEPPER_HTML}`: `bar-raiser` as current; `intake` through `team-review` as completed
-   - `{CONTENT}`:
-
-     ```html
-     <h2>Bar Raiser Review</h2>
-     <p>Iteration {N} of 2</p>
-
-     <div class="verdict-row">
-       <div class="verdict-card" style="flex:none;min-width:200px;">
-         <div class="role">Product Director</div>
-         <div class="verdict">{verdict}</div>
-       </div>
-     </div>
-
-     <!-- Show conditions only if verdict is "Ready if {condition}" -->
-     <h3>Conditions</h3>
-     <ul>
-       <li>{condition text}</li>
-     </ul>
-
-     <!-- Show blocking issues if verdict is "Send back" or has blocking items -->
-     <h3>Blocking Issues</h3>
-     <ol>
-       <li>{issue} — {why}</li>
-       <!-- or <p>None</p> -->
-     </ol>
-
-     <h3>Conviction</h3>
-     <p>{bar raiser's honest assessment}</p>
-     ```
-
-   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-   Do not mention this step to the user.
-
-6. Update state:
+4. Update state:
 
 ```yaml
 phase: bar-raiser
 bar_raiser:
-  verdict: ready | ready-if | send-back | pause
+  verdict: ready | send-back | pause
   iterations: {count}
   blocking_issues_fixed: {count}
 ```

@@ -1,6 +1,6 @@
 ---
-name: setup
-description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding. Triggers on 'setup,' 'initialize,' 'bootstrap,' 'configure pm,' 'set up pm,' 'get started,' 'onboard.'"
+name: pm-setup
+description: "Use when configuring the pm plugin for a new project, setting up integrations (Linear, Ahrefs), or bootstrapping the pm/ and .pm/ folder structures. Accepts an optional path to existing data for faster onboarding."
 ---
 
 # pm:setup
@@ -12,13 +12,11 @@ Configure integrations, bootstrap the knowledge base, and get to value fast — 
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
-**Speed-up heuristic:** If the user's responses are rapid and minimal (e.g., "yes", "next", "skip", single-word answers), you may offer: "Want me to ask the remaining setup questions at once?" If they agree, present the remaining questions as a numbered list for batch response.
-
 ## When Required
 Setup is advisory, not a hard gate. It is:
 - **Recommended** on first use (SessionStart hook reminds if not configured)
 - **Required** before skills that use integrations (research with SEO, groom with Linear)
-- **NOT required** for `$pm-start` (read-only over committed files) or `$pm-research quick` (web search fallback)
+- **NOT required** for `$pm-view` (read-only over committed files) or `$pm-dig` (web search fallback)
 
 Skills that need integrations check for config themselves and prompt setup if missing.
 
@@ -65,7 +63,6 @@ mkdir -p pm/backlog
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
-mkdir -p .pm/groom-sessions
 ```
 
 This produces:
@@ -176,7 +173,7 @@ Populate fields:
 When the knowledge base has data (from ingest or pre-existing files), do two things:
 
 ### Launch the dashboard
-Start `$pm-start` so the user can see their data immediately:
+Start `$pm-view` so the user can see their data immediately:
 
 > "Opening the PM dashboard so you can see what's already in the knowledge base..."
 
@@ -202,26 +199,26 @@ Knowledge Base Status:
   ✓ Landscape overview
   ✓ Strategy document
   ✓ 5 competitors profiled (all complete)
-  ✗ No SEO data for competitors (Ahrefs now configured — run /pm:refresh seo)
+  ✗ No SEO data for competitors (Ahrefs now configured — run $pm-refresh seo)
   ✗ No topic research
   ✓ 12 customer evidence records
 
 Suggested next steps:
-  1. /pm:refresh seo — backfill SEO data now that Ahrefs is configured
-  2. /pm:research <topic> — investigate a specific question
+  1. $pm-refresh seo — backfill SEO data now that Ahrefs is configured
+  2. $pm-research <topic> — investigate a specific question
 ```
 
 ### Gap-aware next step suggestions
 
 Only suggest what's actually missing. Use this priority order:
 
-1. **No landscape** → `/pm:research landscape`
-2. **Landscape exists, no strategy** → `/pm:strategy`
-3. **Strategy exists, no competitors** → `/pm:research competitors`
-4. **Competitors exist but missing SEO data + Ahrefs configured** → `/pm:refresh seo`
-5. **Competitors exist but incomplete profiles** → `/pm:refresh <slug>`
-6. **Everything exists but stale** → `/pm:refresh`
-7. **All research complete, no backlog** → `/pm:groom`
+1. **No landscape** → `$pm-research landscape`
+2. **Landscape exists, no strategy** → `$pm-strategy`
+3. **Strategy exists, no competitors** → `$pm-research competitors`
+4. **Competitors exist but missing SEO data + Ahrefs configured** → `$pm-refresh seo`
+5. **Competitors exist but incomplete profiles** → `$pm-refresh <slug>`
+6. **Everything exists but stale** → `$pm-refresh`
+7. **All research complete, no backlog** → `$pm-groom`
 8. **No custom instructions** → Mention: "You can customize PM behavior by creating `pm/instructions.md` — think of it as the CLAUDE.md for your product. Add your team's terminology, writing style, competitors to track, and output preferences. For personal overrides, use `pm/instructions.local.md` (gitignored)."
 
 Ask the user if they want to start the first suggested step now.
@@ -231,13 +228,13 @@ Ask the user if they want to start the first suggested step now.
 When `pm/` is empty and no import path was provided:
 
 > "Setup complete. Your knowledge base is empty — let's build it.
-> Recommended pipeline: `/pm:research landscape` → `/pm:strategy` → `/pm:research competitors` → `/pm:groom`
+> Recommended pipeline: `$pm-research landscape` → `$pm-strategy` → `$pm-research competitors` → `$pm-groom`
 >
 > Want to start with landscape research now?"
 
 If yes, invoke `$pm-research landscape` immediately.
 
-Do **not** launch `$pm-start` for an empty knowledge base — there's nothing to see yet.
+Do **not** launch `$pm-view` for an empty knowledge base — there's nothing to see yet.
 
 ---
 

@@ -29,7 +29,7 @@ The PM plugin is configured for this project. Available skills:
 | \`/pm:groom\` | Convert strategy into groomed Linear issues ready for sprint |
 | \`/pm:dig <question>\` | Ad-hoc deep research on a specific question or topic |
 | \`/pm:refresh [scope]\` | Audit research for staleness and missing data, then patch without losing existing content |
-| \`/pm:start\` | Project pulse, dashboard, and onboarding |
+| \`/pm:view\` | Browse and search accumulated research and strategy artifacts |
 
 Run any skill by typing its command.`
   : `# PM Plugin: Setup Required

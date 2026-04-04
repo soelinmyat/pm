@@ -75,7 +75,7 @@ OPEN QUESTIONS (scope-adjacent, not yet decided)
 - {Question}: {who needs to decide, and by when}
 ```
 
-Write this to `.pm/groom-sessions/{slug}.md` under the `scope:` key. Do not proceed to Phase 5 until both lists are confirmed by the user.
+Write this to `.pm/.groom-state.md` under the `scope:` key. Do not proceed to Phase 5 until both lists are confirmed by the user.
 
 ---
 

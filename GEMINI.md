@@ -1,6 +1,6 @@
 # PM Plugin
 
-Structured workflows for the product engineer — from discovery and strategy through implementation and merge. A cross-platform AI plugin that turns raw ideas and market signals into well-researched strategies and ready-to-build issues, then ships them through a structured development lifecycle, all without leaving your editor.
+A cross-platform AI plugin that gives Product Managers structured workflows for product discovery, competitive intelligence, and feature grooming. It turns raw ideas and market signals into well-researched strategies and ready-to-build Linear issues, all without leaving your editor.
 
 ---
 
@@ -8,7 +8,11 @@ Structured workflows for the product engineer — from discovery and strategy th
 
 ### First-time setup
 
-Tell PM about your project and it will configure your product context, integrations, and knowledge base folder structure automatically.
+Run setup to configure your product context, integrations, and knowledge base folder structure:
+
+```
+/pm:setup
+```
 
 Setup configures:
 - Product context and target market
@@ -18,48 +22,29 @@ Setup configures:
 
 ### Recommended workflow
 
-Start by grooming a feature idea — PM will research the market, scope the work, and produce ready-to-build issues. Or start with research if you want to explore first.
-
-A typical progression:
-1. Set up your project context
-2. Import any existing customer evidence (optional)
-3. Research your market landscape
-4. Define your product strategy
-5. Research specific competitors
-6. Groom ideas into sprint-ready issues
-7. Implement groomed issues end-to-end
+```
+/pm:setup
+/pm:ingest ~/path/to/customer-evidence   # optional, when you already have support/interview/sales data
+/pm:research landscape
+/pm:strategy
+/pm:research competitors
+/pm:groom
+```
 
 ---
 
 ## Available Skills
 
-### Product Discovery
-
-| Capability | Description |
-|-----------|-------------|
-| Setup | First-time configuration: product context, market, integrations |
-| Ingest | Import customer evidence from local files or folders and update shared research artifacts |
-| Strategy | Generate and refine product positioning and strategic bets |
-| Research | Landscape mapping, competitor deep-dives, user signal analysis |
-| Groom | Convert strategy into groomed issues ready for sprint |
-| Refresh | Audit research for staleness and missing data, then patch without losing existing content |
-| View | Browse and search accumulated research and strategy artifacts |
-
-### Development Lifecycle
-
-| Capability | Description |
-|-----------|-------------|
-| Dev | Unified development — auto-detects single issue, epic, or batch bug triage |
-| Brainstorming | Explore intent and design before code for creative work |
-| Writing-plans | Produce an implementation plan before code for multi-step tasks |
-| TDD | Test-first discipline — write test, watch fail, implement |
-| Subagent-dev | Dispatch parallel agents for plan execution |
-| Debugging | Root cause investigation before any fix |
-| Review | Multi-perspective code review + feedback handling protocol |
-| Design-critique | Multi-agent visual critique with screenshots |
-| QA | Ship gate — test charter, Playwright/Maestro testing, health score verdict |
-| Ship | Review, push, PR, CI monitor + auto-fix |
-| Sync | Sync plugin source to cache for testing |
+| Command | Description |
+|---------|-------------|
+| `/pm:setup` | First-time configuration: product context, market, integrations |
+| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
+| `/pm:strategy` | Generate and refine product positioning and strategic bets |
+| `/pm:research <topic>` | Landscape mapping, competitor deep-dives, user signal analysis |
+| `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
+| `/pm:dig <question>` | Ad-hoc deep research on a specific question or topic |
+| `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
+| `/pm:view` | Browse and search accumulated research and strategy artifacts |
 
 ---
 
@@ -83,12 +68,12 @@ The PM plugin is written for Claude Code but runs on Gemini CLI with the followi
 
 ## Subagent Limitation
 
-Gemini CLI does not support multiagent spawning. The PM plugin uses parallel agents in research and dev-epic workflows on Claude Code. On Gemini CLI, use sequential fallback instead:
+Gemini CLI does not support multiagent spawning. The PM plugin uses parallel researcher agents in `/pm:research` on Claude Code. On Gemini CLI, use sequential fallback instead:
 
 ```
 Claude Code (parallel):
-  - Spawn Agent 1 -> research competitor A / implement sub-issue 1
-  - Spawn Agent 2 -> research competitor B / implement sub-issue 2
+  - Spawn Agent 1 -> research competitor A
+  - Spawn Agent 2 -> research competitor B
   - Coordinate results
 
 Gemini CLI (sequential):
@@ -97,7 +82,7 @@ Gemini CLI (sequential):
   - Merge results in the next prompt turn
 ```
 
-All other skills work identically on Gemini CLI because they do not use parallel agents.
+All other skills (setup, strategy, groom, dig, view) work identically on Gemini CLI because they do not use parallel agents.
 
 ---
 
@@ -105,14 +90,14 @@ All other skills work identically on Gemini CLI because they do not use parallel
 
 ```
 pm/                   # Committed knowledge base
-  competitors/        # Competitor profiles from research
-  research/           # Shared topic research from research and ingest workflows
+  competitors/        # Competitor profiles written by /pm:research competitors
+  research/           # Shared topic research written by /pm:research and /pm:ingest
   backlog/            # Markdown issues (used only if Linear is unavailable)
 .pm/                  # Gitignored runtime/config
   config.json         # Integration settings (Linear, SEO provider)
-  imports/            # Import manifest for ingest workflow
+  imports/            # Import manifest for /pm:ingest
   evidence/           # Normalized customer evidence records
   sessions/           # Visual companion session state
 ```
 
-Skills read from and write to this layout. The view skill browses accumulated artifacts. The strategy skill synthesizes whatever research exists in `pm/`.
+Skills read from and write to this layout. `/pm:view` browses accumulated artifacts. `/pm:strategy` synthesizes whatever research exists in `pm/`.

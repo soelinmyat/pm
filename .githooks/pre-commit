@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Pre-commit checks:
-# 1. Generated platform files are in sync with plugin.config.json
-# 2. Version consistency across all generated manifests
-# 3. JSON validity for manifest files
-# 4. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
+# 1. Version consistency across all 4 manifests
+# 2. JSON validity for manifest files
+# 3. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
 
 set -euo pipefail
 
@@ -12,17 +11,7 @@ MANIFESTS=(
   ".cursor-plugin/plugin.json"
   ".claude-plugin/marketplace.json"
   "gemini-extension.json"
-  ".codex-plugin/plugin.json"
 )
-
-# --- Generated platform files ---
-if [[ -f "scripts/generate-platform-files.js" ]]; then
-  if ! node scripts/generate-platform-files.js --check > /dev/null 2>&1; then
-    echo "ERROR: Generated platform files are out of date."
-    echo "Run: node scripts/generate-platform-files.js"
-    exit 1
-  fi
-fi
 
 # --- JSON validity ---
 for f in "${MANIFESTS[@]}"; do
@@ -56,7 +45,7 @@ for entry in "${versions[@]:1}"; do
     for e in "${versions[@]}"; do
       echo "  ${e#*:}: ${e%%:*}"
     done
-    echo "All generated manifests must have the same version."
+    echo "All 4 manifests must have the same version."
     exit 1
   fi
 done

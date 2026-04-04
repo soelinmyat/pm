@@ -1,10 +1,10 @@
-### Phase 7: Present to User
+### Phase 5.8: Present to User
 
 Present the reviewed, iterated proposal as a self-contained HTML presentation in the browser. The terminal is not the medium for an executive-ready package.
 
 #### Step 1: Generate the proposal presentation
 
-**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
+**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/skills/groom/templates/proposal-reference.html`. This is a complete example of what the output should look like — match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual proposal content.
 
 **Note:** The reference template uses a fictional "Dashboard Filtering System" proposal as example content. The structure and 5 metrics slots (issues, team reviews, bar raiser, differentiator, priority) are always present — populate them from the actual groom state values.
 
@@ -33,7 +33,7 @@ Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Wor
 2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
 4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
-5. **Wireframes.** Embed via `<iframe>` if generated (with chrome header showing title + "Open in new tab" link). If `wireframes: []` in state, show "No wireframes needed — UI changes applied directly" with a "skipped" badge. Omit section entirely for non-UI features that never addressed wireframes.
+5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
 6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
 8. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID badge, title, outcome, labels, numbered ACs.
@@ -51,62 +51,14 @@ Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Wor
 - Verdicts colored: `.verdict-ready` green, `.verdict-caution` amber, `.verdict-blocked` red.
 - Print-friendly: `@media print` styles. Responsive: `@media (max-width: 640px)` collapses grids.
 
-#### Step 1.5: Scannability check
+#### Step 2: Open in browser and notify
 
-Before opening the proposal, verify these three things:
-
-1. **Section leads.** Every section after the hero opens with exactly one bold or `.section-lead` sentence. If any section lead is longer than one sentence, shorten it.
-2. **Collapsible ACs.** All acceptance criteria lists are inside `<details><summary>` tags. None are expanded by default.
-3. **One-line review notes.** Each review card note is a single short phrase (under ~60 characters). Truncate or rephrase any that wrap to two lines.
-
-If any check fails, fix it before proceeding.
-
-#### Step 1.7: Companion screen
-
-Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-Read the companion template at `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`.
-
-Write `.pm/sessions/groom-{slug}/current.html` with:
-
-- `{TOPIC}`: the topic from groom state
-- `{PHASE_LABEL}`: "Presentation"
-- `{STEPPER_HTML}`: `present` as current; all prior phases as completed
-- `{CONTENT}`:
-
-  ```html
-  <h2>Session Complete</h2>
-
-  <div class="card">
-    <h3>Proposal</h3>
-    <p><a href="/proposals/{topic-slug}" style="color:var(--accent);font-weight:600;">
-      View full proposal &rarr;
-    </a></p>
-  </div>
-
-  <h2>Session Summary</h2>
-  <table>
-    <tbody>
-      <tr><th style="width:40%;">Phases completed</th><td>{count} of 10</td></tr>
-      <tr><th>Issues drafted</th><td>{issue count}</td></tr>
-      <tr><th>Scope review iterations</th><td>{scope_review.iterations}</td></tr>
-      <tr><th>Team review iterations</th><td>{team_review.iterations}</td></tr>
-      <tr><th>Bar raiser iterations</th><td>{bar_raiser.iterations}</td></tr>
-    </tbody>
-  </table>
-  ```
-
-Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-Do not mention this step to the user.
-
-#### Step 2: Open in dashboard and notify
-
-Follow the standard invocation pattern in `${CLAUDE_PLUGIN_ROOT}/references/visual.md`:
-- Ensure dashboard is running
-- Open `http://localhost:{port}/proposals/{topic-slug}`
+```bash
+open pm/backlog/proposals/{topic-slug}.html
+```
 
 Tell the user:
-> "Proposal for '{topic}' ready — opening in dashboard.
+> "Proposal for '{topic}' is ready — opening in your browser now.
 > File: `pm/backlog/proposals/{topic-slug}.html`
 >
 > Ready to create these issues, or would you like changes?"
@@ -115,7 +67,7 @@ Tell the user:
 
 Wait for explicit approval. Accept edits inline. If the user requests changes:
 - For minor edits (wording, AC tweaks): revise issues and regenerate the presentation. No need to re-run reviews.
-- For scope changes (adding/removing in-scope items): re-run from Phase 6 (Team Review).
+- For scope changes (adding/removing in-scope items): re-run from Phase 5.5 (Team Review).
 
 Update state:
 

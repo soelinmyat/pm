@@ -1,51 +1,20 @@
 # PM — Product Memory
 
-PM is a cross-platform plugin for AI coding assistants that helps product engineers decide **what to build**, turn that into **well-defined work**, and then **ship it with structure**.
+PM (Product Memory) is a Claude Code plugin for product discovery, competitive research, strategy, and backlog grooming.
 
-It is built for people who own both product thinking and implementation: founders, engineers doing discovery, PMs who code, and small teams that want research, planning, and development to happen in one place.
+LLMs and coding agents changed the cost of building. What used to take a team weeks now takes hours. But the bottleneck did not disappear. It moved upstream.
 
-## What PM Does
+Knowing what to build is now the hard part. Not the code. The research, the strategy, the scoping, and the "should we even do this?" conversations. Most teams still do this manually: scattered notes, ad hoc web searches, gut-feel prioritization, and tribal knowledge that lives in someone's head.
 
-PM supports a simple lifecycle:
+PM gives product managers, founders, and builders structured workflows for that upstream work, inside the editor. Research compounds over time instead of getting lost. Strategy is checked before anyone writes code. Ideas are validated against competitors and market signals before they become issues.
 
-- **Research** your market, competitors, and customer signals
-- **Strategy** to clarify ICP, positioning, and priorities
-- **Groom** ideas into sprint-ready issues with acceptance criteria, user flows, and context
-- **Build** with TDD, review, QA, and shipping workflows
+Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
 
-The key idea is: **think once, build fast**.
+> **Early release.** Strong on competitive research, customer evidence ingest, strategy, and grooming. Not yet focused on product analytics integration, A/B test planning, or several other things a PM does in a given week. If you have ideas for what should come next, open a [discussion](https://github.com/soelinmyat/pm/discussions).
 
-## What Happens in Your Repo
+---
 
-PM creates two directories in your project:
-
-```text
-pm/      # committed knowledge base
-.pm/     # gitignored runtime state and config
-```
-
-Typical artifacts include:
-
-- `pm/landscape.md` — market landscape research
-- `pm/strategy.md` — product strategy
-- `pm/competitors/` — competitor profiles
-- `pm/research/` — topic research and synthesized findings
-- `pm/backlog/` — markdown backlog items when Linear is not used
-- `.pm/config.json` — integration and preference settings
-- `.pm/evidence/` — normalized customer evidence records
-
-## Who PM Is For
-
-PM is a strong fit if you:
-
-- use an AI coding assistant and also make product decisions
-- want research and planning artifacts to persist between sessions
-- prefer editor-native workflows over jumping across many tools
-- want product context to flow directly into implementation
-
-PM is probably not the best fit if you only want a code-generation helper with no research or planning layer.
-
-## Install
+## Installation
 
 ### Claude Code
 
@@ -56,96 +25,101 @@ claude plugin install pm@pm
 
 ### Cursor
 
-Copy `.cursor-plugin/` into your project root.
+Copy the `.cursor-plugin/` directory into your project root, or install via Cursor's plugin marketplace once published.
 
 ### Codex
 
-PM now ships a native `.codex-plugin/plugin.json` manifest alongside the generated fallback skill install flow in [`.codex/INSTALL.md`](.codex/INSTALL.md).
+Codex installs PM as a bundle of skills, not a `plugins:` config entry. Follow the Codex-specific guide in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
-### Gemini CLI
+### OpenCode, Gemini CLI
 
-See [`GEMINI.md`](GEMINI.md).
+These platforms do not have a one-line install. See the platform-specific guides:
+
+- **OpenCode:** [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
+- **Gemini CLI:** Clone the repo and add it to your Gemini extensions. See [`GEMINI.md`](GEMINI.md).
+
+---
+
+## About the `pm/` directory in this repo
+
+The `pm/` directory contains Product Memory's own knowledge base — landscape research, competitor profiles, strategy, and backlog. This is PM dogfooding itself: the plugin is used to manage its own product development. It is not part of the plugin's source code or execution. When you install PM in your project, your own `pm/` directory will be generated fresh by `/pm:setup` or `$pm-setup` in Codex.
+
+---
 
 ## Quick Start
 
-You do **not** need to memorize every workflow.
+The fastest path from zero to a groomed backlog depends on the client:
 
-Start with plain-English prompts like:
+### Command-Based Clients
 
-- "Set up PM for this repo."
-- "Research our market and key competitors."
-- "Turn this feature idea into sprint-ready issues."
-- "Build the groomed issue for bulk editing."
-- "Open the PM dashboard."
+```
+/pm:setup
+/pm:ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
+/pm:research landscape
+/pm:strategy
+/pm:ideate
+/pm:research competitors
+/pm:research <topic>
+/pm:groom
+```
 
-A common progression looks like this:
+### Codex
 
-1. Set up project context
-2. Import customer evidence (optional)
-3. Research the landscape
-4. Define strategy
-5. Groom ideas into issues
-6. Implement and ship
+```text
+$pm-setup
+$pm-ingest ~/path/to/customer-evidence   # optional, if you already have support/interview/sales data
+$pm-research landscape
+$pm-strategy
+$pm-ideate
+$pm-research competitors
+$pm-research <topic>
+$pm-groom
+$pm-view
+```
 
-## Workflows
+**`/pm:setup`** configures your product context, target market, and integrations (Linear, SEO providers).
 
-### Entry Points
+**`/pm:research landscape`** maps the competitive landscape: key players, categories, and whitespace in your market.
 
-- **Research** — landscape, competitor, topic, and quick inline research
-- **Strategy** — ICP, positioning, priorities, and deck generation
-- **Groom** — turn ideas into ready-to-build issues through multi-agent review
-- **Dev** — implement features, refactors, bug triage, and epics (auto-detects scope)
-- **Ship** — review, PR, CI monitoring, gate polling, and auto-merge
+**`/pm:strategy`** synthesizes research into a positioning strategy. Defines your differentiated angle and strategic bets.
 
-### Utilities
+**`/pm:research competitors`** deep-dives on specific competitors. Tracks features, pricing, messaging, and recent moves.
 
-- **Setup** — configure project context, integrations, and folder structure
-- **View** — open the local dashboard
-- **Ingest** — import support tickets, interview notes, and other evidence
-- **Refresh** — update stale research without losing accumulated knowledge
+**`/pm:research <topic>`** investigates a specific area — pricing models, API standards, regulatory requirements, or any question that needs grounded answers before building.
 
-## Optional Integrations
+**`/pm:groom`** converts strategy and research into groomed Linear issues with acceptance criteria, effort estimates, and priority scores.
 
-PM works without external integrations, but can optionally use:
+In Codex, use the corresponding skill names explicitly when needed: `pm-setup`, `pm-research`, `pm-strategy`, `pm-ideate`, `pm-groom`, `pm-dig`, `pm-ingest`, `pm-refresh`, and `pm-view`.
 
-- **Linear** for issue tracking instead of markdown backlog files
-- **Ahrefs MCP** for SEO-aware research
+---
 
-Without those, PM uses web research and writes backlog items to `pm/backlog/`.
+## Commands (Command-Based Clients)
 
-## Dashboard
+Codex uses the `pm-*` skills shown above instead of these slash commands.
 
-PM includes a local browser dashboard for browsing the knowledge base. It is read-only with no external services. It shows:
-
-- **Home** — control tower with backlog stats, active sessions, strategy health
-- **Backlog** — proposal cards, search/filter, shipped and archived views
-- **Research** — landscape, competitor profiles with tabbed detail, topic cards with freshness indicators
-- **Strategy** — rendered strategy with positioning maps, SWOT grids, and slide deck viewer
-
-## Example Outputs
-
-This repository dogfoods PM on itself, so you can browse real outputs:
-
-- [`pm/strategy.md`](pm/strategy.md) — product strategy
-- [`pm/landscape.md`](pm/landscape.md) — market landscape
-- [`pm/competitors/`](pm/competitors/) — competitor profiles
-- [`pm/research/`](pm/research/) — topic research
-
-## Why This Repo Contains a `pm/` Folder
-
-The `pm/` directory in this repository is PM using itself. It is **example product data**, not the plugin source code. The plugin source lives in `skills/`, `agents/`, `hooks/`, and `scripts/`.
+| Command | Description |
+|---------|-------------|
+| `/pm:setup` | First-time configuration: product context, market, integrations |
+| `/pm:ingest <path>` | Import customer evidence from local files or folders and update shared research artifacts |
+| `/pm:strategy` | Generate and refine product positioning and strategic bets |
+| `/pm:research <topic>` | Landscape mapping, competitor deep-dives, market signal analysis |
+| `/pm:ideate` | Generate ranked feature ideas from your knowledge base |
+| `/pm:groom` | Convert strategy into groomed Linear issues ready for sprint |
+| `/pm:dig <question>` | Quick inline research for mid-work decisions. No state, no issues. |
+| `/pm:refresh [scope]` | Audit research for staleness and missing data, then patch without losing existing content |
+| `/pm:view` | Open the knowledge base dashboard in your browser |
 
 ---
 
 ## Feedback
 
-- [Open an issue](https://github.com/soelinmyat/pm/issues)
-- [Start a discussion](https://github.com/soelinmyat/pm/discussions)
+Ideas, bug reports, and workflow suggestions are welcome.
 
-## Acknowledgments
+- Open an [issue](https://github.com/soelinmyat/pm/issues)
+- Start a [discussion](https://github.com/soelinmyat/pm/discussions)
 
-Inspired by [Superpowers](https://github.com/obra/superpowers), [Impeccable](https://github.com/pbakaus/impeccable), and [gstack](https://github.com/garrytan/gstack).
+---
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. Copyright (c) 2026 Soe Lin Myat. See [LICENSE](./LICENSE).

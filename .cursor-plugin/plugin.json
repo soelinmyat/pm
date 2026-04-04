@@ -1,29 +1,15 @@
 {
   "name": "pm",
-  "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-  "version": "1.0.30",
-  "author": {
-    "name": "Soe Lin Myat"
-  },
+  "displayName": "PM",
+  "description": "Product discovery, competitive intelligence, and feature grooming for Product Managers",
+  "version": "1.0.15",
+  "author": { "name": "Soe Lin Myat" },
   "homepage": "https://github.com/soelinmyat/pm",
   "repository": "https://github.com/soelinmyat/pm",
   "license": "MIT",
-  "keywords": [
-    "product-management",
-    "competitive-intelligence",
-    "grooming",
-    "research",
-    "discovery",
-    "development",
-    "lifecycle",
-    "tdd",
-    "code-review",
-    "orchestration",
-    "workflow"
-  ],
-  "displayName": "PM",
+  "keywords": ["product-management", "competitive-intelligence", "grooming", "research", "discovery"],
   "skills": "./skills/",
   "agents": "./agents/",
-  "hooks": "./hooks/hooks.json",
-  "commands": "./commands/"
+  "commands": "./commands/",
+  "hooks": "./hooks/hooks.json"
 }

@@ -1,10 +1,6 @@
-### Phase 8: Link (optional)
+### Phase 6: Link (optional)
 
-1. Check if Linear is configured AND available:
-   - Read `.pm/config.json` for `linear: true`
-   - If configured, verify Linear MCP tools are available by checking if `mcp__plugin_linear_linear__list_teams` (or any Linear MCP tool) exists in the available tools
-   - If configured but MCP tools are not available, warn: "Linear is configured but Linear MCP server is not connected. Issues will be created as local backlog files instead. To enable Linear, install the Linear MCP plugin."
-   - Fall through to the local backlog path if Linear MCP is unavailable
+1. Check if Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available).
 
 2. **If Linear configured:**
    - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL, producing broken links like `https://linear.app/.../pm/research/...`. Before constructing the issue description:
@@ -27,26 +23,7 @@
    ```
    If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
-5. **Companion screen (silent).**
-
-   Check `.pm/config.json` → `preferences.visual_companion`. If `false`, skip.
-
-   Write `.pm/sessions/groom-{slug}/current.html` using the companion template (`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/companion-template.md`).
-
-   - `{TOPIC}`: the topic from groom state
-   - `{PHASE_LABEL}`: "Linking Issues"
-   - `{STEPPER_HTML}`: build per the template's stepper construction rules, with `present` as completed (all phases complete — Phase 8 is post-presentation)
-   - `{CONTENT}`:
-     ```html
-     <div style="display:flex;align-items:center;justify-content:center;min-height:30vh;">
-       <p style="font-size:1.125rem;color:var(--text-muted);">Phase 8: Linking Issues — in progress</p>
-     </div>
-     ```
-
-   Create `.pm/sessions/groom-{slug}/` directory if it doesn't exist.
-   Do not mention this step to the user.
-
-6. **Update state:**
+5. Update state, then clean up:
 
 ```yaml
 issues:
@@ -55,98 +32,8 @@ issues:
     linear_id: "{ID}" | null
 ```
 
-7. **Retro prompt.** Before deleting the state file, run a short retrospective:
-
-   Ask ONE question:
-   > "Anything worth remembering from this session?"
-
-   **After the answer:**
-   - If the user skips (says "skip", "none", "nothing", "pass", "n/a", or "no"):
-     skip the retro entirely. Do not write an entry.
-   - Otherwise: write the answer as an entry to `pm/memory.md` (see write logic below) with category `process`.
-
-   **Write logic for each answered question:**
-   1. If `pm/memory.md` does not exist, create it:
-      ```yaml
-      ---
-      type: project-memory
-      created: {today YYYY-MM-DD}
-      updated: {today YYYY-MM-DD}
-      entries: []
-      ---
-
-      # Project Memory
-
-      Learnings captured from grooming sessions, retros, and manual observations.
-      ```
-   2. Read `pm/memory.md`. Parse the frontmatter.
-   3. Append a new entry to the `entries` array using the **golden serialization format** (2-space indent for `- `, 4-space indent for continuation fields, quote values containing colons):
-      ```yaml
-        - date: {today YYYY-MM-DD}
-          source: retro
-          category: {category from table}
-          learning: "{user's answer — preserve their words, trim to one line}"
-      ```
-   4. Update the `updated` field to today's date.
-   5. Write the file back.
-
-   **Serialization rules:** Use exactly 2-space indent + dash for entry start, 4-space indent for continuation fields. Quote any value containing a colon. This matches the parseFrontmatter() format validated in PM-039's round-trip test.
-
-   After the answer is captured, say:
-   > "Retro captured — saved to pm/memory.md."
-
-   If skipped, say nothing about retro and proceed to step 8.
-
-8. **Automated learning extraction.** Silently extract quantitative learnings from the state file. No user interaction.
-
-   Read `.pm/groom-sessions/{slug}.md` and parse the frontmatter. If the file is missing or the frontmatter cannot be parsed, log a warning:
-   > "Could not read session state for learning extraction — skipping."
-
-   and proceed to step 9.
-
-   Check each of the following conditions. For each that meets its threshold, generate a memory entry. If no conditions are met, skip to step 10 with no output.
-
-   | # | Check | Threshold | Learning text | Category |
-   |---|-------|-----------|---------------|----------|
-   | 1 | `scope_review.iterations` | > 1 | "Scope needed {N} iterations — blocking issues: {summary of scope_review issues}" | `scope` |
-   | 2 | `team_review.conditions` | array has ≥1 entry | "Team review required: {comma-separated conditions}" | `review` |
-   | 3 | `bar_raiser.verdict` | === `"send-back"` | "Bar raiser sent back: {bar_raiser.conditions[0] or 'no reason given'}" | `review` |
-   | 4 | Scope tightened during review | `scope_review.iterations` > 1 AND `scope.out_of_scope` is non-empty | "Scope tightened: {comma-separated out_of_scope items}" | `scope` |
-   | 5 | Clean session | `scope_review.iterations` === 1 AND `bar_raiser.verdict` === `"ready"` | "Clean session — scope and reviews passed first iteration" | `quality` |
-
-   **Missing fields:** If `scope_review`, `team_review`, or `bar_raiser` sections are missing from the state file, treat their values as null — the condition is not met and no entry is generated.
-
-   **Write logic** (same as retro step, using the **golden serialization format** from PM-039):
-   1. If `pm/memory.md` does not exist, create it with the PM-039 schema.
-   2. Read `pm/memory.md`, parse the frontmatter.
-   3. Append each generated entry to the `entries` array (2-space indent + dash for entry start, 4-space indent for continuation fields, quote values containing colons):
-      ```yaml
-        - date: {today YYYY-MM-DD}
-          source: {session-slug}
-          category: {category from table}
-          learning: "{generated text}"
-      ```
-   4. Update the `updated` field to today's date.
-   5. Write the file back.
-
-   This step is completely silent — produce no user-facing output. Entries are appended after any retro entries from step 7.
-
-9. **Clean up companion directory.** If the visual companion was active, delete the screen directory to prevent stale files from accumulating:
-
-   ```bash
-   COMPANION_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.pm/sessions/groom-{slug}"
-   if [ -d "$COMPANION_DIR" ]; then
-     rm -rf "$COMPANION_DIR"
-   fi
-   ```
-
-   - Replace `{slug}` with the session's actual slug.
-   - This deletes only the companion screen directory (`.pm/sessions/groom-{slug}/`), NOT the state file (`.pm/groom-sessions/{slug}.md`).
-   - If the directory does not exist (companion was never activated), this step does nothing.
-   - This step is silent — no user prompt, no output.
-
-10. **Clean up.** Delete `.pm/groom-sessions/{slug}.md` after the retro and extraction complete (or are skipped). Grooming for this topic is complete.
+Delete `.pm/.groom-state.md` after successful link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. {N} issues created.
-> Recommended next: /pm:groom ideate for more ideas, /pm:groom {next-idea}, or update priorities in pm/strategy.md."
+> Recommended next: $pm-ideate for more ideas, $pm-groom {next-idea}, or update priorities in pm/strategy.md."

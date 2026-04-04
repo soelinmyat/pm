@@ -1,6 +1,6 @@
 ---
-name: groom
-description: "Use when doing product discovery, feature grooming, generating feature ideas, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom this,' 'let's groom,' 'I have an idea,' 'here's an idea,' 'feature idea,' 'product discovery,' 'scope this,' 'spec this out,' 'write a spec,' 'write a PRD,' 'break this down,' 'create issues for,' 'create tickets for,' 'plan this feature,' 'let's ideate,' 'what should we build,' 'what are the opportunities.'"
+name: pm-groom
+description: "Use when doing product discovery, feature grooming, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for.'"
 ---
 
 # pm:groom
@@ -15,144 +15,22 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
-## Output Formatting
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output. All groom output must follow those shared rules.
-
-For groom-specific examples (scope review tables, team review collapse): read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md`.
-
----
-
-## Mode Routing
-
-**If the argument is `ideate`** (e.g., `/pm:groom ideate`):
-- Skip the normal groom lifecycle. Follow `${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/ideate.md` instead.
-- Ideate mines the knowledge base and generates ranked feature ideas as `status: idea` backlog items.
-
-**Otherwise**, proceed with the normal groom lifecycle below.
-
----
-
-## Tier Classification
-
-Grooming depth scales with issue complexity. Not every issue needs the full ceremony.
-
-### Tier suggestion + confirmation
-
-Suggest a tier from available context, then **always confirm with the user** before proceeding. Never silently auto-select.
-
-**Suggestion logic:**
-
-| Signal | Suggested tier |
-|--------|------|
-| `/dev` passed `groom_tier: quick` | **Quick** |
-| `/dev` passed `groom_tier: standard` | **Standard** |
-| `/dev` passed `groom_tier: full` | **Full** |
-| User says "quick groom" or "light groom" | **Quick** |
-| Issue is a bug fix, typo, config tweak, or single-concern gap | **Quick** |
-| Issue touches multiple concerns but has clear direction | **Standard** |
-| Issue is a new capability area, ambiguous direction, or multi-domain | **Full** |
-| Cannot determine | **Standard** (safe default) |
-
-If `/dev` passed a `dev_size`, use it as a secondary signal:
-
-| Dev size | Suggested tier |
-|----------|-------------|
-| XS, S | Quick |
-| M | Standard |
-| L, XL | Full |
-
-**Always confirm:**
-> "I'd suggest **{tier}** grooming for this ({reason}). Quick (scope + issues), standard (+ strategy + research), or full (all phases)?"
-
-Wait for the user's answer. If they confirm, proceed. If they pick a different tier, use theirs.
-
-**User can always override.** If the user says "full groom" on an XS issue, respect it.
-
-**Tier change mid-session.** If the user wants to change tier after grooming has started (e.g., Quick → Full):
-1. Keep all existing phase outputs — do not discard completed work.
-2. Update `tier` in the state file.
-3. Identify phases that are now required but were previously skipped (e.g., strategy check, research).
-4. Quick-run each missing phase in order, asking the user to confirm each output before moving on.
-5. Once caught up, resume from the phase where the user requested the change.
-
-### Tier → Phase mapping
-
-| Phase | Quick | Standard | Full |
-|-------|-------|----------|------|
-| 1. Intake | Yes | Yes | Yes |
-| 2. Strategy Check | Skip | Yes | Yes |
-| 3. Research | Skip | Yes (quick mode) | Yes (full mode) |
-| 4. Scope | Yes (lightweight) | Yes | Yes |
-| 4.5. Scope Review | Skip | Yes (PM + EM only, 2 agents) | Yes (3 agents) |
-| 5. Design | Skip | If UI feature | Yes |
-| 5.5. Groom | Yes (draft issues) | Yes | Yes |
-| 6. Team Review | Skip | Skip | Yes (3-4 agents) |
-| 6.5. Bar Raiser | Skip | Skip | Yes |
-| 7. Present | Skip | Skip | Yes |
-| 8. Link | Yes | Yes | Yes |
-
-**Quick tier scope (Phase 4)** is lightweight: confirm in-scope / out-of-scope with the user in a single exchange. Skip the 10x filter, scope grid, and codebase reality check. The goal is a clear boundary, not a strategic evaluation.
-
-**Standard tier research (Phase 3)** uses `pm:research quick` mode — fast inline answers, no full landscape or competitor deep-dive. Enough to ground the scope in market context without the full research ceremony.
-
-**Standard tier scope review (Phase 4.5)** dispatches 2 agents (PM + EM). Competitive strategist is skipped — the quick research already covers competitive basics.
-
-Store the tier in the groom session state file:
-
-```yaml
-tier: quick | standard | full
-```
-
-### Bar raiser verdict by tier
-
-Quick and standard tiers skip bar raiser, so the groom session ends without a `bar_raiser.verdict`. For downstream consumers (like `/dev` groom detection):
-
-| Tier | Equivalent verdict for groom detection |
-|------|---------------------------------------|
-| Quick | `"ready"` (implicit — no review gates to fail) |
-| Standard | `"ready"` if scope review passes, `"send-back"` if scope review fails |
-| Full | Actual bar raiser verdict |
-
-Store in state:
-
-```yaml
-effective_verdict: ready | ready-if | send-back | pause
-```
-
 ---
 
 ## Resume Check
 
-Before doing anything else, scan `.pm/groom-sessions/` for any `.md` files.
+Before doing anything else, check if `.pm/.groom-state.md` exists.
 
-**If a slug argument was provided** (e.g., `/pm:groom bulk-editing`):
-- Check if `.pm/groom-sessions/{slug}.md` exists.
-- If it does, read it and say:
-  > "Found an in-progress grooming session for '{topic}' (last updated: {updated}, current phase: {phase}).
-  > Resume from {phase}, or start fresh?"
-- If it doesn't, start Phase 1 for the given topic.
+If it does, read it and say:
 
-**If no argument was provided:**
-- If one or more session files exist, list them:
-  > "You have {N} in-progress grooming session(s):
-  > 1. {topic} — Phase: {phase}, started {started}
-  > 2. {topic} — Phase: {phase}, started {started}
-  >
-  > Resume one (pick a number), or start a new topic?"
-- If no sessions exist, start Phase 1.
+> "Found an in-progress grooming session for '{topic}' (last updated: {updated}, current phase: {phase}).
+> Resume from {phase}, or start fresh?"
 
-Wait for the user's answer. If resuming: read the selected session file, skip completed phases. If starting fresh on an existing slug: delete that session file, then begin Phase 1.
+Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the state file, then begin Phase 1.
 
 ---
 
-## Lifecycle
-
-Phases run based on the tier determined during Tier Classification:
-
-- **Quick:** intake → scope (lightweight) → groom → link
-- **Standard:** intake → strategy check → research (quick) → scope → scope review (2 agents) → design (if UI) → groom → link
-- **Full:** intake → strategy check → research → scope → scope review → design → groom → team review → bar raiser → present → link
+## Lifecycle: intake -> strategy check -> research -> scope -> scope review -> groom -> team review -> bar raiser -> present -> link
 
 ---
 
@@ -166,8 +44,6 @@ Before starting work, check for user instructions:
 3. If neither file exists, proceed normally.
 
 **Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
-
-Before starting any phase, read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for shared output rules and `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` for groom-specific examples.
 
 ---
 
@@ -187,46 +63,33 @@ When `codebase_available: true`, multiple phases will incorporate codebase analy
 
 When entering a phase, read its detailed instructions from the phase file. Each phase file contains the full instructions, HARD-GATEs, agent prompts, and state update schemas.
 
-| Phase | File | Tiers | Summary |
-|-------|------|-------|---------|
-| 1. Intake | `phases/phase-1-intake.md` | All | Capture the idea, clarify, surface past learnings, derive slug, write initial state |
-| 2. Strategy Check | `phases/phase-2-strategy.md` | Standard, Full | Validate against priorities, non-goals, ICP |
-| 3. Research | `phases/phase-3-research.md` | Standard (quick), Full | Invoke pm:research for competitive and market intelligence |
-| 4. Scope | `phases/phase-4-scope.md` | All (Quick = lightweight) | Define in-scope / out-of-scope, apply 10x filter |
-| 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | Standard (2 agents), Full (3 agents) | Parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Design | `phases/phase-3.5-design.md` | Standard (if UI), Full | Collaborative design exploration after scope is locked, spec writing, visual companion |
-| 5.5. Groom | `phases/phase-5-groom.md` | All | Detect feature type, generate flows/wireframes, draft issues |
-| 6. Team Review | `phases/phase-5.5-team-review.md` | Full only | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
-| 6.5. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Full only | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 7. Present | `phases/phase-5.8-present.md` | Full only | Generate HTML proposal, open in browser, get user approval |
-| 8. Link | `phases/phase-6-link.md` | All | Create issues in Linear or local backlog, validate, retro prompt, learning extraction, clean up |
+| Phase | File | Summary |
+|-------|------|---------|
+| 1. Intake | `phases/phase-1-intake.md` | Capture the idea, clarify, derive slug, write initial state |
+| 2. Strategy Check | `phases/phase-2-strategy.md` | Validate against priorities, non-goals, ICP |
+| 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
+| 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
+| 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | 3 parallel agents (PM, Competitive, EM) challenge the scope |
+| 5. Groom | `phases/phase-5-groom.md` | Detect feature type, generate flows/wireframes, draft issues |
+| 5.5. Team Review | `phases/phase-5.5-team-review.md` | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
+| 5.7. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
+| 5.8. Present | `phases/phase-5.8-present.md` | Generate HTML proposal, open in browser, get user approval |
+| 6. Link | `phases/phase-6-link.md` | Create issues in Linear or local backlog, validate, clean up |
 
-**How to use:** At the start of each phase, check the tier in `.pm/groom-sessions/{slug}.md`. If the phase is not included for the current tier (see Tier → Phase mapping above), skip it and proceed to the next applicable phase. When entering an applicable phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
-
----
-
-## Context Preservation
-
-Grooming sessions span many phases and can exceed context limits. To prevent state loss:
-
-1. **Re-read critical files at each phase boundary.** At the start of each phase, re-read `.pm/groom-sessions/{slug}.md` (the current session's state file) and `pm/strategy.md` §6-7 (priorities and non-goals). Do not rely on earlier conversation context for these — it may have been compressed.
-2. **State file is the source of truth.** What has been completed, what verdicts were given, and what blocking issues were fixed — all of this lives in the state file, not in conversation history.
-3. **Graceful context exhaustion.** If a phase file cannot be fully loaded or you notice missing context from earlier phases, stop and tell the user: "Context is getting full. The state file preserves your progress. Continue in a new session by running `/pm:groom` — it will detect the state file and offer to resume from {current phase}."
+**How to use:** At the start of each phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
 ---
 
-## State File Schema (.pm/groom-sessions/{slug}.md)
+## State File Schema (.pm/.groom-state.md)
 
-Each grooming session has its own state file at `.pm/groom-sessions/{slug}.md`, where `{slug}` is the topic slug derived in Phase 1. Multiple sessions can coexist.
+Only one state file at a time. If one exists when starting fresh, overwrite it.
 
 ```yaml
 ---
 topic: "{topic name}"
-tier: quick | standard | full
-phase: intake | strategy-check | research | scope | scope-review | design | groom | team-review | bar-raiser | present | link
+phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
-effective_verdict: ready | ready-if | send-back | pause | null
 codebase_available: true | false
 
 strategy_check:
@@ -238,12 +101,6 @@ strategy_check:
 
 research_location: pm/research/{topic-slug}/ | null
 
-jobs:
-  - when: "{situation/trigger}"
-    want: "{action/capability}"
-    so: "{desired outcome}"
-    rank: 1
-
 scope:
   in_scope:
     - "{item}"
@@ -252,35 +109,24 @@ scope:
   filter_result: 10x | parity | gap-fill | null
 
 scope_review:
-  pm_verdict: ship-it | ship-if | rethink-scope | wrong-priority | null
-  competitive_verdict: strengthens | strengthens-if | neutral | weakens | null
+  pm_verdict: ship-it | rethink-scope | wrong-priority | null
+  competitive_verdict: strengthens | neutral | weakens | null
   em_verdict: feasible | feasible-with-caveats | needs-rearchitecting | null
   blocking_issues_fixed: 0
   iterations: 1
 
 team_review:
-  pm_verdict: ready | ready-if | needs-revision | significant-gaps | null
-  pm_summary: "{one-line summary}" | null
-  competitive_verdict: sharp | sharp-if | adequate | undifferentiated | null
-  competitive_summary: "{one-line summary}" | null
-  em_verdict: ready | ready-if | needs-restructuring | missing-prerequisites | null
-  em_summary: "{one-line summary}" | null
-  design_verdict: complete | complete-if | gaps | inconsistencies | null
-  design_summary: "{one-line summary}" | null
-  conditions:
-    - "{reviewer}: {condition text}"
+  pm_verdict: ready | needs-revision | significant-gaps | null
+  competitive_verdict: sharp | adequate | undifferentiated | null
+  em_verdict: ready | needs-restructuring | missing-prerequisites | null
+  design_verdict: complete | gaps | inconsistencies | null
   blocking_issues_fixed: 0
   iterations: 1
 
 bar_raiser:
-  verdict: ready | ready-if | send-back | pause | null
-  conditions:
-    - "{condition text}"
+  verdict: ready | send-back | pause | null
   iterations: 1
   blocking_issues_fixed: 0
-
-wireframes:
-  - "{wireframe-slug}"
 
 issues:
   - slug: "{issue-slug}"
@@ -295,7 +141,7 @@ issues:
 ## Error Handling
 
 **Corrupted state file** (unparseable YAML, missing required fields):
-> "The state file at .pm/groom-sessions/{slug}.md appears corrupted. Options:
+> "The state file at .pm/.groom-state.md appears corrupted. Options:
 > (a) Show me the file so I can fix it manually
 > (b) Start fresh (deletes the state file)"
 
@@ -305,6 +151,9 @@ Warn the user. Offer to re-run Phase 3 before continuing. Do not silently procee
 **Strategy drift** (pm/strategy.md modified since strategy_check was recorded):
 On every phase after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
 > "pm/strategy.md was updated after the strategy check. Re-run the check before scoping?"
+
+**Parallel sessions** (state file already exists when starting):
+Never silently overwrite an existing state file. Always ask resume vs. fresh. Starting fresh requires explicit user confirmation before deleting.
 
 ---
 

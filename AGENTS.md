@@ -18,6 +18,7 @@ The plugin codebase that gets published and installed by users.
 
 | Directory | Contents |
 |---|---|
+| `commands/` | User-facing command surface |
 | `skills/` | Workflow behavior and output expectations |
 | `agents/` | Delegated/subagent behavior |
 | `scripts/` | Runtime utilities (dashboard server, helpers) |
@@ -50,7 +51,7 @@ Three copies of the plugin exist on disk. Understand which you're touching:
 
 ```
 Source (this repo)          Marketplace (git clone)           Cache (installed copy)
-/Users/.../Projects/pm/  →  ~/.claude/plugins/marketplaces/pm/  →  ~/.claude/plugins/cache/pm/pm/
+/Users/.../Projects/pm/  →  ~/.claude/plugins/marketplaces/pm/  →  ~/.claude/plugins/cache/pm/pm/{version}/
      ↑                              ↑                                      ↑
   You edit here              Auto-synced from GitHub             What actually runs
 ```
@@ -96,7 +97,7 @@ git config core.hooksPath .githooks
 
 ## Development Flow
 
-### Editing source code (skills, scripts, agents)
+### Editing source code (skills, scripts, commands, agents)
 
 1. **Edit** files in this repo (`/Users/.../Projects/pm/`)
 2. **Sync to cache** to test immediately (see sync command below)
@@ -112,10 +113,8 @@ To copy source changes to the plugin cache for immediate testing:
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
   /Users/soelinmyat/Projects/pm/ \
-  ~/.claude/plugins/cache/pm/pm/
+  ~/.claude/plugins/cache/pm/pm/{version}/
 ```
-
-**Important:** Sync to the cache root (`pm/pm/`), not a versioned subdirectory. Claude Code loads the plugin from the root.
 
 This overwrites the cache with your local source. It will be overwritten again on the next official plugin update, which is fine — your changes should be committed to source before that happens.
 
@@ -123,20 +122,21 @@ This overwrites the cache with your local source. It will be overwritten again o
 
 ### Editing dogfooded data (pm/)
 
-When using PM workflows (groom, research, ideate, etc.), the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/groom-sessions/`).
+When using `/pm:groom`, `/pm:research`, `/pm:ideate`, etc., the plugin writes to `pm/` in this repo. That's normal — it's the knowledge base. Commit it alongside source changes when it represents intentional product decisions (strategy, backlog items). Don't commit temporary groom state (`.pm/.groom-state.md`).
 
 ### Dashboard testing
 
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/scripts/server.js \
+node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
   --mode dashboard --dir "$PWD/pm"
 ```
 
 ## Source Of Truth
 
 Runtime behavior lives in:
+- `commands/`
 - `skills/`
 - `agents/`
 - `scripts/`
@@ -152,19 +152,12 @@ Planning notes live in:
 
 ## Change Rules
 
+- If command behavior changes, update the corresponding file in `commands/`.
 - If workflow behavior changes, update the relevant `skills/` file.
 - If delegated agent behavior changes, update the relevant file in `agents/`.
 - If code changes affect the published UX, update `README.md` and any affected install docs.
-- Keep skill descriptions aligned across `README.md` and `skills/`.
+- Keep command names and examples aligned across `README.md`, `commands/`, and `skills/`.
 - **After editing scripts or skills, sync to cache before testing.** Do not edit the cache directly.
-
-## Skill-Only Architecture
-
-This plugin uses skills as the sole runtime surface. Skills are the universal cross-platform format — they work on Claude Code, Cursor, Codex, and Gemini CLI.
-
-**Do not create new command files.** One compatibility alias exists: `commands/merge.md` — it delegates to the shared merge-loop reference for platforms that still expose command aliases. This is the only command, and it is intentionally thin. All workflow behavior lives in skills.
-
-Users invoke workflows through natural language. The `using-pm` skill (preloaded at session start) routes user intent to the correct skill automatically.
 
 ## Version Bump Rules
 
