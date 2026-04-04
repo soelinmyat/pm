@@ -2411,3 +2411,105 @@ test('wireframe viewer still wraps HTML with doctype but no layout CSS', async (
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// PM-117: Design Tokens Foundation
+// ---------------------------------------------------------------------------
+
+test('PM-117: spacing tokens --space-1 through --space-24 with correct px values', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const expected = {
+    '--space-1': '4px',
+    '--space-2': '8px',
+    '--space-3': '12px',
+    '--space-4': '16px',
+    '--space-5': '20px',
+    '--space-6': '24px',
+    '--space-8': '32px',
+    '--space-10': '40px',
+    '--space-12': '48px',
+    '--space-16': '64px',
+    '--space-24': '96px',
+  };
+  for (const [token, value] of Object.entries(expected)) {
+    const escapedToken = token.replace(/-/g, '\\-');
+    const pattern = new RegExp(`${escapedToken}\\s*:\\s*${value}`);
+    assert.ok(pattern.test(DASHBOARD_CSS), `CSS must contain ${token}: ${value}`);
+  }
+});
+
+test('PM-117: typography tokens --text-xs through --text-3xl with correct rem values', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const expected = {
+    '--text-xs': '0.75rem',
+    '--text-sm': '0.8125rem',
+    '--text-base': '0.875rem',
+    '--text-lg': '1rem',
+    '--text-xl': '1.25rem',
+    '--text-2xl': '1.5rem',
+    '--text-3xl': '2rem',
+  };
+  for (const [token, value] of Object.entries(expected)) {
+    const escapedToken = token.replace(/[-]/g, '\\-');
+    const escapedValue = value.replace(/\./g, '\\.');
+    const pattern = new RegExp(`${escapedToken}\\s*:\\s*${escapedValue}`);
+    assert.ok(pattern.test(DASHBOARD_CSS), `CSS must contain ${token}: ${value}`);
+  }
+});
+
+test('PM-117: --surface-raised exists in both :root and [data-theme="light"]', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Extract :root block
+  const rootMatch = DASHBOARD_CSS.match(/:root[^{]*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  assert.ok(rootMatch[1].includes('--surface-raised'), ':root must contain --surface-raised');
+
+  // Extract light theme block
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] block must exist');
+  assert.ok(lightMatch[1].includes('--surface-raised'), '[data-theme="light"] must contain --surface-raised');
+});
+
+test('PM-117: --border uses rgba() not hex in :root', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root[^{]*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const borderMatch = rootMatch[1].match(/--border\s*:\s*([^;]+)/);
+  assert.ok(borderMatch, ':root must contain --border');
+  assert.ok(borderMatch[1].includes('rgba('), '--border in :root must use rgba()');
+  assert.ok(!borderMatch[1].match(/#[0-9a-fA-F]{3,8}/), '--border in :root must not use hex');
+});
+
+test('PM-117: --border uses rgba() in [data-theme="light"]', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] block must exist');
+  const borderMatch = lightMatch[1].match(/--border\s*:\s*([^;]+)/);
+  assert.ok(borderMatch, '[data-theme="light"] must contain --border');
+  assert.ok(borderMatch[1].includes('rgba('), '--border in light theme must use rgba()');
+  assert.ok(!borderMatch[1].match(/#[0-9a-fA-F]{3,8}/), '--border in light theme must not use hex');
+});
+
+test('PM-117: font-variant-numeric: tabular-nums appears in CSS', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(
+    DASHBOARD_CSS.includes('font-variant-numeric: tabular-nums') ||
+    DASHBOARD_CSS.includes('font-variant-numeric:tabular-nums'),
+    'CSS must contain font-variant-numeric: tabular-nums rule'
+  );
+});
+
+test('PM-117: light theme contains all variables from dark theme (completeness)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const rootMatch = DASHBOARD_CSS.match(/:root[^{]*\{([^}]+)\}/);
+  assert.ok(rootMatch, ':root block must exist');
+  const lightMatch = DASHBOARD_CSS.match(/\[data-theme="light"\]\s*\{([^}]+)\}/);
+  assert.ok(lightMatch, '[data-theme="light"] block must exist');
+
+  // Extract all CSS custom property names from :root (--xxx)
+  const rootVars = [...rootMatch[1].matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]);
+  const lightVars = new Set([...lightMatch[1].matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+
+  const missing = rootVars.filter(v => !lightVars.has(v));
+  assert.deepEqual(missing, [], `Light theme is missing variables: ${missing.join(', ')}`);
+});

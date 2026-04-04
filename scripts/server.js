@@ -447,7 +447,8 @@ const DASHBOARD_CSS = `
 :root, [data-theme="dark"] {
   --bg: #0d0f12;
   --surface: #1a1d23;
-  --border: #2a2e37;
+  --surface-raised: #1e2128;
+  --border: rgba(255, 255, 255, 0.08);
   --text: #e8eaed;
   --text-muted: #8b8f96;
   --accent: #5e6ad2;
@@ -468,12 +469,33 @@ const DASHBOARD_CSS = `
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
   --transition: 150ms ease-out;
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+  /* Typography scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
   color-scheme: dark;
 }
 [data-theme="light"] {
   --bg: #f8f9fb;
   --surface: #ffffff;
-  --border: #e2e5ea;
+  --surface-raised: #f0f2f5;
+  --border: rgba(0, 0, 0, 0.06);
   --text: #1e2128;
   --sidebar-bg: #f0f1f4;
   --sidebar-text: #1e2128;
@@ -489,14 +511,38 @@ const DASHBOARD_CSS = `
   --success: #16a34a;
   --warning: #ea580c;
   --info: #0891b2;
+  --radius: 8px;
+  --radius-sm: 6px;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --transition: 150ms ease-out;
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+  /* Typography scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
   color-scheme: light;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased;
   letter-spacing: -0.011em; }
+.stat-card .value, .pulse-arc-text, .pulse-dim-score, .bar-value, .col-count, .group-count { font-variant-numeric: tabular-nums; }
 a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--accent-hover); }
 a:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); outline: none; border-radius: 4px; }
@@ -5653,4 +5699,5 @@ module.exports = {
   readProposalMeta, proposalGradient, sanitizeGradient,
   readGroomState, groomPhaseLabel, buildProposalCards, findProposalAncestor, buildBacklogGrouped, buildBacklogKanban,
   hashProjectPort, isPortAvailable, resolvePort,
+  DASHBOARD_CSS,
 };
