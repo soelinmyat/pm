@@ -881,6 +881,71 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
   font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-2);
 }
 
+/* ===== PROPOSALS PAGE ===== */
+.proposal-grid { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.proposal-card-row {
+  display: flex; align-items: center;
+  padding: var(--space-4) var(--space-5); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--space-2);
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+  gap: var(--space-4);
+}
+.proposal-card-row:hover { background: var(--surface-raised, var(--surface)); }
+.proposal-card-body { flex: 1; min-width: 0; }
+.proposal-card-title {
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+  margin-bottom: var(--space-1);
+}
+.proposal-card-outcome {
+  font-size: var(--text-sm); color: var(--text-muted); line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.proposal-card-meta {
+  display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0;
+}
+.badge-groomed { background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
+.badge-paused { background: var(--badge-error-bg); color: var(--badge-error-text); }
+.proposal-id { margin-right: var(--space-2); }
+.issue-count {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.updated {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* Ideas rows */
+.idea-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.idea-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 10px var(--space-4); border-radius: 6px;
+  text-decoration: none; color: var(--text);
+  transition: background 150ms;
+}
+.idea-row:hover { background: var(--surface); }
+.idea-id {
+  font-size: var(--text-xs); font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums; width: 52px; flex-shrink: 0;
+}
+.idea-title { font-size: var(--text-base); color: var(--text-muted); flex: 1; }
+
+.section { margin-bottom: var(--space-8); }
+.section-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.section-title {
+  font-size: var(--text-sm); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+.section-count {
+  font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
+  font-variant-numeric: tabular-nums;
+}
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -1099,6 +1164,32 @@ function routeDashboard(req, res, pmDir) {
 
   if (urlPath === '/') {
     handleDashboardHome(res, pmDir);
+  } else if (urlPath === '/proposals') {
+    handleProposalsPage(res, pmDir);
+  } else if (urlPath.startsWith('/proposals/')) {
+    const slug = decodeURIComponent(urlPath.slice('/proposals/'.length)).replace(/\/$/, '');
+    if (slug && !slug.includes('/') && !slug.includes('..')) {
+      // For now, redirect proposal detail to a placeholder (detail page comes in a future ticket)
+      const meta = readProposalMeta(slug, pmDir);
+      if (meta) {
+        const htmlPath = path.resolve(pmDir, 'backlog', 'proposals', slug + '.html');
+        if (fs.existsSync(htmlPath)) {
+          const html = fs.readFileSync(htmlPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(html);
+        } else {
+          const body = `<div class="page-header"><h1>${escHtml(meta.title || humanizeSlug(slug))}</h1></div>
+<div class="empty-state"><p>Proposal detail page coming soon.</p></div>`;
+          const page = dashboardPage(meta.title || humanizeSlug(slug), '/proposals', body);
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(page);
+        }
+      } else {
+        res.writeHead(404); res.end('Not found');
+      }
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath === '/kb') {
     handleKnowledgeBasePage(res, pmDir, tab || 'research');
   } else if (urlPath === '/research') {
@@ -1265,6 +1356,33 @@ function readProposalMeta(slug, pmDir) {
   }
 }
 
+function buildProposalRows(pmDir) {
+  const proposalsDir = path.resolve(pmDir, 'backlog', 'proposals');
+  const proposals = [];
+  if (fs.existsSync(proposalsDir)) {
+    const files = fs.readdirSync(proposalsDir).filter(f => f.endsWith('.meta.json'));
+    for (const file of files) {
+      const slug = file.replace('.meta.json', '');
+      const meta = readProposalMeta(slug, pmDir);
+      if (!meta) continue;
+      const verdict = (meta.verdict || '').toLowerCase();
+      if (verdict === 'shipped') continue;
+      proposals.push({
+        slug,
+        id: meta.id || '',
+        title: typeof meta.title === 'string' && meta.title.trim() ? meta.title : humanizeSlug(slug),
+        outcome: meta.outcome || '',
+        verdict: meta.verdict || '',
+        verdictLabel: meta.verdictLabel || '',
+        issueCount: meta.issueCount || 0,
+        date: meta.date || '',
+      });
+    }
+  }
+  proposals.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return proposals;
+}
+
 function readGroomState(pmDir) {
   const statePath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
   try {
@@ -1351,6 +1469,97 @@ function parseStrategySnapshot(pmDir) {
 
   const stale = stalenessInfo(getUpdatedDate(strategyPath));
   return { focus, priorities, staleness: stale || { level: 'fresh', label: 'Current' } };
+}
+
+function handleProposalsPage(res, pmDir) {
+  const proposals = buildProposalRows(pmDir);
+
+  // Collect ideas (ungroomed backlog items)
+  const backlogDir = path.join(pmDir, 'backlog');
+  const ideas = [];
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter(f => f.endsWith('.md'))) {
+      const slug = file.replace('.md', '');
+      const raw = fs.readFileSync(path.join(backlogDir, file), 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      if ((data.status || 'idea') === 'idea') {
+        ideas.push({ slug, title: data.title || humanizeSlug(slug), id: data.id || null });
+      }
+    }
+  }
+
+  let body;
+  if (proposals.length === 0 && ideas.length === 0) {
+    body = `<div class="page-header"><h1>Proposals</h1></div>
+<div class="empty-state">
+  <h2>No proposals yet</h2>
+  <p>Run <code>/pm:groom</code> to create your first proposal.</p>
+</div>`;
+  } else {
+    const subtitle = [
+      proposals.length > 0 ? `${proposals.length} groomed` : null,
+      ideas.length > 0 ? `${ideas.length} idea${ideas.length !== 1 ? 's' : ''}` : null,
+    ].filter(Boolean).join(', ');
+
+    // Groomed section
+    let groomedHtml = '';
+    if (proposals.length > 0) {
+      const rows = proposals.map(p => {
+        const badgeClass = p.verdict === 'in-progress' ? 'badge-in-progress'
+          : p.verdict === 'paused' ? 'badge-paused'
+          : p.verdict === 'ready' ? 'badge-ready'
+          : 'badge-groomed';
+        const statusLabel = p.verdictLabel || 'Groomed';
+        return `<a href="/proposals/${escHtml(encodeURIComponent(p.slug))}" class="proposal-card-row">
+  <div class="proposal-card-body">
+    <div class="proposal-card-title">${p.id ? `<span class="proposal-id">${escHtml(p.id)}</span>` : ''}${escHtml(p.title)}</div>
+    ${p.outcome ? `<div class="proposal-card-outcome">${escHtml(p.outcome)}</div>` : ''}
+  </div>
+  <div class="proposal-card-meta">
+    <span class="badge ${badgeClass}">${escHtml(statusLabel)}</span>
+    ${p.issueCount > 0 ? `<span class="issue-count">${p.issueCount} issue${p.issueCount !== 1 ? 's' : ''}</span>` : ''}
+    ${p.date ? `<span class="updated">${escHtml(formatRelativeDate(p.date))}</span>` : ''}
+  </div>
+</a>`;
+      }).join('\n');
+
+      groomedHtml = `
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Groomed</span>
+    <span class="section-count">${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}</span>
+  </div>
+  <div class="proposal-grid">${rows}</div>
+</div>`;
+    }
+
+    // Ideas section
+    let ideasHtml = '';
+    if (ideas.length > 0) {
+      const ideaRows = ideas.map(i => {
+        const idHtml = i.id ? `<span class="idea-id">${escHtml(i.id)}</span>` : '<span class="idea-id"></span>';
+        return `<a class="idea-row" href="/roadmap/${escHtml(encodeURIComponent(i.slug))}">${idHtml}<span class="idea-title">${escHtml(i.title)}</span></a>`;
+      }).join('\n');
+
+      ideasHtml = `
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Ideas</span>
+    <span class="section-count">${ideas.length} ungroomed</span>
+  </div>
+  <div class="idea-list">${ideaRows}</div>
+</div>`;
+    }
+
+    body = `<div class="page-header"><h1>Proposals</h1>
+  <p class="subtitle">${subtitle}</p>
+</div>
+${groomedHtml}${ideasHtml}`;
+  }
+
+  const html = dashboardPage('Proposals', '/proposals', body);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
 }
 
 function handleDashboardHome(res, pmDir) {
@@ -3297,7 +3506,7 @@ module.exports = {
   computeAcceptKey, encodeFrame, decodeFrame, OPCODES,
   parseMode, parseFrontmatter, renderMarkdown, inlineMarkdown, escHtml,
   createDashboardServer,
-  readProposalMeta, readGroomState, proposalGradient,
+  readProposalMeta, readGroomState, proposalGradient, buildProposalRows,
   formatRelativeDate, parseStrategySnapshot,
   DASHBOARD_CSS,
 };

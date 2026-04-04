@@ -1879,3 +1879,189 @@ test('PM-120: :root contains design token scale variables', () => {
     assert.ok(rootBlock.includes(token + ':'), `:root must define ${token}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// PM-121: Proposals Page Redesign
+// ---------------------------------------------------------------------------
+
+test('PM-121: buildProposalRows returns structured proposal data', () => {
+  const mod = loadServer();
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/dashboard-redesign.meta.json': JSON.stringify({
+      id: 'P-01',
+      title: 'Dashboard Redesign',
+      outcome: 'Make the dashboard look amazing',
+      verdict: 'in-progress',
+      verdictLabel: 'In Progress',
+      issueCount: 5,
+      date: '2026-04-01',
+    }),
+    'pm/backlog/proposals/api-v2.meta.json': JSON.stringify({
+      id: 'P-02',
+      title: 'API V2',
+      outcome: 'Better developer experience',
+      verdict: 'ready',
+      verdictLabel: 'Ready',
+      issueCount: 3,
+      date: '2026-04-03',
+    }),
+    'pm/backlog/proposals/old-shipped.meta.json': JSON.stringify({
+      id: 'P-00',
+      title: 'Old Feature',
+      verdict: 'shipped',
+      date: '2026-01-01',
+    }),
+  });
+  try {
+    const rows = mod.buildProposalRows(pmDir);
+    assert.ok(Array.isArray(rows), 'must return array');
+    assert.equal(rows.length, 2, 'must exclude shipped proposals');
+    // Sorted by date descending — API V2 (04-03) first
+    assert.equal(rows[0].id, 'P-02');
+    assert.equal(rows[1].id, 'P-01');
+    assert.equal(rows[0].outcome, 'Better developer experience');
+    assert.equal(rows[1].issueCount, 5);
+  } finally { cleanup(); }
+});
+
+test('PM-121: buildProposalRows returns empty array when no proposals dir', () => {
+  const mod = loadServer();
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const rows = mod.buildProposalRows(pmDir);
+    assert.ok(Array.isArray(rows));
+    assert.equal(rows.length, 0);
+  } finally { cleanup(); }
+});
+
+test('PM-121: Proposals page contains Groomed section with proposal-card-outcome', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/dashboard-redesign.meta.json': JSON.stringify({
+      id: 'P-01',
+      title: 'Dashboard Redesign',
+      outcome: 'Ship a polished dashboard',
+      verdict: 'in-progress',
+      verdictLabel: 'In Progress',
+      issueCount: 3,
+      date: '2026-04-01',
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('<span class="section-title">Groomed</span>'), 'must have Groomed section title');
+      assert.ok(body.includes('proposal-card-outcome'), 'must have proposal-card-outcome class');
+      assert.ok(body.includes('P-01'), 'must show proposal ID');
+      assert.ok(body.includes('Dashboard Redesign'), 'must show proposal title');
+      assert.ok(body.includes('Ship a polished dashboard'), 'must show outcome text');
+      assert.ok(body.includes('badge-in-progress'), 'must show in-progress badge');
+      assert.ok(body.includes('3 issues'), 'must show issue count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-121: Proposals page contains Ideas section with idea-row class', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/ungroomed-feature.md': '---\ntitle: Ungroomed Feature\nstatus: idea\nid: PM-099\n---\nSome idea',
+    'pm/backlog/done-feature.md': '---\ntitle: Done Feature\nstatus: done\n---\nAlready done',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/proposals');
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('<span class="section-title">Ideas</span>'), 'must have Ideas section title');
+      assert.ok(body.includes('idea-row'), 'must have idea-row class');
+      assert.ok(body.includes('Ungroomed Feature'), 'must show idea title');
+      assert.ok(!body.includes('Done Feature'), 'must NOT show done items');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-121: Proposals page subtitle shows groomed and ideas counts', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat-one.meta.json': JSON.stringify({
+      id: 'P-01', title: 'Feat One', verdict: 'ready', date: '2026-04-01',
+    }),
+    'pm/backlog/proposals/feat-two.meta.json': JSON.stringify({
+      id: 'P-02', title: 'Feat Two', verdict: 'in-progress', date: '2026-04-02',
+    }),
+    'pm/backlog/idea-one.md': '---\ntitle: Idea One\nstatus: idea\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      assert.ok(body.includes('2 groomed'), 'subtitle must show groomed count');
+      assert.ok(body.includes('1 idea'), 'subtitle must show ideas count (singular)');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-121: Proposals page shows empty state when no proposals exist', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/done-item.md': '---\ntitle: Done\nstatus: done\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      assert.ok(body.includes('No proposals yet'), 'must show empty state');
+      assert.ok(body.includes('pm:groom'), 'must mention groom command');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-121: Proposals page body does not use card-grid class', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat.meta.json': JSON.stringify({
+      id: 'P-01', title: 'Feat', verdict: 'ready', date: '2026-04-01',
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      // Extract just the main content area (after </style>) to avoid matching CSS definitions
+      const mainContent = body.substring(body.lastIndexOf('</style>'));
+      assert.ok(!mainContent.includes('card-grid'), 'proposals page body must NOT use card-grid layout');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-121: CSS contains proposal page classes with design tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('.proposal-grid'), 'must have .proposal-grid');
+  assert.ok(DASHBOARD_CSS.includes('.proposal-card-row'), 'must have .proposal-card-row');
+  assert.ok(DASHBOARD_CSS.includes('.proposal-card-outcome'), 'must have .proposal-card-outcome');
+  assert.ok(DASHBOARD_CSS.includes('.idea-row'), 'must have .idea-row');
+  assert.ok(DASHBOARD_CSS.includes('.idea-id'), 'must have .idea-id');
+  assert.ok(DASHBOARD_CSS.includes('.section-title'), 'must have .section-title');
+  assert.ok(DASHBOARD_CSS.includes('.section-count'), 'must have .section-count');
+  assert.ok(DASHBOARD_CSS.includes('.badge-groomed'), 'must have .badge-groomed');
+  // Verify design token usage (no raw px for spacing in proposal-card-row)
+  const rowMatch = DASHBOARD_CSS.match(/\.proposal-card-row\s*\{([^}]+)\}/);
+  assert.ok(rowMatch, '.proposal-card-row must exist');
+  assert.ok(rowMatch[1].includes('var(--space-'), 'proposal-card-row must use space tokens');
+});
+
+test('PM-121: Proposals page section headers are uppercase with section-count', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/proposals/feat.meta.json': JSON.stringify({
+      id: 'P-01', title: 'Feat', verdict: 'ready', date: '2026-04-01',
+    }),
+    'pm/backlog/idea.md': '---\ntitle: An Idea\nstatus: idea\n---\n',
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, '/proposals');
+      assert.ok(body.includes('section-header'), 'must have section-header');
+      assert.ok(body.includes('section-count'), 'must have section-count');
+      assert.ok(body.includes('1 proposal'), 'groomed section count');
+      assert.ok(body.includes('1 ungroomed'), 'ideas section count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
