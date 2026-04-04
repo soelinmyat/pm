@@ -3848,36 +3848,26 @@ function handleBacklog(res, pmDir) {
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
-  const cols = STATUS_ORDER.map(status => {
+  const templateColumns = STATUS_ORDER.map(status => {
     const allItems = (columns[status] || []).sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
     const totalCount = allItems.length;
     const isCapped = totalCount > COL_LIMIT;
     const displayItems = isCapped ? allItems.slice(0, COL_LIMIT) : allItems;
-    const cards = displayItems.map(renderCard).join('');
-    const viewAllLink = isCapped
-      ? (status === 'shipped'
-        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
-        : '')
-      : '';
-    const emptyClass = totalCount === 0 ? ' col-empty' : '';
-    const shippedClass = status === 'shipped' ? ' shipped' : '';
-    const bodyContent = totalCount === 0
-      ? '<div class="col-body"><span>No items</span></div>'
-      : `<div class="col-body">${cards}</div>${viewAllLink}`;
-    return `<div class="kanban-col${shippedClass}${emptyClass}">
-  <div class="col-header">${COL_LABELS[status]} <span class="col-count">${totalCount}</span></div>
-  ${bodyContent}
-</div>`;
-  }).join('');
+    const isShipped = status === 'shipped';
+    return {
+      label: COL_LABELS[status],
+      status,
+      items: displayItems.map(renderCard),
+      totalCount,
+      displayCount: displayItems.length,
+      viewAllHref: isShipped ? '/roadmap/shipped' : undefined,
+      viewAllLabel: 'shipped',
+      cssClass: isShipped ? 'shipped' : '',
+    };
+  });
 
-  const totalItems = Object.values(columns).reduce((sum, arr) => sum + arr.length, 0);
-  const body = `
-<div class="page-header"><h1>Roadmap</h1>
-  <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
-</div>
-<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>
-${totalItems > 0 ? '<div class="kanban">' + cols + '</div>' : renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming')}
-<script>
+  const filterBar = '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
+  const filterScript = `<script>
 document.getElementById('roadmap-filter').addEventListener('input', function(e) {
   var q = e.target.value.toLowerCase();
   document.querySelectorAll('.kanban-card').forEach(function(card) {
@@ -3885,6 +3875,14 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
   });
 });
 </script>`;
+
+  const body = renderKanbanTemplate({
+    title: 'Roadmap',
+    subtitle: "What's coming, what's in progress, and what just shipped",
+    legend: filterBar,
+    columns: templateColumns,
+    emptyState: renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming.', '/pm:groom', 'Start grooming'),
+  }) + filterScript;
 
   const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
