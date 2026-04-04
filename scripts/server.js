@@ -354,6 +354,7 @@ const DASHBOARD_CSS = `
   --text: #1e2128;
   --text-secondary: #555;
   --text-muted: #6b7280;
+  --text-dim: #6d7585;
   --text-faint: #9ca3af;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -381,7 +382,6 @@ const DASHBOARD_CSS = `
   --badge-info-text: #1d4ed8;
   --badge-neutral-bg: #f3f4f6;
   --badge-neutral-text: #6b7280;
-  --surface-raised: #eef0f4;
   --selection-bg: rgba(94,106,210,0.2);
   --scrollbar-thumb: #d1d5db;
   --scrollbar-thumb-hover: #9ca3af;
@@ -402,6 +402,8 @@ const DASHBOARD_CSS = `
   --text-sm: 0.8125rem;   /* 13px */
   --text-base: 0.875rem;  /* 14px */
   --text-md: 1rem;         /* 16px */
+  --text-xl: 1.25rem;      /* 20px */
+  --text-2xl: 1.5rem;      /* 24px */
   --text-lg: 1.5rem;       /* 24px */
 }
 
@@ -417,6 +419,7 @@ const DASHBOARD_CSS = `
   --text: #1e2128;
   --text-secondary: #555;
   --text-muted: #6b7280;
+  --text-dim: #6d7585;
   --text-faint: #9ca3af;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -444,6 +447,8 @@ const DASHBOARD_CSS = `
   --selection-bg: rgba(94,106,210,0.2);
   --scrollbar-thumb: #d1d5db;
   --scrollbar-thumb-hover: #9ca3af;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
 }
 
 /* ===== DARK THEME ===== */
@@ -458,6 +463,7 @@ const DASHBOARD_CSS = `
   --text: #e8eaed;
   --text-secondary: #a0a4ab;
   --text-muted: #8b8f96;
+  --text-dim: #6e7380;
   --text-faint: #4a4f57;
   --text-on-accent: #fff;
   --accent: #5e6ad2;
@@ -485,9 +491,11 @@ const DASHBOARD_CSS = `
   --selection-bg: rgba(94,106,210,0.3);
   --scrollbar-thumb: rgba(255,255,255,0.1);
   --scrollbar-thumb-hover: rgba(255,255,255,0.18);
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -1160,6 +1168,7 @@ a.kanban-item { color: var(--text); text-decoration: none; display: block; curso
 .competitor-card:hover { background: var(--surface-raised, var(--surface)); }
 .competitor-name { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .competitor-category { font-size: var(--text-xs); color: var(--text-muted); }
+.competitor-view-link { display: block; font-size: var(--text-xs); color: var(--accent); margin-top: var(--space-2); }
 
 /* Research topic rows */
 .topic-list { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -1279,6 +1288,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f7f8fb">
+<link rel="preconnect" href="https://rsms.me"><link href="https://rsms.me/inter/inter.css" rel="stylesheet">
 <title>${escHtml(title)} - ${escHtml(projectName)}</title>
 <script>
 (function(){var t=localStorage.getItem('pm-theme');if(!t){t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);document.querySelector('meta[name=theme-color]')&&document.querySelector('meta[name=theme-color]').setAttribute('content',t==='dark'?'#0d0f12':'#f7f8fb');})();
@@ -1368,9 +1378,25 @@ const SEGMENT_COLORS = {
   'mid-market':  '#5e6ad2',
   'smb':         '#16a34a',
   'horizontal':  '#ea580c',
-  'self':        '#ef4444',
+  'self':        '#044842',
   'default':     '#6b7280',
 };
+
+// ========== Reusable HTML Helpers ==========
+
+function renderClickToCopy(command) {
+  if (typeof command !== 'string' || !command) return '';
+  return `<span class="click-to-copy" data-copy="${escHtml(command)}" tabindex="0" role="button"><code>${escHtml(command)}</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>`;
+}
+
+function renderEmptyState(title, desc, command, ctaLabel) {
+  // NOTE: desc is raw HTML — callers must escape user-supplied values with escHtml()
+  // class="empty-state"><h2> pattern kept inline for PM-126 static source scan
+  return '<div class="empty-state"><h2>' + escHtml(title) + '</h2><p>' + desc + '</p>' +
+    (command ? renderClickToCopy(command) : '') +
+    (ctaLabel ? '<p class="empty-state-cta-label">' + escHtml(ctaLabel) + '</p>' : '') +
+    '</div>';
+}
 
 function parseStatsData(mdBody) {
   var regex = /<!--\s*stat:\s*([^,]+),\s*(.+?)\s*-->/g;
@@ -1510,13 +1536,12 @@ function routeDashboard(req, res, pmDir) {
   const projectName = pmExists ? getProjectName(pmDir) : 'PM';
 
   if (!pmExists) {
-    const html = dashboardPage('PM Dashboard', '/', `
-<div class="empty-state">
-  <h2>Welcome to PM</h2>
-  <p>PM is your team's shared product brain — strategy, research, proposals, and roadmap in one place. To get started, an engineer needs to initialize the knowledge base.</p>
-  <span class="click-to-copy" data-copy="/pm:setup" tabindex="0" role="button"><code>/pm:setup</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
-  <p class="empty-state-cta-label">Initialize knowledge base</p>
-</div>`);
+    const html = dashboardPage('PM Dashboard', '/', renderEmptyState(
+      'Welcome to PM',
+      'PM is your team\'s shared product brain — strategy, research, proposals, and roadmap in one place. To get started, an engineer needs to initialize the knowledge base.',
+      '/pm:setup',
+      'Initialize knowledge base'
+    ));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
     return;
@@ -1835,15 +1860,38 @@ function buildProposalRows(pmDir) {
 }
 
 function readGroomState(pmDir) {
-  const statePath = path.resolve(pmDir, '..', '.pm', '.groom-state.md');
-  try {
-    const raw = fs.readFileSync(statePath, 'utf-8');
-    const { data } = parseFrontmatter(raw);
-    if (typeof data.topic !== 'string' || data.topic.trim() === '') return null;
-    return data;
-  } catch {
-    return null;
+  const runtimeRoot = path.resolve(pmDir, '..', '.pm');
+  const candidates = [];
+  const sessionsDir = path.join(runtimeRoot, 'groom-sessions');
+  if (fs.existsSync(sessionsDir)) {
+    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.md')) {
+        candidates.push(path.join(sessionsDir, entry.name));
+      }
+    }
   }
+  const legacyPath = path.join(runtimeRoot, '.groom-state.md');
+  if (fs.existsSync(legacyPath)) {
+    candidates.push(legacyPath);
+  }
+
+  let best = null;
+  for (const statePath of candidates) {
+    try {
+      const raw = fs.readFileSync(statePath, 'utf-8');
+      const { data } = parseFrontmatter(raw);
+      if (typeof data.topic !== 'string' || data.topic.trim() === '') {
+        continue;
+      }
+      const updatedAt = Date.parse(data.updated || data.started_at || '') || 0;
+      if (!best || updatedAt > best.updatedAt) {
+        best = { data, updatedAt };
+      }
+    } catch {
+      // Ignore unreadable or invalid state files and continue scanning.
+    }
+  }
+  return best ? best.data : null;
 }
 
 function normalizeSourceOrigin(value) {
@@ -1942,12 +1990,7 @@ function handleProposalsPage(res, pmDir) {
   let body;
   if (proposals.length === 0 && ideas.length === 0) {
     body = `<div class="page-header"><h1>Proposals</h1></div>
-<div class="empty-state">
-  <h2>No proposals yet</h2>
-  <p>Proposals are structured feature plans with research, strategy alignment, and scoped issues.</p>
-  <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
-  <p class="empty-state-cta-label">Create your first proposal</p>
-</div>`;
+${renderEmptyState('No proposals yet', 'Proposals are structured feature plans with research, strategy alignment, and scoped issues.', '/pm:groom', 'Create your first proposal')}`;
   } else {
     const subtitle = [
       proposals.length > 0 ? `${proposals.length} groomed` : null,
@@ -2015,58 +2058,48 @@ ${groomedHtml}${ideasHtml}`;
   res.end(html);
 }
 
+function renderBriefValue(label, value) {
+  if (!value) {
+    return '';
+  }
+
+  let renderedValue = escHtml(value);
+  if (label === 'Next' && value.startsWith('/')) {
+    renderedValue = `Run <code>${escHtml(value)}</code>`;
+  }
+
+  return `<div class="session-brief-row">
+      <div class="session-brief-key">${escHtml(label)}</div>
+      <div class="session-brief-value">${renderedValue}</div>
+    </div>`;
+}
+
 function handleDashboardHome(res, pmDir) {
   const projectDir = path.dirname(pmDir);
   const status = buildStatus(projectDir);
 
-  function renderBriefValue(label, value) {
+  function renderActionValue(value) {
     if (!value) {
       return '';
     }
 
-    let renderedValue = escHtml(value);
-    if (label === 'Next' && value.startsWith('/')) {
-      renderedValue = `Run <code>${escHtml(value)}</code>`;
+    if (value.startsWith('/')) {
+      return `Run <code>${escHtml(value)}</code>`;
     }
 
-    return `<div class="session-brief-row">
-      <div class="session-brief-key">${escHtml(label)}</div>
-      <div class="session-brief-value">${renderedValue}</div>
-    </div>`;
+    return escHtml(value);
   }
 
-  // Scan pm/ and count files by type
-  const stats = { total: 0, landscape: 0, strategy: 0, competitors: 0, backlog: 0, research: 0 };
-
-  function countFiles(dir) {
-    if (!fs.existsSync(dir)) return;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) countFiles(path.join(dir, e.name));
-      else if (e.name.endsWith('.md')) stats.total++;
-    }
-  }
-  countFiles(pmDir);
-
-  if (fs.existsSync(path.join(pmDir, 'landscape.md'))) stats.landscape = 1;
-  if (fs.existsSync(path.join(pmDir, 'strategy.md'))) stats.strategy = 1;
+  // Derive counts from buildStatus instead of re-scanning directories
+  const stats = {
+    backlog: status.counts.ideas + status.counts.inProgress + status.counts.shipped,
+    competitors: status.counts.competitorProfiles,
+    research: status.counts.researchTopics,
+  };
 
   const backlogDir = path.join(pmDir, 'backlog');
-  if (fs.existsSync(backlogDir)) {
-    stats.backlog = fs.readdirSync(backlogDir).filter(f => f.endsWith('.md')).length;
-  }
-
   const compDir = path.join(pmDir, 'competitors');
-  if (fs.existsSync(compDir)) {
-    stats.competitors = fs.readdirSync(compDir, { withFileTypes: true })
-      .filter(e => e.isDirectory()).length;
-  }
-
   const researchDir = path.join(pmDir, 'research');
-  if (fs.existsSync(researchDir)) {
-    stats.research = fs.readdirSync(researchDir, { withFileTypes: true })
-      .filter(e => e.isDirectory()).length;
-  }
 
   // Collect updated dates for staleness
   const updatedDates = {
@@ -2265,17 +2298,27 @@ function handleDashboardHome(res, pmDir) {
     </ul>
   </div>` : '';
 
+  const alternativeActions = Array.isArray(status.alternatives) && status.alternatives.length > 0 ? `
+  <div class="session-brief-actions">
+    <div class="session-brief-actions-label">Also consider</div>
+    <ul>
+      ${status.alternatives.map((action) => `<li>${renderActionValue(action)}</li>`).join('')}
+    </ul>
+  </div>` : '';
+
   const suggestedHtml = `<div class="suggested-next">
   <div class="suggested-next-label">Session brief</div>
   ${status.update.available ? renderBriefValue('Update', status.update.message) : ''}
   ${renderBriefValue('Focus', status.focus)}
   ${renderBriefValue('Backlog', status.backlog)}
   ${renderBriefValue('Next', status.next)}
+  ${alternativeActions}
   ${firstWorkflowActions}
 </div>`;
 
   const proposalCount = activeProposals.length;
-  const isFullyEmpty = !strategyData && proposalCount === 0 && recentShipped.length === 0 && stats.total === 0;
+  const isFullyEmpty = !strategyData && proposalCount === 0 && recentShipped.length === 0 &&
+    stats.backlog === 0 && stats.competitors === 0 && stats.research === 0;
 
   let body;
   if (isFullyEmpty) {
@@ -2284,23 +2327,14 @@ function handleDashboardHome(res, pmDir) {
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Product knowledge base</p>
 </div>
-<div class="empty-state">
-  <h2>Your team's shared product brain</h2>
-  <p>Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.</p>
-  <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
-  <p class="empty-state-cta-label">Start your first feature</p>
-</div>
+${renderEmptyState('Your team\'s shared product brain', 'Strategy, research, proposals, and roadmap in one place. Once content is added, you\'ll see project health, active sessions, and recent proposals here.', '/pm:groom', 'Start your first feature')}
 ${suggestedHtml}`;
   } else if (proposalCount === 0 && !shippedSection) {
     // Partial state: strategy/KB exists but no proposals yet
     const partialProposals = `
 <section class="home-section">
   <div class="home-section-header"><span class="home-section-title">What's coming</span></div>
-  <div class="empty-state">
-    <h3>Ready for your first feature</h3>
-    <p>Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.</p>
-    <span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
-  </div>
+  ${renderEmptyState('Ready for your first feature', 'Your knowledge base has content. Start grooming to create a structured proposal with research and scoped issues.', '/pm:groom')}
 </section>`;
     body = `
 <div class="page-header">
@@ -2355,7 +2389,7 @@ function handleResearchPage(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
+    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
 
   // --- Competitors tab ---
@@ -2421,7 +2455,7 @@ function handleResearchPage(res, pmDir) {
     }
   }
   if (!competitorsHtml) {
-    competitorsHtml = '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>';
+    competitorsHtml = renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors');
   }
 
   // --- Topics tab ---
@@ -2534,7 +2568,9 @@ function handleResearchPage(res, pmDir) {
     }
   }
   if (!topicsHtml) {
-    topicsHtml = '<div class="empty-state"><h2>No topic research</h2><p>Topic research covers external market research and customer evidence on specific subjects.</p><span class="click-to-copy" data-copy="/pm:research {topic}" tabindex="0" role="button"><code>/pm:research {topic}</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Research a topic</p><span class="click-to-copy" data-copy="/pm:ingest path/to/evidence" tabindex="0" role="button"><code>/pm:ingest path/to/evidence</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Import customer evidence</p></div>';
+    topicsHtml = '<div class="empty-state"><h2>No topic research</h2><p>Topic research covers external market research and customer evidence on specific subjects.</p>' +
+      renderClickToCopy('/pm:research {topic}') + '<p class="empty-state-cta-label">Research a topic</p>' +
+      renderClickToCopy('/pm:ingest path/to/evidence') + '<p class="empty-state-cta-label">Import customer evidence</p></div>';
   }
 
   const tabs = [
@@ -2591,12 +2627,7 @@ function handleMarkdownPage(res, pmDir, filename, title, navPath) {
   if (!fs.existsSync(filePath)) {
     const html = dashboardPage(title, navPath, `
 <div class="page-header"><h1>${escHtml(title)}</h1></div>
-<div class="empty-state">
-  <h2>File not found</h2>
-  <p>No <code>${escHtml(filename)}</code> found in this knowledge base.</p>
-  <span class="click-to-copy" data-copy="/pm:setup" tabindex="0" role="button"><code>/pm:setup</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
-  <p class="empty-state-cta-label">Initialize knowledge base</p>
-</div>`);
+${renderEmptyState('File not found', 'No <code>' + escHtml(filename) + '</code> found in this knowledge base.', '/pm:setup', 'Initialize knowledge base')}`);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
     return;
@@ -2667,22 +2698,18 @@ function renderPositioningScatter(body) {
   if (dots.length === 0) return null;
 
   var maxTraffic = Math.max.apply(null, dots.map(function(d) { return d.traffic || 1; }));
-  var segColors = {
-    'horizontal': '#ea580c', 'enterprise': '#5e6ad2', 'mid-market': '#5e6ad2',
-    'smb': '#16a34a', 'self': '#044842'
-  };
 
   var dotsHtml = dots.map(function(d) {
     var size = d.segment === 'self' ? 16 : Math.max(10, Math.min(40, Math.sqrt(d.traffic / maxTraffic) * 40));
-    var color = segColors[d.segment] || '#6b7280';
+    var color = SEGMENT_COLORS[d.segment] || SEGMENT_COLORS['default'];
     var cls = d.segment === 'self' ? ' highlight' : '';
     var yFlipped = 100 - d.y;
     return '<div class="scatter-dot' + cls + '" style="left:' + d.x + '%;top:' + yFlipped + '%;width:' + size + 'px;height:' + size + 'px;background:' + color + ';" title="' + escHtml(d.name) + '"></div>' +
       '<div class="scatter-label" style="left:' + d.x + '%;top:calc(' + yFlipped + '% + ' + (size / 2 + 4) + 'px);">' + escHtml(d.name) + '</div>';
   }).join('');
 
-  var legendItems = Object.keys(segColors).map(function(seg) {
-    return '<span class="scatter-legend-item"><span class="scatter-legend-dot" style="background:' + segColors[seg] + '"></span>' +
+  var legendItems = Object.keys(SEGMENT_COLORS).filter(function(seg) { return seg !== 'default'; }).map(function(seg) {
+    return '<span class="scatter-legend-item"><span class="scatter-legend-dot" style="background:' + SEGMENT_COLORS[seg] + '"></span>' +
       seg.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) + '</span>';
   }).join('');
 
@@ -2814,7 +2841,7 @@ function handleStrategyPage(res, pmDir) {
   var filePath = path.join(pmDir, 'strategy.md');
   if (!fs.existsSync(filePath)) {
     var html = dashboardPage('Strategy', '/kb', '<div class="page-header"><h1>Strategy</h1></div>' +
-      '<div class="empty-state"><h2>No strategy defined</h2><p>Your product strategy defines ICP, value proposition, competitive positioning, and priorities.</p><span class="click-to-copy" data-copy="/pm:strategy" tabindex="0" role="button"><code>/pm:strategy</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Define your strategy</p></div>');
+      renderEmptyState('No strategy defined', 'Your product strategy defines ICP, value proposition, competitive positioning, and priorities.', '/pm:strategy', 'Define your strategy'));
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
     return;
@@ -3166,7 +3193,7 @@ function handleCompetitorsList(res, pmDir) {
   }
 
   var body = '<div class="page-header"><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>') +
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors')) +
     matrixContent + indexContent;
 
   var html = dashboardPage('Competitors', '/kb', body);
@@ -3241,6 +3268,7 @@ function buildCompetitorGrid(pmDir) {
     return `<a href="/competitors/${escHtml(slug)}" class="competitor-card">
   <div class="competitor-name">${escHtml(name)}</div>
   <div class="competitor-category">${escHtml(category)}</div>
+  <span class="competitor-view-link">View profile &rarr;</span>
 </a>`;
   }).join('');
   const viewAll = slugs.length > 6 ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>` : '';
@@ -3321,7 +3349,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     : `<div class="empty-state-hub">
   <div class="empty-state-hub-title">No customer evidence yet</div>
   <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  <span class="click-to-copy" data-copy="/pm:ingest path/to/evidence" tabindex="0" role="button"><code>/pm:ingest path/to/evidence</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span>
+  ${renderClickToCopy('/pm:ingest path/to/evidence')}
 </div>`;
 
   const compDir = path.join(pmDir, 'competitors');
@@ -3377,7 +3405,7 @@ function handleKbStrategyDetail(res, pmDir) {
   let contentHtml;
   if (!fs.existsSync(filePath)) {
     contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Strategy</h1></div>' +
-      '<div class="empty-state"><h2>No strategy defined</h2><p>Your product strategy defines ICP, value proposition, competitive positioning, and priorities.</p><span class="click-to-copy" data-copy="/pm:strategy" tabindex="0" role="button"><code>/pm:strategy</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Define your strategy</p></div>';
+      renderEmptyState('No strategy defined', 'Your product strategy defines ICP, value proposition, competitive positioning, and priorities.', '/pm:strategy', 'Define your strategy');
   } else {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const parsed = parseFrontmatter(raw);
@@ -3409,7 +3437,7 @@ function handleKbCompetitorsDetail(res, pmDir) {
     }).join('');
   }
   const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Competitors</h1></div>' +
-    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : '<div class="empty-state"><h2>No competitor profiles</h2><p>Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.</p><span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button"><code>/pm:research competitors</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Profile your competitors</p></div>');
+    (cardsHtml ? '<div class="card-grid">' + cardsHtml + '</div>' : renderEmptyState('No competitor profiles', 'Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.', '/pm:research competitors', 'Profile your competitors'));
   const html = dashboardPage('Competitors', '/kb', contentHtml);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
@@ -3428,7 +3456,7 @@ function handleKbLandscapeDetail(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
+    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
   const contentHtml = '<div class="page-header"><p class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></p><h1>Market Landscape</h1></div>' + landscapeHtml;
   const html = dashboardPage('Landscape', '/kb', contentHtml);
@@ -3449,7 +3477,7 @@ function handleKbTopicsDetail(res, pmDir) {
     landscapeHtml = '<div class="action-hint">Run <code>/pm:refresh</code> to update or <code>/pm:research landscape</code> to regenerate</div>' +
       '<div class="markdown-body">' + rendered + '</div>';
   } else {
-    landscapeHtml = '<div class="empty-state"><h2>No landscape research</h2><p>The landscape maps your market — TAM/SAM/SOM, market trends, and positioning opportunities.</p><span class="click-to-copy" data-copy="/pm:research landscape" tabindex="0" role="button"><code>/pm:research landscape</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Map your market</p></div>';
+    landscapeHtml = renderEmptyState('No landscape research', 'The landscape maps your market \u2014 TAM/SAM/SOM, market trends, and positioning opportunities.', '/pm:research landscape', 'Map your market');
   }
 
   let topicsHtml = '';
@@ -3483,7 +3511,7 @@ function handleKbTopicsDetail(res, pmDir) {
 function handleCompetitorDetail(res, pmDir, slug) {
   const compDir = path.join(pmDir, 'competitors', slug);
   if (!fs.existsSync(compDir)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><h2>Competitor not found</h2><p>This competitor profile does not exist.</p><p><a href="/competitors">&larr; Back to competitors</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Competitor not found', 'This competitor profile does not exist.') + '<p><a href="/competitors">&larr; Back to competitors</a></p>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3492,6 +3520,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
   const SECTION_LABELS = { profile: 'Profile', features: 'Features', api: 'API', seo: 'SEO', sentiment: 'Sentiment' };
   let name = slug;
   let category = '';
+  let profileUpdatedDate = null;
 
   // Build flat sections and count available files
   const sectionBlocks = [];
@@ -3506,6 +3535,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
       if (data.name) name = data.name;
       const summary = extractProfileSummary(body);
       if (summary.category) category = summary.category;
+      profileUpdatedDate = data.updated || data.created || null;
     }
     const label = SECTION_LABELS[sec] || sec.charAt(0).toUpperCase() + sec.slice(1);
     const rendered = sec === 'profile' ? renderProfileWithSwot(body) : renderMarkdown(body);
@@ -3532,8 +3562,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
   }
   metaParts.push(`<span class="meta-sep">&middot;</span>`);
   metaParts.push(`<span class="meta-item">${availableCount}/${sectionKeys.length} sections</span>`);
-  const profilePath = path.join(compDir, 'profile.md');
-  const stale = stalenessInfo(getUpdatedDate(profilePath));
+  const stale = stalenessInfo(profileUpdatedDate);
   if (stale) {
     metaParts.push(`<span class="meta-sep">&middot;</span>`);
     metaParts.push(`<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`);
@@ -3541,12 +3570,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
   const metaBar = `<div class="detail-meta-bar">${metaParts.join('\n  ')}</div>`;
 
   // Action hint
-  const actionHint = `<div class="detail-action-hint">
-  <span class="click-to-copy" data-copy="/pm:research competitors" tabindex="0" role="button">
-    <code>/pm:research competitors</code>
-    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
-  </span>
-</div>`;
+  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:research competitors')}</div>`;
 
   const body = `<div class="detail-page">
 ${breadcrumb}
@@ -3566,7 +3590,7 @@ function handleResearchTopic(res, pmDir, topic) {
   const findingsPath = path.join(topicDir, 'findings.md');
 
   if (!fs.existsSync(findingsPath)) {
-    const html = dashboardPage('Not Found', '/kb', '<div class="empty-state"><h2>Research topic not found</h2><p>This research topic does not exist.</p><p><a href="/research">&larr; Back to research</a></p></div>');
+    const html = dashboardPage('Not Found', '/kb', renderEmptyState('Research topic not found', 'This research topic does not exist.') + '<p><a href="/research">&larr; Back to research</a></p>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -3617,12 +3641,7 @@ function handleResearchTopic(res, pmDir, topic) {
   }
 
   // Action hint
-  const actionHint = `<div class="detail-action-hint">
-  <span class="click-to-copy" data-copy="/pm:research ${topic}" tabindex="0" role="button">
-    <code>/pm:research ${escHtml(topic)}</code>
-    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
-  </span>
-</div>`;
+  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:research ' + topic)}</div>`;
 
   const pageBody = `<div class="detail-page">
 ${breadcrumb}
@@ -3691,7 +3710,7 @@ function handleBacklog(res, pmDir) {
 
   const allStatuses = STATUS_ORDER;
 
-  const SHIPPED_LIMIT = 10;
+  const COL_LIMIT = 10;
 
   const renderItem = (item, status) => {
     const badgeHtml = item.badge ? ` <span class="status-badge badge-${item.badge}">${item.badge}</span>` : '';
@@ -3712,19 +3731,24 @@ function handleBacklog(res, pmDir) {
     'groomed': 'Edit <code>pm/backlog/&lt;slug&gt;.md</code> to update status',
   };
 
+  const VIEW_ALL_LABELS = { 'idea': 'ideas', 'groomed': 'groomed', 'shipped': 'shipped' };
+
   const cols = allStatuses.map(status => {
     const allItems = columns[status] || [];
     const isShipped = status === 'shipped';
     const totalCount = allItems.length;
-    const displayItems = isShipped && totalCount > SHIPPED_LIMIT
-      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, SHIPPED_LIMIT)
+    const isCapped = totalCount > COL_LIMIT;
+    const displayItems = isCapped
+      ? allItems.sort((a, b) => (b.updated || '').localeCompare(a.updated || '')).slice(0, COL_LIMIT)
       : allItems;
     const items = displayItems.map(item => renderItem(item, status)).join('');
-    const viewAllLink = isShipped && totalCount > SHIPPED_LIMIT
-      ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} shipped &rarr;</a>`
+    const viewAllLink = isCapped
+      ? (isShipped
+        ? `<a href="/roadmap/shipped" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`
+        : `<a href="/roadmap?col=${status}" class="kanban-view-all">View all ${totalCount} ${VIEW_ALL_LABELS[status] || status} &rarr;</a>`)
       : '';
     const label = status.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const countLabel = isShipped && totalCount > SHIPPED_LIMIT ? ` <span class="col-count">${totalCount}</span>` : '';
+    const countLabel = isCapped ? ` <span class="col-count">${totalCount}</span>` : '';
     const emptyClass = totalCount === 0 ? ' col-empty' : '';
     const colHint = COL_HINTS[status] && totalCount > 0 ? `<div class="col-hint">${COL_HINTS[status]}</div>` : '';
     const shippedClass = isShipped ? ' shipped' : '';
@@ -3746,7 +3770,7 @@ function handleBacklog(res, pmDir) {
 <div class="page-header"><h1>Roadmap</h1>
   <p class="subtitle">What's coming, what's in progress, and what just shipped</p>
 ${legend}</div>
-${totalBacklogItems > 0 ? '<div class="kanban">' + cols + '</div>' : '<div class="empty-state"><h2>No backlog items</h2><p>Backlog items are scoped issues created during grooming. They have acceptance criteria, wireframes, and priority.</p><span class="click-to-copy" data-copy="/pm:groom" tabindex="0" role="button"><code>/pm:groom</code><span class="copy-icon" aria-hidden="true">&#x2398;</span></span><p class="empty-state-cta-label">Start grooming</p></div>'}`;
+${totalBacklogItems > 0 ? '<div class="kanban">' + cols + '</div>' : renderEmptyState('No backlog items', 'Backlog items are scoped issues created during grooming. They have acceptance criteria, wireframes, and priority.', '/pm:groom', 'Start grooming')}`;
 
   const html = dashboardPage('Roadmap', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3828,7 +3852,7 @@ function handleShipped(res, pmDir) {
 <div class="page-header"><h1>Shipped</h1>
   <p class="subtitle">${roots.length} item${roots.length !== 1 ? 's' : ''} shipped</p>
 </div>
-<div class="shipped-items">${rows || '<div class="empty-state"><h2>Nothing shipped yet</h2><p>Completed items appear here once their status is set to done.</p></div>'}</div>`;
+<div class="shipped-items">${rows || renderEmptyState('Nothing shipped yet', 'Completed items appear here once their status is set to done.')}</div>`;
 
   const html = dashboardPage('Shipped', '/roadmap', body);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3943,12 +3967,7 @@ function handleProposalDetail(res, pmDir, slug) {
   }
 
   // Action hint
-  const actionHint = `<div class="detail-action-hint">
-  <span class="click-to-copy" data-copy="/pm:groom ${slug}" tabindex="0" role="button">
-    <code>/pm:groom ${escHtml(slug)}</code>
-    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
-  </span>
-</div>`;
+  const actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + slug)}</div>`;
 
   const body = `<div class="detail-page">
 ${breadcrumb}
@@ -3966,7 +3985,7 @@ ${actionHint}
 function handleBacklogItem(res, pmDir, slug) {
   const filePath = path.join(pmDir, 'backlog', slug + '.md');
   if (!fs.existsSync(filePath)) {
-    const html = dashboardPage('Not Found', '/roadmap', '<div class="empty-state"><h2>Backlog item not found</h2><p>This backlog item does not exist.</p><p><a href="/roadmap">&larr; Back to roadmap</a></p></div>');
+    const html = dashboardPage('Not Found', '/roadmap', renderEmptyState('Backlog item not found', 'This backlog item does not exist.') + '<p><a href="/roadmap">&larr; Back to roadmap</a></p>');
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
     return;
   }
@@ -4111,19 +4130,9 @@ function handleBacklogItem(res, pmDir, slug) {
   // Action hint: click-to-copy /dev PM-XXX when status is not done
   let actionHint = '';
   if (itemId && status !== 'done') {
-    actionHint = `<div class="detail-action-hint">
-  <span class="click-to-copy" data-copy="/dev ${itemId}" tabindex="0" role="button">
-    <code>/dev ${escHtml(itemId)}</code>
-    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
-  </span>
-</div>`;
+    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/dev ' + itemId)}</div>`;
   } else if (!itemId && status !== 'done') {
-    actionHint = `<div class="detail-action-hint">
-  <span class="click-to-copy" data-copy="/pm:groom ${slug}" tabindex="0" role="button">
-    <code>/pm:groom ${escHtml(slug)}</code>
-    <span class="copy-icon" aria-hidden="true">&#x2398;</span>
-  </span>
-</div>`;
+    actionHint = `<div class="detail-action-hint">${renderClickToCopy('/pm:groom ' + slug)}</div>`;
   }
 
   const pageBody = `<div class="detail-page">
@@ -4445,12 +4454,7 @@ function handleSessionPage(res, pmDir, slug) {
   const session = loadSessionState(pmDir, slug);
   if (!session) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(dashboardPage('Session Not Found', '/', `
-<div class="empty-state">
-  <h2>Session not found</h2>
-  <p>No session found for <code>${escHtml(slug)}</code>.</p>
-  <p><a href="/">&larr; Back to Home</a></p>
-</div>`, projectName));
+    res.end(dashboardPage('Session Not Found', '/', renderEmptyState('Session not found', 'No session found for <code>' + escHtml(slug) + '</code>.') + '<p><a href="/">&larr; Back to Home</a></p>', projectName));
     return;
   }
 
