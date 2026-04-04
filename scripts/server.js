@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { buildStatus } = require('./start-status.js');
@@ -74,11 +75,75 @@ function decodeFrame(buffer) {
 
 // ========== Configuration ==========
 
-const PORT = process.env.PM_PORT || (49152 + Math.floor(Math.random() * 16383));
+// Port is resolved at startup inside startServer() via resolvePort().
+// PM_PORT env var overrides; otherwise hash project dir to 3000-9999.
 const HOST = process.env.PM_HOST || '127.0.0.1';
 const URL_HOST = process.env.PM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
 
 const OWNER_PID = process.env.PM_OWNER_PID ? Number(process.env.PM_OWNER_PID) : null;
+
+// ========== Stable Port Resolution ==========
+
+/**
+ * Hash an absolute directory path to a deterministic port in 3000-9999.
+ * @param {string} dir - Absolute directory path
+ * @returns {number} Port in range [3000, 9999]
+ */
+function hashProjectPort(dir) {
+  const hash = crypto.createHash('md5').update(dir).digest();
+  const num = hash.readUInt32BE(0);
+  return 3000 + (num % 7000);
+}
+
+/**
+ * Check if a port is available by attempting to listen on it.
+ * @param {number} port
+ * @param {string} host
+ * @returns {Promise<boolean>}
+ */
+function isPortAvailable(port, host) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    srv.once('error', () => srv.close(() => finish(false)));
+    srv.listen(port, host, () => srv.close(() => finish(true)));
+  });
+}
+
+/**
+ * Resolve the port to use. PM_PORT overrides; otherwise hash project dir
+ * and auto-increment on collision.
+ * @param {string} host
+ * @returns {Promise<{port: number, hashed: number|null, shifted: boolean}>}
+ */
+async function resolvePort(host) {
+  if (process.env.PM_PORT) {
+    const port = Number(process.env.PM_PORT);
+    if (port === 0) {
+      // PM_PORT=0 means "let OS pick" (used in tests)
+      return { port: 0, hashed: null, shifted: false };
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid PM_PORT: "${process.env.PM_PORT}"`);
+    }
+    return { port, hashed: null, shifted: false };
+  }
+
+  const projectDir = process.env.PM_PROJECT_DIR || process.cwd();
+  const hashed = hashProjectPort(projectDir);
+
+  for (let offset = 0; offset < 100; offset++) {
+    const candidate = hashed + offset;
+    if (candidate > 9999) break;
+    if (await isPortAvailable(candidate, host)) {
+      return { port: candidate, hashed, shifted: offset > 0 };
+    }
+  }
+
+  // Fallback: let OS pick
+  return { port: 0, hashed, shifted: true };
+}
 
 function requireDashboardMode(value) {
   const mode = value || 'dashboard';
@@ -4509,7 +4574,14 @@ const debounceTimers = new Map();
 
 // ========== Server Startup ==========
 
-function startServer() {
+async function startServer() {
+  const { port: PORT, hashed, shifted } = await resolvePort(HOST);
+  if (PORT === 0) {
+    console.error(`All ports in range ${hashed}–${hashed + 99} occupied; letting OS assign a port`);
+  } else if (shifted && hashed !== null) {
+    console.error(`Port ${hashed} occupied, using ${PORT} instead`);
+  }
+
   const pmDir = DIR_FLAG
     ? path.resolve(process.cwd(), DIR_FLAG)
     : path.join(process.cwd(), 'pm');
@@ -4557,5 +4629,6 @@ module.exports = {
   readProposalMeta, readGroomState, proposalGradient, buildProposalRows,
   formatRelativeDate, parseStrategySnapshot,
   resolveResearchRefs, resolveStrategyAlignment, resolveCompetitiveContext,
+  hashProjectPort, isPortAvailable, resolvePort,
   DASHBOARD_CSS,
 };
