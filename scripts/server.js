@@ -1307,11 +1307,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
 /* Landscape TOC — matches .tabs style */
 .landscape-toc {
-  display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem;
+  display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: var(--space-6);
 }
 .landscape-toc-title { display: none; }
 .landscape-toc-item {
-  padding: 0.625rem 1rem; font-size: 0.8125rem; font-weight: 500;
+  padding: var(--space-2) var(--space-4); font-size: var(--text-sm); font-weight: 500;
   color: var(--text-muted); text-decoration: none; white-space: nowrap;
   border-bottom: 2px solid transparent; margin-bottom: -2px;
   transition: color var(--transition), border-color var(--transition);
