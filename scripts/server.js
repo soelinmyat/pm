@@ -1827,6 +1827,22 @@ function routeDashboard(req, res, pmDir) {
     }
   } else if (urlPath === '/proposals') {
     handleProposalsPage(res, pmDir);
+  } else if (urlPath.match(/^\/proposals\/[^/]+\/wireframes\/.+$/)) {
+    const parts = urlPath.split('/').filter(Boolean);
+    const proposalSlug = decodeURIComponent(parts[1] || '');
+    const wireframeSlug = decodeURIComponent(parts.slice(3).join('/')).replace(/\/$/, '').replace(/\.html$/, '');
+    if (
+      proposalSlug && wireframeSlug
+      && !proposalSlug.includes('/') && !proposalSlug.includes('..')
+      && !wireframeSlug.includes('/') && !wireframeSlug.includes('..')
+    ) {
+      handleWireframe(res, pmDir, wireframeSlug, {
+        backHref: `/proposals/${encodeURIComponent(proposalSlug)}#wireframes`,
+        backLabel: 'Back to proposal',
+      });
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
   } else if (urlPath.startsWith('/proposals/wireframes/')) {
     const slug = decodeURIComponent(urlPath.slice('/proposals/wireframes/'.length)).replace(/\/$/, '').replace(/\.html$/, '');
     handleWireframe(res, pmDir, slug);
@@ -4965,7 +4981,7 @@ function detailBackBar(slug, pmDir, sectionAnchor) {
   return `<div class="detail-back-bar" style="position:sticky;top:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;padding:0.5rem 1.5rem;display:flex;align-items:center;gap:0.75rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.04);"><a href="${escHtml(backHref)}" style="font-size:0.85rem;color:#7c3aed;text-decoration:none;font-weight:500;">&larr; ${escHtml(backLabel)}</a></div>`;
 }
 
-function handleWireframe(res, pmDir, slug) {
+function handleWireframe(res, pmDir, slug, options = {}) {
   if (!slug || slug.includes('/') || slug.includes('..')) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(dashboardPage('Not Found', '/backlog', '<div class="markdown-body"><h1>Not found</h1></div>'));
@@ -4981,18 +4997,22 @@ function handleWireframe(res, pmDir, slug) {
   try {
     const content = fs.readFileSync(wfPath, 'utf-8');
     const label = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    // Find parent session for back link
-    const pmRoot = path.resolve(pmDir, '..', '.pm');
-    let sessionSlug = null;
-    const groomDir = path.join(pmRoot, 'groom-sessions');
-    try {
-      for (const f of fs.readdirSync(groomDir).filter(f2 => f2.endsWith('.md'))) {
-        const raw = fs.readFileSync(path.join(groomDir, f), 'utf-8');
-        if (raw.includes(slug)) { sessionSlug = f.replace('.md', ''); break; }
-      }
-    } catch {}
-    const backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) + '#wireframes' : '/';
-    const backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
+    let backHref = options.backHref;
+    let backLabel = options.backLabel;
+    if (!backHref || !backLabel) {
+      // Find parent session for back link when the wireframe is opened outside a proposal-specific route.
+      const pmRoot = path.resolve(pmDir, '..', '.pm');
+      let sessionSlug = null;
+      const groomDir = path.join(pmRoot, 'groom-sessions');
+      try {
+        for (const f of fs.readdirSync(groomDir).filter(f2 => f2.endsWith('.md'))) {
+          const raw = fs.readFileSync(path.join(groomDir, f), 'utf-8');
+          if (raw.includes(slug)) { sessionSlug = f.replace('.md', ''); break; }
+        }
+      } catch {}
+      backHref = sessionSlug ? '/session/' + encodeURIComponent(sessionSlug) + '#wireframes' : '/';
+      backLabel = sessionSlug ? 'Back to proposal' : 'Back to home';
+    }
 
     const isFullPage = isFullDocument(content) && /<style[^>]*>[\s\S]*?(\.sidebar|\.app|display:\s*flex|display:\s*grid)[\s\S]*?<\/style>/i.test(content);
 

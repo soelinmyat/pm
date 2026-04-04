@@ -2346,6 +2346,48 @@ test('wireframe viewer detects full-page by display:grid layout CSS', async () =
   }
 });
 
+test('proposal-scoped wireframe route preserves proposal back link', async () => {
+  const fullPageHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup Home</title>
+<style>
+  .app { display: flex; min-height: 100vh; }
+  .sidebar { width: 220px; background: #111827; color: #fff; }
+  .main { flex: 1; padding: 2rem; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar"><a href="mockup-proposals.html">Proposals</a></div>
+  <div class="main"><h1>Mockup Home</h1></div>
+</div>
+</body>
+</html>`;
+  const { root, pmDir, cleanup } = withPmDir({
+    'pm/backlog/wireframes/mockup-home.html': fullPageHtml,
+    'pm/backlog/wireframes/mockup-proposals.html': fullPageHtml.replaceAll('Mockup Home', 'Mockup Proposals'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const proposalPath = '/proposals/dashboard-linear-quality/wireframes/mockup-home';
+      const { statusCode, body } = await httpGet(port, proposalPath);
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes('b.href="/proposals/dashboard-linear-quality#wireframes"'), 'must inject a back link to the proposal wireframes section');
+      assert.ok(body.includes('Back to proposal'), 'must label the floating button for proposal context');
+
+      const nestedStatus = await httpGet(port, '/proposals/dashboard-linear-quality/wireframes/mockup-proposals.html');
+      assert.equal(nestedStatus.statusCode, 200, 'proposal-scoped route must also accept relative .html mockup links');
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test('wireframe viewer still wraps HTML with doctype but no layout CSS', async () => {
   const simpleDoc = `<!DOCTYPE html>
 <html>
