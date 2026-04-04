@@ -2513,3 +2513,112 @@ test('PM-117: light theme contains all variables from dark theme (completeness)'
   const missing = rootVars.filter(v => !lightVars.has(v));
   assert.deepEqual(missing, [], `Light theme is missing variables: ${missing.join(', ')}`);
 });
+
+// ---------------------------------------------------------------------------
+// PM-118: Typography & Spacing Sweep
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip :root and [data-theme] variable definition blocks from DASHBOARD_CSS
+ * so we only check usage, not the token definitions themselves.
+ */
+function stripTokenDefinitions(css) {
+  // Remove :root block
+  let result = css.replace(/:root[^{]*\{[^}]+\}/g, '');
+  // Remove [data-theme="light"] variable block (not light overrides for colors)
+  result = result.replace(/\[data-theme="light"\]\s*\{[^}]+color-scheme:\s*light;\s*\}/g, '');
+  return result;
+}
+
+test('PM-118: no raw font-size rem values remain in DASHBOARD_CSS (except em-relative and tiny responsive)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const css = stripTokenDefinitions(DASHBOARD_CSS);
+  // Find all font-size declarations with raw rem values
+  const rawFontSizes = [...css.matchAll(/font-size\s*:\s*([^;]+)/g)]
+    .map(m => m[1].trim())
+    .filter(v => /^\d/.test(v) && v.includes('rem'));
+  // Only allowed exceptions: 0.5625rem (tiny responsive override)
+  const allowed = ['0.5625rem'];
+  const violations = rawFontSizes.filter(v => !allowed.includes(v));
+  assert.deepEqual(violations, [],
+    `Raw rem font-size values found (should use var(--text-*)): ${violations.join(', ')}`);
+});
+
+test('PM-118: em-relative font-sizes are preserved', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  assert.ok(DASHBOARD_CSS.includes('font-size: 0.85em'), 'code should keep 0.85em font-size');
+  assert.ok(DASHBOARD_CSS.includes('font-size: 0.75em'), 'backlog-item-id should keep 0.75em font-size');
+});
+
+test('PM-118: body uses var(--text-base)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const bodyMatch = DASHBOARD_CSS.match(/body\s*\{[^}]+\}/);
+  assert.ok(bodyMatch, 'body rule must exist');
+  assert.ok(bodyMatch[0].includes('font-size: var(--text-base)'),
+    'body must use font-size: var(--text-base)');
+});
+
+test('PM-118: h1 uses var(--text-2xl) with font-weight 600', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const h1Match = DASHBOARD_CSS.match(/^h1\s*\{[^}]+\}/m);
+  assert.ok(h1Match, 'h1 rule must exist');
+  assert.ok(h1Match[0].includes('var(--text-2xl)'), 'h1 must use var(--text-2xl)');
+  assert.ok(h1Match[0].includes('font-weight: 600'), 'h1 must use font-weight: 600');
+});
+
+test('PM-118: h2 uses var(--text-lg)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const h2Match = DASHBOARD_CSS.match(/^h2\s*\{[^}]+\}/m);
+  assert.ok(h2Match, 'h2 rule must exist');
+  assert.ok(h2Match[0].includes('var(--text-lg)'), 'h2 must use var(--text-lg)');
+});
+
+test('PM-118: .container padding uses space tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const containerMatch = DASHBOARD_CSS.match(/\.container\s*\{[^}]+\}/);
+  assert.ok(containerMatch, '.container rule must exist');
+  assert.ok(containerMatch[0].includes('var(--space-'),
+    '.container padding must use var(--space-*) tokens');
+});
+
+test('PM-118: .stat-card padding uses space tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const statCardMatch = DASHBOARD_CSS.match(/\.stat-card\s*\{[^}]+\}/);
+  assert.ok(statCardMatch, '.stat-card rule must exist');
+  assert.ok(statCardMatch[0].includes('var(--space-'),
+    '.stat-card padding must use var(--space-*) tokens');
+});
+
+test('PM-118: .card padding uses space tokens', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  // Match .card rule (not .card-grid, .card-footer, etc.)
+  const cardMatch = DASHBOARD_CSS.match(/^\.card\s*\{[^}]+\}/m);
+  assert.ok(cardMatch, '.card rule must exist');
+  assert.ok(cardMatch[0].includes('var(--space-'),
+    '.card padding must use var(--space-*) tokens');
+});
+
+test('PM-118: limited raw rem/px values remain in padding/margin/gap (exclusions only)', () => {
+  const { DASHBOARD_CSS } = loadServer();
+  const css = stripTokenDefinitions(DASHBOARD_CSS);
+  // Find padding/margin/gap with raw rem values (not inside var())
+  const rawSpacing = [...css.matchAll(/(padding|margin|gap)\s*:\s*([^;]+)/g)]
+    .map(m => ({ prop: m[1], value: m[2].trim() }))
+    .filter(({ value }) => {
+      // Skip values that are only 0, auto, var(), or em-based
+      if (/^(0|auto|none)$/.test(value)) return false;
+      if (!/\d+(\.\d+)?(rem|px)/.test(value)) return false;
+      // Keep only those NOT using var(--space-*)
+      if (value.includes('var(--space-')) return false;
+      // Allow em-based values
+      if (/^\d+(\.\d+)?em/.test(value) || /\dem\b/.test(value)) return false;
+      // Allow structural 1px, -1px, -2px, 2px gap separators
+      if (/^-?\d(px)?$/.test(value)) return false;
+      if (value === '1px') return false;
+      return true;
+    });
+  // Allow a small number of exclusions (status-badge em-based padding, etc.)
+  // After full sweep there should be very few raw values left
+  assert.ok(rawSpacing.length <= 15,
+    `Too many raw spacing values remain (${rawSpacing.length}): ${rawSpacing.map(s => `${s.prop}: ${s.value}`).join(' | ')}`);
+});
