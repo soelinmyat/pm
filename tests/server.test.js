@@ -4004,3 +4004,318 @@ test('PM-140: handleKbStrategyDetail empty state uses .detail-page wrapper', asy
     } finally { await close(); }
   } finally { cleanup(); }
 });
+
+// ---------------------------------------------------------------------------
+// PM-141: Template schema doc examples render correctly
+// ---------------------------------------------------------------------------
+
+test('PM-141: detail template — backlog issue example from schema renders', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/test-item.md': [
+      '---',
+      'title: Bulk Edit Support',
+      'status: drafted',
+      'id: PM-042',
+      'priority: high',
+      'outcome: "Users can edit multiple items at once"',
+      'acceptance_criteria:',
+      '  - Users can select multiple rows via checkboxes',
+      '  - Bulk status change applies to all selected items',
+      '  - Undo is available for 10 seconds after bulk action',
+      'updated: 2026-04-01',
+      'created: 2026-03-15',
+      '---',
+      '',
+      '# Bulk Edit Support',
+      '',
+      'Main body content describing the feature.',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/roadmap/test-item');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('detail-page'), 'must use detail-page wrapper');
+      assert.ok(body.includes('detail-title'), 'must include detail-title');
+      assert.ok(body.includes('detail-section'), 'must include detail-section');
+      assert.ok(body.includes('Bulk Edit Support'), 'must include the title text');
+      assert.ok(body.includes('PM-042'), 'must include the ID badge');
+      assert.ok(body.includes('drafted'), 'must include the status badge');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: detail-tabs template — competitor example from schema renders', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/test-comp/profile.md': [
+      '---',
+      'type: competitor-profile',
+      'company: Acme Corp',
+      'slug: test-comp',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Corp -- Profile',
+      '',
+      '## Overview',
+      'Founded: 2020 | HQ: San Francisco | Stage: Series B',
+      '',
+      '## Positioning',
+      '- **Category claim:** Modern work management',
+      '',
+      '## Strengths',
+      '- Fast iteration',
+      '',
+      '## Weaknesses',
+      '- No mobile app',
+    ].join('\n'),
+    'pm/competitors/test-comp/features.md': [
+      '---',
+      'type: competitor-features',
+      'company: Acme Corp',
+      'slug: test-comp',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Corp -- Features',
+      '',
+      '## Task Management',
+      '- Kanban boards',
+    ].join('\n'),
+    'pm/competitors/test-comp/api.md': [
+      '---',
+      'type: competitor-api',
+      'company: Acme Corp',
+      'slug: test-comp',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Corp -- API',
+      '',
+      '## API Availability',
+      'Public REST API',
+    ].join('\n'),
+    'pm/competitors/test-comp/seo.md': [
+      '---',
+      'type: competitor-seo',
+      'company: Acme Corp',
+      'slug: test-comp',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Corp -- SEO',
+      '',
+      '## Traffic Overview',
+      'Monthly visits: 50,000',
+    ].join('\n'),
+    'pm/competitors/test-comp/sentiment.md': [
+      '---',
+      'type: competitor-sentiment',
+      'company: Acme Corp',
+      'slug: test-comp',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Corp -- Sentiment',
+      '',
+      '## Overall Sentiment',
+      'Rating: 4.2/5 on G2',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/competitors/test-comp');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('Acme Corp'), 'must include company name as title');
+      assert.ok(body.includes('Profile'), 'must include Profile tab');
+      assert.ok(body.includes('Features'), 'must include Features tab');
+      assert.ok(body.includes('API'), 'must include API tab');
+      assert.ok(body.includes('SEO'), 'must include SEO tab');
+      assert.ok(body.includes('Sentiment'), 'must include Sentiment tab');
+      assert.ok(body.includes('5/5 sections'), 'must show 5/5 sections count');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: detail-toc template — landscape example from schema renders', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/landscape.md': [
+      '---',
+      'type: landscape',
+      'created: 2026-03-12',
+      'updated: 2026-03-25',
+      '---',
+      '',
+      '# Market Landscape: AI Dev Tools',
+      '',
+      '<!-- stat: $4.2B, TAM -->',
+      '<!-- stat: 34%, YoY Growth -->',
+      '',
+      '## Market Overview',
+      'The AI dev tools market is growing rapidly.',
+      '',
+      '## Key Players',
+      '',
+      '| Company | Positioning |',
+      '|---|---|',
+      '| Acme | Enterprise PM |',
+      '',
+      '## Initial Observations',
+      '- Growing demand for AI-native tools',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=landscape');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('detail-page'), 'must use detail-page wrapper');
+      assert.ok(body.includes('Market Landscape'), 'must include title');
+      assert.ok(body.includes('stat-card'), 'must render stat cards from comments');
+      assert.ok(body.includes('Market Overview'), 'must include h2 section');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: detail-toc template — research topic example from schema renders', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/test-topic/findings.md': [
+      '---',
+      'type: topic-research',
+      'topic: Checkout Optimization',
+      'created: 2026-03-15',
+      'updated: 2026-03-20',
+      'source_origin: external',
+      '---',
+      '',
+      '# Checkout Optimization',
+      '',
+      '## Summary',
+      'Key finding about checkout optimization.',
+      '',
+      '## Findings',
+      '1. Finding one with evidence.',
+      '',
+      '## Sources',
+      '- https://example.com/study -- accessed 2026-03-15',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/research/test-topic');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('detail-page'), 'must use detail-page wrapper');
+      assert.ok(body.includes('detail-section'), 'must include detail-section');
+      assert.ok(body.includes('Checkout Optimization'), 'must include topic title');
+      assert.ok(body.includes('Findings'), 'must include Findings section');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: list template — competitor list renders cards from schema example', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/competitors/acme-test/profile.md': [
+      '---',
+      'type: competitor-profile',
+      'company: Acme Test Corp',
+      'slug: acme-test',
+      'profiled: 2026-03-20',
+      '---',
+      '',
+      '# Acme Test Corp -- Profile',
+      '',
+      '## Overview',
+      'SaaS company.',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=competitors');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('card'), 'must include card class');
+      assert.ok(body.includes('Acme Test Corp'), 'must include competitor name');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: list template — research topic list renders cards from schema example', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/research/pricing-test/findings.md': [
+      '---',
+      'type: topic-research',
+      'topic: Pricing Models',
+      'created: 2026-03-15',
+      'source_origin: external',
+      '---',
+      '',
+      '# Pricing Models',
+      '',
+      '## Summary',
+      'Key findings about pricing.',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/kb?tab=research');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('card'), 'must include card class');
+      assert.ok(body.includes('Pricing Models'), 'must include topic name');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
+
+test('PM-141: kanban template — backlog items from schema example render in correct columns', async () => {
+  const { pmDir, cleanup } = withPmDir({
+    'pm/backlog/groomed-item.md': [
+      '---',
+      'title: Groomed Feature',
+      'status: drafted',
+      'id: PM-100',
+      'updated: 2026-04-01',
+      '---',
+      '',
+      '# Groomed Feature',
+    ].join('\n'),
+    'pm/backlog/active-item.md': [
+      '---',
+      'title: Active Feature',
+      'status: in-progress',
+      'id: PM-101',
+      'updated: 2026-04-02',
+      '---',
+      '',
+      '# Active Feature',
+    ].join('\n'),
+    'pm/backlog/shipped-item.md': [
+      '---',
+      'title: Shipped Feature',
+      'status: done',
+      'id: PM-102',
+      'updated: 2026-03-30',
+      '---',
+      '',
+      '# Shipped Feature',
+    ].join('\n'),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, '/roadmap');
+      assert.equal(statusCode, 200, 'must return 200');
+      assert.ok(body.includes('kanban-col'), 'must include kanban columns');
+      assert.ok(body.includes('Groomed Feature'), 'must include groomed item');
+      assert.ok(body.includes('Active Feature'), 'must include active item');
+      assert.ok(body.includes('Shipped Feature'), 'must include shipped item');
+      assert.ok(body.includes('PM-100'), 'must include groomed item ID');
+      assert.ok(body.includes('PM-101'), 'must include active item ID');
+      assert.ok(body.includes('Groomed'), 'must include Groomed column label');
+      assert.ok(body.includes('In Progress'), 'must include In Progress column label');
+      assert.ok(body.includes('Shipped'), 'must include Shipped column label');
+    } finally { await close(); }
+  } finally { cleanup(); }
+});
