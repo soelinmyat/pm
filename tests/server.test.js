@@ -1101,7 +1101,7 @@ test('KB nav item is highlighted on /kb routes', async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, '/kb');
-      assert.ok(body.includes('href="/kb" class="active"') || body.includes("href=\"/kb\" class=\"active\""), 'KB nav item must be active on /kb');
+      assert.ok(body.includes('href="/kb" class="nav-item active"'), 'KB nav item must be active on /kb');
     } finally { await close(); }
   } finally { cleanup(); }
 });
@@ -3254,7 +3254,7 @@ test('PM-127 Task 11: selection and scrollbar tokens exist in both themes', () =
 test('PM-128 Task 1: dashboardPage() contains nav with aria-label="Main navigation"', () => {
   const mod = loadServer();
   const html = mod.dashboardPage('Test', '/', '<p>hello</p>', 'TestProject');
-  assert.ok(html.includes('<nav aria-label="Main navigation">'), 'nav must have aria-label="Main navigation"');
+  assert.ok(html.includes('aria-label="Main navigation"'), 'sidebar must have aria-label="Main navigation"');
 });
 
 test('PM-128 Task 2: dashboardPage() contains <main> element with role="main"', () => {
