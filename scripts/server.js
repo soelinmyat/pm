@@ -1377,6 +1377,36 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .empty-state-hub-title { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-1); }
 .empty-state-hub-text { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); }
 
+/* Customer evidence */
+.evidence-summary { display: flex; flex-direction: column; gap: var(--space-3); }
+.evidence-stats { display: flex; gap: var(--space-4); }
+.evidence-stat { font-size: var(--text-sm); color: var(--text-muted); font-weight: 500; }
+.evidence-imports { display: flex; flex-direction: column; gap: var(--space-1); }
+.evidence-import-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.evidence-import-info { display: flex; flex-direction: column; gap: 1px; }
+.evidence-import-name { font-size: var(--text-base); font-weight: 500; }
+.evidence-import-meta { font-size: var(--text-xs); color: var(--text-muted); }
+.evidence-import-actions .view-link { font-size: var(--text-sm); color: var(--accent); text-decoration: none; font-weight: 500; }
+.evidence-import-actions .view-link:hover { color: var(--accent-hover, var(--accent)); }
+.evidence-topics, .evidence-tags { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.evidence-section-label { font-size: var(--text-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; min-width: var(--space-12); }
+.evidence-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+
+/* Transcript page */
+.transcript-body { display: flex; flex-direction: column; gap: 1px; font-size: var(--text-sm); }
+.transcript-line { display: flex; gap: var(--space-3); padding: var(--space-1) var(--space-2); border-radius: var(--space-1); align-items: baseline; }
+.transcript-line:hover { background: var(--surface-hover); }
+.transcript-ts { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; min-width: 6ch; flex-shrink: 0; }
+.transcript-speaker { font-weight: 600; white-space: nowrap; min-width: 10ch; flex-shrink: 0; }
+.speaker-customer { color: var(--badge-success-text); }
+.speaker-interviewer { color: var(--accent); }
+.speaker-other { color: var(--text-muted); }
+.transcript-text { flex: 1; line-height: 1.5; }
+
 /* Detail page layout */
 .detail-page { max-width: 960px; }
 .detail-breadcrumb { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-1); }
@@ -2146,6 +2176,16 @@ function routeDashboard(req, res, pmDir) {
     const slug = urlPath.slice("/competitors/".length).replace(/\/$/, "");
     if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleCompetitorDetail(res, pmDir, slug);
+    } else {
+      res.writeHead(404);
+      res.end("Not found");
+    }
+  } else if (urlPath.startsWith("/evidence/transcripts/")) {
+    const slug = decodeURIComponent(urlPath.slice("/evidence/transcripts/".length))
+      .replace(/\/$/, "")
+      .replace(/\.md$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
+      handleTranscriptPage(res, pmDir, slug);
     } else {
       res.writeHead(404);
       res.end("Not found");
@@ -4092,6 +4132,110 @@ function buildTopicRows(pmDir, maxTopics) {
   return { html: `<div class="topic-list">${rows}</div>`, total: topicData.length };
 }
 
+function buildEvidenceSummary(pmDir) {
+  const runtimeRoot = getPmRuntimeRoot(pmDir);
+  const manifestPath = path.join(runtimeRoot, "imports", "manifest.json");
+  const evidenceDir = path.join(runtimeRoot, "evidence");
+
+  // Check if any evidence data exists
+  if (!fs.existsSync(manifestPath) && !fs.existsSync(evidenceDir)) {
+    return `<div class="empty-state-hub">
+  <div class="empty-state-hub-title">No customer evidence yet</div>
+  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
+  ${renderClickToCopy("/pm:ingest path/to/evidence")}
+</div>`;
+  }
+
+  // Read manifest for import summaries
+  let imports = [];
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+      imports = manifest.imports || [];
+    } catch (_) {
+      /* ignore parse errors */
+    }
+  }
+
+  // Read evidence records for topic/tag aggregation
+  const records = [];
+  if (fs.existsSync(evidenceDir)) {
+    const files = fs.readdirSync(evidenceDir).filter((f) => f.endsWith(".json"));
+    for (const f of files) {
+      try {
+        records.push(JSON.parse(fs.readFileSync(path.join(evidenceDir, f), "utf-8")));
+      } catch (_) {
+        /* skip malformed */
+      }
+    }
+  }
+
+  if (imports.length === 0 && records.length === 0) {
+    return `<div class="empty-state-hub">
+  <div class="empty-state-hub-title">No customer evidence yet</div>
+  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
+  ${renderClickToCopy("/pm:ingest path/to/evidence")}
+</div>`;
+  }
+
+  // Build import rows
+  const importRows = imports
+    .map((imp) => {
+      const filename = path.basename(imp.path || "");
+      const format = (imp.format_hint || "")
+        .replace(/^(audio|csv|md)-?/, "$1: ")
+        .replace(/-/g, " ");
+      const count = imp.record_count || 0;
+      const date = imp.imported_at ? imp.imported_at.split("T")[0] : "";
+      const hasTranscript = imp.transcript_path
+        ? `<a href="/evidence/transcripts/${escHtml(path.basename(imp.transcript_path, ".md"))}" class="view-link">Transcript &rarr;</a>`
+        : "";
+      return `<div class="evidence-import-row">
+  <div class="evidence-import-info">
+    <span class="evidence-import-name">${escHtml(filename)}</span>
+    <span class="evidence-import-meta">${escHtml(format)} &middot; ${count} record${count !== 1 ? "s" : ""} &middot; ${escHtml(date)}</span>
+  </div>
+  <div class="evidence-import-actions">${hasTranscript}</div>
+</div>`;
+    })
+    .join("");
+
+  // Aggregate topics from records
+  const topicCounts = {};
+  const tagCounts = {};
+  for (const r of records) {
+    if (r.topic) topicCounts[r.topic] = (topicCounts[r.topic] || 0) + 1;
+    if (Array.isArray(r.tags)) {
+      for (const t of r.tags) tagCounts[t] = (tagCounts[t] || 0) + 1;
+    }
+  }
+
+  const topicBadges = Object.entries(topicCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(
+      ([topic, count]) =>
+        `<span class="badge badge-customer">${escHtml(humanizeSlug(topic))} (${count})</span>`
+    )
+    .join("");
+
+  const tagBadges = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([tag]) => `<span class="badge">${escHtml(tag)}</span>`)
+    .join("");
+
+  return `<div class="evidence-summary">
+  <div class="evidence-stats">
+    <span class="evidence-stat">${imports.length} source${imports.length !== 1 ? "s" : ""}</span>
+    <span class="evidence-stat">${records.length} record${records.length !== 1 ? "s" : ""}</span>
+  </div>
+  ${importRows ? `<div class="evidence-imports">${importRows}</div>` : ""}
+  ${topicBadges ? `<div class="evidence-topics"><span class="evidence-section-label">Topics</span><div class="evidence-badges">${topicBadges}</div></div>` : ""}
+  ${tagBadges ? `<div class="evidence-tags"><span class="evidence-section-label">Tags</span><div class="evidence-badges">${tagBadges}</div></div>` : ""}
+</div>`;
+}
+
 function handleKnowledgeBasePage(res, pmDir, tab) {
   // If a specific sub-tab is requested, render the existing detail view
   if (tab === "strategy") {
@@ -4114,19 +4258,7 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, 8);
 
   // Customer evidence section
-  const evidenceDir = path.join(pmDir, "evidence");
-  const hasEvidence =
-    fs.existsSync(evidenceDir) &&
-    fs
-      .readdirSync(evidenceDir, { withFileTypes: true })
-      .some((e) => e.isDirectory() || e.name.endsWith(".md"));
-  const evidenceHtml = hasEvidence
-    ? "" // TODO: build evidence summary in PM-125
-    : `<div class="empty-state-hub">
-  <div class="empty-state-hub-title">No customer evidence yet</div>
-  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  ${renderClickToCopy("/pm:ingest path/to/evidence")}
-</div>`;
+  const evidenceHtml = buildEvidenceSummary(pmDir);
 
   const compDir = path.join(pmDir, "competitors");
   const compCount = fs.existsSync(compDir)
@@ -4457,6 +4589,14 @@ function handleResearchTopic(res, pmDir, topic) {
   // Strip leading h1 if it duplicates the page title
   findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, "");
 
+  // Rewrite pm/ relative links to dashboard routes
+  const rewritePmLinks = (text) =>
+    text
+      .replace(/\(pm\/evidence\/transcripts\/([^)]+?)(?:\.md)?\)/g, "(/evidence/transcripts/$1)")
+      .replace(/\(pm\/research\/([^)]+?)\/findings\.md\)/g, "(/research/$1)");
+  findingsBody = rewritePmLinks(findingsBody);
+  if (sourcesBody) sourcesBody = rewritePmLinks(sourcesBody);
+
   // Build sections
   const templateSections = [];
   templateSections.push({
@@ -4480,6 +4620,82 @@ function handleResearchTopic(res, pmDir, topic) {
   });
 
   const html = dashboardPage(meta.label, "/kb", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function handleTranscriptPage(res, pmDir, slug) {
+  // Try committed transcript first (pm/evidence/transcripts/), then private (.pm/evidence/transcripts/)
+  const committedPath = path.join(pmDir, "evidence", "transcripts", slug + ".md");
+  const privatePath = path.join(getPmRuntimeRoot(pmDir), "evidence", "transcripts", slug + ".txt");
+
+  let raw = "";
+  let title = humanizeSlug(slug);
+  let sourceFile = "";
+  let isMarkdown = false;
+
+  if (fs.existsSync(committedPath)) {
+    raw = fs.readFileSync(committedPath, "utf-8");
+    isMarkdown = true;
+  } else if (fs.existsSync(privatePath)) {
+    raw = fs.readFileSync(privatePath, "utf-8");
+  } else {
+    const html = dashboardPage(
+      "Not Found",
+      "/kb",
+      renderEmptyState("Transcript not found", "This transcript does not exist.") +
+        '<p><a href="/kb">&larr; Back to Knowledge Base</a></p>'
+    );
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
+  let bodyContent = raw;
+  if (isMarkdown) {
+    const parsed = parseFrontmatter(raw);
+    if (parsed.data.source) sourceFile = parsed.data.source;
+    bodyContent = parsed.body;
+    bodyContent = bodyContent.replace(/^\s*#\s+.+\n+/, "");
+  }
+
+  // Render transcript content with line-by-line styling
+  const lines = bodyContent.trim().split("\n");
+  const transcriptHtml = lines
+    .map((line) => {
+      const match = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*\[([^\]]+)\]:\s*(.*)/);
+      if (match) {
+        const [, ts, speaker, text] = match;
+        const speakerClass = speaker.toLowerCase().includes("customer")
+          ? "speaker-customer"
+          : speaker.toLowerCase().includes("interviewer")
+            ? "speaker-interviewer"
+            : "speaker-other";
+        return `<div class="transcript-line"><span class="transcript-ts">${escHtml(ts)}</span><span class="transcript-speaker ${speakerClass}">${escHtml(speaker)}</span><span class="transcript-text">${escHtml(text)}</span></div>`;
+      }
+      const tsOnly = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*(.*)/);
+      if (tsOnly) {
+        return `<div class="transcript-line"><span class="transcript-ts">${escHtml(tsOnly[1])}</span><span class="transcript-text">${escHtml(tsOnly[2])}</span></div>`;
+      }
+      if (line.trim())
+        return `<div class="transcript-line"><span class="transcript-text">${escHtml(line)}</span></div>`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const subtitle = sourceFile ? `Source: ${escHtml(sourceFile)}` : "";
+  const pageBody = renderTemplate("detail", {
+    breadcrumb: [{ label: "Knowledge Base", href: "/kb" }, { label: "Transcript" }],
+    title,
+    subtitle,
+    metaBadges: [],
+    sections: [
+      { title: "Transcript", html: `<div class="transcript-body">${transcriptHtml}</div>` },
+    ],
+  });
+
+  const html = dashboardPage(title, "/kb", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
