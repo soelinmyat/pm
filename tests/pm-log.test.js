@@ -11,21 +11,36 @@ const ROOT = path.join(__dirname, "..");
 const PM_LOG = path.join(ROOT, "scripts", "pm-log.sh");
 const PM_BASELINE = path.join(ROOT, "scripts", "pm-baseline.js");
 
+// Clean env strips GIT_DIR/GIT_WORK_TREE that git hooks inject, so child
+// processes in temp repos resolve their own git root instead of the parent's.
+function cleanGitEnv() {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  return env;
+}
+
 function setupRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-log-test-"));
+  const env = cleanGitEnv();
   fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
   fs.writeFileSync(path.join(root, ".claude", "pm.local.md"), "---\nanalytics: true\n---\n");
-  childProcess.execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "ignore" });
+  childProcess.execFileSync("git", ["init", "-b", "main"], { cwd: root, env, stdio: "ignore" });
   childProcess.execFileSync("git", ["config", "user.email", "pm@example.com"], {
     cwd: root,
+    env,
     stdio: "ignore",
   });
   childProcess.execFileSync("git", ["config", "user.name", "PM Test"], {
     cwd: root,
+    env,
     stdio: "ignore",
   });
   return {
     root,
+    env,
     cleanup() {
       fs.rmSync(root, { recursive: true, force: true });
     },
@@ -42,10 +57,11 @@ function readJsonLines(filePath) {
 }
 
 test("legacy activity logging still writes activity.jsonl", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     childProcess.execFileSync(PM_LOG, ["dev", "invoked", "args=demo"], {
       cwd: root,
+      env,
       stdio: "ignore",
     });
     const records = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
@@ -59,11 +75,12 @@ test("legacy activity logging still writes activity.jsonl", () => {
 });
 
 test("run-start, step, and run-end write structured telemetry", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const runId = childProcess
       .execFileSync(PM_LOG, ["run-start", "--skill", "groom", "--args", "tracking"], {
         cwd: root,
+        env,
         encoding: "utf8",
       })
       .trim();
@@ -98,13 +115,13 @@ test("run-start, step, and run-end write structured telemetry", () => {
         "--meta-json",
         '{"state":"ok"}',
       ],
-      { cwd: root, stdio: "ignore" }
+      { cwd: root, env, stdio: "ignore" }
     );
 
     childProcess.execFileSync(
       PM_LOG,
       ["run-end", "--skill", "groom", "--run-id", runId, "--status", "completed"],
-      { cwd: root, stdio: "ignore" }
+      { cwd: root, env, stdio: "ignore" }
     );
 
     const activity = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
@@ -133,7 +150,7 @@ test("run-start, step, and run-end write structured telemetry", () => {
 });
 
 test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
     const agentPre = path.join(pluginRoot, "hooks", "agent-pre.sh");
@@ -141,7 +158,7 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
 
     // Start a run so agent-step can correlate
     const runId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], { cwd: root, encoding: "utf8" })
+      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], { cwd: root, env, encoding: "utf8" })
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
@@ -160,7 +177,7 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
     childProcess.execFileSync(agentPre, {
       cwd: root,
       input: preInput,
-      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -190,7 +207,7 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
     childProcess.execFileSync(agentStep, {
       cwd: root,
       input: postInput,
-      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -215,13 +232,17 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
 });
 
 test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
     const agentStep = path.join(pluginRoot, "hooks", "agent-step.sh");
 
     const runId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "review"], { cwd: root, encoding: "utf8" })
+      .execFileSync(PM_LOG, ["run-start", "--skill", "review"], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      })
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
@@ -239,7 +260,7 @@ test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
     childProcess.execFileSync(agentStep, {
       cwd: root,
       input: postInput,
-      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -252,14 +273,14 @@ test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
 });
 
 test("session-end.sh closes open run and cleans up", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
     const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
 
     // Start a run
     const runId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "ship"], { cwd: root, encoding: "utf8" })
+      .execFileSync(PM_LOG, ["run-start", "--skill", "ship"], { cwd: root, env, encoding: "utf8" })
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
@@ -272,7 +293,7 @@ test("session-end.sh closes open run and cleans up", () => {
     childProcess.execFileSync(sessionEnd, {
       cwd: root,
       input: JSON.stringify({ hook_event_name: "SessionEnd" }),
-      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -300,7 +321,7 @@ test("session-end.sh closes open run and cleans up", () => {
 });
 
 test("session-end.sh is a no-op when no run is active", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
     const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
@@ -312,7 +333,7 @@ test("session-end.sh is a no-op when no run is active", () => {
     childProcess.execFileSync(sessionEnd, {
       cwd: root,
       input: JSON.stringify({ hook_event_name: "SessionEnd" }),
-      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -327,15 +348,20 @@ test("session-end.sh is a no-op when no run is active", () => {
 });
 
 test("baseline generator reports empty corpus and populated corpus", () => {
-  const { root, cleanup } = setupRepo();
+  const { root, env, cleanup } = setupRepo();
   try {
     const emptyOutput = childProcess.execFileSync("node", [PM_BASELINE, "--project-dir", root], {
+      env,
       encoding: "utf8",
     });
     assert.match(emptyOutput, /No telemetry runs have been captured yet/);
 
     const runId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "review"], { cwd: root, encoding: "utf8" })
+      .execFileSync(PM_LOG, ["run-start", "--skill", "review"], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      })
       .trim();
     childProcess.execFileSync(
       PM_LOG,
@@ -358,14 +384,14 @@ test("baseline generator reports empty corpus and populated corpus", () => {
         "--output-chars",
         "100",
       ],
-      { cwd: root, stdio: "ignore" }
+      { cwd: root, env, stdio: "ignore" }
     );
 
     const outputPath = path.join(root, "baseline.md");
     childProcess.execFileSync(
       "node",
       [PM_BASELINE, "--project-dir", root, "--output", outputPath],
-      { stdio: "ignore" }
+      { env, stdio: "ignore" }
     );
     const baseline = fs.readFileSync(outputPath, "utf8");
     assert.match(baseline, /Runs captured: 1/);
