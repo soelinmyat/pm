@@ -1,5 +1,5 @@
 ---
-name: pm-strategy
+name: strategy
 description: "Use when creating or maintaining a product strategy document. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction.'"
 ---
 

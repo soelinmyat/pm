@@ -1,5 +1,5 @@
 ---
-name: pm-groom
+name: groom
 description: "Use when doing product discovery, feature grooming, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for.'"
 ---
 

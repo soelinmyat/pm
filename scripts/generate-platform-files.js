@@ -208,7 +208,9 @@ PM now ships a native Codex plugin manifest at \`.codex-plugin/plugin.json\`.
 
 Until your Codex install loads this repository as a plugin directly, the generated skill-symlink flow below remains the compatible fallback. It uses the same canonical plugin metadata and current skill inventory as the other platform manifests.
 
-PM integrates with Codex as a set of skills across two domains: product management (\`pm-*\`) and development (\`dev-*\`). Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
+When Codex loads PM as a native plugin, product skills appear under the plugin namespace as \`pm:groom\`, \`pm:research\`, \`pm:strategy\`, \`pm:ingest\`, and \`pm:refresh\`.
+
+The fallback symlink flow below exposes explicit aliases across two domains: product management (\`pm-*\`) and development (\`dev-*\`). Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
 
 The instructions below install PM for your user account. If you prefer a repo-local install, replace \`~/.agents\` with \`<project>/.agents\`.
 
