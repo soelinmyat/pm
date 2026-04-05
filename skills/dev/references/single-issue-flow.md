@@ -2,6 +2,8 @@
 
 This reference is loaded on-demand by the dev skill router when handling a single issue (feature, bug fix, refactor, or test backfill).
 
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for how to map the `Agent()` and `SendMessage()` pseudo-code in this file to your runtime's actual tool calls. This is critical for M/L/XL tasks that use named agents.
+
 ---
 
 ## Stage 0.5: Tool Check
@@ -293,14 +295,14 @@ Dispatch as sub-agent:
 
 ```
 Agent({
+  description: "UX review {slug} spec",
   subagent_type: "pm:ux-designer",
   prompt: `Review this feature spec for UX and user flow completeness.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -308,20 +310,20 @@ Agent({
 
 These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both design exploration and spec review are skipped entirely — this section is never reached.
 
-Dispatch both as sub-agents in parallel alongside the UX reviewer:
+Dispatch all 3 as sub-agents **in parallel** (send all Agent calls in a single message):
 
 **Product Manager**
 
 ```
 Agent({
+  description: "PM review {slug} spec",
   subagent_type: "pm:product-manager",
   prompt: `Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and competitive positioning.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -329,14 +331,14 @@ Agent({
 
 ```
 Agent({
+  description: "Strategy review {slug} spec",
   subagent_type: "pm:strategist",
   prompt: `Review this feature spec for differentiation, switching motivation, competitive response, and AI-native opportunities.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -359,6 +361,7 @@ Spawn a **named `pm:developer` agent** that writes the plan. This is the same ag
 
 ```
 Agent({
+  description: "Plan {ISSUE_ID} implementation",
   name: "dev-{slug}",
   subagent_type: "pm:developer",
   prompt: `Phase 1 — Planning for {ISSUE_ID}: {ISSUE_TITLE}.
@@ -391,7 +394,7 @@ Stop after sending the summary. You will be resumed for implementation after pla
 })
 ```
 
-**If groomed (from Stage 2.5):** Include groom context in the prompt:
+**If groomed (from Stage 2.5):** Append groom context to the prompt:
 
 ```
 **Groom context:**
@@ -445,10 +448,13 @@ digraph plan_review {
 
 Dispatch all 3 as **short-lived sub-agents** in parallel (same as before — these are NOT persistent):
 
+Dispatch all 3 **in parallel** (send all Agent calls in a single message):
+
 **Agent 1: Senior Engineer — Architecture & Risk**
 
 ```
 Agent({
+  description: "RFC architecture review",
   subagent_type: "pm:adversarial-engineer",
   prompt: `Review this implementation plan (RFC) for architecture soundness and risk.
 
@@ -456,8 +462,7 @@ Agent({
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -465,6 +470,7 @@ Agent({
 
 ```
 Agent({
+  description: "RFC testing review",
   subagent_type: "pm:test-engineer",
   prompt: `Review this implementation plan (RFC) for testing strategy and coverage.
 
@@ -472,8 +478,7 @@ Agent({
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -481,6 +486,7 @@ Agent({
 
 ```
 Agent({
+  description: "RFC maintainability review",
   subagent_type: "pm:staff-engineer",
   prompt: `Review this implementation plan (RFC) for complexity and long-term maintainability.
 
@@ -488,8 +494,7 @@ Agent({
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
@@ -592,6 +597,7 @@ If the developer agent dies during implementation (API overload, timeout):
 
 ```
 Agent({
+  description: "Recovery: {ISSUE_ID} implementation",
   name: "dev-{slug}",
   subagent_type: "pm:developer",
   prompt: `You are a RECOVERY agent. The previous developer agent died during implementation.

@@ -24,7 +24,8 @@ Every finding must include a testable verification step. "Check that X" is not a
 Before reviewing:
 
 1. Read `CLAUDE.md` for accessibility requirements (WCAG level, target compliance).
-2. Note the platform (web vs mobile) — affects touch target sizes and interaction patterns.
+2. Note the platform (web vs mobile) -- affects touch target sizes and interaction patterns.
+3. Read the accessibility snapshots (`a11y-snapshot-*.md` files in `/tmp/design-review/{feature}/`). These contain the real accessibility tree from Playwright's `browser_snapshot`: element roles, accessible names, ARIA attributes, states, and tab order. Use these as the primary source for WCAG findings. Screenshots are secondary -- the snapshot is ground truth.
 
 ## Methodology
 
@@ -44,10 +45,15 @@ For each interactive element visible in screenshots, check these 7 states:
 Flag elements missing expected states.
 
 ### 2. Accessibility (WCAG 2.1 AA)
-- **Contrast ratios:** Text meets 4.5:1 (normal) or 3:1 (large text). UI components meet 3:1.
-- **ARIA labels:** Interactive elements have accessible names.
-- **Keyboard navigation:** Tab order is logical. All actions reachable via keyboard.
-- **Focus indicators:** `focus-visible:ring-2` or equivalent. Never `outline: none`.
+
+When accessibility snapshots are available, use them as the primary data source. Every finding backed by snapshot data should be tagged `[HIGH]`.
+
+- **ARIA labels:** Check the snapshot for elements with missing accessible names. Interactive elements (buttons, links, inputs) without `name` in the snapshot are `[HIGH]` findings.
+- **Heading hierarchy:** Check the snapshot for heading elements. Verify h1 > h2 > h3 order with no skipped levels. Broken hierarchy visible in snapshot is `[HIGH]`.
+- **Landmarks:** Check the snapshot for landmark roles (navigation, main, banner, contentinfo). Missing landmarks are `[HIGH]`.
+- **Keyboard navigation:** Check the snapshot for tab order (element sequence). Flag illogical ordering.
+- **Focus indicators:** `focus-visible:ring-2` or equivalent. Never `outline: none`. Verify in source code.
+- **Contrast ratios:** Text meets 4.5:1 (normal) or 3:1 (large text). UI components meet 3:1. Use DOM measurement audit data if available.
 - **Screen reader:** Semantic HTML (headings, landmarks, lists). `sr-only` text where visual context is insufficient.
 - **Color independence:** Color is never the sole indicator. Icons/shapes accompany status colors.
 - **Motion:** `prefers-reduced-motion` respected. Informational elements are static.
