@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Strategy — Flux</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #F6F6F4;
+  --bg-surface: #FFFFFF;
+  --bg-inset: #F0F0EE;
+  --bg-muted: #EEEEED;
+  --ink: #1A1A19;
+  --ink-secondary: #4A4A48;
+  --ink-tertiary: #8A8A87;
+  --ink-faint: #B5B5B1;
+  --rule: #E0E0DC;
+  --rule-subtle: #EBEBEA;
+  --accent: #5B5BD6;
+  --accent-soft: #E8E8FD;
+  --accent-text: #3E3EA8;
+  --positive: #2B8A3E;
+  --positive-soft: #E6F5EA;
+  --negative: #C92A2A;
+  --negative-soft: #FFF0F0;
+  --warning: #E67700;
+  --warning-soft: #FFF4E6;
+  --info: #1971C2;
+  --info-soft: #E7F5FF;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 6px 16px rgba(0,0,0,0.04);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-w: 860px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 3.75rem; }
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════ HERO ═══════════ */
+.hero {
+  background: #1C1C1E;
+  color: #fff;
+  padding: 3.5rem 2rem 2.5rem;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  top: -60px; right: -20px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(91,91,214,0.2) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-inner { max-width: var(--content-w); margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
+
+.hero-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 1rem;
+}
+
+.hero h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin-bottom: 0.625rem;
+}
+
+.hero-positioning {
+  font-size: 1.05rem;
+  color: rgba(255,255,255,0.5);
+  max-width: 600px;
+  line-height: 1.5;
+  margin-bottom: 1.75rem;
+}
+
+/* Metrics strip in hero */
+.metrics-strip {
+  display: flex;
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--r-md);
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.metric-cell {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.metric-cell:last-child { border-right: none; }
+.metric-val {
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.metric-lbl {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.4);
+  margin-top: 0.15rem;
+}
+
+/* ═══════════ TOC ═══════════ */
+.toc {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(246,246,244,0.85);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid var(--rule);
+  padding: 0 2rem;
+}
+.toc-inner {
+  max-width: var(--content-w); margin: 0 auto;
+  display: flex; overflow-x: auto; scrollbar-width: none;
+}
+.toc-inner::-webkit-scrollbar { display: none; }
+.toc a {
+  display: block; padding: 0.65rem 0.75rem;
+  font-size: 0.76rem; font-weight: 500;
+  color: var(--ink-tertiary); text-decoration: none;
+  white-space: nowrap; border-bottom: 2px solid transparent;
+  transition: all 0.2s var(--ease);
+}
+.toc a:hover { color: var(--ink-secondary); }
+.toc a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ═══════════ CONTENT ═══════════ */
+.content { max-width: var(--content-w); margin: 0 auto; padding: 2.5rem 2rem 2rem; }
+
+/* ═══════════ SECTIONS ═══════════ */
+.section { margin-bottom: 3.5rem; }
+
+.section-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-text);
+  margin-bottom: 0.35rem;
+}
+
+/* Action titles — complete sentences, not topic labels */
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-bottom: 0.75rem;
+  line-height: 1.3;
+}
+
+.section p {
+  color: var(--ink-secondary);
+  line-height: 1.7;
+  font-size: 0.9rem;
+  max-width: 65ch;
+}
+.section p + p { margin-top: 0.5rem; }
+
+/* ═══════════ PERSONA CARDS ═══════════ */
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+
+.persona-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 1.125rem;
+  transition: box-shadow 0.2s var(--ease);
+}
+.persona-card:hover { box-shadow: var(--shadow-card); }
+
+.persona-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.875rem;
+}
+
+.persona-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.persona-role {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.persona-context {
+  font-size: 0.75rem;
+  color: var(--ink-tertiary);
+}
+
+.persona-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.persona-detail {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.detail-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+  min-width: 3.5rem;
+  padding-top: 0.1rem;
+}
+.detail-value { color: var(--ink-secondary); }
+
+/* ═══════════ POSITIONING MAP ═══════════ */
+.map-container {
+  margin: 1.5rem 0;
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.positioning-map {
+  position: relative;
+  width: 380px;
+  height: 380px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* Grid lines */
+.positioning-map::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+.positioning-map::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule);
+}
+
+.axis-label {
+  position: absolute;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.axis-y-top    { top: 12px; left: 12px; }
+.axis-y-bottom { bottom: 12px; left: 12px; }
+.axis-x-left   { bottom: 12px; left: 12px; }
+.axis-x-right  { bottom: 12px; right: 12px; }
+
+.quadrant-label {
+  position: absolute;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+  opacity: 0.6;
+}
+.ql-tl { top: 16px; left: 50%; transform: translateX(-50%); margin-left: -25%; }
+.ql-tr { top: 16px; left: 50%; transform: translateX(-50%); margin-left: 25%; }
+.ql-bl { bottom: 16px; left: 50%; transform: translateX(-50%); margin-left: -25%; }
+.ql-br { bottom: 16px; left: 50%; transform: translateX(-50%); margin-left: 25%; }
+
+.map-dot {
+  position: absolute;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: #fff;
+  z-index: 1;
+}
+
+.map-dot.us {
+  width: 32px;
+  height: 32px;
+  margin: -16px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.map-dot.competitor {
+  width: 24px;
+  height: 24px;
+  margin: -12px;
+  background: var(--ink-faint);
+}
+
+.map-dot-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--ink-tertiary);
+  white-space: nowrap;
+}
+
+.map-legend {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+.legend-name { font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+.legend-desc { font-size: 0.78rem; color: var(--ink-tertiary); }
+
+/* ═══════════ BETS (numbered priorities) ═══════════ */
+.bets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.bet-card {
+  display: flex;
+  gap: 1rem;
+  padding: 1.125rem 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  transition: box-shadow 0.2s var(--ease);
+}
+.bet-card:hover { box-shadow: var(--shadow-card); }
+
+.bet-number {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.bet-content { flex: 1; }
+
+.bet-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 0.25rem;
+}
+
+.bet-desc {
+  font-size: 0.84rem;
+  color: var(--ink-secondary);
+  line-height: 1.55;
+}
+
+.bet-anti {
+  font-size: 0.78rem;
+  color: var(--ink-tertiary);
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--rule-subtle);
+}
+.bet-anti strong { color: var(--negative); font-weight: 600; }
+
+/* ═══════════ NOW / NEXT / LATER ═══════════ */
+.horizon-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+
+.horizon-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 1rem 1.125rem;
+  border-top: 3px solid;
+}
+.horizon-now  { border-top-color: var(--positive); }
+.horizon-next { border-top-color: var(--info); }
+.horizon-later { border-top-color: #7C3AED; }
+
+.horizon-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.15rem;
+}
+.horizon-now .horizon-label  { color: var(--positive); }
+.horizon-next .horizon-label { color: var(--info); }
+.horizon-later .horizon-label { color: #7C3AED; }
+
+.horizon-confidence {
+  font-size: 0.65rem;
+  color: var(--ink-faint);
+  margin-bottom: 0.75rem;
+}
+
+.horizon-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.horizon-items li {
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+  padding-left: 0.875rem;
+  position: relative;
+  line-height: 1.45;
+}
+.horizon-items li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.horizon-now li::before  { background: var(--positive); }
+.horizon-next li::before { background: var(--info); }
+.horizon-later li::before { background: #7C3AED; }
+
+/* ═══════════ COMPETITIVE TABLE ═══════════ */
+.table-wrap {
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin: 1.25rem 0;
+}
+.table-wrap table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.table-wrap thead { background: var(--bg-inset); }
+.table-wrap th {
+  text-align: left;
+  font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  padding: 0.6rem 0.875rem;
+  border-bottom: 1px solid var(--rule);
+}
+.table-wrap td {
+  padding: 0.55rem 0.875rem;
+  border-bottom: 1px solid var(--rule-subtle);
+  color: var(--ink-secondary);
+  vertical-align: middle;
+}
+.table-wrap tr:last-child td { border-bottom: none; }
+.table-wrap td strong { color: var(--ink); }
+.table-wrap td.us-col { background: rgba(91,91,214,0.04); }
+.table-wrap th.us-col { background: rgba(91,91,214,0.08); color: var(--accent-text); }
+.check { color: var(--positive); font-weight: 700; }
+.cross { color: var(--negative); font-weight: 700; }
+.partial { color: var(--warning); font-weight: 600; font-size: 0.78rem; }
+
+/* ═══════════ TENETS ═══════════ */
+.tenet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.tenet-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+}
+.tenet-num {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-faint);
+  min-width: 1.5rem;
+  padding-top: 0.1rem;
+}
+.tenet-text {
+  font-size: 0.86rem;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+}
+.tenet-text strong { color: var(--ink); }
+
+/* ═══════════ SUCCESS METRICS ═══════════ */
+.success-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+.success-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 1rem;
+  text-align: center;
+}
+.success-val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.success-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-tertiary);
+  margin-top: 0.15rem;
+}
+.success-baseline {
+  font-size: 0.65rem;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  margin-top: 0.3rem;
+}
+
+/* ═══════════ FOOTER ═══════════ */
+.footer {
+  max-width: var(--content-w); margin: 0 auto;
+  padding: 1.5rem 2rem 3rem; border-top: 1px solid var(--rule);
+  font-size: 0.72rem; color: var(--ink-faint);
+  display: flex; justify-content: space-between; font-family: var(--mono);
+}
+
+@media (max-width: 768px) {
+  .hero { padding: 2.5rem 1.25rem 2rem; }
+  .hero h1 { font-size: 1.75rem; }
+  .content { padding: 1.5rem 1.25rem 1rem; }
+  .persona-grid, .horizon-grid, .success-grid { grid-template-columns: 1fr; }
+  .map-container { flex-direction: column; }
+  .positioning-map { width: 100%; height: 300px; }
+  .metrics-strip { flex-wrap: wrap; }
+  .metric-cell { min-width: 33%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Product Strategy &middot; Updated Q2 2026</div>
+    <h1>Flux</h1>
+    <p class="hero-positioning">The design-to-code tool for teams that ship daily. Flux eliminates the handoff between design and engineering by generating production code from design files — reviewed by AI, merged by humans.</p>
+
+    <div class="metrics-strip">
+      <div class="metric-cell"><div class="metric-val">2,400</div><div class="metric-lbl">Active teams</div></div>
+      <div class="metric-cell"><div class="metric-val">$1.2M</div><div class="metric-lbl">ARR</div></div>
+      <div class="metric-cell"><div class="metric-val">18%</div><div class="metric-lbl">MoM growth</div></div>
+      <div class="metric-cell"><div class="metric-val">72</div><div class="metric-lbl">NPS</div></div>
+      <div class="metric-cell"><div class="metric-val">4.2x</div><div class="metric-lbl">Ship velocity lift</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#diagnosis" class="active">Diagnosis</a>
+    <a href="#customers">Customers</a>
+    <a href="#positioning">Positioning</a>
+    <a href="#bets">Bets</a>
+    <a href="#horizons">Horizons</a>
+    <a href="#landscape">Landscape</a>
+    <a href="#tenets">Tenets</a>
+    <a href="#success">Success</a>
+  </div>
+</nav>
+
+<!-- ═══════════ CONTENT ═══════════ -->
+<main class="content">
+
+  <!-- DIAGNOSIS -->
+  <section class="section" id="diagnosis">
+    <div class="section-eyebrow">Diagnosis</div>
+    <h2 class="section-title">Design-to-code handoff is the last manual bottleneck in modern product teams</h2>
+    <p>AI has collapsed the cost of writing code, but the translation from design intent to production implementation remains manual. Designers export specs, engineers interpret them, and the result is a constant stream of pixel-level mismatches, accessibility gaps, and wasted review cycles.</p>
+    <p>Figma Dev Mode and Storybook reduced friction but didn't eliminate it. Teams still spend 30-40% of frontend engineering time on design fidelity work — translating mockups into components that match intent. This is the gap Flux fills.</p>
+    <p>The window is narrow: Figma is investing in code generation, Vercel is building v0, and Cursor/Copilot are nibbling from the engineering side. We win by owning the space between design and merge — not design itself, not general coding, but the specific bridge.</p>
+  </section>
+
+  <!-- CUSTOMERS -->
+  <section class="section" id="customers">
+    <div class="section-eyebrow">Who we serve</div>
+    <h2 class="section-title">Product engineering teams with a designer and 2-5 frontend engineers shipping weekly</h2>
+
+    <div class="persona-grid">
+      <div class="persona-card">
+        <div class="persona-header">
+          <div class="persona-avatar" style="background:linear-gradient(135deg,#818CF8,#5B5BD6)">FE</div>
+          <div>
+            <div class="persona-role">Frontend Engineer</div>
+            <div class="persona-context">Mid-senior, ships components daily</div>
+          </div>
+        </div>
+        <div class="persona-details">
+          <div class="persona-detail"><span class="detail-label">Job</span><span class="detail-value">Turn design files into production components that pass review</span></div>
+          <div class="persona-detail"><span class="detail-label">Pain</span><span class="detail-value">Spends 40% of time on pixel-matching instead of logic</span></div>
+          <div class="persona-detail"><span class="detail-label">Today</span><span class="detail-value">Figma Dev Mode + manual CSS, Copilot for boilerplate</span></div>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="persona-header">
+          <div class="persona-avatar" style="background:linear-gradient(135deg,#F472B6,#DB2777)">PD</div>
+          <div>
+            <div class="persona-role">Product Designer</div>
+            <div class="persona-context">Owns the UI, frustrated by drift</div>
+          </div>
+        </div>
+        <div class="persona-details">
+          <div class="persona-detail"><span class="detail-label">Job</span><span class="detail-value">Ensure what ships matches what was designed</span></div>
+          <div class="persona-detail"><span class="detail-label">Pain</span><span class="detail-value">Reviews every PR for visual fidelity — bottleneck</span></div>
+          <div class="persona-detail"><span class="detail-label">Today</span><span class="detail-value">Figma + Percy/Chromatic for visual regression</span></div>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="persona-header">
+          <div class="persona-avatar" style="background:linear-gradient(135deg,#34D399,#059669)">EM</div>
+          <div>
+            <div class="persona-role">Engineering Manager</div>
+            <div class="persona-context">Cares about velocity and quality</div>
+          </div>
+        </div>
+        <div class="persona-details">
+          <div class="persona-detail"><span class="detail-label">Job</span><span class="detail-value">Ship faster without sacrificing design quality</span></div>
+          <div class="persona-detail"><span class="detail-label">Pain</span><span class="detail-value">Design QA cycles add 1-2 days per feature</span></div>
+          <div class="persona-detail"><span class="detail-label">Today</span><span class="detail-value">Extra QA round + designer review before merge</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POSITIONING -->
+  <section class="section" id="positioning">
+    <div class="section-eyebrow">How we win</div>
+    <h2 class="section-title">We own the gap between design intent and merged code — not design, not coding, the bridge</h2>
+
+    <div class="map-container">
+      <div class="positioning-map">
+        <span class="axis-label" style="top:50%; left:-0.5rem; transform:rotate(-90deg) translateX(50%); transform-origin:left center; white-space:nowrap;">Design Fidelity &rarr;</span>
+        <span class="axis-label" style="bottom:-0.25rem; left:50%; transform:translateX(-50%); white-space:nowrap;">Code Production-Readiness &rarr;</span>
+
+        <!-- Dots: left% = x-axis (code quality), bottom% = y-axis (design fidelity) -->
+        <div class="map-dot us" style="left:78%; bottom:82%;"><span class="map-dot-label" style="color:var(--accent-text)">Flux</span></div>
+        <div class="map-dot competitor" style="left:30%; bottom:75%;"><span class="map-dot-label">Figma Dev</span></div>
+        <div class="map-dot competitor" style="left:70%; bottom:35%;"><span class="map-dot-label">v0</span></div>
+        <div class="map-dot competitor" style="left:82%; bottom:25%;"><span class="map-dot-label">Copilot</span></div>
+        <div class="map-dot competitor" style="left:20%; bottom:90%;"><span class="map-dot-label">Storybook</span></div>
+        <div class="map-dot competitor" style="left:55%; bottom:50%;"><span class="map-dot-label">Locofy</span></div>
+      </div>
+
+      <div class="map-legend">
+        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-faint); margin-bottom:0.5rem;">Competitive Alternatives</div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--accent)"></div>
+          <div><div class="legend-name">Flux</div><div class="legend-desc">Design-aware code gen + AI review. Production-ready from day one</div></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--ink-faint)"></div>
+          <div><div class="legend-name">Figma Dev Mode</div><div class="legend-desc">Excellent specs, but engineers still write all the code manually</div></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--ink-faint)"></div>
+          <div><div class="legend-name">Vercel v0</div><div class="legend-desc">Good code output, but prompt-driven — no design file input</div></div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--ink-faint)"></div>
+          <div><div class="legend-name">Copilot</div><div class="legend-desc">General code assistant. No design awareness. Pixel-matching is manual</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STRATEGIC BETS -->
+  <section class="section" id="bets">
+    <div class="section-eyebrow">Strategic bets</div>
+    <h2 class="section-title">Three bets for the next 12 months</h2>
+
+    <div class="bets-list">
+      <div class="bet-card">
+        <div class="bet-number">1</div>
+        <div class="bet-content">
+          <div class="bet-title">Design system ingestion as the moat</div>
+          <div class="bet-desc">Import a team's design tokens, components, and patterns so generated code uses their system — not generic Tailwind. This makes output immediately mergeable and creates switching costs. No competitor does this today.</div>
+          <div class="bet-anti"><strong>Not betting on:</strong> building our own design system. We ingest theirs.</div>
+        </div>
+      </div>
+      <div class="bet-card">
+        <div class="bet-number">2</div>
+        <div class="bet-content">
+          <div class="bet-title">AI design review as the expansion wedge</div>
+          <div class="bet-desc">After code gen, Flux reviews the implementation against the design file and flags mismatches before the PR is opened. This replaces the designer's manual review cycle and expands our value beyond code generation into quality assurance.</div>
+          <div class="bet-anti"><strong>Not betting on:</strong> replacing designers. We augment their review, not their creativity.</div>
+        </div>
+      </div>
+      <div class="bet-card">
+        <div class="bet-number">3</div>
+        <div class="bet-content">
+          <div class="bet-title">Figma-first, framework-agnostic</div>
+          <div class="bet-desc">Go deep on Figma as the input format. Support React, Vue, and Svelte as output. Don't build a design tool. Don't build a code editor. Be the bridge that works with whatever tools teams already use.</div>
+          <div class="bet-anti"><strong>Not betting on:</strong> Sketch, Adobe XD, or Penpot support. Figma is 80%+ of our ICP.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HORIZONS -->
+  <section class="section" id="horizons">
+    <div class="section-eyebrow">Horizons</div>
+    <h2 class="section-title">Now, Next, Later</h2>
+
+    <div class="horizon-grid">
+      <div class="horizon-col horizon-now">
+        <div class="horizon-label">Now</div>
+        <div class="horizon-confidence">High confidence &middot; Committed</div>
+        <ul class="horizon-items">
+          <li>Design token import from Figma libraries</li>
+          <li>Component mapping (Figma components &rarr; code components)</li>
+          <li>Visual diff in PR comments (screenshot overlay)</li>
+          <li>React + Tailwind output quality to 95% fidelity</li>
+        </ul>
+      </div>
+      <div class="horizon-col horizon-next">
+        <div class="horizon-label">Next</div>
+        <div class="horizon-confidence">Medium confidence &middot; Planned</div>
+        <ul class="horizon-items">
+          <li>AI design review (auto-flag mismatches)</li>
+          <li>Vue and Svelte output support</li>
+          <li>Team analytics (design fidelity score over time)</li>
+        </ul>
+      </div>
+      <div class="horizon-col horizon-later">
+        <div class="horizon-label">Later</div>
+        <div class="horizon-confidence">Low confidence &middot; Directional</div>
+        <ul class="horizon-items">
+          <li>Responsive variant generation from single frame</li>
+          <li>Animation/interaction code generation</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPETITIVE LANDSCAPE -->
+  <section class="section" id="landscape">
+    <div class="section-eyebrow">Landscape</div>
+    <h2 class="section-title">No tool covers design-aware code gen with production-grade output</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:24%">Capability</th>
+            <th class="us-col" style="width:15%">Flux</th>
+            <th style="width:15%">Figma Dev</th>
+            <th style="width:15%">v0</th>
+            <th style="width:15%">Copilot</th>
+            <th style="width:15%">Locofy</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Design file input</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="check">&#10003;</span></td>
+          </tr>
+          <tr>
+            <td><strong>Production code output</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="partial">Partial</span></td>
+          </tr>
+          <tr>
+            <td><strong>Design system aware</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td><span class="partial">Tokens only</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td><strong>Visual diff / QA</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td><strong>Multi-framework</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td>N/A</td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="partial">React only</span></td>
+          </tr>
+          <tr>
+            <td><strong>PR integration</strong></td>
+            <td class="us-col"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- TENETS -->
+  <section class="section" id="tenets">
+    <div class="section-eyebrow">Guiding principles</div>
+    <h2 class="section-title">Decision rails — when in doubt, these break the tie</h2>
+
+    <div class="tenet-list">
+      <div class="tenet-item">
+        <span class="tenet-num">01</span>
+        <div class="tenet-text"><strong>Mergeable over impressive.</strong> A 90% fidelity component that uses the team's design system beats a 99% fidelity component with custom CSS that no one will maintain.</div>
+      </div>
+      <div class="tenet-item">
+        <span class="tenet-num">02</span>
+        <div class="tenet-text"><strong>Bridge, don't replace.</strong> We connect Figma to code. We don't compete with Figma, VS Code, or GitHub. If a tool does something well, integrate with it.</div>
+      </div>
+      <div class="tenet-item">
+        <span class="tenet-num">03</span>
+        <div class="tenet-text"><strong>Engineer trusts the output.</strong> Generated code should look like a senior engineer wrote it. If the engineer rewrites more than 10% of our output, we've failed.</div>
+      </div>
+      <div class="tenet-item">
+        <span class="tenet-num">04</span>
+        <div class="tenet-text"><strong>Earn the workflow, don't demand it.</strong> No new tools to learn, no new tabs to open. Flux works inside the tools teams already use — Figma plugin, GitHub PR, CLI.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SUCCESS -->
+  <section class="section" id="success">
+    <div class="section-eyebrow">What success looks like</div>
+    <h2 class="section-title">12-month targets — we're on track if these move</h2>
+
+    <div class="success-grid">
+      <div class="success-card">
+        <div class="success-val">10K</div>
+        <div class="success-label">Active teams</div>
+        <div class="success-baseline">today: 2,400</div>
+      </div>
+      <div class="success-card">
+        <div class="success-val">$5M</div>
+        <div class="success-label">ARR</div>
+        <div class="success-baseline">today: $1.2M</div>
+      </div>
+      <div class="success-card">
+        <div class="success-val">&lt;10%</div>
+        <div class="success-label">Code rewrite rate</div>
+        <div class="success-baseline">today: ~25%</div>
+      </div>
+      <div class="success-card">
+        <div class="success-val">60%</div>
+        <div class="success-label">Teams w/ design system imported</div>
+        <div class="success-baseline">today: 12% (beta)</div>
+      </div>
+      <div class="success-card">
+        <div class="success-val">-50%</div>
+        <div class="success-label">Design QA cycle time</div>
+        <div class="success-baseline">today: baseline being measured</div>
+      </div>
+      <div class="success-card">
+        <div class="success-val">80+</div>
+        <div class="success-label">NPS</div>
+        <div class="success-baseline">today: 72</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>Flux Product Strategy &middot; Q2 2026</span>
+  <span>Last reviewed: Apr 5, 2026</span>
+</footer>
+
+<!-- Scrollspy -->
+<script>
+(function() {
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.getAttribute('id');
+        tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+
+</body>
+</html>
