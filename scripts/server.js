@@ -1387,21 +1387,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
   background: var(--surface); border: 1px solid var(--border);
 }
-.evidence-import-info { display: flex; flex-direction: column; gap: 2px; }
+.evidence-import-info { display: flex; flex-direction: column; gap: 1px; }
 .evidence-import-name { font-size: var(--text-base); font-weight: 500; }
 .evidence-import-meta { font-size: var(--text-xs); color: var(--text-muted); }
 .evidence-import-actions .view-link { font-size: var(--text-sm); color: var(--accent); text-decoration: none; font-weight: 500; }
 .evidence-import-actions .view-link:hover { color: var(--accent-hover, var(--accent)); }
 .evidence-topics, .evidence-tags { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
-.evidence-section-label { font-size: var(--text-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; min-width: 3rem; }
+.evidence-section-label { font-size: var(--text-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; min-width: var(--space-12); }
 .evidence-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
 
 /* Transcript page */
-.transcript-body { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
-.transcript-line { display: flex; gap: var(--space-3); padding: 4px var(--space-2); border-radius: 3px; align-items: baseline; }
+.transcript-body { display: flex; flex-direction: column; gap: 1px; font-size: var(--text-sm); }
+.transcript-line { display: flex; gap: var(--space-3); padding: var(--space-1) var(--space-2); border-radius: var(--space-1); align-items: baseline; }
 .transcript-line:hover { background: var(--surface-hover); }
-.transcript-ts { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; min-width: 5rem; flex-shrink: 0; }
-.transcript-speaker { font-weight: 600; white-space: nowrap; min-width: 7rem; flex-shrink: 0; }
+.transcript-ts { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; min-width: 6ch; flex-shrink: 0; }
+.transcript-speaker { font-weight: 600; white-space: nowrap; min-width: 10ch; flex-shrink: 0; }
 .speaker-customer { color: var(--badge-success-text); }
 .speaker-interviewer { color: var(--accent); }
 .speaker-other { color: var(--text-muted); }
@@ -2181,7 +2181,9 @@ function routeDashboard(req, res, pmDir) {
       res.end("Not found");
     }
   } else if (urlPath.startsWith("/evidence/transcripts/")) {
-    const slug = decodeURIComponent(urlPath.slice("/evidence/transcripts/".length)).replace(/\/$/, "").replace(/\.md$/, "");
+    const slug = decodeURIComponent(urlPath.slice("/evidence/transcripts/".length))
+      .replace(/\/$/, "")
+      .replace(/\.md$/, "");
     if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleTranscriptPage(res, pmDir, slug);
     } else {
@@ -4150,7 +4152,9 @@ function buildEvidenceSummary(pmDir) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
       imports = manifest.imports || [];
-    } catch (_) { /* ignore parse errors */ }
+    } catch (_) {
+      /* ignore parse errors */
+    }
   }
 
   // Read evidence records for topic/tag aggregation
@@ -4160,7 +4164,9 @@ function buildEvidenceSummary(pmDir) {
     for (const f of files) {
       try {
         records.push(JSON.parse(fs.readFileSync(path.join(evidenceDir, f), "utf-8")));
-      } catch (_) { /* skip malformed */ }
+      } catch (_) {
+        /* skip malformed */
+      }
     }
   }
 
@@ -4173,20 +4179,26 @@ function buildEvidenceSummary(pmDir) {
   }
 
   // Build import rows
-  const importRows = imports.map((imp) => {
-    const filename = path.basename(imp.path || "");
-    const format = (imp.format_hint || "").replace(/^(audio|csv|md)-?/, "$1: ").replace(/-/g, " ");
-    const count = imp.record_count || 0;
-    const date = imp.imported_at ? imp.imported_at.split("T")[0] : "";
-    const hasTranscript = imp.transcript_path ? `<a href="/evidence/transcripts/${escHtml(path.basename(imp.transcript_path, ".md"))}" class="view-link">Transcript &rarr;</a>` : "";
-    return `<div class="evidence-import-row">
+  const importRows = imports
+    .map((imp) => {
+      const filename = path.basename(imp.path || "");
+      const format = (imp.format_hint || "")
+        .replace(/^(audio|csv|md)-?/, "$1: ")
+        .replace(/-/g, " ");
+      const count = imp.record_count || 0;
+      const date = imp.imported_at ? imp.imported_at.split("T")[0] : "";
+      const hasTranscript = imp.transcript_path
+        ? `<a href="/evidence/transcripts/${escHtml(path.basename(imp.transcript_path, ".md"))}" class="view-link">Transcript &rarr;</a>`
+        : "";
+      return `<div class="evidence-import-row">
   <div class="evidence-import-info">
     <span class="evidence-import-name">${escHtml(filename)}</span>
     <span class="evidence-import-meta">${escHtml(format)} &middot; ${count} record${count !== 1 ? "s" : ""} &middot; ${escHtml(date)}</span>
   </div>
   <div class="evidence-import-actions">${hasTranscript}</div>
 </div>`;
-  }).join("");
+    })
+    .join("");
 
   // Aggregate topics from records
   const topicCounts = {};
@@ -4201,7 +4213,10 @@ function buildEvidenceSummary(pmDir) {
   const topicBadges = Object.entries(topicCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-    .map(([topic, count]) => `<span class="badge badge-customer">${escHtml(humanizeSlug(topic))} (${count})</span>`)
+    .map(
+      ([topic, count]) =>
+        `<span class="badge badge-customer">${escHtml(humanizeSlug(topic))} (${count})</span>`
+    )
     .join("");
 
   const tagBadges = Object.entries(tagCounts)
@@ -4575,9 +4590,10 @@ function handleResearchTopic(res, pmDir, topic) {
   findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, "");
 
   // Rewrite pm/ relative links to dashboard routes
-  const rewritePmLinks = (text) => text
-    .replace(/\(pm\/evidence\/transcripts\/([^)]+?)(?:\.md)?\)/g, "(/evidence/transcripts/$1)")
-    .replace(/\(pm\/research\/([^)]+?)\/findings\.md\)/g, "(/research/$1)");
+  const rewritePmLinks = (text) =>
+    text
+      .replace(/\(pm\/evidence\/transcripts\/([^)]+?)(?:\.md)?\)/g, "(/evidence/transcripts/$1)")
+      .replace(/\(pm\/research\/([^)]+?)\/findings\.md\)/g, "(/research/$1)");
   findingsBody = rewritePmLinks(findingsBody);
   if (sourcesBody) sourcesBody = rewritePmLinks(sourcesBody);
 
@@ -4624,8 +4640,14 @@ function handleTranscriptPage(res, pmDir, slug) {
   } else if (fs.existsSync(privatePath)) {
     raw = fs.readFileSync(privatePath, "utf-8");
   } else {
-    const html = dashboardPage("Not Found", "/kb", renderEmptyState("Transcript not found", "This transcript does not exist.") + '<p><a href="/kb">&larr; Back to Knowledge Base</a></p>');
-    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" }); res.end(html);
+    const html = dashboardPage(
+      "Not Found",
+      "/kb",
+      renderEmptyState("Transcript not found", "This transcript does not exist.") +
+        '<p><a href="/kb">&larr; Back to Knowledge Base</a></p>'
+    );
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
@@ -4639,31 +4661,38 @@ function handleTranscriptPage(res, pmDir, slug) {
 
   // Render transcript content with line-by-line styling
   const lines = bodyContent.trim().split("\n");
-  const transcriptHtml = lines.map((line) => {
-    const match = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*\[([^\]]+)\]:\s*(.*)/);
-    if (match) {
-      const [, ts, speaker, text] = match;
-      const speakerClass = speaker.toLowerCase().includes("customer") ? "speaker-customer" : speaker.toLowerCase().includes("interviewer") ? "speaker-interviewer" : "speaker-other";
-      return `<div class="transcript-line"><span class="transcript-ts">${escHtml(ts)}</span><span class="transcript-speaker ${speakerClass}">${escHtml(speaker)}</span><span class="transcript-text">${escHtml(text)}</span></div>`;
-    }
-    const tsOnly = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*(.*)/);
-    if (tsOnly) {
-      return `<div class="transcript-line"><span class="transcript-ts">${escHtml(tsOnly[1])}</span><span class="transcript-text">${escHtml(tsOnly[2])}</span></div>`;
-    }
-    if (line.trim()) return `<div class="transcript-line"><span class="transcript-text">${escHtml(line)}</span></div>`;
-    return "";
-  }).filter(Boolean).join("\n");
+  const transcriptHtml = lines
+    .map((line) => {
+      const match = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*\[([^\]]+)\]:\s*(.*)/);
+      if (match) {
+        const [, ts, speaker, text] = match;
+        const speakerClass = speaker.toLowerCase().includes("customer")
+          ? "speaker-customer"
+          : speaker.toLowerCase().includes("interviewer")
+            ? "speaker-interviewer"
+            : "speaker-other";
+        return `<div class="transcript-line"><span class="transcript-ts">${escHtml(ts)}</span><span class="transcript-speaker ${speakerClass}">${escHtml(speaker)}</span><span class="transcript-text">${escHtml(text)}</span></div>`;
+      }
+      const tsOnly = line.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*(.*)/);
+      if (tsOnly) {
+        return `<div class="transcript-line"><span class="transcript-ts">${escHtml(tsOnly[1])}</span><span class="transcript-text">${escHtml(tsOnly[2])}</span></div>`;
+      }
+      if (line.trim())
+        return `<div class="transcript-line"><span class="transcript-text">${escHtml(line)}</span></div>`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 
   const subtitle = sourceFile ? `Source: ${escHtml(sourceFile)}` : "";
   const pageBody = renderTemplate("detail", {
-    breadcrumb: [
-      { label: "Knowledge Base", href: "/kb" },
-      { label: "Transcript" },
-    ],
+    breadcrumb: [{ label: "Knowledge Base", href: "/kb" }, { label: "Transcript" }],
     title,
     subtitle,
     metaBadges: [],
-    sections: [{ title: "Transcript", html: `<div class="transcript-body">${transcriptHtml}</div>` }],
+    sections: [
+      { title: "Transcript", html: `<div class="transcript-body">${transcriptHtml}</div>` },
+    ],
   });
 
   const html = dashboardPage(title, "/kb", pageBody);
