@@ -23,6 +23,9 @@ const { execFileSync } = require('node:child_process');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
 
+const { unlinkSync } = require('node:fs');
+const crypto = require('node:crypto');
+
 const input = JSON.parse(process.argv[1]);
 const ti = input.tool_input || {};
 const rawOutput = input.tool_output;
@@ -42,9 +45,22 @@ const runFile = path.join(projectDir, '.pm', 'analytics', '.current-run');
 let runId = 'untracked';
 try { runId = readFileSync(runFile, 'utf8').trim() || 'untracked'; } catch {}
 
+// Read start timestamp written by agent-pre.sh (PreToolUse hook)
+const hash = crypto.createHash('sha256').update(agentName).digest('hex').slice(0, 16);
+const startFile = path.join(projectDir, '.pm', 'analytics', '.agent-starts', hash);
+let startedAt = null;
+try {
+  startedAt = readFileSync(startFile, 'utf8').trim() || null;
+  unlinkSync(startFile);
+} catch {}
+
 // Derive skill label from subagent_type
 const skill = subagent.startsWith('pm:') ? subagent.slice(3) : subagent;
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');
+
+const meta = { agent_name: agentName, subagent_type: subagent };
+// PostToolUse tool_output is a summary, not the full agent conversation
+if (resultChars < 100) meta.output_truncated = true;
 
 const args = [
   'step',
@@ -54,8 +70,11 @@ const args = [
   '--actor', 'agent:' + subagent,
   '--input-chars', String(promptChars),
   '--output-chars', String(resultChars),
-  '--meta-json', JSON.stringify({ agent_name: agentName, subagent_type: subagent }),
+  '--meta-json', JSON.stringify(meta),
 ];
+
+// Add start timestamp if the PreToolUse hook captured one
+if (startedAt) args.push('--started-at', startedAt);
 
 try {
   execFileSync(path.join(pluginRoot, 'scripts', 'pm-log.sh'), args, {
