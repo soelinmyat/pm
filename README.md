@@ -25,6 +25,10 @@ Copy the `.cursor-plugin/` directory into your project root, or install via Curs
 
 PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
 
+When Codex loads PM as a native plugin, the skills appear under the plugin namespace as
+`pm:groom`, `pm:research`, `pm:strategy`, `pm:ingest`, and `pm:refresh`.
+The fallback symlink install still exposes `$pm-groom`-style aliases.
+
 If your Codex install is not loading the plugin directly yet, use the fallback install steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
 #### OpenCode and Gemini CLI
@@ -45,7 +49,7 @@ If your client supports slash commands:
 /pm:groom "feature idea"
 ```
 
-If you are using Codex explicit skills:
+If you are using Codex fallback explicit-skill aliases:
 
 ```text
 $pm-setup
