@@ -6,11 +6,11 @@ Do NOT skip based on feature type (infrastructure, internal tooling, developer f
 If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking.
 </HARD-GATE>
 
-After scope is confirmed, dispatch **3 parallel subagents** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
+After scope is confirmed, dispatch **3 parallel reviewers** to challenge the scoped initiative before drafting issues. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Phase 2) is too coarse to find.
 
-Use the **Agent tool** to dispatch all three reviewers in a single message (3 parallel Agent tool calls). Each agent must use its designated `subagent_type` (see below).
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. If delegation is unavailable, run the same briefs inline before merging findings.
 
-**Agent 1: Product Manager** (`subagent_type: "pm:product-manager"`)
+**Reviewer intent: `pm:product-manager`**
 
 ```
 You are a product manager reviewing a scoped feature initiative.
@@ -41,7 +41,7 @@ Review from these angles:
 - [concern] - [what to watch for]
 ```
 
-**Agent 2: Competitive Strategist** (`subagent_type: "pm:strategist"`)
+**Reviewer intent: `pm:strategist`**
 
 ```
 You are a competitive strategist reviewing a scoped feature initiative.
@@ -70,7 +70,7 @@ Review from these angles:
 - [opportunity] - [why it matters]
 ```
 
-**Agent 3: Engineering Manager** (`subagent_type: "pm:engineering-manager"`)
+**Reviewer intent: `pm:engineering-manager`**
 
 ```
 You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.

@@ -6,11 +6,11 @@ The user must NOT see drafted issues until both Team Review and Bar Raiser Revie
 If a reviewer's angle genuinely doesn't apply, the reviewer will say so — that is different from never asking.
 </HARD-GATE>
 
-After issues are drafted, dispatch parallel subagents to review the complete proposal — issues, acceptance criteria, visual artifacts, and research integration. This is not a scope check (Phase 4.5 handled that). This is a quality gate on the actual deliverables.
+After issues are drafted, dispatch parallel reviewers to review the complete proposal — issues, acceptance criteria, visual artifacts, and research integration. This is not a scope check (Phase 4.5 handled that). This is a quality gate on the actual deliverables.
 
-Dispatch **3–4 parallel agents** (4 if visual artifacts were generated in Phase 5) using the Agent tool in a single message. Each agent must use its designated `subagent_type` (see below).
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. In runtimes that support delegation, run them in parallel. Otherwise run the same briefs inline before merging findings.
 
-**Agent 1: Product Manager — Issue Quality** (`subagent_type: "pm:product-manager"`)
+**Reviewer intent: `pm:product-manager` — Issue Quality**
 
 ```
 You are a senior product manager reviewing drafted issues for a feature initiative. Your job is to ensure these issues are implementation-ready — clear, complete, and grounded in research.
@@ -59,7 +59,7 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 **Scope coverage:** {X}/{Y} in-scope items have clear issue coverage. Missing: {list if any}
 ```
 
-**Agent 2: Competitive Strategist — Positioning Quality** (`subagent_type: "pm:strategist"`)
+**Reviewer intent: `pm:strategist` — Positioning Quality**
 
 ```
 You are a competitive strategist reviewing drafted issues for a feature initiative. Your job is to ensure competitive intelligence gathered during research actually made it into the issues — not as decoration, but as substance that shapes what gets built.
@@ -98,7 +98,7 @@ You are a competitive strategist reviewing drafted issues for a feature initiati
 **Research utilization:** {X}/{Y} key competitive findings are reflected in issues. Unused: {list if any}
 ```
 
-**Agent 3: Engineering Manager — Technical Quality** (`subagent_type: "pm:engineering-manager"`)
+**Reviewer intent: `pm:engineering-manager` — Technical Quality**
 
 ```
 You are an engineering manager reviewing drafted issues for a feature initiative. Your job is to ensure the issue breakdown makes technical sense — that an engineering team could pick these up and execute without discovering structural problems mid-sprint.
@@ -135,7 +135,7 @@ You are practical. You care about whether these issues will survive contact with
 - {description} — {why it is needed before work begins}
 ```
 
-**Agent 4: Design Reviewer — Visual Quality** (`subagent_type: "pm:ux-designer"`) *(only dispatch if visual artifacts were generated)*
+**Reviewer intent: `pm:ux-designer` — Visual Quality** *(only dispatch if visual artifacts were generated)*
 
 Only dispatch this agent if Phase 5 generated visual artifacts (UI or workflow feature type). Check the feature type from groom state or Phase 5 Step 1.
 

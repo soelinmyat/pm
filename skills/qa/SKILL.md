@@ -15,17 +15,17 @@ Report-only QA gate for the dev lifecycle. Tests the running app using DOM asser
 
 | Mode | How invoked | Lifecycle |
 |------|-------------|-----------|
-| **Persistent agent** (preferred) | Dev spawns a named agent `qa-{slug}` | Stays alive across fix-and-retest iterations. Phase 0-2 run once. Re-verify via message. |
+| **Persistent worker** (preferred) | Dev dispatches a persistent QA worker `qa-{slug}` | Stays alive across fix-and-retest iterations when the runtime supports it. Phase 0-2 run once. Re-verify via resume message. |
 | **Standalone** | User invokes `pm:qa` directly | One-shot. Full Phase 0-6 each time. |
 
-**Persistent agent mode** is the default when called from `/dev`. The dev orchestrator spawns this skill as a named agent. On re-verify, the orchestrator sends a message — the agent skips environment setup and re-runs only the relevant assertions.
+**Persistent worker mode** is the default when called from `/dev`. The dev orchestrator dispatches this skill through the runtime adapter in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`. On re-verify, the orchestrator resumes the same worker — the worker skips environment setup and re-runs only the relevant assertions.
 
 **Standalone mode** is for ad-hoc QA outside a dev session (e.g., `pm:qa --page /dashboard`). Runs the full lifecycle as a one-shot.
 
 ### Detecting mode
 
 ```
-Spawned as named agent with feature/AC context in prompt  →  Persistent
+Spawned as persistent worker with feature/AC context in prompt  →  Persistent
 Invoked as pm:qa skill with arguments                     →  Standalone
 ```
 
@@ -34,6 +34,9 @@ In persistent mode, all context (feature, ACs, routes, platform, tier) comes fro
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific worker dispatch.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
 Minimum coverage for `pm:qa`:
 - run start / run end
@@ -54,9 +57,9 @@ Minimum coverage for `pm:qa`:
 
 ## Invocation
 
-**From /dev (persistent agent — preferred):**
+**From /dev (persistent worker — preferred):**
 
-The dev orchestrator spawns this as a named agent. See `implementation-flow.md` Step 5 for the spawn pattern. The agent receives all context in its prompt and stays alive for re-verify iterations.
+The dev orchestrator dispatches this as a persistent QA worker. See `implementation-flow.md` Step 5 for the spawn pattern. The worker receives all context in its prompt and stays resumable for re-verify iterations.
 
 **Standalone:**
 
@@ -713,28 +716,27 @@ QA Complete
 
 ---
 
-## Re-verification (Persistent Agent Mode)
+## Re-verification (Persistent Worker Mode)
 
-In persistent agent mode, re-verify is triggered by a **message from the dev orchestrator**, not a `--re-verify` flag. The agent already has servers running, auth session active, design tokens discovered, test charter built, and previous findings in context.
+In persistent worker mode, re-verify is triggered by a **resume message from the dev orchestrator**, not a `--re-verify` flag. The worker already has servers running, auth session active, design tokens discovered, test charter built, and previous findings in context.
 
 ### What the orchestrator sends
 
-```
-SendMessage({
-  to: "qa-{slug}",
-  content: `Fixed the following issues:
+Use the runtime adapter from `agent-runtime.md` to resume the same QA worker with a message like:
+
+```text
+Fixed the following issues:
 1. {finding-id}: {what was fixed}
 2. {finding-id}: {what was fixed}
 
 Re-verify these specific findings. Also smoke-check adjacent routes for regressions.
-Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
-})
+Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 ```
 
-### Re-verify flow (persistent agent)
+### Re-verify flow (persistent worker)
 
 1. Parse the fix list from the message
-2. Match each fix to a previous finding (already in agent context — no state file re-parse needed)
+2. Match each fix to a previous finding (already in worker context — no state file re-parse needed)
 3. Filter to Critical and High findings (skip Medium/Low unless the message explicitly requests them)
 4. **Re-run the exact assertions** from those findings (not just re-screenshot)
 5. For each finding: mark as **Fixed** or **Still present** with updated evidence
@@ -743,7 +745,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
 8. Update verdict
 9. Write results to `.pm/dev-sessions/{slug}.md` and return verdict to orchestrator
 
-**What the agent skips on re-verify:**
+**What the worker skips on re-verify:**
 - Phase 0 (servers already running, auth active, tokens discovered)
 - Phase 1 (already oriented)
 - Phase 2 (charter already built)

@@ -11,7 +11,7 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 **Architecture:**
 - **Orchestrator (this context):** Intake, state management, worker registry, result tracking
 - **Persistent workers:** One per sub-issue. Plans first (explore codebase, write plan, commit). Stops cleanly. Resumes for implementation after epic review approval. Context from planning phase is preserved — no duplicate codebase exploration.
-- **Epic review sub-agents:** 1-3 parallel short-lived review agents (NOT persistent workers) reviewing all plans as a set. Return compact JSON verdicts directly to orchestrator context.
+- **Epic review reviewers:** 1-3 parallel short-lived review workers (NOT persistent workers) reviewing all plans as a set. Return compact JSON verdicts directly to orchestrator context.
 
 **Worker lifecycle:**
 1. Orchestrator initializes the state file and creates one worker slot per sub-issue
@@ -22,26 +22,27 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 6. **Wrap-up:** Orchestrator closes any remaining workers and removes the worker registry from state
 
 **Reference files (read on-demand, NOT upfront):**
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC agent prompts (Stage 2, raw issues only)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review agent prompts (Stage 3)
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue agent instructions (Stage 4)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2, raw issues only)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review prompts (Stage 3)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue implementation instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
-**Runtime mapping:**
+**Runtime mapping:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching epic workers or reviewers.
 
-| Action | Claude Code | Codex |
-|--------|------------|-------|
-| Create team for workers | `TeamCreate({ team_name: "epic-{parent-slug}", description: "..." })` | N/A (implicit) |
-| Create persistent worker | `Agent({ name: "agent-{slug}", team_name: "epic-{parent-slug}", subagent_type: "pm:developer", prompt: "..." })` | `spawn_agent` |
-| Wait for result | Agent returns, goes idle (team keeps it alive) | `wait_agent` |
-| Resume worker for implementation | `SendMessage({ to: "agent-{slug}", summary: "Resume for implementation", message: "Phase 2 — go implement..." })` | `resume_agent` + `send_input` |
-| Ping / deliver "merge now" | `SendMessage({ to: "agent-{slug}", summary: "Merge now", message: "..." })` | `send_input` |
-| Shutdown | `SendMessage({ to: "agent-{slug}", message: { type: "shutdown_request" } })` | `close_agent` |
+Use these worker intents consistently:
+- Persistent planning + implementation worker: `pm:developer`
+- Epic review workers: the reviewer intents referenced in Stage 3
+
+Use the runtime adapter for all worker lifecycle actions:
+- create persistent worker
+- wait for planning result
+- resume the same worker for implementation
+- ping a quiet worker
+- deliver "merge now"
+- close any still-running worker during cleanup
 
 <HARD-RULE>
-In Claude Code, you MUST create a team (`TeamCreate`) before spawning persistent workers. Workers must include `team_name` to join the team. Without a team, standalone agents terminate when they return and SendMessage cannot reach them. Fetch deferred tools first: `ToolSearch({ query: "select:TeamCreate,SendMessage" })`.
-
-You MUST use named teammates (`name: "agent-{slug}"`, `team_name: "epic-{parent-slug}"`) and `SendMessage` to resume them. Do NOT spawn a fresh `Agent()` for implementation — that loses the codebase context from planning. The whole point of combined workers is context preservation.
+Do NOT spawn a fresh implementation worker when a resumable one exists. The whole point of combined workers is context preservation from planning through implementation.
 </HARD-RULE>
 
 ---
@@ -200,7 +201,7 @@ In the epic state file, create one worker slot per sub-issue. This is the source
 | 1 | {ISSUE_ID} | {TITLE} | {SIZE} | {DEPS} | agent-{slug} | pending | feat/{slug} | .worktrees/{slug} | planning |
 ```
 
-Set `Worker ID` to `pending` until the worker is spawned. Update it immediately after the `Agent()` call returns or `spawn_agent` completes.
+Set `Worker ID` to `pending` until the worker is started. Update it immediately after the runtime adapter returns a live worker handle or `agent_id`.
 
 ---
 
@@ -234,28 +235,9 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Spawn a **persistent worker** per sub-issue using `subagent_type: "pm:developer"`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
 
-**Always use `subagent_type: "pm:developer"`** — never spawn a generic agent. The developer agent has TDD methodology, plan structure conventions, epic worker communication protocol, and anti-pattern awareness built in.
-
-Spawn with a **name** so the same agent can be resumed later:
-
-<TOOL-CALL>
-Before spawning any workers, create the epic team and fetch deferred tools (once per epic):
-```
-ToolSearch({ query: "select:TeamCreate,SendMessage" })
-TeamCreate({ team_name: "epic-{parent-slug}", description: "Epic: {PARENT_TITLE}" })
-```
-
-Use the **Agent tool** to spawn each worker:
-- `description`: "Plan {ISSUE_ID}"
-- `name`: "agent-{slug}"
-- `team_name`: "epic-{parent-slug}"
-- `subagent_type`: "pm:developer"
-- `prompt`: (see below)
-
-The `name` and `team_name` parameters are critical. `team_name` keeps the worker alive (idle) after planning so it can be resumed. `name` makes it addressable via `SendMessage`.
-</TOOL-CALL>
+Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes deferred tool discovery for `TeamCreate` and `SendMessage`, then team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
 
 **Prompt for the planning worker:**
 
@@ -295,7 +277,7 @@ The orchestrator waits for the worker's planning result (the named Agent returns
 
 **Raw XS:** Note "direct implementation, no plan needed" in state file. Skip planning.
 
-**Raw S:** Dispatch a persistent worker (same prompt as 2.1), then dispatch RFC review sub-agents from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (Agents 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
+**Raw S:** Dispatch a persistent worker (same prompt as 2.1), then dispatch RFC reviewers from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (reviewers 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
 
 **Raw M/L/XL:** Three-step process:
 
@@ -330,7 +312,7 @@ SPEC_COMPLETE
 
    Merge findings, fix all blocking issues in the spec, and re-run the spec reviewers if needed before moving on.
 
-3. **Dispatch a persistent worker** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC review sub-agents. Fix blocking issues, commit.
+3. **Dispatch a persistent worker** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC reviewers. Fix blocking issues, commit.
 
 ### 2.3 Context accumulation
 
@@ -346,7 +328,7 @@ After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` w
 
 ---
 
-## Stage 3: Epic Review (via sub-agents)
+## Stage 3: Epic Review (via reviewers)
 
 After all plans are committed. Runs automatically.
 
@@ -366,21 +348,15 @@ Count sub-issues with actual code work (plan reports tasks > 0). Scale reviewer 
 
 Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use short-lived review agents, not persistent workers. Their results should return directly to the orchestrator and should not be saved for later resume.
 
-**For 3+ sub-issues with code work:** Dispatch all 3 in parallel using the **Agent tool**:
+**For 3+ sub-issues with code work:** Dispatch all 3 reviewer intents in parallel using the runtime adapter:
+- `pm:system-architect` with the architecture prompt from `epic-rfc-reviewer-prompts.md`
+- `pm:integration-engineer` with the integration prompt from `epic-rfc-reviewer-prompts.md`
+- `pm:product-manager` with the scope prompt from `epic-rfc-reviewer-prompts.md`
 
-<TOOL-CALL>
-- Agent tool: `description`: "Epic arch review", `subagent_type`: "pm:system-architect", `prompt`: (from epic-rfc-reviewer-prompts.md)
-- Agent tool: `description`: "Epic integration review", `subagent_type`: "pm:integration-engineer", `prompt`: (from epic-rfc-reviewer-prompts.md)
-- Agent tool: `description`: "Epic scope review", `subagent_type`: "pm:product-manager", `prompt`: (from epic-rfc-reviewer-prompts.md)
-</TOOL-CALL>
+**For 1-2 sub-issues with code work:** Dispatch 1 combined reviewer intent using the runtime adapter:
+- `pm:system-architect` with `Combined review: architecture + integration + scope. {COMBINED_PROMPT}`
 
-**For 1-2 sub-issues with code work:** Dispatch 1 combined reviewer:
-
-<TOOL-CALL>
-- Agent tool: `description`: "Epic combined review", `subagent_type`: "pm:system-architect", `prompt`: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}"
-</TOOL-CALL>
-
-Sub-agent results return directly to the orchestrator — no worker handoff needed.
+Reviewer results return directly to the orchestrator — no worker handoff needed.
 
 ### 3.2 Handling findings
 
@@ -479,28 +455,14 @@ For waves with 2+ sub-issues:
 
 2. **Set all issue statuses** to In Progress.
 
-3. **Resume all workers simultaneously** via `SendMessage`. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
-
-   <TOOL-CALL>
-   Use **SendMessage** for each worker **in parallel** (multiple tool calls in one message):
-   - `to`: "agent-{slug-A}" / "agent-{slug-B}"
-   - `summary`: "Resume agent-{slug} for implementation"
-   - `message`: "Phase 2 — go implement. Mode: parallel. ..." (use the template from 4.3 below)
-   Workers are idle teammates — SendMessage wakes them with full planning context.
-   </TOOL-CALL>
+3. **Resume all workers simultaneously** using the runtime adapter. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
 
 4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
    - If any agent reports "Blocked": pause, report to user.
    - If all report "Ready to merge": proceed to sequential merge.
 
-5. **Sequential merge.** For each PR in the wave, in dependency order, send merge instruction to the named worker:
-
-   <TOOL-CALL>
-   Use **SendMessage**:
-   - `to`: "agent-{slug}"
-   - `summary`: "Merge agent-{slug} PR"
-   - `message`: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
-   </TOOL-CALL>
+5. **Sequential merge.** For each PR in the wave, in dependency order, send the merge instruction to the same worker using the runtime adapter:
+   - "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
 
    Wait for "Merged." before telling the next worker to merge.
 
@@ -511,14 +473,7 @@ For waves with 2+ sub-issues:
 
 #### "Go implement" instruction template
 
-<TOOL-CALL>
-Use **SendMessage** to resume the named teammate:
-- `to`: "agent-{slug}"
-- `summary`: "Resume agent-{slug} for implementation"
-- `message`: (see below)
-</TOOL-CALL>
-
-**Content for SendMessage:**
+Resume the worker using the runtime adapter and pass the following implementation brief:
 
 ```
 Phase 2 — Implementation approved. Go implement.
@@ -544,7 +499,7 @@ Lifecycle:
 4. Invoke /simplify - fix findings, run tests, commit
 5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
 6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
-   If SIZE is XS/S: run code scan (single sub-agent per implementation-flow.md)
+   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 7. Run full test suite as final verification
 8. Push branch, create PR
 9. If Mode is "sequential": squash merge, cleanup, report "Merged. PR #{N}, sha {abc}, {N} files changed."
@@ -580,9 +535,9 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 
 | Step | Action |
 |------|--------|
-| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", summary: "Status check", message: "Status check: are you still working on {ISSUE_ID}?" })` |
-| 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
-| 3 | If no response to ping → the worker is dead. Spawn a **fresh named worker** with the same name (`name: "agent-{slug}"`, `subagent_type: "pm:developer"`) and the recovery prompt below |
+| 1 | **Ping:** Use the runtime adapter to send `Status check: are you still working on {ISSUE_ID}?` to the worker |
+| 2 | If ping gets a response → worker is alive, reset the 5-minute timer |
+| 3 | If no response to ping → the worker is dead. Start a **fresh `pm:developer` worker** with the same logical worker name when the runtime supports it, then pass the recovery prompt below |
 | 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
 | 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
 
@@ -657,12 +612,9 @@ Every item in this checklist MUST be verified. Do not skip cleanup even if you b
 
 **5.3.1 Close workers:**
 
-Named agents in Claude Code terminate naturally when they return their final response ("Merged." or "Blocked."). No explicit close needed — they're already done by the time wrap-up runs.
+Claude workers usually terminate naturally when they return their final response ("Merged." or "Blocked."). Codex workers may require explicit shutdown.
 
-If any teammate is still alive (stuck, waiting), send a shutdown message:
-```
-SendMessage({ to: "agent-{slug}", message: { type: "shutdown_request" } })
-```
+If any worker is still alive (stuck, waiting), close it via the runtime adapter.
 
 Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
 

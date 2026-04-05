@@ -5,11 +5,11 @@ The bar raiser review is required before presenting to the user. Do NOT skip bas
 The bar raiser must NOT read team review findings — independent assessment is the entire point.
 </HARD-GATE>
 
-After the team review converges (no blocking issues or max iterations reached), dispatch a single bar raiser agent for a senior-level holistic review. The bar raiser has not been involved in the iterative process and brings fresh eyes.
+After the team review converges (no blocking issues or max iterations reached), dispatch a single bar raiser reviewer for a senior-level holistic review. The bar raiser has not been involved in the iterative process and brings fresh eyes.
 
-Dispatch **1 agent** using the Agent tool with `subagent_type: "pm:product-director"`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching the reviewer. Use reviewer intent `pm:product-director`. If delegation is unavailable, run the same brief inline.
 
-**Agent: Product Director — Bar Raiser**
+**Reviewer intent: `pm:product-director` — Bar Raiser**
 
 ```
 You are a product director performing a bar raiser review on a feature proposal that has already passed team-level review. You are the last gate before this reaches the decision-maker.

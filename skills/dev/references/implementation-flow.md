@@ -2,12 +2,12 @@
 
 Shared implementation lifecycle used by both single-issue dev and epic sub-issue workers. Everything from "plan approved" through "merged and cleaned up" lives here.
 
-**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for how to map the `Agent()` and `SendMessage()` pseudo-code in this file to your runtime's actual tool calls.
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review workers. This file defines how `pm:*` worker intents map to Claude and Codex.
 
-**Context:** This flow is invoked by named/persistent agents:
-- **Single-issue (M/L/XL):** The named `dev-{slug}` agent follows this after the orchestrator sends "go implement" via SendMessage. The agent preserves codebase context from the planning phase.
-- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase, no named agent).
-- **Epic sub-issue:** A persistent worker agent follows this after the orchestrator sends "go implement." The worker may be in sequential or parallel mode.
+**Context:** This flow is invoked by persistent workers or inline execution:
+- **Single-issue (M/L/XL):** The persistent `pm:developer` worker follows this after the orchestrator resumes it for implementation. The worker preserves codebase context from the planning phase.
+- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase, no persistent worker).
+- **Epic sub-issue:** A persistent worker follows this after the orchestrator sends "go implement." The worker may be in sequential or parallel mode.
 
 **Mode** (epic only — single-issue is always sequential):
 - **Sequential mode:** You own the full lifecycle through merge and cleanup.
@@ -19,7 +19,7 @@ Shared implementation lifecycle used by both single-issue dev and epic sub-issue
 
 ```
 Setup -> Implement -> Simplify -> Design Critique (if UI) ->
-  QA named agent (if UI, iterates on Fail) ->
+  QA persistent worker (if UI, iterates on Fail) ->
   Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Push + PR ->
   Merge -> Cleanup -> Done
   [epic parallel] STOP -> "Ready to merge." -> (wait for "Merge now") -> Merge -> Cleanup -> "Merged."
@@ -269,11 +269,11 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ---
 
-## Step 5: QA — Named Agent
+## Step 5: QA — Persistent QA Worker
 
-Runs after simplify and design critique for any task that changes UI. Spawns a **persistent named QA agent** that retains servers, auth, design tokens, test charter, and previous findings across fix-and-retest iterations. The agent runs assertion-driven testing via Playwright MCP (web) or Maestro (mobile) and issues a ship verdict with health score.
+Runs after simplify and design critique for any task that changes UI. Dispatch a **persistent QA worker** that retains servers, auth, design tokens, test charter, and previous findings across fix-and-retest iterations. The worker runs assertion-driven testing via Playwright MCP (web) or Maestro (mobile) and issues a ship verdict with health score.
 
-**Why a named agent instead of skill re-invocation:** Each `pm:qa` skill invocation paid a full Phase 0 cold start (server startup, auth, design token discovery, seed verification) plus Phase 1-2 rebuild (orient, charter). On re-verify after fixing issues, that's ~60-70% wasted work. A named agent runs Phase 0-2 once and retains everything for subsequent iterations.
+**Why a persistent worker instead of skill re-invocation:** Each `pm:qa` skill invocation paid a full Phase 0 cold start (server startup, auth, design token discovery, seed verification) plus Phase 1-2 rebuild (orient, charter). On re-verify after fixing issues, that's ~60-70% wasted work. A persistent worker runs Phase 0-2 once and retains everything for subsequent iterations when the runtime supports it.
 
 **Why here (after simplify and design critique, before review):** QA tests the final state of the code. Simplify and Design Critique both modify code and UI. Running QA after them means the verdict applies to what will actually ship, not an intermediate build.
 
@@ -282,17 +282,15 @@ Runs after simplify and design critique for any task that changes UI. Spawns a *
 - **Backend-only, config-only, docs-only:** skip
 - **Dev servers can't start** (e.g. DB not running): skip, log reason in `.pm/dev-sessions/{slug}.md`
 
-### Spawn the QA agent
+### Start the QA worker
 
-Spawn a named agent that stays alive for the QA iteration loop. The agent reads context from the dev session and follows `pm:qa` (SKILL.md) in persistent mode.
+Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`. Persist and reuse the same worker when the runtime supports persistent workers. Otherwise run QA inline and re-run the same brief as needed.
 
-```
-Agent({
-  description: "QA testing {slug}",
-  name: "qa-{slug}",
-  subagent_type: "pm:qa-tester",
-  prompt: `You are the QA agent for this dev session. Follow the pm:qa skill
-in persistent agent mode.
+**QA brief:**
+
+```text
+You are the QA worker for this dev session. Follow the pm:qa skill
+in persistent mode when supported by the runtime.
 
 **Session file:** .pm/dev-sessions/{slug}.md
 **Feature:** {feature description from ticket/spec}
@@ -304,8 +302,7 @@ in persistent agent mode.
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Run full QA (Phase 0-6). Report your verdict.
-Stay alive — I will send you re-verify messages if fixes are needed.`
-})
+Stay resumable — I will ask for re-verification if fixes are needed.
 ```
 
 | Size | Tier | What the agent does |
@@ -329,20 +326,17 @@ The QA agent returns a structured verdict. This is a **ship gate**:
 
 **Shipping does not continue after QA Fail.** Fix issues and re-verify. No silent downgrades.
 
-### Re-verify via SendMessage (not re-invocation)
+### Re-verify using the same QA worker
 
-When the QA agent returns **Fail**, fix the issues, run tests, then resume the same agent:
+When the QA worker returns **Fail**, fix the issues, run tests, then resume the same worker using the runtime adapter:
 
-```
-SendMessage({
-  to: "qa-{slug}",
-  content: `Fixed the following issues:
+```text
+Fixed the following issues:
 1. {finding-id}: {what was fixed}
 2. {finding-id}: {what was fixed}
 
 Re-verify these specific findings. Also smoke-check adjacent routes for regressions.
-Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
-})
+Do NOT re-run Phase 0 when the environment is still ready. Jump to Phase 3 re-verify.
 ```
 
 **What the agent retains across iterations:**
@@ -368,14 +362,10 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
 | Agent context saturation | ~3 iterations of verbose DOM results | Respawn fresh agent with state file context |
 | Agent death (API overload, timeout) | Detected by no response | Respawn fresh agent, include previous findings from `.pm/dev-sessions/{slug}.md` |
 
-**Respawn pattern** (when agent dies or context saturates):
+**Respawn pattern** (when the worker dies or context saturates):
 
-```
-Agent({
-  description: "QA respawn {slug}",
-  name: "qa-{slug}",
-  subagent_type: "pm:qa-tester",
-  prompt: `You are a RESPAWNED QA agent. A previous QA agent ran but was terminated.
+```text
+You are a RESPAWNED QA worker. A previous QA worker ran but was terminated.
 
 **Session file:** .pm/dev-sessions/{slug}.md
 Read the ## QA section for previous findings and run history.
@@ -384,8 +374,7 @@ Previous verdict: {Fail}. Issues were fixed since last run.
 Run in re-verify mode: re-check previous Critical/High findings,
 smoke-check routes, recompute health score.
 
-Start from Phase 0 (fresh environment setup needed after respawn).`
-})
+Start from Phase 0 (fresh environment setup needed after respawn).
 ```
 
 ### Handling issues found
@@ -407,7 +396,7 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 - Issues deferred: [list of issues for backlog]
 - Confidence: High | Medium | Low
 - Iterations: 1 | N (initial + re-verify rounds)
-- Agent: qa-{slug} (named, persistent)
+- Worker: qa-{slug} (persistent when supported)
 ```
 
 ---
@@ -478,20 +467,16 @@ BEFORE merging XS/S tasks, you MUST run a lightweight code scan.
 This catches bugs that tests alone miss: silent no-ops, swallowed errors, race conditions, missing error feedback.
 </HARD-GATE>
 
-Spawn a single sub-agent:
+Dispatch reviewer intent `pm:code-reviewer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.
 
-```
-Agent({
-  description: "Code scan {slug}",
-  subagent_type: "pm:code-reviewer",
-  prompt: `Scan for genuine bugs in this diff. Max 5 findings.
+```text
+Scan for genuine bugs in this diff. Max 5 findings.
 
 **Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
 **Changed files:** {list}
 
 ## Project Context
-{PROJECT_CONTEXT}`
-})
+{PROJECT_CONTEXT}
 ```
 
 **If findings exist:** fix them, run tests, commit fixes.
@@ -637,7 +622,7 @@ In sequential mode, do NOT report until the PR is squash-merged and cleanup is c
 In parallel mode, "Ready to merge." is the correct terminal state. Wait for the orchestrator's "Merge now" message before merging.
 </HARD-RULE>
 
-You are a persistent worker. Reply directly in this worker thread so the orchestrator can collect the result or resume you later. Do NOT rely on `SendMessage`, `team_name`, or other teammate-only APIs.
+You are a persistent worker. Reply directly in this worker thread so the orchestrator can collect the result or resume you later. Do NOT rely on runtime-specific teammate APIs beyond what `agent-runtime.md` explicitly provides.
 
 **If merged (sequential mode, or after "Merge now" in parallel mode):**
 ```
