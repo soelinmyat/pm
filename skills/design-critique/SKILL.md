@@ -7,11 +7,14 @@ description: "Multi-agent design critique against real running app with seed dat
 
 ## Overview
 
-Three parallel designer sub-agents plus a Fresh Eyes reviewer examine screenshots captured from real running applications (not Storybook). A PM agent frames the review and consolidates findings.
+Three parallel designer reviewers plus a Fresh Eyes reviewer examine screenshots captured from real running applications (not Storybook). A PM review step frames the critique and consolidates findings.
 
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific reviewer and worker dispatch.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
 Minimum coverage for `design-critique`:
 - run start / run end
@@ -25,7 +28,7 @@ Minimum coverage for `design-critique`:
 **Two modes:**
 
 - **Embedded** (called from `/dev`). Acts as a review service. Returns consolidated findings to the implementing agent, which applies fixes itself.
-- **Standalone** (invoked directly). Full self-contained flow with its own engineer agent that captures screenshots, applies fixes, and iterates.
+- **Standalone** (invoked directly). Full self-contained flow with its own engineer worker that captures screenshots, applies fixes, and iterates.
 
 **Screenshot sources.** Always real servers with seed data in the database. Web pages are captured via Playwright CLI. Mobile screens are captured via Maestro MCP tools. Never Storybook, never MSW mocks.
 
@@ -79,17 +82,17 @@ No engineer agent. Returns findings to the calling agent.
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
 2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
-4. **PM Framing** (M+ only). Dispatch PM sub-agent per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md`.
-5. **Dispatch 3 designer sub-agents in parallel** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md`. Each receives: all screenshots (via Read tool), manifest, CLAUDE.md design principles, PM brief (if available).
-6. **Dispatch Fresh Eyes sub-agent** (M+ only) per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md`.
-7. **PM Conflict Resolution.** Dispatch PM sub-agent to consolidate all designer and Fresh Eyes reports into a single prioritized list.
+4. **PM Framing** (M+ only). Run the PM framing step per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md`.
+5. **Dispatch 3 designer reviewers** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md`. In runtimes with delegation, run them in parallel. Otherwise run the same briefs inline. Each receives: all screenshots (via Read tool), manifest, CLAUDE.md design principles, PM brief (if available).
+6. **Dispatch Fresh Eyes reviewer** (M+ only) per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md`.
+7. **PM Conflict Resolution.** Run the PM consolidation step to combine all designer and Fresh Eyes reports into a single prioritized list.
 8. **Return** consolidated findings + scores to the calling agent.
 
 ### Verify Mode (re-invocation after fixes)
 
 Same flow, with these differences:
 
-- Designer sub-agents also receive the previous round's findings for comparison.
+- Designer reviewers also receive the previous round's findings for comparison.
 - Fresh Eyes still gets zero context. It never sees prior findings.
 - PM adds the round number to the brief.
 
@@ -102,7 +105,7 @@ Full self-contained flow for when there is no implementing agent.
 1. **User provides:** app path, page/screen, description.
 2. **Platform detection** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`.
 3. **Size classification** from description complexity.
-4. **Engineer agent** (teammate, not sub-agent, since it edits files):
+4. **Engineer worker** (standalone mode only):
    a. Create seed task if none exists (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md`).
    b. Start servers (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`).
    c. Run seed, capture screenshots to `/tmp/design-review/{feature}/`, write manifest.
@@ -118,29 +121,26 @@ Full self-contained flow for when there is no implementing agent.
 
 ---
 
-## Agent Dispatch Patterns
+## Reviewer Dispatch Patterns
 
-All reviewers are **sub-agents** (not teammates). Their results return directly to the orchestrator context. The only exception is the engineer in standalone mode, which is a **teammate** because it edits files.
+Read `agent-runtime.md` before dispatching any reviewer or worker.
 
-```
-# Designers (3 parallel sub-agents -- formal plugin agents)
-Agent({ subagent_type: "pm:design-director", prompt: "..." })      // Designer A: UX Quality + Content
-Agent({ subagent_type: "pm:qa-lead", prompt: "..." })               // Designer B: Resilience + Accessibility
-Agent({ subagent_type: "pm:design-system-lead", prompt: "..." })    // Designer C: Design System + Visual Polish
+- Designers: reviewer intents `pm:design-director`, `pm:qa-lead`, and `pm:design-system-lead`
+- Fresh Eyes: reviewer intent `general-purpose` with zero prior findings context
+- PM Bar-Raiser (M+ only): reviewer intent `pm:product-director`
+- Engineer (standalone mode only): persistent worker intent `general-purpose`
 
-# Fresh Eyes (1 sub-agent, M+ only)
-Agent({ subagent_type: "general-purpose", prompt: "..." })  // no team_name! (no dedicated agent -- zero-context by design)
+In Claude or Codex-with-delegation:
+- run designer reviewers in parallel
+- run Fresh Eyes separately with zero-context isolation
+- keep the standalone engineer as a persistent worker when fixes are needed
 
-# PM phases
-# PM Framing -- inline prompt (orchestration step, not independent perspective)
-# PM Conflict Resolution -- inline prompt (orchestration step, not independent perspective)
-Agent({ subagent_type: "pm:product-director", prompt: "..." })  // PM Bar-Raiser (M+ only)
+In Codex without delegation:
+- run the same reviewer briefs inline
+- keep Fresh Eyes isolated by not passing prior findings
+- perform standalone engineer steps in the main context
 
-# Engineer (standalone mode only -- needs to edit files, so use teammate)
-Agent({ team_name: "design-critique", name: "engineer", subagent_type: "general-purpose", prompt: "..." })
-```
-
-### What each designer agent receives
+### What each designer reviewer receives
 
 - All screenshots (read via Read tool)
 - The manifest from `/tmp/design-review/{feature}/manifest.md`
@@ -182,7 +182,7 @@ Agent({ team_name: "design-critique", name: "engineer", subagent_type: "general-
 ## Critical Rules
 
 1. **NEVER skip PM conflict resolution.** Even for S-size (just skip PM framing, not consolidation).
-2. **ALL designer agents run in parallel as sub-agents** (not teammates).
+2. **All designer reviewers run in parallel when the runtime supports delegation.** Otherwise run the same briefs inline before consolidation.
 3. **Fresh Eyes NEVER receives prior context.** No prior findings, no round history, no previous screenshots.
 4. **Screenshots come from real running apps.** NEVER from Storybook.
 5. **Seed data from rake tasks.** NEVER from MSW mocks.

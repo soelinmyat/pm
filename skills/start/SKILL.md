@@ -47,7 +47,7 @@ Check these signals in the current project root and the current user request:
 - Does `.pm/config.json` exist?
 - Is the user explicitly asking only to open the dashboard or view PM?
 - Did the user pass a path argument after `/pm:start`?
-- Is there active work in `.pm/.groom-state.md` or `.pm/dev-sessions/*.md`?
+- Is there active work in `.pm/groom-sessions/*.md` or `.pm/dev-sessions/*.md`?
 
 Routing:
 
@@ -195,7 +195,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 
 This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
 
-2. If the repo is initialized, launch the dashboard:
+2. If the repo is initialized, launch the dashboard artifact view:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "$PWD" --mode dashboard
@@ -244,6 +244,7 @@ Also: {alternative move}         # up to two lines, only if available
 Rules:
 
 - If the dashboard launch returns nothing, skip the dashboard line silently.
+- Treat the dashboard as a read-only artifact surface unless the project explicitly enables interactive dashboard input.
 - If there is no update available, omit the `Update:` line.
 - Use `Focus:` for the most important thing right now. Prefer an active session over a generic freshness summary.
 - If the shared status output includes alternatives, show them as short `Also:` lines after `Next:`.

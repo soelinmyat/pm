@@ -18,6 +18,9 @@ Multi-perspective code review with auto-fix. Runs up to five review agents in pa
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific reviewer dispatch.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 Minimum coverage for `pm:review`:
 - run start / run end
 - one step span for `gather-context`
@@ -103,9 +106,9 @@ Save the diff content and file list — you'll pass them to review agents.
 
 ---
 
-## Phase 2: Parallel Reviews (3-5 agents)
+## Phase 2: Parallel Reviews (3-5 reviewers)
 
-Launch all active reviews simultaneously using the Agent tool. Each runs as an independent agent. Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which agents to skip.
+Launch all active reviews using the current runtime from `agent-runtime.md`. In Claude or Codex-with-delegation, run active reviewers in parallel. In Codex without delegation, run the same review briefs inline before merging findings. Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which reviewers to skip.
 
 ### Agent 1: Code Review (official skill — PR comment only)
 
@@ -119,9 +122,9 @@ This posts findings directly to the PR as GitHub comments (uses an internal >=80
 
 **If reviewing a branch (no PR number):** Skip this agent. Code review without a PR has nowhere to post.
 
-### Agent 2: Code Fix Review (sub-agent — all genuine bugs for auto-fix)
+### Agent 2: Code Fix Review (reviewer — all genuine bugs for auto-fix)
 
-Dispatch via Agent tool with `subagent_type: "pm:code-reviewer"` **in parallel with Agents 1, 3, 4, and 5**:
+Dispatch reviewer intent `pm:code-reviewer` via `agent-runtime.md` **in parallel with Agents 1, 3, 4, and 5** when delegation is available. Otherwise run the same brief inline:
 
 ```
 prompt: |
@@ -153,11 +156,11 @@ Before skipping Design review based on upstream gates, verify the implementation
 
 This check applies to Design Review (Agent 4) below. PM Review (Agent 3) always runs regardless of drift.
 
-### Agent 3: PM Review (sub-agent)
+### Agent 3: PM Review (reviewer)
 
 **Always runs.** Spec review evaluates the plan; code review evaluates the implementation. Passing spec review does not mean the code correctly implements the spec.
 
-Dispatch via Agent tool with `subagent_type: "pm:product-manager"`:
+Dispatch reviewer intent `pm:product-manager` via `agent-runtime.md`:
 
 ```
 prompt: |
@@ -177,11 +180,11 @@ prompt: |
 
 The agent already knows its methodology (JTBD clarity, ICP fit, outcome clarity, scope coverage, etc.). Do not duplicate the checklist here.
 
-### Agent 4: Design Review (sub-agent)
+### Agent 4: Design Review (reviewer)
 
 **Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
-Dispatch via Agent tool with `subagent_type: "pm:design-system-lead"`:
+Dispatch reviewer intent `pm:design-system-lead` via `agent-runtime.md`:
 
 ```
 prompt: |
@@ -201,9 +204,9 @@ prompt: |
 
 The agent already knows its methodology (token compliance, component reuse, typography, spacing/layout, color, polish checklist). Do not duplicate the checklist here.
 
-### Agent 5: Input Edge-Case Review (sub-agent)
+### Agent 5: Input Edge-Case Review (reviewer)
 
-Dispatch via Agent tool with `subagent_type: "pm:edge-case-tester"`, `model: "opus"` **in parallel with Agents 1-4**:
+Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. Prefer the stronger review model when the runtime supports model selection. Run **in parallel with Agents 1-4** when delegation is available; otherwise run the same brief inline:
 
 ```
 prompt: |

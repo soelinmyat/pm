@@ -15,7 +15,11 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 `pm:groom` is stateful. Mirror these fields into the groom session state file:
+- `runtime`
+- `groom_tier`
 - `run_id`
 - `started_at`
 - `completed_at`
@@ -36,6 +40,62 @@ Minimum step coverage:
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
+---
+
+## Runtime
+
+Record the current runtime in the groom session state:
+
+```yaml
+runtime: claude | codex
+```
+
+The workflow stays the same across runtimes. Dispatch mechanics come from the current runtime and capability gates, not from the groom lifecycle itself.
+
+---
+
+## Groom Tiers
+
+`pm:groom` supports three tiers:
+
+| Tier | Intended use | Phases |
+|------|--------------|--------|
+| `quick` | Fill in missing structure fast, usually as a handoff to implementation or backlog capture | `intake -> strategy-check -> research -> scope -> groom -> link` |
+| `standard` | Produce solid implementation-ready issues without the full executive review stack | `intake -> strategy-check -> research -> scope -> scope-review -> groom -> link` |
+| `full` | Full PM ceremony with review stack and presentation | `intake -> strategy-check -> research -> scope -> scope-review -> groom -> team-review -> bar-raiser -> present -> link` |
+
+### Tier selection
+
+Use this priority:
+
+1. Explicit tier from the caller or user request
+2. Tier requested by `pm:dev`
+3. Default to `full` for direct `pm:groom` invocations
+
+Write the selected tier to the state file:
+
+```yaml
+groom_tier: quick | standard | full
+```
+
+### Phase loading rules
+
+Only run phases that are active for the current tier.
+
+- `quick` skips `scope-review`, `team-review`, `bar-raiser`, and `present`
+- `standard` skips `team-review`, `bar-raiser`, and `present`
+- `full` runs every phase
+
+### Research by tier
+
+Research is still required at all tiers.
+
+- `quick`: perform a focused inline research pass or reuse existing relevant research; do not force the full multi-stage review stack
+- `standard`: run the normal research phase
+- `full`: run the normal research phase
+
+When `quick` reuses existing research without writing new files, `research_location` may remain `null`. Log the sources used in the session notes.
 
 ---
 
@@ -111,6 +171,8 @@ Each grooming session has its own state file under `.pm/groom-sessions/`.
 ```yaml
 ---
 topic: "{topic name}"
+runtime: claude | codex
+groom_tier: quick | standard | full
 phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD

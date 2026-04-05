@@ -27,13 +27,16 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
-- Bug-fix: investigation AND fixes run in sub-agents — main context only sees summaries
+- Bug-fix: investigation AND fixes run in delegated workers when available — main context only sees summaries
 
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 `pm:dev` is stateful. Mirror these fields into `.pm/dev-sessions/{slug}.md` (or epic / bugfix variants):
+- `runtime`
 - `run_id`
 - `started_at`
 - `completed_at`
@@ -95,10 +98,10 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
 | `dev/references/implementation-flow.md` (reference) | Single: Stages 5–7, Epic: Stage 4 implementation |
-| `pm:tdd` | Single: Implement via `dev-{slug}` agent (all) |
-| `pm:subagent-dev` | Single: Implement via `dev-{slug}` agent (all) |
+| `pm:tdd` | Single: Implement via the persistent developer worker (all) |
+| `pm:subagent-dev` | Single: Implement via the persistent developer worker (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (named agent `qa-{slug}`, persistent across re-verify iterations) |
+| `pm:qa` | Single: QA ship gate (persistent worker `qa-{slug}` when supported, reused across re-verify iterations) |
 | `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery
@@ -198,7 +201,7 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 [ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
 ```
 
-Store in the state file and use `{DEFAULT_BRANCH}` everywhere instead of literal `main`. Pass to subagents in their prompts.
+Store in the state file and use `{DEFAULT_BRANCH}` everywhere instead of literal `main`. Pass to delegated workers and reviewers in their prompts when delegation is used.
 
 ### Pre-commit validation (all flows)
 
@@ -219,7 +222,7 @@ Before starting ANY implementation work:
 
 ### Subagent git context (all flows)
 
-Every subagent prompt MUST include:
+Every delegated worker or reviewer prompt MUST include:
 - Explicit repo root path
 - Current branch name
 - Worktree path (if applicable)
