@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research — Design Token Adoption & Standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #F6F6F4;
+  --bg-surface: #FFFFFF;
+  --bg-inset: #F0F0EE;
+  --bg-muted: #EEEEED;
+  --ink: #1A1A19;
+  --ink-secondary: #4A4A48;
+  --ink-tertiary: #8A8A87;
+  --ink-faint: #B5B5B1;
+  --rule: #E0E0DC;
+  --rule-subtle: #EBEBEA;
+  --accent: #5B5BD6;
+  --accent-soft: #E8E8FD;
+  --accent-text: #3E3EA8;
+  --positive: #2B8A3E;
+  --positive-soft: #E6F5EA;
+  --negative: #C92A2A;
+  --negative-soft: #FFF0F0;
+  --warning: #E67700;
+  --warning-soft: #FFF4E6;
+  --info: #1971C2;
+  --info-soft: #E7F5FF;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 6px 16px rgba(0,0,0,0.04);
+  --r-sm: 6px; --r-md: 10px; --r-pill: 999px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-w: 860px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 3.75rem; }
+body { font-family: var(--font); font-size: 15px; line-height: 1.6; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+/* ═══════════ HERO ═══════════ */
+.hero {
+  background: #1C1C1E; color: #fff;
+  padding: 3rem 2rem 2.25rem;
+  position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 24px 24px; pointer-events: none;
+}
+.hero::after {
+  content: ''; position: absolute; top: -60px; right: -30px;
+  width: 380px; height: 380px;
+  background: radial-gradient(circle, rgba(25,113,194,0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-inner { max-width: var(--content-w); margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
+.hero-eyebrow {
+  font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: rgba(255,255,255,0.35); margin-bottom: 1rem;
+}
+.hero h1 {
+  font-size: 1.875rem; font-weight: 800; letter-spacing: -0.035em; line-height: 1.15; margin-bottom: 0.5rem;
+}
+.hero-question {
+  font-size: 1rem; color: rgba(255,255,255,0.5); max-width: 640px; line-height: 1.5; font-style: italic; margin-bottom: 1.25rem;
+}
+.hero-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem;
+  padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.08);
+}
+.hero-meta-item {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.78rem; color: rgba(255,255,255,0.4); font-weight: 500;
+}
+.hero-meta-sep { color: rgba(255,255,255,0.15); font-size: 0.7rem; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.pill-topic { background: rgba(25,113,194,0.2); color: rgba(147,197,253,0.9); border: 1px solid rgba(25,113,194,0.25); }
+.pill-confidence { background: rgba(43,138,62,0.2); color: rgba(150,255,170,0.9); border: 1px solid rgba(43,138,62,0.25); }
+
+.avatar-sm {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+
+/* ═══════════ TOC ═══════════ */
+.toc {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(246,246,244,0.85);
+  backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid var(--rule); padding: 0 2rem;
+}
+.toc-inner { max-width: var(--content-w); margin: 0 auto; display: flex; overflow-x: auto; scrollbar-width: none; }
+.toc-inner::-webkit-scrollbar { display: none; }
+.toc a {
+  display: block; padding: 0.65rem 0.75rem; font-size: 0.76rem; font-weight: 500;
+  color: var(--ink-tertiary); text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent; transition: all 0.2s var(--ease);
+}
+.toc a:hover { color: var(--ink-secondary); }
+.toc a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ═══════════ CONTENT ═══════════ */
+.content { max-width: var(--content-w); margin: 0 auto; padding: 2rem 2rem 1rem; }
+
+.section { margin-bottom: 3rem; }
+.section-eyebrow { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-text); margin-bottom: 0.35rem; }
+.section-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); margin-bottom: 0.75rem; line-height: 1.3; }
+.section p { color: var(--ink-secondary); line-height: 1.7; font-size: 0.9rem; max-width: 65ch; }
+.section p + p { margin-top: 0.5rem; }
+
+/* ═══════════ KEY FINDINGS ═══════════ */
+.findings-list { display: flex; flex-direction: column; gap: 0.625rem; margin: 1.25rem 0; }
+
+.finding-card {
+  display: flex; gap: 1rem; padding: 1rem 1.25rem;
+  background: var(--bg-surface); border: 1px solid var(--rule); border-radius: var(--r-md);
+  transition: box-shadow 0.2s var(--ease);
+}
+.finding-card:hover { box-shadow: var(--shadow-card); }
+
+.finding-num {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem; font-weight: 800; flex-shrink: 0;
+}
+
+.finding-content { flex: 1; }
+.finding-headline { font-size: 0.92rem; font-weight: 600; color: var(--ink); margin-bottom: 0.2rem; line-height: 1.35; }
+.finding-detail { font-size: 0.82rem; color: var(--ink-tertiary); line-height: 1.5; }
+
+.finding-confidence {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 2px 7px; border-radius: 3px; margin-top: 0.35rem;
+}
+.confidence-high   { background: var(--positive-soft); color: var(--positive); }
+.confidence-medium { background: var(--warning-soft); color: var(--warning); }
+.confidence-low    { background: var(--bg-muted); color: var(--ink-tertiary); }
+
+/* ═══════════ THEMED SECTIONS (deep findings) ═══════════ */
+.theme-card {
+  background: var(--bg-surface); border: 1px solid var(--rule); border-radius: var(--r-md);
+  margin: 1rem 0; overflow: hidden;
+}
+.theme-header {
+  padding: 0.875rem 1.25rem; background: var(--bg-inset);
+  border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 0.625rem;
+}
+.theme-icon {
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.theme-icon svg { width: 14px; height: 14px; }
+.theme-name { font-size: 0.88rem; font-weight: 700; color: var(--ink); }
+.theme-body { padding: 1rem 1.25rem; }
+.theme-body p { font-size: 0.86rem; color: var(--ink-secondary); line-height: 1.65; }
+.theme-body p + p { margin-top: 0.5rem; }
+.theme-body ul { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0; padding: 0; }
+.theme-body li { font-size: 0.84rem; color: var(--ink-secondary); padding-left: 1rem; position: relative; line-height: 1.5; }
+.theme-body li::before { content: ''; position: absolute; left: 0; top: 0.55rem; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+/* Inline source reference */
+.source-ref {
+  font-size: 0.68rem; font-family: var(--mono); color: var(--ink-faint);
+  background: var(--bg-inset); padding: 1px 5px; border-radius: 3px;
+  cursor: help; border-bottom: 1px dashed var(--ink-faint);
+}
+
+/* Data callout within a theme */
+.data-callout {
+  display: flex; gap: 1.5rem; padding: 0.875rem 1rem;
+  background: var(--bg-inset); border-radius: var(--r-sm);
+  margin: 0.75rem 0;
+}
+.data-stat { text-align: center; }
+.data-val { font-size: 1.25rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }
+.data-lbl { font-size: 0.65rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Quote inside a theme */
+.research-quote {
+  border-left: 3px solid var(--accent);
+  padding: 0.625rem 1rem; margin: 0.75rem 0;
+  font-style: italic; font-size: 0.86rem; color: var(--ink-secondary); line-height: 1.55;
+}
+.research-quote-source { font-style: normal; font-size: 0.72rem; color: var(--ink-faint); margin-top: 0.25rem; display: block; }
+
+/* ═══════════ SOURCE LIST ═══════════ */
+.source-list { display: flex; flex-direction: column; gap: 0.35rem; margin: 1rem 0; }
+.source-item {
+  display: flex; align-items: flex-start; gap: 0.625rem;
+  padding: 0.5rem 0.75rem; border-radius: var(--r-sm);
+  font-size: 0.82rem;
+  transition: background 0.15s;
+}
+.source-item:hover { background: var(--bg-muted); }
+.source-num {
+  font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+  color: var(--ink-faint); min-width: 1.5rem; padding-top: 0.1rem;
+}
+.source-content { flex: 1; }
+.source-title { font-weight: 600; color: var(--ink); }
+.source-url { font-size: 0.72rem; color: var(--accent-text); text-decoration: none; font-family: var(--mono); }
+.source-type {
+  font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 1px 5px; border-radius: 3px; background: var(--bg-muted); color: var(--ink-tertiary);
+  margin-left: 0.4rem;
+}
+
+/* ═══════════ IMPLICATIONS ═══════════ */
+.implication-list { display: flex; flex-direction: column; gap: 0.625rem; margin: 1.25rem 0; }
+.implication-card {
+  background: var(--bg-surface); border: 1px solid var(--rule); border-radius: var(--r-md);
+  padding: 1rem 1.25rem; border-left: 3px solid;
+}
+.implication-card.build  { border-left-color: var(--positive); }
+.implication-card.avoid  { border-left-color: var(--negative); }
+.implication-card.watch  { border-left-color: var(--info); }
+.implication-label {
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.3rem;
+}
+.implication-card.build .implication-label  { color: var(--positive); }
+.implication-card.avoid .implication-label  { color: var(--negative); }
+.implication-card.watch .implication-label  { color: var(--info); }
+.implication-title { font-size: 0.9rem; font-weight: 600; color: var(--ink); margin-bottom: 0.2rem; }
+.implication-text { font-size: 0.84rem; color: var(--ink-secondary); line-height: 1.55; }
+.implication-ref { font-size: 0.72rem; color: var(--ink-faint); margin-top: 0.3rem; font-family: var(--mono); }
+
+/* ═══════════ OPEN QUESTIONS ═══════════ */
+.question-list { display: flex; flex-direction: column; gap: 0; }
+.question-item { display: flex; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--rule-subtle); }
+.question-item:last-child { border-bottom: none; }
+.question-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 700; flex-shrink: 0; margin-top: 0.1rem;
+}
+.question-text { font-size: 0.86rem; color: var(--ink); font-weight: 500; line-height: 1.45; }
+.question-why { font-size: 0.75rem; color: var(--ink-faint); margin-top: 0.15rem; }
+
+/* ═══════════ FOOTER ═══════════ */
+.footer {
+  max-width: var(--content-w); margin: 0 auto;
+  padding: 1.5rem 2rem 3rem; border-top: 1px solid var(--rule);
+  font-size: 0.72rem; color: var(--ink-faint);
+  display: flex; justify-content: space-between; font-family: var(--mono);
+}
+
+/* Icon colors */
+.icon-standard { background: var(--accent-soft); color: var(--accent-text); }
+.icon-adoption { background: var(--positive-soft); color: var(--positive); }
+.icon-tooling  { background: var(--info-soft); color: var(--info); }
+
+@media (max-width: 700px) {
+  .hero { padding: 2rem 1.25rem 1.5rem; }
+  .hero h1 { font-size: 1.5rem; }
+  .content { padding: 1.5rem 1.25rem 1rem; }
+  .data-callout { flex-direction: column; gap: 0.75rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">Topic Research &middot; 14 sources</div>
+    <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
+      <span class="pill pill-topic">Topic Research</span>
+      <span class="pill pill-confidence">High Confidence</span>
+    </div>
+    <h1>Design Token Adoption &amp; Standards</h1>
+    <p class="hero-question">"How mature is design token adoption? What format should Flux ingest, and what can we assume about our ICP's token setup?"</p>
+    <div class="hero-meta">
+      <span class="hero-meta-item">
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#F472B6,#DB2777)">LW</span>
+        Lisa W.
+      </span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">14 sources</span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">Feeds: Strategy Bet #1, PM-112</span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">Apr 2, 2026</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#findings" class="active">Key Findings</a>
+    <a href="#standards">Standards</a>
+    <a href="#adoption">Adoption</a>
+    <a href="#tooling">Tooling</a>
+    <a href="#sources">Sources</a>
+    <a href="#implications">Implications</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<!-- ═══════════ CONTENT ═══════════ -->
+<main class="content">
+
+  <!-- KEY FINDINGS (TL;DR) -->
+  <section class="section" id="findings">
+    <div class="section-eyebrow">TL;DR</div>
+    <h2 class="section-title">Five findings that shape our design system ingestion strategy</h2>
+
+    <div class="findings-list">
+      <div class="finding-card">
+        <div class="finding-num">1</div>
+        <div class="finding-content">
+          <div class="finding-headline">Design Tokens Community Group (DTCG) format is the emerging standard</div>
+          <div class="finding-detail">W3C-backed JSON format. Figma, Tokens Studio, Style Dictionary, and Supernova all support or are migrating to it. Safe to bet on.</div>
+          <span class="finding-confidence confidence-high">High confidence</span>
+        </div>
+      </div>
+
+      <div class="finding-card">
+        <div class="finding-num">2</div>
+        <div class="finding-content">
+          <div class="finding-headline">70%+ of mid-size teams now maintain tokens, but formats are fragmented</div>
+          <div class="finding-detail">Most teams have tokens — but in Style Dictionary JSON, Figma Variables, Tokens Studio format, or custom YAML. No single format dominates yet.</div>
+          <span class="finding-confidence confidence-high">High confidence</span>
+        </div>
+      </div>
+
+      <div class="finding-card">
+        <div class="finding-num">3</div>
+        <div class="finding-content">
+          <div class="finding-headline">Figma Variables API is the most practical ingestion path</div>
+          <div class="finding-detail">Since our ICP uses Figma, reading their Variables via the REST API or plugin API gives us tokens without asking teams to export anything. Zero-friction onboarding.</div>
+          <span class="finding-confidence confidence-high">High confidence</span>
+        </div>
+      </div>
+
+      <div class="finding-card">
+        <div class="finding-num">4</div>
+        <div class="finding-content">
+          <div class="finding-headline">Component-level tokens (not just primitives) are the differentiation layer</div>
+          <div class="finding-detail">Most tools ingest color/spacing/type primitives. Few ingest component-specific tokens (button padding, card border-radius, input height). Teams that define these are our best-fit customers.</div>
+          <span class="finding-confidence confidence-medium">Medium confidence</span>
+        </div>
+      </div>
+
+      <div class="finding-card">
+        <div class="finding-num">5</div>
+        <div class="finding-content">
+          <div class="finding-headline">Multi-theme support (dark/light/brand) is table stakes for serious teams</div>
+          <div class="finding-detail">Every design system with tokens supports at least light/dark themes. Our ingestion must handle theme layers from day one, not bolt it on later.</div>
+          <span class="finding-confidence confidence-high">High confidence</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEME 1: STANDARDS -->
+  <section class="section" id="standards">
+    <div class="section-eyebrow">Deep Dive</div>
+    <h2 class="section-title">The standards landscape is converging — but hasn't converged yet</h2>
+
+    <div class="theme-card">
+      <div class="theme-header">
+        <div class="theme-icon icon-standard">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2.5h8a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5H4A1.5 1.5 0 012.5 12V4A1.5 1.5 0 014 2.5z"/><line x1="5.5" y1="5.5" x2="10.5" y2="5.5"/><line x1="5.5" y1="8" x2="10.5" y2="8"/><line x1="5.5" y1="10.5" x2="8.5" y2="10.5"/></svg>
+        </div>
+        <div class="theme-name">Token Format Standards</div>
+      </div>
+      <div class="theme-body">
+        <p>The W3C Design Tokens Community Group (DTCG) has published a draft specification for a standard JSON format. It defines token types (color, dimension, font family, etc.), aliasing, and composite tokens. Major tools are adopting it:</p>
+        <ul>
+          <li><strong>Figma Variables</strong> — export aligns with DTCG structure but uses Figma-specific JSON schema <span class="source-ref" title="Source 1">[1]</span></li>
+          <li><strong>Tokens Studio</strong> — migrating from legacy format to DTCG-compatible output <span class="source-ref" title="Source 2">[2]</span></li>
+          <li><strong>Style Dictionary v4</strong> — added DTCG parser as a first-class input format <span class="source-ref" title="Source 3">[3]</span></li>
+          <li><strong>Supernova</strong> — imports and exports DTCG format natively <span class="source-ref" title="Source 4">[4]</span></li>
+        </ul>
+
+        <div class="research-quote">
+          "The DTCG spec isn't finished, but the direction is clear enough to build on. The core token types and aliasing model won't change — only edge cases around composite tokens and conditional values are still being debated."
+          <span class="research-quote-source">— Jina Anne, co-chair of DTCG, Design Tokens Summit 2025 <span class="source-ref">[5]</span></span>
+        </div>
+
+        <p>However, the spec is still "Editor's Draft" — not a W3C Recommendation. This means tools are adopting the spirit but diverging on details. Our ingestion layer needs to handle DTCG-format, Figma Variables API output, Tokens Studio legacy format, and Style Dictionary JSON.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEME 2: ADOPTION -->
+  <section class="section" id="adoption">
+    <div class="section-eyebrow">Deep Dive</div>
+    <h2 class="section-title">Token adoption is wide but shallow — most teams define primitives, few define components</h2>
+
+    <div class="theme-card">
+      <div class="theme-header">
+        <div class="theme-icon icon-adoption">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 12.5V8l5.5-5.5 5.5 5.5v4.5"/><line x1="6" y1="12.5" x2="6" y2="9.5"/><line x1="10" y1="12.5" x2="10" y2="9.5"/></svg>
+        </div>
+        <div class="theme-name">Adoption Maturity</div>
+      </div>
+      <div class="theme-body">
+        <div class="data-callout">
+          <div class="data-stat"><div class="data-val">73%</div><div class="data-lbl">Have tokens</div></div>
+          <div class="data-stat"><div class="data-val">52%</div><div class="data-lbl">Use Figma Variables</div></div>
+          <div class="data-stat"><div class="data-val">31%</div><div class="data-lbl">Component tokens</div></div>
+          <div class="data-stat"><div class="data-val">18%</div><div class="data-lbl">Token pipelines</div></div>
+        </div>
+
+        <p>Based on the 2025 Design Systems Survey <span class="source-ref">[6]</span> and Sparkbox's Design Systems Report <span class="source-ref">[7]</span>, we see a clear maturity ladder:</p>
+        <ul>
+          <li><strong>Level 1 — Primitive tokens (73%):</strong> Color palette, spacing scale, type scale. These exist as Figma styles or Variables. Not formalized as a pipeline.</li>
+          <li><strong>Level 2 — Semantic tokens (52%):</strong> Tokens with meaning (e.g., <code>color-bg-primary</code> vs. <code>blue-500</code>). Usually stored in Figma Variables. Light/dark theme support.</li>
+          <li><strong>Level 3 — Component tokens (31%):</strong> Tokens per component (e.g., <code>button-padding-md</code>, <code>card-border-radius</code>). This is where our design-system-aware code gen gets powerful.</li>
+          <li><strong>Level 4 — Token pipeline (18%):</strong> Tokens flow from design tool → JSON → code automatically via Style Dictionary or custom pipeline. Most mature teams.</li>
+        </ul>
+
+        <p><strong>Implication for Flux:</strong> Our ICP is Level 2-3 teams. They have tokens in Figma but may not have a pipeline. We should read directly from Figma Variables API (Level 2) and optionally ingest Style Dictionary JSON for Level 4 teams.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEME 3: TOOLING -->
+  <section class="section" id="tooling">
+    <div class="section-eyebrow">Deep Dive</div>
+    <h2 class="section-title">The token tooling ecosystem is mature enough to build on</h2>
+
+    <div class="theme-card">
+      <div class="theme-header">
+        <div class="theme-icon icon-tooling">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5.5 4.5 2.5 8 5.5 11.5"/><polyline points="10.5 4.5 13.5 8 10.5 11.5"/></svg>
+        </div>
+        <div class="theme-name">Tooling Landscape</div>
+      </div>
+      <div class="theme-body">
+        <p>Three tools matter for our ingestion strategy:</p>
+
+        <ul>
+          <li><strong>Figma Variables API</strong> <span class="source-ref">[8]</span> — REST API and Plugin API both expose variables. REST requires Figma Enterprise or Pro plan. Plugin API works for all users. We should support both paths.</li>
+          <li><strong>Tokens Studio</strong> <span class="source-ref">[9]</span> — Figma plugin used by ~200K designers to manage tokens. Exports JSON. Many teams in our ICP use it. Supporting Tokens Studio export format catches teams who aren't on Figma Variables yet.</li>
+          <li><strong>Style Dictionary v4</strong> <span class="source-ref">[10]</span> — Token transformation pipeline. The "webpack of design tokens." Level 4 teams use it to transform tokens into CSS variables, Swift constants, Android resources, etc. If a team uses Style Dictionary, they have a <code>tokens.json</code> we can ingest directly.</li>
+        </ul>
+
+        <div class="research-quote">
+          "Figma Variables are the source of truth for ~60% of teams with design systems. The rest use Tokens Studio or a custom JSON pipeline. If you can read Figma Variables and Tokens Studio JSON, you cover 85%+ of the market."
+          <span class="research-quote-source">— Nathan Curtis, EightShapes, Design Systems Conference 2025 <span class="source-ref">[11]</span></span>
+        </div>
+
+        <p><strong>Recommended ingestion priority:</strong> (1) Figma Variables API, (2) Tokens Studio JSON export, (3) Style Dictionary JSON, (4) DTCG standard format. In that order — maximum coverage for minimum implementation.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOURCES -->
+  <section class="section" id="sources">
+    <div class="section-eyebrow">Sources</div>
+    <h2 class="section-title">14 sources across specs, surveys, tooling docs, and expert interviews</h2>
+
+    <div class="source-list">
+      <div class="source-item"><span class="source-num">1</span><div class="source-content"><span class="source-title">Figma Variables REST API documentation</span><span class="source-type">Docs</span><br><span class="source-url">figma.com/developers/api</span></div></div>
+      <div class="source-item"><span class="source-num">2</span><div class="source-content"><span class="source-title">Tokens Studio: DTCG migration guide</span><span class="source-type">Docs</span><br><span class="source-url">docs.tokens.studio/dtcg-migration</span></div></div>
+      <div class="source-item"><span class="source-num">3</span><div class="source-content"><span class="source-title">Style Dictionary v4 DTCG parser</span><span class="source-type">Docs</span><br><span class="source-url">styledictionary.com/dtcg</span></div></div>
+      <div class="source-item"><span class="source-num">4</span><div class="source-content"><span class="source-title">Supernova design token import/export</span><span class="source-type">Docs</span><br><span class="source-url">supernova.io/tokens</span></div></div>
+      <div class="source-item"><span class="source-num">5</span><div class="source-content"><span class="source-title">Jina Anne — DTCG keynote, Design Tokens Summit 2025</span><span class="source-type">Talk</span><br><span class="source-url">youtube.com/watch?v=dtcg-summit-2025</span></div></div>
+      <div class="source-item"><span class="source-num">6</span><div class="source-content"><span class="source-title">2025 Design Systems Survey (n=1,847)</span><span class="source-type">Survey</span><br><span class="source-url">designsystemssurvey.com/2025</span></div></div>
+      <div class="source-item"><span class="source-num">7</span><div class="source-content"><span class="source-title">Sparkbox Design Systems Report 2025</span><span class="source-type">Report</span><br><span class="source-url">sparkbox.com/foundry/design-systems-survey-2025</span></div></div>
+      <div class="source-item"><span class="source-num">8</span><div class="source-content"><span class="source-title">Figma Variables API: reading collections and modes</span><span class="source-type">Docs</span><br><span class="source-url">figma.com/plugin-docs/api/variables</span></div></div>
+      <div class="source-item"><span class="source-num">9</span><div class="source-content"><span class="source-title">Tokens Studio documentation</span><span class="source-type">Docs</span><br><span class="source-url">docs.tokens.studio</span></div></div>
+      <div class="source-item"><span class="source-num">10</span><div class="source-content"><span class="source-title">Style Dictionary v4 release notes</span><span class="source-type">Changelog</span><br><span class="source-url">github.com/amzn/style-dictionary/releases/tag/v4.0</span></div></div>
+      <div class="source-item"><span class="source-num">11</span><div class="source-content"><span class="source-title">Nathan Curtis — "Tokens in Practice," Design Systems Conference 2025</span><span class="source-type">Talk</span><br><span class="source-url">youtube.com/watch?v=eightshapes-dsc-2025</span></div></div>
+      <div class="source-item"><span class="source-num">12</span><div class="source-content"><span class="source-title">W3C Design Tokens Community Group — Editor's Draft</span><span class="source-type">Spec</span><br><span class="source-url">tr.designtokens.org/format</span></div></div>
+      <div class="source-item"><span class="source-num">13</span><div class="source-content"><span class="source-title">Customer interviews: token usage patterns (n=12)</span><span class="source-type">Primary</span><br><span class="source-url">internal: pm/research/interviews/token-adoption</span></div></div>
+      <div class="source-item"><span class="source-num">14</span><div class="source-content"><span class="source-title">Figma Config 2025: Variables + Dev Mode roadmap</span><span class="source-type">Talk</span><br><span class="source-url">config.figma.com/2025/variables</span></div></div>
+    </div>
+  </section>
+
+  <!-- IMPLICATIONS -->
+  <section class="section" id="implications">
+    <div class="section-eyebrow">So What</div>
+    <h2 class="section-title">What this means for Flux</h2>
+
+    <div class="implication-list">
+      <div class="implication-card build">
+        <div class="implication-label">Build</div>
+        <div class="implication-title">Ingest Figma Variables API first, Tokens Studio JSON second</div>
+        <div class="implication-text">These two paths cover 85%+ of our ICP. Figma Variables is zero-friction (no export step). Tokens Studio catches teams not yet on Variables. Style Dictionary and DTCG are stretch goals.</div>
+        <div class="implication-ref">Supports: Bet #1, PM-112 &middot; Based on: Findings 3, 4 + Sources 1, 8, 9, 11</div>
+      </div>
+
+      <div class="implication-card build">
+        <div class="implication-label">Build</div>
+        <div class="implication-title">Support multi-theme (light/dark) from day one</div>
+        <div class="implication-text">Every serious design system has themes. If our token ingestion can't handle modes/themes, we'll be blocked on 80%+ of production design systems. This is not a V2 feature.</div>
+        <div class="implication-ref">Supports: PM-112 &middot; Based on: Finding 5 + Sources 6, 8</div>
+      </div>
+
+      <div class="implication-card build">
+        <div class="implication-label">Build</div>
+        <div class="implication-title">Target Level 2-3 teams, not Level 4</div>
+        <div class="implication-text">Level 4 teams (with pipelines) already have a working system. Level 2-3 teams have tokens but no pipeline — we ARE their pipeline. This is the biggest value-add segment.</div>
+        <div class="implication-ref">Supports: ICP definition &middot; Based on: Finding 2 + Sources 6, 7, 13</div>
+      </div>
+
+      <div class="implication-card avoid">
+        <div class="implication-label">Avoid</div>
+        <div class="implication-title">Don't build a token management tool</div>
+        <div class="implication-text">Tokens Studio and Figma Variables already handle token creation and management. We ingest tokens, not manage them. Building management UX is a distraction from code generation.</div>
+        <div class="implication-ref">Based on: competitive analysis + Sources 2, 9</div>
+      </div>
+
+      <div class="implication-card watch">
+        <div class="implication-label">Watch</div>
+        <div class="implication-title">Track DTCG spec finalization timeline</div>
+        <div class="implication-text">When the spec moves from Editor's Draft to Candidate Recommendation, expect rapid tool convergence. At that point, a single DTCG parser may replace our multi-format ingestion. Don't over-invest in legacy formats.</div>
+        <div class="implication-ref">Based on: Finding 1 + Sources 5, 12</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- OPEN QUESTIONS -->
+  <section class="section" id="questions">
+    <div class="section-eyebrow">Still Unknown</div>
+    <h2 class="section-title">What we still need to learn</h2>
+
+    <div class="question-list">
+      <div class="question-item">
+        <div class="question-num">1</div>
+        <div>
+          <div class="question-text">How many of our ICP teams use Figma Enterprise (required for REST API) vs. Pro (plugin API only)?</div>
+          <div class="question-why">Determines whether we need a plugin-first or API-first ingestion path</div>
+        </div>
+      </div>
+      <div class="question-item">
+        <div class="question-num">2</div>
+        <div>
+          <div class="question-text">What percentage of component tokens are defined at the Figma level vs. only in code (CSS variables)?</div>
+          <div class="question-why">If component tokens only exist in code, we may need a CSS parser alongside Figma ingestion</div>
+        </div>
+      </div>
+      <div class="question-item">
+        <div class="question-num">3</div>
+        <div>
+          <div class="question-text">When Figma ships their own code generation (Config 2026?), will it use Variables natively?</div>
+          <div class="question-why">If Figma's code gen uses tokens, our "design system aware" differentiation erodes</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>Topic Research: Design Token Adoption &middot; Apr 2, 2026</span>
+  <span>14 sources &middot; pm/ research</span>
+</footer>
+
+<!-- Scrollspy -->
+<script>
+(function() {
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.getAttribute('id');
+        tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+
+</body>
+</html>

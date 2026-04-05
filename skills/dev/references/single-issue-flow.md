@@ -357,12 +357,26 @@ Spawn a **named `pm:developer` agent** that writes the plan. This is the same ag
 
 **Why a named agent:** Planning requires deep codebase exploration. That context is expensive to build and immediately useful for implementation. Previously, the orchestrator planned inline, then started implementation from scratch. Now the developer agent keeps everything it learned.
 
+### Create team and fetch tools
+
+Before spawning the developer agent, create a team for its lifecycle and fetch deferred tools. The team keeps the agent alive (idle) between planning and implementation — without it, the agent process terminates after returning and SendMessage cannot reach it.
+
+```
+ToolSearch({ query: "select:TeamCreate,SendMessage" })
+
+TeamCreate({
+  team_name: "dev-{slug}",
+  description: "Dev session for {ISSUE_ID}"
+})
+```
+
 ### Spawn the developer agent
 
 ```
 Agent({
   description: "Plan {ISSUE_ID} implementation",
   name: "dev-{slug}",
+  team_name: "dev-{slug}",
   subagent_type: "pm:developer",
   prompt: `Phase 1 — Planning for {ISSUE_ID}: {ISSUE_TITLE}.
 
@@ -511,11 +525,12 @@ Agent({
 
 ## Stages 5–7: Implementation via Named Developer Agent
 
-After user approval, resume the same `dev-{slug}` agent for implementation. The agent already has full codebase context from the planning phase — no duplicate exploration needed.
+After user approval, resume the same `dev-{slug}` teammate for implementation. The agent is idle (not terminated) because it was spawned with `team_name`. It retains full codebase context from the planning phase — no duplicate exploration needed.
 
 ```
 SendMessage({
   to: "dev-{slug}",
+  summary: "Resume dev-{slug} for implementation",
   content: `Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
@@ -572,33 +587,38 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 ### Agent lifecycle
 
 ```
-dev-{slug} spawned (Stage 4)
+TeamCreate("dev-{slug}") — persistent team created
+
+dev-{slug} spawned as teammate (Stage 4)
   → explores codebase, writes plan, commits
   → returns PLAN_COMPLETE summary
-  → stops (idle, context preserved)
+  → goes IDLE (alive, context preserved — team keeps process alive)
 
 Orchestrator runs RFC review (Stage 4.5)
   → fixes blocking issues in plan
   → user approves
 
-SendMessage to dev-{slug}: "go implement" (Stage 5-7)
-  → agent resumes with full planning context
+SendMessage to "dev-{slug}": "go implement" (Stage 5-7)
+  → teammate wakes from idle with full planning context
   → implements → simplify → design critique → QA → review → merge → cleanup
   → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
+
+SendMessage shutdown to "dev-{slug}" — clean termination
 ```
 
 ### Agent death recovery
 
-If the developer agent dies during implementation (API overload, timeout):
+If the developer teammate dies during implementation (API overload, timeout, 529 errors):
 
 1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
 2. Read `.pm/dev-sessions/{slug}.md` for progress
-3. Spawn a **fresh** `dev-{slug}` agent with recovery context:
+3. Spawn a **fresh** `dev-{slug}` teammate in the same team with recovery context:
 
 ```
 Agent({
   description: "Recovery: {ISSUE_ID} implementation",
   name: "dev-{slug}",
+  team_name: "dev-{slug}",
   subagent_type: "pm:developer",
   prompt: `You are a RECOVERY agent. The previous developer agent died during implementation.
 

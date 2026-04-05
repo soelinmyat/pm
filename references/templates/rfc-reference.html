@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RFC-012 — Collaborative Workspaces</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>document.fonts.ready.then(() => mermaid.initialize({ startOnLoad: true, theme: 'neutral', fontFamily: 'Inter' }));</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #F6F6F4;
+  --bg-surface: #FFFFFF;
+  --bg-inset: #F0F0EE;
+  --bg-muted: #EEEEED;
+  --ink: #1A1A19;
+  --ink-secondary: #4A4A48;
+  --ink-tertiary: #8A8A87;
+  --ink-faint: #B5B5B1;
+  --rule: #E0E0DC;
+  --rule-subtle: #EBEBEA;
+  --accent: #5B5BD6;
+  --accent-soft: #E8E8FD;
+  --accent-text: #3E3EA8;
+  --positive: #2B8A3E;
+  --positive-soft: #E6F5EA;
+  --negative: #C92A2A;
+  --negative-soft: #FFF0F0;
+  --warning: #E67700;
+  --warning-soft: #FFF4E6;
+  --info: #1971C2;
+  --info-soft: #E7F5FF;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 6px 16px rgba(0,0,0,0.04);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-w: 860px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 3.75rem; }
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════ HERO ═══════════ */
+.hero {
+  background: #1C1C1E;
+  color: #fff;
+  padding: 2.5rem 2rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  top: -80px; right: -30px;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(43,138,62,0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-inner { max-width: var(--content-w); margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
+
+.hero-breadcrumb {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 1.25rem;
+  font-weight: 500;
+}
+.hero-breadcrumb a { color: rgba(255,255,255,0.35); text-decoration: none; }
+.hero-breadcrumb a:hover { color: rgba(255,255,255,0.65); }
+.hero-breadcrumb .sep { margin: 0 0.4rem; opacity: 0.5; }
+
+.hero-meta-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+.hero h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  margin-bottom: 0.5rem;
+}
+
+.hero-summary {
+  font-size: 0.92rem;
+  color: rgba(255,255,255,0.5);
+  max-width: 620px;
+  line-height: 1.55;
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1.125rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.hero-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.4);
+  font-weight: 500;
+}
+.hero-meta-sep { color: rgba(255,255,255,0.15); font-size: 0.7rem; }
+
+.avatar-sm {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  font-size: 0.68rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+}
+.pill .dot { width: 5px; height: 5px; border-radius: 50%; }
+.pill-approved-dark { background: rgba(43,138,62,0.2); color: rgba(150,255,170,0.9); border: 1px solid rgba(43,138,62,0.25); }
+.pill-approved-dark .dot { background: #4ade80; }
+.pill-rfc-dark { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+
+/* ═══════════ STICKY TOC ═══════════ */
+.toc {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(246,246,244,0.85);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid var(--rule);
+  padding: 0 2rem;
+}
+.toc-inner {
+  max-width: var(--content-w); margin: 0 auto;
+  display: flex; overflow-x: auto; scrollbar-width: none;
+}
+.toc-inner::-webkit-scrollbar { display: none; }
+.toc a {
+  display: block; padding: 0.65rem 0.75rem;
+  font-size: 0.76rem; font-weight: 500;
+  color: var(--ink-tertiary); text-decoration: none;
+  white-space: nowrap; border-bottom: 2px solid transparent;
+  transition: all 0.2s var(--ease);
+}
+.toc a:hover { color: var(--ink-secondary); }
+.toc a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ═══════════ CONTENT ═══════════ */
+.content { max-width: var(--content-w); margin: 0 auto; padding: 2rem 2rem 1rem; }
+
+/* ═══════════ SECTIONS ═══════════ */
+.section { margin-bottom: 2.5rem; }
+.section-header { display: flex; align-items: center; gap: 0.625rem; margin-bottom: 1rem; }
+.section-icon {
+  width: 30px; height: 30px; border-radius: var(--r-md);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.section-icon svg { width: 16px; height: 16px; }
+.section-header h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; }
+.section-header::after { content: ''; flex: 1; height: 1px; background: var(--rule-subtle); margin-left: 0.5rem; }
+.section p { color: var(--ink-secondary); line-height: 1.7; font-size: 0.9rem; }
+.section p + p { margin-top: 0.625rem; }
+.section-lead { font-weight: 600; color: var(--ink); font-size: 0.92rem; margin-bottom: 0.5rem; }
+
+/* ═══════════ CALLOUT ═══════════ */
+.callout {
+  display: flex; gap: 0.75rem; padding: 0.875rem 1rem;
+  border-radius: var(--r-md); border: 1px solid;
+  margin: 1rem 0; font-size: 0.84rem; line-height: 1.55;
+}
+.callout-icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 0.9rem; }
+.callout-body { flex: 1; }
+.callout-body strong { font-weight: 600; }
+.callout-info    { background: var(--info-soft); border-color: #bfdbfe; color: var(--info); }
+.callout-warning { background: var(--warning-soft); border-color: #fed7aa; color: #9a3412; }
+
+/* ═══════════ CODE BLOCK ═══════════ */
+.code-block {
+  background: #1E1E2E; color: #CDD6F4;
+  font-family: var(--mono); font-size: 0.8rem; line-height: 1.7;
+  padding: 1rem 1.25rem; border-radius: var(--r-md);
+  overflow-x: auto; border: 1px solid rgba(255,255,255,0.06);
+  position: relative; margin: 0.75rem 0;
+}
+.code-block[data-lang]::before {
+  content: attr(data-lang); position: absolute; top: 0.5rem; right: 0.75rem;
+  font-size: 0.6rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: rgba(255,255,255,0.25);
+}
+.code-kw { color: #CBA6F7; }
+.code-str { color: #A6E3A1; }
+.code-type { color: #89B4FA; }
+.code-comment { color: #6C7086; font-style: italic; }
+.code-fn { color: #89DCEB; }
+
+/* ═══════════ API CARDS ═══════════ */
+.api-card {
+  border: 1px solid var(--rule); border-radius: var(--r-md);
+  overflow: hidden; margin: 0.5rem 0;
+}
+.api-card-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1rem; background: var(--bg-inset);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 0.78rem;
+}
+.api-method {
+  font-weight: 700; padding: 2px 7px; border-radius: 4px;
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.api-get  { background: #DBEAFE; color: #1D4ED8; }
+.api-post { background: #D1FAE5; color: #065F46; }
+.api-del  { background: #FEE2E2; color: #991B1B; }
+.api-ws   { background: #E8E8FD; color: #3E3EA8; }
+.api-path { color: var(--ink-secondary); }
+.api-desc { font-family: var(--font); color: var(--ink-tertiary); margin-left: auto; font-size: 0.72rem; }
+
+/* ═══════════ SCHEMA ═══════════ */
+.schema-block {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); overflow: hidden; margin: 0.75rem 0;
+}
+.schema-label {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-faint);
+  padding: 0.6rem 1rem; background: var(--bg-inset);
+  border-bottom: 1px solid var(--rule); font-family: var(--mono);
+}
+.schema-row {
+  display: grid; grid-template-columns: 150px 90px 1fr;
+  gap: 0.75rem; padding: 0.45rem 1rem;
+  border-bottom: 1px solid var(--rule-subtle); font-size: 0.8rem; align-items: baseline;
+}
+.schema-row:last-child { border-bottom: none; }
+.schema-field { font-weight: 600; color: var(--ink); font-family: var(--mono); font-size: 0.78rem; }
+.schema-type { color: var(--accent-text); font-family: var(--mono); font-size: 0.72rem; }
+.schema-desc { color: var(--ink-tertiary); font-size: 0.78rem; }
+.schema-required .schema-field::after { content: ' *'; color: var(--negative); font-weight: 400; }
+
+/* ═══════════ OPTION CARDS ═══════════ */
+.option-card {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 1rem 1.25rem;
+  margin: 0.625rem 0; transition: box-shadow 0.2s var(--ease);
+}
+.option-card:hover { box-shadow: var(--shadow-card); }
+.option-card.selected { border-color: var(--positive); border-left: 3px solid var(--positive); }
+.option-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.option-name { font-weight: 600; font-size: 0.92rem; color: var(--ink); }
+.option-verdict {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px;
+}
+.verdict-chosen { background: var(--positive-soft); color: var(--positive); }
+.verdict-rejected { background: var(--negative-soft); color: var(--negative); }
+.option-desc { font-size: 0.84rem; color: var(--ink-secondary); line-height: 1.55; margin-bottom: 0.75rem; }
+.pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.pros-cons ul { list-style: none; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.pros-cons .pc-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.35rem; }
+.pros-col .pc-label { color: var(--positive); }
+.cons-col .pc-label { color: var(--negative); }
+.pros-col li, .cons-col li { color: var(--ink-secondary); padding-left: 1rem; position: relative; }
+.pros-col li::before { content: '+'; position: absolute; left: 0; color: var(--positive); font-weight: 700; }
+.cons-col li::before { content: '\2013'; position: absolute; left: 0; color: var(--negative); font-weight: 700; }
+
+/* ═══════════ DIAGRAM ═══════════ */
+.diagram-card {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 1.25rem;
+  overflow-x: auto; margin: 1rem 0;
+}
+.diagram-card .mermaid { display: flex; justify-content: center; }
+.diagram-label {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 0.75rem;
+}
+
+/* ═══════════ PHASE GROUPS ═══════════ */
+.phase-group { margin-bottom: 1.25rem; }
+.phase-label {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-faint);
+  margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.phase-label::after { content: ''; flex: 1; height: 1px; background: var(--rule-subtle); }
+.issue-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); font-size: 0.84rem;
+}
+.issue-row:last-child { border-bottom: none; }
+.issue-id {
+  font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+  color: var(--accent-text); background: var(--accent-soft);
+  padding: 2px 6px; border-radius: 4px; white-space: nowrap;
+}
+.issue-title-text { font-weight: 500; color: var(--ink); flex: 1; }
+.issue-size { font-size: 0.68rem; font-weight: 600; color: var(--ink-faint); font-family: var(--mono); }
+.issue-dep { font-size: 0.68rem; color: var(--ink-faint); font-family: var(--mono); }
+
+/* ═══════════ COLLAPSIBLE ═══════════ */
+details { margin: 0.5rem 0; }
+details summary {
+  cursor: pointer; font-size: 0.84rem; font-weight: 600;
+  color: var(--ink-secondary); padding: 0.5rem 0.75rem;
+  list-style: none; display: flex; align-items: center; gap: 0.5rem;
+  border-radius: var(--r-sm); transition: background 0.15s; user-select: none;
+}
+details summary:hover { background: var(--bg-muted); }
+details summary::before {
+  content: ''; width: 0; height: 0;
+  border-left: 5px solid var(--ink-tertiary);
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform 0.2s var(--ease); flex-shrink: 0;
+}
+details[open] summary::before { transform: rotate(90deg); }
+details summary::-webkit-details-marker { display: none; }
+details .details-body { padding: 0.5rem 0.75rem 0.5rem 1.75rem; }
+details .details-body p { font-size: 0.85rem; color: var(--ink-secondary); line-height: 1.65; }
+
+/* ═══════════ TABLE ═══════════ */
+.table-wrap {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); overflow: hidden; margin: 1rem 0;
+}
+.table-wrap table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.table-wrap thead { background: var(--bg-inset); }
+.table-wrap th {
+  text-align: left; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+  padding: 0.6rem 1rem; border-bottom: 1px solid var(--rule);
+}
+.table-wrap td {
+  padding: 0.65rem 1rem; border-bottom: 1px solid var(--rule-subtle);
+  color: var(--ink-secondary); vertical-align: top; line-height: 1.5;
+}
+.table-wrap tr:last-child td { border-bottom: none; }
+.table-wrap td strong { color: var(--ink); font-weight: 600; }
+
+/* ═══════════ QUESTIONS ═══════════ */
+.question-item {
+  display: flex; gap: 0.75rem; padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule-subtle);
+}
+.question-item:last-child { border-bottom: none; }
+.question-num {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 0.1rem;
+}
+.question-text { font-size: 0.86rem; color: var(--ink); font-weight: 500; line-height: 1.45; }
+.question-meta { font-size: 0.72rem; color: var(--ink-faint); margin-top: 0.2rem; font-family: var(--mono); }
+
+/* ═══════════ CODEBASE FINDING ═══════════ */
+.finding {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 0.875rem 1.125rem;
+  margin: 0.5rem 0;
+}
+.finding-path {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+  margin-bottom: 0.3rem;
+}
+.finding-text { font-size: 0.84rem; color: var(--ink-secondary); line-height: 1.55; }
+.finding-text strong { color: var(--ink); }
+
+/* ═══════════ DECISION LOG ═══════════ */
+.decision-item {
+  display: grid; grid-template-columns: 72px 1fr; gap: 0.75rem;
+  padding: 0.625rem 0; border-bottom: 1px solid var(--rule-subtle); font-size: 0.82rem;
+}
+.decision-item:last-child { border-bottom: none; }
+.decision-date { font-size: 0.72rem; font-weight: 600; color: var(--ink-faint); font-family: var(--mono); }
+.decision-text { color: var(--ink-secondary); line-height: 1.5; }
+.decision-text strong { color: var(--ink); }
+.decision-text em { color: var(--ink-tertiary); font-style: normal; font-size: 0.78rem; }
+
+/* ═══════════ FOOTER ═══════════ */
+.footer {
+  max-width: var(--content-w); margin: 0 auto;
+  padding: 1.5rem 2rem 3rem; border-top: 1px solid var(--rule);
+  font-size: 0.72rem; color: var(--ink-faint);
+  display: flex; justify-content: space-between; font-family: var(--mono);
+}
+
+/* Icon colors */
+.icon-codebase { background: #E0F2F1; color: #00796B; }
+.icon-arch     { background: var(--accent-soft); color: var(--accent-text); }
+.icon-alt      { background: var(--warning-soft); color: var(--warning); }
+.icon-data     { background: #F3E8FF; color: #7C3AED; }
+.icon-api      { background: #E0F2F1; color: #00796B; }
+.icon-risk     { background: var(--negative-soft); color: var(--negative); }
+.icon-issues   { background: var(--accent-soft); color: var(--accent-text); }
+.icon-question { background: var(--info-soft); color: var(--info); }
+.icon-log      { background: var(--bg-muted); color: var(--ink-tertiary); }
+
+@media (max-width: 700px) {
+  .hero { padding: 2rem 1.25rem 1.5rem; }
+  .hero h1 { font-size: 1.5rem; }
+  .content { padding: 1.5rem 1.25rem 1rem; }
+  .pros-cons { grid-template-columns: 1fr; }
+  .schema-row { grid-template-columns: 120px 70px 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-breadcrumb">
+      <a href="#">PM-092</a><span class="sep">/</span>RFC-012
+    </div>
+    <div class="hero-meta-row">
+      <span class="pill pill-approved-dark"><span class="dot"></span>Approved</span>
+      <span class="pill pill-rfc-dark">Engineering Plan</span>
+    </div>
+    <h1>Collaborative Workspaces &mdash; Engineering Plan</h1>
+    <p class="hero-summary">Architecture, codebase findings, key decisions, and issue breakdown for PM-092.</p>
+
+    <div class="hero-meta">
+      <span class="hero-meta-item">
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#34D399,#059669)">AT</span>
+        Alex T.
+      </span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#818CF8,#5B5BD6)">PS</span>
+        Priya S.
+      </span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">6 issues &middot; 8 weeks</span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item" style="gap:0;">
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#34D399,#059669);border:1.5px solid rgba(34,197,94,0.8)">AT</span>
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#818CF8,#5B5BD6);border:1.5px solid rgba(34,197,94,0.8);margin-left:-6px">PS</span>
+        <span class="avatar-sm" style="background:linear-gradient(135deg,#FB923C,#EA580C);border:1.5px solid rgba(34,197,94,0.8);margin-left:-6px">RD</span>
+        <span style="margin-left:4px">3/3</span>
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#codebase" class="active">Codebase</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#decisions">Decisions</a>
+    <a href="#data">Data Model</a>
+    <a href="#api">API</a>
+    <a href="#risks">Risks</a>
+    <a href="#issues">Issues</a>
+    <a href="#questions">Questions</a>
+    <a href="#log">Log</a>
+  </div>
+</nav>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<main class="content">
+
+  <!-- CODEBASE FINDINGS -->
+  <section class="section" id="codebase">
+    <div class="section-header">
+      <div class="section-icon icon-codebase">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5.5 4.5 2.5 8 5.5 11.5"/><polyline points="10.5 4.5 13.5 8 10.5 11.5"/></svg>
+      </div>
+      <h2>Codebase Findings</h2>
+    </div>
+    <p class="section-lead">What the EM found after reading the codebase. These findings shaped the architecture and issue breakdown.</p>
+
+    <div class="finding">
+      <div class="finding-path">src/editor/Editor.tsx:42-180</div>
+      <div class="finding-text"><strong>Tiptap v2 with ProseMirror.</strong> Editor is already extension-based. The <code>Collaboration</code> and <code>CollaborationCursor</code> extensions can be added without refactoring the editor core. Current extensions: StarterKit, Table, Image, Placeholder, CodeBlock.</div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-path">src/lib/api.ts:1-35 + src/server/routes/documents.ts</div>
+      <div class="finding-text"><strong>REST-only API.</strong> No WebSocket infrastructure exists. Auth uses JWT in headers. We'll need a separate WebSocket server that validates the same JWT tokens. The auth middleware at <code>src/server/middleware/auth.ts</code> exports a <code>validateToken()</code> function that can be reused directly.</div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-path">src/server/db/schema.ts</div>
+      <div class="finding-text"><strong>Drizzle ORM with Postgres.</strong> Documents table has <code>id</code>, <code>title</code>, <code>content</code> (JSON), <code>owner_id</code>, timestamps. The <code>content</code> column stores ProseMirror JSON. For collab, we'll keep this as the "last rendered" snapshot and add a Yjs binary in S3 as the source of truth.</div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-path">package.json</div>
+      <div class="finding-text"><strong>Tiptap v2.4.0.</strong> Already on a version that supports the collaboration extensions. No upgrade needed. Dependencies to add: <code>yjs</code>, <code>@hocuspocus/server</code>, <code>@tiptap/extension-collaboration</code>, <code>@tiptap/extension-collaboration-cursor</code>, <code>y-indexeddb</code>.</div>
+    </div>
+
+    <div class="callout callout-info">
+      <div class="callout-icon">&#8505;</div>
+      <div class="callout-body"><strong>Phase 0 spike result:</strong> Yjs syncs our custom nodes (table, callout, embed) correctly. 50 synthetic users hit p95 sync latency of 147ms on a single Hocuspocus instance. Memory: ~2.1x raw doc size. No showstoppers.</div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="section" id="architecture">
+    <div class="section-header">
+      <div class="section-icon icon-arch">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="6" y1="6" x2="6" y2="13.5"/></svg>
+      </div>
+      <h2>Architecture</h2>
+    </div>
+    <p class="section-lead">Tiptap client (CRDT) &#8596; Hocuspocus (WebSocket) &#8596; Postgres + S3.</p>
+
+    <div class="diagram-card">
+      <div class="diagram-label">System Overview</div>
+      <div class="mermaid">
+graph LR
+    A[Tiptap Client<br/>Yjs CRDT] -->|WebSocket| B[Hocuspocus<br/>Server]
+    B -->|awareness| A
+    B -->|Yjs binary| D[(S3)]
+    B -->|metadata| C[(Postgres)]
+    E[Auth Service] -->|validateToken| B
+    F[REST API] -->|comments, sharing| C
+      </div>
+    </div>
+
+    <p>Hocuspocus runs as a sidecar process alongside the REST API. Same deployment, separate port. It authenticates using the existing <code>validateToken()</code> from our auth middleware.</p>
+
+    <details>
+      <summary>Why Hocuspocus, not custom WebSocket</summary>
+      <div class="details-body">
+        <p>Hocuspocus handles the entire Yjs sync protocol, document loading/storing lifecycle, and awareness broadcast. Building this from scratch with <code>y-websocket</code> would take ~2 extra weeks and we'd end up reimplementing what Hocuspocus already does. It's ~2K lines — small enough to fork if the project goes unmaintained.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Persistence strategy</summary>
+      <div class="details-body">
+        <p><strong>Source of truth:</strong> Yjs binary in S3 (versioned bucket). Loaded on first connection, stored on last disconnect + every 60s during active editing.</p>
+        <p style="margin-top:0.4rem;"><strong>ProseMirror JSON:</strong> Still written to Postgres <code>content</code> column on each store. This keeps the existing read path (API, search, dashboard) working without migration.</p>
+        <p style="margin-top:0.4rem;"><strong>Offline:</strong> <code>y-indexeddb</code> persists the Y.Doc locally. On reconnect, Yjs sync protocol reconciles automatically.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Comments: REST, not CRDT</summary>
+      <div class="details-body">
+        <p>Comments use a traditional REST API + Postgres, not the Yjs document. Anchored to text ranges via ProseMirror position mapping.</p>
+        <div class="callout callout-warning" style="margin-top:0.5rem;">
+          <div class="callout-icon">&#9888;</div>
+          <div class="callout-body"><strong>Trade-off:</strong> Comments can't sync offline. Accepted because: comments are read-heavy, need server-side notifications, and would bloat the Y.Doc.</div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- KEY DECISIONS -->
+  <section class="section" id="decisions">
+    <div class="section-header">
+      <div class="section-icon icon-alt">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/><path d="M8 3v10"/></svg>
+      </div>
+      <h2>Key Decisions</h2>
+    </div>
+    <p class="section-lead">Three architecture decisions. Each includes alternatives we considered and why they were rejected.</p>
+
+    <div class="option-card selected">
+      <div class="option-header">
+        <span class="option-name">Yjs CRDT + Hocuspocus</span>
+        <span class="option-verdict verdict-chosen">Chosen</span>
+      </div>
+      <div class="option-desc">CRDT engine with managed WebSocket server. Tiptap first-party integration.</div>
+      <div class="pros-cons">
+        <div class="pros-col">
+          <div class="pc-label">Pros</div>
+          <ul>
+            <li>Offline-first by design, no custom sync</li>
+            <li>First-party Tiptap integration</li>
+            <li>Battle-tested (Linear, etc.)</li>
+          </ul>
+        </div>
+        <div class="cons-col">
+          <div class="pc-label">Cons</div>
+          <ul>
+            <li>~2x memory overhead (tombstones)</li>
+            <li>Hocuspocus is a smaller project</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card">
+      <div class="option-header">
+        <span class="option-name">OT via custom server</span>
+        <span class="option-verdict verdict-rejected">Rejected</span>
+      </div>
+      <div class="option-desc">Operational Transformation with a central authority. Google Docs approach.</div>
+      <div class="pros-cons">
+        <div class="pros-col">
+          <div class="pc-label">Pros</div>
+          <ul><li>Lower memory footprint</li><li>Well-understood algorithm</li></ul>
+        </div>
+        <div class="cons-col">
+          <div class="pc-label">Cons</div>
+          <ul><li>No offline support without custom merge</li><li>No Tiptap binding — 6-8 weeks extra</li><li>Central server = single point of failure</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card">
+      <div class="option-header">
+        <span class="option-name">Cloudflare Durable Objects</span>
+        <span class="option-verdict verdict-rejected">Rejected</span>
+      </div>
+      <div class="option-desc">Per-document state in Durable Objects with WebSocket hibernation.</div>
+      <div class="pros-cons">
+        <div class="pros-col">
+          <div class="pc-label">Pros</div>
+          <ul><li>Auto-scales per-document</li><li>Built-in hibernation</li></ul>
+        </div>
+        <div class="cons-col">
+          <div class="pc-label">Cons</div>
+          <ul><li>128MB limit per DO</li><li>Vendor lock-in</li><li>No Yjs integration — custom bridge needed</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DATA MODEL -->
+  <section class="section" id="data">
+    <div class="section-header">
+      <div class="section-icon icon-data">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><ellipse cx="8" cy="4.5" rx="5.5" ry="2.5"/><path d="M2.5 4.5v7c0 1.38 2.46 2.5 5.5 2.5s5.5-1.12 5.5-2.5v-7"/><path d="M2.5 8.5c0 1.38 2.46 2.5 5.5 2.5s5.5-1.12 5.5-2.5"/></svg>
+      </div>
+      <h2>Data Model Changes</h2>
+    </div>
+    <p class="section-lead">3 columns added to documents, 2 new tables. Yjs binary in S3, metadata in Postgres.</p>
+
+    <div class="schema-block">
+      <div class="schema-label">documents (add columns)</div>
+      <div class="schema-row schema-required"><span class="schema-field">collab_enabled</span><span class="schema-type">boolean</span><span class="schema-desc">Feature flag per document</span></div>
+      <div class="schema-row"><span class="schema-field">yjs_s3_key</span><span class="schema-type">text</span><span class="schema-desc">S3 key for Yjs binary</span></div>
+      <div class="schema-row"><span class="schema-field">active_editors</span><span class="schema-type">int</span><span class="schema-desc">Connected editor count (Hocuspocus hooks)</span></div>
+    </div>
+
+    <div class="schema-block">
+      <div class="schema-label">document_shares (new)</div>
+      <div class="schema-row schema-required"><span class="schema-field">id</span><span class="schema-type">uuid</span><span class="schema-desc">Primary key</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">document_id</span><span class="schema-type">uuid</span><span class="schema-desc">FK to documents</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">role</span><span class="schema-type">enum</span><span class="schema-desc">editor | commenter | viewer</span></div>
+      <div class="schema-row"><span class="schema-field">user_id</span><span class="schema-type">uuid</span><span class="schema-desc">FK to users (null for link access)</span></div>
+      <div class="schema-row"><span class="schema-field">token</span><span class="schema-type">text</span><span class="schema-desc">Share link token (unique, revocable)</span></div>
+    </div>
+
+    <div class="schema-block">
+      <div class="schema-label">comments (new)</div>
+      <div class="schema-row schema-required"><span class="schema-field">id</span><span class="schema-type">uuid</span><span class="schema-desc">Primary key</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">document_id</span><span class="schema-type">uuid</span><span class="schema-desc">FK to documents</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">author_id</span><span class="schema-type">uuid</span><span class="schema-desc">FK to users</span></div>
+      <div class="schema-row"><span class="schema-field">parent_id</span><span class="schema-type">uuid</span><span class="schema-desc">FK to comments (threading)</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">anchor_from</span><span class="schema-type">int</span><span class="schema-desc">ProseMirror position start</span></div>
+      <div class="schema-row schema-required"><span class="schema-field">anchor_to</span><span class="schema-type">int</span><span class="schema-desc">ProseMirror position end</span></div>
+      <div class="schema-row"><span class="schema-field">resolved_at</span><span class="schema-type">timestamptz</span><span class="schema-desc">Null if unresolved</span></div>
+    </div>
+  </section>
+
+  <!-- API -->
+  <section class="section" id="api">
+    <div class="section-header">
+      <div class="section-icon icon-api">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5.5 4.5 2.5 8 5.5 11.5"/><polyline points="10.5 4.5 13.5 8 10.5 11.5"/><line x1="9" y1="2.5" x2="7" y2="13.5"/></svg>
+      </div>
+      <h2>New Endpoints</h2>
+    </div>
+
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-ws">WS</span><span class="api-path">/collab/:documentId</span><span class="api-desc">Yjs sync + awareness</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-post">POST</span><span class="api-path">/api/documents/:id/share</span><span class="api-desc">Create share link or invite</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-del">DEL</span><span class="api-path">/api/documents/:id/share/:shareId</span><span class="api-desc">Revoke access</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-post">POST</span><span class="api-path">/api/documents/:id/comments</span><span class="api-desc">Create comment / reply</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-get">GET</span><span class="api-path">/api/documents/:id/comments</span><span class="api-desc">List with thread nesting</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-get">GET</span><span class="api-path">/api/documents/:id/versions</span><span class="api-desc">Version history</span></div></div>
+    <div class="api-card"><div class="api-card-header"><span class="api-method api-post">POST</span><span class="api-path">/api/documents/:id/versions/:v/restore</span><span class="api-desc">Non-destructive restore</span></div></div>
+  </section>
+
+  <!-- RISKS -->
+  <section class="section" id="risks">
+    <div class="section-header">
+      <div class="section-icon icon-risk">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><line x1="8" y1="6.5" x2="8" y2="9.5"/><circle cx="8" cy="11.25" r="0.5" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h2>Technical Risks</h2>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:25%">Risk</th><th>Impact</th><th style="width:28%">Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Yjs tombstone growth</strong></td><td>10KB doc could grow to 500KB of CRDT metadata</td><td>Periodic GC via <code>Y.encodeStateAsUpdate</code> on store hook</td></tr>
+          <tr><td><strong>Comment anchor drift</strong></td><td>Position mapping loses accuracy after major restructuring</td><td>Store anchors as relative (node ID + offset), not absolute position</td></tr>
+          <tr><td><strong>WebSocket cost</strong></td><td>Always-on connections; est. +$180/mo at current scale</td><td>Hibernation for idle docs (Hocuspocus native)</td></tr>
+          <tr><td><strong>Hocuspocus bus factor</strong></td><td>Single maintainer project</td><td>Pin version, fork-ready (~2K LOC)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ISSUE BREAKDOWN -->
+  <section class="section" id="issues">
+    <div class="section-header">
+      <div class="section-icon icon-issues">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2.5h8a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5H4A1.5 1.5 0 012.5 12V4A1.5 1.5 0 014 2.5z"/><line x1="5.5" y1="5.5" x2="10.5" y2="5.5"/><line x1="5.5" y1="8" x2="10.5" y2="8"/><line x1="5.5" y1="10.5" x2="8.5" y2="10.5"/></svg>
+      </div>
+      <h2>Issue Breakdown</h2>
+    </div>
+    <p class="section-lead">6 issues across 3 phases. Sequenced by dependency.</p>
+
+    <div class="phase-group">
+      <div class="phase-label">Phase 1 &mdash; Foundation (Week 3-5)</div>
+      <div class="issue-row"><span class="issue-id">PM-093</span><span class="issue-title-text">Hocuspocus server + auth integration</span><span class="issue-size">M</span></div>
+      <div class="issue-row"><span class="issue-id">PM-094</span><span class="issue-title-text">Tiptap Collaboration + Yjs binding + cursor presence</span><span class="issue-size">L</span><span class="issue-dep">&rarr; PM-093</span></div>
+    </div>
+
+    <div class="phase-group">
+      <div class="phase-label">Phase 2 &mdash; Features (Week 5-7)</div>
+      <div class="issue-row"><span class="issue-id">PM-096</span><span class="issue-title-text">Share links + role-based permissions</span><span class="issue-size">M</span></div>
+      <div class="issue-row"><span class="issue-id">PM-097</span><span class="issue-title-text">Inline comments with anchor tracking</span><span class="issue-size">L</span><span class="issue-dep">&rarr; PM-094</span></div>
+    </div>
+
+    <div class="phase-group">
+      <div class="phase-label">Phase 3 &mdash; Resilience (Week 7-9)</div>
+      <div class="issue-row"><span class="issue-id">PM-098</span><span class="issue-title-text">Offline editing + IndexedDB + version history</span><span class="issue-size">L</span><span class="issue-dep">&rarr; PM-094</span></div>
+      <div class="issue-row"><span class="issue-id">PM-100</span><span class="issue-title-text">Load testing + CRDT GC + monitoring</span><span class="issue-size">M</span><span class="issue-dep">&rarr; all</span></div>
+    </div>
+  </section>
+
+  <!-- OPEN QUESTIONS -->
+  <section class="section" id="questions">
+    <div class="section-header">
+      <div class="section-icon icon-question">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.25"/><path d="M6 6.25a2 2 0 013.5 1.25c0 1-1.5 1.25-1.5 2.25"/><circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h2>Open Questions</h2>
+    </div>
+
+    <div class="question-item">
+      <div class="question-num">1</div>
+      <div>
+        <div class="question-text">Sidecar process or separate service for Hocuspocus?</div>
+        <div class="question-meta">Alex T. &middot; decide by Apr 8 &middot; affects PM-093</div>
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="question-num">2</div>
+      <div>
+        <div class="question-text">Version snapshots: full Yjs state or ProseMirror JSON?</div>
+        <div class="question-meta">Priya S. &middot; decide during PM-098</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DECISION LOG -->
+  <section class="section" id="log">
+    <div class="section-header">
+      <div class="section-icon icon-log">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"/><line x1="6" y1="5.5" x2="10" y2="5.5"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.5" x2="8.5" y2="10.5"/></svg>
+      </div>
+      <h2>Decision Log</h2>
+    </div>
+
+    <div class="decision-item">
+      <div class="decision-date">Apr 8</div>
+      <div class="decision-text"><strong>RFC approved.</strong> All reviewers signed off. <em>&mdash; Raj D.</em></div>
+    </div>
+    <div class="decision-item">
+      <div class="decision-date">Apr 5</div>
+      <div class="decision-text"><strong>Comments kept outside CRDT.</strong> REST + Postgres. Reason: notification delivery requires server-side; offline sync adds complexity without value. <em>&mdash; Alex T.</em></div>
+    </div>
+    <div class="decision-item">
+      <div class="decision-date">Apr 3</div>
+      <div class="decision-text"><strong>RFC created</strong> from PM-092 proposal. Phase 0 spike validated Yjs + Tiptap. <em>&mdash; Alex T., Priya S.</em></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>RFC-012 &middot; Updated Apr 8, 2026</span>
+  <span>from PM-092 &middot; pm/ knowledge base</span>
+</footer>
+
+<script>
+(function() {
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.getAttribute('id');
+        tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+
+</body>
+</html>
