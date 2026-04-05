@@ -237,11 +237,20 @@ Spawn a **persistent worker** per sub-issue using `subagent_type: "pm:developer"
 
 Spawn with a **name** so the same agent can be resumed later:
 
+<TOOL-CALL>
+Use the **Agent tool** to spawn each worker:
+- `description`: "Plan {ISSUE_ID}"
+- `name`: "agent-{slug}"
+- `subagent_type`: "pm:developer"
+- `prompt`: (see below)
+
+The `name` parameter is critical. It makes the worker addressable via `SendMessage` for implementation resume in Stage 4.
+</TOOL-CALL>
+
+**Prompt for the planning worker:**
+
 ```
-Agent({
-  name: "agent-{slug}",
-  subagent_type: "pm:developer",
-  prompt: `Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
+Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -265,8 +274,7 @@ PLAN_COMPLETE
 - summary: {3-line summary}
 - tasks: {N}
 
-Stop after sending the summary. You will be resumed for implementation after epic review.`
-})
+Stop after sending the summary. You will be resumed for implementation after epic review.
 ```
 
 The orchestrator waits for the worker's planning result (the named Agent returns when done). Only the returned summary enters the orchestrator's context — not the worker's internal work.
@@ -348,17 +356,19 @@ Count sub-issues with actual code work (plan reports tasks > 0). Scale reviewer 
 
 Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use short-lived review agents, not persistent workers. Their results should return directly to the orchestrator and should not be saved for later resume.
 
-**For 3+ sub-issues with code work:**
-```
-Agent({ subagent_type: "pm:system-architect", prompt: "..." })   // Architect
-Agent({ subagent_type: "pm:integration-engineer", prompt: "..." })  // Integration
-Agent({ subagent_type: "pm:product-manager", prompt: "..." })    // Scope
-```
+**For 3+ sub-issues with code work:** Dispatch all 3 in parallel using the **Agent tool**:
 
-**For 1-2 sub-issues with code work:**
-```
-Agent({ subagent_type: "pm:system-architect", prompt: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}" })  // combined reviewer
-```
+<TOOL-CALL>
+- Agent tool: `description`: "Epic arch review", `subagent_type`: "pm:system-architect", `prompt`: (from epic-rfc-reviewer-prompts.md)
+- Agent tool: `description`: "Epic integration review", `subagent_type`: "pm:integration-engineer", `prompt`: (from epic-rfc-reviewer-prompts.md)
+- Agent tool: `description`: "Epic scope review", `subagent_type`: "pm:product-manager", `prompt`: (from epic-rfc-reviewer-prompts.md)
+</TOOL-CALL>
+
+**For 1-2 sub-issues with code work:** Dispatch 1 combined reviewer:
+
+<TOOL-CALL>
+- Agent tool: `description`: "Epic combined review", `subagent_type`: "pm:system-architect", `prompt`: "Combined review: architecture + integration + scope. {COMBINED_PROMPT}"
+</TOOL-CALL>
 
 Sub-agent results return directly to the orchestrator — no worker handoff needed.
 
@@ -461,23 +471,25 @@ For waves with 2+ sub-issues:
 
 3. **Resume all workers simultaneously** via `SendMessage`. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
 
-   ```
-   // Resume each named worker in parallel
-   SendMessage({ to: "agent-{slug-A}", content: "Phase 2 — go implement. Mode: parallel. ..." })
-   SendMessage({ to: "agent-{slug-B}", content: "Phase 2 — go implement. Mode: parallel. ..." })
-   ```
+   <TOOL-CALL>
+   Fetch SendMessage first if not already fetched: `ToolSearch({ query: "select:SendMessage" })`
+   Then use **SendMessage** for each worker **in parallel** (multiple tool calls in one message):
+   - `to`: "agent-{slug-A}" / "agent-{slug-B}"
+   - `content`: "Phase 2 — go implement. Mode: parallel. ..." (use the template from 4.3 below)
+   </TOOL-CALL>
 
 4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
    - If any agent reports "Blocked": pause, report to user.
    - If all report "Ready to merge": proceed to sequential merge.
 
 5. **Sequential merge.** For each PR in the wave, in dependency order, send merge instruction to the named worker:
-   ```
-   SendMessage({
-     to: "agent-{slug}",
-     content: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
-   })
-   ```
+
+   <TOOL-CALL>
+   Use **SendMessage**:
+   - `to`: "agent-{slug}"
+   - `content`: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
+   </TOOL-CALL>
+
    Wait for "Merged." before telling the next worker to merge.
 
 6. **Sync main** after all wave PRs are merged:
@@ -487,12 +499,16 @@ For waves with 2+ sub-issues:
 
 #### "Go implement" instruction template
 
-Resume the named worker via `SendMessage`:
+<TOOL-CALL>
+Use **SendMessage** to resume the named worker:
+- `to`: "agent-{slug}"
+- `content`: (see below)
+</TOOL-CALL>
+
+**Content for SendMessage:**
 
 ```
-SendMessage({
-  to: "agent-{slug}",
-  content: `Phase 2 — Implementation approved. Go implement.
+Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
@@ -522,8 +538,7 @@ Lifecycle:
    If Mode is "parallel": STOP after PR creation, report "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed."
 
 If blocked, reply:
-Blocked: {reason}`
-})
+Blocked: {reason}
 ```
 
 ### 4.4 Checkpoint after each sub-issue

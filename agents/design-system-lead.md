@@ -68,7 +68,31 @@ Before reviewing:
 - Same data = same component (all status badges look the same)
 - Visual weight and density consistent between pages
 
-### 7. Polish Checklist (16 items)
+### 7. Pattern Fragmentation Detection
+
+When a feature introduces multiple instances of a similar component type (drawers, modals, cards, panels, lists, forms), check whether they are consistent:
+
+**Using the Pattern Inventory (if available):**
+Read `/tmp/design-review/{feature}/pattern-inventory.md`. This contains side-by-side computed styles for repeated component types. Flag any instance where:
+- Same component type has different padding, border-radius, shadow, or background-color
+- Similar containers use different spacing scales
+- Header/title patterns differ across instances (different font-size, weight, or color)
+
+**Using the DOM Measurement Audit:**
+Cross-reference the `dom-audit-*.md` files. If two drawers exist on different pages, compare their measurements directly.
+
+**Using source code:**
+Grep for component patterns. If the feature builds 3 drawers as 3 separate implementations rather than 1 reusable component with props, flag this as **pattern fragmentation**.
+
+**Severity:**
+- Same component type, different visual treatment, no clear reason for the difference: **P1 [HIGH]**
+- Multiple bespoke implementations of what should be one shared component: **P1 [HIGH]**
+- Minor variations with justifiable reasons (e.g., different context requires different size): **P2 [MEDIUM]**
+
+**Fix guidance:**
+Always recommend extracting a shared component. Specify which instance should be the reference (the one closest to existing design system patterns).
+
+### 8. Polish Checklist (16 items)
 Run through and note failures:
 
 1. All spacing uses design tokens

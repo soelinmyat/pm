@@ -2,6 +2,8 @@
 
 Shared implementation lifecycle used by both single-issue dev and epic sub-issue workers. Everything from "plan approved" through "merged and cleaned up" lives here.
 
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for how to map the `Agent()` and `SendMessage()` pseudo-code in this file to your runtime's actual tool calls.
+
 **Context:** This flow is invoked by named/persistent agents:
 - **Single-issue (M/L/XL):** The named `dev-{slug}` agent follows this after the orchestrator sends "go implement" via SendMessage. The agent preserves codebase context from the planning phase.
 - **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase, no named agent).
@@ -148,6 +150,30 @@ Before any frontend work on a full-stack change with contract tooling:
 
 Fail -> fix before proceeding. No exceptions when contract tooling is configured.
 
+### Component Pattern Scan (UI tasks only)
+
+Before creating any new UI component (drawer, modal, dialog, sheet, card, panel, dropdown, popover, form layout, list/table), scan the codebase for existing instances of the same pattern:
+
+```bash
+# Example: about to build a drawer
+grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/features/ --include="*.tsx" | head -20
+```
+
+**If an existing component exists:** Reuse it. Import and configure with props. Do not build a new one.
+
+**If no existing component exists but you need multiple instances in this task:** Build the first instance as a reusable, prop-driven component in the appropriate components directory. Then import and configure it for each use case. Never copy-paste a component and tweak it.
+
+**If you're building across multiple sub-issues in an epic:** Check what earlier sub-issues already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
+
+Log the scan result in `.pm/dev-sessions/{slug}.md`:
+```
+- Pattern scan: Reusing existing Drawer from src/components/ui/Drawer.tsx
+  OR
+- Pattern scan: No existing drawer. Creating shared Drawer component first.
+  OR
+- Pattern scan: Skipped (no new UI components)
+```
+
 ### Write code
 
 1. Read the plan file **end-to-end before writing code**. Plans may contain a "Revised" or "Updated" section that supersedes earlier code blocks. If you find contradictory implementations, the later revision is authoritative. When in doubt, check for epic review fix annotations (e.g., "Epic review fix:").
@@ -262,6 +288,7 @@ Spawn a named agent that stays alive for the QA iteration loop. The agent reads 
 
 ```
 Agent({
+  description: "QA testing {slug}",
   name: "qa-{slug}",
   subagent_type: "pm:qa-tester",
   prompt: `You are the QA agent for this dev session. Follow the pm:qa skill
@@ -304,7 +331,7 @@ The QA agent returns a structured verdict. This is a **ship gate**:
 
 ### Re-verify via SendMessage (not re-invocation)
 
-When the QA agent returns **Fail**, fix the issues, run tests, then send a message to the same agent:
+When the QA agent returns **Fail**, fix the issues, run tests, then resume the same agent:
 
 ```
 SendMessage({
@@ -345,6 +372,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.`
 
 ```
 Agent({
+  description: "QA respawn {slug}",
   name: "qa-{slug}",
   subagent_type: "pm:qa-tester",
   prompt: `You are a RESPAWNED QA agent. A previous QA agent ran but was terminated.
@@ -454,6 +482,7 @@ Spawn a single sub-agent:
 
 ```
 Agent({
+  description: "Code scan {slug}",
   subagent_type: "pm:code-reviewer",
   prompt: `Scan for genuine bugs in this diff. Max 5 findings.
 
@@ -461,8 +490,7 @@ Agent({
 **Changed files:** {list}
 
 ## Project Context
-{PROJECT_CONTEXT}
-`
+{PROJECT_CONTEXT}`
 })
 ```
 
