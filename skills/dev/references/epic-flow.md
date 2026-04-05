@@ -31,14 +31,17 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 
 | Action | Claude Code | Codex |
 |--------|------------|-------|
-| Create persistent worker | `Agent({ name: "agent-{slug}", subagent_type: "pm:developer", prompt: "..." })` | `spawn_agent` |
-| Wait for result | Agent returns when done | `wait_agent` |
-| Resume worker for implementation | `SendMessage({ to: "agent-{slug}", content: "Phase 2 — go implement..." })` | `resume_agent` + `send_input` |
-| Ping / deliver "merge now" | `SendMessage({ to: "agent-{slug}", content: "..." })` | `send_input` |
-| Shutdown | Agent terminates on final response | `close_agent` |
+| Create team for workers | `TeamCreate({ team_name: "epic-{parent-slug}", description: "..." })` | N/A (implicit) |
+| Create persistent worker | `Agent({ name: "agent-{slug}", team_name: "epic-{parent-slug}", subagent_type: "pm:developer", prompt: "..." })` | `spawn_agent` |
+| Wait for result | Agent returns, goes idle (team keeps it alive) | `wait_agent` |
+| Resume worker for implementation | `SendMessage({ to: "agent-{slug}", summary: "Resume for implementation", message: "Phase 2 — go implement..." })` | `resume_agent` + `send_input` |
+| Ping / deliver "merge now" | `SendMessage({ to: "agent-{slug}", summary: "Merge now", message: "..." })` | `send_input` |
+| Shutdown | `SendMessage({ to: "agent-{slug}", message: { type: "shutdown_request" } })` | `close_agent` |
 
 <HARD-RULE>
-In Claude Code, you MUST use named agents (`name: "agent-{slug}"`) and `SendMessage` to resume them. Do NOT spawn a fresh `Agent()` for implementation — that loses the codebase context from planning. The whole point of combined workers is context preservation.
+In Claude Code, you MUST create a team (`TeamCreate`) before spawning persistent workers. Workers must include `team_name` to join the team. Without a team, standalone agents terminate when they return and SendMessage cannot reach them. Fetch deferred tools first: `ToolSearch({ query: "select:TeamCreate,SendMessage" })`.
+
+You MUST use named teammates (`name: "agent-{slug}"`, `team_name: "epic-{parent-slug}"`) and `SendMessage` to resume them. Do NOT spawn a fresh `Agent()` for implementation — that loses the codebase context from planning. The whole point of combined workers is context preservation.
 </HARD-RULE>
 
 ---
@@ -238,13 +241,20 @@ Spawn a **persistent worker** per sub-issue using `subagent_type: "pm:developer"
 Spawn with a **name** so the same agent can be resumed later:
 
 <TOOL-CALL>
+Before spawning any workers, create the epic team and fetch deferred tools (once per epic):
+```
+ToolSearch({ query: "select:TeamCreate,SendMessage" })
+TeamCreate({ team_name: "epic-{parent-slug}", description: "Epic: {PARENT_TITLE}" })
+```
+
 Use the **Agent tool** to spawn each worker:
 - `description`: "Plan {ISSUE_ID}"
 - `name`: "agent-{slug}"
+- `team_name`: "epic-{parent-slug}"
 - `subagent_type`: "pm:developer"
 - `prompt`: (see below)
 
-The `name` parameter is critical. It makes the worker addressable via `SendMessage` for implementation resume in Stage 4.
+The `name` and `team_name` parameters are critical. `team_name` keeps the worker alive (idle) after planning so it can be resumed. `name` makes it addressable via `SendMessage`.
 </TOOL-CALL>
 
 **Prompt for the planning worker:**
@@ -472,10 +482,11 @@ For waves with 2+ sub-issues:
 3. **Resume all workers simultaneously** via `SendMessage`. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
 
    <TOOL-CALL>
-   Fetch SendMessage first if not already fetched: `ToolSearch({ query: "select:SendMessage" })`
-   Then use **SendMessage** for each worker **in parallel** (multiple tool calls in one message):
+   Use **SendMessage** for each worker **in parallel** (multiple tool calls in one message):
    - `to`: "agent-{slug-A}" / "agent-{slug-B}"
-   - `content`: "Phase 2 — go implement. Mode: parallel. ..." (use the template from 4.3 below)
+   - `summary`: "Resume agent-{slug} for implementation"
+   - `message`: "Phase 2 — go implement. Mode: parallel. ..." (use the template from 4.3 below)
+   Workers are idle teammates — SendMessage wakes them with full planning context.
    </TOOL-CALL>
 
 4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
@@ -487,7 +498,8 @@ For waves with 2+ sub-issues:
    <TOOL-CALL>
    Use **SendMessage**:
    - `to`: "agent-{slug}"
-   - `content`: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
+   - `summary`: "Merge agent-{slug} PR"
+   - `message`: "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
    </TOOL-CALL>
 
    Wait for "Merged." before telling the next worker to merge.
@@ -500,9 +512,10 @@ For waves with 2+ sub-issues:
 #### "Go implement" instruction template
 
 <TOOL-CALL>
-Use **SendMessage** to resume the named worker:
+Use **SendMessage** to resume the named teammate:
 - `to`: "agent-{slug}"
-- `content`: (see below)
+- `summary`: "Resume agent-{slug} for implementation"
+- `message`: (see below)
 </TOOL-CALL>
 
 **Content for SendMessage:**
@@ -567,7 +580,7 @@ API errors (429, 529, 5xx) can kill agents silently — they go idle without sen
 
 | Step | Action |
 |------|--------|
-| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", content: "Status check: are you still working on {ISSUE_ID}?" })` |
+| 1 | **Ping:** `SendMessage({ to: "agent-{slug}", summary: "Status check", message: "Status check: are you still working on {ISSUE_ID}?" })` |
 | 2 | If ping gets a response → agent is alive, reset the 5-minute timer |
 | 3 | If no response to ping → the worker is dead. Spawn a **fresh named worker** with the same name (`name: "agent-{slug}"`, `subagent_type: "pm:developer"`) and the recovery prompt below |
 | 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
@@ -646,9 +659,9 @@ Every item in this checklist MUST be verified. Do not skip cleanup even if you b
 
 Named agents in Claude Code terminate naturally when they return their final response ("Merged." or "Blocked."). No explicit close needed — they're already done by the time wrap-up runs.
 
-If any agent is still alive (stuck, waiting), send a shutdown message:
+If any teammate is still alive (stuck, waiting), send a shutdown message:
 ```
-SendMessage({ to: "agent-{slug}", content: "Epic complete. Shut down." })
+SendMessage({ to: "agent-{slug}", message: { type: "shutdown_request" } })
 ```
 
 Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
