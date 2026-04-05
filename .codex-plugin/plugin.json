@@ -1,7 +1,7 @@
 {
   "name": "pm",
   "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
-  "version": "1.0.36",
+  "version": "1.0.37",
   "author": {
     "name": "Soe Lin Myat"
   },
