@@ -237,7 +237,7 @@ No user interaction. For each sub-issue in dependency order.
 
 Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
 
-Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
+Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes deferred tool discovery for `TeamCreate` and `SendMessage`, then team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
 
 **Prompt for the planning worker:**
 
@@ -356,7 +356,7 @@ Epic reviewers return compact JSON (~10 lines each) — this fits fine in the or
 **For 1-2 sub-issues with code work:** Dispatch 1 combined reviewer intent using the runtime adapter:
 - `pm:system-architect` with `Combined review: architecture + integration + scope. {COMBINED_PROMPT}`
 
-Sub-agent results return directly to the orchestrator — no worker handoff needed.
+Reviewer results return directly to the orchestrator — no worker handoff needed.
 
 ### 3.2 Handling findings
 

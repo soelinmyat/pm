@@ -80,7 +80,7 @@ Use:
 
 ```text
 TeamCreate(...)
-Agent(name=..., team_name=..., subagent_type=..., prompt=...)
+Agent(name=..., description=..., team_name=..., subagent_type=..., prompt=...)
 SendMessage(...)
 ```
 
@@ -90,12 +90,21 @@ Rules:
 - Use `SendMessage` to resume the same worker later
 - Shut the worker down explicitly when the flow is done
 
+### Claude critical notes
+
+These details are required for reliable Claude execution:
+- Include `description` on `Agent(...)` calls. Keep it short and concrete, usually 3-5 words.
+- Before the first `TeamCreate(...)` or `SendMessage(...)` in a session, run `ToolSearch({ query: "select:TeamCreate,SendMessage" })` so Claude loads the deferred teammate tools.
+- `SendMessage(...)` uses `message`, not `content`. When passing a plain string message, also include a short `summary`.
+- When dispatching multiple Claude review workers in parallel, send all `Agent(...)` calls in a single assistant response so Claude actually runs them together.
+- Persistent Claude workers often sit idle after planning. That is normal. Resume them with `SendMessage(...)`; do not treat idle state as failure.
+
 ### Short-lived review worker
 
 Use:
 
 ```text
-Agent(subagent_type=..., prompt=...)
+Agent(description=..., subagent_type=..., prompt=...)
 ```
 
 No `team_name`. The result returns directly to the orchestrator.
@@ -209,9 +218,10 @@ Avoid embedding Claude-only mechanics directly in flow docs unless the section i
 ### Claude persistent worker
 
 ```text
+ToolSearch({ query: "select:TeamCreate,SendMessage" })
 TeamCreate({ team_name: "dev-{slug}", description: "..." })
-Agent({ name: "dev-{slug}", team_name: "dev-{slug}", subagent_type: "pm:developer", prompt: "..." })
-SendMessage({ to: "dev-{slug}", message: "Resume for implementation..." })
+Agent({ name: "dev-{slug}", description: "Write plan", team_name: "dev-{slug}", subagent_type: "pm:developer", prompt: "..." })
+SendMessage({ to: "dev-{slug}", summary: "Resume implementation", message: "Resume for implementation..." })
 ```
 
 ### Codex delegated persistent worker

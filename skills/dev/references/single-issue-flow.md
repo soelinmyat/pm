@@ -56,9 +56,9 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | Groom readiness | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
 | Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
 | Spec review | — | — | Skip (from groom) or full (3 reviewers) | Skip (from groom) or full (3 reviewers) | Skip (from groom) or full (3 reviewers) |
-| Plan (persistent worker) | — | — | `dev-{slug}` writes plan, stops | `dev-{slug}` writes plan, stops | `dev-{slug}` writes plan, stops |
+| Plan (persistent worker) | — | — | Persistent worker writes plan, stops | Persistent worker writes plan, stops | Persistent worker writes plan, stops |
 | Plan review | — | — | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) |
-| Implement (same worker) | TDD | TDD | `dev-{slug}` resumes, inside-out TDD | `dev-{slug}` resumes, inside-out TDD | `dev-{slug}` resumes, inside-out TDD |
+| Implement (same worker) | TDD | TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD |
 | Simplify | `/simplify` | `/simplify` | `/simplify` | `/simplify` | `/simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
 | QA (persistent worker) | If UI (Quick, L1+3+4) | If UI (Focused, L1+3+4 or all 5) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) |

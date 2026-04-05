@@ -206,7 +206,7 @@ The agent already knows its methodology (token compliance, component reuse, typo
 
 ### Agent 5: Input Edge-Case Review (reviewer)
 
-Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. Prefer the stronger review model when the runtime supports model selection. Run **in parallel with Agents 1-4** when delegation is available; otherwise run the same brief inline:
+Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. In Claude, prefer `model: "opus"` or the strongest available review model. Run **in parallel with Agents 1-4** when delegation is available; otherwise run the same brief inline:
 
 ```
 prompt: |
