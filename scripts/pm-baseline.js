@@ -146,7 +146,7 @@ function buildBaseline(projectRoot) {
       "",
       "1. Enable analytics in `.claude/pm.local.md` with `analytics: true`.",
       "2. Run one or more PM workflows.",
-      '3. Re-run `node scripts/pm-baseline.js --project-dir "$PWD" --output pm/research/tracking-dogfooding/baseline.md`.',
+      '3. Re-run `node scripts/pm-baseline.js --project-dir "$PWD" --output pm/evidence/research/tracking-dogfooding/baseline.md`.',
       ""
     );
     return lines.join("\n");

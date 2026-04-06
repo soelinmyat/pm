@@ -27,8 +27,8 @@ If the feature type is UI or workflow:
 
 2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
    ```
-   %% Source: pm/research/{topic}/findings.md — Finding N: {description}
-   %% Source: pm/competitors/{slug}/features.md — {gap or pattern}
+   %% Source: pm/evidence/research/{topic}.md — Finding N: {description}
+   %% Source: pm/insights/competitors/{slug}/features.md — {gap or pattern}
    ```
 
 3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.
@@ -49,7 +49,7 @@ If the feature type is UI, generate a standalone HTML wireframe file:
 3. **Ground the wireframe in scope, research, and existing UI** (if `codebase_available: true`):
    - Component labels should match the terminology from the scope definition
    - Screen layout should reflect the user flow from Step 2a
-   - Add HTML comments citing sources: `<!-- Source: pm/research/{topic}/findings.md -->`
+   - Add HTML comments citing sources: `<!-- Source: pm/evidence/research/{topic}.md -->`
    - If the project has existing UI, scan for current layout patterns, navigation structure, component conventions, and design language. The wireframe should feel like a natural extension of the existing product, not a disconnected screen. Reference existing patterns: `<!-- Matches existing pattern in: {file path} -->`
 
 4. **Keep it lo-fi.** The wireframe communicates layout and component placement, not visual design:
@@ -84,7 +84,7 @@ Draft a structured issue set: one parent issue + child issues for discrete work.
 Each issue must contain:
    - **Outcome statement:** What changes for the user when this ships? (not a task description)
    - **Acceptance criteria:** Numbered list. Testable, specific. If `codebase_available: true`, ground ACs in actual code patterns — reference existing APIs, data models, or conventions that the AC must integrate with. ACs like "follows existing auth pattern in `src/middleware/auth.ts`" are more useful than abstract requirements.
-   - **Research links:** Paths to relevant findings in `pm/research/`.
+   - **Research links:** Paths to relevant findings in `pm/evidence/research/`.
    - **Customer evidence:** Include internal evidence count, affected segment, or source theme when available.
    - **Competitor context:** How competitors handle this, with specific references from Phase 3.
    - **Scope note:** Which in-scope items this issue covers.

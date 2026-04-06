@@ -2404,8 +2404,8 @@ function buildInsightDomainCards(pmDir) {
 
 /**
  * Resolve research_refs to topic labels.
- * research_refs can be paths like "pm/research/dashboard-linear-quality/findings.md"
- * or shorthand topic slugs.
+ * research_refs can be legacy research paths with a `/findings.md` suffix,
+ * layered evidence paths like "pm/evidence/research/dashboard-linear-quality.md", or shorthand topic slugs.
  */
 function resolveResearchRefs(refs, pmDir) {
   if (!Array.isArray(refs) || refs.length === 0) return [];

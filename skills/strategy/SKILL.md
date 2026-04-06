@@ -21,7 +21,7 @@ Minimum coverage for `pm:strategy`:
 
 ## Prerequisite Check
 
-Check if `pm/landscape.md` exists.
+Check if `pm/insights/business/landscape.md` exists.
 
 If it does NOT exist, say:
 
@@ -81,10 +81,10 @@ Rules:
 - Prefer multiple-choice when there is a natural set of options.
 - Start with Essentials. Move to Depth only if the user's answers are expansive.
 - If the user gives a short answer, accept it and move on — do not interrogate.
-- If `pm/landscape.md` exists, read it first. Use named competitors and market
+- If `pm/insights/business/landscape.md` exists, read it first. Use named competitors and market
   segments from it to make questions more specific (e.g., "How do you differ
   from [Competitor A] and [Competitor B]?" instead of "Who are your competitors?").
-- If `pm/research/` contains internal or mixed topic findings from `$pm-ingest`,
+- If `pm/evidence/research/` contains internal or mixed topic findings from `$pm-ingest`,
   use them to sharpen ICP, segmentation, priorities, and non-goals. Customer
   evidence should influence strategy when available.
 - After Essentials are complete, ask: "Want to go deeper on any area, or is

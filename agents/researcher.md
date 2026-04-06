@@ -61,7 +61,7 @@ Before starting work, check for user instructions:
 
 ## Output: Five Files
 
-Write all output to `pm/competitors/{slug}/`:
+Write all output to `pm/insights/competitors/{slug}/`:
 
 1. **`profile.md`** — Company overview, positioning, pricing table, stated strengths/weaknesses
 2. **`features.md`** — Product capabilities by domain, changelog highlights, gaps
@@ -78,9 +78,9 @@ Each file must include frontmatter with:
 
 ## Scope Boundary
 
-**Do NOT write to `pm/competitors/index.md`.** The parent research skill owns the index and will aggregate all competitor profiles after you finish.
+**Do NOT write to `pm/insights/competitors/index.md`.** The parent research skill owns the index and will aggregate all competitor profiles after you finish.
 
-Write only to your assigned `pm/competitors/{slug}/` directory.
+Write only to your assigned `pm/insights/competitors/{slug}/` directory.
 
 ## Quality Standards
 
@@ -119,7 +119,7 @@ Network errors, rate limits, and provider errors are expected; they do not preve
 - **WebSearch** — Broad searches for competitors, market position, recent news
 - **WebFetch** — Fetch marketing sites, support docs, API docs, help centers, review site content
 - **Read** — Read methodology files and existing research in `pm/`
-- **Write** — Write the five output files to `pm/competitors/{slug}/`
+- **Write** — Write the five output files to `pm/insights/competitors/{slug}/`
 - **Bash** — Invoke `scripts/seo-provider.js` for SEO data; may fail gracefully
 
 You do NOT need Edit, Glob, or Grep.
@@ -130,11 +130,11 @@ After writing all five files, list them with a brief summary:
 
 ```
 Profiling complete. Written files:
-- pm/competitors/{slug}/profile.md — {summary}
-- pm/competitors/{slug}/features.md — {summary}
-- pm/competitors/{slug}/api.md — {summary}
-- pm/competitors/{slug}/seo.md — {summary}
-- pm/competitors/{slug}/sentiment.md — {summary}
+- pm/insights/competitors/{slug}/profile.md — {summary}
+- pm/insights/competitors/{slug}/features.md — {summary}
+- pm/insights/competitors/{slug}/api.md — {summary}
+- pm/insights/competitors/{slug}/seo.md — {summary}
+- pm/insights/competitors/{slug}/sentiment.md — {summary}
 ```
 
 ## Dispatch Threshold

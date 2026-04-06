@@ -28,21 +28,34 @@ Minimum coverage for `pm:refresh`:
 |---|---|
 | _(no arg)_ | Full audit — scan everything, present report, user picks |
 | `seo` | Scoped: SEO files only (all `*/seo.md` + landscape keyword sections) |
-| `landscape` | Scoped: `pm/landscape.md` only |
-| `topics` | Scoped: all `pm/research/*/findings.md` |
-| `{slug}` | Scoped: all 5 files for one competitor |
+| `landscape` | Scoped: `pm/insights/business/landscape.md` only |
+| `topics` | Scoped: all `pm/evidence/research/*.md` |
+| `{domain}` | Scoped: all refreshable files within a discovered insights domain |
+| `{domain}/{slug}` | Scoped: one discovered insight file or competitor folder |
+| `{slug}` | Backward-compatible shorthand for `competitors/{slug}` when that competitor exists |
 
 All paths hit the cost guardrail before executing.
 
-**Slug validation:** If the argument does not match `seo`, `landscape`, `topics`, or a directory under `pm/competitors/`, show: "No competitor found with slug '{slug}'. Available: {list of existing slugs}."
+### Domain Discovery
+
+Discover available insight domains by scanning `pm/insights/*/index.md`.
+
+Rules:
+- Treat every matching directory name as a valid domain (`business`, `competitors`, `product`, `developer-experience`, etc.).
+- Do not hardcode the domain list.
+- For `{domain}` scope: refresh the domain index plus refreshable markdown files directly under that domain.
+- For `{domain}/{slug}` scope:
+  - if `pm/insights/{domain}/{slug}.md` exists, target that single file
+  - if `pm/insights/{domain}/{slug}/` exists, target the files within that directory
+- If the argument does not resolve, show the discovered domains and any valid competitor slugs.
 
 ### Scope
 
 **In scope:**
-- `pm/landscape.md`
-- `pm/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
-- `pm/competitors/index.md` and `pm/competitors/matrix.md` (synthesis — regenerated after individual profiles refresh)
-- `pm/research/{topic}/findings.md` — **origin-aware** (see Topic Research Rules below)
+- `pm/insights/business/landscape.md`
+- `pm/insights/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
+- discovered domain indexes at `pm/insights/*/index.md`
+- `pm/evidence/research/{topic}.md` — **origin-aware** (see Topic Research Rules below)
 
 **Out of scope:**
 - `pm/strategy.md` — created via interactive interview. Use `$pm-strategy` to update.
@@ -80,7 +93,7 @@ If `source_origin` is absent, treat as `external`.
 | Landscape | `landscape.md` | 90 days |
 | Features | `*/features.md` | 90 days |
 | API | `*/api.md` | 90 days |
-| Topic research | `research/*/findings.md` | 90 days |
+| Topic research | `pm/evidence/research/*.md` | 90 days |
 
 Defaults are hardcoded. Override in `.pm/config.json` under `refresh.thresholds`:
 
@@ -138,7 +151,7 @@ Before starting work, check for user instructions:
 
 Before checking staleness, verify that each competitor directory has all 5 expected files:
 
-For each directory under `pm/competitors/*/`:
+For each directory under `pm/insights/competitors/*/`:
 - Check for: `profile.md`, `features.md`, `api.md`, `seo.md`, `sentiment.md`
 - Classify missing files as **[Missing]** (distinct from Incomplete or Stale)
 - Include missing files in the audit report with: `[Missing] {slug}/{file} — never created`
@@ -167,7 +180,7 @@ Scan all in-scope `pm/` files with frontmatter. For each file:
 | sentiment.md | Fixed h2 headings | Overall Sentiment, Top Praise Themes, Top Complaint Themes, High-Severity Signals, Support Quality Signals, Churn Signals, Feature Requests (recurring), Reddit / Community Signals, Analyst Notes |
 | features.md | **Age only** | Domain sections vary per competitor. Only check fixed sections: Recent Changelog Highlights, Capability Gaps |
 | landscape.md | Fixed h2 headings | Market Overview, Key Players, Keyword Landscape, Market Segments, Initial Observations |
-| topic findings.md | Fixed h2 headings | Summary, Findings, Representative Quotes (conditional — only if internal evidence exists), Strategic Relevance, Implications, Open Questions, Source References |
+| topic research `.md` | Fixed h2 headings | Summary, Findings, Representative Quotes (conditional — only if internal evidence exists), Strategic Relevance, Implications, Open Questions, Source References |
 
 For SEO, map Ahrefs tools to expected sections:
 
@@ -212,7 +225,8 @@ Present grouped by type. Show all files, visually distinguish status:
 
 ### Synthesis Files
   [Stale if any competitor updated] competitors/index.md
-  [Stale if any competitor updated] competitors/matrix.md
+  [Stale if any business insight updated] business/index.md
+  [Stale if any research topic updated] evidence/index.md
 
 Estimated API calls: ~{N} Ahrefs calls + ~{W} web search rounds
 Proceed with all non-fresh items? Or select specific items?
@@ -261,6 +275,7 @@ All updates are patches. Existing content is never deleted or overwritten withou
 - Insert new sections in their canonical position relative to existing sections. Find the nearest existing section that comes after the insertion point in the methodology template and insert before it. If no later section exists, append before any user-added custom sections or at the end of the file.
 - Do not modify any existing sections.
 - Add/update `refreshed:` date in frontmatter.
+- Append the successfully refreshed file to the matching domain or evidence `log.md`.
 
 **Stale files (past threshold):**
 - Re-run data collection for existing methodology-defined sections.
@@ -284,6 +299,7 @@ All updates are patches. Existing content is never deleted or overwritten withou
 - In **auto-accept mode**: apply all changes, log them for the summary.
 - User-written analysis paragraphs (non-tabular content under a section) are never modified unless the user explicitly approves in interactive mode.
 - Add/update `refreshed:` date in frontmatter.
+- Append the successfully refreshed file to the matching domain or evidence `log.md`.
 
 **Fresh files:**
 - Skip unless user explicitly selects them.
@@ -327,7 +343,7 @@ RULES:
 - For STALE files: re-run data collection for existing sections. {If interactive: present diffs to user for approval before writing. If auto-accept: apply changes and report what changed.}
 - Add 'refreshed: {today}' to frontmatter. Never modify 'profiled:' or 'created:'.
 - Preserve all user-added custom sections (sections not in the methodology template).
-- Write only to pm/competitors/{slug}/. Do NOT touch index.md or matrix.md.
+- Write only to pm/insights/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
 - Follow methodology in skills/research/competitor-profiling.md for section content.
 - If an Ahrefs call fails, log the error and continue."
 ```
@@ -338,11 +354,12 @@ Parent skill handles: audit report, trust level selection, synthesis files, and 
 
 After individual competitor files are refreshed, regenerate synthesis files:
 
-1. **`pm/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
-2. **`pm/competitors/matrix.md`** — re-read all features.md files, rebuild the comparison table.
-3. Update the **Market Gaps** section in index.md based on refreshed capability data.
+1. **`pm/insights/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
+2. Update the **Market Gaps** and any synthesized comparison content in `pm/insights/competitors/index.md` based on refreshed capability data.
+3. If topic research files were refreshed, update `pm/evidence/research/index.md` and `pm/evidence/index.md`.
+4. Append touched files to the matching domain or evidence `log.md`.
 
-Only run this step if at least one competitor file was updated during the refresh.
+Only run the relevant index and log sync steps for domains or evidence pools that were actually updated during the refresh.
 
 ### Cost Guardrail
 
@@ -385,7 +402,7 @@ After execution, show what changed:
 
 ### Synthesis ({N} files)
   competitors/index.md — updated refreshed dates
-  competitors/matrix.md — rebuilt feature comparison
+  evidence/index.md — synced research evidence entries
 
 ### Unchanged ({N} files)
   landscape.md — all sections present and fresh
@@ -407,7 +424,7 @@ After execution, show what changed:
 7. **File has user-added custom sections:** Preserve them. Only patch/append methodology-defined sections.
 8. **Slug not found:** Error with list of available slugs.
 9. **features.md section detection:** Only check fixed sections (Recent Changelog Highlights, Capability Gaps). Domain sections vary — age-only staleness.
-10. **Synthesis files with no competitor updates:** Skip index.md/matrix.md refresh.
+10. **Synthesis files with no domain updates:** Skip index/log refresh for that domain.
 11. **Interrupted refresh:** Each file is self-contained. Only write `refreshed:` after successfully updating that file. Safe to re-run after interruption.
 12. **`.pm/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.

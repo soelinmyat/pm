@@ -11,7 +11,7 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 2. Key questions to answer:
    - How do competitors handle this? (UI patterns, feature depth, limitations)
    - What do users expect based on reviews and community signals?
-   - What does internal customer evidence in `pm/research/` say, if `$pm-ingest` has been used?
+   - What does internal customer evidence in `pm/evidence/research/` say, if `$pm-ingest` has been used?
    - Is there a market signal validating this is a real problem?
 
 3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
@@ -20,5 +20,5 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 
 ```yaml
 phase: research
-research_location: pm/research/{topic-slug}/
+research_location: pm/evidence/research/{topic-slug}.md
 ```

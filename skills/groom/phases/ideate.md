@@ -14,9 +14,9 @@ Ideas are early-stage backlog items. They live in `pm/backlog/` with `status: id
    > "No strategy doc found. Ideation without strategy is just brainstorming. Run /pm:strategy first?"
    Wait for response. Do not block — proceed if the user insists.
 
-2. Check if `pm/landscape.md` exists. Note its presence for signal mining. Not required.
+2. Check if `pm/insights/business/landscape.md` exists. Note its presence for signal mining. Not required.
 
-3. Check if `pm/competitors/index.md` exists. Note profiled competitors. Not required.
+3. Check if `pm/insights/competitors/index.md` exists. Note profiled competitors. Not required.
 
 ---
 
@@ -28,13 +28,13 @@ Read all available sources before generating ideas. Each idea must trace back to
 |---|---|---|
 | Strategy priorities | `pm/strategy.md` § 6 | Top 3 priorities — ideas should advance these |
 | Strategy non-goals | `pm/strategy.md` § 7 | Filter out ideas that conflict |
-| Market gaps | `pm/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
-| Feature matrix | `pm/competitors/matrix.md` | Cells where the product shows "No" or "Planned" |
-| Competitor weaknesses | `pm/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
-| Landscape observations | `pm/landscape.md` § Initial Observations | Whitespace and macro trends |
-| Keyword opportunities | `pm/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
-| Customer evidence | `pm/research/index.md` | Internal/mixed topics with high evidence counts |
-| Topic research | `pm/research/*/findings.md` | Open questions and implications |
+| Market gaps | `pm/insights/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
+| Feature matrix | `pm/insights/competitors/index.md` | Cells where the product shows "No" or "Planned" |
+| Competitor weaknesses | `pm/insights/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
+| Landscape observations | `pm/insights/business/landscape.md` § Initial Observations | Whitespace and macro trends |
+| Keyword opportunities | `pm/insights/business/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
+| Customer evidence | `pm/evidence/research/index.md` | Internal/mixed topics with high evidence counts |
+| Topic research | `pm/evidence/research/*.md` | Open questions and implications |
 | Existing backlog | `pm/backlog/*.md` | Avoid duplicating what's already there |
 
 ---
@@ -49,7 +49,7 @@ Read strategy, feature matrix, and codebase (if present). Without this step, ide
 </HARD-GATE>
 
 1. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
-2. **Read the feature matrix** — `pm/competitors/matrix.md` shows what the product already does.
+2. **Read the feature matrix** — `pm/insights/competitors/index.md` shows what the product already does.
 3. **Explore the project codebase (if one exists)** — scan source code to catalog existing capabilities. If no codebase exists, rely on strategy and the feature matrix.
 
 **Comprehension check:** Before proceeding, state: (a) the top 3 priorities, (b) the 3 most relevant competitive gaps, and (c) 1 customer evidence signal if available.
