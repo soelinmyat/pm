@@ -61,14 +61,82 @@ test("buildStatus treats an initialized empty workspace as first-workflow ready"
   }
 });
 
+test("buildStatus recognizes a layered KB workspace without config", () => {
+  const project = createProject();
+  try {
+    project.write("pm/insights/custom/index.md", "");
+    project.write("pm/insights/custom/log.md", "");
+    project.write(
+      "pm/insights/custom/voice-of-customer.md",
+      [
+        "---",
+        "type: insight",
+        "domain: custom",
+        "topic: Voice of Customer",
+        "last_updated: 2026-04-01",
+        "status: active",
+        "confidence: medium",
+        "sources:",
+        "  - evidence/research/voice-of-customer.md",
+        "---",
+        "# Voice of Customer",
+        "",
+      ].join("\n")
+    );
+    project.write("pm/evidence/index.md", "");
+    project.write("pm/evidence/log.md", "");
+    project.write("pm/evidence/research/index.md", "");
+    project.write("pm/evidence/research/log.md", "");
+    project.write(
+      "pm/evidence/research/voice-of-customer.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "source_origin: external",
+        "created: 2026-04-01",
+        "sources: []",
+        "cited_by:",
+        "  - insights/custom/voice-of-customer.md",
+        "---",
+        "# Voice of Customer",
+        "",
+      ].join("\n")
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.initialized, true);
+    assert.equal(status.focus, "all fresh");
+    assert.equal(status.next, "/pm:strategy");
+    assert.equal(status.counts.insights, 1);
+    assert.equal(status.counts.evidence, 1);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("buildStatus prioritizes active bug-fix sessions over generic lifecycle suggestions", () => {
   const project = createProject();
   try {
     project.mkdir("pm");
     project.write(".pm/config.json", '{"config_schema":1}');
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
     project.write(
-      "pm/research/checkout/findings.md",
-      "---\nupdated: 2026-02-01\n---\n# Checkout\n"
+      "pm/insights/product/checkout.md",
+      [
+        "---",
+        "type: insight",
+        "domain: product",
+        "topic: Checkout",
+        "last_updated: 2026-02-01",
+        "status: active",
+        "confidence: medium",
+        "sources: []",
+        "---",
+        "# Checkout",
+        "",
+      ].join("\n")
     );
     project.write(
       "pm/backlog/idea-item.md",
@@ -155,9 +223,23 @@ test("renderTextStatus includes alternative actions when available", () => {
   try {
     project.mkdir("pm");
     project.write(".pm/config.json", '{"config_schema":1}');
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
     project.write(
-      "pm/research/checkout/findings.md",
-      "---\nupdated: 2026-03-25\n---\n# Checkout\n"
+      "pm/insights/product/checkout.md",
+      [
+        "---",
+        "type: insight",
+        "domain: product",
+        "topic: Checkout",
+        "last_updated: 2026-03-25",
+        "status: active",
+        "confidence: medium",
+        "sources: []",
+        "---",
+        "# Checkout",
+        "",
+      ].join("\n")
     );
 
     const status = buildStatus(project.root);
@@ -167,6 +249,42 @@ test("renderTextStatus includes alternative actions when available", () => {
     assert.deepEqual(status.alternatives, ["/pm:groom ideate"]);
     assert.match(rendered, /Next: \/pm:strategy/);
     assert.match(rendered, /Also: \/pm:groom ideate/);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus prefers layered KB counts when legacy directories still exist", () => {
+  const project = createProject();
+  try {
+    project.write("pm/insights/business/index.md", "");
+    project.write("pm/insights/business/log.md", "");
+    project.write(
+      "pm/insights/business/landscape.md",
+      [
+        "---",
+        "type: insight",
+        "domain: business",
+        "topic: Landscape",
+        "last_updated: 2026-04-02",
+        "status: active",
+        "confidence: high",
+        "sources: []",
+        "---",
+        "# Landscape",
+        "",
+      ].join("\n")
+    );
+    project.write(
+      "pm/research/legacy-topic/findings.md",
+      "---\nupdated: 2026-02-01\n---\n# Legacy Topic\n"
+    );
+    project.write("pm/competitors/legacy/profile.md", "---\nupdated: 2026-02-01\n---\n# Legacy\n");
+
+    const status = buildStatus(project.root);
+    assert.equal(status.counts.insights, 1);
+    assert.equal(status.counts.evidence, 0);
+    assert.equal(status.counts.stale, 0);
   } finally {
     project.cleanup();
   }

@@ -97,18 +97,35 @@ Get the user to value quickly. Do not front-load integration questions.
 
 ### Step 1: Create Folder Structure
 
-Create the following directories. Do not create markdown artifacts yet.
+Create the layered KB folders and the empty index/log artifacts that go with them.
 
 ```bash
-mkdir -p pm/competitors
-mkdir -p pm/research
+mkdir -p pm/insights/{product,competitors,business}
+mkdir -p pm/evidence/{research,transcripts,user-feedback}
 mkdir -p pm/backlog
 mkdir -p pm/thinking
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
 mkdir -p .pm/dev-sessions
+
+touch pm/insights/product/index.md
+touch pm/insights/product/log.md
+touch pm/insights/competitors/index.md
+touch pm/insights/competitors/log.md
+touch pm/insights/business/index.md
+touch pm/insights/business/log.md
+touch pm/evidence/index.md
+touch pm/evidence/log.md
+touch pm/evidence/research/index.md
+touch pm/evidence/research/log.md
+touch pm/evidence/transcripts/index.md
+touch pm/evidence/transcripts/log.md
+touch pm/evidence/user-feedback/index.md
+touch pm/evidence/user-feedback/log.md
 ```
+
+Default insight domains are `product`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
 
 ### Step 2: Gitignore
 
@@ -223,9 +240,9 @@ This script is the shared source of truth used by the runtime hook and should de
 
 - Any active delivery work (`dev`, `epic`, `bugfix`) → resume that work
 - Active grooming work → resume `pm:groom`
-- No durable work yet (no landscape, no strategy, no topic research, no competitors, no backlog) → go back to the first-workflow selector from Bootstrap Mode
-- Missing strategy with research already present → `pm:strategy`
-- Stale research → `pm:refresh`
+- No durable work yet (no strategy, no insights, no evidence, no backlog) → go back to the first-workflow selector from Bootstrap Mode
+- Missing strategy with insights or evidence already present → `pm:strategy`
+- Stale insights or evidence → `pm:refresh`
 - Idea-heavy backlog → `pm:groom`
 - Otherwise → stay in Pulse Mode and let the user choose
 
@@ -272,8 +289,8 @@ Use this when the project is initialized but there is no active work to resume a
 
 The behavior is the same as Resume Mode, except the recommendation should bias toward the next useful lane:
 
-- `pm:strategy` when research exists but strategy is missing
-- `pm:refresh` when research is stale
+- `pm:strategy` when insights or evidence exist but strategy is missing
+- `pm:refresh` when insights or evidence are stale
 - `pm:groom` when backlog discovery is the best next move
 - First-workflow selector when the workspace exists but is still effectively empty
 
