@@ -1,5 +1,5 @@
 ---
-description: "Import customer evidence from a file or folder path, normalize it into .pm/, and update shared research artifacts in pm/research/."
+description: "Import customer evidence from a file or folder path, normalize it into .pm/, and update shared evidence artifacts under pm/evidence/."
 argument-hint: "<path>"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, audio recordings, or other local evidence. Normalizes records into .pm/ and updates shared research artifacts in pm/research/."
+description: "Use when importing customer evidence from files or folders: support exports, interview notes, sales call notes, feature request CSVs, audio recordings, or other local evidence. Normalizes records into .pm/ and updates shared evidence artifacts under pm/evidence/."
 ---
 
 # pm:ingest
@@ -19,7 +19,7 @@ Import customer evidence into PM.
 
 It does two things in one workflow:
 1. Normalize raw evidence into `.pm/`
-2. Update durable research artifacts in `pm/research/`
+2. Update durable evidence artifacts in `pm/evidence/`
 
 The user should think: "I have customer evidence. Ingest it."
 
@@ -48,8 +48,9 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 If the folders do not exist yet, bootstrap the minimum structure automatically:
 
 ```bash
-mkdir -p pm/research
+mkdir -p pm/evidence/research
 mkdir -p pm/evidence/transcripts
+mkdir -p pm/evidence/user-feedback
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
@@ -346,7 +347,7 @@ Use full rebuild as the fallback when incremental state is ambiguous.
 
 <HARD-GATE>
 Synthesis is required after normalization. Do NOT skip because the record count is small.
-Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches pm/research/ — invisible to downstream skills.
+Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches pm/evidence/research/ — invisible to downstream skills.
 </HARD-GATE>
 
 Cluster records into **problem clusters**, not just filenames or raw keywords.
@@ -380,51 +381,71 @@ Write durable outputs into the existing shared knowledge base:
 
 ```text
 pm/
-  research/
+  evidence/
     index.md
-    bulk-editing/
-      findings.md
+    log.md
+    research/
+      index.md
+      log.md
+      bulk-editing.md
+    transcripts/
+      log.md
+    user-feedback/
+      log.md
 ```
 
-`$pm-ingest` and `$pm-research` share this structure.
+`$pm-ingest` and `$pm-research` share the `evidence/research/` pool. `$pm-ingest` also owns evidence-side pool bookkeeping.
 
-### `pm/research/index.md`
+After every successful write, update the relevant indexes and append touched paths to the matching logs:
+- `pm/evidence/index.md`
+- `pm/evidence/log.md`
+- `pm/evidence/research/index.md` and `pm/evidence/research/log.md` when a research topic changes
+- `pm/evidence/transcripts/log.md` when a transcript file changes
+- `pm/evidence/user-feedback/log.md` when normalized feedback artifacts are emitted there
 
-Use a unified table:
+### `pm/evidence/index.md`
+
+Keep the top-level evidence index current. It is the shared entry point for all evidence pools.
+
+Rules:
+- Ensure the touched pool is represented under the correct section (`Research Evidence`, `Other Evidence Pools`, or future pool sections).
+- Add or update the topic bullet when a research artifact changes.
+- Preserve unrelated bullets and pool descriptions.
+- Never remove another skill's entry unless the underlying file was intentionally deleted.
+
+### `pm/evidence/research/index.md`
+
+Keep the research pool index current:
 
 ```markdown
----
-type: research-index
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
----
+# Index
 
-# Research Index
-
-| Topic | Origin | Evidence | Summary | Updated |
-|---|---|---:|---|---|
-| Bulk editing | internal | 17 records | Users need batch operations for repetitive workflows | 2026-03-12 |
-| AI pricing models | external | 3 sources | Dynamic pricing is table-stakes but underserved | 2026-03-11 |
-| Onboarding friction | mixed | 8 records, 2 sources | SMB accounts struggle without guided setup | 2026-03-12 |
+| Topic/Source | Description | Updated | Status |
+|---|---|---|---|
+| [bulk-editing.md](bulk-editing.md) | Bulk Editing | 2026-03-12 | internal |
+| [ai-pricing-models.md](ai-pricing-models.md) | AI Pricing Models | 2026-03-11 | external |
+| [onboarding-friction.md](onboarding-friction.md) | Onboarding Friction | 2026-03-12 | mixed |
 ```
 
 Rules:
-- `Origin` is `internal`, `external`, or `mixed`
-- `Evidence` is record count for internal, source count for external, or both for mixed
+- `Status` is `internal`, `external`, or `mixed`
+- `Updated` should reflect the topic file's most recent evidence-aware date
 - update only the row for the topic you touched
 - never delete another skill's row content
 
-### `pm/research/{slug}/findings.md`
+### `pm/evidence/research/{slug}.md`
 
 Use this unified schema:
 
 ```markdown
 ---
-type: topic-research
+type: evidence
+evidence_type: research
 topic: Bulk Editing
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 source_origin: internal|external|mixed
+cited_by: []
 sources:
   - label: support-export.csv
     rows: [12, 14, 31]
@@ -469,6 +490,7 @@ Ownership rules:
 - `source_origin`: set to `mixed` when both internal and external evidence exist
 - `sources`: append your source refs; do not remove the other skill's refs
 - `evidence_count`, `segments`, `confidence`: owned by `$pm-ingest`
+- `cited_by`: preserve existing values unless another workflow updates them separately
 - `Summary`: rewrite to incorporate both internal and external evidence
 - `Findings`: append your own numbered findings prefixed `[internal]`
 - `Representative Quotes`: owned by `$pm-ingest`

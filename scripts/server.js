@@ -3,6 +3,7 @@ const http = require("http");
 const net = require("net");
 const fs = require("fs");
 const path = require("path");
+const { normalizeKbPath, parseFrontmatter } = require("./kb-frontmatter.js");
 const { buildStatus } = require("./start-status.js");
 
 // ========== WebSocket Protocol (RFC 6455) ==========
@@ -177,104 +178,6 @@ function parseMode(argv) {
 }
 
 // ========== YAML Frontmatter Parser ==========
-
-/**
- * Parse YAML frontmatter from a markdown file content string.
- * Handles three shapes:
- *   1. Flat key-value:  key: value
- *   2. Scalar arrays:   key:\n  - item
- *   3. Array of objects: key:\n  - field: val\n    field2: val2
- *
- * Returns { data: {}, body: '...' }
- */
-function parseFrontmatter(content) {
-  const FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
-  const match = content.match(FM_RE);
-  if (!match) return { data: {}, body: content };
-
-  const rawYaml = match[1];
-  const body = match[2] || "";
-  const data = {};
-
-  const lines = rawYaml.split("\n");
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Skip empty lines
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-
-    // Top-level key (not indented, not a list item)
-    const keyMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-    if (!keyMatch) {
-      i++;
-      continue;
-    }
-
-    const key = keyMatch[1];
-    const inlineVal = keyMatch[2].trim();
-
-    if (inlineVal !== "") {
-      // Flat key-value — strip surrounding quotes
-      data[key] = inlineVal.replace(/^["'](.*)["']$/, "$1");
-      i++;
-      continue;
-    }
-
-    // No inline value — check if next lines are array items
-    const items = [];
-    i++;
-    while (i < lines.length) {
-      const next = lines[i];
-      // Check if this is an indented list item (scalar or object start)
-      const scalarItemMatch = next.match(/^[ \t]+-\s+([^:\n]+)$/);
-      const objItemMatch = next.match(/^[ \t]+-\s+([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-      const contObjMatch = next.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-
-      if (objItemMatch) {
-        // Start of an object item
-        const obj = {};
-        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
-        i++;
-        // Collect continuation lines for this object
-        while (i < lines.length) {
-          const cont = lines[i];
-          const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-          if (contMatch && !cont.match(/^[ \t]+-\s/)) {
-            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
-            i++;
-          } else {
-            break;
-          }
-        }
-        items.push(obj);
-      } else if (scalarItemMatch) {
-        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, "$1"));
-        i++;
-      } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === "object") {
-        // Continuation of last object (shouldn't normally reach here but be safe)
-        items[items.length - 1][contObjMatch[1]] = contObjMatch[2]
-          .trim()
-          .replace(/^["'](.*)["']$/, "$1");
-        i++;
-      } else {
-        // No more items for this key
-        break;
-      }
-    }
-
-    if (items.length > 0) {
-      data[key] = items;
-    }
-    // (if items.length === 0 and no inline val, key is null/undefined — skip)
-  }
-
-  return { data, body };
-}
 
 // ========== Simple Markdown-to-HTML Renderer ==========
 
@@ -2172,6 +2075,39 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404);
       res.end("Not found");
     }
+  } else if (urlPath === "/insights") {
+    res.writeHead(302, { Location: "/kb" });
+    res.end();
+  } else if (urlPath === "/insights/competitors") {
+    handleKbCompetitorsDetail(res, pmDir);
+  } else if (urlPath === "/insights/business/landscape") {
+    handleKbLandscapeDetail(res, pmDir);
+  } else if (urlPath.startsWith("/insights/")) {
+    const rest = decodeURIComponent(urlPath.slice("/insights/".length)).replace(/\/$/, "");
+    const segments = rest.split("/").filter(Boolean);
+    if (segments.length === 1 && !segments[0].includes("..")) {
+      handleInsightDomainDetail(res, pmDir, segments[0]);
+    } else if (
+      segments.length === 2 &&
+      !segments[0].includes("..") &&
+      !segments[1].includes("..")
+    ) {
+      if (segments[0] === "competitors") {
+        handleCompetitorDetail(res, pmDir, segments[1]);
+      } else if (segments[0] === "business" && segments[1] === "landscape") {
+        handleKbLandscapeDetail(res, pmDir);
+      } else {
+        handleInsightDocumentDetail(res, pmDir, segments[0], stripMdExtension(segments[1]));
+      }
+    } else {
+      res.writeHead(404);
+      res.end("Not found");
+    }
+  } else if (urlPath === "/evidence") {
+    res.writeHead(302, { Location: "/kb" });
+    res.end();
+  } else if (urlPath === "/evidence/research") {
+    handleKbTopicsDetail(res, pmDir);
   } else if (urlPath.startsWith("/competitors/")) {
     const slug = urlPath.slice("/competitors/".length).replace(/\/$/, "");
     if (slug && !slug.includes("/") && !slug.includes("..")) {
@@ -2186,6 +2122,16 @@ function routeDashboard(req, res, pmDir) {
       .replace(/\.md$/, "");
     if (slug && !slug.includes("/") && !slug.includes("..")) {
       handleTranscriptPage(res, pmDir, slug);
+    } else {
+      res.writeHead(404);
+      res.end("Not found");
+    }
+  } else if (urlPath.startsWith("/evidence/research/")) {
+    const topic = decodeURIComponent(urlPath.slice("/evidence/research/".length))
+      .replace(/\/$/, "")
+      .replace(/\.md$/, "");
+    if (topic && !topic.includes("/") && !topic.includes("..")) {
+      handleResearchTopic(res, pmDir, topic);
     } else {
       res.writeHead(404);
       res.end("Not found");
@@ -2317,21 +2263,166 @@ function humanizeSlug(slug) {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function stripMdExtension(value) {
+  return String(value || "").replace(/\.md$/i, "");
+}
+
+function getResearchEvidenceDir(pmDir) {
+  return path.join(pmDir, "evidence", "research");
+}
+
+function getLegacyResearchDir(pmDir) {
+  return path.join(pmDir, "research");
+}
+
+function getTopicFilePath(pmDir, slug) {
+  const layeredPath = path.join(getResearchEvidenceDir(pmDir), slug + ".md");
+  if (fs.existsSync(layeredPath)) return layeredPath;
+  const legacyPath = path.join(getLegacyResearchDir(pmDir), slug, "findings.md");
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  return layeredPath;
+}
+
+function listResearchTopicFiles(pmDir) {
+  const topics = new Map();
+  const layeredDir = getResearchEvidenceDir(pmDir);
+  if (fs.existsSync(layeredDir)) {
+    const files = fs
+      .readdirSync(layeredDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .filter((entry) => entry.name !== "index.md" && entry.name !== "log.md");
+    for (const entry of files) {
+      const slug = stripMdExtension(entry.name);
+      topics.set(slug, { slug, filePath: path.join(layeredDir, entry.name) });
+    }
+  }
+
+  const legacyDir = getLegacyResearchDir(pmDir);
+  if (fs.existsSync(legacyDir)) {
+    const dirs = fs
+      .readdirSync(legacyDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory());
+    for (const entry of dirs) {
+      if (topics.has(entry.name)) continue;
+      const findingsPath = path.join(legacyDir, entry.name, "findings.md");
+      if (fs.existsSync(findingsPath)) {
+        topics.set(entry.name, { slug: entry.name, filePath: findingsPath });
+      }
+    }
+  }
+
+  return Array.from(topics.values());
+}
+
+function getCompetitorsDir(pmDir) {
+  const layeredDir = path.join(pmDir, "insights", "competitors");
+  if (fs.existsSync(layeredDir)) return layeredDir;
+  return path.join(pmDir, "competitors");
+}
+
+function getLandscapePath(pmDir) {
+  const layeredPath = path.join(pmDir, "insights", "business", "landscape.md");
+  if (fs.existsSync(layeredPath)) return layeredPath;
+  return path.join(pmDir, "landscape.md");
+}
+
+function getInsightIndexPath(pmDir, domain) {
+  return path.join(pmDir, "insights", domain, "index.md");
+}
+
+function listInsightDomains(pmDir) {
+  const insightsDir = path.join(pmDir, "insights");
+  if (!fs.existsSync(insightsDir)) return [];
+  return fs
+    .readdirSync(insightsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const indexPath = getInsightIndexPath(pmDir, entry.name);
+      return fs.existsSync(indexPath) ? { slug: entry.name, indexPath } : null;
+    })
+    .filter(Boolean);
+}
+
+function extractMarkdownParagraphs(body) {
+  return body.split(/\n\n/).filter((paragraph) => {
+    const trimmed = paragraph.trim();
+    if (!trimmed || /^#{1,6}\s/.test(trimmed)) return false;
+    if (/^\|/.test(trimmed)) return false;
+    if (/^<!--[\s\S]*-->$/.test(trimmed.replace(/\n/g, ""))) return false;
+    if (/^(<!--.*-->\s*)+$/.test(trimmed.replace(/\n/g, " "))) return false;
+    return true;
+  });
+}
+
+function extractMarkdownSummary(body, maxLength) {
+  const firstParagraph = extractMarkdownParagraphs(body)[0] || "";
+  return firstParagraph
+    .replace(/\n/g, " ")
+    .replace(/[*_`#]/g, "")
+    .replace(/<!--.*?-->/g, "")
+    .trim()
+    .slice(0, maxLength || 200);
+}
+
+function extractMarkdownTitle(body, fallback) {
+  const titleMatch = body.match(/^#\s+(.+)/m);
+  return titleMatch ? titleMatch[1].trim() : fallback;
+}
+
+function buildInsightDomainCards(pmDir) {
+  const domains = listInsightDomains(pmDir).filter(
+    (domain) => domain.slug !== "business" && domain.slug !== "competitors"
+  );
+  if (domains.length === 0) return "";
+
+  const cards = domains
+    .map((domain) => {
+      const raw = fs.readFileSync(domain.indexPath, "utf-8");
+      const { body } = parseFrontmatter(raw);
+      const label = extractMarkdownTitle(body, humanizeSlug(domain.slug));
+      const summary = extractMarkdownSummary(body, 180);
+      const docCount = fs
+        .readdirSync(path.dirname(domain.indexPath), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+        .filter((entry) => entry.name !== "index.md" && entry.name !== "log.md").length;
+      const stale = stalenessInfo(getNewestUpdated(path.dirname(domain.indexPath)));
+      return `<article class="card">
+  <h3><a href="/insights/${escHtml(domain.slug)}">${escHtml(label)}</a></h3>
+  <p class="meta">${escHtml(summary || `${docCount} document${docCount === 1 ? "" : "s"}`)}</p>
+  <div class="card-footer">
+    ${stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : ""}
+    <a href="/insights/${escHtml(domain.slug)}" class="view-link">View &rarr;</a>
+  </div>
+</article>`;
+    })
+    .join("");
+
+  return `<div class="card-grid">${cards}</div>`;
+}
+
 // ========== Shipped Enrichment Helpers ==========
 
 /**
  * Resolve research_refs to topic labels.
- * research_refs can be paths like "pm/research/dashboard-linear-quality/findings.md"
- * or shorthand topic slugs.
+ * research_refs can be legacy research paths with a `/findings.md` suffix,
+ * layered evidence paths like "pm/evidence/research/dashboard-linear-quality.md", or shorthand topic slugs.
  */
 function resolveResearchRefs(refs, pmDir) {
   if (!Array.isArray(refs) || refs.length === 0) return [];
-  const researchDir = path.join(pmDir, "research");
   return refs.map((ref) => {
-    // Extract topic slug from path
-    const match = String(ref).match(/research\/([^/]+)/);
-    const slug = match ? match[1] : String(ref);
-    const findingsPath = path.join(researchDir, slug, "findings.md");
+    const normalized = normalizeKbPath(ref) || String(ref).trim().replace(/\\/g, "/");
+    const evidenceMatch = normalized.match(/^evidence\/research\/([^/]+?)(?:\.md)?$/);
+    const legacyMatch = normalized.match(/^research\/([^/]+)(?:\/findings\.md)?$/);
+    let slug = "";
+    if (evidenceMatch) {
+      slug = evidenceMatch[1];
+    } else if (legacyMatch) {
+      slug = legacyMatch[1];
+    } else {
+      slug = stripMdExtension(path.basename(normalized)).replace(/\/findings$/i, "");
+    }
+
+    const findingsPath = getTopicFilePath(pmDir, slug);
     if (fs.existsSync(findingsPath)) {
       const parsed = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
       const topic = parsed.data.topic || humanizeSlug(slug);
@@ -2373,7 +2464,7 @@ function resolveCompetitiveContext(item, allItems, pmDir) {
     refs.push(...parentRefs);
   }
   const competitors = [];
-  const compDir = path.join(pmDir, "competitors");
+  const compDir = getCompetitorsDir(pmDir);
   if (fs.existsSync(compDir)) {
     const compSlugs = fs
       .readdirSync(compDir, { withFileTypes: true })
@@ -2895,8 +2986,7 @@ function handleDashboardHome(res, pmDir) {
   };
 
   const backlogDir = path.join(pmDir, "backlog");
-  const compDir = path.join(pmDir, "competitors");
-  const researchDir = path.join(pmDir, "research");
+  const compDir = getCompetitorsDir(pmDir);
 
   // Collect updated dates for staleness
   const updatedDates = {
@@ -2904,9 +2994,9 @@ function handleDashboardHome(res, pmDir) {
     backlog: getNewestUpdated(path.join(pmDir, "backlog")),
   };
   const researchDates = [
-    getUpdatedDate(path.join(pmDir, "landscape.md")),
-    getNewestUpdated(path.join(pmDir, "competitors")),
-    getNewestUpdated(path.join(pmDir, "research")),
+    getUpdatedDate(getLandscapePath(pmDir)),
+    getNewestUpdated(getCompetitorsDir(pmDir)),
+    ...listResearchTopicFiles(pmDir).map((topic) => getUpdatedDate(topic.filePath)),
   ].filter(Boolean);
   updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
 
@@ -3067,18 +3157,12 @@ function handleDashboardHome(res, pmDir) {
 
   // Customer evidence count from research topics with source_origin internal/mixed
   let evidenceCount = 0;
-  if (fs.existsSync(researchDir)) {
-    const topics = fs
-      .readdirSync(researchDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory());
-    for (const t of topics) {
-      const findingsPath = path.join(researchDir, t.name, "findings.md");
-      if (fs.existsSync(findingsPath)) {
-        const { data } = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
-        const origin = (data.source_origin || "").toLowerCase();
-        if ((origin === "internal" || origin === "mixed") && data.evidence_count) {
-          evidenceCount += parseInt(data.evidence_count, 10) || 0;
-        }
+  for (const topic of listResearchTopicFiles(pmDir)) {
+    if (fs.existsSync(topic.filePath)) {
+      const { data } = parseFrontmatter(fs.readFileSync(topic.filePath, "utf-8"));
+      const origin = (data.source_origin || "").toLowerCase();
+      if ((origin === "internal" || origin === "mixed") && data.evidence_count) {
+        evidenceCount += parseInt(data.evidence_count, 10) || 0;
       }
     }
   }
@@ -4002,31 +4086,15 @@ function buildStrategyBanner(pmDir) {
 }
 
 function buildLandscapeCard(pmDir) {
-  const landscapePath = path.join(pmDir, "landscape.md");
+  const landscapePath = getLandscapePath(pmDir);
   if (!fs.existsSync(landscapePath)) return "";
   const raw = fs.readFileSync(landscapePath, "utf-8");
   const { body } = parseFrontmatter(raw);
-  const titleMatch = body.match(/^#\s+(.+)/m);
-  const title = titleMatch ? titleMatch[1] : "Market Landscape";
-  const paragraphs = body.split(/\n\n/).filter((p) => {
-    const t = p.trim();
-    if (!t || /^#{1,6}\s/.test(t)) return false;
-    // Skip blocks that are only HTML comments (stat annotations)
-    if (/^<!--[\s\S]*-->$/.test(t.replace(/\n/g, ""))) return false;
-    if (/^(<!--.*-->\s*)+$/.test(t.replace(/\n/g, " ").trim())) return false;
-    return true;
-  });
-  const summary = paragraphs[0]
-    ? paragraphs[0]
-        .replace(/\n/g, " ")
-        .replace(/[*_`#]/g, "")
-        .replace(/<!--.*?-->/g, "")
-        .trim()
-        .slice(0, 200)
-    : "";
+  const title = extractMarkdownTitle(body, "Market Landscape");
+  const summary = extractMarkdownSummary(body, 200);
   const statsData = parseStatsData(body);
   const topStats = (statsData || []).slice(0, 3);
-  return `<a href="/kb?tab=landscape" class="landscape-card">
+  return `<a href="/insights/business/landscape" class="landscape-card">
   <div class="landscape-title">${escHtml(title)}</div>
   <div class="landscape-summary">${escHtml(summary)}</div>
   ${
@@ -4044,7 +4112,7 @@ function buildLandscapeCard(pmDir) {
 }
 
 function buildCompetitorGrid(pmDir) {
-  const compDir = path.join(pmDir, "competitors");
+  const compDir = getCompetitorsDir(pmDir);
   if (!fs.existsSync(compDir)) return "";
   const slugs = fs
     .readdirSync(compDir, { withFileTypes: true })
@@ -4066,43 +4134,37 @@ function buildCompetitorGrid(pmDir) {
         if (summary.category) category = summary.category;
       }
       return `<article class="card">
-  <h3><a href="/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
+  <h3><a href="/insights/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
   <p class="meta">${escHtml(category)}</p>
-  <div class="card-footer"><a href="/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
+  <div class="card-footer"><a href="/insights/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
 </article>`;
     })
     .join("");
   const viewAll =
     slugs.length > 6
-      ? `<a href="/kb?tab=competitors" class="section-link">View all ${slugs.length}</a>`
+      ? `<a href="/insights/competitors" class="section-link">View all ${slugs.length}</a>`
       : "";
   return `<div class="card-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ""}`;
 }
 
 function buildTopicRows(pmDir, maxTopics) {
-  const researchDir = path.join(pmDir, "research");
-  if (!fs.existsSync(researchDir)) return { html: "", total: 0 };
-  const topics = fs
-    .readdirSync(researchDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
+  const topics = listResearchTopicFiles(pmDir);
   if (topics.length === 0) return { html: "", total: 0 };
 
-  const topicData = topics.map((t) => {
-    const findingsPath = path.join(researchDir, t, "findings.md");
-    let label = humanizeSlug(t);
+  const topicData = topics.map(({ slug, filePath }) => {
+    let label = humanizeSlug(slug);
     let origin = "external";
     let stale = null;
     let dateStr = "";
-    if (fs.existsSync(findingsPath)) {
-      const parsed = parseFrontmatter(fs.readFileSync(findingsPath, "utf-8"));
-      const meta = buildTopicMeta(t, parsed.data, findingsPath);
+    if (fs.existsSync(filePath)) {
+      const parsed = parseFrontmatter(fs.readFileSync(filePath, "utf-8"));
+      const meta = buildTopicMeta(slug, parsed.data, filePath);
       label = meta.label;
       origin = normalizeSourceOrigin(parsed.data.source_origin);
-      dateStr = getUpdatedDate(findingsPath) || "";
+      dateStr = getUpdatedDate(filePath) || "";
       stale = stalenessInfo(dateStr);
     }
-    return { slug: t, label, origin, stale, dateStr };
+    return { slug, label, origin, stale, dateStr };
   });
 
   // Sort by freshness (newest first)
@@ -4118,7 +4180,7 @@ function buildTopicRows(pmDir, maxTopics) {
 
   const rows = display
     .map(
-      (t) => `<a href="/research/${escHtml(t.slug)}" class="topic-row">
+      (t) => `<a href="/evidence/research/${escHtml(t.slug)}" class="topic-row">
   <span class="topic-name">${escHtml(t.label)}</span>
   <div class="topic-badges">
     <span class="badge ${originBadge(t.origin)}">${escHtml(originLabels[t.origin] || "External")}</span>
@@ -4256,17 +4318,18 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   const landscapeCard = buildLandscapeCard(pmDir);
   const competitorGrid = buildCompetitorGrid(pmDir);
   const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, 8);
+  const insightDomainCards = buildInsightDomainCards(pmDir);
 
   // Customer evidence section
   const evidenceHtml = buildEvidenceSummary(pmDir);
 
-  const compDir = path.join(pmDir, "competitors");
+  const compDir = getCompetitorsDir(pmDir);
   const compCount = fs.existsSync(compDir)
     ? fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory()).length
     : 0;
   const compViewAllLink =
     compCount > 0
-      ? `<a href="/kb?tab=competitors" class="section-link">View all ${compCount} competitors</a>`
+      ? `<a href="/insights/competitors" class="section-link">View all ${compCount} competitors</a>`
       : "";
 
   const body = `
@@ -4304,7 +4367,17 @@ ${
     <span class="section-count">${topicCount} topics</span>
   </div>
   ${topicRows}
-  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/kb?tab=topics" class="section-link">View all ${topicCount} topics</a></div>` : ""}
+  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/evidence/research" class="section-link">View all ${topicCount} topics</a></div>` : ""}
+</section>`
+    : ""
+}
+${
+  insightDomainCards
+    ? `<section class="section">
+  <div class="section-header">
+    <span class="section-title">Insight Domains</span>
+  </div>
+  ${insightDomainCards}
 </section>`
     : ""
 }
@@ -4353,7 +4426,7 @@ function handleKbStrategyDetail(res, pmDir) {
 }
 
 function handleKbCompetitorsDetail(res, pmDir) {
-  const compDir = path.join(pmDir, "competitors");
+  const compDir = getCompetitorsDir(pmDir);
   const cardItems = [];
   if (fs.existsSync(compDir)) {
     const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory());
@@ -4368,9 +4441,9 @@ function handleKbCompetitorsDetail(res, pmDir) {
         ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
         : "";
       cardItems.push(`<article class="card">
-        <h3><a href="/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
+        <h3><a href="/insights/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
         <p class="meta">${escHtml(summary.category || "")}</p>
-        <div class="card-footer">${staleBadge}<a href="/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
+        <div class="card-footer">${staleBadge}<a href="/insights/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
       </article>`);
     }
   }
@@ -4391,7 +4464,7 @@ function handleKbCompetitorsDetail(res, pmDir) {
 }
 
 function handleKbLandscapeDetail(res, pmDir) {
-  const landscapePath = path.join(pmDir, "landscape.md");
+  const landscapePath = getLandscapePath(pmDir);
   if (!fs.existsSync(landscapePath)) {
     const emptyHtml = renderEmptyState(
       "No landscape research",
@@ -4481,13 +4554,13 @@ ${
 }
 
 function handleCompetitorDetail(res, pmDir, slug) {
-  const compDir = path.join(pmDir, "competitors", slug);
+  const compDir = path.join(getCompetitorsDir(pmDir), slug);
   if (!fs.existsSync(compDir)) {
     const html = dashboardPage(
       "Not Found",
       "/kb",
       renderEmptyState("Competitor not found", "This competitor profile does not exist.") +
-        '<p><a href="/competitors">&larr; Back to competitors</a></p>'
+        '<p><a href="/insights/competitors">&larr; Back to competitors</a></p>'
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -4557,15 +4630,14 @@ function handleCompetitorDetail(res, pmDir, slug) {
 }
 
 function handleResearchTopic(res, pmDir, topic) {
-  const topicDir = path.join(pmDir, "research", topic);
-  const findingsPath = path.join(topicDir, "findings.md");
+  const findingsPath = getTopicFilePath(pmDir, topic);
 
   if (!fs.existsSync(findingsPath)) {
     const html = dashboardPage(
       "Not Found",
       "/kb",
       renderEmptyState("Research topic not found", "This research topic does not exist.") +
-        '<p><a href="/research">&larr; Back to research</a></p>'
+        '<p><a href="/evidence/research">&larr; Back to research</a></p>'
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -4590,12 +4662,8 @@ function handleResearchTopic(res, pmDir, topic) {
   findingsBody = findingsBody.replace(/^\s*#\s+.+\n+/, "");
 
   // Rewrite pm/ relative links to dashboard routes
-  const rewritePmLinks = (text) =>
-    text
-      .replace(/\(pm\/evidence\/transcripts\/([^)]+?)(?:\.md)?\)/g, "(/evidence/transcripts/$1)")
-      .replace(/\(pm\/research\/([^)]+?)\/findings\.md\)/g, "(/research/$1)");
-  findingsBody = rewritePmLinks(findingsBody);
-  if (sourcesBody) sourcesBody = rewritePmLinks(sourcesBody);
+  findingsBody = rewriteKnowledgeBaseLinks(findingsBody);
+  if (sourcesBody) sourcesBody = rewriteKnowledgeBaseLinks(sourcesBody);
 
   // Build sections
   const templateSections = [];
@@ -4620,6 +4688,85 @@ function handleResearchTopic(res, pmDir, topic) {
   });
 
   const html = dashboardPage(meta.label, "/kb", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function handleInsightDomainDetail(res, pmDir, domain) {
+  const indexPath = getInsightIndexPath(pmDir, domain);
+  if (!fs.existsSync(indexPath)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  const raw = fs.readFileSync(indexPath, "utf-8");
+  const { body } = parseFrontmatter(raw);
+  const title = extractMarkdownTitle(body, humanizeSlug(domain));
+  const renderedBody = rewriteKnowledgeBaseLinks(body.replace(/^\s*#\s+.+\n+/, ""));
+  const docCount = fs
+    .readdirSync(path.dirname(indexPath), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .filter((entry) => entry.name !== "index.md" && entry.name !== "log.md").length;
+  const metaBadges = [
+    { html: `<span class="meta-item">${docCount} document${docCount === 1 ? "" : "s"}</span>` },
+  ];
+  const stale = stalenessInfo(getNewestUpdated(path.dirname(indexPath)));
+  if (stale) {
+    metaBadges.push({
+      html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`,
+    });
+  }
+
+  const pageBody = renderTemplate("detail", {
+    breadcrumb: [{ href: "/kb", label: "Knowledge Base" }, { label: title }],
+    title,
+    metaBadges,
+    sections: [
+      { title: null, html: `<div class="markdown-body">${renderMarkdown(renderedBody)}</div>` },
+    ],
+    actionHint: "/pm:refresh " + domain,
+  });
+
+  const html = dashboardPage(title, "/kb", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function handleInsightDocumentDetail(res, pmDir, domain, slug) {
+  const filePath = path.join(pmDir, "insights", domain, slug + ".md");
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const { body } = parseFrontmatter(raw);
+  const title = extractMarkdownTitle(body, humanizeSlug(slug));
+  const stale = stalenessInfo(getUpdatedDate(filePath));
+  const metaBadges = stale
+    ? [{ html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` }]
+    : [];
+
+  const pageBody = renderTemplate("detail", {
+    breadcrumb: [
+      { href: "/kb", label: "Knowledge Base" },
+      { href: "/insights/" + domain, label: humanizeSlug(domain) },
+      { label: title },
+    ],
+    title,
+    metaBadges,
+    sections: [
+      {
+        title: null,
+        html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(body.replace(/^\s*#\s+.+\n+/, "")))}</div>`,
+      },
+    ],
+    actionHint: "/pm:refresh " + domain,
+  });
+
+  const html = dashboardPage(title, "/kb", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -5183,10 +5330,25 @@ function handleBacklogItem(res, pmDir, slug) {
 function rewriteKnowledgeBaseLinks(md) {
   return md
     .replace(/\]\(pm\/backlog\/wireframes\/([^).]+)\.html\)/g, "](/roadmap/wireframes/$1)")
-    .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, "](/research/$1)")
-    .replace(/\]\(pm\/research\/([^)]+)\)/g, "](/research/$1)")
-    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, "](/competitors/$1#$2)")
-    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, "](/competitors/$1)");
+    .replace(/\]\(pm\/evidence\/research\/([^).]+)\.md\)/g, "](/evidence/research/$1)")
+    .replace(/\]\(pm\/evidence\/research\/([^)]+)\)/g, "](/evidence/research/$1)")
+    .replace(
+      /\]\(pm\/evidence\/transcripts\/([^)]+?)(?:\.md|\.txt)?\)/g,
+      "](/evidence/transcripts/$1)"
+    )
+    .replace(/\]\(pm\/research\/([^/]+)\/findings\.md\)/g, "](/evidence/research/$1)")
+    .replace(/\]\(pm\/research\/([^)]+)\)/g, "](/evidence/research/$1)")
+    .replace(/\]\(pm\/insights\/business\/landscape\.md\)/g, "](/insights/business/landscape)")
+    .replace(
+      /\]\(pm\/insights\/competitors\/([^/]+)\/([^)]+?)\.md\)/g,
+      "](/insights/competitors/$1#$2)"
+    )
+    .replace(/\]\(pm\/insights\/competitors\/([^/]+)\/([^)]+)\)/g, "](/insights/competitors/$1#$2)")
+    .replace(/\]\(pm\/insights\/competitors\/([^)]+)\)/g, "](/insights/competitors/$1)")
+    .replace(/\]\(pm\/insights\/([^/]+)\/index\.md\)/g, "](/insights/$1)")
+    .replace(/\]\(pm\/insights\/([^/]+)\/([^).]+)\.md\)/g, "](/insights/$1/$2)")
+    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, "](/insights/competitors/$1#$2)")
+    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, "](/insights/competitors/$1)");
 }
 
 // ========== Dashboard Server Factory ==========
@@ -5624,6 +5786,7 @@ module.exports = {
   OPCODES,
   parseMode,
   parseFrontmatter,
+  normalizeKbPath,
   renderMarkdown,
   inlineMarkdown,
   escHtml,

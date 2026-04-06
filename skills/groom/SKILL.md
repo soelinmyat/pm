@@ -190,7 +190,7 @@ strategy_check:
     - "{conflicting non-goal text}"
   supporting_priority: "{priority text}" | null
 
-research_location: pm/research/{topic-slug}/ | null
+research_location: pm/evidence/research/{topic-slug}.md | null
 
 scope:
   in_scope:
@@ -268,7 +268,7 @@ labels:
   - "{label}"
 priority: critical | high | medium | low
 research_refs:
-  - pm/research/{topic-slug}/findings.md
+  - pm/evidence/research/{topic-slug}.md
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---
@@ -295,7 +295,7 @@ graph TD
     A[User action] --> B{Decision}
     B -->|Yes| C[Outcome]
     B -->|No| D[Alternative]
-    %% Source: pm/research/{topic-slug}/findings.md
+    %% Source: pm/evidence/research/{topic-slug}.md
 ```
 
 ## Wireframes
@@ -308,7 +308,7 @@ For non-UI features: "N/A — no user-facing workflow for this feature type."}
 ## Competitor Context
 
 {How do competitors handle this? Where do they fall short?
-Reference specific profiles from pm/competitors/ if applicable.}
+Reference specific profiles from pm/insights/competitors/ if applicable.}
 
 ## Technical Feasibility
 
@@ -317,7 +317,7 @@ Include verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Research Links
 
-- [{Finding title}](pm/research/{topic-slug}/findings.md)
+- [{Finding title}](pm/evidence/research/{topic-slug}.md)
 
 ## Notes
 

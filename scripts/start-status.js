@@ -103,20 +103,59 @@ function listMarkdownFiles(dirPath) {
     .map((entry) => path.join(dirPath, entry.name));
 }
 
-function backlogEntries(pmDir) {
-  const backlogDir = path.join(pmDir, "backlog");
-  return listMarkdownFiles(backlogDir).map((filePath) => {
-    const text = safeRead(filePath);
-    return {
-      filePath,
-      status: frontmatterValue(text, "status"),
-      updated: frontmatterValue(text, "updated"),
-      title: frontmatterValue(text, "title"),
-    };
-  });
+function listMarkdownFilesRecursive(dirPath) {
+  if (!fileExists(dirPath)) {
+    return [];
+  }
+
+  const results = [];
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...listMarkdownFilesRecursive(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      results.push(fullPath);
+    }
+  }
+  return results;
 }
 
-function hasKnowledgeBaseContent(pmDir) {
+function listDirectories(dirPath) {
+  if (!fileExists(dirPath)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(dirPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(dirPath, entry.name));
+}
+
+function isKnowledgeBaseDocument(filePath) {
+  const baseName = path.basename(filePath);
+  return baseName.endsWith(".md") && baseName !== "index.md" && baseName !== "log.md";
+}
+
+function frontmatterDateValue(text, keys) {
+  for (const key of keys) {
+    const value = frontmatterValue(text, key);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function listInsightDomains(pmDir) {
+  const insightsDir = path.join(pmDir, "insights");
+  return listDirectories(insightsDir).filter((dirPath) =>
+    fileExists(path.join(dirPath, "index.md"))
+  );
+}
+
+function hasLegacyKnowledgeBaseContent(pmDir) {
   if (!fileExists(pmDir)) {
     return false;
   }
@@ -143,6 +182,171 @@ function hasKnowledgeBaseContent(pmDir) {
   }
 
   return checkDir(path.join(pmDir, "competitors"), (entry) => entry.isDirectory());
+}
+
+function hasLayeredKnowledgeBaseContent(pmDir) {
+  if (!fileExists(pmDir)) {
+    return false;
+  }
+
+  if (fileExists(path.join(pmDir, "strategy.md"))) {
+    return true;
+  }
+
+  if (listInsightDomains(pmDir).length > 0) {
+    return true;
+  }
+
+  const evidenceDir = path.join(pmDir, "evidence");
+  return (
+    fileExists(path.join(evidenceDir, "index.md")) ||
+    listMarkdownFilesRecursive(evidenceDir).some((filePath) => isKnowledgeBaseDocument(filePath))
+  );
+}
+
+function detectKnowledgeBaseLayout(pmDir) {
+  if (hasLayeredKnowledgeBaseContent(pmDir)) {
+    return "layered";
+  }
+  if (hasLegacyKnowledgeBaseContent(pmDir)) {
+    return "legacy";
+  }
+  return "none";
+}
+
+function analyzeLayeredKnowledgeBase(pmDir, staleThreshold) {
+  let staleCount = 0;
+  let insightCount = 0;
+  let evidenceCount = 0;
+  let competitorProfiles = 0;
+  let researchEvidence = 0;
+
+  for (const domainDir of listInsightDomains(pmDir)) {
+    const domainName = path.basename(domainDir);
+    const insightFiles = listMarkdownFilesRecursive(domainDir).filter((filePath) =>
+      isKnowledgeBaseDocument(filePath)
+    );
+
+    insightCount += insightFiles.length;
+
+    if (domainName === "competitors") {
+      for (const childDir of listDirectories(domainDir)) {
+        const hasDocs = listMarkdownFilesRecursive(childDir).some((filePath) =>
+          isKnowledgeBaseDocument(filePath)
+        );
+        if (hasDocs) {
+          competitorProfiles += 1;
+        }
+      }
+
+      if (competitorProfiles === 0) {
+        competitorProfiles = insightFiles.length;
+      }
+    }
+
+    for (const filePath of insightFiles) {
+      const text = safeRead(filePath);
+      const updatedEpoch = dateToEpoch(frontmatterDateValue(text, ["last_updated", "updated"]));
+      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
+        staleCount += 1;
+      }
+    }
+  }
+
+  const evidenceDir = path.join(pmDir, "evidence");
+  const evidenceFiles = listMarkdownFilesRecursive(evidenceDir).filter((filePath) =>
+    isKnowledgeBaseDocument(filePath)
+  );
+
+  evidenceCount = evidenceFiles.length;
+
+  const researchDir = path.join(evidenceDir, "research");
+  researchEvidence = listMarkdownFilesRecursive(researchDir).filter((filePath) =>
+    isKnowledgeBaseDocument(filePath)
+  ).length;
+
+  for (const filePath of evidenceFiles) {
+    const text = safeRead(filePath);
+    const updatedEpoch = dateToEpoch(
+      frontmatterDateValue(text, ["created", "last_updated", "updated"])
+    );
+    if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
+      staleCount += 1;
+    }
+  }
+
+  return {
+    staleCount,
+    insightCount,
+    evidenceCount,
+    competitorProfiles,
+    researchEvidence,
+  };
+}
+
+function analyzeLegacyKnowledgeBase(pmDir, staleThreshold) {
+  let staleCount = 0;
+  let researchTopics = 0;
+  let competitorProfiles = 0;
+
+  const researchDir = path.join(pmDir, "research");
+  if (fileExists(researchDir)) {
+    for (const entry of fs.readdirSync(researchDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const findingsPath = path.join(researchDir, entry.name, "findings.md");
+      if (!fileExists(findingsPath)) {
+        continue;
+      }
+      researchTopics += 1;
+      const text = safeRead(findingsPath);
+      const updatedEpoch = dateToEpoch(frontmatterValue(text, "updated"));
+      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
+        staleCount += 1;
+      }
+    }
+  }
+
+  const competitorsDir = path.join(pmDir, "competitors");
+  if (fileExists(competitorsDir)) {
+    for (const entry of fs.readdirSync(competitorsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const profilePath = path.join(competitorsDir, entry.name, "profile.md");
+      if (!fileExists(profilePath)) {
+        continue;
+      }
+      competitorProfiles += 1;
+      const text = safeRead(profilePath);
+      const updatedEpoch = dateToEpoch(frontmatterValue(text, "updated"));
+      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
+        staleCount += 1;
+      }
+    }
+  }
+
+  return {
+    staleCount,
+    insightCount: researchTopics + competitorProfiles,
+    evidenceCount: researchTopics,
+    competitorProfiles,
+    researchTopics,
+  };
+}
+
+function backlogEntries(pmDir) {
+  const backlogDir = path.join(pmDir, "backlog");
+  return listMarkdownFiles(backlogDir).map((filePath) => {
+    const text = safeRead(filePath);
+    return {
+      filePath,
+      status: frontmatterValue(text, "status"),
+      updated: frontmatterValue(text, "updated"),
+      title: frontmatterValue(text, "title"),
+    };
+  });
 }
 
 function attentionSummary(staleCount, agingCount) {
@@ -329,9 +533,9 @@ function detectDevSession(projectDir, runtimeDir) {
 function buildStatus(projectDir) {
   const runtimeDir = path.join(projectDir, ".pm");
   const pmDir = path.join(projectDir, "pm");
+  const kbLayout = detectKnowledgeBaseLayout(pmDir);
   const initialized =
-    fileExists(pmDir) &&
-    (fileExists(path.join(runtimeDir, "config.json")) || hasKnowledgeBaseContent(pmDir));
+    fileExists(pmDir) && (fileExists(path.join(runtimeDir, "config.json")) || kbLayout !== "none");
 
   const installedPluginVersion = (() => {
     const pluginJsonPath = path.join(__dirname, "..", ".claude-plugin", "plugin.json");
@@ -360,6 +564,8 @@ function buildStatus(projectDir) {
         ideas: 0,
         inProgress: 0,
         shipped: 0,
+        insights: 0,
+        evidence: 0,
         researchTopics: 0,
         competitorProfiles: 0,
       },
@@ -370,47 +576,16 @@ function buildStatus(projectDir) {
   const staleThreshold = now - 30 * 86400;
   const agingThreshold = now - 14 * 86400;
 
-  let staleCount = 0;
-  let researchTopics = 0;
-  let competitorProfiles = 0;
-
-  const researchDir = path.join(pmDir, "research");
-  if (fileExists(researchDir)) {
-    for (const entry of fs.readdirSync(researchDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const findingsPath = path.join(researchDir, entry.name, "findings.md");
-      if (!fileExists(findingsPath)) {
-        continue;
-      }
-      researchTopics += 1;
-      const text = safeRead(findingsPath);
-      const updatedEpoch = dateToEpoch(frontmatterValue(text, "updated"));
-      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
-        staleCount += 1;
-      }
-    }
-  }
-
-  const competitorsDir = path.join(pmDir, "competitors");
-  if (fileExists(competitorsDir)) {
-    for (const entry of fs.readdirSync(competitorsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const profilePath = path.join(competitorsDir, entry.name, "profile.md");
-      if (!fileExists(profilePath)) {
-        continue;
-      }
-      competitorProfiles += 1;
-      const text = safeRead(profilePath);
-      const updatedEpoch = dateToEpoch(frontmatterValue(text, "updated"));
-      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
-        staleCount += 1;
-      }
-    }
-  }
+  const knowledgeBase =
+    kbLayout === "layered"
+      ? analyzeLayeredKnowledgeBase(pmDir, staleThreshold)
+      : analyzeLegacyKnowledgeBase(pmDir, staleThreshold);
+  const staleCount = knowledgeBase.staleCount;
+  const insightCount = knowledgeBase.insightCount;
+  const evidenceCount = knowledgeBase.evidenceCount;
+  const researchTopics =
+    kbLayout === "layered" ? knowledgeBase.researchEvidence : knowledgeBase.researchTopics;
+  const competitorProfiles = knowledgeBase.competitorProfiles;
 
   let agingIdeas = 0;
   let ideas = 0;
@@ -449,13 +624,16 @@ function buildStatus(projectDir) {
     }
   }
 
-  const hasLandscape = fileExists(path.join(pmDir, "landscape.md"));
+  const hasLandscape =
+    kbLayout === "layered"
+      ? fileExists(path.join(pmDir, "insights", "business", "landscape.md"))
+      : fileExists(path.join(pmDir, "landscape.md"));
   const hasStrategy = fileExists(path.join(pmDir, "strategy.md"));
   const emptyWorkspace =
     !hasLandscape &&
     !hasStrategy &&
-    researchTopics === 0 &&
-    competitorProfiles === 0 &&
+    insightCount === 0 &&
+    evidenceCount === 0 &&
     ideas === 0 &&
     inProgress === 0 &&
     shipped === 0;
@@ -484,7 +662,7 @@ function buildStatus(projectDir) {
   if (emptyWorkspace) {
     pushSuggestion("/pm:start (choose your first workflow)");
   } else {
-    if (!hasStrategy && (hasLandscape || researchTopics > 0 || competitorProfiles > 0)) {
+    if (!hasStrategy && (hasLandscape || insightCount > 0 || evidenceCount > 0)) {
       pushSuggestion("/pm:strategy");
     }
 
@@ -528,6 +706,8 @@ function buildStatus(projectDir) {
       ideas,
       inProgress,
       shipped,
+      insights: insightCount,
+      evidence: evidenceCount,
       researchTopics,
       competitorProfiles,
     },

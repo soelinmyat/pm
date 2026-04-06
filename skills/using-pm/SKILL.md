@@ -155,7 +155,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-end --skill dev --run-id "$PM_RUN_ID
 
 **Baseline summary:** After telemetry accumulates, generate a maintainer summary with:
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output pm/research/tracking-dogfooding/baseline.md
+node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output pm/evidence/research/tracking-dogfooding/baseline.md
 ```
 
 **When analytics is off:** The logger exits immediately. No telemetry files are created.

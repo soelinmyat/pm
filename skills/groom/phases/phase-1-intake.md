@@ -16,7 +16,7 @@ Skip to step 3 after confirmation.
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
-3. Check `pm/research/` for existing context on this topic. If relevant findings exist, note them:
+3. Check `pm/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
 
 4. **Codebase scan** (if `codebase_available: true` in groom state):

@@ -67,7 +67,7 @@ If `pm/strategy.md` exists, extract:
 - Non-goals (Section 7)
 - ICP (Section 2)
 
-If `pm/competitors/index.md` exists, extract top 3 competitors with positioning.
+If `pm/insights/competitors/index.md` exists, extract top 3 competitors with positioning.
 
 ---
 

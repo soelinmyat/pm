@@ -26,7 +26,7 @@ Before drafting, read:
 - `.pm/groom-sessions/{slug}.md` — scope decisions, strategy alignment, research refs
 - `pm/strategy.md` — ICP, value prop, priorities
 - Research files at the location in groom state
-- `pm/competitors/` — relevant competitor profiles
+- `pm/insights/competitors/` — relevant competitor profiles
 - Existing `pm/backlog/*.md` — for ID sequencing and format consistency
 
 ## Custom Instructions
@@ -68,7 +68,7 @@ For each AC, ask: "If I handed this to a stranger, would they know exactly what 
 Include Mermaid diagrams for the primary user flow. Add alternate/error paths for complex features. Each diagram must have a `%% Source:` comment citing the research or decision that shaped it.
 
 ### 6. Competitor Context
-For each issue, note how competitors handle the same capability. Reference specific profiles from `pm/competitors/`. This isn't decoration — it should influence AC priorities and feature differentiation.
+For each issue, note how competitors handle the same capability. Reference specific profiles from `pm/insights/competitors/`. This isn't decoration — it should influence AC priorities and feature differentiation.
 
 ### 7. Technical Feasibility
 Include the engineering manager's assessment from scope review: build-on vs build-new, risks, sequencing. Reference specific file paths from their findings.
@@ -91,7 +91,7 @@ labels:
   - "{label}"
 priority: critical | high | medium | low
 research_refs:
-  - pm/research/{topic-slug}/findings.md
+  - pm/evidence/research/{topic-slug}.md
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---
@@ -117,7 +117,7 @@ updated: YYYY-MM-DD
 {EM assessment: build-on, build-new, risks, sequencing}
 
 ## Research Links
-- [{Finding title}](pm/research/{topic-slug}/findings.md)
+- [{Finding title}](pm/evidence/research/{topic-slug}.md)
 
 ## Notes
 {Open questions, constraints, deferred scope items}

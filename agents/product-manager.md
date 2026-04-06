@@ -22,8 +22,8 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 Before reviewing, read whatever the dispatch prompt tells you to read. Typical sources:
 
 - `pm/strategy.md` — ICP, value prop, priorities (Section 6), non-goals (Section 7)
-- `pm/landscape.md` — market context
-- `pm/competitors/index.md` — competitive landscape
+- `pm/insights/business/landscape.md` — market context
+- `pm/insights/competitors/index.md` — competitive landscape
 - `.pm/groom-sessions/{slug}.md` — groom state, scope, research location
 - Research files at the location specified in groom state
 - CLAUDE.md, AGENTS.md — project conventions and product context

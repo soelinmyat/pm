@@ -264,7 +264,7 @@ digraph spec_review {
 Before dispatching any review agent, the orchestrator (you) MUST:
 
 1. Read CLAUDE.md and extract a **project context summary** (users, scale, design principles, domain concerns)
-2. Read pm/strategy.md and pm/competitors/index.md (if they exist) and extract strategy context
+2. Read pm/strategy.md and pm/insights/competitors/index.md (if they exist) and extract strategy context
 3. Inject this summary directly into each agent prompt as `{PROJECT_CONTEXT}`
 
 This avoids each agent independently reading and parsing the same files (saving time and context window), and ensures all agents work from the same extracted facts.

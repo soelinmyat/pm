@@ -3,7 +3,7 @@
 1. Check if Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available).
 
 2. **If Linear configured:**
-   - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL, producing broken links like `https://linear.app/.../pm/research/...`. Before constructing the issue description:
+   - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL, producing broken links like `https://linear.app/.../pm/evidence/research/...`. Before constructing the issue description:
      - Convert `[text](pm/...)` → `text (\`pm/...\`)` — plain text with path in backticks
      - Convert `[text](pm/backlog/wireframes/...)` → `text (\`pm/backlog/wireframes/...\`)`
      - Apply to all sections: Research Links, Wireframes, Proposal links, and any other relative paths starting with `pm/`

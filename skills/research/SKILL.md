@@ -45,11 +45,11 @@ Before starting work, check for user instructions:
 |---|---|
 | `landscape` | Landscape Mode |
 | `competitors` | Competitor Mode |
-| _(no arg, no `pm/landscape.md`)_ | Landscape Mode (first-time default) |
-| _(no arg, `pm/landscape.md` exists)_ | Present menu |
+| _(no arg, no `pm/insights/business/landscape.md`)_ | Landscape Mode (first-time default) |
+| _(no arg, `pm/insights/business/landscape.md` exists)_ | Present menu |
 | anything else | Topic Mode (argument is the topic name) |
 
-When no argument is given and `pm/landscape.md` exists, present:
+When no argument is given and `pm/insights/business/landscape.md` exists, present:
 
 > "What would you like to research?
 > (a) Update landscape overview
@@ -86,7 +86,8 @@ First research activity in a new project. Produces the market overview that make
 3. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
-4. **Write `pm/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
+4. **Write `pm/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
+   After writing, append the touched file to `pm/insights/business/log.md`. Update `pm/insights/business/index.md` too if it needs to reflect the new state of the domain.
 
 5. **Dashboard session view.** If `dashboard_session_view: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the landscape and positioning map visually.
 
@@ -154,7 +155,7 @@ Dot size: Monthly organic traffic. Color: segment.
 
 ### Update Flow
 
-When `pm/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `updated:` in frontmatter.
+When `pm/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `updated:` in frontmatter.
 
 ---
 
@@ -164,7 +165,7 @@ When `pm/landscape.md` exists and user runs landscape mode again: re-run searche
 
 The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.
 
-1. **Start with landscape.** If `pm/landscape.md` exists, pull the Key Players table as a seed list.
+1. **Start with landscape.** If `pm/insights/business/landscape.md` exists, pull the Key Players table as a seed list.
 2. **Go deeper.** Do NOT stop at the landscape list. Run additional searches to find competitors the landscape may have missed:
    - Search for tools on the **same platform** (e.g., other Claude Code plugins, Cursor plugins, IDE extensions that do similar work).
    - Search for tools targeting the **same user** (e.g., "AI tools for [ICP role]", "[workflow] tool for [audience]").
@@ -177,7 +178,7 @@ The goal is to find **genuinely close competitors** — not just well-known play
    - **Aspirational competitors**: Different segment entirely (e.g., enterprise SaaS), but set user expectations for what the product category should do.
    Present all three tiers. Recommend profiling direct and adjacent competitors. Aspirational competitors are optional context.
 4. **Confirm with user.** Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
-5. Write or update `pm/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier).
+5. Write or update `pm/insights/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier), then append touched files to `pm/insights/competitors/log.md`.
 
 ### Phase 2: Profile
 
@@ -186,11 +187,11 @@ Determine dispatch strategy based on candidate count and environment:
 **1 competitor:** Profile inline. Create all 5 files per competitor:
 1. Read methodology in `skills/research/competitor-profiling.md`
 2. Read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md` — this documents the 5-file directory structure and frontmatter the dashboard expects for competitor detail pages.
-3. Create `pm/competitors/{slug}/profile.md`
-3. Create `pm/competitors/{slug}/features.md`
-4. Create `pm/competitors/{slug}/api.md`
-5. Create `pm/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
-6. Create `pm/competitors/{slug}/sentiment.md`
+3. Create `pm/insights/competitors/{slug}/profile.md`
+3. Create `pm/insights/competitors/{slug}/features.md`
+4. Create `pm/insights/competitors/{slug}/api.md`
+5. Create `pm/insights/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
+6. Create `pm/insights/competitors/{slug}/sentiment.md`
 
 Verify all 5 files exist before proceeding to Phase 3.
 
@@ -200,19 +201,19 @@ Dispatch one researcher agent per competitor in parallel. Use this syntax for ea
 ```
 Agent tool: name="researcher-{slug}", prompt="Profile {Company Name} in the {space} space.
 Slug: {slug}. Follow the methodology in skills/research/competitor-profiling.md exactly.
-Write all output files to pm/competitors/{slug}/.
-Do NOT write to pm/competitors/index.md — that is owned by the parent skill."
+Write all output files to pm/insights/competitors/{slug}/.
+Do NOT write to pm/insights/competitors/index.md — that is owned by the parent skill."
 ```
 
 Wait for all agents to complete, then validate output for each competitor:
 
 ```
 For each {slug}, verify these 5 files exist:
-- pm/competitors/{slug}/profile.md
-- pm/competitors/{slug}/features.md
-- pm/competitors/{slug}/api.md
-- pm/competitors/{slug}/seo.md
-- pm/competitors/{slug}/sentiment.md
+- pm/insights/competitors/{slug}/profile.md
+- pm/insights/competitors/{slug}/features.md
+- pm/insights/competitors/{slug}/api.md
+- pm/insights/competitors/{slug}/seo.md
+- pm/insights/competitors/{slug}/sentiment.md
 
 If any file is missing, re-run that section of research before proceeding to Phase 3.
 ```
@@ -222,37 +223,37 @@ Profile sequentially inline, one at a time. After each: "Finished {name}. Profil
 
 **Subagent detection:** Attempt the Agent tool dispatch. If the environment returns an error or the tool is unavailable, fall back to sequential inline profiling automatically.
 
-**Index ownership:** Researcher agents write only to `pm/competitors/{slug}/`. The parent skill owns `pm/competitors/index.md`. Never delegate index writes to subagents.
+**Index ownership:** Researcher agents write only to `pm/insights/competitors/{slug}/`. The parent skill owns `pm/insights/competitors/index.md`. Never delegate index writes to subagents.
 
 ### Phase 3: Synthesize
 
 <HARD-GATE>
 Synthesis is required after profiling. Do NOT skip because "the profiles are the deliverable."
-Index, matrix, market gaps, and landscape updates are what make individual profiles usable by downstream skills (strategy, ideate, groom).
+Index updates, synthesized comparison content, market gaps, and landscape updates are what make individual profiles usable by downstream skills (strategy, ideate, groom).
 Without synthesis, profiling is raw data — not knowledge.
 </HARD-GATE>
 
 **Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
 
 For each competitor slug, check:
-- [ ] `pm/competitors/{slug}/profile.md` exists
-- [ ] `pm/competitors/{slug}/features.md` exists
-- [ ] `pm/competitors/{slug}/api.md` exists
-- [ ] `pm/competitors/{slug}/seo.md` exists
-- [ ] `pm/competitors/{slug}/sentiment.md` exists
+- [ ] `pm/insights/competitors/{slug}/profile.md` exists
+- [ ] `pm/insights/competitors/{slug}/features.md` exists
+- [ ] `pm/insights/competitors/{slug}/api.md` exists
+- [ ] `pm/insights/competitors/{slug}/seo.md` exists
+- [ ] `pm/insights/competitors/{slug}/sentiment.md` exists
 
 If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?"
 
 Only proceed to synthesis after all files are present.
 
-1. Update `pm/competitors/index.md` — add links to each profile, last-profiled date.
-2. Write or update `pm/competitors/matrix.md` — feature comparison table across all profiled competitors.
-3. Add a **Market Gaps** section to `pm/competitors/index.md` — capabilities absent or weak across all competitors.
-4. **Update `pm/landscape.md`** — keep the landscape as the single source of truth for the market view:
+1. Update `pm/insights/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
+2. Add or update a **Market Gaps** section in `pm/insights/competitors/index.md` — capabilities absent or weak across all competitors.
+3. **Update `pm/insights/business/landscape.md`** — keep the landscape as the single source of truth for the market view:
    - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
    - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `updated:` date in frontmatter.
+4. Append touched paths to `pm/insights/competitors/log.md`. If synthesis changed the landscape, append that write to `pm/insights/business/log.md` too.
 5. **Launch dashboard.** If `dashboard_session_view: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the updated landscape, positioning map, and competitor profiles visually.
 
 ### Cost Guardrail
@@ -271,7 +272,7 @@ For targeted deep dives not covered by landscape or competitor profiling.
 
 ### Flow
 
-1. **Check existing knowledge.** Read `pm/research/index.md` if it exists. Check `pm/landscape.md` and `pm/strategy.md` for relevant context.
+1. **Check existing knowledge.** Read `pm/evidence/index.md` and `pm/evidence/research/index.md` if they exist. Check `pm/insights/business/landscape.md` and `pm/strategy.md` for relevant context.
    Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `$pm-ingest`, not just external research.
 2. **Check strategy alignment.** If `pm/strategy.md` exists, note how the topic relates to current priorities.
 3. **Search demand check** (if ahrefs-mcp configured).
@@ -279,15 +280,17 @@ For targeted deep dives not covered by landscape or competitor profiling.
    - `serp-overview` — see who currently ranks for the topic keyword and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
 4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
-5. **Write findings** to `pm/research/{topic-slug}/findings.md` using the shared topic schema. Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the frontmatter fields and content structure the dashboard expects for research topic pages:
+5. **Write findings** to `pm/evidence/research/{topic-slug}.md` using the shared topic schema. Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the frontmatter fields and content structure the dashboard expects for research topic pages:
 
 ```markdown
 ---
-type: topic-research
+type: evidence
+evidence_type: research
 topic: {Topic Name}
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 source_origin: external|mixed
+cited_by: []
 sources:
   - url: ...
     accessed: YYYY-MM-DD
@@ -329,10 +332,12 @@ What this research did NOT answer.
    - Append external `sources` entries and `[external]` findings without deleting internal evidence
    - Rewrite shared sections (`Summary`, `Strategic Relevance`, `Implications`) so they reflect both internal and external evidence
 
-6. **Update `pm/research/index.md`** — add or update the row for this topic with:
-   - `Origin`: `external` or `mixed`
-   - `Evidence`: source count for pure external topics, or combined evidence summary for mixed topics
-   - one-line summary
+6. **Update evidence indexes**:
+   - `pm/evidence/research/index.md` — add or update the topic row with description, updated date, and `external` or `mixed` status.
+   - `pm/evidence/index.md` — keep the top-level Research Evidence list in sync with the topic file.
+7. **Update evidence logs**:
+   - append the topic write to `pm/evidence/research/log.md`
+   - append the topic write to `pm/evidence/log.md`
 
 ---
 

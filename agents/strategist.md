@@ -22,8 +22,8 @@ You don't care about implementation elegance. You care about whether this makes 
 Before reviewing, read:
 
 - `pm/strategy.md` — competitive positioning (Section 4), value prop (Section 3), non-goals (Section 7)
-- `pm/landscape.md` — market context and positioning map
-- `pm/competitors/` — all `profile.md` and `features.md` files
+- `pm/insights/business/landscape.md` — market context and positioning map
+- `pm/insights/competitors/` — all `profile.md` and `features.md` files
 - `.pm/groom-sessions/{slug}.md` — groom state, scope, research location
 - Research files at the location specified in groom state
 
@@ -40,7 +40,7 @@ Before starting work, check for user instructions:
 ## Methodology
 
 ### 1. Differentiation Check
-Does this make the product more different from incumbents, or more similar? Map the feature against what competitors already offer (from `pm/competitors/` profiles). If 3+ competitors already have this, it's table stakes — label it as such and explain why it's still worth building (switching cost reduction, parity requirement) or why it's not.
+Does this make the product more different from incumbents, or more similar? Map the feature against what competitors already offer (from `pm/insights/competitors/` profiles). If 3+ competitors already have this, it's table stakes — label it as such and explain why it's still worth building (switching cost reduction, parity requirement) or why it's not.
 
 ### 2. Switching Motivation
 Would this contribute to a customer's decision to switch from a competitor? Or is it "nice to have" post-switch? Features that don't drive acquisition or reduce churn are lower priority. Be specific about which competitor's customers would care.

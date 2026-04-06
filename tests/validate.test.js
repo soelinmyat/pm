@@ -74,6 +74,72 @@ function makeBacklogItem(overrides = {}) {
   return fm;
 }
 
+function makeFrontmatterDocument(data, heading = "Document") {
+  let fm = "---\n";
+  for (const [key, value] of Object.entries(data)) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        fm += `${key}: []\n`;
+      } else {
+        fm += `${key}:\n`;
+        for (const item of value) {
+          fm += `  - "${item}"\n`;
+        }
+      }
+    } else {
+      fm += `${key}: ${value}\n`;
+    }
+  }
+  fm += `---\n\n# ${heading}\n`;
+  return fm;
+}
+
+function makeInsight(overrides = {}) {
+  return makeFrontmatterDocument(
+    {
+      type: "insight",
+      domain: "business",
+      topic: "Reporting gaps",
+      last_updated: "2026-04-06",
+      status: "active",
+      confidence: "medium",
+      sources: ["evidence/research/reporting-gaps.md"],
+      ...overrides,
+    },
+    "Reporting gaps"
+  );
+}
+
+function makeEvidence(overrides = {}) {
+  return makeFrontmatterDocument(
+    {
+      type: "evidence",
+      evidence_type: "research",
+      source_origin: "external",
+      created: "2026-04-06",
+      sources: ["https://example.com/report.pdf"],
+      cited_by: ["insights/business/reporting-gaps.md"],
+      ...overrides,
+    },
+    "Reporting gaps source"
+  );
+}
+
+function makeIndex(rows) {
+  return [
+    "# Index",
+    "",
+    "| Topic/Source | Description | Updated | Status |",
+    "|---|---|---|---|",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+function makeLog(lines) {
+  return lines.join("\n") + "\n";
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -245,6 +311,156 @@ test("no frontmatter reports error", (t) => {
   assert.equal(result.ok, false);
   const err = result.details.find((d) => d.message.includes("no YAML frontmatter"));
   assert.ok(err);
+});
+
+test("valid KB insight and evidence files pass validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+    "pm/insights/business/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Export pain clusters | 2026-04-06 | active |",
+    ]),
+    "pm/insights/business/log.md": makeLog([
+      "2026-04-06 create insights/business/reporting-gaps.md",
+    ]),
+    "pm/evidence/research/reporting-gaps.md": makeEvidence(),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Source notes | 2026-04-06 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog([
+      "2026-04-06 cite insights/business/reporting-gaps.md -> evidence/research/reporting-gaps.md",
+    ]),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details, null, 2));
+});
+
+test("insight validation rejects scalar sources and pm-prefixed paths", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeFrontmatterDocument(
+      {
+        type: "insight",
+        domain: "business",
+        topic: "Reporting gaps",
+        last_updated: "2026-04-06",
+        status: "active",
+        confidence: "medium",
+        sources: "pm/evidence/research/reporting-gaps.md",
+      },
+      "Reporting gaps"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.file.includes("insights/business/reporting-gaps.md")));
+});
+
+test("insight validation rejects domain mismatch and bad source targets", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight({
+      domain: "product",
+      sources: ["insights/business/not-evidence.md"],
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "domain"));
+  assert.ok(result.details.some((d) => d.field === "sources"));
+});
+
+test("evidence validation rejects folder/type mismatch and scalar cited_by", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/reporting-gaps.md": makeFrontmatterDocument(
+      {
+        type: "evidence",
+        evidence_type: "user-feedback",
+        source_origin: "external",
+        created: "2026-04-06",
+        sources: ["https://example.com/report.pdf"],
+        cited_by: "insights/business/reporting-gaps.md",
+      },
+      "Reporting gaps source"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "evidence_type"));
+  assert.ok(result.details.some((d) => d.field === "cited_by"));
+});
+
+test("index validation requires one row per content file", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+    "pm/insights/business/retention.md": makeInsight({
+      topic: "Retention gaps",
+      sources: ["evidence/research/retention.md"],
+    }),
+    "pm/insights/business/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Export pain clusters | 2026-04-06 | active |",
+    ]),
+    "pm/evidence/research/reporting-gaps.md": makeEvidence(),
+    "pm/evidence/research/retention.md": makeEvidence({
+      cited_by: ["insights/business/retention.md"],
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.message.includes('missing index row for "retention.md"')));
+});
+
+test("log validation rejects malformed lines", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+    "pm/insights/business/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Export pain clusters | 2026-04-06 | active |",
+    ]),
+    "pm/insights/business/log.md": makeLog([
+      "2026-04-06 create insights/business/reporting-gaps.md",
+      "2026-04-06 cite insights/business/reporting-gaps.md evidence/research/reporting-gaps.md",
+    ]),
+    "pm/evidence/research/reporting-gaps.md": makeEvidence(),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.file.endsWith("log.md")));
+});
+
+test("bidirectional citation validation rejects missing reciprocal links", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+    "pm/evidence/research/reporting-gaps.md": makeEvidence({ cited_by: [] }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.message.includes("does not cite")));
+});
+
+test("bidirectional citation validation rejects missing target files", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) =>
+      d.message.includes('missing evidence file "evidence/research/reporting-gaps.md"')
+    )
+  );
 });
 
 test("real pm/ directory passes validation", (t) => {

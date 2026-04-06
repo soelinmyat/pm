@@ -81,7 +81,7 @@ This structure informs the task decomposition. Each task should produce self-con
 When the invoking skill (dev) passes a groom context with a `research_location` path:
 
 1. Read `research_location` from the groom context passed by the invoking skill.
-2. Read the findings file at that path (e.g., `pm/research/pm-dev-merge/findings.md`).
+2. Read the findings file at that path (e.g., `pm/evidence/research/pm-dev-merge/findings.md`).
 3. Extract key findings: competitor landscape summary, market signals, and any decision rationale.
 4. Inject as `## Upstream Context` in the plan document, after the header block and before the first task.
 

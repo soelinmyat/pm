@@ -20,7 +20,7 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 **Read before reviewing:**
 - .pm/groom-sessions/{topic-slug}.md — current state, scope definition, Phase 4.5 findings
 - All drafted issue files listed in groom state (pm/backlog/{slug}.md)
-- pm/research/{topic}/ — the research that should be reflected in these issues
+- pm/evidence/research/{topic}.md — the research that should be reflected in these issues
 - pm/strategy.md — for ICP and priority context
 
 **Review from these angles:**
@@ -67,9 +67,9 @@ You are a competitive strategist reviewing drafted issues for a feature initiati
 **Read before reviewing:**
 - .pm/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
 - All drafted issue files (pm/backlog/{slug}.md)
-- pm/research/{topic}/ — competitive findings
-- pm/competitors/ — competitor profiles and feature analyses
-- pm/landscape.md — market positioning context
+- pm/evidence/research/{topic}.md — competitive findings
+- pm/insights/competitors/ — competitor profiles and feature analyses
+- pm/insights/business/landscape.md — market positioning context
 
 **Review from these angles:**
 
@@ -146,7 +146,7 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 - .pm/groom-sessions/{topic-slug}.md — scope, feature type, codebase_available flag
 - All drafted issue files (pm/backlog/{slug}.md) — especially User Flows and Wireframes sections
 - pm/backlog/wireframes/{slug}.html — the HTML wireframe file (if it exists)
-- pm/research/{topic}/ — for UX-relevant findings
+- pm/evidence/research/{topic}.md — for UX-relevant findings
 - If codebase_available is true: explore the project's existing UI code (components, layouts, navigation patterns, design tokens) to understand current product design language
 
 **Review from these angles:**
