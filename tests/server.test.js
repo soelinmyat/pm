@@ -514,6 +514,12 @@ function getFrontmatterParser() {
   return mod.parseFrontmatter;
 }
 
+function getKbPathNormalizer() {
+  const mod = loadServer();
+  assert.equal(typeof mod.normalizeKbPath, "function", "normalizeKbPath must be exported");
+  return mod.normalizeKbPath;
+}
+
 // ---------------------------------------------------------------------------
 // 8. YAML frontmatter: flat key-value pairs
 // ---------------------------------------------------------------------------
@@ -556,6 +562,20 @@ labels:
   assert.equal(data.type, "landscape");
   assert.deepEqual(data.children, ["slug-a", "slug-b", "slug-c"]);
   assert.deepEqual(data.labels, ["competitive", "strategy"]);
+});
+
+test("YAML frontmatter parses explicit empty arrays correctly", () => {
+  const parseFrontmatter = getFrontmatterParser();
+  const content = `---
+type: insight
+sources: []
+cited_by: []
+---
+# Body
+`;
+  const { data } = parseFrontmatter(content);
+  assert.deepEqual(data.sources, []);
+  assert.deepEqual(data.cited_by, []);
 });
 
 // ---------------------------------------------------------------------------
@@ -619,6 +639,19 @@ sources:
   assert.ok(Array.isArray(data.sources));
   assert.equal(data.sources[0].url, "https://acme.com");
   assert.ok(body.includes("# Acme Corp"));
+});
+
+test("normalizeKbPath strips legacy pm/ prefix and rejects absolute paths", () => {
+  const normalizeKbPath = getKbPathNormalizer();
+  assert.equal(
+    normalizeKbPath("pm/evidence/research/reporting-gaps.md"),
+    "evidence/research/reporting-gaps.md"
+  );
+  assert.equal(
+    normalizeKbPath("evidence/research/reporting-gaps.md"),
+    "evidence/research/reporting-gaps.md"
+  );
+  assert.equal(normalizeKbPath("/pm/evidence/research/reporting-gaps.md"), null);
 });
 
 // ---------------------------------------------------------------------------

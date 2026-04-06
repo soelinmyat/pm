@@ -3,6 +3,7 @@ const http = require("http");
 const net = require("net");
 const fs = require("fs");
 const path = require("path");
+const { normalizeKbPath, parseFrontmatter } = require("./kb-frontmatter.js");
 const { buildStatus } = require("./start-status.js");
 
 // ========== WebSocket Protocol (RFC 6455) ==========
@@ -177,104 +178,6 @@ function parseMode(argv) {
 }
 
 // ========== YAML Frontmatter Parser ==========
-
-/**
- * Parse YAML frontmatter from a markdown file content string.
- * Handles three shapes:
- *   1. Flat key-value:  key: value
- *   2. Scalar arrays:   key:\n  - item
- *   3. Array of objects: key:\n  - field: val\n    field2: val2
- *
- * Returns { data: {}, body: '...' }
- */
-function parseFrontmatter(content) {
-  const FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
-  const match = content.match(FM_RE);
-  if (!match) return { data: {}, body: content };
-
-  const rawYaml = match[1];
-  const body = match[2] || "";
-  const data = {};
-
-  const lines = rawYaml.split("\n");
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Skip empty lines
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-
-    // Top-level key (not indented, not a list item)
-    const keyMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-    if (!keyMatch) {
-      i++;
-      continue;
-    }
-
-    const key = keyMatch[1];
-    const inlineVal = keyMatch[2].trim();
-
-    if (inlineVal !== "") {
-      // Flat key-value — strip surrounding quotes
-      data[key] = inlineVal.replace(/^["'](.*)["']$/, "$1");
-      i++;
-      continue;
-    }
-
-    // No inline value — check if next lines are array items
-    const items = [];
-    i++;
-    while (i < lines.length) {
-      const next = lines[i];
-      // Check if this is an indented list item (scalar or object start)
-      const scalarItemMatch = next.match(/^[ \t]+-\s+([^:\n]+)$/);
-      const objItemMatch = next.match(/^[ \t]+-\s+([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-      const contObjMatch = next.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-
-      if (objItemMatch) {
-        // Start of an object item
-        const obj = {};
-        obj[objItemMatch[1]] = objItemMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
-        i++;
-        // Collect continuation lines for this object
-        while (i < lines.length) {
-          const cont = lines[i];
-          const contMatch = cont.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
-          if (contMatch && !cont.match(/^[ \t]+-\s/)) {
-            obj[contMatch[1]] = contMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
-            i++;
-          } else {
-            break;
-          }
-        }
-        items.push(obj);
-      } else if (scalarItemMatch) {
-        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, "$1"));
-        i++;
-      } else if (contObjMatch && items.length > 0 && typeof items[items.length - 1] === "object") {
-        // Continuation of last object (shouldn't normally reach here but be safe)
-        items[items.length - 1][contObjMatch[1]] = contObjMatch[2]
-          .trim()
-          .replace(/^["'](.*)["']$/, "$1");
-        i++;
-      } else {
-        // No more items for this key
-        break;
-      }
-    }
-
-    if (items.length > 0) {
-      data[key] = items;
-    }
-    // (if items.length === 0 and no inline val, key is null/undefined — skip)
-  }
-
-  return { data, body };
-}
 
 // ========== Simple Markdown-to-HTML Renderer ==========
 
@@ -5624,6 +5527,7 @@ module.exports = {
   OPCODES,
   parseMode,
   parseFrontmatter,
+  normalizeKbPath,
   renderMarkdown,
   inlineMarkdown,
   escHtml,
