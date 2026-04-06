@@ -2,69 +2,89 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use dev:subagent-dev to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Define and enforce minimal knowledge base (KB) file contracts (insight, evidence, index.md, log.md) so skills and the dashboard can parse files deterministically and stop guessing field names.
+**Goal:** Make the KB schema contract authoritative across docs, validation, and dashboard parsing so the repo has one consistent definition for insight, evidence, `index.md`, and `log.md`.
 
-**Architecture:** Document the human-facing contract in `references/templates/kb-schemas.md`, and enforce it in `scripts/validate.js` with regression coverage in `tests/validate.test.js`. Keep the schema minimal for MVP, and keep validation shallow: frontmatter presence, required fields, enums, date formats, and bidirectional citations.
+**Architecture:** Document the canonical KB contract in `references/templates/kb-schemas.md`, extract shared frontmatter/path helpers into a reusable script module, and have both `scripts/validate.js` and `scripts/server.js` consume that shared logic. Then add validator coverage for schema shape, folder/frontmatter alignment, index row completeness, log formatting, and strict bidirectional citation reciprocity.
 
-**Apps/services affected:** `scripts/validate.js`, `references/templates/kb-schemas.md`, `tests/validate.test.js`
+**Apps/services affected:** `references/templates/kb-schemas.md`, `scripts/kb-frontmatter.js`, `scripts/validate.js`, `scripts/server.js`, `tests/validate.test.js`, `tests/server.test.js`
 **Cross-boundary sync required:** no
 
-**Tech Stack:** Node.js (built-in `node:test`), plain JavaScript, repo-local frontmatter parser (no YAML dependencies)
+**Tech Stack:** Node.js (built-in `node:test`), plain JavaScript, repo-local markdown/frontmatter parsing
 
 ## Contract
 
 > What is binding for this implementation. Reviewers and implementers use this to judge completeness and drift.
 
 **Done criteria:**
-1. Insight file schema is documented and matches PM-144 AC: `type: insight`, `domain`, `topic`, `last_updated`, `sources` (array of evidence paths), `status` (active/stale/draft), `confidence` (high/medium/low).
-2. Evidence file schema is documented and matches PM-144 AC: `type: evidence`, `evidence_type` (research/transcript/user-feedback/etc), `source_origin` (internal/external), `created`, `sources` (URLs or file refs), `cited_by` (array of insight paths).
-3. `index.md` table contract is documented: `| Topic/Source | Description | Updated | Status |` with one row per file in that folder.
-4. `log.md` contract is documented: append-only, one line per change with date, action, and file reference.
-5. Bidirectional citation contract is documented and enforced in validation: when an insight lists evidence in `sources`, the evidence lists that insight in `cited_by`.
-6. Schemas are documented in `references/templates/kb-schemas.md`.
+1. Insight schema is documented and enforced: `type: insight`, `domain`, `topic`, `last_updated`, `sources`, `status`, `confidence`.
+2. Evidence schema is documented and enforced: `type: evidence`, `evidence_type`, `source_origin`, `created`, `sources`, `cited_by`.
+3. `index.md` contract is documented and enforced: header `| Topic/Source | Description | Updated | Status |` plus one row per non-`index.md`/`log.md` file in that folder.
+4. `log.md` contract is documented and enforced: append-only one-line entries with date, action, and file reference.
+5. Bidirectional citations are strict: if an insight cites an evidence file, that evidence file must cite the insight back in the same stored state.
+6. The dashboard parser and validator share the same KB frontmatter semantics for empty arrays, scalar arrays, and body extraction.
 7. Landscape placement is documented as `insights/business/landscape.md`.
-8. Evidence type subfolders are documented: `evidence/research/`, `evidence/transcripts/`, `evidence/user-feedback/`.
-9. `npm test` passes.
+8. Evidence type subfolders are documented as `evidence/research/`, `evidence/transcripts/`, and `evidence/user-feedback/`.
+9. Folder/frontmatter alignment is enforced for new KB files:
+   - `insights/<domain>/...` files must have matching `domain`
+   - `evidence/<type>/...` files must have matching `evidence_type`
+10. Canonical KB citations are repo-relative paths without leading `/` or `pm/`.
+11. Legacy `pm/...` prefixes are treated as compatibility inputs only where old surfaces still read them; they are not valid for new KB file storage.
+12. `npm test` passes.
 
 **Verification commands:**
 - `npm test`
+- `node scripts/validate.js --dir pm`
 
 **Files in scope:**
 - Create: `references/templates/kb-schemas.md`
+- Create: `scripts/kb-frontmatter.js`
 - Modify: `scripts/validate.js`
+- Modify: `scripts/server.js`
 - Modify: `tests/validate.test.js`
+- Modify: `tests/server.test.js`
 
 **Risk notes:**
-- **Parser mismatch risk:** `scripts/validate.js` and `scripts/server.js` use different frontmatter parsers. This work only updates validation; later KB restructure work should consolidate parsing to avoid drift.
-- **Empty arrays:** Current validators and parsers treat `sources: []` as a string. This plan includes a minimal `[]` support in `scripts/validate.js` so empty `sources`/`cited_by` do not create false negatives.
-- **Backwards compatibility:** Existing `pm/research/` and `research_refs` are unchanged here. This is a schema contract + validation only, not a migration.
+- This is effectively an **M-sized** change now, not S-sized, because it establishes shared parser behavior across both validator and dashboard surfaces.
+- Existing backlog `research_refs` and old `pm/research/*` content remain in the repo during the epic. PM-144 should normalize legacy path inputs where needed, but it must define one canonical write format for the new KB structure.
+- Do not overbuild a generic YAML system. The shared parser only needs to cover shapes already used in the repo plus the empty-array case that this epic introduces.
 
 ---
 
 ## Conventions (Binding)
 
-These conventions are part of the schema contract and should be reflected in both the docs and the validator.
-
-- All KB paths in citations are **repo-relative to `pm/`**, use `/` separators, and do **not** start with `/` or `pm/`.
-  - Example evidence path: `evidence/research/acme-export-notes.md`
-  - Example insight path: `insights/business/reporting-gaps.md`
-- `domain` is a **slug** (`[a-z0-9-]+`). Domains are discoverable by folder name under `insights/` (no hardcoded list).
-- Dates are `YYYY-MM-DD`.
-- Insight `sources` is an array of evidence file paths (strings).
-- Evidence `sources` is an array of strings where each item is either:
-  - an external URL (`https://...`), or
-  - a repo-relative file reference (for internal artifacts) like `evidence/transcripts/user-interview-2026-04-01.md`.
+- Canonical KB paths are repo-relative to `pm/`, use `/` separators, and must be stored without leading `/` or `pm/`.
+  - Canonical evidence path: `evidence/research/acme-export-notes.md`
+  - Canonical insight path: `insights/business/reporting-gaps.md`
+- Legacy `pm/...` path prefixes may be normalized when reading old backlog/dashboard references, but new insight/evidence file frontmatter must not store them.
+- `domain` is the folder name directly under `insights/`.
+- `evidence_type` is the folder name directly under `evidence/`.
+- Dates use `YYYY-MM-DD`.
+- `sources` and `cited_by` are arrays only. Scalar strings are invalid.
+- `index.md` must list every content file in its folder except `index.md` and `log.md`. Missing rows and extra rows are validation failures.
+- Reciprocity failures are validation errors, not warnings.
 
 ---
 
-### Task 1: Document KB Schemas And Formats
+### Task 1: Document The Canonical KB Contract
 
 **Files:**
 - Create: `references/templates/kb-schemas.md`
 
-- [ ] **Step 1: Create `references/templates/kb-schemas.md` with the schemas and examples**
+- [ ] **Step 1: Write the KB schema reference**
 
-Include, at minimum, these examples (keep them valid for our simplistic frontmatter parser):
+Document:
+- insight frontmatter fields, enums, and examples
+- evidence frontmatter fields, enums, and examples
+- `index.md` table schema, including row expectations
+- `log.md` line format and supported actions
+- canonical citation format
+- folder/frontmatter alignment rules
+- compatibility note: legacy `pm/...` references can be normalized on read, but new KB file storage must use canonical unprefixed paths
+- landscape placement and evidence type subfolders
+
+- [ ] **Step 2: Add concrete examples that match parser constraints**
+
+Examples must include:
 
 ```md
 ---
@@ -76,7 +96,6 @@ status: active
 confidence: medium
 sources:
   - evidence/research/reporting-gaps-competitor-scan.md
-  - evidence/user-feedback/export-requests-roundup.md
 ---
 # Reporting gaps
 ```
@@ -95,230 +114,181 @@ cited_by:
 # Reporting gaps competitor scan
 ```
 
-Index format:
-
 ```md
 | Topic/Source | Description | Updated | Status |
 |---|---|---|---|
 | [Reporting gaps](reporting-gaps.md) | Export + reporting demand clusters | 2026-04-06 | active |
 ```
 
-Log format:
-
 ```txt
 2026-04-06 create insights/business/reporting-gaps.md
 2026-04-06 cite insights/business/reporting-gaps.md -> evidence/research/reporting-gaps-competitor-scan.md
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add references/templates/kb-schemas.md
-git commit -m "docs: add KB insight/evidence schema reference (PM-144)"
+git commit -m "docs: document canonical KB schema contract (PM-144)"
 ```
 
 ---
 
-### Task 2: TDD Insight Schema Validation
+### Task 2: Extract Shared KB Frontmatter And Path Helpers
+
+**Files:**
+- Create: `scripts/kb-frontmatter.js`
+- Modify: `scripts/validate.js`
+- Modify: `scripts/server.js`
+- Modify: `tests/server.test.js`
+
+- [ ] **Step 1: Add failing parser tests**
+
+In `tests/server.test.js`, add regression coverage for the shared parser semantics PM-144 depends on:
+- empty arrays: `sources: []`, `cited_by: []`
+- scalar arrays with quoted/unquoted values
+- body extraction after frontmatter
+- canonical and legacy path normalization helper behavior:
+  - `evidence/research/foo.md` stays unchanged
+  - `pm/evidence/research/foo.md` normalizes to `evidence/research/foo.md`
+  - `/pm/evidence/research/foo.md` is rejected
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `npm test`
+Expected: FAIL because the shared parser/helper does not exist yet.
+
+- [ ] **Step 3: Create `scripts/kb-frontmatter.js`**
+
+Export helpers that are reused by both validator and dashboard code:
+- `parseFrontmatter(content)` returning `{ data, body }`
+- `normalizeKbPath(value)` for canonical vs legacy-path handling
+- small date/path predicate helpers if needed (`isIsoDate`, `isCanonicalKbPath`)
+
+Binding rules:
+- support the frontmatter shapes the current server parser already handles
+- additionally support explicit empty arrays (`[]`)
+- do not add third-party YAML libraries
+
+- [ ] **Step 4: Update `scripts/server.js` and `scripts/validate.js` to use the shared helper**
+
+`scripts/server.js` should import the shared parser instead of carrying its own separate implementation.  
+`scripts/validate.js` should stop using its custom parser and consume the same helper, so validation and dashboard reads cannot drift on frontmatter shape.
+
+- [ ] **Step 5: Run tests to verify pass**
+
+Run: `npm test`
+Expected: PASS for the new parser coverage.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/kb-frontmatter.js scripts/server.js scripts/validate.js tests/server.test.js
+git commit -m "refactor: share KB frontmatter parsing across validator and dashboard (PM-144)"
+```
+
+---
+
+### Task 3: TDD Insight And Evidence Schema Validation
 
 **Files:**
 - Modify: `scripts/validate.js`
 - Modify: `tests/validate.test.js`
 
-- [ ] **Step 1: Add failing tests for `type: insight` schema**
+- [ ] **Step 1: Add failing validation tests for insight files**
 
-Add helpers to `tests/validate.test.js` for generating insight files:
+Add helpers and tests covering:
+- valid insight passes
+- missing required fields fail
+- invalid `status` fails
+- invalid `confidence` fails
+- invalid `last_updated` date fails
+- scalar `sources` fails
+- `sources` entries with leading `/` fail
+- `sources` entries with `pm/` prefix fail for new KB files
+- `domain` mismatch with `insights/<domain>/...` folder fails
+- `sources` pointing outside `evidence/` fail
 
-```js
-function makeInsight(overrides = {}) {
-  const defaults = {
-    type: "insight",
-    domain: "business",
-    topic: "Reporting gaps",
-    last_updated: "2026-04-06",
-    status: "active",
-    confidence: "medium",
-    sources: [],
-  };
-  const d = { ...defaults, ...overrides };
-  let fm = "---\n";
-  for (const [k, v] of Object.entries(d)) {
-    if (Array.isArray(v)) {
-      if (v.length === 0) {
-        fm += `${k}: []\n`;
-      } else {
-        fm += `${k}:\n`;
-        for (const item of v) fm += `  - "${item}"\n`;
-      }
-    } else {
-      fm += `${k}: ${v}\n`;
-    }
-  }
-  fm += "---\n\n# " + d.topic + "\n";
-  return fm;
-}
-```
+- [ ] **Step 2: Add failing validation tests for evidence files**
 
-Then add tests:
-- Valid insight passes validation.
-- Missing `domain` errors.
-- Invalid `status` errors.
-- Invalid `confidence` errors.
-- Invalid date format for `last_updated` errors.
+Cover:
+- valid evidence passes
+- missing `evidence_type` fails
+- invalid `source_origin` fails
+- invalid `created` date fails
+- scalar `sources` fails
+- scalar `cited_by` fails
+- `cited_by` entries with leading `/` or `pm/` fail
+- `evidence_type` mismatch with `evidence/<type>/...` folder fails
+- internal file references in `sources` that are not KB-relative fail
 
-- [ ] **Step 2: Run tests to verify failures**
+- [ ] **Step 3: Run tests to verify failure**
 
 Run: `npm test`
-Expected: FAIL (unknown file type not validated yet, or missing validation for required insight fields).
+Expected: FAIL until schema validation is implemented.
 
-- [ ] **Step 3: Implement minimal insight validation in `scripts/validate.js`**
+- [ ] **Step 4: Implement schema validation in `scripts/validate.js`**
 
-Implementation notes (binding):
-- Walk `pm/insights/**.md` recursively (skip `index.md` and `log.md`).
-- Require fields: `type`, `domain`, `topic`, `last_updated`, `status`, `confidence`, `sources`.
-- Enums:
-  - `status`: `active|stale|draft`
-  - `confidence`: `high|medium|low`
-- Allow `sources` to be empty; treat `sources: []` as an empty array in `parseFrontmatter`.
-- Validate `domain` matches `/^[a-z0-9-]+$/`.
-- Validate date fields match `/^\d{4}-\d{2}-\d{2}$/`.
+Binding behavior:
+- walk `pm/insights/**.md` and `pm/evidence/**.md`, skipping `index.md` and `log.md`
+- enforce required fields and enums
+- enforce array-only semantics for `sources` and `cited_by`
+- validate dates with `YYYY-MM-DD`
+- enforce folder/frontmatter alignment
+- treat canonical unprefixed paths as valid for new KB files
+- do not silently coerce invalid scalar values into valid arrays
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify pass**
 
 Run: `npm test`
-Expected: PASS for new insight tests.
+Expected: PASS for the new schema validation coverage.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add scripts/validate.js tests/validate.test.js
-git commit -m "feat: validate insight schema in pm/insights (PM-144)"
+git commit -m "feat: validate KB insight and evidence schemas (PM-144)"
 ```
 
 ---
 
-### Task 3: TDD Evidence Schema Validation
+### Task 4: Enforce Index And Log Contracts
 
 **Files:**
 - Modify: `scripts/validate.js`
 - Modify: `tests/validate.test.js`
 
-- [ ] **Step 1: Add failing tests for `type: evidence` schema**
+- [ ] **Step 1: Add failing tests for index completeness**
 
-Add helpers to `tests/validate.test.js` for generating evidence files:
+Add tests that validate:
+- exact required header row
+- exact delimiter row
+- one entry per content file in the folder
+- missing row for a content file fails
+- extra row for a non-existent file fails
+- row links stay folder-relative and do not point outside the folder
 
-```js
-function makeEvidence(overrides = {}) {
-  const defaults = {
-    type: "evidence",
-    evidence_type: "research",
-    source_origin: "external",
-    created: "2026-04-06",
-    sources: ["https://example.com/report.pdf"],
-    cited_by: [],
-  };
-  const d = { ...defaults, ...overrides };
-  let fm = "---\n";
-  for (const [k, v] of Object.entries(d)) {
-    if (Array.isArray(v)) {
-      if (v.length === 0) {
-        fm += `${k}: []\n`;
-      } else {
-        fm += `${k}:\n`;
-        for (const item of v) fm += `  - "${item}"\n`;
-      }
-    } else {
-      fm += `${k}: ${v}\n`;
-    }
-  }
-  fm += "---\n\n# Evidence\n";
-  return fm;
-}
-```
+- [ ] **Step 2: Add failing tests for log format**
 
-Then add tests:
-- Valid evidence passes validation.
-- Missing `evidence_type` errors.
-- Invalid `source_origin` errors.
-- Invalid `created` date format errors.
-- `sources` must be an array of strings (reject scalar).
+Validate:
+- each non-empty line matches `YYYY-MM-DD <action> <path>`
+- supported actions are `create|update|move|delete|cite|uncite`
+- `cite` and `uncite` lines must use `A -> B`
+- malformed dates and malformed cite arrows fail
 
-- [ ] **Step 2: Run tests to verify failures**
+- [ ] **Step 3: Run tests to verify failure**
 
 Run: `npm test`
-Expected: FAIL until evidence validation exists.
+Expected: FAIL until index/log checks exist.
 
-- [ ] **Step 3: Implement minimal evidence validation in `scripts/validate.js`**
+- [ ] **Step 4: Implement index/log validators**
 
-Implementation notes (binding):
-- Walk `pm/evidence/**.md` recursively (skip `index.md` and `log.md`).
-- Require fields: `type`, `evidence_type`, `source_origin`, `created`, `sources`, `cited_by`.
-- Enums:
-  - `source_origin`: `internal|external`
-  - `evidence_type`: accept at least `research|transcript|user-feedback` (document other values as future extension; validator can be strict for MVP).
-- Validate `created` date format.
-- Validate each entry of `sources` is either:
-  - `https://` URL, or
-  - a repo-relative path without leading `/` or `pm/`.
+Binding behavior:
+- parse the markdown table enough to compare listed file links against actual folder contents
+- ignore `index.md` and `log.md` when computing expected rows
+- validate log lines strictly
 
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `npm test`
-Expected: PASS for new evidence tests.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/validate.js tests/validate.test.js
-git commit -m "feat: validate evidence schema in pm/evidence (PM-144)"
-```
-
----
-
-### Task 4: Index/Log Formats And Bidirectional Citations
-
-**Files:**
-- Modify: `scripts/validate.js`
-- Modify: `tests/validate.test.js`
-
-- [ ] **Step 1: Add failing tests for `index.md` and `log.md` format**
-
-Add tests that:
-- An `index.md` in `pm/insights/business/index.md` must contain the header row exactly:
-  - `| Topic/Source | Description | Updated | Status |`
-- A `log.md` in `pm/insights/business/log.md` must have lines matching:
-  - `YYYY-MM-DD <action> <path>`
-  - with `<action>` in `create|update|move|delete|cite|uncite`
-
-- [ ] **Step 2: Add failing tests for bidirectional citations**
-
-Add tests that:
-- If `insights/business/reporting-gaps.md` has `sources: [ "evidence/research/reporting-gaps.md" ]`,
-  then `evidence/research/reporting-gaps.md` must have `cited_by: [ "insights/business/reporting-gaps.md" ]`.
-- Missing reciprocal entry is an error (validation `ok: false`).
-
-- [ ] **Step 3: Run tests to verify failures**
-
-Run: `npm test`
-Expected: FAIL.
-
-- [ ] **Step 4: Implement index/log validators + citation reciprocity**
-
-Implementation notes (binding):
-- `index.md`:
-  - Only validate the table header + delimiter line. Do not attempt to parse full markdown tables for MVP.
-- `log.md`:
-  - Validate each non-empty line matches `/^\d{4}-\d{2}-\d{2} (create|update|move|delete|cite|uncite) [^ ]+(\s+->\s+[^ ]+)?$/`.
-  - `cite` lines must include `A -> B` where A is insight path and B is evidence path.
-- Citations:
-  - Build maps of parsed insight files and evidence files keyed by repo-relative path under `pm/`.
-  - For each insight `sources` entry that starts with `evidence/`:
-    - Error if the target evidence file does not exist.
-    - Error if the evidence file does not include this insight path in `cited_by`.
-  - For each evidence `cited_by` entry:
-    - Warning if the cited insight file does not exist (allow forward-references during drafts).
-
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify pass**
 
 Run: `npm test`
 Expected: PASS.
@@ -327,6 +297,47 @@ Expected: PASS.
 
 ```bash
 git add scripts/validate.js tests/validate.test.js
-git commit -m "feat: validate KB index/log formats and bidirectional citations (PM-144)"
+git commit -m "feat: validate KB index and log contracts (PM-144)"
 ```
 
+---
+
+### Task 5: Enforce Strict Bidirectional Citations
+
+**Files:**
+- Modify: `scripts/validate.js`
+- Modify: `tests/validate.test.js`
+
+- [ ] **Step 1: Add failing reciprocity tests**
+
+Cover:
+- insight cites evidence but evidence does not cite back -> fail
+- evidence cites insight but insight does not cite that evidence -> fail
+- cited evidence file missing -> fail
+- cited insight file missing -> fail
+- wrong folder target (`insights/...` inside `sources`, `evidence/...` inside `cited_by`) -> fail
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `npm test`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement reciprocity checks**
+
+Binding behavior:
+- key files by canonical repo-relative path under `pm/`
+- use canonicalized paths from the shared helper before comparison
+- reciprocity violations are errors, not warnings
+- missing counterpart files are errors for PM-144 because the schema contract is meant to be authoritative for the new KB layer
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `npm test`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/validate.js tests/validate.test.js
+git commit -m "feat: enforce KB bidirectional citation reciprocity (PM-144)"
+```
