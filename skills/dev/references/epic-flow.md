@@ -496,7 +496,7 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md for install command), verify clean test baseline
 3. Read the plan and implement all tasks
-4. Invoke /simplify - fix findings, run tests, commit
+4. Invoke pm:simplify - fix findings, run tests, commit
 5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
 6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)

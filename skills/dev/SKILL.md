@@ -18,7 +18,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 **Hard rules (all flows):**
 - **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation worker MUST run as a **persistent agent with isolated context**. In Codex, create that worker with `spawn_agent`, collect summaries with `wait_agent`, resume it with `resume_agent` + `send_input`, and clean it up with `close_agent`. Short-lived review/code-scan agents can still return compact results directly. See ADR-0002.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
-- No design critique or review without running `/simplify` first (all sizes)
+- Before design critique or review, always run `pm:simplify` (it routes to Anthropic official simplify in Claude Code and normalizes output to PM-required fields)
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
 - No PR without passing the review gate (M/L/XL) — `/review` MUST run before push
 - No auto-merge without passing the code scan gate (XS/S) — lightweight bug scan before merge

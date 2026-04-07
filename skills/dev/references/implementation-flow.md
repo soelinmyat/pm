@@ -209,17 +209,14 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ---
 
-## Step 3: Simplify — `/simplify`
+## Step 3: Simplify — `pm:simplify`
 
-**Conditional availability:** `/simplify` is an external skill. Before invoking, check if the command is available. If not available, log "Simplify: skipped (command not available)" in `.pm/dev-sessions/{slug}.md` and proceed.
+Runs after every implement stage, all sizes. Invoke `pm:simplify` — it handles runtime routing (Anthropic official simplify in Claude Code, built-in 3-agent review in other runtimes) and returns structured findings.
 
-**When available:** Runs after every implement stage, all sizes. Reviews changed code for reuse, quality, and efficiency. Launches 3 parallel review agents (Code Reuse, Code Quality, Efficiency) against the current diff.
-
-1. Invoke `/simplify` via the Skill tool
-2. It launches 3 agents in parallel: Code Reuse Review (finds existing utilities to replace new code), Code Quality Review (redundant state, parameter sprawl, copy-paste), Efficiency Review (unnecessary work, missed concurrency, hot-path bloat)
-3. Fix all real findings, skip false positives
-4. Run tests after fixes
-5. Commit simplification changes before proceeding
+1. Invoke `pm:simplify`
+2. Fix all real findings, skip false positives
+3. Run tests after fixes
+4. Commit simplification changes before proceeding
 
 **Why here (after implement, before design critique/QA):**
 - Implementation is complete, so there's real code to simplify
@@ -227,9 +224,9 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 - For XS/S, catches issues before the code scan gate (reducing code scan findings)
 - For M/L/XL, reduces review churn
 
-**Skip conditions:**
+**Skip conditions (handled inside `pm:simplify`):**
 - No code changes in the diff (config-only, docs-only)
-- Agent finds nothing to simplify (proceed immediately)
+- All agents find nothing to simplify (proceed immediately)
 
 ---
 

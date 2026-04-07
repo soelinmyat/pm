@@ -131,9 +131,8 @@ After each fix agent completes: log the result (one line). If "failed", note for
 
 ## Step 5: Simplify
 
-After all bugs are fixed and committed, invoke `/simplify` if:
-- 3+ bugs were fixed AND
-- `/simplify` is available (check existence, skip gracefully if not)
+After all bugs are fixed and committed, invoke `pm:simplify` if:
+- 3+ bugs were fixed
 
 Fix findings, run tests, commit separately from bug fix commits.
 
@@ -211,7 +210,7 @@ After push is verified:
 - Respect the project's branch/PR policy: if the repo requires PRs (check CLAUDE.md, AGENTS.md, or branch protection), create a branch and PR. Otherwise fix on main directly.
 - One sub-agent per bug fix, run sequentially to avoid git conflicts
 - One commit per bug fix for clean git history
-- ALWAYS run `/simplify` after fixes before pushing (Step 5), unless fewer than 3 fixes
+- ALWAYS run `pm:simplify` after fixes before pushing (Step 5), unless fewer than 3 fixes
 - NEVER use `--no-verify` on push
 - Keep main context lean: only store compact JSON results from agents
 

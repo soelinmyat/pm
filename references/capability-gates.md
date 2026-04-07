@@ -20,7 +20,7 @@ Shared classification for optional tools, skills, and runtime features used by P
 | `gh` for PR creation/merge | `required` when the chosen path creates or merges a PR | Detect early and stop only on PR-required paths. |
 | `gh` for PR comments | `preferred` | Review can still run without posting comments. |
 | `code-review:code-review` | `preferred` | Use when available for PR comments. Do not block review if absent. |
-| `simplify` | `preferred` | Run when available. If absent, log the downgrade and continue. |
+| `pm:simplify` | built-in | Always available. In Claude Code, delegates to Anthropic's official simplify internally. No availability check needed. |
 | `design-critique` | `preferred` unless the project explicitly treats it as mandatory | If unavailable, log the downgrade and continue to the next gate. |
 | `Playwright MCP` | `preferred` for QA and design critique on web | If absent, QA may degrade or block depending on whether browser testing is central to the task. |
 | `Maestro MCP` | `preferred` for mobile QA/design critique | Same rule as Playwright, but mobile-specific. |

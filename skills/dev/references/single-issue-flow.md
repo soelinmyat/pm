@@ -59,7 +59,7 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | Plan (persistent worker) | — | — | Persistent worker writes plan, stops | Persistent worker writes plan, stops | Persistent worker writes plan, stops |
 | Plan review | — | — | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) |
 | Implement (same worker) | TDD | TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD |
-| Simplify | `/simplify` | `/simplify` | `/simplify` | `/simplify` | `/simplify` |
+| Simplify | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
 | QA (persistent worker) | If UI (Quick, L1+3+4) | If UI (Focused, L1+3+4 or all 5) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) |
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
@@ -519,7 +519,7 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the plan end-to-end and implement all tasks
-4. Invoke /simplify — fix findings, run tests, commit
+4. Invoke pm:simplify — fix findings, run tests, commit
 5. If UI changes: invoke /design-critique if available, else skip
 6. If UI changes: QA runs as the persistent QA worker (spawned by implementation-flow.md when supported)
 7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit

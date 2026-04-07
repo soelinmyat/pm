@@ -36,6 +36,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 | Skill | Called by | Purpose |
 |-------|----------|---------|
+| `pm:simplify` | dev (pre-review/pre-design gate) | Single simplify entrypoint; routes by runtime and normalizes PM-required fields |
 | `pm:tdd` | dev (all sizes) | Test-first discipline |
 | `pm:subagent-dev` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
@@ -112,6 +113,7 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 | "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
 | "Should we do X?" | `pm:research quick` |
 | "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
+| "Simplify this scope" / "make this simpler" / "clarify plan" | `pm:simplify` (single entrypoint across runtimes) |
 | "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
 | "Ship it" / "Push this" / "create PR" / "ready for review" | `pm:ship` |
 | "Deploy" / "deploy to production" / "release" / "push to production" | `pm:deploy` — create PR from main to production, self-heal, auto-merge |
