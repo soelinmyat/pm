@@ -11,31 +11,11 @@ Orchestrate the full product discovery lifecycle: from raw idea to structured, r
 
 Research gates grooming. Strategy gates scoping. Neither is optional.
 
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-`pm:groom` is stateful. Mirror these fields into the groom session state file:
-- `runtime`
-- `groom_tier`
-- `run_id`
-- `started_at`
-- `completed_at`
-- `phase_started_at`
+## Telemetry (opt-in)
 
-Minimum step coverage:
-- `intake`
-- `strategy-check`
-- `research`
-- `scope`
-- `scope-review`
-- `groom`
-- `team-review`
-- `bar-raiser`
-- `present`
-- `link`
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `groom`, `team-review`, `bar-raiser`, `present`, `link`.
 
 ## Interaction Pacing
 

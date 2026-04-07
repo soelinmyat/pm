@@ -13,18 +13,7 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 
 ## Telemetry (opt-in)
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-`pm:ship` should mirror `run_id`, `started_at`, `completed_at`, and `stage_started_at` into the session state when one exists.
-
-Minimum coverage for `pm:ship`:
-- `pre-flight`
-- `conflict-check`
-- `review`
-- `push`
-- `create-or-detect-pr`
-- `merge-monitor`
-- `cleanup`
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `pre-flight`, `conflict-check`, `review`, `push`, `create-or-detect-pr`, `merge-monitor`, `cleanup`.
 
 ## Default Branch
 

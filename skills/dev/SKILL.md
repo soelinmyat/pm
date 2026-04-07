@@ -15,6 +15,8 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 
 **Read ONE flow reference, not all three.** The routing section below determines which.
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 **Hard rules (all flows):**
 - **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation worker MUST run as a **persistent agent with isolated context**. In Codex, create that worker with `spawn_agent`, collect summaries with `wait_agent`, resume it with `resume_agent` + `send_input`, and clean it up with `close_agent`. Short-lived review/code-scan agents can still return compact results directly. See ADR-0002.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
@@ -32,28 +34,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 
 ## Telemetry (opt-in)
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-
-`pm:dev` is stateful. Mirror these fields into `.pm/dev-sessions/{slug}.md` (or epic / bugfix variants):
-- `runtime`
-- `run_id`
-- `started_at`
-- `completed_at`
-- `stage_started_at`
-
-Minimum step coverage:
-- `resume-detection`
-- `intake`
-- `workspace`
-- `groom-readiness`
-- `design-exploration` or `plan`
-- `implementation`
-- `qa`
-- `review`
-- `ship`
-- `retro`
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
 ## Route Detection
 

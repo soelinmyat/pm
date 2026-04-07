@@ -149,26 +149,4 @@ These do NOT apply when the user is asking a direct question, requesting a quick
 
 ## Activity Analytics (opt-in)
 
-When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, PM skills can emit shared workflow telemetry.
-
-**How it works:** The hook (`hooks/analytics-log.sh`) still logs coarse `pm:` skill invocations to `.pm/analytics/activity.jsonl`, but the shared logger also supports run start/end events and step spans in `.pm/analytics/steps.jsonl`.
-
-**Shared contract:** Read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. It defines:
-- run start / run end logging
-- step spans with duration, retries, and file counts
-- exact token capture when available, estimated token fallback when it is not
-- state-file fields for stateful workflows
-
-**CLI surface:**
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-start --skill dev --args "$ARGUMENTS"
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh step --skill dev --run-id "$PM_RUN_ID" --phase implement --step tdd-cycle --started-at "$STEP_STARTED_AT"
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-end --skill dev --run-id "$PM_RUN_ID" --status completed
-```
-
-**Baseline summary:** After telemetry accumulates, generate a maintainer summary with:
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output pm/evidence/research/tracking-dogfooding/baseline.md
-```
-
-**When analytics is off:** The logger exits immediately. No telemetry files are created.
+Analytics are opt-in per project. See `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md` for the full contract (enabling, CLI surface, file formats, state-file fields).

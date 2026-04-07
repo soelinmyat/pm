@@ -13,19 +13,12 @@ Multi-perspective code review with auto-fix. Runs up to four review agents in pa
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific reviewer dispatch.
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-Minimum coverage for `pm:review`:
-- run start / run end
-- one step span for `gather-context`
-- one step span for `parallel-reviews`
-- one step span for `merge-findings`
-- one step span for `auto-fix` when fixes are applied
+## Telemetry (opt-in)
+
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `gather-context`, `parallel-reviews`, `merge-findings`, `auto-fix`.
 
 ---
 
