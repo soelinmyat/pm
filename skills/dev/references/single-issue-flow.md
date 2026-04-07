@@ -129,88 +129,36 @@ Never proceed to implementation without a clean workspace checkpoint.
 
 ## Stage 2.5: Groom Readiness Check (all sizes)
 
-Before proceeding to design/planning/implementation, check whether this issue has been groomed — and if not, whether it needs grooming.
+Before proceeding, check whether this issue has been groomed.
 
 ### Step 1: Check for existing groom session
 
-1. Glob `.pm/groom-sessions/*.md` for a file whose slug matches the current issue slug or topic (normalize: lowercase, spaces to hyphens).
-2. If found, parse YAML frontmatter. Read `effective_verdict` (or `bar_raiser.verdict` for legacy sessions without `effective_verdict`).
-3. If verdict is `"ready"` or `"ready-if"`:
-   - Log in state file: `Groom detection: groomed (session: {filename}, verdict: {verdict}, tier: {tier})`
-   - Read `research_location` from the session frontmatter. Store the path for research injection in Stage 4.
-   - **For M/L/XL:** Skip Stage 3 (design exploration) and Stage 3.5 (spec review). Proceed directly to Stage 4 (writing-plans).
-   - **For XS/S:** Proceed directly to implementation.
-   - **Done — skip Step 2.**
-4. If verdict is `"send-back"`, `"pause"`, missing, or parse fails: continue to Step 2.
+Glob `.pm/groom-sessions/*.md` for a slug match (normalize: lowercase, spaces to hyphens). If found, parse `effective_verdict` (or `bar_raiser.verdict` for legacy sessions).
 
-**Ambiguity fallback:** If the slug match is uncertain (multiple partial matches, no exact match), continue to Step 2. Never skip grooming on ambiguous detection.
+- **`ready` or `ready-if`:** Log it, read `research_location` for Stage 4. M/L/XL skip to Stage 4; XS/S skip to implementation. Done.
+- **`send-back`, `pause`, missing, or ambiguous match:** Continue to Step 2.
 
-### Step 2: Assess issue readiness
+### Step 2: Assess and route
 
-Inspect the issue content from Stage 1 intake (Linear issue body, user description, or conversation context). Check for these grooming signals:
+Check the issue for 4 grooming signals: acceptance criteria, outcome statement, scope boundary, user flows.
 
-| Signal | Where to look |
-|--------|--------------|
-| Acceptance criteria | Numbered list of testable conditions |
-| Outcome statement | Description of what changes for the user |
-| Scope boundary | Explicit in-scope / out-of-scope |
-| User flows | Mermaid diagrams or step-by-step flow descriptions |
+- **3-4 signals present:** Proceed without grooming.
+- **0-2 signals (thin/ungroomed):** Groom first, tier by size:
 
-**Scoring:**
+| Size | Action |
+|------|--------|
+| XS | Inline quick groom — confirm scope + draft 1-3 ACs with the user. No skill invocation. |
+| S | Invoke `pm:groom` with `groom_tier: quick`. |
+| M | Invoke `pm:groom` with `groom_tier: standard`. |
+| L/XL | Invoke `pm:groom` with `groom_tier: full`. |
 
-| Signals present | Readiness |
-|----------------|-----------|
-| 3-4 of 4 | **Groomed** — proceed without grooming |
-| 1-2 of 4 | **Thin** — needs grooming |
-| 0 of 4 | **Ungroomed** — needs grooming |
+After groom completes, read the groom session to confirm `effective_verdict`, then resume dev flow.
 
-### Step 3: Route based on readiness
-
-**If groomed (3-4 signals):** Proceed as normal. Log:
-```
-- Groom readiness: sufficient (signals: {list of present signals})
-```
-
-**If thin or ungroomed:** Determine the appropriate groom tier based on dev size, then invoke grooming.
-
-| Dev size | Groom tier | What happens |
-|----------|-----------|--------------|
-| XS | Quick | Inline quick groom: confirm scope boundary + draft 1-3 acceptance criteria with the user. No skill invocation — just a focused exchange right here. |
-| S | Quick | Invoke `pm:groom` with `groom_tier: quick, dev_size: S` and the issue context. Returns after intake → scope → groom → link. |
-| M | Standard | Invoke `pm:groom` with `groom_tier: standard, dev_size: M` and the issue context. |
-| L, XL | Full | Invoke `pm:groom` with `groom_tier: full, dev_size: {size}` and the issue context. |
-
-**XS inline quick groom** (no skill invocation):
-
-For XS issues, grooming is a single focused exchange — not a separate skill invocation:
-
-1. State what you understand the fix/change to be (one sentence).
-2. Ask: "Scope and acceptance criteria — does this look right?"
-   - Scope: {in-scope item} / Out: {anything excluded}
-   - AC1: {testable condition}
-   - AC2: {testable condition if applicable}
-3. User confirms or adjusts. Log the result in the state file.
-4. Proceed to implementation.
-
-**For S/M/L/XL skill invocation:**
-
-1. Tell the user: "This issue hasn't been groomed. Running {tier} groom to fill in the gaps."
-2. Invoke `pm:groom` with the issue context (title, description, any existing AC or scope).
-3. After groom completes, read the groom session state to confirm `effective_verdict`.
-4. Resume dev flow from Stage 3 (M/L/XL) or implementation (S).
-
-**User can skip:** If the user says "skip grooming" or "I'll groom later," respect it. Log:
-```
-- Groom readiness: skipped-by-user (signals: {list of present signals})
-```
-Proceed with whatever context is available. Do not block.
-
-### Logging
+**User can skip:** If the user says "skip grooming," respect it. Proceed with available context.
 
 Log the decision in `.pm/dev-sessions/{slug}.md` under Decisions:
 ```
-- Groom readiness: groomed (session: {slug}.md, verdict: {verdict}) | sufficient (signals: ...) | groomed-inline (XS) | invoked-groom (tier: {tier}) | skipped-by-user
-- Skipped phases: design-exploration, spec-review | none
+- Groom readiness: groomed (session: {slug}.md) | sufficient (signals: ...) | groomed-inline (XS) | invoked-groom (tier: {tier}) | skipped-by-user
 - Research location: {path} | none
 ```
 
@@ -261,31 +209,7 @@ digraph spec_review {
 
 ### Context injection for review agents
 
-Before dispatching any review agent, the orchestrator (you) MUST:
-
-1. Read CLAUDE.md and extract a **project context summary** (users, scale, design principles, domain concerns)
-2. Read pm/strategy.md and pm/insights/competitors/index.md (if they exist) and extract strategy context
-3. Inject this summary directly into each agent prompt as `{PROJECT_CONTEXT}`
-
-This avoids each agent independently reading and parsing the same files (saving time and context window), and ensures all agents work from the same extracted facts.
-
-```
-{PROJECT_CONTEXT} — use the full template from context-discovery.md:
-**Product:** [one-line description]
-**Users:** [list personas with contexts/constraints]
-**Scale:** [expected numbers: users, records, concurrent ops]
-**Design principles:** [list verbatim from CLAUDE.md]
-**Domain concerns:** [what's business-critical]
-**Stack:** [detected stack]
-**Test command:** [test command]
-**Monorepo apps:** [app list or "single-app"]
-**Issue tracker:** [tracker type or "none"]
-**Strategic pillars:** [2-4 priorities from pm/strategy.md or CLAUDE.md]
-**Competitors:** [top 3 with positioning angle]
-**Non-goals:** [explicit non-goals]
-```
-
-If any field can't be populated, write "Not documented" rather than omitting it. Review agents will flag undocumented fields as context gaps.
+Before dispatching any review agent, build `{PROJECT_CONTEXT}` per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` and inject it into each agent prompt. This ensures all agents work from the same extracted facts without each parsing the same files independently.
 
 ### UX & User Flow Reviewer (always runs)
 
