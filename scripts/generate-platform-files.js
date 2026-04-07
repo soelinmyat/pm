@@ -210,7 +210,9 @@ Until your Codex install loads this repository as a plugin directly, the generat
 
 When Codex loads PM as a native plugin, product skills appear under the plugin namespace as \`pm:groom\`, \`pm:research\`, \`pm:strategy\`, \`pm:ingest\`, and \`pm:refresh\`.
 
-The fallback symlink flow below exposes explicit aliases across two domains: product management (\`pm-*\`) and development (\`dev-*\`). Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
+The fallback symlink flow below creates explicit aliases across two domains on disk: product management (\`pm-*\`) and development (\`dev-*\`). Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
+
+In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as \`pm:groom\` and \`pm:dev\`. Treat the alias directory names as an installation detail, not the public skill names.
 
 The instructions below install PM for your user account. If you prefer a repo-local install, replace \`~/.agents\` with \`<project>/.agents\`.
 
@@ -248,16 +250,16 @@ Restart Codex so it reloads the newly installed skills.
 
 ## Verification
 
-Start a new Codex session and invoke one PM skill and one dev skill:
+Start a new Codex session and verify that Codex exposes one PM skill and one dev workflow skill:
 
 \`\`\`text
-$pm-groom
-$dev-dev
+pm:groom
+pm:dev
 \`\`\`
 
 If Codex does not find a skill:
 
-1. Check that \`~/.agents/skills/<skill-name>/SKILL.md\` exists.
+1. Check that the fallback alias directories exist, for example \`~/.agents/skills/pm-groom/SKILL.md\` and \`~/.agents/skills/dev-dev/SKILL.md\`.
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 

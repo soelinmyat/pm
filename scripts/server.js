@@ -5274,6 +5274,24 @@ function handleBacklogItem(res, pmDir, slug) {
     });
   }
 
+  // Proposal link section — check for matching proposal (own slug first, then parent)
+  const proposalsBase = path.join(pmDir, "backlog", "proposals");
+  let proposalSlug = null;
+  let proposalLabel = "";
+  if (fs.existsSync(path.join(proposalsBase, slug + ".html"))) {
+    proposalSlug = slug;
+    proposalLabel = "View Proposal";
+  } else if (parentSlug && fs.existsSync(path.join(proposalsBase, parentSlug + ".html"))) {
+    proposalSlug = parentSlug;
+    proposalLabel = "View Parent Proposal";
+  }
+  if (proposalSlug) {
+    templateSections.push({
+      title: "Proposal",
+      html: `<a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="proposal-link-btn">${proposalLabel} &nearr;</a>`,
+    });
+  }
+
   // Wireframe embed section
   try {
     fs.accessSync(path.join(pmDir, "backlog", "wireframes", slug + ".html"));

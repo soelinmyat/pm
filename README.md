@@ -27,7 +27,9 @@ PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
 
 When Codex loads PM as a native plugin, the skills appear under the plugin namespace as
 `pm:groom`, `pm:research`, `pm:strategy`, `pm:ingest`, and `pm:refresh`.
-The fallback symlink install still exposes `$pm-groom`-style aliases.
+If your Codex build is still using the fallback symlink install, PM creates `pm-*` and `dev-*`
+alias directories under `~/.agents/skills`, but fresh Codex sessions still surface the usable
+skills as `pm:*` names such as `pm:groom` and `pm:dev`.
 
 If your Codex install is not loading the plugin directly yet, use the fallback install steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
@@ -140,16 +142,15 @@ In practice:
 
 ### Codex
 
-On Codex, PM is exposed through `pm-*` product skills and `dev-*` delivery skills.
+On Codex, the fallback install creates `pm-*` and `dev-*` alias directories on disk, but fresh
+sessions expose the user-facing PM workflows under the `pm:*` namespace.
 
 Common examples:
 
-- `$pm-setup`
-- `$pm-research`
-- `$pm-groom`
-- `$dev-dev`
-- `$dev-review`
-- `$dev-qa`
+- `pm:groom`
+- `pm:dev`
+- `pm:review`
+- `pm:qa`
 
 See [`.codex/INSTALL.md`](.codex/INSTALL.md) for the exact install flow and current skill names.
 
