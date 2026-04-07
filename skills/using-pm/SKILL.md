@@ -13,7 +13,7 @@ When this skill loads at the beginning of a new session, invoke `pm:start` befor
 
 # Using Plugin Skills
 
-This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Always invoke the relevant skill before acting** — even if you think you know what to do.
+This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Default to invoking the relevant skill before acting** — but user instructions always take precedence.
 
 ## Entry Points (start here)
 
@@ -64,9 +64,19 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `references/visual.md` | Dashboard-first UI invocation standard |
 | `references/templates/` | Strategy deck and proposal HTML templates |
 
+## Instruction Priority
+
+User instructions always take precedence over plugin skills:
+
+1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
+2. **Plugin skills** — override defaults where they conflict
+3. **Default system prompt** — lowest priority
+
+If the user asks a direct question or wants a quick answer, give them one. Don't force a skill flow when the user doesn't want one.
+
 ## The Rule
 
-**Invoke relevant skills BEFORE any response or action.** If there's even a chance a skill applies, invoke it. If it turns out to be wrong for the situation, you don't need to follow it.
+**Default to invoking relevant skills before acting.** If there's a clear skill match for what the user is doing, invoke it. If it turns out to be wrong for the situation, you don't need to follow it. But if the user's request is straightforward or they've given explicit instructions, follow those first.
 
 ## Skill Bookends
 
@@ -125,16 +135,17 @@ Skip sections that don't apply. If the skill was blocked or abandoned, say what 
 
 ## Red Flags
 
-These thoughts mean STOP — you're skipping discipline:
+When the user is starting a workflow (building, shipping, grooming), these thoughts mean you're skipping discipline:
 
 | Thought | Reality |
 |---------|---------|
-| "I'll just answer their question directly" | If the user is thinking aloud, invoke pm:think — don't freeform |
 | "This is too simple for /dev" | XS tasks still get TDD + auto-merge gates |
 | "I'll just write the code first" | TDD means test first. Always. |
 | "I know the fix already" | Debugging skill exists to prevent wrong fixes |
 | "Let me just push this" | /ship runs review gates before push |
 | "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
+
+These do NOT apply when the user is asking a direct question, requesting a quick answer, or giving explicit instructions that override the default flow.
 
 ## Activity Analytics (opt-in)
 
@@ -161,11 +172,3 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output 
 ```
 
 **When analytics is off:** The logger exits immediately. No telemetry files are created.
-
-## Instruction Priority
-
-Plugin skills override default behavior, but **user instructions always take precedence**:
-
-1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
-2. **Plugin skills** — override defaults where they conflict
-3. **Default system prompt** — lowest priority
