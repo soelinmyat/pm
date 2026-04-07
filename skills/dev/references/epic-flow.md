@@ -505,49 +505,17 @@ On resume (session crash/restart): read the state file, skip sub-issues marked "
 ### 4.5 Agent watchdog and failure recovery
 
 <HARD-RULE>
-API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST run a 5-minute watchdog to detect dead agents promptly.
+API errors can kill agents silently. The orchestrator MUST detect dead agents via a 5-minute silence watchdog.
 </HARD-RULE>
 
-**How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `implementation-flow.md`). The orchestrator uses silence as the death signal.
+Agents send progress updates after each commit or every 5 minutes. If no message is received within 5 minutes:
 
-**Watchdog protocol:** After dispatching or resuming a worker, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
+1. **Ping** the worker via the runtime adapter.
+2. **Response received:** Worker is alive. Reset timer.
+3. **No response:** Worker is dead. Spawn a fresh `pm:developer` worker with the plan file path, current git state (`git status`, `git log --oneline -5`, `git diff --stat`), sub-issue description/ACs, and instruction to check existing progress before starting.
+4. **Max 3 total attempts** per sub-issue. After 3 failures, mark as "Failed" and continue to next sub-issue.
 
-| Step | Action |
-|------|--------|
-| 1 | **Ping:** Use the runtime adapter to send `Status check: are you still working on {ISSUE_ID}?` to the worker |
-| 2 | If ping gets a response → worker is alive, reset the 5-minute timer |
-| 3 | If no response to ping → the worker is dead. Start a **fresh `pm:developer` worker** with the same logical worker name when the runtime supports it, then pass the recovery prompt below |
-| 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
-| 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
-
-**Fresh worker recovery prompt must include:**
-- The plan file path (so it picks up where the dead agent left off)
-- Current git state: `git status`, `git log --oneline -5`, `git diff --stat`
-- The sub-issue description and acceptance criteria
-- Instruction: "A previous agent failed on this task. Check what was already done before starting. Send a progress update after each commit or every 5 minutes."
-
-**State file tracking:** Add retry count to sub-issue table:
-
-```
-| # | ID | Title | Size | Dependency | Plan | Status | Retries |
-```
-
-After all sub-issues complete, log a summary:
-```
-## Resilience Summary
-- Sub-issues completed: N/M
-- Agent failures: K (retries: R)
-- Failed sub-issues: [list or "none"]
-```
-
-### 4.6 Why layer-aware parallelism works
-
-- **No simulator conflicts:** Only one mobile agent runs at a time. Mobile pre-push hooks (Metro, e2e smoke) never contend.
-- **No test DB conflicts:** Only one API agent runs at a time. Rails test suites don't corrupt each other.
-- **No merge conflicts:** Different layers touch different files. The sequential merge step handles any rare overlap.
-- **Implementation is the bottleneck.** A typical M-sized sub-issue takes 15-30 min to implement but only 1-2 min to merge. Parallelizing implementation across layers saves one full sub-issue wall-time per parallel agent.
-- **Combined workers preserve context.** Same architecture as before — each worker planned the sub-issue and resumes with full codebase context.
-- **Orchestrator stays thin.** Only receives short "Ready to merge" messages. All implementation work happens in worker contexts.
+Track retry count per sub-issue in the state file.
 
 ---
 
@@ -597,21 +565,12 @@ If any worker is still alive (stuck, waiting), close it via the runtime adapter.
 
 Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
 
-**5.3.2 Remove state files:**
+**5.3.2 Remove this epic's state file:**
 ```bash
-# Remove this epic's state file
 rm -f .pm/dev-sessions/epic-{parent-slug}.md
-
-# Also scan for any OTHER stale state files from completed epics/sessions
-for f in .pm/dev-sessions/*.md; do
-  [ -f "$f" ] && echo "WARN: Found stale state file: $f" && rm -f "$f"
-done
-
-# Clean up any legacy state files at repo root
-for f in .dev-epic-state-*.md .dev-state-*.md; do
-  [ -f "$f" ] && echo "WARN: Removing legacy state file: $f" && rm -f "$f"
-done
 ```
+
+Do NOT delete other state files — they may belong to concurrent sessions.
 
 **5.3.3 Verify worktrees and branches:**
 ```bash
