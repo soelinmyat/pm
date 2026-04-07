@@ -117,6 +117,21 @@ These estimates reflect orchestrator I/O only (prompt briefing + result summary)
 
 Run lifecycle is also automatic. Each `pm:` skill invocation emits `run-start` and closes the previous run. No manual instrumentation needed for run boundaries.
 
+## Automatic stateful workflow tracking
+
+Stateful PM workflows also get automatic phase/stage tracking via the Write/Edit hooks.
+
+- Edits to `.pm/groom-sessions/*.md` (and legacy `.pm/.groom-state.md`) close the previous groom phase and keep the next phase active.
+- Edits to `.pm/dev-sessions/*.md` (and legacy `.dev-state-*.md`, `.dev-epic-state-*.md`) close the previous development stage and keep the next stage active.
+- The final active phase/stage is closed automatically when the run changes or the session ends.
+
+This automatic layer depends on the state file fields staying current:
+
+- Groom: `phase`, `run_id`, `phase_started_at`, `completed_at`
+- Dev/review/ship: `Stage`, `Run ID`, `Stage started at`, `Completed at`
+
+When a skill has richer substeps that are not represented in a state file, keep logging those spans manually with `pm-log.sh step`.
+
 ## Baseline generation
 
 After telemetry exists, generate a maintainer summary with:

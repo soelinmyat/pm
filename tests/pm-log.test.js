@@ -10,6 +10,9 @@ const childProcess = require("node:child_process");
 const ROOT = path.join(__dirname, "..");
 const PM_LOG = path.join(ROOT, "scripts", "pm-log.sh");
 const PM_BASELINE = path.join(ROOT, "scripts", "pm-baseline.js");
+const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log.sh");
+const STATE_PRE = path.join(ROOT, "hooks", "state-pre.sh");
+const STATE_STEP = path.join(ROOT, "hooks", "state-step.sh");
 
 // Clean env strips GIT_DIR/GIT_WORK_TREE that git hooks inject, so child
 // processes in temp repos resolve their own git root instead of the parent's.
@@ -162,6 +165,7 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
 
     const agentName = "test-duration-agent";
     const preInput = JSON.stringify({
@@ -215,6 +219,7 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
     const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
     assert.equal(steps.length, 1);
     assert.equal(steps[0].run_id, runId);
+    assert.equal(steps[0].skill, "dev");
     assert.equal(steps[0].step, "agent-dispatch");
     assert.equal(steps[0].actor, "agent:Explore");
     assert.ok(
@@ -246,6 +251,7 @@ test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "review");
 
     const postInput = JSON.stringify({
       tool_name: "Agent",
@@ -266,7 +272,206 @@ test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
 
     const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
     assert.equal(steps.length, 1);
+    assert.equal(steps[0].skill, "review");
     assert.equal(steps[0].duration_ms, 0, "without PreToolUse, duration falls back to 0");
+  } finally {
+    cleanup();
+  }
+});
+
+test("analytics-log.sh preserves quoted args and writes current skill", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const input = JSON.stringify({
+      tool_name: "Skill",
+      tool_input: {
+        skill: "pm:groom",
+        args: 'Redesign the "inspection report" flow',
+      },
+    });
+
+    childProcess.execFileSync(ANALYTICS_LOG, {
+      cwd: root,
+      input,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const activity = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
+    assert.equal(activity.length, 2);
+    assert.equal(activity[0].detail, 'args=Redesign the "inspection report" flow');
+    assert.equal(activity[1].detail, 'Redesign the "inspection report" flow');
+    assert.equal(
+      fs.readFileSync(path.join(root, ".pm", "analytics", ".current-skill"), "utf8"),
+      "groom"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("state hooks log groom phase transitions and keep the next phase active", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const runId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "groom"], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "groom");
+
+    const stateDir = path.join(root, ".pm", "groom-sessions");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "tracking.md");
+    const initial = [
+      "---",
+      'topic: "Tracking rollout"',
+      "phase: intake",
+      `run_id: "${runId}"`,
+      "started_at: 2026-04-05T00:00:00Z",
+      "phase_started_at: 2026-04-05T00:00:00Z",
+      "completed_at: null",
+      "---",
+      "",
+    ].join("\n");
+    fs.writeFileSync(stateFile, initial);
+
+    const payload = JSON.stringify({
+      tool_name: "Edit",
+      tool_input: {
+        file_path: stateFile,
+      },
+    });
+
+    childProcess.execFileSync(STATE_PRE, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const next = [
+      "---",
+      'topic: "Tracking rollout"',
+      "phase: research",
+      `run_id: "${runId}"`,
+      "started_at: 2026-04-05T00:00:00Z",
+      "phase_started_at: 2026-04-05T00:05:00Z",
+      "completed_at: null",
+      "---",
+      "",
+    ].join("\n");
+    fs.writeFileSync(stateFile, next);
+
+    childProcess.execFileSync(STATE_STEP, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].skill, "groom");
+    assert.equal(steps[0].phase, "intake");
+    assert.equal(steps[0].step, "intake");
+    assert.equal(steps[0].run_id, runId);
+    assert.equal(steps[0].started_at, "2026-04-05T00:00:00Z");
+    assert.equal(steps[0].meta.state_file, ".pm/groom-sessions/tracking.md");
+
+    const active = JSON.parse(
+      fs.readFileSync(path.join(analyticsDir, ".current-step.json"), "utf8")
+    );
+    assert.equal(active.skill, "groom");
+    assert.equal(active.phase, "research");
+    assert.equal(active.step, "research");
+    assert.equal(active.started_at, "2026-04-05T00:05:00Z");
+  } finally {
+    cleanup();
+  }
+});
+
+test("session-end.sh closes the last active stateful step", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const runId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
+
+    const stateDir = path.join(root, ".pm", "dev-sessions");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "feature-x.md");
+    fs.writeFileSync(
+      stateFile,
+      [
+        "# Dev Session State",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        `| Run ID | ${runId} |`,
+        "| Stage | implement |",
+        "| Started at | 2026-04-06T01:00:00Z |",
+        "| Stage started at | 2026-04-06T01:15:00Z |",
+        "| Completed at | null |",
+        "",
+      ].join("\n")
+    );
+
+    const payload = JSON.stringify({
+      tool_name: "Write",
+      tool_input: {
+        file_path: stateFile,
+      },
+    });
+
+    childProcess.execFileSync(STATE_PRE, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    childProcess.execFileSync(STATE_STEP, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const sessionEnd = path.join(ROOT, "hooks", "session-end.sh");
+    childProcess.execFileSync(sessionEnd, {
+      cwd: root,
+      input: JSON.stringify({ hook_event_name: "SessionEnd" }),
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].skill, "dev");
+    assert.equal(steps[0].step, "implementation");
+    assert.equal(steps[0].run_id, runId);
+    assert.equal(steps[0].started_at, "2026-04-06T01:15:00Z");
+
+    const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
+    const endEvents = activity.filter((record) => record.event === "completed");
+    assert.equal(endEvents.length, 1);
+    assert.equal(endEvents[0].run_id, runId);
+
+    assert.ok(
+      !fs.existsSync(path.join(analyticsDir, ".current-step.json")),
+      ".current-step.json should be deleted"
+    );
   } finally {
     cleanup();
   }
@@ -284,6 +489,7 @@ test("session-end.sh closes open run and cleans up", () => {
       .trim();
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "ship");
 
     // Create a stale agent-starts dir
     fs.mkdirSync(path.join(analyticsDir, ".agent-starts"), { recursive: true });
@@ -309,12 +515,50 @@ test("session-end.sh closes open run and cleans up", () => {
       !fs.existsSync(path.join(analyticsDir, ".current-run")),
       ".current-run should be deleted"
     );
+    assert.ok(
+      !fs.existsSync(path.join(analyticsDir, ".current-skill")),
+      ".current-skill should be deleted"
+    );
 
     // Verify .agent-starts was cleaned up
     assert.ok(
       !fs.existsSync(path.join(analyticsDir, ".agent-starts")),
       ".agent-starts should be deleted"
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test("session-end.sh preserves hyphenated skill names", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const pluginRoot = ROOT;
+    const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
+
+    const runId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "design-critique"], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "design-critique");
+
+    childProcess.execFileSync(sessionEnd, {
+      cwd: root,
+      input: JSON.stringify({ hook_event_name: "SessionEnd" }),
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
+    const endEvents = activity.filter((r) => r.event === "completed");
+    assert.equal(endEvents.length, 1);
+    assert.equal(endEvents[0].skill, "design-critique");
+    assert.equal(endEvents[0].run_id, runId);
   } finally {
     cleanup();
   }

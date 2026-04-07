@@ -15,7 +15,10 @@ function usage(message) {
   pm-log.sh activity --skill <skill> --event <event> [--detail <detail>] [--run-id <id>] [--status <status>] [--meta-json <json>]
   pm-log.sh run-start --skill <skill> [--args <args>] [--detail <detail>] [--run-id <id>]
   pm-log.sh run-end --skill <skill> --run-id <id> [--status <status>] [--detail <detail>] [--meta-json <json>]
-  pm-log.sh step --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--status <status>] [--started-at <iso>] [--ended-at <iso>] [--duration-ms <n>] [--attempt <n>] [--actor <actor>] [--input-chars <n>] [--output-chars <n>] [--input-tokens <n>] [--output-tokens <n>] [--token-source <source>] [--tool-calls <n>] [--files-read <n>] [--files-written <n>] [--input-file <path>] [--output-file <path>] [--meta-json <json>]`);
+  pm-log.sh step --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--status <status>] [--started-at <iso>] [--ended-at <iso>] [--duration-ms <n>] [--attempt <n>] [--actor <actor>] [--input-chars <n>] [--output-chars <n>] [--input-tokens <n>] [--output-tokens <n>] [--token-source <source>] [--tool-calls <n>] [--files-read <n>] [--files-written <n>] [--input-file <path>] [--output-file <path>] [--state-file <path>] [--meta-json <json>]
+  pm-log.sh active-step-set --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--started-at <iso>] [--state-file <path>]
+  pm-log.sh active-step-clear [--state-file <path>]
+  pm-log.sh active-step-close [--ended-at <iso>] [--status <status>]`);
   process.exit(1);
 }
 
@@ -133,6 +136,64 @@ function parseMeta(jsonText) {
 function writeJsonLine(filePath, record) {
   ensureDirectory(path.dirname(filePath));
   fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`);
+}
+
+function currentStepFile(projectRoot) {
+  return path.join(projectRoot, ".pm", "analytics", ".current-step.json");
+}
+
+function readActiveStep(projectRoot) {
+  try {
+    const payload = JSON.parse(fs.readFileSync(currentStepFile(projectRoot), "utf8"));
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveStep(projectRoot, record) {
+  const filePath = currentStepFile(projectRoot);
+  ensureDirectory(path.dirname(filePath));
+  fs.writeFileSync(filePath, `${JSON.stringify(record, null, 2)}\n`);
+}
+
+function clearActiveStep(projectRoot, stateFile) {
+  const filePath = currentStepFile(projectRoot);
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+  if (!stateFile) {
+    fs.unlinkSync(filePath);
+    return;
+  }
+  const current = readActiveStep(projectRoot);
+  if (!current || current.state_file === stateFile) {
+    fs.unlinkSync(filePath);
+  }
+}
+
+function closeActiveStep(projectRoot, options) {
+  const current = readActiveStep(projectRoot);
+  if (!current || !current.skill || !current.run_id || !current.step) {
+    clearActiveStep(projectRoot);
+    return null;
+  }
+  const record = writeStep(
+    {
+      skill: current.skill,
+      runId: current.run_id,
+      phase: current.phase,
+      step: current.step,
+      startedAt: current.started_at,
+      endedAt: options.endedAt || nowIso(),
+      status: options.status || "completed",
+      stateFile: current.state_file,
+      metaJson: current.meta ? JSON.stringify(current.meta) : undefined,
+    },
+    projectRoot
+  );
+  clearActiveStep(projectRoot);
+  return record;
 }
 
 function baseContext(projectRoot) {
@@ -257,7 +318,16 @@ function main() {
   }
 
   const legacyMode =
-    !argv[0].startsWith("--") && !["activity", "run-start", "run-end", "step"].includes(argv[0]);
+    !argv[0].startsWith("--") &&
+    ![
+      "activity",
+      "run-start",
+      "run-end",
+      "step",
+      "active-step-set",
+      "active-step-clear",
+      "active-step-close",
+    ].includes(argv[0]);
 
   if (legacyMode) {
     const [skill, event, detail = ""] = argv;
@@ -365,6 +435,31 @@ function main() {
         },
         projectRoot
       );
+      return;
+    }
+    case "active-step-set": {
+      if (!options.skill || !options["run-id"] || !options.step) {
+        usage("active-step-set requires --skill, --run-id, and --step");
+      }
+      writeActiveStep(projectRoot, {
+        skill: options.skill,
+        run_id: options["run-id"],
+        phase: options.phase || null,
+        step: options.step,
+        started_at: options["started-at"] || nowIso(),
+        state_file: options["state-file"] || null,
+      });
+      return;
+    }
+    case "active-step-clear": {
+      clearActiveStep(projectRoot, options["state-file"]);
+      return;
+    }
+    case "active-step-close": {
+      closeActiveStep(projectRoot, {
+        endedAt: options["ended-at"],
+        status: options.status,
+      });
       return;
     }
     default:
