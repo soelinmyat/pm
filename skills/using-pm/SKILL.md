@@ -22,8 +22,8 @@ These are the skills you invoke directly. Most other capabilities are built into
 | User says | Skill | What it does |
 |-----------|-------|--------------|
 | "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
-| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope: single issue, epic, or batch bug triage. Auto-grooms ungroomed issues before implementation |
-| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick, standard, full (auto-detected or say "quick/standard/full groom"). `pm:groom ideate` for idea generation |
+| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope. Checks for RFC; generates one if missing. Then implements. Auto-grooms ungroomed work. |
+| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 3 tiers: quick, standard, full. No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
 | "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, topic. Use `quick` mode for fast inline questions |
 | "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |

@@ -8,50 +8,31 @@ Present the reviewed, iterated proposal as a self-contained HTML presentation in
 
 **Note:** The reference template uses a fictional "Dashboard Filtering System" proposal as example content. The structure and 5 metrics slots (issues, team reviews, bar raiser, differentiator, priority) are always present — populate them from the actual groom state values.
 
-Write the proposal to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
+Write the PRD to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
 
-**Write the metadata sidecar** alongside the HTML. Create `pm/backlog/proposals/{topic-slug}.meta.json` with this schema:
+**Write the proposal backlog entry** at `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md. This is the parent backlog item. Set `status: proposed`, `verdict:` from the bar raiser, `prd: proposals/{topic-slug}.html`, `rfc: null`.
 
-```json
-{
-  "title": "{Feature name}",
-  "date": "YYYY-MM-DD",
-  "verdict": "{bar-raiser verdict: ready | send-back | pause}",
-  "verdictLabel": "{Ready | Needs Work | Paused}",
-  "status": "proposed",
-  "phase": "completed",
-  "issueCount": {number of child issues},
-  "gradient": "{deterministic CSS gradient from slug hash — use the proposalGradient() function in server.js, or assign from the 8-gradient palette based on djb2 hash of the slug}",
-  "labels": ["{label1}", "{label2}"]
-}
-```
-
-**Two status dimensions:**
-- `verdict` — grooming outcome. Set by groom. Never changed by dev. Values: `ready`, `send-back`, `pause`.
-- `status` — implementation lifecycle. Set to `"proposed"` by groom. Updated by dev. Values: `proposed` → `in-progress` → `shipped`.
-
-Verdict-to-label mapping: `"ready"` → `"Ready"`, `"send-back"` → `"Needs Work"`, `"pause"` → `"Paused"`. For any unmapped verdict value, use the raw value as the label.
+**No `.meta.json` sidecar.** All metadata lives in the proposal `.md` frontmatter. The dashboard reads frontmatter directly.
 
 **Sections** (match the reference template's order and layout):
 
-1. **Title & summary.** Hero header with feature name, one-sentence outcome, key metrics strip: priority, differentiator (10x/parity/gap-fill), expected impact (the key outcome metric), ICP segment (from strategy), scope size (issue count).
+1. **Title & summary.** Hero header with feature name, one-sentence outcome, key metrics strip: priority, differentiator (10x/parity/gap-fill), expected impact (the key outcome metric), ICP segment (from strategy).
 2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
 4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
 5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
 6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
-8. **Issue breakdown.** Parent issue card (blue left border) with nested child cards (light blue left border). Each card: ID badge, title, outcome, labels, numbered ACs.
-9. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.
-10. **Open questions.** Numbered list of bar raiser questions the decision-maker should be prepared to discuss.
+8. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.
+9. **Open questions.** Numbered list of bar raiser questions the decision-maker should be prepared to discuss.
+10. **Next steps.** Callout: "Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin implementation."
 
 **Styling rules** (all defined in the reference template — copy the CSS):
 
 - Self-contained HTML with inline `<style>`. Only external dep: mermaid.js CDN.
 - System font stack, `#2563eb` accent, neutral grays, white backgrounds.
 - `max-width: 960px` centered layout with generous whitespace.
-- Issue cards: white background, subtle shadow, clear hierarchy (ID > title > outcome > ACs).
-- Parent cards: `border-left: 4px solid #2563eb`. Children: `margin-left: 2rem; border-left: 4px solid #93c5fd`.
+- Section cards: white background, subtle shadow, clear hierarchy.
 - Scope grid, feasibility grid: `grid-template-columns: 1fr 1fr`.
 - Verdicts colored: `.verdict-ready` green, `.verdict-caution` amber, `.verdict-blocked` red.
 - Print-friendly: `@media print` styles. Responsive: `@media (max-width: 640px)` collapses grids.
@@ -66,7 +47,7 @@ Tell the user:
 > "Proposal for '{topic}' is ready — opening in your browser now.
 > File: `pm/backlog/proposals/{topic-slug}.html`
 >
-> Ready to create these issues, or would you like changes?"
+> Approve this proposal, or would you like changes?"
 
 #### Step 3: Handle feedback
 

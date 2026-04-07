@@ -12,7 +12,7 @@ Turn scope into fully formed designs through collaborative dialogue. This phase 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 <HARD-GATE>
-Do NOT proceed to Phase 5.5 (Groom / Issue Drafting) until the design is presented and the user has approved it.
+Do NOT proceed to Draft Proposal until the design is presented and the user has approved it.
 For UI features: high-fidelity mockups MUST be reviewed before proceeding.
 </HARD-GATE>
 

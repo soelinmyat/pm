@@ -52,20 +52,18 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 |  | XS | S | M | L | XL |
 |---|---|---|---|---|---|
 | Issue tracking | — | — | Yes | Yes | Yes |
-| Worktree | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) | Stage 2 (below) |
-| Groom readiness | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) | Stage 2.5 (below) |
-| Brainstorm | — | — | Skip (from groom) or design exploration | Skip (from groom) or design exploration | Skip (from groom) or design exploration |
-| Spec review | — | — | Skip (from groom) or full (3 reviewers) | Skip (from groom) or full (3 reviewers) | Skip (from groom) or full (3 reviewers) |
-| Plan (persistent worker) | — | — | Persistent worker writes plan, stops | Persistent worker writes plan, stops | Persistent worker writes plan, stops |
-| Plan review | — | — | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) | Engineering RFC (3 reviewers) |
-| Implement (same worker) | TDD | TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD | Same persistent worker resumes, inside-out TDD |
+| Worktree | Stage 2 | Stage 2 | Stage 2 | Stage 2 | Stage 2 |
+| RFC check | Stage 2.5 (skip RFC) | Stage 2.5 (skip RFC) | Stage 2.5 | Stage 2.5 | Stage 2.5 |
+| RFC generation | — | — | Stage 3 (persistent worker writes RFC) | Stage 3 | Stage 3 |
+| RFC review | — | — | Stage 4 (3 reviewers) | Stage 4 | Stage 4 |
+| Implement (same worker) | TDD | TDD | Stage 5 (same worker resumes, inside-out TDD) | Stage 5 | Stage 5 |
 | Simplify | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
-| QA (persistent worker) | If UI (Quick, L1+3+4) | If UI (Focused, L1+3+4 or all 5) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) |
+| QA (persistent worker) | If UI (Quick) | If UI (Focused) | If UI (Full, persistent worker) | If UI (Full) | If UI (Full) |
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
-| Verification | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) |
+| Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
-| Review feedback | — | — | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` |
+| Review feedback | — | — | `review/references/handling-feedback.md` | handling-feedback | handling-feedback |
 | Retro | Yes | Yes | Yes | Yes | Yes |
 
 ## Stage 2: Workspace (all sizes)
@@ -127,160 +125,54 @@ fi
 
 Never proceed to implementation without a clean workspace checkpoint.
 
-## Stage 2.5: Groom Readiness Check (all sizes)
+## Stage 2.5: RFC Check (all sizes)
 
-Before proceeding, check whether this issue has been groomed.
+Before proceeding, check whether an approved RFC exists for this work.
 
-### Step 1: Check for existing groom session
+### Step 1: Check for existing proposal + RFC
 
-Glob `.pm/groom-sessions/*.md` for a slug match (normalize: lowercase, spaces to hyphens). If found, parse `effective_verdict` (or `bar_raiser.verdict` for legacy sessions).
+Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
-- **`ready` or `ready-if`:** Log it, read `research_location` for Stage 4. M/L/XL skip to Stage 4; XS/S skip to implementation. Done.
-- **`send-back`, `pause`, missing, or ambiguous match:** Continue to Step 2.
+- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Read it and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
+- **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
+- **No proposal `.md` found** → No product groom has run. Continue to Step 2.
 
-### Step 2: Assess and route
+### Step 2: Route ungroomed work
 
-Check the issue for 4 grooming signals: acceptance criteria, outcome statement, scope boundary, user flows.
-
-- **3-4 signals present:** Proceed without grooming.
-- **0-2 signals (thin/ungroomed):** Groom first, tier by size:
+If no proposal exists, decide whether grooming is needed:
 
 | Size | Action |
 |------|--------|
-| XS | Inline quick groom — confirm scope + draft 1-3 ACs with the user. No skill invocation. |
-| S | Invoke `pm:groom` with `groom_tier: quick`. |
-| M | Invoke `pm:groom` with `groom_tier: standard`. |
-| L/XL | Invoke `pm:groom` with `groom_tier: full`. |
+| XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Stage 5 (Implementation). |
+| S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Stage 5. |
+| M | Invoke `pm:groom` with `groom_tier: standard`. After groom, return here for RFC generation. |
+| L/XL | Invoke `pm:groom` with `groom_tier: full`. After groom, return here for RFC generation. |
 
-After groom completes, read the groom session to confirm `effective_verdict`, then resume dev flow.
-
-**User can skip:** If the user says "skip grooming," respect it. Proceed with available context.
-
-Log the decision in `.pm/dev-sessions/{slug}.md` under Decisions:
-```
-- Groom readiness: groomed (session: {slug}.md) | sufficient (signals: ...) | groomed-inline (XS) | invoked-groom (tier: {tier}) | skipped-by-user
-- Research location: {path} | none
-```
-
-## Stage 3: Design Exploration (M/L/XL)
-
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-3.5-design.md`. This handles context discovery, clarifying questions, approach proposals, design presentation, spec writing, and the spec review loop.
-
-After the design is approved and the spec is written, proceed to Stage 3.5.
-
-## Stage 3.5: Spec Review (M/L/XL)
-
-After design exploration writes the spec, review it. The scope depends on whether `/pm:groom` already ran for this work.
-
-### Source detection
-
-This stage only runs if Stage 2.5 determined the issue is **not groomed**. If groomed, both design exploration and spec review were skipped entirely.
-
-Run **full review** (3 agents: PM + UX & User Flow + Competitive Strategist).
+**User can skip:** If the user says "skip grooming" or "just build it," respect it. Proceed with available context.
 
 Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
-- Spec review: full (3 agents) — not from groom
+- RFC check: approved (path: {rfc_path}) | needs-rfc | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
 ```
 
-```dot
-digraph spec_review {
-    "Brainstorm done\n(spec written)" [shape=box];
-    "Dispatch 3 reviewers\n(parallel)" [shape=box, style=filled, fillcolor="#ffffcc"];
-    "Merge findings" [shape=box];
-    "Real issues?" [shape=diamond];
-    "Fix issues in spec" [shape=box];
-    "Re-dispatch" [shape=box];
-    "Max 2 iterations?" [shape=diamond];
-    "Surface to user" [shape=box];
-    "Proceed to Plan" [shape=box, style=filled, fillcolor="#ccffcc"];
+## Stage 3: RFC Generation (M/L/XL)
 
-    "Brainstorm done\n(spec written)" -> "Dispatch 3 reviewers\n(parallel)";
-    "Dispatch 3 reviewers\n(parallel)" -> "Merge findings";
-    "Merge findings" -> "Real issues?";
-    "Real issues?" -> "Fix issues in spec" [label="yes"];
-    "Fix issues in spec" -> "Re-dispatch";
-    "Re-dispatch" -> "Max 2 iterations?";
-    "Max 2 iterations?" -> "Merge findings" [label="no"];
-    "Max 2 iterations?" -> "Surface to user" [label="yes"];
-    "Real issues?" -> "Proceed to Plan" [label="no"];
-}
-```
+Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written to `pm/backlog/rfcs/{slug}.md`.
 
-### Context injection for review agents
-
-Before dispatching any review agent, build `{PROJECT_CONTEXT}` per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` and inject it into each agent prompt. This ensures all agents work from the same extracted facts without each parsing the same files independently.
-
-### UX & User Flow Reviewer (always runs)
-
-Walks through every user flow end-to-end, then stress-tests with edge cases. Not just "is the UI nice?" but "does this actually work under real-world pressure?"
-
-Dispatch reviewer intent `pm:ux-designer` using the runtime rules in `agent-runtime.md`. If delegation is unavailable, run this review inline with the same brief.
-
-**Review brief:**
-
-```text
-Review this feature spec for UX and user flow completeness.
-
-**Spec to review:** {SPEC_FILE_PATH}
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-### PM + Competitive Strategist (only when NOT from groom)
-
-These only run when groom detection (Stage 2.5) determined the issue is NOT groomed. If groomed, both design exploration and spec review are skipped entirely — this section is never reached.
-
-Dispatch the applicable reviewer intents using the runtime rules in `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline before merging findings.
-
-**Reviewer intent: `pm:product-manager`**
-
-```text
-Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and competitive positioning.
-
-**Spec to review:** {SPEC_FILE_PATH}
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**Reviewer intent: `pm:strategist`**
-
-```text
-Review this feature spec for differentiation, switching motivation, competitive response, and AI-native opportunities.
-
-**Spec to review:** {SPEC_FILE_PATH}
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-### Handling findings
-
-1. Merge all agent outputs. Deduplicate overlapping concerns.
-3. Fix all **Blocking issues**. Non-blocking items are advisory: apply if clearly valuable, skip if YAGNI.
-4. If blocking issues were fixed, re-dispatch reviewers on the updated spec (max 2 iterations).
-5. If iteration 3 still has blocking issues, present to user for decision.
-6. Commit spec updates before proceeding.
-7. Update `.pm/dev-sessions/{slug}.md` with `Spec review: passed (commit <sha>)`.
-
-## Stage 4: Plan via Persistent Developer Worker (M/L/XL)
-
-Dispatch a persistent developer worker that writes the plan. Reuse the same worker for implementation so planning context is preserved.
+Dispatch a persistent developer worker that writes the RFC. Reuse the same worker for implementation so planning context is preserved.
 
 Use the current runtime instructions from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`.
 
 - **Claude:** create a named `pm:developer` worker per `agent-runtime.md`, then resume it later through the same adapter
 - **Codex with delegation enabled:** spawn one persistent worker, store its `agent_id` in `.pm/dev-sessions/{slug}.md`, and reuse that same worker for implementation
-- **Codex without delegation:** do the planning inline in the orchestrator and preserve continuity through the session file plus the written plan artifact
+- **Codex without delegation:** do the planning inline in the orchestrator and preserve continuity through the session file plus the written RFC artifact
 
-### Planning prompt pack
+### RFC generation prompt
 
-Whether the planner runs as a worker or inline, use this planning brief:
+Whether the planner runs as a worker or inline, use this brief:
 
 ```text
-Phase 1 — Planning for {ISSUE_ID}: {ISSUE_TITLE}.
+Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -289,94 +181,50 @@ Phase 1 — Planning for {ISSUE_ID}: {ISSUE_TITLE}.
 **Branch:** {BRANCH}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **Session file:** .pm/dev-sessions/{slug}.md
-**Spec:** {SPEC_FILE_PATH or "none — use ACs below"}
+**Proposal:** pm/backlog/{slug}.md
+**PRD:** pm/backlog/proposals/{slug}.html
 
-**Issue description + ACs:**
-{ISSUE_DESCRIPTION_AND_ACS}
+Read the proposal and PRD for full product context.
+Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for the RFC structure.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
 
-{GROOM_CONTEXT_IF_AVAILABLE}
+Write the RFC to pm/backlog/rfcs/{slug}.md.
+Commit the RFC, then end your response with:
 
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
-Save plan to docs/plans/{DATE}-{SLUG}.md.
-Commit the plan, then end your response with:
-
-PLAN_COMPLETE
-- issue: {ISSUE_ID}
-- path: docs/plans/{file}
+RFC_COMPLETE
+- slug: {slug}
+- path: pm/backlog/rfcs/{slug}.md
 - summary: {3-line summary}
-- tasks: {N}
+- issues: {N}
 
-Stop after sending the summary. You will be resumed for implementation after plan review.`
+Stop after sending the summary. You will be resumed for implementation after RFC review.
 ```
 
-**If groomed (from Stage 2.5):** Append groom context to the prompt:
+### Orchestrator waits for RFC
 
-```
-**Groom context:**
-- Session: .pm/groom-sessions/{slug}.md
-- Research location: {research_location from session frontmatter}
-- Bar raiser verdict: {verdict}
-- Conditions: {list of bar_raiser.conditions and team_review.conditions}
-```
+Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
 
-The writing-plans reference will use this to produce a `## Upstream Context` section in the plan.
+After receiving `RFC_COMPLETE`:
+1. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.md` in `pm/backlog/{slug}.md`
+2. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
+3. Proceed to Stage 4.
 
-### Orchestrator waits for plan
+## Stage 4: RFC Review (M/L/XL)
 
-If the planning stage ran in a worker, wait for the worker to return and capture only the `PLAN_COMPLETE` payload in the orchestrator context. If planning ran inline, produce the same payload yourself after writing the plan.
-
-After receiving `PLAN_COMPLETE`, update `.pm/dev-sessions/{slug}.md` with:
-
-- plan path
-- plan commit SHA
-- runtime
-- worker metadata when a persistent worker exists
-
-Then proceed to Stage 4.5.
-
-## Stage 4.5: Plan Review — Engineering RFC Review (M/L/XL)
-
-The plan has been through the writing-plans review loop (inside the developer agent). This stage runs in the **orchestrator** — three senior engineers challenge architecture decisions, poke at risks, and push back on complexity. Their job is adversarial: find the problems before implementation discovers them the hard way.
-
-This is the last human-interactive gate. After this passes, the same developer worker continues through implementation, review, PR, merge, and cleanup.
-
-```dot
-digraph plan_review {
-    "dev-{slug} returns plan" [shape=box];
-    "Dispatch 3 RFC reviewers\n(parallel, short-lived)" [shape=box, style=filled, fillcolor="#ffffcc"];
-    "Merge findings" [shape=box];
-    "Real issues?" [shape=diamond];
-    "Fix issues in plan\n(orchestrator edits)" [shape=box];
-    "Re-dispatch reviewers" [shape=box];
-    "Max 2 iterations?" [shape=diamond];
-    "Surface to user" [shape=box];
-    "User approves plan" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "Resume same developer worker\ngo implement" [shape=doublecircle, style=filled, fillcolor="#ccffcc"];
-
-    "dev-{slug} returns plan" -> "Dispatch 3 RFC reviewers\n(parallel, short-lived)";
-    "Dispatch 3 RFC reviewers\n(parallel, short-lived)" -> "Merge findings";
-    "Merge findings" -> "Real issues?";
-    "Real issues?" -> "Fix issues in plan\n(orchestrator edits)" [label="yes"];
-    "Fix issues in plan\n(orchestrator edits)" -> "Re-dispatch reviewers";
-    "Re-dispatch reviewers" -> "Max 2 iterations?";
-    "Max 2 iterations?" -> "Dispatch 3 RFC reviewers\n(parallel, short-lived)" [label="no"];
-    "Max 2 iterations?" -> "Surface to user" [label="yes"];
-    "Real issues?" -> "User approves plan" [label="no"];
-    "User approves plan" -> "Resume same developer worker\ngo implement";
-}
-```
+Three senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate. After this passes, the same developer worker implements.
 
 ### The 3 RFC reviewers
 
-Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel as short-lived reviewers. In Codex without delegation, run the same briefs inline and merge findings before continuing.
+Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
 
 **Reviewer intent: `pm:adversarial-engineer`**
 
 ```text
-Review this implementation plan (RFC) for architecture soundness and risk.
+Review this engineering RFC for architecture soundness and risk.
 
-**Plan to review:** {PLAN_FILE_PATH}
-**Spec for reference:** {SPEC_FILE_PATH}
+**RFC to review:** pm/backlog/rfcs/{slug}.md
+**Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -385,10 +233,10 @@ Review this implementation plan (RFC) for architecture soundness and risk.
 **Reviewer intent: `pm:test-engineer`**
 
 ```text
-Review this implementation plan (RFC) for testing strategy and coverage.
+Review this engineering RFC for testing strategy and coverage.
 
-**Plan to review:** {PLAN_FILE_PATH}
-**Spec for reference:** {SPEC_FILE_PATH}
+**RFC to review:** pm/backlog/rfcs/{slug}.md
+**Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -397,10 +245,10 @@ Review this implementation plan (RFC) for testing strategy and coverage.
 **Reviewer intent: `pm:staff-engineer`**
 
 ```text
-Review this implementation plan (RFC) for complexity and long-term maintainability.
+Review this engineering RFC for complexity and long-term maintainability.
 
-**Plan to review:** {PLAN_FILE_PATH}
-**Spec for reference:** {SPEC_FILE_PATH}
+**RFC to review:** pm/backlog/rfcs/{slug}.md
+**Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -409,21 +257,23 @@ Review this implementation plan (RFC) for complexity and long-term maintainabili
 ### Handling findings
 
 1. Merge all 3 RFC reviewer outputs. Deduplicate.
-3. Fix all **Blocking issues** in the plan file (orchestrator edits directly). Non-blocking items are advisory: apply if they reduce complexity, skip if YAGNI.
-4. If blocking issues were fixed, re-dispatch reviewers on the updated plan (max 2 iterations).
-5. Commit plan updates.
-6. **ADR extraction (M/L/XL only).** Scan the approved plan for non-obvious technical choices (library selections, architectural patterns, data modeling decisions, tradeoff resolutions). For each, write an ADR to `docs/decisions/NNNN-slug.md`. See ADR conventions below. Commit ADRs with the plan.
-7. Present the final plan to the user: "Plan reviewed by 3 RFC reviewers. [N] blocking issues found and fixed. Here's the final plan: `{PLAN_FILE_PATH}`. Approve to begin continuous execution through to merge?"
-8. Wait for user approval. This is the **last interactive gate**.
-9. Update `.pm/dev-sessions/{slug}.md` with `Plan review: passed (commit <sha>)` and `Continuous execution: authorized`.
+2. Fix all **Blocking issues** in the RFC (orchestrator edits directly). Non-blocking items are advisory.
+3. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
+4. Commit RFC updates.
+5. Update RFC frontmatter to `status: approved`.
+6. Update the proposal status to `planned` in `pm/backlog/{slug}.md`.
+7. **ADR extraction (M/L/XL only).** Scan the approved RFC for non-obvious technical choices. For each, write an ADR to `docs/decisions/NNNN-slug.md`. Commit ADRs with the RFC.
+8. Present the final RFC to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Here's the RFC: `pm/backlog/rfcs/{slug}.md`. Approve to begin continuous execution through to merge?"
+9. Wait for user approval. This is the **last interactive gate**.
+10. Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`.
 
-## Stages 5–7: Implementation via the Same Developer Worker
+## Stage 5: Implementation via the Same Developer Worker
 
 After user approval, resume the same developer worker for implementation.
 
 - **Claude:** resume the same named worker through the adapter
 - **Codex delegated:** resume the stored `agent_id`
-- **Codex inline:** continue inline from the approved plan
+- **Codex inline:** continue inline from the approved RFC
 
 Use this implementation brief:
 
@@ -432,7 +282,7 @@ Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
-**Plan:** {PLAN_FILE_PATH}
+**RFC:** pm/backlog/rfcs/{slug}.md
 **Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
@@ -442,7 +292,7 @@ implementation lifecycle, then execute it.
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
-3. Read the plan end-to-end and implement all tasks
+3. Read the RFC end-to-end and implement all issues
 4. Invoke pm:simplify — fix findings, run tests, commit
 5. If UI changes: invoke /design-critique if available, else skip
 6. If UI changes: QA runs as the persistent QA worker (spawned by implementation-flow.md when supported)
@@ -454,11 +304,10 @@ Lifecycle:
 11. Report: "Merged. PR #{N}, sha {abc}, {N} files changed."
 
 If blocked, report: "Blocked: {reason}"
-Do NOT pause for confirmation — the plan is the contract. Execute it.`
-})
+Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
 
-**What the agent retains from planning:**
+**What the agent retains from RFC generation:**
 - Codebase structure and file organization
 - Existing patterns and conventions discovered during exploration
 - Test infrastructure and runner details

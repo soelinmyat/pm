@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Auto-detects scope and routes to the right flow. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.' Formerly /dev-epic and /bug-fix — both unified into /dev."
+description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.'"
 ---
 
 # Dev — Development Lifecycle
@@ -74,16 +74,16 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 | Skill / Reference | Used in |
 |-------------------|---------|
-| `pm:groom` | Single: Groom readiness check (S/M/L/XL — auto-invoked when issue is ungroomed) |
-| `groom/phases/phase-3.5-design.md` (reference) | Single: Design Exploration (M/L/XL) |
-| `dev/references/writing-plans.md` (reference) | Single: Plan (M/L/XL) |
+| `pm:groom` | Single: Auto-invoked when no proposal exists (M/L/XL) |
+| `dev/references/writing-rfcs.md` (reference) | Single: RFC Generation (M/L/XL) |
+| `dev/references/splitting-patterns.md` (reference) | Single: Issue splitting within RFC (M/L/XL) |
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
-| `dev/references/implementation-flow.md` (reference) | Single: Stages 5–7, Epic: Stage 4 implementation |
+| `dev/references/implementation-flow.md` (reference) | Single: Stage 5, Epic: Stage 4 implementation |
 | `pm:tdd` | Single: Implement via the persistent developer worker (all) |
 | `pm:subagent-dev` | Single: Implement via the persistent developer worker (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (persistent worker `qa-{slug}` when supported, reused across re-verify iterations) |
+| `pm:qa` | Single: QA ship gate (persistent worker when supported) |
 | `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery

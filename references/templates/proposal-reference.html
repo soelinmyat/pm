@@ -846,120 +846,14 @@ graph TD
   </div>
 
   <!-- ============================================
-       ISSUE BREAKDOWN
+       NEXT STEPS
        ============================================ -->
-  <div class="section" id="issues">
-    <h2 class="section-title"><span class="icon">&#9776;</span> Issue Breakdown</h2>
-    <p class="section-lead">1 parent + 4 child issues covering API, UI, persistence, and date range.</p>
-
-    <div class="issue-group">
-      <!-- Parent issue -->
-      <div class="issue-card parent">
-        <div class="issue-header">
-          <span class="issue-id">PM-025</span>
-          <span class="issue-title">Dashboard Filtering System</span>
-        </div>
-        <p class="issue-outcome">Users can narrow dashboard data to their team's metrics without requesting custom queries from engineering.</p>
-        <div class="issue-labels">
-          <span class="label">feature</span>
-          <span class="label">dashboard</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <details><summary>Show acceptance criteria (5)</summary>
-        <ol class="ac-list">
-          <li>Dashboard renders a filter bar above the main content area with date, team, and metric type controls.</li>
-          <li>Applying any filter updates all dashboard widgets within 2 seconds for datasets up to 100k rows.</li>
-          <li>Active filters persist across browser sessions via localStorage, restored on next visit.</li>
-          <li>Filtered state is encoded in URL query params; sharing the URL reproduces the exact filtered view.</li>
-          <li>Clearing all filters restores the default unfiltered dashboard in under 500ms.</li>
-        </ol>
-        </details>
-      </div>
-
-      <!-- Child issue 1 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-026</span>
-          <span class="issue-title">Filter bar component and layout</span>
-        </div>
-        <p class="issue-outcome">Dashboard has a persistent, accessible filter bar that doesn't compete with data visibility.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <details><summary>Show acceptance criteria (4)</summary>
-        <ol class="ac-list">
-          <li>Filter bar renders horizontally above dashboard widgets on screens >= 768px; collapses to a toggle drawer on mobile.</li>
-          <li>Each filter control has a visible label, current selection indicator, and clear button.</li>
-          <li>Filter bar consumes no more than 64px of vertical space in its default state.</li>
-          <li>All filter controls are keyboard-navigable and announce state changes to screen readers.</li>
-        </ol>
-        </details>
-      </div>
-
-      <!-- Child issue 2 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-027</span>
-          <span class="issue-title">Filter query engine and API</span>
-        </div>
-        <p class="issue-outcome">Dashboard widgets receive filtered data from a performant query layer, replacing manual SQL requests to engineering.</p>
-        <div class="issue-labels">
-          <span class="label">backend</span>
-          <span class="label priority-high">high priority</span>
-        </div>
-        <details><summary>Show acceptance criteria (4)</summary>
-        <ol class="ac-list">
-          <li>GET /api/dashboard?date_from=X&amp;date_to=Y&amp;teams=A,B&amp;metrics=C returns filtered widget data.</li>
-          <li>Query response time &lt; 500ms for datasets up to 100k rows (p95, measured at API layer).</li>
-          <li>Invalid filter combinations return a 400 response with a human-readable error message, not a 500.</li>
-          <li>API follows existing auth pattern in <code>src/middleware/auth.ts</code> — no new auth mechanism.</li>
-        </ol>
-        </details>
-      </div>
-
-      <!-- Child issue 3 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-028</span>
-          <span class="issue-title">Filter persistence and URL sharing</span>
-        </div>
-        <p class="issue-outcome">Users don't lose their filter configuration between sessions, and can share exact views with teammates via URL.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-medium">medium priority</span>
-        </div>
-        <details><summary>Show acceptance criteria (4)</summary>
-        <ol class="ac-list">
-          <li>On filter change, URL query params update without a page reload (history.replaceState).</li>
-          <li>On page load, filters initialize from URL params first; fall back to localStorage; fall back to defaults.</li>
-          <li>localStorage key follows existing pattern: <code>dashboard:filters:{userId}</code>.</li>
-          <li>Copying the URL and opening in a new tab reproduces the identical filtered view.</li>
-        </ol>
-        </details>
-      </div>
-
-      <!-- Child issue 4 -->
-      <div class="issue-card child">
-        <div class="issue-header">
-          <span class="issue-id">PM-029</span>
-          <span class="issue-title">Date range filter with presets</span>
-        </div>
-        <p class="issue-outcome">Users can filter by time period using one click for common ranges or a custom date picker for specific analysis.</p>
-        <div class="issue-labels">
-          <span class="label">frontend</span>
-          <span class="label priority-medium">medium priority</span>
-        </div>
-        <details><summary>Show acceptance criteria (4)</summary>
-        <ol class="ac-list">
-          <li>Preset options: Today, Last 7 days, Last 30 days, Last quarter, Year to date, Custom range.</li>
-          <li>Custom range opens a date picker; selecting an invalid range (end before start) shows inline error.</li>
-          <li>Selecting a preset visually highlights it; selecting custom deselects all presets.</li>
-          <li>Default selection on first visit: Last 30 days.</li>
-        </ol>
-        </details>
-      </div>
+  <div class="section" id="next-steps">
+    <h2 class="section-title"><span class="icon">&#8594;</span> Next Steps</h2>
+    <div class="callout">
+      <strong>Ready for engineering?</strong> Run <code>pm:dev dashboard-filtering-system</code> to generate the engineering RFC — this will split the feature into implementation issues, define the technical approach, and produce the detailed plan.
     </div>
+    <p style="margin-top: 1rem; color: #666;">The RFC will contain the issue breakdown with engineering-level acceptance criteria, implementation approach per issue, test strategy, and risk assessment.</p>
   </div>
 
   <!-- ============================================

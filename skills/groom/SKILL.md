@@ -1,13 +1,15 @@
 ---
 name: groom
-description: "Use when doing product discovery, feature grooming, or turning a product idea into structured issues. Orchestrates strategy check, research, scoping, and issue creation. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'create issues for.'"
+description: "Use when doing product discovery or feature grooming. Orchestrates strategy check, research, scoping, design, and proposal creation. Outputs a product proposal (PRD) — not engineering issues. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'write a PRD.'"
 ---
 
 # pm:groom
 
 ## Purpose
 
-Orchestrate the full product discovery lifecycle: from raw idea to structured, research-backed issues ready for the sprint.
+Orchestrate the full product discovery lifecycle: from raw idea to an approved product proposal (PRD) ready for engineering.
+
+Groom produces a **proposal** — the product-level artifact with scope, design, wireframes, research, and competitive context. It does NOT split into engineering issues or write implementation plans. That happens in `pm:dev` via the RFC.
 
 Research gates grooming. Strategy gates scoping. Neither is optional.
 
@@ -41,9 +43,9 @@ The workflow stays the same across runtimes. Dispatch mechanics come from the cu
 
 | Tier | Intended use | Phases |
 |------|--------------|--------|
-| `quick` | Fill in missing structure fast, usually as a handoff to implementation or backlog capture | `intake -> strategy-check -> research -> scope -> groom -> link` |
-| `standard` | Produce solid implementation-ready issues without the full executive review stack | `intake -> strategy-check -> research -> scope -> scope-review -> groom -> link` |
-| `full` | Full PM ceremony with review stack and presentation | `intake -> strategy-check -> research -> scope -> scope-review -> groom -> team-review -> bar-raiser -> present -> link` |
+| `quick` | Fill in missing structure fast, usually as a handoff to implementation or backlog capture | `intake -> strategy-check -> research -> scope -> draft-proposal -> link` |
+| `standard` | Solid product proposal without the full executive review stack | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> link` |
+| `full` | Full PM ceremony with review stack and presentation | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> team-review -> bar-raiser -> present -> link` |
 
 ### Tier selection
 
@@ -63,7 +65,7 @@ groom_tier: quick | standard | full
 
 Only run phases that are active for the current tier.
 
-- `quick` skips `scope-review`, `team-review`, `bar-raiser`, and `present`
+- `quick` skips `scope-review`, `design`, `team-review`, `bar-raiser`, and `present`
 - `standard` skips `team-review`, `bar-raiser`, and `present`
 - `full` runs every phase
 
@@ -94,7 +96,7 @@ Wait for the user's answer. If resuming: skip completed phases. If starting fres
 
 ---
 
-## Lifecycle: intake -> strategy check -> research -> scope -> scope review -> groom -> team review -> bar raiser -> present -> link
+## Lifecycle: intake -> strategy check -> research -> scope -> scope review -> design -> draft proposal -> team review -> bar raiser -> present -> link
 
 ---
 
@@ -134,11 +136,12 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 | 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
 | 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
 | 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | 3 parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Groom | `phases/phase-5-groom.md` | Detect feature type, generate flows/wireframes, draft issues |
-| 5.5. Team Review | `phases/phase-5.5-team-review.md` | 3-4 parallel agents review drafted issues for quality (max 3 iterations) |
-| 5.7. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 5.8. Present | `phases/phase-5.8-present.md` | Generate HTML proposal, open in browser, get user approval |
-| 6. Link | `phases/phase-6-link.md` | Create issues in Linear or local backlog, validate, clean up |
+| 5. Design | `phases/phase-3.5-design.md` | Design exploration: mockups, user flows, wireframes. Skip for backend/infra. |
+| 5.5. Draft Proposal | `phases/phase-5-groom.md` | Detect feature type, generate flows/wireframes, draft proposal content |
+| 6. Team Review | `phases/phase-5.5-team-review.md` | 3-4 parallel agents review the proposal for quality (max 3 iterations) |
+| 6.5. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
+| 7. Present | `phases/phase-5.8-present.md` | Generate HTML PRD, open in browser, get user approval |
+| 8. Link | `phases/phase-6-link.md` | Create proposal entry in backlog (+ Linear if configured), clean up |
 
 **How to use:** At the start of each phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
@@ -153,7 +156,7 @@ Each grooming session has its own state file under `.pm/groom-sessions/`.
 topic: "{topic name}"
 runtime: claude | codex
 groom_tier: quick | standard | full
-phase: intake | strategy-check | research | scope | scope-review | groom | team-review | bar-raiser | present | link
+phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | bar-raiser | present | link
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 run_id: "{PM_RUN_ID}"
@@ -199,11 +202,11 @@ bar_raiser:
   iterations: 1
   blocking_issues_fixed: 0
 
-issues:
-  - slug: "{issue-slug}"
-    title: "{title}"
-    status: drafted | created | linked
-    linear_id: "{Linear ID}" | null
+proposal:
+  slug: "{topic-slug}"
+  backlog_path: pm/backlog/{topic-slug}.md
+  prd_path: pm/backlog/proposals/{topic-slug}.html
+  linear_id: "{Linear ID}" | null
 ---
 ```
 
@@ -228,25 +231,25 @@ Never silently overwrite an existing state file. Always ask resume vs. fresh. St
 
 ---
 
-## Backlog Issue Format (when no Linear)
+## Proposal Format (Backlog Entry)
 
-Write to `pm/backlog/{issue-slug}.md`.
+Write the proposal entry to `pm/backlog/{topic-slug}.md`. This is the parent backlog item — it links to the HTML PRD and (later) the RFC.
 
-**ID assignment:** Each backlog issue gets a sequential `id` in the format `PM-{NNN}`. Before creating a new issue, scan all existing `pm/backlog/*.md` files for the highest `id` value and increment by 1. The first issue is `PM-001`. IDs are zero-padded to 3 digits. The dashboard displays IDs on kanban cards and detail pages, and shows parent references (e.g., `↑ PM-001`) on child issue cards.
+**ID assignment:** Each proposal gets a sequential `id` in the format `PM-{NNN}`. Before creating a new entry, scan all existing `pm/backlog/*.md` files for the highest `id` value and increment by 1. The first entry is `PM-001`. IDs are zero-padded to 3 digits.
 
 ```markdown
 ---
-type: backlog-issue
+type: proposal
 id: "PM-{NNN}"
-title: "{Issue Title}"
+title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
-status: idea | drafted | approved | in-progress | done
-parent: "{parent-issue-slug}" | null
-children:
-  - "{child-issue-slug}"
+status: proposed | planned | in-progress | done
+verdict: ready | send-back | pause
+prd: proposals/{topic-slug}.html
+rfc: rfcs/{topic-slug}.md | null
+priority: critical | high | medium | low
 labels:
   - "{label}"
-priority: critical | high | medium | low
 research_refs:
   - pm/evidence/research/{topic-slug}.md
 created: YYYY-MM-DD
@@ -258,32 +261,13 @@ updated: YYYY-MM-DD
 {Expand on the outcome statement. What does the user experience after this ships?
 What were they unable to do before?}
 
-## Acceptance Criteria
+## Scope
 
-1. {Specific, testable condition.}
-2. {Specific, testable condition.}
-3. {Edge cases handled: ...}
+In-scope:
+- {item}
 
-## User Flows
-
-{Mermaid diagrams showing primary user flow(s) for this feature.
-Include the main happy path. Add alternate/error paths for complex features.
-Each diagram should have a `%% Source:` comment citing the signal that shaped it.}
-
-```mermaid
-graph TD
-    A[User action] --> B{Decision}
-    B -->|Yes| C[Outcome]
-    B -->|No| D[Alternative]
-    %% Source: pm/evidence/research/{topic-slug}.md
-```
-
-## Wireframes
-
-{For UI features: link to the HTML wireframe file generated during grooming.
-For non-UI features: "N/A — no user-facing workflow for this feature type."}
-
-[Wireframe preview](pm/backlog/wireframes/{issue-slug}.html)
+Out-of-scope:
+- {item}: {reason}
 
 ## Competitor Context
 
@@ -292,8 +276,8 @@ Reference specific profiles from pm/insights/competitors/ if applicable.}
 
 ## Technical Feasibility
 
-{Engineering Manager assessment of build-on vs build-new, risks, and sequencing.
-Include verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
+{Engineering Manager assessment from scope review.
+Verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Research Links
 
@@ -301,5 +285,13 @@ Include verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Notes
 
-{Open questions, implementation constraints, or deferred scope items.}
+{Open questions, deferred scope items.}
 ```
+
+**Status lifecycle:**
+- `proposed` — PRD exists, no RFC yet. Product-approved, awaiting engineering planning.
+- `planned` — RFC exists and approved. Ready to build.
+- `in-progress` — Dev is implementing from the RFC.
+- `done` — All RFC issues shipped.
+
+**Verdict** is set by groom and never changed by dev. **Status** is updated by dev as implementation progresses.
