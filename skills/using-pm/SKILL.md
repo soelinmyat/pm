@@ -19,16 +19,16 @@ This plugin provides structured workflows for the product engineer — from disc
 
 These are the skills you invoke directly. Most other capabilities are built into these as phases or references.
 
-| Trigger | Skill | What it does |
-|---------|-------|--------------|
-| Thinking through an idea, brainstorming, exploring options | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. No ceremony. Promotes to groom when ready |
-| Any development work (feature, bug, refactor, epic, batch bugs) | `pm:dev` | Auto-detects scope: single issue lifecycle, epic orchestration, or batch bug triage |
-| Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick (scope + issues), standard (+ strategy + research), full (all phases). Auto-detected or say "quick/standard/full groom". Use `pm:groom ideate` for idea generation |
-| Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
-| Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
-| Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| Deploy main to production | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
-| Self-heal a PR until merged | Merge workflow | Fix CI, resolve review comments, handle conflicts, merge. On platforms with command aliases, this is exposed as `/merge`. |
+| User says | Skill | What it does |
+|-----------|-------|--------------|
+| "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
+| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope: single issue, epic, or batch bug triage. Auto-grooms ungroomed issues before implementation |
+| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick, standard, full (auto-detected or say "quick/standard/full groom"). `pm:groom ideate` for idea generation |
+| "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, topic. Use `quick` mode for fast inline questions |
+| "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
+| "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
+| "Deploy" / "Release" / "Push to production" | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
+| "Merge this PR" / "Land this" / "Fix PR comments" / "Resolve CI" | Merge workflow | Self-healing merge loop — fix CI, resolve review comments, handle conflicts, merge |
 
 ## Sub-Skills (called by orchestrators)
 
@@ -47,11 +47,11 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 ## Utilities
 
-| Trigger | Skill | What it does |
-|---------|-------|--------------|
-| Import customer evidence | `pm:ingest` | Import files, transcripts, feedback into pm/ |
-| Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
-| Open dashboard / session greeting | `pm:start` | Project pulse, dashboard launch, onboarding |
+| User says | Skill | What it does |
+|-----------|-------|--------------|
+| "Import feedback" / "Add evidence" / "Customer data" | `pm:ingest` | Import files, transcripts, feedback into pm/ |
+| "What's outdated?" / "Update research" / "Stale data" | `pm:refresh` | Check for staleness, patch without losing content |
+| "Show dashboard" / "Open pm" / "View research" | `pm:start` | Project pulse, dashboard launch, onboarding |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
 ## Shared References (consulted by skills, never invoked)
@@ -112,26 +112,6 @@ End every skill with a structured summary:
 ```
 
 Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
-
-## Quick Decision Guide
-
-| User says | Invoke |
-|-----------|--------|
-| "Let's think about X" / "What if we" / "How should we" / "I'm wondering" / "Brainstorm" | `pm:think` — structured thinking, promotes to groom when ready |
-| "I have an idea" / "spec this" / "write a PRD" / "break this down" | `pm:groom` → then `pm:dev` for implementation |
-| "What should we build?" / "create tickets" | `pm:groom ideate` |
-| "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
-| "Should we do X?" | `pm:research quick` |
-| "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
-| "Simplify this scope" / "make this simpler" / "clarify plan" | `pm:simplify` (single entrypoint across runtimes) |
-| "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
-| "Ship it" / "Push this" / "create PR" / "ready for review" | `pm:ship` |
-| "Deploy" / "deploy to production" / "release" / "push to production" | `pm:deploy` — create PR from main to production, self-heal, auto-merge |
-| "Merge this PR" / "land this" / "get this merged" | merge workflow — self-healing merge loop |
-| "Fix the PR comments" / "Resolve CI" / "fix review feedback" | merge workflow — fixes, replies, resolves threads, merges |
-| "Show dashboard" / "open pm" / "view research" | `pm:start` |
-| "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
-| "What's outdated?" / "update research" / "stale data" | `pm:refresh` |
 
 ## Red Flags
 
