@@ -171,27 +171,7 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
-### 1.7 Merge strategy detection
-
-Detect whether direct pushes to main are possible. Check **all three** sources:
-
-```bash
-# 1. GitHub branch protection API
-gh api repos/{owner}/{repo}/branches/main/protection 2>/dev/null
-
-# 2. Git hooks (version-controlled or custom path)
-HOOKS_PATH=$(git config core.hooksPath 2>/dev/null || echo ".git/hooks")
-test -f "$HOOKS_PATH/pre-push" && echo "pre-push hook exists"
-
-# 3. Also check .githooks/ (common convention for committed hooks)
-test -f .githooks/pre-push && echo ".githooks/pre-push exists"
-```
-
-**If any source blocks direct pushes:** set `Merge strategy: PR required` in state file. Promote XS to S. All subsequent agents use PR flow — no agent should discover this at merge time.
-
-**If none detected:** set `Merge strategy: direct push allowed`.
-
-### 1.8 Create worker registry
+### 1.7 Create worker registry
 
 In the epic state file, create one worker slot per sub-issue. This is the source of truth for orchestration in Codex.
 
@@ -481,7 +461,6 @@ Phase 2 — Implementation approved. Go implement.
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
 **Plan:** {PLAN_FILE_PATH}
-**Merge strategy:** {PR required | direct push allowed}
 **Mode:** {sequential | parallel}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full

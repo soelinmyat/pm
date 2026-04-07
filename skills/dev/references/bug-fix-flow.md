@@ -142,36 +142,14 @@ Fix findings, run tests, commit separately from bug fix commits.
 
 After all fixes are committed, push and verify the changes landed.
 
-**If repo requires PRs** (branch protection detected at intake, or working on a feature branch):
+Push, create PR, and merge via the self-healing merge loop:
 
-Create a PR and use the self-healing merge loop:
 ```bash
 git push origin {BRANCH}
 gh pr create --title "fix: batch bug fixes from {cycle-name}" --body "..." --base {DEFAULT_BRANCH}
 ```
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). Do NOT proceed to tracker updates until the merge loop confirms `state == "MERGED"`.
-
-**If direct push allowed** (fixing on default branch):
-
-```bash
-# Push and verify (3 attempts, same as merge-loop)
-LOCAL_SHA=$(git rev-parse HEAD)
-for i in 1 2 3; do
-  git push origin {DEFAULT_BRANCH} && PUSH_OK=true || PUSH_OK=false  # (use timeout: 600000 — pre-push hooks can take 5-10 min)
-  REMOTE_SHA=$(git ls-remote origin {DEFAULT_BRANCH} | awk '{print $1}')
-  if [ "$PUSH_OK" = true ] && [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-    break
-  fi
-  echo "Push attempt $i failed. Local: $LOCAL_SHA, Remote: $REMOTE_SHA"
-  if [ "$i" -eq 3 ]; then
-    echo "ERROR: Push failed after 3 attempts. Stop and report to user."
-  fi
-  sleep 5
-done
-```
-
-Do NOT update issue tracker statuses until push/merge is verified.
 
 ---
 

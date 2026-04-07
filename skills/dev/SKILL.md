@@ -22,8 +22,9 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
 - No PR without passing the review gate (M/L/XL) — `/review` MUST run before push
 - No auto-merge without passing the code scan gate (XS/S) — lightweight bug scan before merge
-- XS/S auto-merge to the default branch after implementation — unless the repo requires PRs (branch protection), in which case use the PR flow
-- M/L/XL gets full PR + review flow + auto-merge after readiness gates pass
+- All sizes use the PR flow — push branch, create PR, merge via `references/merge-loop.md`. The project's branch protection and CI dictate what's required.
+- XS/S: code scan gate → PR → auto-merge
+- M/L/XL: full review gate → PR → auto-merge after readiness gates pass
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)

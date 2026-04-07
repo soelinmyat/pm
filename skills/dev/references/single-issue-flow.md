@@ -14,7 +14,7 @@ For S+ tasks (which create branches and PRs), verify `gh` early:
 command -v gh >/dev/null 2>&1 || echo "WARN: GitHub CLI (gh) not found. PR creation will fail. Install: https://cli.github.com"
 ```
 
-This is a warning, not a blocker — XS tasks don't need `gh` (they push directly). For S+ tasks, if `gh` is missing, warn the user before starting work so they can install it rather than discovering at PR creation time.
+All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn the user before starting work so they can install it rather than discovering at PR creation time.
 
 ---
 
@@ -64,7 +64,7 @@ This is a warning, not a blocker — XS tasks don't need `gh` (they push directl
 | QA (persistent worker) | If UI (Quick, L1+3+4) | If UI (Focused, L1+3+4 or all 5) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) | If UI (Full, persistent worker, iterative) |
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) | Verification gate (inline) |
-| Finish | Direct merge (verified) | Direct merge (verified) | PR → merge-loop (self-healing) | PR → merge-loop (self-healing) | PR → merge-loop (self-healing) |
+| Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
 | Review feedback | — | — | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` | `review/references/handling-feedback.md` |
 | Retro | Yes | Yes | Yes | Yes | Yes |
 
@@ -509,7 +509,7 @@ Phase 2 — Implementation approved. Go implement.
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 **Plan:** {PLAN_FILE_PATH}
-**Merge strategy:** {PR required | direct push allowed}
+**Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full

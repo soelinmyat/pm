@@ -508,60 +508,11 @@ The orchestrator will send a "Merge now" message when it's your turn. When you r
 2. Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). This handles squash merge, CI self-healing, review thread resolution, and — critically — verifies `state == "MERGED"` before proceeding to cleanup.
 3. Continue to Step 8 (Cleanup).
 
-### PR flow (M/L/XL, or XS/S with branch protection)
+### PR flow (all sizes)
 
-**Single-issue:** Invoke `/ship` — it handles push, PR creation, code review, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
+**Single-issue:** Invoke `/ship` — it handles push, PR creation, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
 
 **Epic sub-issue (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
-
-### Direct merge (XS/S, no branch protection)
-
-**Repo policy check:** If the repo requires PRs (branch protection detected at intake, or pre-push hooks reject direct pushes), use the PR flow above instead. Log: "XS/S: branch protection detected, using PR flow."
-
-```bash
-# 1. Verify tests in feature worktree (verification-before-completion)
-cd <feature-worktree>
-<project-test-command>
-
-# 2. Commit only if there are real changes (stage specific files, never git add -A)
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add <specific-files>
-  git commit -m "<type>: <description>"
-fi
-
-# 3. Switch to main repo and update
-cd <main-repo>
-git fetch origin
-git checkout {DEFAULT_BRANCH}
-git pull --ff-only origin {DEFAULT_BRANCH}
-
-# 4. Merge feature branch
-if ! git merge-base --is-ancestor <feature-branch> {DEFAULT_BRANCH}; then
-  git merge --no-ff <feature-branch>
-fi
-
-# 5. Verify on merged default branch
-<project-test-command>
-
-# 6. Push and verify (3 attempts, same as merge-loop)
-LOCAL_SHA=$(git rev-parse HEAD)
-for i in 1 2 3; do
-  git push origin {DEFAULT_BRANCH} && PUSH_OK=true || PUSH_OK=false
-  REMOTE_SHA=$(git ls-remote origin {DEFAULT_BRANCH} | awk '{print $1}')
-  if [ "$PUSH_OK" = true ] && [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-    break
-  fi
-  echo "Push attempt $i failed. Local: $LOCAL_SHA, Remote: $REMOTE_SHA"
-  if [ "$i" -eq 3 ]; then
-    echo "ERROR: Push failed after 3 attempts. Do NOT proceed to cleanup."
-    # Stop and report to user (single-issue) or report Blocked (epic)
-  fi
-  sleep 5
-done
-```
-
-If merge conflicts, test failures, or push verification failures occur, stop and report — don't force through.
-Never "fix" merge issues with destructive resets.
 
 ### Handling review feedback
 

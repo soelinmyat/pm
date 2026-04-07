@@ -12,7 +12,7 @@ Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updat
 | Parent Issue | {ISSUE_ID} |
 | Parent Title | [title] |
 | Source | groomed | raw |
-| Merge strategy | PR required | direct push allowed |
+| Merge strategy | PR → merge-loop |
 | Repo root | /path/to/project |
 | Started at | {ISO 8601 timestamp, e.g. 2026-04-02T07:00:20Z} |
 | Stage started at | {ISO 8601 timestamp — updated on every stage transition} |
