@@ -37,6 +37,16 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-pre.sh",
+            "async": false
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -57,6 +67,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agent-step.sh",
             "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-step.sh",
+            "async": false
           }
         ]
       }

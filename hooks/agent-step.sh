@@ -42,8 +42,11 @@ if (promptChars < 10) process.exit(0);
 // Read current run_id from .current-run
 const projectDir = process.env.CLAUDE_PROJECT_DIR || '.';
 const runFile = path.join(projectDir, '.pm', 'analytics', '.current-run');
+const skillFile = path.join(projectDir, '.pm', 'analytics', '.current-skill');
 let runId = 'untracked';
 try { runId = readFileSync(runFile, 'utf8').trim() || 'untracked'; } catch {}
+let parentSkill = '';
+try { parentSkill = readFileSync(skillFile, 'utf8').trim() || ''; } catch {}
 
 // Read start timestamp written by agent-pre.sh (PreToolUse hook)
 const hash = crypto.createHash('sha256').update(agentName).digest('hex').slice(0, 16);
@@ -54,8 +57,10 @@ try {
   unlinkSync(startFile);
 } catch {}
 
-// Derive skill label from subagent_type
-const skill = subagent.startsWith('pm:') ? subagent.slice(3) : subagent;
+// Keep step.skill bound to the active PM workflow skill. Subagent type already
+// lives in actor/meta and should not overwrite the parent run's skill label.
+const skill =
+  parentSkill || (subagent.startsWith('pm:') ? subagent.slice(3) : subagent);
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');
 
 const meta = { agent_name: agentName, subagent_type: subagent };
