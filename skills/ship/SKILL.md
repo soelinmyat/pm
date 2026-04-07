@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Ship workflow: review, push, create PR, code review, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
+description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
 ---
 
 # /ship
@@ -23,7 +23,6 @@ Minimum coverage for `pm:ship`:
 - `review`
 - `push`
 - `create-or-detect-pr`
-- `code-review`
 - `merge-monitor`
 - `cleanup`
 
@@ -220,19 +219,9 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 
 ---
 
-## Step 6: Code Review
-
-Now that a PR exists, run the official code review skill:
-
-```
-Invoke the Skill tool: skill: "code-review:code-review", args: "[PR_NUMBER]"
-```
-
-This posts findings as GitHub PR comments. No auto-fix needed — the findings are for the reviewer to see.
-
 ---
 
-## Step 7: Monitor CI + Auto-fix (Pre-Merge)
+## Step 6: Monitor CI + Auto-fix (Pre-Merge)
 
 ### Watch CI run
 
@@ -255,7 +244,7 @@ This posts findings as GitHub PR comments. No auto-fix needed — the findings a
 3. Fix each issue using project-appropriate tools (check AGENTS.md for lint/fix commands)
 4. Commit fixes with descriptive message
 5. Push: `git push` (use `timeout: 600000`)
-6. Return to polling (Step 7, top)
+6. Return to polling (Step 6, top)
 
 ### Retry limit
 
@@ -265,15 +254,14 @@ This posts findings as GitHub PR comments. No auto-fix needed — the findings a
 
 # Phase 2: Merge Loop
 
-After PR is created and code review is posted, run the self-healing merge loop.
+After PR is created, run the self-healing merge loop.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure.
 
 **Ship-specific additions** (on top of the shared merge loop):
 
 1. **Codex review gate:** If `codex_review: true` in `dev/instructions.md`, wait for Codex bot comment before merging. 5-minute cooldown after @codex comment. After 15 min total, ask user: proceed without or keep waiting.
-2. **Claude review gate:** Verify `code-review:code-review` posted comments to PR. If not present, re-invoke it.
-3. **State file updates:** Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle with current status.
+2. **State file updates:** Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle with current status.
 
 ### State file during gate monitoring
 
@@ -303,7 +291,6 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 **PR:** #N — [title] ([URL])
 **Branch:** [branch name]
 **Review:** [N issues found and fixed by review agents]
-**Code Review:** [posted to PR]
 **CI:** [passed after N rounds]
 **Merged to:** {DEFAULT_BRANCH} ([short sha])
 **Remote branch:** [branch] — deleted

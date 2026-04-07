@@ -404,7 +404,7 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
-This runs up to 5 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
+This runs up to 4 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
 If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
@@ -431,19 +431,16 @@ digraph review_gate {
 }
 ```
 
-**Fix ALL findings from ALL active agents.** `/review` runs up to 5 agents:
-1. `code-review:code-review` — posts >= 80 confidence issues to the PR
-2. **Code Fix Review** — finds ALL genuine bugs with NO confidence threshold. Catches silent no-ops, swallowed errors, race conditions.
-3. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed`.
-4. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
-5. **Input Edge-Case Review** — untested edge cases
+**Fix ALL findings from ALL active agents.** `/review` runs up to 4 agents:
+1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere). No confidence threshold filtering.
+2. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed`.
+3. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
+4. **Input Edge-Case Review** — untested edge cases
 
-Agents 3 and 4 are skipped when upstream gates already covered their concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
-
-You MUST fix every real finding from all active agents, not just the ones agent 1 posts to the PR. Agent 1's >= 80 threshold is for PR comments only. Agent 2 catches the bugs you actually need to fix.
+Agents 2 and 3 are skipped when upstream gates already covered their concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
 
 **Checklist (all must be true before PR):**
-- [ ] `/review` invoked on the branch (NOT just `code-review:code-review`)
+- [ ] `/review` invoked on the branch
 - [ ] All real issues fixed from all active agents
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (fresh test run, output read, 0 failures confirmed)
@@ -451,7 +448,7 @@ You MUST fix every real finding from all active agents, not just the ones agent 
 
 | Rationalization | Reality |
 |-----------------|---------|
-| "Design critique already reviewed it" | Different concerns. Code Fix, Input Edge-Case, and code-review agents still run. |
+| "Design critique already reviewed it" | Different concerns. Code Review and Input Edge-Case agents still run. |
 | "It's a small change" | M/L/XL always get reviewed. Size was classified at intake. |
 | "Tests pass so it's fine" | Tests don't catch convention violations, missing idempotency, manual types. |
 | "I'll review after the PR" | Post-merge review can't block broken code. Review BEFORE push. |
