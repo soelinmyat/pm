@@ -40,7 +40,7 @@ ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ```
 
-#### Development skills (11)
+#### Development skills (10)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/debugging ~/.agents/skills/dev-debugging
@@ -53,7 +53,6 @@ ln -sfn ~/.agents/vendor/pm/skills/simplify ~/.agents/skills/dev-simplify
 ln -sfn ~/.agents/vendor/pm/skills/subagent-dev ~/.agents/skills/dev-subagent-dev
 ln -sfn ~/.agents/vendor/pm/skills/tdd ~/.agents/skills/dev-tdd
 ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
-ln -sfn ~/.agents/vendor/pm/skills/deploy ~/.agents/skills/dev-deploy
 ```
 
 ### 3. Restart Codex
@@ -75,11 +74,11 @@ If Codex does not find a skill:
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all 18 skills
+### Quick check: all 17 skills
 
 ```bash
 ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 7 pm-* and 11 dev-* directories
+# Should list 7 pm-* and 10 dev-* directories
 ```
 
 ## Updating

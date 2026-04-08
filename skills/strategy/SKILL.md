@@ -142,11 +142,3 @@ After writing, say:
 > $pm-research competitors -> $pm-ideate -> $pm-groom [feature idea]
 > If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
 
-## Dashboard Visuals
-
-If the user has `dashboard_session_view: true` in `.pm/config.json`, offer:
-
-> "Want a positioning map? I can plot key competitors on two axes you choose
-> (e.g., price vs. breadth, SMB vs. enterprise)."
-
-Generate using the positioning-map template if accepted.

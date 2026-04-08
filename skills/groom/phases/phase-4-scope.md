@@ -29,10 +29,7 @@ Follow the full methodology in `scope-validation.md`.
    > "This appears to be feature parity with {competitor}. Parity is a valid reason
    > to build, but not a differentiation story. Note the strategic intent before proceeding."
 
-5. If `dashboard_session_view: true` in `.pm/config.json`: offer the scope grid (impact/effort).
-   > "Want a scope grid? I'll plot proposed scope items on impact vs. effort axes."
-
-6. Update state:
+5. Update state:
 
 ```yaml
 phase: scope

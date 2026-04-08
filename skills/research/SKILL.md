@@ -89,8 +89,6 @@ First research activity in a new project. Produces the market overview that make
 4. **Write `pm/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
    After writing, append the touched file to `pm/insights/business/log.md`. Update `pm/insights/business/index.md` too if it needs to reflect the new state of the domain.
 
-5. **Dashboard session view.** If `dashboard_session_view: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the landscape and positioning map visually.
-
 ### Landscape Document Structure
 
 ```markdown
@@ -254,8 +252,6 @@ Only proceed to synthesis after all files are present.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `updated:` date in frontmatter.
 4. Append touched paths to `pm/insights/competitors/log.md`. If synthesis changed the landscape, append that write to `pm/insights/business/log.md` too.
-5. **Launch dashboard.** If `dashboard_session_view: true` in `.pm/config.json`: invoke `$pm-view` so the user can review the updated landscape, positioning map, and competitor profiles visually.
-
 ### Cost Guardrail
 
 Before running batch SEO calls across multiple competitors, estimate the request count and show:

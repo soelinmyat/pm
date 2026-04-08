@@ -34,15 +34,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
 5. **Confirm size with user** before proceeding.
-6. **Dashboard session view offer (M/L/XL with UI changes):** If the task involves frontend/UI work:
-
-   <HARD-GATE>You MUST offer the dashboard session view for M/L/XL tasks with UI changes. Do not skip.</HARD-GATE>
-
-   > "I can show specs, wireframes, and review results in the browser. Open the dashboard?"
-   - Yes: Open the dashboard session view. Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/dashboard-session.md`.
-   - No: Text-only. Do not ask again.
-   - XS/S or backend-only: Skip this step entirely.
-7. **Issue tracking (M/L/XL only):**
+6. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
 8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. This is the single source of truth for the session.
@@ -128,6 +120,16 @@ Never proceed to implementation without a clean workspace checkpoint.
 ## Stage 2.5: RFC Check (all sizes)
 
 Before proceeding, check whether an approved RFC exists for this work.
+
+### Step 0: Check for rfc-approved session resume
+
+Read `.pm/dev-sessions/{slug}.md`. If `Stage` is `rfc-approved`:
+
+- The RFC was already approved in a prior session. The user chose to stop and resume later.
+- Read the RFC path from the session file. Verify the RFC file exists and has `status: approved`.
+- **Skip Stages 3 and 4 entirely.** Log: `RFC: approved (resumed from prior session)`.
+- If a worktree path is recorded in the session file, verify it still exists. If not, re-create it (Stage 2).
+- Proceed directly to Stage 5 (Implementation) using the **resume path**.
 
 ### Step 1: Check for existing proposal + RFC
 
@@ -279,13 +281,35 @@ Review this engineering RFC for complexity and long-term maintainability.
    open pm/backlog/rfcs/{slug}.html
    ```
 
-   Present to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Opening RFC in browser. Approve to begin continuous execution through to merge?"
-10. Wait for user approval. This is the **last interactive gate**.
-11. Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`.
+   Present to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Opening RFC in browser."
+10. Wait for user approval. Then ask:
 
-## Stage 5: Implementation via the Same Developer Worker
+    > "RFC approved. Continue implementation now, or stop and resume later?"
 
-After user approval, resume the same developer worker for implementation.
+    - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Stage 5.
+    - **(b) Stop and resume later** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Stage: rfc-approved`. Print:
+
+      ```
+      RFC approved. Session saved.
+      - RFC: pm/backlog/rfcs/{slug}.html
+      - Branch: {BRANCH}
+      - Worktree: {WORKTREE_PATH}
+      - Resume: run /dev to continue implementation.
+      ```
+
+      **Stop here. Do not proceed to Stage 5.** The user will start a new session and invoke `/dev` to resume.
+
+## Stage 5: Implementation via the Developer Worker
+
+### Resume path (new session after RFC stop)
+
+When resuming from `stage: rfc-approved` (detected in Stage 2.5 or Resume Detection), the original developer worker's context is gone. Start a **fresh** `pm:developer` worker using the runtime adapter. The worker reads the approved RFC and the session file to reconstruct context — no re-planning needed, the RFC is the contract.
+
+Skip directly to the implementation brief below. The fresh worker will re-discover the codebase through the RFC's file references, which is fast and ensures no stale assumptions carry over.
+
+### Same-session path (continued from Stage 4)
+
+When continuing directly from Stage 4 in the same session, resume the same developer worker for implementation.
 
 - **Claude:** resume the same named worker through the adapter
 - **Codex delegated:** resume the stored `agent_id`
@@ -531,6 +555,10 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Key context: [1-2 sentences a cold reader needs]
 - Blockers: [any blocking issues, or "none"]
 ```
+
+**Valid Stage values:** `intake`, `workspace`, `rfc-check`, `rfc-generation`, `rfc-review`, `rfc-approved`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
+
+The `rfc-approved` stage means: RFC was approved by the user, but they chose to stop and resume implementation in a new session. On resume, skip to Stage 5 via the resume path.
 
 **Update rules:**
 - Write the full file (not append) at each stage transition

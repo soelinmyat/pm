@@ -97,7 +97,7 @@ pm/                   # Committed knowledge base
   config.json         # Integration settings (Linear, SEO provider)
   imports/            # Import manifest for /pm:ingest
   evidence/           # Normalized customer evidence records
-  sessions/           # Dashboard session canvas state
+  sessions/           # Artifact viewer state
 ```
 
 Skills read from and write to this layout. `/pm:view` browses accumulated artifacts. `/pm:strategy` synthesizes whatever research exists in `pm/`.

@@ -27,7 +27,6 @@ These are the skills you invoke directly. Most other capabilities are built into
 | "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, topic. Use `quick` mode for fast inline questions |
 | "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| "Deploy" / "Release" / "Push to production" | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
 | "Merge this PR" / "Land this" / "Fix PR comments" / "Resolve CI" | Merge workflow | Self-healing merge loop — fix CI, resolve review comments, handle conflicts, merge |
 
 ## Sub-Skills (called by orchestrators)
@@ -95,7 +94,7 @@ After the skill is loaded but before doing anything, tell the user what's about 
 I'll check in with you at [decision points]. Let's start.
 ```
 
-Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery, dashboard session view), mention them as conditional: "If your project has a design system, I'll use it for mockups."
+Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery), mention them as conditional: "If your project has a design system, I'll use it for mockups."
 
 ### Closing (after all work is done)
 
