@@ -100,23 +100,6 @@ Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
 See `context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
 All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
 
-### Context Quality Gate
-
-At intake, verify CLAUDE.md contains the minimum context needed for review agents. Check for:
-
-| Required for | What to look for in CLAUDE.md | If missing |
-|-------------|-------------------------------|------------|
-| UX Review | User personas with roles, contexts, constraints | Ask user: "Who are your users? What are their roles and constraints?" |
-| UX Review | Scale expectations (user count, data volume, concurrency) | Ask user: "What's your expected scale? (users, records, concurrent ops)" |
-| Design Critique | Design principles or aesthetic direction | Ask user: "Any design principles or aesthetic preferences?" |
-| PM Review | Product positioning, ICP, strategic priorities | Check pm/strategy.md. If absent, ask user or skip PM agent. |
-| Competitive Review | Competitive landscape, differentiators | Check pm/insights/competitors/. If absent, ask user or skip Competitive agent. |
-
-If CLAUDE.md is minimal (< 20 lines, no user/design sections), warn the user:
-> "CLAUDE.md has limited product context. Review agents work best with user personas, scale expectations, and design principles documented. Want to add these now, or proceed with what's available?"
-
-**Do not block on this.** Proceed with available context, but log the gap in `.pm/dev-sessions/{slug}.md`.
-
 ## State File Naming
 
 State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:

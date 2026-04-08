@@ -165,7 +165,7 @@ Propose order based on: issue tracker "blocked by" relations, file overlap, comm
 
 ### 1.5 Load learnings
 
-Read the learnings file (default: `learnings.md`, configurable via `dev/instructions.md`). Surface relevant entries. Skip if file doesn't exist.
+Read `learnings.md` at repo root. Surface relevant entries. Skip if file doesn't exist.
 
 ### 1.6 Write initial state
 

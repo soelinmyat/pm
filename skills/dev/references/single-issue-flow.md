@@ -20,7 +20,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 
 ## Stage 1: Intake
 
-1. **Load learnings** — Read the learnings file. Default path: `learnings.md` at repo root. Configurable via `learnings_path` in `dev/instructions.md`. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
+1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
 4. **Classify size:**
@@ -266,8 +266,7 @@ Review this engineering RFC for complexity and long-term maintainability.
 4. Commit RFC updates.
 5. Update RFC frontmatter to `status: approved`.
 6. Update the proposal status to `planned` in `pm/backlog/{slug}.md`.
-7. **ADR extraction (M/L/XL only).** Scan the approved RFC for non-obvious technical choices. For each, write an ADR to `docs/decisions/NNNN-slug.md`. Commit ADRs with the RFC.
-8. **Resolve open questions.** Collect all questions from the 3 RFC reviewers and any open questions in the RFC's Risks section. For each:
+7. **Resolve open questions.** Collect all questions from the 3 RFC reviewers and any open questions in the RFC's Risks section. For each:
    - **Answer it** using the proposal (`pm/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
    - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
    - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
@@ -425,8 +424,7 @@ After the developer agent returns (merged or blocked), continue to Stage 9 below
 Runs after EVERY task regardless of size.
 
 1. Review session: what was smooth, what was hard, any pitfalls or wasted cycles
-2. **ADR check (all sizes).** If any non-obvious technical decisions were made during implementation that weren't captured during planning (XS/S skip planning, so this is their only ADR checkpoint), write ADRs to `docs/decisions/`. Skip if no meaningful decisions were made.
-3. Write to the learnings file (default: `learnings.md`, configurable via `dev/instructions.md`) — flat table, each entry max 3 lines (one-liner preferred)
+2. Write to the learnings file (`learnings.md`) — flat table, each entry max 3 lines (one-liner preferred)
 
 ```markdown
 | Date | Category | Learning |
