@@ -7,36 +7,18 @@ description: "Multi-perspective code review (code + PM + design + input edge-cas
 
 **State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no state file matches, check legacy path `.dev-state-{slug}.md`. If neither exists, proceed without upstream gate data (all agents run). References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
-Multi-perspective code review with auto-fix. Runs up to five review agents in parallel:
-- **Code Reviewer** (official code-review skill) — posts PR comment for high-confidence bugs
-- **Code Fix Reviewer** — finds ALL genuine code bugs for auto-fix (no confidence threshold)
+Multi-perspective code review with auto-fix. Runs up to four review agents in parallel:
+- **Code Reviewer** — finds ALL genuine code bugs for auto-fix. Routes by runtime: Anthropic official `code-review:code-review` in Claude Code, built-in `pm:code-reviewer` elsewhere.
 - **PM Reviewer** — JTBD alignment, feature completeness, product risk. *Always runs.*
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific reviewer dispatch.
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-Minimum coverage for `pm:review`:
-- run start / run end
-- one step span for `gather-context`
-- one step span for `parallel-reviews`
-- one step span for `merge-findings`
-- one step span for `auto-fix` when fixes are applied
+## Telemetry (opt-in)
 
-## Prerequisites
-
-If the review needs to post PR comments (code-review agent), verify `gh`:
-
-```bash
-command -v gh >/dev/null 2>&1 || echo "WARN: GitHub CLI (gh) not found. PR comments will be skipped. Install: https://cli.github.com"
-```
-
-`gh` is optional for review — the review agents can still run and produce findings without it. PR commenting is the only feature that requires `gh`.
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `gather-context`, `parallel-reviews`, `merge-findings`, `auto-fix`.
 
 ---
 
@@ -106,25 +88,20 @@ Save the diff content and file list — you'll pass them to review agents.
 
 ---
 
-## Phase 2: Parallel Reviews (3-5 reviewers)
+## Phase 2: Parallel Reviews (3-4 reviewers)
 
 Launch all active reviews using the current runtime from `agent-runtime.md`. In Claude or Codex-with-delegation, run active reviewers in parallel. In Codex without delegation, run the same review briefs inline before merging findings. Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which reviewers to skip.
 
-### Agent 1: Code Review (official skill — PR comment only)
+### Agent 1: Code Review
 
-**Only if reviewing a PR (argument provided).** Invoke the `code-review:code-review` skill:
+Finds ALL genuine code bugs for auto-fix. Routes by runtime:
 
-```
-Use the Skill tool: skill: "code-review:code-review", args: "$PR_NUMBER"
-```
+1. **Claude Code:** Invoke Anthropic's official `code-review:code-review` skill. Auto-fix all findings it returns — do not filter by confidence score.
+2. **Other runtimes:** Dispatch reviewer intent `pm:code-reviewer` via `agent-runtime.md`. Auto-fix all findings.
 
-This posts findings directly to the PR as GitHub comments (uses an internal >=80 confidence threshold for commenting). It does NOT feed into auto-fix — Agent 2 handles that.
+No PR comments in either path — findings are fixed directly in code.
 
-**If reviewing a branch (no PR number):** Skip this agent. Code review without a PR has nowhere to post.
-
-### Agent 2: Code Fix Review (reviewer — all genuine bugs for auto-fix)
-
-Dispatch reviewer intent `pm:code-reviewer` via `agent-runtime.md` **in parallel with Agents 1, 3, 4, and 5** when delegation is available. Otherwise run the same brief inline:
+Dispatch **in parallel with Agents 2, 3, and 4** when delegation is available. Otherwise run the same brief inline:
 
 ```
 prompt: |
@@ -154,9 +131,9 @@ Before skipping Design review based on upstream gates, verify the implementation
 4. **If changed files exist outside the plan's scope** (new files not listed, or files in different modules/apps): Log "Contract drift detected — {N} files outside approved scope" and **do not skip** the agent. Run it even if the upstream gate passed.
 5. **If no plan scope is available** (legacy plans without Contract section, or XS/S tasks): Fall back to the original skip logic (upstream gate pass = skip).
 
-This check applies to Design Review (Agent 4) below. PM Review (Agent 3) always runs regardless of drift.
+This check applies to Design Review (Agent 3) below. PM Review (Agent 2) always runs regardless of drift.
 
-### Agent 3: PM Review (reviewer)
+### Agent 2: PM Review (reviewer)
 
 **Always runs.** Spec review evaluates the plan; code review evaluates the implementation. Passing spec review does not mean the code correctly implements the spec.
 
@@ -180,7 +157,7 @@ prompt: |
 
 The agent already knows its methodology (JTBD clarity, ICP fit, outcome clarity, scope coverage, etc.). Do not duplicate the checklist here.
 
-### Agent 4: Design Review (reviewer)
+### Agent 3: Design Review (reviewer)
 
 **Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
@@ -204,9 +181,9 @@ prompt: |
 
 The agent already knows its methodology (token compliance, component reuse, typography, spacing/layout, color, polish checklist). Do not duplicate the checklist here.
 
-### Agent 5: Input Edge-Case Review (reviewer)
+### Agent 4: Input Edge-Case Review (reviewer)
 
-Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. In Claude, prefer `model: "opus"` or the strongest available review model. Run **in parallel with Agents 1-4** when delegation is available; otherwise run the same brief inline:
+Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. In Claude, prefer `model: "opus"` or the strongest available review model. Run **in parallel with Agents 1-3** when delegation is available; otherwise run the same brief inline:
 
 ```
 prompt: |
@@ -240,10 +217,7 @@ After all agents complete:
 ```
 ## Review Complete
 
-### Code Review (PR Comment)
-[Posted to PR / Skipped (branch review)]
-
-### Code Fix Findings
+### Code Review Findings
 - P0: [issue] in file:line
 - P1: [issue] in file:line
 
@@ -307,9 +281,8 @@ Present a final summary:
 
 - NEVER skip Phase 1 context gathering — agents need the full diff and AGENTS.md
 - NEVER bypass pre-commit hooks when committing fixes
-- Agent 1 (official code-review skill) posts to PR only — it uses an internal >=80 confidence threshold
-- Agent 2 (Code Fix Review) finds ALL genuine bugs for auto-fix — no confidence threshold
-- Agent 5 findings are first-class findings: same severity rubric, same dedupe, same auto-fix expectations
+- Agent 1 (Code Review) finds ALL genuine bugs for auto-fix — routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere), no confidence threshold filtering, no PR comments
+- Agent 4 (Input Edge-Case) findings are first-class findings: same severity rubric, same dedupe, same auto-fix expectations
 - The review stage itself cannot be skipped via flags or state manipulation — it is a hard gate
 - If no issues found by any active agent, report clean and stop (no empty commit)
 - Run tests after EVERY fix, not just at the end

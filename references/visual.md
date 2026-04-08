@@ -57,10 +57,10 @@ All visual artifacts are viewable through dashboard routes. Skills open the appr
 
 | Route | Content | Used by |
 |-------|---------|---------|
-| `/proposals` | All proposals with verdict cards | groom (browsing) |
-| `/proposals/{slug}` | Individual proposal detail | groom phase 5.8 |
-| `/backlog` | All backlog items | ideate, groom |
-| `/backlog/{slug}` | Individual issue detail | groom phase 5 |
+| `/proposals` | All proposals with verdict/status cards | groom (browsing) |
+| `/proposals/{slug}` | Proposal detail — tabs: PRD, RFC, Issues | groom phase 7, dev |
+| `/proposals/{slug}/rfc` | Direct link to RFC rendering | dev |
+| `/backlog` | All proposals (parent items) with status progression | ideate, groom |
 | `/backlog/wireframes/{slug}` | Wireframe preview | groom phase 5 |
 
 ### Sessions (planned — requires server changes)
@@ -77,7 +77,7 @@ All visual artifacts are viewable through dashboard routes. Skills open the appr
 Not every step needs the browser. The test: **does the user need to see a visual layout to make a decision?**
 
 **Open the dashboard for:**
-- Proposals (phase 5.8) — the terminal can't render a 10-section HTML document
+- Proposals (phase 7) — the terminal can't render a multi-section HTML PRD
 - Wireframes — spatial layout needs visual rendering
 - Strategy deck — slide-based content
 - Positioning maps — bubble charts
@@ -112,7 +112,7 @@ Every skill that shows visual content should follow this pattern:
 
 **Example — groom proposal:**
 ```
-1. Write pm/backlog/proposals/{slug}.html + .meta.json
+1. Write pm/backlog/proposals/{slug}.html (PRD) + pm/backlog/{slug}.md (proposal entry)
 2. Ensure dashboard running
 3. open http://localhost:{port}/proposals/{slug}
 4. > "Proposal for '{topic}' ready — opening in dashboard."

@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Auto-detects scope and routes to the right flow. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.' Formerly /dev-epic and /bug-fix — both unified into /dev."
+description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.'"
 ---
 
 # Dev — Development Lifecycle
@@ -15,15 +15,18 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 
 **Read ONE flow reference, not all three.** The routing section below determines which.
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 **Hard rules (all flows):**
 - **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation worker MUST run as a **persistent agent with isolated context**. In Codex, create that worker with `spawn_agent`, collect summaries with `wait_agent`, resume it with `resume_agent` + `send_input`, and clean it up with `close_agent`. Short-lived review/code-scan agents can still return compact results directly. See ADR-0002.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
-- No design critique or review without running `/simplify` first (all sizes)
+- Before design critique or review, always run `pm:simplify` (it routes to Anthropic official simplify in Claude Code and normalizes output to PM-required fields)
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
 - No PR without passing the review gate (M/L/XL) — `/review` MUST run before push
 - No auto-merge without passing the code scan gate (XS/S) — lightweight bug scan before merge
-- XS/S auto-merge to the default branch after implementation — unless the repo requires PRs (branch protection), in which case use the PR flow
-- M/L/XL gets full PR + review flow + auto-merge after readiness gates pass
+- All sizes use the PR flow — push branch, create PR, merge via `references/merge-loop.md`. The project's branch protection and CI dictate what's required.
+- XS/S: code scan gate → PR → auto-merge
+- M/L/XL: full review gate → PR → auto-merge after readiness gates pass
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
@@ -31,28 +34,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 
 ## Telemetry (opt-in)
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-
-`pm:dev` is stateful. Mirror these fields into `.pm/dev-sessions/{slug}.md` (or epic / bugfix variants):
-- `runtime`
-- `run_id`
-- `started_at`
-- `completed_at`
-- `stage_started_at`
-
-Minimum step coverage:
-- `resume-detection`
-- `intake`
-- `workspace`
-- `groom-readiness`
-- `design-exploration` or `plan`
-- `implementation`
-- `qa`
-- `review`
-- `ship`
-- `retro`
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
 ## Route Detection
 
@@ -92,16 +74,16 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 | Skill / Reference | Used in |
 |-------------------|---------|
-| `pm:groom` | Single: Groom readiness check (S/M/L/XL — auto-invoked when issue is ungroomed) |
-| `groom/phases/phase-3.5-design.md` (reference) | Single: Design Exploration (M/L/XL) |
-| `dev/references/writing-plans.md` (reference) | Single: Plan (M/L/XL) |
+| `pm:groom` | Single: Auto-invoked when no proposal exists (M/L/XL) |
+| `dev/references/writing-rfcs.md` (reference) | Single: RFC Generation (M/L/XL) |
+| `dev/references/splitting-patterns.md` (reference) | Single: Issue splitting within RFC (M/L/XL) |
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
-| `dev/references/implementation-flow.md` (reference) | Single: Stages 5–7, Epic: Stage 4 implementation |
+| `dev/references/implementation-flow.md` (reference) | Single: Stage 5, Epic: Stage 4 implementation |
 | `pm:tdd` | Single: Implement via the persistent developer worker (all) |
 | `pm:subagent-dev` | Single: Implement via the persistent developer worker (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (persistent worker `qa-{slug}` when supported, reused across re-verify iterations) |
+| `pm:qa` | Single: QA ship gate (persistent worker when supported) |
 | `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery

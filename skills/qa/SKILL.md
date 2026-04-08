@@ -852,6 +852,8 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 | Routes per Full run | 15 | Cover all charter routes |
 | Re-verify scope | Previous Critical + High only | Skip Medium/Low unless asked |
 | Re-verify iterations (persistent) | 3 | After 3 Fail cycles, return Blocked |
+| Context saturation | ~3 iterations of verbose DOM results | Orchestrator respawns fresh QA worker with state file context and previous findings |
+| Agent death (API overload, 529, timeout) | No response from worker | Orchestrator respawns fresh QA worker with state file context. Include previous findings so the new worker skips already-verified assertions |
 
 ---
 

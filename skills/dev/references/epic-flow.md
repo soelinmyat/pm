@@ -171,27 +171,7 @@ Read the learnings file (default: `learnings.md`, configurable via `dev/instruct
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
-### 1.7 Merge strategy detection
-
-Detect whether direct pushes to main are possible. Check **all three** sources:
-
-```bash
-# 1. GitHub branch protection API
-gh api repos/{owner}/{repo}/branches/main/protection 2>/dev/null
-
-# 2. Git hooks (version-controlled or custom path)
-HOOKS_PATH=$(git config core.hooksPath 2>/dev/null || echo ".git/hooks")
-test -f "$HOOKS_PATH/pre-push" && echo "pre-push hook exists"
-
-# 3. Also check .githooks/ (common convention for committed hooks)
-test -f .githooks/pre-push && echo ".githooks/pre-push exists"
-```
-
-**If any source blocks direct pushes:** set `Merge strategy: PR required` in state file. Promote XS to S. All subsequent agents use PR flow — no agent should discover this at merge time.
-
-**If none detected:** set `Merge strategy: direct push allowed`.
-
-### 1.8 Create worker registry
+### 1.7 Create worker registry
 
 In the epic state file, create one worker slot per sub-issue. This is the source of truth for orchestration in Codex.
 
@@ -235,7 +215,7 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the RFC, commits it, returns the RFC path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
 
 Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes deferred tool discovery for `TeamCreate` and `SendMessage`, then team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
 
@@ -257,12 +237,12 @@ Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 **Previous plans in this epic (for reference):**
 {LIST_OF_PREVIOUS_PLAN_PATHS_AND_SUMMARIES}
 
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
-Save plan to docs/plans/{DATE}-{SLUG}.md.
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md.
+Save RFC to pm/backlog/rfcs/{SLUG}.html.
 Commit, then end your response with:
-PLAN_COMPLETE
+RFC_COMPLETE
 - issue: {ISSUE_ID}
-- path: docs/plans/{file}
+- path: pm/backlog/rfcs/{SLUG}.html
 - summary: {3-line summary}
 - tasks: {N}
 
@@ -320,11 +300,11 @@ When dispatching plan agents, pass previous plan summaries (not full plans). The
 
 ### 2.4 Size reconciliation
 
-After each plan agent returns, check if the plan's task count suggests a different size than the intake classification. If the plan sizes differently (e.g., intake said S but plan has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
+After each RFC agent returns, check if the RFC's task count suggests a different size than the intake classification. If the RFC sizes differently (e.g., intake said S but RFC has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
 
 ### 2.5 State updates
 
-After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA.
+After each RFC agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with RFC path and commit SHA.
 
 ---
 
@@ -367,7 +347,16 @@ Reviewer results return directly to the orchestrator — no worker handoff neede
 
 ### 3.3 Present to user (LAST INTERACTIVE GATE)
 
-Show verdict table. List plan paths. Ask: "Approve to begin one-shot implementation through to merge?"
+For each sub-issue RFC, render a self-contained HTML file at `pm/backlog/rfcs/{slug}.html`.
+
+**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html`. Match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual RFC content. Populate sections (Codebase Findings, Architecture, Key Decisions, Data Model, API, Risks, Issues/Tasks, Questions, Change Log) from the actual RFC data. Omit sections that don't apply.
+
+Open the first one in the browser:
+```bash
+open pm/backlog/rfcs/{first-slug}.html
+```
+
+Show verdict table. List RFC paths (with `.html` links). Ask: "Approve to begin one-shot implementation through to merge?"
 
 After approval, update state file with `Continuous execution: authorized`.
 
@@ -480,8 +469,7 @@ Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
-**Plan:** {PLAN_FILE_PATH}
-**Merge strategy:** {PR required | direct push allowed}
+**RFC:** {RFC_FILE_PATH}
 **Mode:** {sequential | parallel}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
@@ -496,7 +484,7 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md for install command), verify clean test baseline
 3. Read the plan and implement all tasks
-4. Invoke /simplify - fix findings, run tests, commit
+4. Invoke pm:simplify - fix findings, run tests, commit
 5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
 6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
@@ -526,49 +514,17 @@ On resume (session crash/restart): read the state file, skip sub-issues marked "
 ### 4.5 Agent watchdog and failure recovery
 
 <HARD-RULE>
-API errors (429, 529, 5xx) can kill agents silently — they go idle without sending a result message. The orchestrator MUST run a 5-minute watchdog to detect dead agents promptly.
+API errors can kill agents silently. The orchestrator MUST detect dead agents via a 5-minute silence watchdog.
 </HARD-RULE>
 
-**How it works:** Agents are instructed to send progress updates after each commit or every 5 minutes (see `implementation-flow.md`). The orchestrator uses silence as the death signal.
+Agents send progress updates after each commit or every 5 minutes. If no message is received within 5 minutes:
 
-**Watchdog protocol:** After dispatching or resuming a worker, if **no message** (progress update, terminal result, or question) is received within 5 minutes:
+1. **Ping** the worker via the runtime adapter.
+2. **Response received:** Worker is alive. Reset timer.
+3. **No response:** Worker is dead. Spawn a fresh `pm:developer` worker with the RFC file path, current git state (`git status`, `git log --oneline -5`, `git diff --stat`), sub-issue description/ACs, and this explicit instruction: "A previous agent failed on this task. Check what was already done before starting — review git log for committed work and git status for uncommitted changes. Send a progress update after each commit or every 5 minutes."
+4. **Max 3 total attempts** per sub-issue. After 3 failures, mark as "Failed" and continue to next sub-issue.
 
-| Step | Action |
-|------|--------|
-| 1 | **Ping:** Use the runtime adapter to send `Status check: are you still working on {ISSUE_ID}?` to the worker |
-| 2 | If ping gets a response → worker is alive, reset the 5-minute timer |
-| 3 | If no response to ping → the worker is dead. Start a **fresh `pm:developer` worker** with the same logical worker name when the runtime supports it, then pass the recovery prompt below |
-| 4 | If the fresh worker also dies (no message within 5 min + failed ping) → one more retry (max 3 total attempts) |
-| 5 | After 3 failed attempts → mark sub-issue as "Failed" in state file, continue to next sub-issue |
-
-**Fresh worker recovery prompt must include:**
-- The plan file path (so it picks up where the dead agent left off)
-- Current git state: `git status`, `git log --oneline -5`, `git diff --stat`
-- The sub-issue description and acceptance criteria
-- Instruction: "A previous agent failed on this task. Check what was already done before starting. Send a progress update after each commit or every 5 minutes."
-
-**State file tracking:** Add retry count to sub-issue table:
-
-```
-| # | ID | Title | Size | Dependency | Plan | Status | Retries |
-```
-
-After all sub-issues complete, log a summary:
-```
-## Resilience Summary
-- Sub-issues completed: N/M
-- Agent failures: K (retries: R)
-- Failed sub-issues: [list or "none"]
-```
-
-### 4.6 Why layer-aware parallelism works
-
-- **No simulator conflicts:** Only one mobile agent runs at a time. Mobile pre-push hooks (Metro, e2e smoke) never contend.
-- **No test DB conflicts:** Only one API agent runs at a time. Rails test suites don't corrupt each other.
-- **No merge conflicts:** Different layers touch different files. The sequential merge step handles any rare overlap.
-- **Implementation is the bottleneck.** A typical M-sized sub-issue takes 15-30 min to implement but only 1-2 min to merge. Parallelizing implementation across layers saves one full sub-issue wall-time per parallel agent.
-- **Combined workers preserve context.** Same architecture as before — each worker planned the sub-issue and resumes with full codebase context.
-- **Orchestrator stays thin.** Only receives short "Ready to merge" messages. All implementation work happens in worker contexts.
+Track retry count per sub-issue in the state file.
 
 ---
 
@@ -618,21 +574,12 @@ If any worker is still alive (stuck, waiting), close it via the runtime adapter.
 
 Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
 
-**5.3.2 Remove state files:**
+**5.3.2 Remove this epic's state file:**
 ```bash
-# Remove this epic's state file
 rm -f .pm/dev-sessions/epic-{parent-slug}.md
-
-# Also scan for any OTHER stale state files from completed epics/sessions
-for f in .pm/dev-sessions/*.md; do
-  [ -f "$f" ] && echo "WARN: Found stale state file: $f" && rm -f "$f"
-done
-
-# Clean up any legacy state files at repo root
-for f in .dev-epic-state-*.md .dev-state-*.md; do
-  [ -f "$f" ] && echo "WARN: Removing legacy state file: $f" && rm -f "$f"
-done
 ```
+
+Do NOT delete other state files — they may belong to concurrent sessions.
 
 **5.3.3 Verify worktrees and branches:**
 ```bash

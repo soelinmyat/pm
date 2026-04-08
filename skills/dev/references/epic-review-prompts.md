@@ -18,8 +18,8 @@ Agent({
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
 
-**Plans to review (read ALL before reviewing):**
-{LIST_OF_PLAN_FILE_PATHS}
+**RFCs to review (read ALL before reviewing):**
+{LIST_OF_RFC_FILE_PATHS}
 
 **Sub-issue descriptions:**
 {ALL_SUB_ISSUE_IDS_TITLES_AND_DESCRIPTIONS}
@@ -36,13 +36,13 @@ Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": 
 ```
 Agent({
   subagent_type: "pm:integration-engineer",
-  prompt: `Review these implementation plans AS A SET for integration gaps and cross-sub-issue testing.
+  prompt: `Review these implementation RFCs AS A SET for integration gaps and cross-sub-issue testing.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
 
-**Plans to review (read ALL before reviewing):**
-{LIST_OF_PLAN_FILE_PATHS}
+**RFCs to review (read ALL before reviewing):**
+{LIST_OF_RFC_FILE_PATHS}
 
 Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": [...] }
 `
@@ -62,8 +62,8 @@ Agent({
 **Parent description:** {PARENT_DESCRIPTION}
 **Source:** {groomed | raw}
 
-**Plans to review (read ALL before reviewing):**
-{LIST_OF_PLAN_FILE_PATHS}
+**RFCs to review (read ALL before reviewing):**
+{LIST_OF_RFC_FILE_PATHS}
 
 {IF GROOMED:}
 **Groom proposal:** {GROOM_PROPOSAL_TEXT}

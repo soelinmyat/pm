@@ -209,17 +209,14 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ---
 
-## Step 3: Simplify — `/simplify`
+## Step 3: Simplify — `pm:simplify`
 
-**Conditional availability:** `/simplify` is an external skill. Before invoking, check if the command is available. If not available, log "Simplify: skipped (command not available)" in `.pm/dev-sessions/{slug}.md` and proceed.
+Runs after every implement stage, all sizes. Invoke `pm:simplify` — it handles runtime routing (Anthropic official simplify in Claude Code, built-in 3-agent review in other runtimes) and returns structured findings.
 
-**When available:** Runs after every implement stage, all sizes. Reviews changed code for reuse, quality, and efficiency. Launches 3 parallel review agents (Code Reuse, Code Quality, Efficiency) against the current diff.
-
-1. Invoke `/simplify` via the Skill tool
-2. It launches 3 agents in parallel: Code Reuse Review (finds existing utilities to replace new code), Code Quality Review (redundant state, parameter sprawl, copy-paste), Efficiency Review (unnecessary work, missed concurrency, hot-path bloat)
-3. Fix all real findings, skip false positives
-4. Run tests after fixes
-5. Commit simplification changes before proceeding
+1. Invoke `pm:simplify`
+2. Fix all real findings, skip false positives
+3. Run tests after fixes
+4. Commit simplification changes before proceeding
 
 **Why here (after implement, before design critique/QA):**
 - Implementation is complete, so there's real code to simplify
@@ -227,9 +224,9 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 - For XS/S, catches issues before the code scan gate (reducing code scan findings)
 - For M/L/XL, reduces review churn
 
-**Skip conditions:**
+**Skip conditions (handled inside `pm:simplify`):**
 - No code changes in the diff (config-only, docs-only)
-- Agent finds nothing to simplify (proceed immediately)
+- All agents find nothing to simplify (proceed immediately)
 
 ---
 
@@ -271,20 +268,16 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ## Step 5: QA — Persistent QA Worker
 
-Runs after simplify and design critique for any task that changes UI. Dispatch a **persistent QA worker** that retains servers, auth, design tokens, test charter, and previous findings across fix-and-retest iterations. The worker runs assertion-driven testing via Playwright MCP (web) or Maestro (mobile) and issues a ship verdict with health score.
-
-**Why a persistent worker instead of skill re-invocation:** Each `pm:qa` skill invocation paid a full Phase 0 cold start (server startup, auth, design token discovery, seed verification) plus Phase 1-2 rebuild (orient, charter). On re-verify after fixing issues, that's ~60-70% wasted work. A persistent worker runs Phase 0-2 once and retains everything for subsequent iterations when the runtime supports it.
-
-**Why here (after simplify and design critique, before review):** QA tests the final state of the code. Simplify and Design Critique both modify code and UI. Running QA after them means the verdict applies to what will actually ship, not an intermediate build.
+Runs after simplify and design critique for any task that changes UI. The QA skill (`pm:qa`) handles all internal details — tiers, assertion strategies, persistent worker lifecycle, re-verify, and respawn. This section covers only what the **orchestrator** needs to know.
 
 ### Skip conditions
 
 - **Backend-only, config-only, docs-only:** skip
 - **Dev servers can't start** (e.g. DB not running): skip, log reason in `.pm/dev-sessions/{slug}.md`
 
-### Start the QA worker
+### Dispatch
 
-Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`. Persist and reuse the same worker when the runtime supports persistent workers. Otherwise run QA inline and re-run the same brief as needed.
+Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`. Persist and reuse the same worker when the runtime supports persistent workers. Otherwise run QA inline.
 
 **QA brief:**
 
@@ -305,30 +298,20 @@ Run full QA (Phase 0-6). Report your verdict.
 Stay resumable — I will ask for re-verification if fixes are needed.
 ```
 
-| Size | Tier | What the agent does |
-|------|------|---------------------|
-| **XS** (UI) | Quick | Smoke: readiness gate, console errors, render check via DOM. ~1 min. |
-| **S** (UI) | Focused | Diff-aware assertions for changed components + affected routes. ~2-3 min. |
-| **M/L/XL** (UI) | Full | AC-driven assertions + interaction testing + 3 viewports. ~5-8 min. |
-
-For mobile tasks, include `Platform: mobile` in the prompt.
-
 ### Gate behavior
-
-The QA agent returns a structured verdict. This is a **ship gate**:
 
 | QA Verdict | Action |
 |------------|--------|
 | **Pass** | Proceed to Review / Code Scan |
-| **Pass with concerns** | Proceed to Review / Code Scan. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
-| **Fail** | Fix the issues, then send re-verify message to the same agent. |
+| **Pass with concerns** | Proceed. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
+| **Fail** | Fix issues, then send re-verify to the same worker (see below). |
 | **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
 
 **Shipping does not continue after QA Fail.** Fix issues and re-verify. No silent downgrades.
 
-### Re-verify using the same QA worker
+### Re-verify
 
-When the QA worker returns **Fail**, fix the issues, run tests, then resume the same worker using the runtime adapter:
+When QA returns **Fail**, fix the issues, run tests, then resume the same worker:
 
 ```text
 Fixed the following issues:
@@ -339,50 +322,12 @@ Re-verify these specific findings. Also smoke-check adjacent routes for regressi
 Do NOT re-run Phase 0 when the environment is still ready. Jump to Phase 3 re-verify.
 ```
 
-**What the agent retains across iterations:**
-- Running servers (no restart)
-- Auth session (no re-login)
-- Design token lookup (no re-discovery)
-- Test charter (no rebuild)
-- Previous findings (no re-parse from state file)
-- Browser session (no new session)
-
-**What the agent does on re-verify:**
-- Re-runs the exact assertions from failed findings
-- Marks each as **Fixed** or **Still present**
-- Smoke-checks adjacent routes for regressions
-- Recomputes health score
-- Returns updated verdict
-
-### Iteration limits
-
-| Limit | Value | Action on exceed |
-|-------|-------|-----------------|
-| Max re-verify iterations | 3 | After 3 Fail cycles, ask user for guidance |
-| Agent context saturation | ~3 iterations of verbose DOM results | Respawn fresh agent with state file context |
-| Agent death (API overload, timeout) | Detected by no response | Respawn fresh agent, include previous findings from `.pm/dev-sessions/{slug}.md` |
-
-**Respawn pattern** (when the worker dies or context saturates):
-
-```text
-You are a RESPAWNED QA worker. A previous QA worker ran but was terminated.
-
-**Session file:** .pm/dev-sessions/{slug}.md
-Read the ## QA section for previous findings and run history.
-
-Previous verdict: {Fail}. Issues were fixed since last run.
-Run in re-verify mode: re-check previous Critical/High findings,
-smoke-check routes, recompute health score.
-
-Start from Phase 0 (fresh environment setup needed after respawn).
-```
-
 ### Handling issues found
 
-- **Critical/High bugs:** Fix immediately, re-run tests, send re-verify to agent.
-- **Medium bugs in core flow:** Fix before proceeding (likely a Fail verdict).
-- **Medium bugs in edge flows:** Note in `.pm/dev-sessions/{slug}.md`, create backlog items after merge.
-- **Low bugs:** Note in `.pm/dev-sessions/{slug}.md`, do not fix in this session.
+- **Critical/High:** Fix immediately, re-verify.
+- **Medium in core flow:** Fix before proceeding.
+- **Medium in edge flows:** Note in state file, create backlog items after merge.
+- **Low:** Note in state file, do not fix this session.
 
 ### State file update
 
@@ -392,11 +337,9 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 - QA verdict: Pass | Pass with concerns | Fail | Blocked
 - Ship recommendation: Ship | Ship with caution | Do not ship | Blocked
 - Issues found: none | Critical: N, High: N, Medium: N, Low: N
-- Issues fixed: [list of issues fixed across all iterations]
-- Issues deferred: [list of issues for backlog]
-- Confidence: High | Medium | Low
-- Iterations: 1 | N (initial + re-verify rounds)
-- Worker: qa-{slug} (persistent when supported)
+- Issues fixed: [list]
+- Issues deferred: [list]
+- Iterations: N
 ```
 
 ---
@@ -407,58 +350,25 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
-This runs up to 5 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
+This runs up to 4 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
 If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
 
-```dot
-digraph review_gate {
-    "Design critique done (or skipped)" [shape=box];
-    "Run /review" [shape=box, style=filled, fillcolor="#ffcccc"];
-    "Issues found?" [shape=diamond];
-    "Fix all issues" [shape=box];
-    "Re-run tests" [shape=box];
-    "Run verification-before-completion" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "Update state: Review gate: passed" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "Proceed to PR" [shape=box];
+**Fix ALL findings from ALL active agents.** `/review` runs up to 4 agents:
+1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere). No confidence threshold filtering.
+2. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed`.
+3. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
+4. **Input Edge-Case Review** — untested edge cases
 
-    "Design critique done (or skipped)" -> "Run /review";
-    "Run /review" -> "Issues found?";
-    "Issues found?" -> "Fix all issues" [label="yes"];
-    "Fix all issues" -> "Re-run tests";
-    "Re-run tests" -> "Run /review" [label="re-review"];
-    "Issues found?" -> "Run verification-before-completion" [label="no"];
-    "Run verification-before-completion" -> "Update state: Review gate: passed";
-    "Update state: Review gate: passed" -> "Proceed to PR";
-}
-```
-
-**Fix ALL findings from ALL active agents.** `/review` runs up to 5 agents:
-1. `code-review:code-review` — posts >= 80 confidence issues to the PR
-2. **Code Fix Review** — finds ALL genuine bugs with NO confidence threshold. Catches silent no-ops, swallowed errors, race conditions.
-3. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed`.
-4. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
-5. **Input Edge-Case Review** — untested edge cases
-
-Agents 3 and 4 are skipped when upstream gates already covered their concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
-
-You MUST fix every real finding from all active agents, not just the ones agent 1 posts to the PR. Agent 1's >= 80 threshold is for PR comments only. Agent 2 catches the bugs you actually need to fix.
+Agents 2 and 3 are skipped when upstream gates already covered their concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
 
 **Checklist (all must be true before PR):**
-- [ ] `/review` invoked on the branch (NOT just `code-review:code-review`)
+- [ ] `/review` invoked on the branch
 - [ ] All real issues fixed from all active agents
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (fresh test run, output read, 0 failures confirmed)
 - [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
-
-| Rationalization | Reality |
-|-----------------|---------|
-| "Design critique already reviewed it" | Different concerns. Code Fix, Input Edge-Case, and code-review agents still run. |
-| "It's a small change" | M/L/XL always get reviewed. Size was classified at intake. |
-| "Tests pass so it's fine" | Tests don't catch convention violations, missing idempotency, manual types. |
-| "I'll review after the PR" | Post-merge review can't block broken code. Review BEFORE push. |
-| "I already ran tests" | `verification-before-completion` requires FRESH evidence, not recalled results. |
 
 ### Code Scan Gate (XS/S — HARD GATE)
 
@@ -514,60 +424,11 @@ The orchestrator will send a "Merge now" message when it's your turn. When you r
 2. Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). This handles squash merge, CI self-healing, review thread resolution, and — critically — verifies `state == "MERGED"` before proceeding to cleanup.
 3. Continue to Step 8 (Cleanup).
 
-### PR flow (M/L/XL, or XS/S with branch protection)
+### PR flow (all sizes)
 
-**Single-issue:** Invoke `/ship` — it handles push, PR creation, code review, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
+**Single-issue:** Invoke `/ship` — it handles push, PR creation, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
 
 **Epic sub-issue (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
-
-### Direct merge (XS/S, no branch protection)
-
-**Repo policy check:** If the repo requires PRs (branch protection detected at intake, or pre-push hooks reject direct pushes), use the PR flow above instead. Log: "XS/S: branch protection detected, using PR flow."
-
-```bash
-# 1. Verify tests in feature worktree (verification-before-completion)
-cd <feature-worktree>
-<project-test-command>
-
-# 2. Commit only if there are real changes (stage specific files, never git add -A)
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add <specific-files>
-  git commit -m "<type>: <description>"
-fi
-
-# 3. Switch to main repo and update
-cd <main-repo>
-git fetch origin
-git checkout {DEFAULT_BRANCH}
-git pull --ff-only origin {DEFAULT_BRANCH}
-
-# 4. Merge feature branch
-if ! git merge-base --is-ancestor <feature-branch> {DEFAULT_BRANCH}; then
-  git merge --no-ff <feature-branch>
-fi
-
-# 5. Verify on merged default branch
-<project-test-command>
-
-# 6. Push and verify (3 attempts, same as merge-loop)
-LOCAL_SHA=$(git rev-parse HEAD)
-for i in 1 2 3; do
-  git push origin {DEFAULT_BRANCH} && PUSH_OK=true || PUSH_OK=false
-  REMOTE_SHA=$(git ls-remote origin {DEFAULT_BRANCH} | awk '{print $1}')
-  if [ "$PUSH_OK" = true ] && [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-    break
-  fi
-  echo "Push attempt $i failed. Local: $LOCAL_SHA, Remote: $REMOTE_SHA"
-  if [ "$i" -eq 3 ]; then
-    echo "ERROR: Push failed after 3 attempts. Do NOT proceed to cleanup."
-    # Stop and report to user (single-issue) or report Blocked (epic)
-  fi
-  sleep 5
-done
-```
-
-If merge conflicts, test failures, or push verification failures occur, stop and report — don't force through.
-Never "fix" merge issues with destructive resets.
 
 ### Handling review feedback
 

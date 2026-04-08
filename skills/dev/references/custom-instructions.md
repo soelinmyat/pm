@@ -34,7 +34,7 @@ input_edge_case_review: true
 
 ## Paths
 learnings_path: learnings.md           # Path to learnings file (default: learnings.md)
-plan_directory: docs/plans              # Where plans are saved (default)
+rfc_directory: pm/backlog/rfcs          # Where RFCs are saved (default)
 adr_directory: docs/decisions           # Where ADRs are saved (default)
 
 ## Conventions

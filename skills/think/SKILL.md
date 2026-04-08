@@ -13,15 +13,7 @@ Think is the conversation you have *before* deciding whether to build. It produc
 
 ## Telemetry (opt-in)
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Minimum coverage for `pm:think`:
-- run start / run end
-- one step span for `capture`
-- one step span for `reframe`
-- one step span for `explore-approaches`
-- one step span for `pressure-test`
-- one step span for `synthesize`
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `capture`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
 ## When to use think vs groom
 

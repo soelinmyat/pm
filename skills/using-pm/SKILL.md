@@ -13,22 +13,22 @@ When this skill loads at the beginning of a new session, invoke `pm:start` befor
 
 # Using Plugin Skills
 
-This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Always invoke the relevant skill before acting** — even if you think you know what to do.
+This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Default to invoking the relevant skill before acting** — but user instructions always take precedence.
 
 ## Entry Points (start here)
 
 These are the skills you invoke directly. Most other capabilities are built into these as phases or references.
 
-| Trigger | Skill | What it does |
-|---------|-------|--------------|
-| Thinking through an idea, brainstorming, exploring options | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. No ceremony. Promotes to groom when ready |
-| Any development work (feature, bug, refactor, epic, batch bugs) | `pm:dev` | Auto-detects scope: single issue lifecycle, epic orchestration, or batch bug triage |
-| Groom backlog issues / product discovery / generate ideas | `pm:groom` | Convert ideas into sprint-ready issues. 3 tiers: quick (scope + issues), standard (+ strategy + research), full (all phases). Auto-detected or say "quick/standard/full groom". Use `pm:groom ideate` for idea generation |
-| Research a topic, competitor, or market | `pm:research` | Landscape, competitors, topic, or quick inline questions |
-| Product strategy or strategy deck | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
-| Ready to push / create PR / merge | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| Deploy main to production | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
-| Self-heal a PR until merged | Merge workflow | Fix CI, resolve review comments, handle conflicts, merge. On platforms with command aliases, this is exposed as `/merge`. |
+| User says | Skill | What it does |
+|-----------|-------|--------------|
+| "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
+| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope. Checks for RFC; generates one if missing. Then implements. Auto-grooms ungroomed work. |
+| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 3 tiers: quick, standard, full. No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
+| "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, topic. Use `quick` mode for fast inline questions |
+| "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
+| "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
+| "Deploy" / "Release" / "Push to production" | `pm:deploy` | Create PR from main to production, self-heal CI/threads/conflicts, auto-merge |
+| "Merge this PR" / "Land this" / "Fix PR comments" / "Resolve CI" | Merge workflow | Self-healing merge loop — fix CI, resolve review comments, handle conflicts, merge |
 
 ## Sub-Skills (called by orchestrators)
 
@@ -36,6 +36,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 | Skill | Called by | Purpose |
 |-------|----------|---------|
+| `pm:simplify` | dev (pre-review/pre-design gate) | Single simplify entrypoint; routes by runtime and normalizes PM-required fields |
 | `pm:tdd` | dev (all sizes) | Test-first discipline |
 | `pm:subagent-dev` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
@@ -46,11 +47,11 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 ## Utilities
 
-| Trigger | Skill | What it does |
-|---------|-------|--------------|
-| Import customer evidence | `pm:ingest` | Import files, transcripts, feedback into pm/ |
-| Audit research freshness | `pm:refresh` | Check for staleness, patch without losing content |
-| Open dashboard / session greeting | `pm:start` | Project pulse, dashboard launch, onboarding |
+| User says | Skill | What it does |
+|-----------|-------|--------------|
+| "Import feedback" / "Add evidence" / "Customer data" | `pm:ingest` | Import files, transcripts, feedback into pm/ |
+| "What's outdated?" / "Update research" / "Stale data" | `pm:refresh` | Check for staleness, patch without losing content |
+| "Show dashboard" / "Open pm" / "View research" | `pm:start` | Project pulse, dashboard launch, onboarding |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
 ## Shared References (consulted by skills, never invoked)
@@ -63,9 +64,19 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `references/visual.md` | Dashboard-first UI invocation standard |
 | `references/templates/` | Strategy deck and proposal HTML templates |
 
+## Instruction Priority
+
+User instructions always take precedence over plugin skills:
+
+1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
+2. **Plugin skills** — override defaults where they conflict
+3. **Default system prompt** — lowest priority
+
+If the user asks a direct question or wants a quick answer, give them one. Don't force a skill flow when the user doesn't want one.
+
 ## The Rule
 
-**Invoke relevant skills BEFORE any response or action.** If there's even a chance a skill applies, invoke it. If it turns out to be wrong for the situation, you don't need to follow it.
+**Default to invoking relevant skills before acting.** If there's a clear skill match for what the user is doing, invoke it. If it turns out to be wrong for the situation, you don't need to follow it. But if the user's request is straightforward or they've given explicit instructions, follow those first.
 
 ## Skill Bookends
 
@@ -102,68 +113,20 @@ End every skill with a structured summary:
 
 Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
 
-## Quick Decision Guide
-
-| User says | Invoke |
-|-----------|--------|
-| "Let's think about X" / "What if we" / "How should we" / "I'm wondering" / "Brainstorm" | `pm:think` — structured thinking, promotes to groom when ready |
-| "I have an idea" / "spec this" / "write a PRD" / "break this down" | `pm:groom` → then `pm:dev` for implementation |
-| "What should we build?" / "create tickets" | `pm:groom ideate` |
-| "Research Y" / "look into" / "analyze market" | `pm:research` (use `quick` mode for fast inline questions) |
-| "Should we do X?" | `pm:research quick` |
-| "Build X" | `pm:dev` (auto-grooms ungroomed issues at the right depth before implementation) |
-| "Fix this bug" / "debug this" / "not working" / "help me debug" | `pm:dev` (triggers debugging internally; quick-grooms if issue lacks AC) |
-| "Ship it" / "Push this" / "create PR" / "ready for review" | `pm:ship` |
-| "Deploy" / "deploy to production" / "release" / "push to production" | `pm:deploy` — create PR from main to production, self-heal, auto-merge |
-| "Merge this PR" / "land this" / "get this merged" | merge workflow — self-healing merge loop |
-| "Fix the PR comments" / "Resolve CI" / "fix review feedback" | merge workflow — fixes, replies, resolves threads, merges |
-| "Show dashboard" / "open pm" / "view research" | `pm:start` |
-| "Import feedback" / "add evidence" / "customer data" | `pm:ingest` |
-| "What's outdated?" / "update research" / "stale data" | `pm:refresh` |
-
 ## Red Flags
 
-These thoughts mean STOP — you're skipping discipline:
+When the user is starting a workflow (building, shipping, grooming), these thoughts mean you're skipping discipline:
 
 | Thought | Reality |
 |---------|---------|
-| "I'll just answer their question directly" | If the user is thinking aloud, invoke pm:think — don't freeform |
 | "This is too simple for /dev" | XS tasks still get TDD + auto-merge gates |
 | "I'll just write the code first" | TDD means test first. Always. |
 | "I know the fix already" | Debugging skill exists to prevent wrong fixes |
 | "Let me just push this" | /ship runs review gates before push |
 | "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
 
+These do NOT apply when the user is asking a direct question, requesting a quick answer, or giving explicit instructions that override the default flow.
+
 ## Activity Analytics (opt-in)
 
-When the project has `.claude/pm.local.md` with `analytics: true` in YAML frontmatter, PM skills can emit shared workflow telemetry.
-
-**How it works:** The hook (`hooks/analytics-log.sh`) still logs coarse `pm:` skill invocations to `.pm/analytics/activity.jsonl`, but the shared logger also supports run start/end events and step spans in `.pm/analytics/steps.jsonl`.
-
-**Shared contract:** Read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. It defines:
-- run start / run end logging
-- step spans with duration, retries, and file counts
-- exact token capture when available, estimated token fallback when it is not
-- state-file fields for stateful workflows
-
-**CLI surface:**
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-start --skill dev --args "$ARGUMENTS"
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh step --skill dev --run-id "$PM_RUN_ID" --phase implement --step tdd-cycle --started-at "$STEP_STARTED_AT"
-${CLAUDE_PLUGIN_ROOT}/scripts/pm-log.sh run-end --skill dev --run-id "$PM_RUN_ID" --status completed
-```
-
-**Baseline summary:** After telemetry accumulates, generate a maintainer summary with:
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js --project-dir "$PWD" --output pm/evidence/research/tracking-dogfooding/baseline.md
-```
-
-**When analytics is off:** The logger exits immediately. No telemetry files are created.
-
-## Instruction Priority
-
-Plugin skills override default behavior, but **user instructions always take precedence**:
-
-1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
-2. **Plugin skills** — override defaults where they conflict
-3. **Default system prompt** — lowest priority
+Analytics are opt-in per project. See `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md` for the full contract (enabling, CLI surface, file formats, state-file fields).

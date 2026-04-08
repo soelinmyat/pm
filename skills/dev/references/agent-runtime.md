@@ -237,7 +237,7 @@ close_agent(target=agent_id)
 ### Codex inline fallback
 
 ```text
-1. Write the plan inline in the main context
-2. Save plan path + summary to the session file
-3. After approval, continue implementation inline from the saved plan
+1. Write the RFC inline in the main context
+2. Save RFC path + summary to the session file
+3. After approval, continue implementation inline from the saved RFC
 ```
