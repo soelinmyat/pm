@@ -1,17 +1,13 @@
 # Implementation Flow
 
-Shared implementation lifecycle used by both single-issue dev and epic sub-issue workers. Everything from "plan approved" through "merged and cleaned up" lives here.
+Shared implementation lifecycle used by both single-issue dev and epic sub-issue agents. Everything from "plan approved" through "merged and cleaned up" lives here.
 
-**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review workers. This file defines how `pm:*` worker intents map to Claude and Codex.
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how `pm:*` agent intents map to Claude and Codex.
 
-**Context:** This flow is invoked by persistent workers or inline execution:
-- **Single-issue (M/L/XL):** The persistent `pm:developer` worker follows this after the orchestrator resumes it for implementation. The worker preserves codebase context from the planning phase.
-- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase, no persistent worker).
-- **Epic sub-issue:** A persistent worker follows this after the orchestrator sends "go implement." The worker may be in sequential or parallel mode.
-
-**Mode** (epic only — single-issue is always sequential):
-- **Sequential mode:** You own the full lifecycle through merge and cleanup.
-- **Parallel mode:** You stop after PR creation and report "Ready to merge." The orchestrator coordinates merges across parallel workers to avoid race conditions.
+**Context:** This flow is invoked by fresh agents or inline execution:
+- **Single-issue (M/L/XL):** A fresh `pm:developer` agent follows this after receiving the approved RFC.
+- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase).
+- **Epic sub-issue:** A fresh agent follows this after the orchestrator dispatches it with the approved RFC. All epic sub-issues run sequentially.
 
 ---
 
@@ -19,10 +15,10 @@ Shared implementation lifecycle used by both single-issue dev and epic sub-issue
 
 ```
 Setup -> Implement -> Simplify -> Design Critique (if UI) ->
-  QA persistent worker (if UI, iterates on Fail) ->
+  QA (if UI, iterates on Fail) ->
   Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Push + PR ->
   Merge -> Cleanup -> Done
-  [epic parallel] STOP -> "Ready to merge." -> (wait for "Merge now") -> Merge -> Cleanup -> "Merged."
+
 ```
 
 ## Git Hygiene (HARD RULES)
@@ -266,9 +262,9 @@ The seed task is committed alongside feature code. It becomes a reusable artifac
 
 ---
 
-## Step 5: QA — Persistent QA Worker
+## Step 5: QA
 
-Runs after simplify and design critique for any task that changes UI. The QA skill (`pm:qa`) handles all internal details — tiers, assertion strategies, persistent worker lifecycle, re-verify, and respawn. This section covers only what the **orchestrator** needs to know.
+Runs after simplify and design critique for any task that changes UI. The QA skill (`pm:qa`) handles all internal details — tiers, assertion strategies, re-verify cycles, and agent dispatch. This section covers only what the **orchestrator** needs to know.
 
 ### Skip conditions
 
@@ -277,13 +273,12 @@ Runs after simplify and design critique for any task that changes UI. The QA ski
 
 ### Dispatch
 
-Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`. Persist and reuse the same worker when the runtime supports persistent workers. Otherwise run QA inline.
+Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`.
 
 **QA brief:**
 
 ```text
-You are the QA worker for this dev session. Follow the pm:qa skill
-in persistent mode when supported by the runtime.
+You are the QA agent for this dev session. Follow the pm:qa skill.
 
 **Session file:** .pm/dev-sessions/{slug}.md
 **Feature:** {feature description from ticket/spec}
@@ -295,7 +290,6 @@ in persistent mode when supported by the runtime.
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Run full QA (Phase 0-6). Report your verdict.
-Stay resumable — I will ask for re-verification if fixes are needed.
 ```
 
 ### Gate behavior
@@ -311,7 +305,7 @@ Stay resumable — I will ask for re-verification if fixes are needed.
 
 ### Re-verify
 
-When QA returns **Fail**, fix the issues, run tests, then resume the same worker:
+When QA returns **Fail**, fix the issues, run tests, then re-run QA:
 
 ```text
 Fixed the following issues:
@@ -412,18 +406,6 @@ git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```
 
-### Epic parallel mode: STOP here
-
-If `Mode` is `parallel`, reply now and wait:
-```
-Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.
-```
-
-The orchestrator will send a "Merge now" message when it's your turn. When you receive it:
-1. Rebase on latest {DEFAULT_BRANCH}: `git fetch origin {DEFAULT_BRANCH} && git rebase origin/{DEFAULT_BRANCH} && git push --force-with-lease origin {BRANCH}`
-2. Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). This handles squash merge, CI self-healing, review thread resolution, and — critically — verifies `state == "MERGED"` before proceeding to cleanup.
-3. Continue to Step 8 (Cleanup).
-
 ### PR flow (all sizes)
 
 **Single-issue:** Invoke `/ship` — it handles push, PR creation, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
@@ -475,24 +457,14 @@ Proceed to retro (Stage 9 in single-issue-flow.md).
 
 <HARD-RULE>
 The only valid terminal messages are:
-- **Sequential mode:** "Merged." (after squash-merge + cleanup) or "Blocked:"
-- **Parallel mode:** "Ready to merge." (after PR creation) or "Blocked:"
+- "Merged." (after squash-merge + cleanup) or "Blocked:"
 
-In sequential mode, do NOT report until the PR is squash-merged and cleanup is complete. "PR created" is NOT a terminal state in sequential mode.
-
-In parallel mode, "Ready to merge." is the correct terminal state. Wait for the orchestrator's "Merge now" message before merging.
+Do NOT report until the PR is squash-merged and cleanup is complete. "PR created" is NOT a terminal state.
 </HARD-RULE>
 
-You are a persistent worker. Reply directly in this worker thread so the orchestrator can collect the result or resume you later. Do NOT rely on runtime-specific teammate APIs beyond what `agent-runtime.md` explicitly provides.
-
-**If merged (sequential mode, or after "Merge now" in parallel mode):**
+**If merged:**
 ```
 Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.
-```
-
-**If ready to merge (parallel mode only):**
-```
-Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed.
 ```
 
 **If blocked:**

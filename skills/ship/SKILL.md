@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
+description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. IMPORTANT: Always use this skill when you need to get committed changes merged — never manually create branches, push, or open PRs without invoking /ship. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
 ---
 
 # /ship
@@ -202,7 +202,7 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 3. Report the PR URL
 
 4. **Request Codex review (if configured):**
-   Check `dev/instructions.md` for `codex_review: true`. If enabled:
+   Check CLAUDE.md or AGENTS.md for `codex_review: true`. If enabled:
    ```bash
    gh pr comment $PR_NUMBER --body "@codex review"
    ```
@@ -251,7 +251,7 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 
 **Ship-specific additions** (on top of the shared merge loop):
 
-1. **Codex review gate:** If `codex_review: true` in `dev/instructions.md`, wait for Codex bot comment before merging. 5-minute cooldown after @codex comment. After 15 min total, ask user: proceed without or keep waiting.
+1. **Codex review gate:** If `codex_review: true` in CLAUDE.md or AGENTS.md, wait for Codex bot comment before merging. 5-minute cooldown after @codex comment. After 15 min total, ask user: proceed without or keep waiting.
 2. **State file updates:** Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle with current status.
 
 ### State file during gate monitoring

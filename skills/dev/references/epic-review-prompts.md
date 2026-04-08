@@ -2,7 +2,7 @@
 
 Agent prompts for Stage 3 (Epic Review). Dispatch as formal plugin agents.
 
-**These agents run as sub-agents (NOT teammates).** Their output returns directly to the orchestrator's context. Each agent should produce its JSON verdict as its final output — no SendMessage needed.
+**These agents run as sub-agents.** Their output returns directly to the orchestrator's context. Each agent should produce its JSON verdict as its final output.
 
 **Scaling:** If only 1-2 sub-issues have code work, combine all 3 review perspectives into a single agent prompt. Use 3 parallel agents only when 3+ sub-issues have substantial code changes.
 

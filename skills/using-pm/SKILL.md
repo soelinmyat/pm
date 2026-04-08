@@ -122,6 +122,7 @@ When the user is starting a workflow (building, shipping, grooming), these thoug
 | "I'll just write the code first" | TDD means test first. Always. |
 | "I know the fix already" | Debugging skill exists to prevent wrong fixes |
 | "Let me just push this" | /ship runs review gates before push |
+| "I'll just create a branch and PR manually" | /ship handles branch, push, PR, CI, and merge as one flow |
 | "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
 
 These do NOT apply when the user is asking a direct question, requesting a quick answer, or giving explicit instructions that override the default flow.
