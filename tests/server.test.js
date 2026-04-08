@@ -3232,7 +3232,10 @@ test("PM-125: GET /proposals/{slug} shows /pm:dev for ready proposals", async ()
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/proposals/my-proposal");
-      assert.ok(body.includes("/pm:dev P-05"), "ready proposals must show /pm:dev with ID");
+      assert.ok(
+        body.includes("/pm:dev my-proposal"),
+        "ready proposals must show /pm:dev with slug"
+      );
     } finally {
       await close();
     }

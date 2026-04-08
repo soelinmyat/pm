@@ -2543,10 +2543,56 @@ function buildProposalRows(pmDir) {
     }
   }
 
+  // Collect proposals from both sources: .meta.json (legacy) and backlog .md (current)
+  const seen = new Set();
+
+  // Source 1: backlog .md files with type: proposal
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
+      const { data } = parseFrontmatter(raw);
+      if (data.type !== "proposal") continue;
+      const slug = file.replace(/\.md$/, "");
+      seen.add(slug);
+
+      const metaStatus = (data.status || "").toLowerCase();
+      const verdict = (data.verdict || "").toLowerCase();
+      if (metaStatus === "shipped" || metaStatus === "done" || verdict === "shipped") continue;
+
+      const children = childStatuses[slug];
+      if (children && children.length > 0 && children.every((s) => s === "done")) continue;
+
+      const displayStatus =
+        data.status === "in-progress"
+          ? "In Progress"
+          : data.verdict === "ready"
+            ? "Ready"
+            : data.verdict === "pause"
+              ? "Paused"
+              : data.verdictLabel || data.verdict || "Groomed";
+      const displayBadge =
+        data.status === "in-progress" ? "in-progress" : data.verdict || "groomed";
+
+      proposals.push({
+        slug,
+        id: data.id || "",
+        title:
+          typeof data.title === "string" && data.title.trim() ? data.title : humanizeSlug(slug),
+        outcome: data.outcome || "",
+        verdict: displayBadge,
+        verdictLabel: displayStatus,
+        issueCount: (children || []).length || data.issueCount || 0,
+        date: data.updated || data.created || "",
+      });
+    }
+  }
+
+  // Source 2: legacy .meta.json sidecars (skip if already found via .md)
   if (fs.existsSync(proposalsDir)) {
     const files = fs.readdirSync(proposalsDir).filter((f) => f.endsWith(".meta.json"));
     for (const file of files) {
       const slug = file.replace(".meta.json", "");
+      if (seen.has(slug)) continue;
       const meta = readProposalMeta(slug, pmDir);
       if (!meta) continue;
       // Skip shipped proposals — check both status field and legacy verdict
@@ -3027,6 +3073,38 @@ function handleDashboardHome(res, pmDir) {
   // ===== 2. What's coming (active proposals) =====
   const proposalsDir = path.join(pmDir, "backlog", "proposals");
   const activeProposals = [];
+  const homeSeen = new Set();
+
+  // Source 1: backlog .md files with type: proposal
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
+      try {
+        const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
+        const { data } = parseFrontmatter(raw);
+        if (data.type !== "proposal") continue;
+        const slug = file.replace(/\.md$/, "");
+        homeSeen.add(slug);
+        const verdict = (data.verdict || "").toLowerCase();
+        const st = (data.status || "").toLowerCase();
+        if (verdict === "shipped" || st === "shipped" || st === "done" || verdict === "draft")
+          continue;
+        activeProposals.push({
+          slug,
+          id: data.id || "",
+          title: data.title || humanizeSlug(slug),
+          statusLabel: data.verdictLabel || data.verdict || "Active",
+          badgeClass:
+            st === "in-progress" ? "in-progress" : verdict === "ready" ? "ready" : "neutral",
+          issueCount: data.issueCount || 0,
+          updated: data.updated || data.created || "",
+        });
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  // Source 2: legacy .meta.json sidecars
   if (fs.existsSync(proposalsDir)) {
     const metaFiles = fs.readdirSync(proposalsDir).filter((f) => f.endsWith(".meta.json"));
     for (const file of metaFiles) {
@@ -3035,6 +3113,7 @@ function handleDashboardHome(res, pmDir) {
         const meta = JSON.parse(raw);
         if (meta && typeof meta === "object" && !Array.isArray(meta)) {
           const slug = file.replace(".meta.json", "");
+          if (homeSeen.has(slug)) continue;
           // Include non-shipped, non-draft proposals
           const verdict = (meta.verdict || "").toLowerCase();
           if (verdict !== "shipped" && verdict !== "draft") {
@@ -3058,9 +3137,9 @@ function handleDashboardHome(res, pmDir) {
         /* skip invalid JSON */
       }
     }
-    activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
-    activeProposals.splice(5);
   }
+  activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
+  activeProposals.splice(5);
 
   const proposalsSection =
     activeProposals.length > 0
@@ -5124,7 +5203,23 @@ function handleShipped(res, pmDir) {
 }
 
 function handleProposalDetail(res, pmDir, slug) {
-  const meta = readProposalMeta(slug, pmDir);
+  // Try backlog .md first (current format), then legacy .meta.json
+  let meta = null;
+  const backlogPath = path.resolve(pmDir, "backlog", slug + ".md");
+  if (fs.existsSync(backlogPath)) {
+    try {
+      const raw = fs.readFileSync(backlogPath, "utf-8");
+      const { data } = parseFrontmatter(raw);
+      if (data.type === "proposal") {
+        meta = data;
+      }
+    } catch {
+      /* fall through to .meta.json */
+    }
+  }
+  if (!meta) {
+    meta = readProposalMeta(slug, pmDir);
+  }
   if (!meta) {
     res.writeHead(404);
     res.end("Not found");
@@ -5140,8 +5235,9 @@ function handleProposalDetail(res, pmDir, slug) {
   }
 
   const status = meta.status || meta.verdict || "draft";
-  const actionId = meta.id || slug;
-  const actionCommand = status === "ready" ? `/pm:dev ${actionId}` : `/pm:groom ${actionId}`;
+  // Always use slug for dev command — dev resolves slugs to local backlog entries
+  const actionCommand =
+    status === "ready" || status === "proposed" ? `/pm:dev ${slug}` : `/pm:groom ${slug}`;
   const title = meta.title || humanizeSlug(slug);
 
   const header = injectableHeaderBar("Back", title, actionCommand);
