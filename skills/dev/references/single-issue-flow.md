@@ -89,7 +89,7 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
 6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
-7. **Update proposal status:** If `pm/backlog/{slug}.md` exists and has a `parent` field pointing to a proposal, or if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"` in the proposal's meta.json (only if current status is `"proposed"` or absent). This keeps the dashboard accurate from the moment work begins.
+7. **Update proposal status:** If `pm/backlog/{slug}.md` exists with `type: proposal`, set `status: in-progress` in its frontmatter (only if current status is `proposed` or absent). If the backlog item has a `parent` field, find the parent's backlog entry and update its status too. For legacy `.meta.json` sidecars: if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"` there as well. This keeps the dashboard accurate from the moment work begins.
 
 ### Worktree environment prep
 
