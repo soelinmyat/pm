@@ -502,62 +502,9 @@ Blocked: {ISSUE_ID} — {reason}
 
 ---
 
-## Canvas Writes (Dashboard Live Canvas)
-
-At each stage transition, write a canvas HTML file so the dashboard shows live progress. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/canvas-template.md` for the HTML template.
-
-**When to write:**
-- After Step 1 (Setup): canvas with issue title, branch, "Setting up"
-- After Step 2 (Implement): update with task progress
-- After Step 6 (Review): update with review verdict
-- After Step 7 (PR): update with PR link
-- After merge/completion: final summary, set state to `completed`
-
-**How to write:**
-```bash
-CANVAS_ID="dev-{slug}"  # or "epic-{parent-slug}" for epics
-CANVAS_DIR="${CLAUDE_PROJECT_DIR:-.}/.pm/sessions/${CANVAS_ID}"
-mkdir -p "$CANVAS_DIR"
-# Write the HTML (generate from canvas-template.md, substituting current values)
-# Set lifecycle state
-echo "active" > "$CANVAS_DIR/.state"
-```
-
-**State transitions:** `active` during work, `idle` when waiting for user input, `completed` after merge.
-
-Canvas writes are best-effort. Never block implementation for a canvas write failure.
-
----
-
 ## Debugging
 
 When tests fail or unexpected behavior occurs during implementation, invoke `dev:debugging` via the Skill tool.
-
-## ADR Conventions
-
-Architecture Decision Records capture the "why" behind non-obvious technical choices. They are separate from plans (which capture "how").
-
-**Location:** `docs/decisions/NNNN-slug.md`
-**Numbering:** Sequential, zero-padded (0001, 0002, ...). Scan existing files for the highest number before creating.
-**Template:** `docs/decisions/TEMPLATE.md`
-
-**When to write:**
-- M/L/XL: After plan review, when the plan includes choices like library selection, architectural patterns, data modeling decisions, or tradeoff resolutions where alternatives were considered.
-- XS/S: During retro, if a non-obvious technical decision was made during implementation.
-- Skip if the task had no meaningful decision points (pure bug fixes, config changes, straightforward features).
-
-**What qualifies as an ADR:**
-- Chose library/tool X over Y
-- Chose architectural pattern A over B
-- Made a data modeling tradeoff
-- Decided to NOT do something (and the reason isn't obvious)
-
-**What does NOT qualify:**
-- Implementation details derivable from the code
-- Following established project conventions
-- Standard framework patterns
-
-**Lifecycle:** ADRs are immutable once accepted. To reverse a decision, write a new ADR with `Supersedes: ADR-NNNN` and update the old ADR's status to `Superseded by ADR-NNNN`.
 
 ## Process Cleanup
 
