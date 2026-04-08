@@ -2,7 +2,7 @@
 
 This reference is loaded on-demand by the dev skill router when handling a single issue (feature, bug fix, refactor, or test backfill).
 
-**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers or persistent workers. This file defines how `pm:*` worker intents map to Claude and Codex.
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching agents. This file defines how `pm:*` agent intents map to Claude and Codex.
 
 ---
 
@@ -46,12 +46,12 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 | Issue tracking | — | — | Yes | Yes | Yes |
 | Worktree | Stage 2 | Stage 2 | Stage 2 | Stage 2 | Stage 2 |
 | RFC check | Stage 2.5 (skip RFC) | Stage 2.5 (skip RFC) | Stage 2.5 | Stage 2.5 | Stage 2.5 |
-| RFC generation | — | — | Stage 3 (persistent worker writes RFC) | Stage 3 | Stage 3 |
+| RFC generation | — | — | Stage 3 (fresh agent writes RFC) | Stage 3 | Stage 3 |
 | RFC review | — | — | Stage 4 (3 reviewers) | Stage 4 | Stage 4 |
-| Implement (same worker) | TDD | TDD | Stage 5 (same worker resumes, inside-out TDD) | Stage 5 | Stage 5 |
+| Implement | TDD | TDD | Stage 5 (fresh agent, inside-out TDD) | Stage 5 | Stage 5 |
 | Simplify | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
-| QA (persistent worker) | If UI (Quick) | If UI (Focused) | If UI (Full, persistent worker) | If UI (Full) | If UI (Full) |
+| QA | If UI (Quick) | If UI (Focused) | If UI (Full) | If UI (Full) | If UI (Full) |
 | Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
@@ -162,17 +162,13 @@ Log the decision in `.pm/dev-sessions/{slug}.md`:
 
 Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `pm/backlog/rfcs/{slug}.html` using the reference template.
 
-Dispatch a persistent developer worker that writes the RFC. Reuse the same worker for implementation so planning context is preserved.
+Dispatch a fresh developer agent that writes the RFC. A separate fresh agent handles implementation — the approved RFC is the handoff contract.
 
 Use the current runtime instructions from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`.
 
-- **Claude:** create a named `pm:developer` worker per `agent-runtime.md`, then resume it later through the same adapter
-- **Codex with delegation enabled:** spawn one persistent worker, store its `agent_id` in `.pm/dev-sessions/{slug}.md`, and reuse that same worker for implementation
-- **Codex without delegation:** do the planning inline in the orchestrator and preserve continuity through the session file plus the written RFC artifact
-
 ### RFC generation prompt
 
-Whether the planner runs as a worker or inline, use this brief:
+Dispatch an `Agent(subagent_type="pm:developer", ...)` with this brief (or run inline in Codex without delegation):
 
 ```text
 Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
@@ -202,7 +198,7 @@ RFC_COMPLETE
 - summary: {3-line summary}
 - issues: {N}
 
-Stop after sending the summary. You will be resumed for implementation after RFC review.
+Stop after sending the summary. A separate agent will handle implementation after RFC review.
 ```
 
 ### Orchestrator waits for RFC
@@ -298,26 +294,14 @@ Review this engineering RFC for complexity and long-term maintainability.
 
       **Stop here. Do not proceed to Stage 5.** The user will start a new session and invoke `/dev` to resume.
 
-## Stage 5: Implementation via the Developer Worker
+## Stage 5: Implementation via Fresh Developer Agent
 
-### Resume path (new session after RFC stop)
+Dispatch a **fresh** `pm:developer` agent using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
 
-When resuming from `stage: rfc-approved` (detected in Stage 2.5 or Resume Detection), the original developer worker's context is gone. Start a **fresh** `pm:developer` worker using the runtime adapter. The worker reads the approved RFC and the session file to reconstruct context — no re-planning needed, the RFC is the contract.
-
-Skip directly to the implementation brief below. The fresh worker will re-discover the codebase through the RFC's file references, which is fast and ensures no stale assumptions carry over.
-
-### Same-session path (continued from Stage 4)
-
-When continuing directly from Stage 4 in the same session, resume the same developer worker for implementation.
-
-- **Claude:** resume the same named worker through the adapter
-- **Codex delegated:** resume the stored `agent_id`
-- **Codex inline:** continue inline from the approved RFC
-
-Use this implementation brief:
+**Implementation brief:**
 
 ```text
-Phase 2 — Implementation approved. Go implement.
+Implement the approved RFC.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
@@ -334,7 +318,7 @@ Lifecycle:
 3. Read the RFC end-to-end and implement all issues
 4. Invoke pm:simplify — fix findings, run tests, commit
 5. If UI changes: invoke /design-critique if available, else skip
-6. If UI changes: QA runs as the persistent QA worker (spawned by implementation-flow.md when supported)
+6. If UI changes: dispatch QA agent per implementation-flow.md
 7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 8. Run full test suite as final verification
@@ -345,13 +329,6 @@ Lifecycle:
 If blocked, report: "Blocked: {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
-
-**What the agent retains from RFC generation:**
-- Codebase structure and file organization
-- Existing patterns and conventions discovered during exploration
-- Test infrastructure and runner details
-- Module boundaries and import chains
-- Understanding of which files need modification
 
 ### Continuous Execution
 
@@ -369,53 +346,47 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 - Review feedback from human reviewers on the PR (use `review/references/handling-feedback.md`)
 </HARD-RULE>
 
-### Worker lifecycle
+### Agent lifecycle
 
 ```
-Persistent developer worker created (Stage 3)
+Fresh developer agent dispatched (Stage 3)
   → explores codebase, writes RFC, commits
   → returns RFC_COMPLETE summary
-  → remains resumable when runtime supports persistent workers
 
 Orchestrator runs RFC review (Stage 4)
   → fixes blocking issues in RFC
   → user approves
 
-Same worker resumed for implementation (Stage 5-7)
-  → worker continues with full planning context
+Fresh developer agent dispatched (Stage 5)
+  → reads approved RFC (the handoff contract)
   → implements → simplify → design critique → QA → review → merge → cleanup
   → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
-
-Worker closed after completion when the runtime requires explicit cleanup
 ```
 
-### Worker death recovery
+### Agent failure recovery
 
-If the persistent developer worker dies during implementation (API overload, timeout, 529 errors):
+If the developer agent fails during implementation (API overload, timeout, 529 errors):
 
 1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
 2. Read `.pm/dev-sessions/{slug}.md` for progress
-3. Start a **fresh** `pm:developer` worker using the runtime adapter, reusing the same logical worker name when the runtime supports it:
+3. Dispatch a **fresh** `pm:developer` agent:
 
 ```text
-You are a RECOVERY worker. A previous developer worker died during implementation.
+You are a RECOVERY agent. A previous developer agent failed during implementation.
 
 **Session file:** .pm/dev-sessions/{slug}.md
 **RFC:** pm/backlog/rfcs/{slug}.html
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 
-A previous agent failed on this task. Check what was already done before starting:
+Check what was already done before starting:
 - git log --oneline to see committed work
 - git status for uncommitted changes
 - Read the RFC to identify remaining tasks
-Send a progress update after each commit or every 5 minutes.
 
-Continue from where the previous worker left off.
+Continue from where the previous agent left off.
 Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md.
 ```
-
-The recovery worker loses the original planning context but still has the committed plan and partial implementation to work from.
 
 After the developer agent returns (merged or blocked), continue to Stage 9 below.
 

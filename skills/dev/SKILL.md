@@ -18,7 +18,7 @@ Unified orchestrator for all development work. Auto-detects scope and routes to 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
 **Hard rules (all flows):**
-- **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation worker MUST run as a **persistent agent with isolated context**. In Codex, create that worker with `spawn_agent`, collect summaries with `wait_agent`, resume it with `resume_agent` + `send_input`, and clean it up with `close_agent`. Short-lived review/code-scan agents can still return compact results directly. See ADR-0002.
+- **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
 - Before design critique or review, always run `pm:simplify` (it routes to Anthropic official simplify in Claude Code and normalizes output to PM-required fields)
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
@@ -30,7 +30,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime 
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
-- Bug-fix: investigation AND fixes run in delegated workers when available — main context only sees summaries
+- Bug-fix: investigation AND fixes run in delegated agents when available — main context only sees summaries
 
 ## Telemetry (opt-in)
 
@@ -85,10 +85,10 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
 | `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
 | `dev/references/implementation-flow.md` (reference) | Single: Stage 5, Epic: Stage 4 implementation |
-| `pm:tdd` | Single: Implement via the persistent developer worker (all) |
-| `pm:subagent-dev` | Single: Implement via the persistent developer worker (all) |
+| `pm:tdd` | Single: Implementation agent (all) |
+| `pm:subagent-dev` | Single: Implementation agent (all) |
 | `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (persistent worker when supported) |
+| `pm:qa` | Single: QA ship gate (all UI changes) |
 | `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery

@@ -6,20 +6,19 @@ This reference is loaded on-demand by the dev skill router when handling a paren
 
 # /dev-epic [parent-issue-id]
 
-Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state, tracks worker ids, and dispatches persistent workers for planning and implementation. Each sub-issue gets **one combined worker** that plans first, then implements — preserving codebase context across both phases.
+Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state and dispatches fresh agents for planning and implementation. Each sub-issue gets **two separate agents** — one for planning (RFC) and one for implementation — with the approved RFC as the handoff contract.
 
 **Architecture:**
-- **Orchestrator (this context):** Intake, state management, worker registry, result tracking
-- **Persistent workers:** One per sub-issue. Plans first (explore codebase, write plan, commit). Stops cleanly. Resumes for implementation after epic review approval. Context from planning phase is preserved — no duplicate codebase exploration.
-- **Epic review reviewers:** 1-3 parallel short-lived review workers (NOT persistent workers) reviewing all plans as a set. Return compact JSON verdicts directly to orchestrator context.
+- **Orchestrator (this context):** Intake, state management, result tracking
+- **Planning agents:** One fresh agent per sub-issue. Explores codebase, writes RFC, commits, returns summary, terminates.
+- **Epic review agents:** 1-3 short-lived review agents reviewing all plans as a set. Return compact JSON verdicts directly.
+- **Implementation agents:** One fresh agent per sub-issue. Reads the approved RFC, implements, merges, terminates.
 
-**Worker lifecycle:**
-1. Orchestrator initializes the state file and creates one worker slot per sub-issue
-2. Orchestrator spawns one persistent worker per sub-issue and stores its worker id in the state file
-3. **Planning phase:** Each worker plans, commits, returns a compact summary, then stops
-4. **Epic review:** Orchestrator dispatches short-lived review agents — compact JSON comes back directly
-5. **Implementation phase:** Orchestrator resumes approved workers and sends "go implement" — they continue with full planning context
-6. **Wrap-up:** Orchestrator closes any remaining workers and removes the worker registry from state
+**Agent lifecycle:**
+1. Orchestrator initializes the state file with one slot per sub-issue
+2. **Planning phase:** For each sub-issue, dispatch a fresh agent that writes the RFC, returns summary, terminates
+3. **Epic review:** Orchestrator dispatches short-lived review agents — compact JSON comes back directly
+4. **Implementation phase:** For each sub-issue in dependency order, dispatch a fresh agent with the RFC as input. Agent implements, merges, terminates. Next sub-issue starts.
 
 **Reference files (read on-demand, NOT upfront):**
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2, raw issues only)
@@ -27,23 +26,11 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue implementation instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
 
-**Runtime mapping:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching epic workers or reviewers.
+**Runtime mapping:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching agents.
 
-Use these worker intents consistently:
-- Persistent planning + implementation worker: `pm:developer`
-- Epic review workers: the reviewer intents referenced in Stage 3
-
-Use the runtime adapter for all worker lifecycle actions:
-- create persistent worker
-- wait for planning result
-- resume the same worker for implementation
-- ping a quiet worker
-- deliver "merge now"
-- close any still-running worker during cleanup
-
-<HARD-RULE>
-Do NOT spawn a fresh implementation worker when a resumable one exists. The whole point of combined workers is context preservation from planning through implementation.
-</HARD-RULE>
+Use these agent intents consistently:
+- Planning and implementation agent: `pm:developer`
+- Epic review agents: the reviewer intents referenced in Stage 3
 
 ---
 
@@ -171,18 +158,6 @@ Read `learnings.md` at repo root. Surface relevant entries. Skip if file doesn't
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` for the template. Write `.pm/dev-sessions/epic-{parent-slug}.md` (run `mkdir -p .pm/dev-sessions` first).
 
-### 1.7 Create worker registry
-
-In the epic state file, create one worker slot per sub-issue. This is the source of truth for orchestration in Codex.
-
-```
-| # | ID | Title | Size | Dependency | Worker Name | Worker ID | Branch | Worktree | Phase |
-|---|----|-------|------|------------|-------------|-----------|--------|----------|-------|
-| 1 | {ISSUE_ID} | {TITLE} | {SIZE} | {DEPS} | agent-{slug} | pending | feat/{slug} | .worktrees/{slug} | planning |
-```
-
-Set `Worker ID` to `pending` until the worker is started. Update it immediately after the runtime adapter returns a live worker handle or `agent_id`.
-
 ---
 
 ## Progress Announcements
@@ -199,7 +174,6 @@ At every stage transition and after each sub-issue completes, announce progress 
 - After Stage 2 (all planning) completes: announce epic review is starting
 - After Stage 3 (epic review) completes: present for approval (already required)
 - After each sub-issue merges during Stage 4: announce progress (e.g., "2 of 5 merged. Next: implement CLE-1215 [mobile].")
-- After each wave completes during parallel execution: announce wave completion and next wave
 - After Stage 5 (wrap-up) completes: final report
 
 In autonomous mode (after Stage 3.3 approval), do NOT pause for confirmation. Announce and proceed.
@@ -207,7 +181,7 @@ In autonomous mode (after Stage 3.3 approval), do NOT pause for confirmation. An
 
 ---
 
-## Stage 2: Sequential Planning (via persistent workers)
+## Stage 2: Sequential Planning (via fresh agents)
 
 No user interaction. For each sub-issue in dependency order.
 
@@ -215,11 +189,11 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the RFC, commits it, returns the RFC path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+Dispatch a **fresh agent** per sub-issue using agent intent `pm:developer`. The agent explores the codebase, writes the RFC, commits it, returns the RFC path + summary, and terminates. A separate fresh agent handles implementation after epic review.
 
-Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes deferred tool discovery for `TeamCreate` and `SendMessage`, then team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
+Before dispatching agents, follow the runtime setup rules in `agent-runtime.md`.
 
-**Prompt for the planning worker:**
+**Prompt for the planning agent:**
 
 ```
 Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
@@ -246,10 +220,10 @@ RFC_COMPLETE
 - summary: {3-line summary}
 - tasks: {N}
 
-Stop after sending the summary. You will be resumed for implementation after epic review.
+Stop after sending the summary. A separate agent will handle implementation after epic review.
 ```
 
-The orchestrator waits for the worker's planning result (the named Agent returns when done). Only the returned summary enters the orchestrator's context — not the worker's internal work.
+The orchestrator waits for the agent's planning result (the Agent returns when done). Only the returned summary enters the orchestrator's context — not the agent's internal work.
 
 **Skip individual RFC review for groomed issues.** Epic review (Stage 3) is the quality gate.
 
@@ -257,7 +231,7 @@ The orchestrator waits for the worker's planning result (the named Agent returns
 
 **Raw XS:** Note "direct implementation, no plan needed" in state file. Skip planning.
 
-**Raw S:** Dispatch a persistent worker (same prompt as 2.1), then dispatch RFC reviewers from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (reviewers 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
+**Raw S:** Dispatch a fresh agent (same prompt as 2.1), then dispatch RFC reviewers from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (reviewers 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
 
 **Raw M/L/XL:** Three-step process:
 
@@ -292,7 +266,7 @@ SPEC_COMPLETE
 
    Merge findings, fix all blocking issues in the spec, and re-run the spec reviewers if needed before moving on.
 
-3. **Dispatch a persistent worker** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC reviewers. Fix blocking issues, commit.
+3. **Dispatch a fresh agent** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC reviewers. Fix blocking issues, commit.
 
 ### 2.3 Context accumulation
 
@@ -326,7 +300,7 @@ Count sub-issues with actual code work (plan reports tasks > 0). Scale reviewer 
 
 ### 3.1 Dispatch short-lived review agents
 
-Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use short-lived review agents, not persistent workers. Their results should return directly to the orchestrator and should not be saved for later resume.
+Epic reviewers return compact JSON (~10 lines each) — this fits fine in the orchestrator's context. Use short-lived review agents. Their results return directly to the orchestrator.
 
 **For 3+ sub-issues with code work:** Dispatch all 3 reviewer intents in parallel using the runtime adapter:
 - `pm:system-architect` with the architecture prompt from `epic-rfc-reviewer-prompts.md`
@@ -362,13 +336,13 @@ After approval, update state file with `Continuous execution: authorized`.
 
 ---
 
-## Stage 4: One-Shot Implementation (via existing workers)
+## Stage 4: Sequential Implementation (via fresh agents)
 
 <HARD-RULE>
 After approval, proceed through ALL sub-issues without pausing. Only stop for: QA Blocked, 3x test failures, merge conflicts, CI failures needing human intervention, human review feedback on PRs.
 </HARD-RULE>
 
-**Why resume existing workers:** The combined worker that planned the sub-issue already explored the codebase and understands the current state. Resuming that worker preserves this context — no duplicate codebase exploration. Implementation details, test output, CI logs, and diffs stay in the worker's context. The orchestrator only receives short summaries.
+**Agent dispatch:** Each sub-issue gets a fresh `pm:developer` agent for implementation. The agent reads the approved RFC for full planning context. Sub-issues execute sequentially in dependency order — one at a time.
 
 ### 4.pre Environment readiness check
 
@@ -385,84 +359,20 @@ Skip this step entirely if no sub-issue touches mobile code. Log in the state fi
 
 ### 4.0 Skip fully-implemented sub-issues
 
-If a plan reported 0 tasks (all ACs already implemented with tests), mark the sub-issue as "Already implemented" in the state file and skip to the next one. Do not send the agent a "go implement" message — shut it down instead.
+If a plan reported 0 tasks (all ACs already implemented with tests), mark the sub-issue as "Already implemented" in the state file and skip to the next one.
 
-### 4.1 Layer classification
+### 4.1 Sequential execution
 
-Classify each sub-issue's **layer set** from its plan's file list:
+For each sub-issue in dependency order:
 
-| Files touched | Layer |
-|---------------|-------|
-| Only `apps/api/` | `api` |
-| Only `apps/web-client/` (+ `packages/shared/`) | `web` |
-| Only `apps/mobile/` (+ `packages/shared/`) | `mobile` |
-| Only `apps/display/` (+ `packages/shared/`) | `display` |
-| Multiple app directories | `cross-layer` (list all: e.g., `[api, web]`) |
-
-Record each sub-issue's layer set in the state file.
-
-### 4.2 Execution wave computation
-
-Group sub-issues into **waves** that respect both dependencies and layer constraints:
-
-1. Start with all sub-issues whose dependencies are satisfied (all deps merged).
-2. From that set, find sub-issues that can run in parallel:
-   - **Single-layer sub-issues on different layers** can run in parallel (e.g., `[mobile]` + `[web]` + `[api]`).
-   - **Cross-layer sub-issues** run alone — they cannot parallelize with any sub-issue that shares a layer.
-   - **Two sub-issues on the same layer** must serialize (shared test DB, simulator, pre-push hooks).
-3. Assign to the current wave. Remaining sub-issues wait for the next wave.
-
-**Example (SLA epic):**
-```
-Wave 1: CLE-1210 [api]                       — sequential (first in chain)
-Wave 2: CLE-1211 [api]                       — sequential (depends on wave 1)
-Wave 3: CLE-1212 [api]                       — sequential (depends on wave 2)
-Wave 4: CLE-1213 [mobile] + CLE-1214 [web]   — PARALLEL (different single layers)
-Wave 5: CLE-1215 [api+web]                   — alone (cross-layer)
-Wave 6: CLE-1216 [api+mobile]                — alone (cross-layer)
-```
-
-Record the wave plan in the state file. Present to user as part of Stage 3.3 approval.
-
-### 4.3 Wave execution
-
-#### Single-agent waves (sequential — same as before)
-
-For waves with one sub-issue, use the current flow: agent implements, reviews, PRs, merges, cleans up, and reports "Merged."
-
-The "go implement" message includes `**Mode:** sequential` and follows the standard implementation-flow.md lifecycle through merge.
-
-#### Multi-agent waves (parallel — implement concurrently, merge sequentially)
-
-For waves with 2+ sub-issues:
-
-1. **Create all worktrees** for the wave:
+1. **Create worktree:**
    ```bash
-   git worktree add .worktrees/{slug-A} -b feat/{slug-A}
-   git worktree add .worktrees/{slug-B} -b feat/{slug-B}
+   git worktree add .worktrees/{slug} -b feat/{slug} origin/{DEFAULT_BRANCH}
    ```
 
-2. **Set all issue statuses** to In Progress.
+2. **Set issue status** to In Progress (if tracker available).
 
-3. **Resume all workers simultaneously** using the runtime adapter. The "go implement" instruction includes `**Mode:** parallel` which tells the worker to stop after pushing the branch and creating the PR — do NOT merge. Worker reports "Ready to merge. PR #{N}" instead of "Merged."
-
-4. **Collect results.** Wait for all agents in the wave to report "Ready to merge" or "Blocked."
-   - If any agent reports "Blocked": pause, report to user.
-   - If all report "Ready to merge": proceed to sequential merge.
-
-5. **Sequential merge.** For each PR in the wave, in dependency order, send the merge instruction to the same worker using the runtime adapter:
-   - "Merge now. Rebase on main first: git fetch origin main && git rebase origin/main && git push --force-with-lease origin {BRANCH}. Then squash merge your PR and do cleanup."
-
-   Wait for "Merged." before telling the next worker to merge.
-
-6. **Sync main** after all wave PRs are merged:
-   ```bash
-   git checkout -B main origin/main
-   ```
-
-#### "Go implement" instruction template
-
-Resume the worker using the runtime adapter and pass the following implementation brief:
+3. **Dispatch fresh `pm:developer` agent** with this implementation brief:
 
 ```
 Phase 2 — Implementation approved. Go implement.
@@ -470,40 +380,45 @@ Phase 2 — Implementation approved. Go implement.
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
 **RFC:** {RFC_FILE_PATH}
-**Mode:** {sequential | parallel}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
-**IMPORTANT — Progress heartbeat:** Reply in this worker thread after each commit
-or every 5 minutes, whichever comes first, using:
-Progress: {what you just did}. Next: {what's next}.
-This is how the orchestrator knows you're alive. Silent workers get replaced.
-
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md for install command), verify clean test baseline
-3. Read the plan and implement all tasks
+3. Read the RFC and implement all tasks
 4. Invoke pm:simplify - fix findings, run tests, commit
 5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
 6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 7. Run full test suite as final verification
-8. Push branch, create PR
-9. If Mode is "sequential": squash merge, cleanup, report "Merged. PR #{N}, sha {abc}, {N} files changed."
-   If Mode is "parallel": STOP after PR creation, report "Ready to merge. {ISSUE_ID} PR #{N}, {N} files changed."
+8. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+9. Report: "Merged. {ISSUE_ID} PR #{N}, sha {abc}, {N} files changed."
 
 If blocked, reply:
-Blocked: {reason}
+Blocked: {ISSUE_ID} — {reason}
 ```
 
-### 4.4 Checkpoint after each sub-issue
+4. **Wait for agent to return** "Merged" or "Blocked."
+
+5. **Update state file** (see 4.2 Checkpoint).
+
+6. **Sync main** before the next sub-issue:
+   ```bash
+   git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
+   ```
+
+7. Proceed to next sub-issue.
+
+### 4.2 Checkpoint after each sub-issue
 
 <HARD-RULE>
 After each sub-issue is merged (or fails), update the state file IMMEDIATELY. Do not batch updates. A crash between sub-issues must not lose progress.
 </HARD-RULE>
 
-After a worker reports "Merged" or "Failed":
+After an agent reports "Merged" or "Blocked":
 1. Update the sub-issue row in `## Sub-Issues` table: status, PR number, commit SHA
 2. Update `## Implementation Progress` with the result
 3. Update `## Resume Instructions` with the next sub-issue
@@ -511,18 +426,14 @@ After a worker reports "Merged" or "Failed":
 
 On resume (session crash/restart): read the state file, skip sub-issues marked "Merged", restart from the first non-merged sub-issue.
 
-### 4.5 Agent watchdog and failure recovery
+### 4.3 Agent failure recovery
 
-<HARD-RULE>
-API errors can kill agents silently. The orchestrator MUST detect dead agents via a 5-minute silence watchdog.
-</HARD-RULE>
+If an implementation agent fails (API error, timeout):
 
-Agents send progress updates after each commit or every 5 minutes. If no message is received within 5 minutes:
-
-1. **Ping** the worker via the runtime adapter.
-2. **Response received:** Worker is alive. Reset timer.
-3. **No response:** Worker is dead. Spawn a fresh `pm:developer` worker with the RFC file path, current git state (`git status`, `git log --oneline -5`, `git diff --stat`), sub-issue description/ACs, and this explicit instruction: "A previous agent failed on this task. Check what was already done before starting — review git log for committed work and git status for uncommitted changes. Send a progress update after each commit or every 5 minutes."
-4. **Max 3 total attempts** per sub-issue. After 3 failures, mark as "Failed" and continue to next sub-issue.
+1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
+2. Update state file with failure
+3. Dispatch a fresh recovery agent with the RFC path, git state, and instruction to continue from where the previous agent left off
+4. Max 3 total attempts per sub-issue. After 3 failures, mark as "Failed" and continue to next.
 
 Track retry count per sub-issue in the state file.
 
@@ -566,22 +477,14 @@ After all sub-issues are merged and tracker is updated:
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
-**5.3.1 Close workers:**
-
-Claude workers usually terminate naturally when they return their final response ("Merged." or "Blocked."). Codex workers may require explicit shutdown.
-
-If any worker is still alive (stuck, waiting), close it via the runtime adapter.
-
-Note: Workers for fully-implemented sub-issues (0 tasks) should already have been terminated in Stage 4.0.
-
-**5.3.2 Remove this epic's state file:**
+**5.3.1 Remove this epic's state file:**
 ```bash
 rm -f .pm/dev-sessions/epic-{parent-slug}.md
 ```
 
 Do NOT delete other state files — they may belong to concurrent sessions.
 
-**5.3.3 Verify worktrees and branches:**
+**5.3.2 Verify worktrees and branches:**
 ```bash
 git worktree list   # Should only show main working tree
 git branch          # Should only show main (and any unrelated branches)
@@ -594,7 +497,7 @@ git worktree remove .worktrees/{slug} 2>/dev/null || git worktree remove .worktr
 git branch -D feat/{slug} 2>/dev/null || true
 ```
 
-**5.3.4 Remove temporary artifacts:**
+**5.3.3 Remove temporary artifacts:**
 ```bash
 # Screenshots left by design-critique or QA agents
 find . -maxdepth 2 -name "*.png" -newer .git/index -not -path "./node_modules/*" -not -path "./.git/*" | while read f; do
@@ -605,7 +508,7 @@ done
 rm -rf .qa-reports/ .playwright-cli/ 2>/dev/null
 ```
 
-**5.3.5 Verify clean git status:**
+**5.3.4 Verify clean git status:**
 ```bash
 git status --short
 ```
@@ -638,11 +541,8 @@ Report any remaining untracked files to the user.
 2. NEVER skip `/review` before PR (M/L/XL)
 3. NEVER skip code scan before auto-merge (XS/S)
 4. NEVER use `--no-verify` on push
-5. NEVER run two agents on the same layer concurrently (api+api, mobile+mobile, web+web)
-6. Cross-layer sub-issues run alone — not in parallel with anything sharing their layers
-7. Merges are always sequential, even when implementation is parallel
-8. Fix ALL review findings from ALL active agents
-9. Fresh test evidence before every merge
-10. State file is single source of truth
-11. Plans committed to main so sub-issue agent worktrees can read them
-12. Orchestrator creates worktrees; agents work inside them
+5. Fix ALL review findings from ALL active agents
+6. Fresh test evidence before every merge
+7. State file is single source of truth
+8. Plans committed to main so sub-issue agent worktrees can read them
+9. Orchestrator creates worktrees; agents work inside them
