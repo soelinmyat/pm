@@ -23,7 +23,6 @@ Shared classification for optional tools, skills, and runtime features used by P
 | `design-critique` | `preferred` unless the project explicitly treats it as mandatory | If unavailable, log the downgrade and continue to the next gate. |
 | `Playwright MCP` | `preferred` for QA and design critique on web | If absent, QA may degrade or block depending on whether browser testing is central to the task. |
 | `Maestro MCP` | `preferred` for mobile QA/design critique | Same rule as Playwright, but mobile-specific. |
-| `dashboard session view` | `optional` | Artifact viewer only by default. Never block on it. |
 | `dashboard input` | `runtime-specific` | Off by default. Only use if the dashboard is explicitly configured as interactive. |
 
 ## Usage Rules

@@ -102,32 +102,7 @@ Mark each in-scope item with its quadrant in the state file under `scope.in_scop
 
 ---
 
-## 5. Scope Grid (Dashboard Session View)
-
-If `dashboard_session_view: true` in `.pm/config.json`, offer this after the scope definition is complete:
-
-> "Want a scope grid? I'll plot each in-scope item on impact vs. effort. Two minutes."
-
-Render as an ASCII grid:
-
-```
-HIGH IMPACT
-     |
-[A]  |  [B]
-[C]  |
------+--------
-     |  [D]
-LOW  |
-     LOW EFFORT --- HIGH EFFORT
-```
-
-Label each item with its slug or short name. Call out Quick Wins (top-left) and flag Cut candidates (bottom-right) explicitly.
-
-This is a communication tool, not a planning oracle. Use it to spot obvious scope problems before drafting issues.
-
----
-
-## 6. Scope Confirmation
+## 5. Scope Confirmation
 
 Before leaving Phase 4, confirm with the user:
 

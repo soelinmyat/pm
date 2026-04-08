@@ -149,7 +149,6 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
     "seo": { "provider": "none" }
   },
   "preferences": {
-    "dashboard_session_view": true,
     "backlog_format": "markdown",
     "auto_launch": true
   }
@@ -161,7 +160,6 @@ Populate:
 - `project_name` from the repo directory name by default
 - `integrations.linear.enabled` as `false`
 - `integrations.seo.provider` as `"none"`
-- `preferences.dashboard_session_view` as `true`
 - `preferences.backlog_format` as `"markdown"`
 - `preferences.auto_launch` as `true`
 

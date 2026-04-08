@@ -105,25 +105,19 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
 #### Flow
 
-1. **Offer dashboard session view** (if topic involves visual questions) — this is its own message, not combined with other content.
-
-   > "Some of what we're working on might be easier to explain visually. Want me to show high-fidelity mockups using your project's design system in the browser? (Token-intensive)"
-
-   Wait for response. If declined, proceed text-only. If accepted, read the dashboard session canvas guide: `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/dashboard-session.md`
-
-2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria.
+1. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria.
    - Prefer multiple choice when possible
    - Assess scope first: if the request covers multiple independent subsystems, flag it for decomposition before refining details
 
-3. **Propose 2-3 approaches** — with trade-offs and your recommendation. Lead with the recommended option.
+2. **Propose 2-3 approaches** — with trade-offs and your recommendation. Lead with the recommended option.
 
-4. **Present design** — in sections scaled to complexity. Ask after each section whether it looks right.
+3. **Present design** — in sections scaled to complexity. Ask after each section whether it looks right.
    - Cover: architecture, components, data flow, error handling, testing
    - Design for isolation: smaller units with clear boundaries and interfaces
    - In existing codebases: follow existing patterns, include targeted improvements where they serve the feature
    - **For UI features:** show high-fidelity mockups using the design system context (see "High-Fidelity Mockups" below)
 
-5. **Design review** (UI features only) — before writing the spec, review the approved mockups:
+4. **Design review** (UI features only) — before writing the spec, review the approved mockups:
    - **Visual consistency:** Do mockups use the correct design tokens? Any color/font/spacing mismatches vs the real product?
    - **Component reuse:** Are we using existing component patterns or introducing new ones unnecessarily?
    - **Responsive considerations:** Does the layout work at the project's key breakpoints?
@@ -132,24 +126,24 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
    Present findings to the user. Fix mockups if needed before proceeding.
 
-6. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit.
+5. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit.
    - Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality
    - For UI features: include the final mockup screenshots or reference the mockup HTML files
 
-7. **Spec review loop** — follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
+6. **Spec review loop** — follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
    - Dispatch spec-document-reviewer (see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-document-reviewer-prompt.md`)
    - Fix and re-dispatch until approved (max 3 iterations)
 
-8. **User reviews spec** — ask user to review the written spec before proceeding:
+7. **User reviews spec** — ask user to review the written spec before proceeding:
    > "Spec written to `<path>`. Review it and let me know of any changes before we proceed to scoping."
 
-9. **Proceed to Phase 5.5 (Groom / Issue Drafting)** — with the design doc as the shared understanding of what's being built.
+8. **Proceed to Phase 5.5 (Groom / Issue Drafting)** — with the design doc as the shared understanding of what's being built.
 
 ---
 
 #### High-Fidelity Mockups
 
-When the dashboard session view is active and a design system was discovered, generate mockups using the real design tokens instead of generic wireframe classes.
+When a design system was discovered, generate mockups using the real design tokens instead of generic wireframe classes.
 
 **Rendering approach:** Static HTML + Tailwind CDN with the project's custom theme values. This produces visuals identical to the running app without needing React, build tools, or a running server.
 
@@ -202,13 +196,11 @@ When the dashboard session view is active and a design system was discovered, ge
 - **Incremental validation** — present design, get approval before moving on
 - **High fidelity when possible** — use the real design system so design review is meaningful
 
-#### Dashboard Session View
+#### When to Open the Browser
 
-A browser-based tool for showing mockups, diagrams, and visual options during design exploration.
+Only open the browser when there's a specific artifact to show — not as a persistent companion.
 
-**Per-question decision:** Even after the user accepts, decide FOR EACH QUESTION whether to use the browser or the terminal. The test: **would the user understand this better by seeing it than reading it?**
+- **Open for:** mockup HTML files, architecture diagrams, side-by-side layout comparisons, flowcharts
+- **Stay in terminal for:** requirements questions, conceptual choices, tradeoff lists, scope decisions
 
-- **Use the browser** for: mockups, wireframes, layout comparisons, architecture diagrams, side-by-side visual designs
-- **Use the terminal** for: requirements questions, conceptual choices, tradeoff lists, scope decisions
-
-A question *about* a UI topic is not automatically a visual question. "What does personality mean?" is conceptual — terminal. "Which wizard layout works better?" is visual — browser.
+A question *about* a UI topic is not automatically a visual question. "What does personality mean?" is conceptual — terminal. "Which wizard layout works better?" — write the mockup HTML, then `open` it.

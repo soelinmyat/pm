@@ -24,7 +24,6 @@
     "workflow"
   ],
   "commands": [
-    "deploy",
     "dev",
     "groom",
     "ingest",
@@ -49,8 +48,7 @@
         "simplify",
         "subagent-dev",
         "tdd",
-        "using-pm",
-        "deploy"
+        "using-pm"
       ]
     },
     "interface": {
