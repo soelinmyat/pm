@@ -20,10 +20,10 @@ Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updat
 
 ## Sub-Issues
 
-| # | ID | Title | Size | Dependency | Plan | Status | Retries | Started | Completed |
-|---|----|-------|------|------------|------|--------|---------|---------|-----------| 
-| 1 | ISSUE-001 | First sub-issue | S | none | docs/plans/YYYY-MM-DD-slug.md | Merged (PR #312) | 0 | 2026-04-01T09:30Z | 2026-04-01T12:33Z |
-| 2 | ISSUE-002 | Second sub-issue | M | ISSUE-001 | docs/plans/YYYY-MM-DD-slug.md | Implementing (review) | 1 | 2026-04-01T12:40Z | — |
+| # | ID | Title | Size | Dependency | RFC | Status | Retries | Started | Completed |
+|---|----|-------|------|------------|-----|--------|---------|---------|-----------| 
+| 1 | ISSUE-001 | First sub-issue | S | none | pm/backlog/rfcs/first-sub-issue.html | Merged (PR #312) | 0 | 2026-04-01T09:30Z | 2026-04-01T12:33Z |
+| 2 | ISSUE-002 | Second sub-issue | M | ISSUE-001 | pm/backlog/rfcs/second-sub-issue.html | Implementing (review) | 1 | 2026-04-01T12:40Z | — |
 | 3 | ISSUE-003 | Third sub-issue | S | ISSUE-002 | pending | Pending | 0 | — | — |
 
 ## Decisions
@@ -33,9 +33,9 @@ Single source of truth for session state. Lives under `.pm/dev-sessions/`. Updat
 - Continuous execution: authorized
 
 ## Planning Progress
-- [x] ISSUE-001: Plan written (commit abc123)
-- [x] ISSUE-002: Plan written (commit def456)
-- [ ] ISSUE-003: Planning...
+- [x] ISSUE-001: RFC written (commit abc123)
+- [x] ISSUE-002: RFC written (commit def456)
+- [ ] ISSUE-003: Writing RFC...
 
 ## Implementation Progress
 - [x] ISSUE-001: Merged (PR #312, commit abc123)

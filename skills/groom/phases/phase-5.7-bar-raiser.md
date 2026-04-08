@@ -19,6 +19,7 @@ You have fresh eyes. You have NOT been involved in the iterative drafting or tea
 CRITICAL: Do NOT read team review findings or groom state review sections. Form your own independent assessment. If you arrive at the same conclusion as the team, that is validation. If you disagree, that is the value you add.
 
 **Read before reviewing:**
+- pm/backlog/{topic-slug}.md — the draft proposal (written in Phase 5.5)
 - pm/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - pm/insights/business/landscape.md — market context
 - .pm/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.

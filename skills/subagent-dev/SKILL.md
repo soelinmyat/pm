@@ -160,7 +160,7 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read plan file once: docs/plans/feature-plan.md]
+[Read RFC file once: pm/backlog/rfcs/feature-plan.html]
 [Extract all 5 tasks with full text and context]
 [Create TodoWrite with all tasks]
 
@@ -299,7 +299,7 @@ Done!
 ## Integration
 
 **Required workflow skills (all bundled in dev plugin):**
-- **dev/references/writing-plans.md** - Creates the plan this skill executes
+- **dev/references/writing-rfcs.md** - Creates the plan this skill executes
 - **dev:tdd** - Subagents follow TDD for each task
 
 **Handled by dev orchestrator (not invoked separately):**

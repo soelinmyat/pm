@@ -10,11 +10,13 @@ Assume the implementer is a skilled developer but knows almost nothing about the
 
 **Context:** This should be run in a dedicated worktree. Read the proposal (`pm/backlog/{slug}.md`) and PRD (`pm/backlog/proposals/{slug}.html`) for product context.
 
-**Save RFCs to:** `pm/backlog/rfcs/{slug}.md`
+**Save RFCs to:** `pm/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality. RFCs are dense by nature but should still use short sentences, clear structure, and no jargon.
 
-**RFC template:** Follow `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md` for the document structure.
+**HTML reference:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` — match its structure, styling, and quality level. This is a complete example; replicate it with the actual RFC content.
+
+**Section content guide:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md` for what goes in each section.
 
 ## Scope Check
 
@@ -42,15 +44,19 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## RFC Document Structure
 
-Follow the template at `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md`. The RFC has these key sections:
+Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html`. The RFC has these sections:
 
-1. **Frontmatter** — type, parent slug, status, dates
-2. **Context** — what this feature does, why it matters (summarized from the proposal/PRD)
-3. **Approach** — technical approach at the system level
-4. **Issues** — independently implementable units with ACs, approach, dependencies, and size
-5. **Test Strategy** — overall testing approach
-6. **Risks** — known risks and mitigations
-7. **Decisions** — non-obvious technical choices (may become ADRs)
+1. **Hero header** — title, one-line summary, metadata strip (size, status, task count)
+2. **Sticky TOC** — navigation bar for all active sections
+3. **Codebase Findings** — what was discovered during exploration that shaped the design
+4. **Architecture** — system diagram (Mermaid), component relationships, data flow
+5. **Key Decisions** — alternatives considered, chosen option, rationale (may become ADRs)
+6. **Data Model** — schema changes, migrations, types (omit if none)
+7. **API** — new/modified endpoints, request/response shapes (omit if none)
+8. **Risks** — risk table with impact and mitigations
+9. **Issues** — independently implementable units with ACs, approach, dependencies, size
+10. **Resolved Questions** — populated during review, empty in draft
+11. **Change Log** — review iterations, populated during review
 
 ## Proposal Context
 
@@ -59,7 +65,7 @@ Read the proposal and PRD for product context before writing the RFC:
 1. Read `pm/backlog/{slug}.md` — outcome, scope, competitive context, research refs
 2. Read `pm/backlog/proposals/{slug}.html` — full PRD with design details, user flows, wireframes
 3. If `research_refs` exist, read the referenced research files for key findings
-4. Inject a `## Context` section in the RFC summarizing the product context (max ~20 lines)
+4. Incorporate the product context into the RFC's Codebase Findings and Architecture sections
 
 ## Task Structure
 
@@ -124,7 +130,7 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 
 After writing the complete RFC, the orchestrator handles review (Stage 4 in single-issue-flow.md). The RFC writer should:
 
-1. Commit the RFC to `pm/backlog/rfcs/{slug}.md`
+1. Commit the RFC to `pm/backlog/rfcs/{slug}.html`
 2. Update the proposal's frontmatter to link the RFC
 3. Return the `RFC_COMPLETE` payload and stop
 

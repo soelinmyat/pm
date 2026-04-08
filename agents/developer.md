@@ -98,9 +98,9 @@ When spawned as `dev-{slug}` for a single issue, you plan and implement as one c
 ### Phase 1: Planning
 1. Receive the issue, spec/ACs, and project context in your spawn prompt
 2. Explore the codebase thoroughly — file structure, patterns, conventions, test infra
-3. Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md` to write the plan
-4. Commit the plan
-5. End your response with the `PLAN_COMPLETE` block (issue, path, summary, task count)
+3. Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md` to write the RFC
+4. Commit the RFC
+5. End your response with the `RFC_COMPLETE` block (issue, path, summary, task count)
 6. **STOP.** The orchestrator runs RFC review. You will be resumed after approval.
 
 ### Phase 2: Implementation

@@ -74,10 +74,17 @@ Gather all product context into a coherent proposal narrative:
 
 This content feeds into the HTML PRD (Phase 7) and the proposal backlog entry (Phase 8).
 
-#### Step 4: Update state
+#### Step 4: Write proposal backlog entry
+
+Write the draft proposal to `pm/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: draft`, `verdict: null`, `handoff_ready: false`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed`, generate the HTML PRD, and set the final verdict.
+
+Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
+
+#### Step 5: Update state
 
 Do NOT present the proposal to the user yet. Proceed directly to Phase 6 (Team Review).
 
 ```yaml
 phase: draft-proposal
+proposal_path: pm/backlog/{topic-slug}.md
 ```

@@ -215,7 +215,7 @@ No user interaction. For each sub-issue in dependency order.
 
 ### 2.1 Groomed sub-issues
 
-Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the plan, commits it, returns the plan path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
+Dispatch a **persistent worker** per sub-issue using worker intent `pm:developer`. The worker explores the codebase, writes the RFC, commits it, returns the RFC path + summary, and stops. The same worker is resumed in Stage 4 — preserving all codebase context from the planning phase.
 
 Before dispatching workers, follow the runtime setup rules in `agent-runtime.md`. In Claude this includes deferred tool discovery for `TeamCreate` and `SendMessage`, then team setup. In Codex delegated mode this includes storing `agent_id` in the worker registry. In Codex without delegation, plan inline and record the result in the same worker slot.
 
@@ -237,12 +237,12 @@ Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
 **Previous plans in this epic (for reference):**
 {LIST_OF_PREVIOUS_PLAN_PATHS_AND_SUMMARIES}
 
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-plans.md.
-Save plan to docs/plans/{DATE}-{SLUG}.md.
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md.
+Save RFC to pm/backlog/rfcs/{SLUG}.html.
 Commit, then end your response with:
-PLAN_COMPLETE
+RFC_COMPLETE
 - issue: {ISSUE_ID}
-- path: docs/plans/{file}
+- path: pm/backlog/rfcs/{SLUG}.html
 - summary: {3-line summary}
 - tasks: {N}
 
@@ -300,11 +300,11 @@ When dispatching plan agents, pass previous plan summaries (not full plans). The
 
 ### 2.4 Size reconciliation
 
-After each plan agent returns, check if the plan's task count suggests a different size than the intake classification. If the plan sizes differently (e.g., intake said S but plan has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
+After each RFC agent returns, check if the RFC's task count suggests a different size than the intake classification. If the RFC sizes differently (e.g., intake said S but RFC has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
 
 ### 2.5 State updates
 
-After each plan agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with plan path and commit SHA.
+After each RFC agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with RFC path and commit SHA.
 
 ---
 
@@ -347,7 +347,16 @@ Reviewer results return directly to the orchestrator — no worker handoff neede
 
 ### 3.3 Present to user (LAST INTERACTIVE GATE)
 
-Show verdict table. List plan paths. Ask: "Approve to begin one-shot implementation through to merge?"
+For each sub-issue RFC, render a self-contained HTML file at `pm/backlog/rfcs/{slug}.html`.
+
+**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html`. Match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual RFC content. Populate sections (Codebase Findings, Architecture, Key Decisions, Data Model, API, Risks, Issues/Tasks, Questions, Change Log) from the actual RFC data. Omit sections that don't apply.
+
+Open the first one in the browser:
+```bash
+open pm/backlog/rfcs/{first-slug}.html
+```
+
+Show verdict table. List RFC paths (with `.html` links). Ask: "Approve to begin one-shot implementation through to merge?"
 
 After approval, update state file with `Continuous execution: authorized`.
 
@@ -460,7 +469,7 @@ Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
-**Plan:** {PLAN_FILE_PATH}
+**RFC:** {RFC_FILE_PATH}
 **Mode:** {sequential | parallel}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
@@ -512,7 +521,7 @@ Agents send progress updates after each commit or every 5 minutes. If no message
 
 1. **Ping** the worker via the runtime adapter.
 2. **Response received:** Worker is alive. Reset timer.
-3. **No response:** Worker is dead. Spawn a fresh `pm:developer` worker with the plan file path, current git state (`git status`, `git log --oneline -5`, `git diff --stat`), sub-issue description/ACs, and instruction to check existing progress before starting.
+3. **No response:** Worker is dead. Spawn a fresh `pm:developer` worker with the RFC file path, current git state (`git status`, `git log --oneline -5`, `git diff --stat`), sub-issue description/ACs, and this explicit instruction: "A previous agent failed on this task. Check what was already done before starting — review git log for committed work and git status for uncommitted changes. Send a progress update after each commit or every 5 minutes."
 4. **Max 3 total attempts** per sub-issue. After 3 failures, mark as "Failed" and continue to next sub-issue.
 
 Track retry count per sub-issue in the state file.

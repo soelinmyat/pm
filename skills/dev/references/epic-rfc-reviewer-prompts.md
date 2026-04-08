@@ -13,7 +13,7 @@ Agent({
   subagent_type: "pm:adversarial-engineer",
   prompt: `Review this implementation plan (RFC) for architecture soundness and risk.
 
-**Plan to review:** {PLAN_FILE_PATH}
+**RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context
@@ -33,7 +33,7 @@ Agent({
   subagent_type: "pm:test-engineer",
   prompt: `Review this implementation plan (RFC) for testing strategy and coverage.
 
-**Plan to review:** {PLAN_FILE_PATH}
+**RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context
@@ -53,7 +53,7 @@ Agent({
   subagent_type: "pm:staff-engineer",
   prompt: `Review this implementation plan (RFC) for complexity and long-term maintainability.
 
-**Plan to review:** {PLAN_FILE_PATH}
+**RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
 
 ## Project Context

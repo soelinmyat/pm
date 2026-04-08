@@ -245,8 +245,9 @@ title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
 status: proposed | planned | in-progress | done
 verdict: ready | send-back | pause
+handoff_ready: true | false
 prd: proposals/{topic-slug}.html
-rfc: rfcs/{topic-slug}.md | null
+rfc: rfcs/{topic-slug}.html | null
 priority: critical | high | medium | low
 labels:
   - "{label}"
@@ -285,7 +286,7 @@ Verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Notes
 
-{Open questions, deferred scope items.}
+{Deferred scope items. Resolved questions from review (if any remain as decisions needed, list them here with recommended answers).}
 ```
 
 **Status lifecycle:**

@@ -35,9 +35,10 @@ Before dispatching agents, check:
 
 ## Built-in Flow: 3 Parallel Review Agents
 
+Before first dispatch, run `ToolSearch({ query: "select:TeamCreate,SendMessage" })` to load deferred tools (Claude Code only — skip in other runtimes).
+
 Dispatch all 3 agents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 
-- Claude Code: 3 short-lived subagents in parallel
 - Codex with delegation: 3 `spawn_agent` calls, `wait_agent` all
 - Codex inline / other runtimes: run 3 review briefs sequentially, merge findings
 

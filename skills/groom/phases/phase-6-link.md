@@ -1,8 +1,8 @@
 ### Phase 6: Link
 
-1. **Write the proposal backlog entry** (if not already written in Phase 5.8):
+1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
-   - Set `status: proposed`, `verdict:` from bar raiser, `prd: proposals/{topic-slug}.html`, `rfc: null`.
+   - Set `status: proposed`, `verdict:` from bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`.
    - Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 
 2. **If Linear is configured** (`.pm/config.json` has `linear: true` or Linear MCP is available):

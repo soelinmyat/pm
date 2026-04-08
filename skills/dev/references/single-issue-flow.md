@@ -133,6 +133,7 @@ Before proceeding, check whether an approved RFC exists for this work.
 
 Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
+- **`handoff_ready:` is not `true`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Read it and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
 - **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
@@ -152,12 +153,12 @@ If no proposal exists, decide whether grooming is needed:
 
 Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
-- RFC check: approved (path: {rfc_path}) | needs-rfc | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
+- RFC check: approved (path: {rfc_path}) | needs-rfc | incomplete-groom (handoff_ready not set) | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
 ```
 
 ## Stage 3: RFC Generation (M/L/XL)
 
-Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written to `pm/backlog/rfcs/{slug}.md`.
+Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `pm/backlog/rfcs/{slug}.html` using the reference template.
 
 Dispatch a persistent developer worker that writes the RFC. Reuse the same worker for implementation so planning context is preserved.
 
@@ -185,16 +186,17 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 **PRD:** pm/backlog/proposals/{slug}.html
 
 Read the proposal and PRD for full product context.
-Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for the RFC structure.
+Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
+Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
 
-Write the RFC to pm/backlog/rfcs/{slug}.md.
+Write the RFC as a self-contained HTML file to pm/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
 Commit the RFC, then end your response with:
 
 RFC_COMPLETE
 - slug: {slug}
-- path: pm/backlog/rfcs/{slug}.md
+- path: pm/backlog/rfcs/{slug}.html
 - summary: {3-line summary}
 - issues: {N}
 
@@ -206,7 +208,7 @@ Stop after sending the summary. You will be resumed for implementation after RFC
 Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
 
 After receiving `RFC_COMPLETE`:
-1. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.md` in `pm/backlog/{slug}.md`
+1. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `pm/backlog/{slug}.md`
 2. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 3. Proceed to Stage 4.
 
@@ -223,7 +225,7 @@ Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-wit
 ```text
 Review this engineering RFC for architecture soundness and risk.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.md
+**RFC to review:** pm/backlog/rfcs/{slug}.html
 **Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
@@ -235,7 +237,7 @@ Review this engineering RFC for architecture soundness and risk.
 ```text
 Review this engineering RFC for testing strategy and coverage.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.md
+**RFC to review:** pm/backlog/rfcs/{slug}.html
 **Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
@@ -247,7 +249,7 @@ Review this engineering RFC for testing strategy and coverage.
 ```text
 Review this engineering RFC for complexity and long-term maintainability.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.md
+**RFC to review:** pm/backlog/rfcs/{slug}.html
 **Proposal for reference:** pm/backlog/{slug}.md
 
 ## Project Context
@@ -263,9 +265,23 @@ Review this engineering RFC for complexity and long-term maintainability.
 5. Update RFC frontmatter to `status: approved`.
 6. Update the proposal status to `planned` in `pm/backlog/{slug}.md`.
 7. **ADR extraction (M/L/XL only).** Scan the approved RFC for non-obvious technical choices. For each, write an ADR to `docs/decisions/NNNN-slug.md`. Commit ADRs with the RFC.
-8. Present the final RFC to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Here's the RFC: `pm/backlog/rfcs/{slug}.md`. Approve to begin continuous execution through to merge?"
-9. Wait for user approval. This is the **last interactive gate**.
-10. Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`.
+8. **Resolve open questions.** Collect all questions from the 3 RFC reviewers and any open questions in the RFC's Risks section. For each:
+   - **Answer it** using the proposal (`pm/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
+   - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
+   - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
+   - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
+   - Commit the updated RFC.
+9. **Open RFC in browser.**
+
+   The RFC is already HTML (written in Stage 3). After resolving questions and updating the Change Log, open it directly:
+
+   ```bash
+   open pm/backlog/rfcs/{slug}.html
+   ```
+
+   Present to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Opening RFC in browser. Approve to begin continuous execution through to merge?"
+10. Wait for user approval. This is the **last interactive gate**.
+11. Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`.
 
 ## Stage 5: Implementation via the Same Developer Worker
 
@@ -282,7 +298,7 @@ Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
-**RFC:** pm/backlog/rfcs/{slug}.md
+**RFC:** pm/backlog/rfcs/{slug}.html
 **Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
@@ -333,13 +349,13 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 ### Worker lifecycle
 
 ```
-Persistent developer worker created (Stage 4)
-  → explores codebase, writes plan, commits
-  → returns PLAN_COMPLETE summary
+Persistent developer worker created (Stage 3)
+  → explores codebase, writes RFC, commits
+  → returns RFC_COMPLETE summary
   → remains resumable when runtime supports persistent workers
 
-Orchestrator runs RFC review (Stage 4.5)
-  → fixes blocking issues in plan
+Orchestrator runs RFC review (Stage 4)
+  → fixes blocking issues in RFC
   → user approves
 
 Same worker resumed for implementation (Stage 5-7)
@@ -359,17 +375,18 @@ If the persistent developer worker dies during implementation (API overload, tim
 3. Start a **fresh** `pm:developer` worker using the runtime adapter, reusing the same logical worker name when the runtime supports it:
 
 ```text
-You are a RECOVERY worker. The previous developer worker died during implementation.
+You are a RECOVERY worker. A previous developer worker died during implementation.
 
 **Session file:** .pm/dev-sessions/{slug}.md
-**Plan:** {PLAN_FILE_PATH}
+**RFC:** pm/backlog/rfcs/{slug}.html
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 
-Check what was already done before continuing:
+A previous agent failed on this task. Check what was already done before starting:
 - git log --oneline to see committed work
 - git status for uncommitted changes
-- Read the plan to identify remaining tasks
+- Read the RFC to identify remaining tasks
+Send a progress update after each commit or every 5 minutes.
 
 Continue from where the previous worker left off.
 Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md.
@@ -447,7 +464,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Ticket | PROJ-456 |
 | Repo root | /path/to/project |
 | Active cwd | /path/to/project/.worktrees/feature-name |
-| Plan | docs/plans/2026-02-15-feature.md |
+| RFC | pm/backlog/rfcs/feature-name.html |
 | Branch | feat/feature-name |
 | Worktree | .worktrees/feature-name |
 | Started at | 2026-04-04T01:00:00Z |

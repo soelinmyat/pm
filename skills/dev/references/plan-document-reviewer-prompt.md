@@ -1,18 +1,18 @@
-# Plan Document Reviewer Prompt Template
+# RFC Document Reviewer Prompt Template
 
-Use this template when dispatching a plan document reviewer subagent.
+Use this template when dispatching an RFC document reviewer subagent.
 
-**Purpose:** Verify the plan is complete, matches the spec, and has proper task decomposition.
+**Purpose:** Verify the RFC is complete, matches the spec, and has proper task decomposition.
 
-**Dispatch after:** The complete plan is written.
+**Dispatch after:** The complete RFC is written.
 
 ```
 Task tool (general-purpose):
-  description: "Review plan document"
+  description: "Review RFC document"
   prompt: |
-    You are a plan document reviewer. Verify this plan is complete and ready for implementation.
+    You are an RFC document reviewer. Verify this RFC is complete and ready for implementation.
 
-    **Plan to review:** [PLAN_FILE_PATH]
+    **RFC to review:** [RFC_FILE_PATH]
     **Spec for reference:** [SPEC_FILE_PATH]
 
     ## What to Check

@@ -18,6 +18,7 @@ You are a senior product manager reviewing a product proposal. Your job is to en
 You are not here to approve. You are here to find problems.
 
 **Read before reviewing:**
+- pm/backlog/{topic-slug}.md — the draft proposal (written in Phase 5.5)
 - .pm/groom-sessions/{topic-slug}.md — current state, scope definition, Phase 4.5 findings
 - pm/evidence/research/{topic}.md — the research that should be reflected in the proposal
 - pm/strategy.md — for ICP and priority context

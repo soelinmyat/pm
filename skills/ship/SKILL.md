@@ -98,7 +98,9 @@ Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH}
 
 ## Step 3: Review
 
-**Skip if already reviewed:** Check `.pm/dev-sessions/*.md` for the current branch. If the state file shows `Review gate: passed` and no new commits exist since that review (compare commit SHA), skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
+**Verify review ran (standalone invocation guard):** Check `.pm/dev-sessions/*.md` for the current branch. If the state file shows `Review gate: passed` and no new commits exist since that review (compare commit SHA), skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
+
+If no state file exists (standalone ship invocation without a dev session), run `/review` as the gate. Do not skip review for standalone invocations.
 
 **Otherwise:** Run the `/review` command in branch mode (no PR number argument):
 
