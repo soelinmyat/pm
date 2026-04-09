@@ -644,7 +644,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-view-all:hover { background: var(--surface-hover); }
 /* Status badges */
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
+.badge-idea { background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.badge-drafted { background: var(--badge-neutral-bg); color: var(--text-muted); }
+.badge-proposed { background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
+.badge-planned { background: var(--badge-info-bg); color: var(--badge-info-text); }
 .badge-in-progress { background: var(--badge-info-bg); color: var(--accent); }
+.badge-done { background: var(--badge-success-bg); color: var(--badge-success-text); }
 .badge-approved { background: var(--badge-success-bg); color: var(--badge-success-text); }
 /* Filter bar */
 .filter-bar { margin-bottom: 24px; }
