@@ -259,11 +259,13 @@ type: proposal
 id: "PM-{NNN}"
 title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
-status: proposed | planned | in-progress | done
+status: proposed | in-progress | done
 verdict: ready | send-back | pause
 handoff_ready: true | false
 prd: proposals/{topic-slug}.html
 rfc: rfcs/{topic-slug}.html | null
+linear_id: "{Linear ID}" | null
+thinking: thinking/{topic-slug}.md | null
 priority: critical | high | medium | low
 labels:
   - "{label}"
