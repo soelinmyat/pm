@@ -23,6 +23,23 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
+3.5. **Linear issue readiness routing** — If `linear_id` is set in the session state (set by SKILL.md routing):
+
+   If `linear_readiness` is `dev-ready`:
+   - Use `linear_title` as the task title and `linear_description` as task context.
+   - Skip proposal existence check in Stage 2.5 — the Linear issue IS the product context.
+   - Proceed to size classification (Step 4) using the Linear description.
+
+   If `linear_readiness` is `needs-groom` AND size is M/L/XL:
+   - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
+   - Invoke `pm:groom` within the same conversation. Pass the Linear context as conversation text: title, description, labels, ID, and the slug to use. Groom picks up this context from the preceding messages — no CLI flags needed.
+   - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment. Linear ID: {ID}. Title: {title}. Description: {description}."
+   - After groom completes, re-read `pm/backlog/{slug}.md` (groom creates this with `handoff_ready: true` and `rfc: null`). Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
+
+   If `linear_readiness` is `needs-groom` AND size is XS/S:
+   - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.
+   - Store `linear_id` in session state for ship write-back.
+
 4. **Classify size:**
 
 | Size | Signal | Example |
@@ -130,6 +147,23 @@ Read `.pm/dev-sessions/{slug}.md`. If `Stage` is `rfc-approved`:
 - **Skip Stages 3 and 4 entirely.** Log: `RFC: approved (resumed from prior session)`.
 - If a worktree path is recorded in the session file, verify it still exists. If not, re-create it (Stage 2).
 - Proceed directly to Stage 5 (Implementation) using the **resume path**.
+
+### Step 0.5: Linear-sourced dev-ready shortcut
+
+If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{slug}.md` exists:
+- This is a Linear issue that passed the readiness check. No local proposal needed.
+- **RFC needed.** Proceed to Stage 3 (RFC Generation).
+- Pass the Linear issue data (title, description, labels, ID) as product context to the RFC generation prompt, in place of the proposal/PRD context block:
+
+  ```
+  **Product Context (from Linear issue):**
+  - Linear ID: {linear_id}
+  - Title: {linear_title}
+  - Description: {linear_description}
+  - Labels: {linear_labels}
+  ```
+
+- Log: `RFC check: needs-rfc (Linear-sourced, dev-ready, no local proposal)`
 
 ### Step 1: Check for existing proposal + RFC
 
@@ -548,6 +582,14 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Gate 3 (Codex review): pending
 - Gate 4 (Comments): pending
 - Gate 5 (Conflicts): pending
+
+## Linear Context (if sourced from Linear)
+| Field | Value |
+|-------|-------|
+| Linear ID | {ID or null} |
+| Linear readiness | dev-ready / needs-groom / null |
+| Linear fetch | succeeded / failed / null |
+| Linear gaps | [missing-ac, vague-scope, unclear-size] or [] |
 
 ## Resume Instructions
 - Stage: [current stage name]
