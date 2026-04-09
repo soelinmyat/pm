@@ -3334,7 +3334,7 @@ test("PM-125: GET /roadmap/{slug} renders .detail-page wrapper", async () => {
 test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/parent-proposal.md":
-      "---\nstatus: approved\ntitle: Parent Proposal\n---\n# Parent\n",
+      "---\nstatus: proposed\ntitle: Parent Proposal\n---\n# Parent\n",
     "pm/backlog/child-issue.md":
       "---\nstatus: drafted\ntitle: Child Issue\nid: PM-050\nparent: parent-proposal\n---\n# Child\n",
   });

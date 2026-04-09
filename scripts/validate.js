@@ -15,7 +15,7 @@ const {
 
 // ========== Config ==========
 
-const VALID_STATUSES = ["idea", "drafted", "approved", "in-progress", "done"];
+const VALID_STATUSES = ["idea", "drafted", "planned", "proposed", "in-progress", "done"];
 const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
 const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];
@@ -133,8 +133,8 @@ function validateBacklogItem(filePath, data, errors) {
 
   validateRequiredFields(rel, data, REQUIRED_BACKLOG_FIELDS, errors);
 
-  if (data.type && data.type !== "backlog-issue") {
-    pushIssue(errors, rel, "type", `expected "backlog-issue", got "${data.type}"`);
+  if (data.type && !["backlog-issue", "proposal"].includes(data.type)) {
+    pushIssue(errors, rel, "type", `expected "backlog-issue" or "proposal", got "${data.type}"`);
   }
 
   if (data.id && !/^PM-\d{3,}$/.test(data.id)) {
