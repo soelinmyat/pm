@@ -77,13 +77,15 @@ Only run phases that are active for the current tier.
 
 ### Research by tier
 
-Research is still required at all tiers.
+<!-- Tier routing: keep in sync with phases/phase-3-research.md -->
 
-- `quick`: perform a focused inline research pass or reuse existing relevant research; do not force the full multi-stage review stack
-- `standard`: run the normal research phase
-- `full`: run the normal research phase
+Research depth scales with the tier. The HARD-GATE only applies to standard and full.
 
-When `quick` reuses existing research without writing new files, `research_location` may remain `null`. Log the sources used in the session notes.
+- `quick`: inline assessment only. Check existing research, write a 2-3 sentence competitive note in the groom output. Do NOT invoke `pm:research`. If the topic is complex, prompt the user to upgrade to standard tier.
+- `standard`: full `pm:research` invocation (HARD-GATE applies)
+- `full`: full `pm:research` invocation (HARD-GATE applies)
+
+When `quick` performs an inline assessment without writing new files, `research_location` remains `null`. Log the inline finding as `research_note` in the session state.
 
 ---
 
@@ -186,6 +188,7 @@ strategy_check:
   supporting_priority: "{priority text}" | null
 
 research_location: pm/evidence/research/{topic-slug}.md | null
+research_note: "{1-line summary of inline finding}" | null  # quick tier only
 
 scope:
   in_scope:
