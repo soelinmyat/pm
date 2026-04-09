@@ -78,6 +78,7 @@ Interpret the argument or surrounding user message as a routing hint:
 - "research X", "look into X", "investigate X" → topic research
 - "think", "brainstorm", "what if", "how should we" → `pm:think`
 - "groom", "feature idea", "spec", "PRD", "break this down" → `pm:groom`
+- "explore", "look around", "just show me", "skip" → show dashboard brief and stop
 
 If no clear hint exists, ask the user what they want to do first.
 
@@ -92,8 +93,9 @@ Get the user to value quickly. Do not front-load integration questions.
 1. Create the minimum PM workspace
 2. Ensure `.gitignore` is correct
 3. Write minimal config with sensible defaults
-4. Decide the user's first workflow
-5. Route directly into that workflow
+4. Summarize what was created
+5. Decide the user's first workflow
+6. Route directly into that workflow
 
 ### Step 1: Create Folder Structure
 
@@ -167,30 +169,45 @@ Only ask for a project name if the repo directory name is obviously generic or t
 
 Do **not** ask about Linear or Ahrefs during Bootstrap Mode. Those are deferred until a later workflow needs them.
 
-### Step 4: Choose The First Workflow
+### Step 4: Summarize What Was Created
+
+Before asking the user to choose a workflow, give a brief orientation so they understand the workspace:
+
+> "PM is set up. Here's what was created:
+> - `pm/` — your knowledge base (insights, evidence, backlog, thinking)
+> - `.pm/` — internal state (gitignored, you won't see this in commits)
+> - Dashboard: {url}"
+
+If the dashboard URL is not available, omit the dashboard line.
+
+Keep this brief — no more than 4 lines. The goal is orientation, not a tutorial.
+
+### Step 5: Choose The First Workflow
 
 If the user already gave a clear starting intent, route directly.
 
 If not, ask ONE question:
 
 > "What do you want to do first?
-> (a) Import customer evidence
-> (b) Research the market
-> (c) Research competitors
-> (d) Research a specific topic
-> (e) Think through an idea
-> (f) Groom a feature idea"
+> (a) Think through an idea — explore and pressure-test a product idea
+> (b) Research the market — landscape overview of your space
+> (c) Research competitors — profile specific alternatives
+> (d) Research a specific topic — deep dive into any question
+> (e) Groom a feature idea — scope and spec a feature for development
+> (f) Import customer evidence — bring in transcripts, feedback, or data files
+> (g) Just explore — look around the dashboard first"
 
-### Step 5: Route Immediately
+### Step 6: Route Immediately
 
 Routing rules:
 
-- File/folder path or evidence import request → invoke `pm:ingest`
+- Thinking / brainstorming → if the idea is missing, ask for it, then invoke `pm:think`
 - Market / landscape research → invoke `pm:research landscape`
 - Competitor research → invoke `pm:research competitors`
 - Specific topic research → if the topic is missing, ask for it, then invoke `pm:research <topic>`
-- Thinking / brainstorming → if the idea is missing, ask for it, then invoke `pm:think`
 - Grooming / feature scoping → if the idea is missing, ask for it, then invoke `pm:groom`
+- File/folder path or evidence import request → invoke `pm:ingest`
+- Just explore → show the dashboard brief and stop. Do not route into a workflow.
 
 Tell the user briefly which lane you are taking, then hand off to that skill immediately.
 
