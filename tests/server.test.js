@@ -5756,6 +5756,29 @@ test("PM-33: skills/start/SKILL.md does not contain visual_companion or backlog_
 });
 
 // ---------------------------------------------------------------------------
+// PM-33: Setup skill file existence and content contract
+// ---------------------------------------------------------------------------
+
+test("PM-33: skills/setup/SKILL.md exists", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "setup", "SKILL.md");
+  assert.ok(fs.existsSync(skillPath), "skills/setup/SKILL.md must exist");
+});
+
+test("PM-33: commands/setup.md exists", () => {
+  const cmdPath = path.join(__dirname, "..", "commands", "setup.md");
+  assert.ok(fs.existsSync(cmdPath), "commands/setup.md must exist");
+});
+
+test("PM-33: setup skill contains supported integrations and argument patterns", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "setup", "SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+  assert.ok(content.includes("linear"), "setup SKILL.md must reference linear integration");
+  assert.ok(content.includes("ahrefs"), "setup SKILL.md must reference ahrefs integration");
+  assert.ok(content.includes("enable"), "setup SKILL.md must reference enable action");
+  assert.ok(content.includes("disable"), "setup SKILL.md must reference disable action");
+});
+
+// ---------------------------------------------------------------------------
 // PM-33: readConfig() and getProjectName() refactoring
 // ---------------------------------------------------------------------------
 

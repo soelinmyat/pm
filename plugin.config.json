@@ -30,6 +30,7 @@
     "merge",
     "refresh",
     "research",
+    "setup",
     "ship",
     "start",
     "strategy",
@@ -37,7 +38,7 @@
   ],
   "codex": {
     "fallbackSkillAliases": {
-      "pm": ["start", "research", "strategy", "groom", "think", "ingest", "refresh"],
+      "pm": ["start", "setup", "research", "strategy", "groom", "think", "ingest", "refresh"],
       "dev": [
         "debugging",
         "design-critique",
