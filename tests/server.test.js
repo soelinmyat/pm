@@ -5569,7 +5569,11 @@ test("PM-150: GET /roadmap?view=threads excludes sub-issues from top-level rows"
     try {
       const { body } = await httpGet(port, "/roadmap?view=threads");
       assert.ok(body.includes("Parent Feature"), "must show parent");
-      assert.ok(!body.includes("Child Task"), "must not show child as separate row");
+      // Child must appear only inside disclosure, not as a separate <tr>
+      // Count <tr> elements — should be 1 data row (parent) + 1 header row
+      const trMatches = body.match(/<tr>/g) || [];
+      // Header row + 1 parent row = 2 total
+      assert.equal(trMatches.length, 2, "must have only header row and parent row (no child row)");
     } finally {
       await close();
     }
@@ -5615,6 +5619,104 @@ test("PM-150: roadmap view toggle links are present", async () => {
       assert.ok(
         threadsBody.includes('"/roadmap"') || threadsBody.includes("Kanban"),
         "threads view must have kanban toggle link"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Thread view — children disclosure toggle
+// ---------------------------------------------------------------------------
+
+test("PM-150: thread view shows children disclosure toggle for parent with children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/parent-with-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-310",
+      "title: Parent With Kids",
+      "outcome: Feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Parent With Kids",
+    ].join("\n"),
+    "pm/backlog/child-one.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-311",
+      "title: Child One",
+      "outcome: Sub task",
+      "status: in-progress",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child One",
+    ].join("\n"),
+    "pm/backlog/child-two.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-312",
+      "title: Child Two",
+      "outcome: Sub task 2",
+      "status: idea",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child Two",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Parent With Kids"), "must show parent");
+      assert.ok(body.includes("2 sub-issue"), "must show sub-issue count");
+      assert.ok(body.includes("<details"), "must have disclosure toggle");
+      assert.ok(body.includes("Child One"), "must list child in disclosure");
+      assert.ok(body.includes("Child Two"), "must list child in disclosure");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: thread view does not show disclosure toggle for items without children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/no-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-313",
+      "title: No Kids Feature",
+      "outcome: Solo feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# No Kids Feature",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("No Kids Feature"), "must show feature");
+      assert.ok(
+        !body.includes('<details class="thread-children-toggle"'),
+        "must not have disclosure toggle element when no children"
       );
     } finally {
       await close();

@@ -5233,17 +5233,21 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
 function handleBacklogThreads(res, pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
   const items = [];
-  const childCounts = {};
+  const childrenByParent = {};
 
   if (fs.existsSync(backlogDir)) {
     const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
-    // First pass: count children per parent
+    // First pass: collect children per parent
     for (const file of files) {
       const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
       const parent = data.parent || null;
       if (parent && parent !== "null") {
-        childCounts[parent] = (childCounts[parent] || 0) + 1;
+        if (!childrenByParent[parent]) childrenByParent[parent] = [];
+        childrenByParent[parent].push({
+          id: data.id || null,
+          title: data.title || file.replace(".md", ""),
+        });
       }
     }
     // Second pass: collect parent items
@@ -5263,7 +5267,7 @@ function handleBacklogThreads(res, pmDir) {
         linear_id: data.linear_id || null,
         prs: Array.isArray(data.prs) ? data.prs : [],
         updated: data.updated || data.created || "",
-        childCount: childCounts[slug] || 0,
+        children: childrenByParent[slug] || [],
       });
     }
   }
@@ -5328,7 +5332,18 @@ function handleBacklogThreads(res, pmDir) {
               .join(" ")
           : "\u2014";
 
-      let featureCell = `<div class="thread-feature">${titleHtml}</div>`;
+      let featureCell = `<div class="thread-feature">${titleHtml}`;
+      if (item.children.length > 0) {
+        const count = item.children.length;
+        const childListHtml = item.children
+          .map((c) => {
+            const cId = c.id ? `<strong>${escHtml(c.id)}</strong> ` : "";
+            return `<li>${cId}${escHtml(c.title)}</li>`;
+          })
+          .join("");
+        featureCell += `<details class="thread-children-toggle"><summary>${count} sub-issue${count !== 1 ? "s" : ""}</summary><ul class="thread-children-list">${childListHtml}</ul></details>`;
+      }
+      featureCell += "</div>";
 
       pageBody += "<tr>";
       pageBody += `<td>${featureCell}</td>`;
