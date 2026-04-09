@@ -64,9 +64,9 @@ Parse `$ARGUMENTS` and user message:
 | Argument is a cycle name, or user says "fix bugs" / "bug triage" / "batch bugs" / "cycle bugs" | **Bug Fix** | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/bug-fix-flow.md` |
 | Everything else (single issue, topic, slug, "build X", "fix Y") | **Single Issue** | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/single-issue-flow.md` |
 
-**Local backlog resolution (always runs first):** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`):
+**Local backlog resolution (always runs first):** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
 1. First, check `pm/backlog/{slug}.md` — if found, read frontmatter and use as task context. Route to Single Issue.
-2. If the argument matches `PM-{NNN}` format, scan `pm/backlog/*.md` frontmatter for a matching `id:` field. If found, use that file's slug and content as task context. Route to Single Issue.
+2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `pm/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context. Route to Single Issue.
 3. Only if no local backlog match: fall through to MCP lookup below.
 
 **Epic detection (MCP fallback):** If `$ARGUMENTS` looks like an issue ID (e.g., `PM-036`, `CLE-1200`) and was NOT resolved from local backlog above, fetch via MCP and check for sub-issues. If it has sub-issues → epic. If not → single issue. If MCP returns nothing, route to Single Issue with the argument as the topic.

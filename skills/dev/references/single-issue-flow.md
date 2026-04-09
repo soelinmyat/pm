@@ -102,7 +102,22 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
 6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
-7. **Update proposal status:** If `pm/backlog/{slug}.md` exists with `type: proposal`, set `status: in-progress` in its frontmatter (only if current status is `proposed` or absent). If the backlog item has a `parent` field, find the parent's backlog entry and update its status too. For legacy `.meta.json` sidecars: if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"` there as well. This keeps the dashboard accurate from the moment work begins.
+7. **Update local backlog status to in-progress:**
+
+   <HARD-RULE>
+   If `pm/backlog/{slug}.md` exists, you MUST update it now. Do not defer this to later.
+   </HARD-RULE>
+
+   a. Read `pm/backlog/{slug}.md`. If it exists and `status` is not already `in-progress` or `done`:
+      - Set `status: in-progress` in frontmatter
+      - Set `updated: {today's date}` in frontmatter
+      - If `linear_id` is available in session state and not already in frontmatter, add it
+
+   b. If the backlog item has a `parent` field, find `pm/backlog/{parent-slug}.md` and set its `status: in-progress` too (if not already `in-progress` or `done`).
+
+   c. For legacy `.meta.json` sidecars: if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"`.
+
+   Log: `Backlog: pm/backlog/{slug}.md → in-progress`
 
 ### Worktree environment prep
 
@@ -490,70 +505,136 @@ Runs after EVERY task regardless of size.
 4. If a learning is a "review should catch this" anti-pattern, and a review checklist exists (e.g., `.claude/references/review-checklist.md`), append it under the appropriate section
 5. Cap: 50 entries. Archive >3 months old to `docs/archive/learnings-archive.md`
 
-## Issue Tracker Updates (ALL sizes)
+## Status Updates (ALL sizes)
 
 <HARD-GATE>
-When an issue tracker is detected (see Project Context Discovery) AND the task was started from a ticket, you MUST update the issue status to "Done" after merge. This applies to ALL sizes (XS/S/M/L/XL), not just M/L/XL. Do NOT proceed to retro until the tracker is updated. Do NOT consider the task complete without this step.
+After merge, you MUST complete ALL status updates below — both local backlog AND issue tracker (if available). Do NOT proceed to retro until every step is done. Do NOT consider the task complete without this. This applies to ALL sizes (XS/S/M/L/XL).
 </HARD-GATE>
 
-When an issue tracker is detected:
+### At intake (set "In Progress")
 
-| Stage | Action | Sizes |
-|-------|--------|-------|
-| Intake (conversation) | Create issue in current cycle/sprint | M/L/XL |
-| Intake (ticket) | Fetch context, set "In Progress" | ALL |
-| Plan complete | Comment with plan summary | M/L/XL |
-| PR created | Comment with PR link | M/L/XL |
-| Merged | Set status "Done", comment with merge SHA. **Also close/complete all sub-issues.** | **ALL** |
-| Retro | Comment with learnings summary | M/L/XL |
+These happen during Stage 2 (Workspace), not after merge. Listed here for completeness.
 
-If no issue tracker is configured, skip these updates.
+**Local backlog:** Handled in Stage 2 step 7 — sets `pm/backlog/{slug}.md` status to `in-progress`.
 
-## Knowledge Base Updates (after merge)
+**Linear** (if available, ticket-originated):
+```
+mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "In Progress" })
+```
 
-After merge, update the local knowledge base to reflect shipped work:
+For conversation-originated work (M/L/XL): create the Linear issue first, then set In Progress.
 
-0. **Create backlog entry for Linear-originated work:** If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or in the RFC metadata) AND `pm/backlog/{slug}.md` does NOT exist:
-   - Create `pm/backlog/` if needed: `mkdir -p pm/backlog`
-   - Scan existing `pm/backlog/*.md` for the highest `id` value (format: `PM-{NNN}`). Increment by 1.
-   - Write `pm/backlog/{slug}.md` with this frontmatter and body:
-     ```yaml
-     ---
-     type: backlog-issue
-     id: "PM-{next_id}"
-     title: "{title from Linear or RFC}"
-     outcome: "{one-sentence from RFC summary or Linear description}"
-     status: done
-     priority: medium
-     linear_id: "{linear_id}"
-     rfc: rfcs/{slug}.html
-     prs:
-       - "#{pr_number}"
-     created: {today's date, YYYY-MM-DD format}
-     updated: {today's date, YYYY-MM-DD format}
-     ---
+### At plan complete (M/L/XL)
 
-     ## Outcome
+**Linear** (if available):
+```
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "RFC written: {summary}" })
+```
 
-     {Summary of what was built, derived from RFC or Linear description.}
+### At PR created (M/L/XL)
 
-     ## Notes
+**Linear** (if available):
+```
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "PR opened: #{pr_number}" })
+```
 
-     Originated from Linear issue {linear_id}. Product memory created at ship.
-     ```
-   - Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify the entry is valid. Fix any errors before proceeding.
-   - Log: `Product memory created: pm/backlog/{slug}.md (source: Linear {linear_id})`
-   - Then continue to Step 1 (which will now find the file and update status — but it's already `done`, so this is a no-op).
+### After merge — set "Done" everywhere
 
-1. **Backlog item:** If `pm/backlog/{slug}.md` exists, update its frontmatter `status` to `done` and set `updated` to today's date. If `linear_id` is available in the session state and not already present in the frontmatter, add it.
+<HARD-GATE>
+You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A parent marked "Done" with open children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
+</HARD-GATE>
 
-2. **Proposal status:** Proposals have two status dimensions — `verdict` (grooming outcome, never changed by dev) and `status` (implementation lifecycle). Dev only updates `status`. **Never overwrite `verdict` or `verdictLabel`** — those belong to the groom skill.
+**Step 1: Create local backlog entry if missing.**
 
-   After merge: if the backlog item has a `parent` field pointing to a proposal slug, check if **all** sibling issues (same parent) are now `done`. If so, update `pm/backlog/proposals/{parent}.meta.json` — set `"status": "shipped"`.
+If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `pm/backlog/{slug}.md` does NOT exist:
+- Create `pm/backlog/` if needed: `mkdir -p pm/backlog`
+- **ID rule:** When Linear is available, use the Linear identifier as the local `id`. Only fall back to local `PM-{NNN}` sequence when no tracker is configured.
+- Write `pm/backlog/{slug}.md`:
+  ```yaml
+  ---
+  type: backlog-issue
+  id: "{linear_id}"
+  title: "{title from Linear or RFC}"
+  outcome: "{one-sentence from RFC summary or Linear description}"
+  status: done
+  priority: medium
+  linear_id: "{linear_id}"
+  rfc: rfcs/{slug}.html
+  prs:
+    - "#{pr_number}"
+  created: {today's date, YYYY-MM-DD format}
+  updated: {today's date, YYYY-MM-DD format}
+  ---
 
-   Also check if a proposal meta.json exists matching the current issue's slug directly (for proposals that are single-issue). If it does and the issue is done, set `"status": "shipped"`.
+  ## Outcome
 
-These updates keep the dashboard accurate without manual bookkeeping.
+  {Summary of what was built, derived from RFC or Linear description.}
+
+  ## Notes
+
+  Originated from Linear issue {linear_id}. Product memory created at ship.
+  ```
+- Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify. Fix errors before proceeding.
+- Log: `Backlog created: pm/backlog/{slug}.md (id: {linear_id})`
+
+**Step 2: Update local backlog item to done.**
+
+Read `pm/backlog/{slug}.md`. Update frontmatter:
+- Set `status: done`
+- Set `updated: {today's date}`
+- If `linear_id` is available in session state and not already in frontmatter, add it
+- If `prs` field exists, append `"#{pr_number}"` if not already listed
+
+Verify the file was written: read it back and confirm `status: done`.
+
+Log: `Backlog: pm/backlog/{slug}.md → done`
+
+**Step 3: Update parent/proposal status.**
+
+Proposals have two status dimensions — `verdict` (grooming outcome, owned by groom, NEVER changed by dev) and `status` (implementation lifecycle, owned by dev).
+
+a. If the backlog item has a `parent` field pointing to a proposal slug:
+   - Read all sibling backlog items (same `parent` value)
+   - If ALL siblings are now `done`, update `pm/backlog/proposals/{parent}.meta.json` — set `"status": "shipped"`
+   - Log: `Proposal: {parent} → shipped`
+
+b. If `pm/backlog/proposals/{slug}.meta.json` exists (single-issue proposal), set `"status": "shipped"`.
+
+**Step 4: Close Linear child issues** (if tracker available).
+
+Fetch children:
+```
+mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
+```
+
+For EACH child returned, set to Done:
+```
+mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ISSUE_ID}", state: "Done" })
+```
+Log each: `Linear: {CHILD_ISSUE_ID} → Done`
+
+**Step 5: Close Linear parent issue** (if tracker available).
+
+```
+mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "Merged: {sha}" })
+```
+Log: `Linear: {ISSUE_ID} → Done (+ {N} children closed)`
+
+**Step 6: Verify.**
+
+- Read `pm/backlog/{slug}.md` — confirm `status: done`
+- If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{ISSUE_ID}" })` — confirm state is "Done"
+- If either check fails, retry the update. Do NOT proceed until confirmed.
+
+Log summary: `Status updates complete: backlog → done, Linear → Done`
+
+### At retro (M/L/XL)
+
+**Linear** (if available):
+```
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "{learnings summary}" })
+```
 
 ## State File (.pm/dev-sessions/{slug}.md)
 

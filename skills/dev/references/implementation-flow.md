@@ -443,7 +443,29 @@ pkill -f 'node.*playwright' 2>/dev/null || true
 pkill -f 'pytest' 2>/dev/null || true
 ```
 
-Update issue status to Done (if issue tracker available).
+**Update ALL statuses** (local backlog + issue tracker):
+
+<HARD-RULE>
+Both local backlog and issue tracker must be updated. Do not skip either. A merged PR with a backlog item still showing "in-progress" is a bug.
+</HARD-RULE>
+
+**Local backlog:**
+- If `pm/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}` in frontmatter
+- If `linear_id` is available and not in frontmatter, add it
+- Log: `Backlog: pm/backlog/{slug}.md → done`
+
+**Issue tracker** (if available):
+- If this issue has child/sub-issues, close them ALL first:
+  ```
+  mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
+  # For EACH child:
+  mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ID}", state: "Done" })
+  ```
+- Then close the parent:
+  ```
+  mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
+  ```
+- Log: `Linear: {ISSUE_ID} → Done`
 
 ---
 

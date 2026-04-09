@@ -373,7 +373,11 @@ For each sub-issue in dependency order:
    git worktree add .worktrees/{slug} -b feat/{slug} origin/{DEFAULT_BRANCH}
    ```
 
-2. **Set issue status** to In Progress (if tracker available).
+2. **Set issue status to In Progress** (if tracker available):
+   ```
+   mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
+   ```
+   Log: `Linear: {SUB_ISSUE_ID} → In Progress`
 
 3. **Dispatch fresh `pm:developer` agent** with this implementation brief:
 
@@ -450,27 +454,62 @@ Track retry count per sub-issue in the state file.
 
 After all sub-issues are merged.
 
-### 5.1 Issue tracker update
+### 5.1 Status updates (local backlog + issue tracker)
 
 <HARD-GATE>
-If an issue tracker is available, you MUST update ALL issue statuses before proceeding to retro. Do not skip this step. Do not consider the epic complete without it.
+You MUST complete ALL steps below before proceeding to retro. This applies whether or not an issue tracker is configured. A merged epic with backlog items still showing "in-progress" is a bug. A parent marked "Done" with open children is a bug.
 </HARD-GATE>
 
-1. **Verify all sub-issue statuses:** Check each sub-issue. If any are not "Done", update them now.
-2. **Update parent issue:** Set parent issue to "Done". Comment with summary table (sub-issue | PR | commit).
-3. **Announce:** Report the tracker update to the user: "Updated {N} issues to Done in {tracker}."
+**Step 1: Update local backlog for each sub-issue.**
 
-### 5.1b Knowledge base update
+For each sub-issue in the state file:
+- If `pm/backlog/{sub-issue-slug}.md` exists:
+  - Set `status: done` in frontmatter
+  - Set `updated: {today's date}` in frontmatter
+  - If `linear_id` is available and not already in frontmatter, add it
+  - If `prs` field exists, append `"#{pr_number}"` if not already listed
+- Log: `Backlog: pm/backlog/{sub-issue-slug}.md → done`
 
-After all sub-issues are merged and tracker is updated:
+**Step 2: Update parent local backlog item.**
 
-1. **Backlog items:** For each sub-issue, if `pm/backlog/{slug}.md` exists, update frontmatter `status` to `done` and `updated` to today's date.
+If `pm/backlog/{parent-slug}.md` exists:
+- Set `status: done` in frontmatter
+- Set `updated: {today's date}` in frontmatter
+- Log: `Backlog: pm/backlog/{parent-slug}.md → done`
 
-2. **Parent backlog item:** If `pm/backlog/{parent-slug}.md` exists, update its `status` to `done`.
+**Step 3: Update proposal status.**
 
-3. **Proposal status:** Proposals have two status fields — `verdict` (grooming outcome, owned by groom) and `status` (implementation lifecycle, owned by dev). **Never overwrite `verdict` or `verdictLabel`.**
+Proposals have two status fields — `verdict` (grooming outcome, owned by groom, NEVER changed by dev) and `status` (implementation lifecycle, owned by dev).
 
-   If `pm/backlog/proposals/{parent-slug}.meta.json` exists, set `"status": "shipped"`. If the proposal slug differs from the parent slug, also check child backlog items' `parent` fields to find the matching proposal and update it.
+If `pm/backlog/proposals/{parent-slug}.meta.json` exists, set `"status": "shipped"`. If the proposal slug differs from the parent slug, check child backlog items' `parent` fields to find the matching proposal and update it.
+
+Log: `Proposal: {parent-slug} → shipped`
+
+**Step 4: Close Linear sub-issues** (if tracker available).
+
+For each sub-issue in the state file, if not already "Done":
+```
+mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "Done" })
+```
+Log each: `Linear: {SUB_ISSUE_ID} → Done`
+
+**Step 5: Close Linear parent issue** (if tracker available).
+
+```
+mcp__plugin_linear_linear__save_issue({ id: "{PARENT_ISSUE_ID}", state: "Done" })
+mcp__plugin_linear_linear__save_comment({ issueId: "{PARENT_ISSUE_ID}", body: "Epic complete.\n\n| Sub-issue | PR | Commit |\n|---|---|---|\n| {row per sub-issue} |" })
+```
+
+**Step 6: Verify everything.**
+
+- For each sub-issue: read `pm/backlog/{slug}.md` — confirm `status: done`
+- Read `pm/backlog/{parent-slug}.md` — confirm `status: done`
+- If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{PARENT_ISSUE_ID}" })` — confirm state is "Done"
+- If any check fails, retry the update. Do NOT proceed until all confirmed.
+
+Log: `Status updates complete: {N} backlog items → done, {M} Linear issues → Done`
+
+**Step 7: Announce** to user: "Updated {N} backlog items and {M} Linear issues to Done."
 
 ### 5.2 Retro
 

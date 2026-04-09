@@ -3,6 +3,7 @@
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
    - Set `status: proposed`, `verdict:` from bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`, `linear_id: "{linear_id}" | null`.
+   - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence.
    - Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 
 2. **Linear integration:**
@@ -38,6 +39,7 @@
        - Convert `[text](pm/...)` → `text (\`pm/...\`)` — plain text with path in backticks
        - Leave absolute URLs (starting with `http://` or `https://`) unchanged
      - Create a single parent issue in Linear. Capture the Linear ID.
+     - **Update the local backlog entry's `id` to match the Linear identifier.** The Linear ID is the single source of truth when a tracker is available — do not maintain a separate local PM-{NNN} sequence.
      - Do NOT create child issues — issue splitting happens later during RFC generation in `pm:dev`.
      - Say: "Proposal linked in Linear. ID: {ID}."
 
