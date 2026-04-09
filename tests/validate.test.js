@@ -200,7 +200,7 @@ test("invalid priority enum reports error", (t) => {
 
 test("invalid ID format reports error", (t) => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/bad-id.md": makeBacklogItem({ id: "ISSUE-1" }),
+    "pm/backlog/bad-id.md": makeBacklogItem({ id: "bad-format" }),
   });
   t.after(cleanup);
 
@@ -208,7 +208,7 @@ test("invalid ID format reports error", (t) => {
   assert.equal(result.ok, false);
   const err = result.details.find((d) => d.field === "id");
   assert.ok(err);
-  assert.ok(err.message.includes("ISSUE-1"));
+  assert.ok(err.message.includes("bad-format"));
 });
 
 test("duplicate IDs report error", (t) => {
