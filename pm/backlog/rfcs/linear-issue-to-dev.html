@@ -1,0 +1,2034 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RFC — Linear Issue to Dev Flow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+      document.fonts.ready.then(() =>
+        mermaid.initialize({ startOnLoad: true, theme: "neutral", fontFamily: "Inter" })
+      );
+    </script>
+    <script type="application/json" id="rfc-meta">
+      {
+        "type": "rfc",
+        "parent": "linear-issue-to-dev",
+        "status": "draft",
+        "created": "2026-04-09",
+        "updated": "2026-04-09"
+      }
+    </script>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --font: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        --mono: "JetBrains Mono", "SF Mono", monospace;
+        --bg: #f6f6f4;
+        --bg-surface: #ffffff;
+        --bg-inset: #f0f0ee;
+        --bg-muted: #eeeeed;
+        --ink: #1a1a19;
+        --ink-secondary: #4a4a48;
+        --ink-tertiary: #8a8a87;
+        --ink-faint: #b5b5b1;
+        --rule: #e0e0dc;
+        --rule-subtle: #ebebea;
+        --accent: #5b5bd6;
+        --accent-soft: #e8e8fd;
+        --accent-text: #3e3ea8;
+        --positive: #2b8a3e;
+        --positive-soft: #e6f5ea;
+        --negative: #c92a2a;
+        --negative-soft: #fff0f0;
+        --warning: #e67700;
+        --warning-soft: #fff4e6;
+        --info: #1971c2;
+        --info-soft: #e7f5ff;
+        --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.03), 0 6px 16px rgba(0, 0, 0, 0.04);
+        --r-sm: 6px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --r-pill: 999px;
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+        --content-w: 860px;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 3.75rem;
+      }
+
+      body {
+        font-family: var(--font);
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--ink);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* HERO */
+      .hero {
+        background: #1c1c1e;
+        color: #fff;
+        padding: 2.5rem 2rem 2rem;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+        background-size: 24px 24px;
+        pointer-events: none;
+      }
+      .hero::after {
+        content: "";
+        position: absolute;
+        top: -80px;
+        right: -30px;
+        width: 350px;
+        height: 350px;
+        background: radial-gradient(circle, rgba(43, 138, 62, 0.18) 0%, transparent 65%);
+        pointer-events: none;
+      }
+      .hero-inner {
+        max-width: var(--content-w);
+        margin: 0 auto;
+        padding: 0 2rem;
+        position: relative;
+        z-index: 1;
+      }
+
+      .hero-breadcrumb {
+        font-size: 0.78rem;
+        color: rgba(255, 255, 255, 0.35);
+        margin-bottom: 1.25rem;
+        font-weight: 500;
+      }
+      .hero-breadcrumb a {
+        color: rgba(255, 255, 255, 0.35);
+        text-decoration: none;
+      }
+      .hero-breadcrumb a:hover {
+        color: rgba(255, 255, 255, 0.65);
+      }
+      .hero-breadcrumb .sep {
+        margin: 0 0.4rem;
+        opacity: 0.5;
+      }
+
+      .hero-meta-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .hero h1 {
+        font-size: 1.75rem;
+        font-weight: 800;
+        letter-spacing: -0.035em;
+        line-height: 1.15;
+        margin-bottom: 0.5rem;
+      }
+
+      .hero-summary {
+        font-size: 0.92rem;
+        color: rgba(255, 255, 255, 0.5);
+        max-width: 620px;
+        line-height: 1.55;
+      }
+
+      .hero-meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 1.125rem;
+        padding-top: 0.875rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .hero-meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.78rem;
+        color: rgba(255, 255, 255, 0.4);
+        font-weight: 500;
+      }
+      .hero-meta-sep {
+        color: rgba(255, 255, 255, 0.15);
+        font-size: 0.7rem;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 9px;
+        border-radius: var(--r-pill);
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .pill .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+      }
+      .pill-draft-dark {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .pill-draft-dark .dot {
+        background: rgba(255, 255, 255, 0.4);
+      }
+      .pill-rfc-dark {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      /* STICKY TOC */
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: rgba(246, 246, 244, 0.85);
+        backdrop-filter: blur(16px) saturate(1.4);
+        -webkit-backdrop-filter: blur(16px) saturate(1.4);
+        border-bottom: 1px solid var(--rule);
+        padding: 0 2rem;
+      }
+      .toc-inner {
+        max-width: var(--content-w);
+        margin: 0 auto;
+        display: flex;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .toc-inner::-webkit-scrollbar {
+        display: none;
+      }
+      .toc a {
+        display: block;
+        padding: 0.65rem 0.75rem;
+        font-size: 0.76rem;
+        font-weight: 500;
+        color: var(--ink-tertiary);
+        text-decoration: none;
+        white-space: nowrap;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s var(--ease);
+      }
+      .toc a:hover {
+        color: var(--ink-secondary);
+      }
+      .toc a.active {
+        color: var(--accent-text);
+        border-bottom-color: var(--accent);
+        font-weight: 600;
+      }
+
+      /* CONTENT */
+      .content {
+        max-width: var(--content-w);
+        margin: 0 auto;
+        padding: 2rem 2rem 1rem;
+      }
+
+      /* SECTIONS */
+      .section {
+        margin-bottom: 2.5rem;
+      }
+      .section-header {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        margin-bottom: 1rem;
+      }
+      .section-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: var(--r-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .section-icon svg {
+        width: 16px;
+        height: 16px;
+      }
+      .section-header h2 {
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+      }
+      .section-header::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--rule-subtle);
+        margin-left: 0.5rem;
+      }
+      .section p {
+        color: var(--ink-secondary);
+        line-height: 1.7;
+        font-size: 0.9rem;
+      }
+      .section p + p {
+        margin-top: 0.625rem;
+      }
+      .section-lead {
+        font-weight: 600;
+        color: var(--ink);
+        font-size: 0.92rem;
+        margin-bottom: 0.5rem;
+      }
+
+      /* CALLOUT */
+      .callout {
+        display: flex;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem;
+        border-radius: var(--r-md);
+        border: 1px solid;
+        margin: 1rem 0;
+        font-size: 0.84rem;
+        line-height: 1.55;
+      }
+      .callout-icon {
+        flex-shrink: 0;
+        width: 18px;
+        text-align: center;
+        font-size: 0.9rem;
+      }
+      .callout-body {
+        flex: 1;
+      }
+      .callout-body strong {
+        font-weight: 600;
+      }
+      .callout-info {
+        background: var(--info-soft);
+        border-color: #bfdbfe;
+        color: var(--info);
+      }
+      .callout-warning {
+        background: var(--warning-soft);
+        border-color: #fed7aa;
+        color: #9a3412;
+      }
+
+      /* CODE BLOCK */
+      .code-block {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        line-height: 1.7;
+        padding: 1rem 1.25rem;
+        border-radius: var(--r-md);
+        overflow-x: auto;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        position: relative;
+        margin: 0.75rem 0;
+      }
+      .code-block[data-lang]::before {
+        content: attr(data-lang);
+        position: absolute;
+        top: 0.5rem;
+        right: 0.75rem;
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: rgba(255, 255, 255, 0.25);
+      }
+      .code-kw {
+        color: #cba6f7;
+      }
+      .code-str {
+        color: #a6e3a1;
+      }
+      .code-type {
+        color: #89b4fa;
+      }
+      .code-comment {
+        color: #6c7086;
+        font-style: italic;
+      }
+
+      /* FINDING */
+      .finding {
+        background: var(--bg-surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-md);
+        padding: 0.875rem 1.125rem;
+        margin: 0.5rem 0;
+      }
+      .finding-path {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        margin-bottom: 0.3rem;
+      }
+      .finding-text {
+        font-size: 0.84rem;
+        color: var(--ink-secondary);
+        line-height: 1.55;
+      }
+      .finding-text strong {
+        color: var(--ink);
+      }
+
+      /* OPTION CARDS */
+      .option-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-md);
+        padding: 1rem 1.25rem;
+        margin: 0.625rem 0;
+        transition: box-shadow 0.2s var(--ease);
+      }
+      .option-card:hover {
+        box-shadow: var(--shadow-card);
+      }
+      .option-card.selected {
+        border-color: var(--positive);
+        border-left: 3px solid var(--positive);
+      }
+      .option-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+      }
+      .option-name {
+        font-weight: 600;
+        font-size: 0.92rem;
+        color: var(--ink);
+      }
+      .option-verdict {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 2px 8px;
+        border-radius: 4px;
+      }
+      .verdict-chosen {
+        background: var(--positive-soft);
+        color: var(--positive);
+      }
+      .verdict-rejected {
+        background: var(--negative-soft);
+        color: var(--negative);
+      }
+      .option-desc {
+        font-size: 0.84rem;
+        color: var(--ink-secondary);
+        line-height: 1.55;
+        margin-bottom: 0.75rem;
+      }
+      .pros-cons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+      }
+      .pros-cons ul {
+        list-style: none;
+        font-size: 0.8rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+      }
+      .pros-cons .pc-label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 0.35rem;
+      }
+      .pros-col .pc-label {
+        color: var(--positive);
+      }
+      .cons-col .pc-label {
+        color: var(--negative);
+      }
+      .pros-col li,
+      .cons-col li {
+        color: var(--ink-secondary);
+        padding-left: 1rem;
+        position: relative;
+      }
+      .pros-col li::before {
+        content: "+";
+        position: absolute;
+        left: 0;
+        color: var(--positive);
+        font-weight: 700;
+      }
+      .cons-col li::before {
+        content: "\2013";
+        position: absolute;
+        left: 0;
+        color: var(--negative);
+        font-weight: 700;
+      }
+
+      /* DIAGRAM */
+      .diagram-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-md);
+        padding: 1.25rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+      .diagram-card .mermaid {
+        display: flex;
+        justify-content: center;
+      }
+      .diagram-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--ink-faint);
+        margin-bottom: 0.75rem;
+      }
+
+      /* TABLE */
+      .table-wrap {
+        background: var(--bg-surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-md);
+        overflow: hidden;
+        margin: 1rem 0;
+      }
+      .table-wrap table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+      }
+      .table-wrap thead {
+        background: var(--bg-inset);
+      }
+      .table-wrap th {
+        text-align: left;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--ink-faint);
+        padding: 0.6rem 1rem;
+        border-bottom: 1px solid var(--rule);
+      }
+      .table-wrap td {
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid var(--rule-subtle);
+        color: var(--ink-secondary);
+        vertical-align: top;
+        line-height: 1.5;
+      }
+      .table-wrap tr:last-child td {
+        border-bottom: none;
+      }
+      .table-wrap td strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      /* PHASE GROUPS */
+      .phase-group {
+        margin-bottom: 1.25rem;
+      }
+      .phase-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--ink-faint);
+        margin-bottom: 0.4rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .phase-label::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--rule-subtle);
+      }
+      .issue-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.75rem;
+        border-bottom: 1px solid var(--rule-subtle);
+        font-size: 0.84rem;
+      }
+      .issue-row:last-child {
+        border-bottom: none;
+      }
+      .issue-id {
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--accent-text);
+        background: var(--accent-soft);
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .issue-title-text {
+        font-weight: 500;
+        color: var(--ink);
+        flex: 1;
+      }
+      .issue-size {
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--ink-faint);
+        font-family: var(--mono);
+      }
+      .issue-dep {
+        font-size: 0.68rem;
+        color: var(--ink-faint);
+        font-family: var(--mono);
+      }
+
+      /* COLLAPSIBLE */
+      details {
+        margin: 0.5rem 0;
+      }
+      details summary {
+        cursor: pointer;
+        font-size: 0.84rem;
+        font-weight: 600;
+        color: var(--ink-secondary);
+        padding: 0.5rem 0.75rem;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: var(--r-sm);
+        transition: background 0.15s;
+        user-select: none;
+      }
+      details summary:hover {
+        background: var(--bg-muted);
+      }
+      details summary::before {
+        content: "";
+        width: 0;
+        height: 0;
+        border-left: 5px solid var(--ink-tertiary);
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        transition: transform 0.2s var(--ease);
+        flex-shrink: 0;
+      }
+      details[open] summary::before {
+        transform: rotate(90deg);
+      }
+      details summary::-webkit-details-marker {
+        display: none;
+      }
+      details .details-body {
+        padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+      }
+      details .details-body p {
+        font-size: 0.85rem;
+        color: var(--ink-secondary);
+        line-height: 1.65;
+      }
+
+      /* QUESTIONS */
+      .question-item {
+        display: flex;
+        gap: 0.75rem;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid var(--rule-subtle);
+      }
+      .question-item:last-child {
+        border-bottom: none;
+      }
+      .question-num {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        color: var(--accent-text);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        margin-top: 0.1rem;
+      }
+      .question-text {
+        font-size: 0.86rem;
+        color: var(--ink);
+        font-weight: 500;
+        line-height: 1.45;
+      }
+      .question-meta {
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        margin-top: 0.2rem;
+        font-family: var(--mono);
+      }
+
+      /* DECISION LOG */
+      .decision-item {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: 0.75rem;
+        padding: 0.625rem 0;
+        border-bottom: 1px solid var(--rule-subtle);
+        font-size: 0.82rem;
+      }
+      .decision-item:last-child {
+        border-bottom: none;
+      }
+      .decision-date {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--ink-faint);
+        font-family: var(--mono);
+      }
+      .decision-text {
+        color: var(--ink-secondary);
+        line-height: 1.5;
+      }
+      .decision-text strong {
+        color: var(--ink);
+      }
+      .decision-text em {
+        color: var(--ink-tertiary);
+        font-style: normal;
+        font-size: 0.78rem;
+      }
+
+      /* ISSUE DETAIL */
+      .issue-detail {
+        background: var(--bg-surface);
+        border: 1px solid var(--rule);
+        border-radius: var(--r-md);
+        padding: 1.25rem 1.5rem;
+        margin: 1rem 0;
+      }
+      .issue-detail-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.625rem;
+        border-bottom: 1px solid var(--rule-subtle);
+      }
+      .issue-detail-header h3 {
+        font-size: 0.95rem;
+        font-weight: 700;
+        flex: 1;
+      }
+      .issue-detail-meta {
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        font-family: var(--mono);
+      }
+      .issue-detail p {
+        font-size: 0.84rem;
+        color: var(--ink-secondary);
+        line-height: 1.6;
+        margin-bottom: 0.5rem;
+      }
+      .issue-detail ul,
+      .issue-detail ol {
+        padding-left: 1.25rem;
+        margin-bottom: 0.75rem;
+      }
+      .issue-detail li {
+        font-size: 0.84rem;
+        color: var(--ink-secondary);
+        margin-bottom: 0.3rem;
+        line-height: 1.55;
+      }
+      .issue-detail li strong {
+        color: var(--ink);
+      }
+      .issue-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--ink-faint);
+        margin-top: 1rem;
+        margin-bottom: 0.35rem;
+      }
+
+      /* FOOTER */
+      .footer {
+        max-width: var(--content-w);
+        margin: 0 auto;
+        padding: 1.5rem 2rem 3rem;
+        border-top: 1px solid var(--rule);
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--mono);
+      }
+
+      /* Icon colors */
+      .icon-codebase {
+        background: #e0f2f1;
+        color: #00796b;
+      }
+      .icon-arch {
+        background: var(--accent-soft);
+        color: var(--accent-text);
+      }
+      .icon-alt {
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+      .icon-risk {
+        background: var(--negative-soft);
+        color: var(--negative);
+      }
+      .icon-issues {
+        background: var(--accent-soft);
+        color: var(--accent-text);
+      }
+      .icon-question {
+        background: var(--info-soft);
+        color: var(--info);
+      }
+      .icon-log {
+        background: var(--bg-muted);
+        color: var(--ink-tertiary);
+      }
+
+      @media (max-width: 700px) {
+        .hero {
+          padding: 2rem 1.25rem 1.5rem;
+        }
+        .hero h1 {
+          font-size: 1.5rem;
+        }
+        .content {
+          padding: 1.5rem 1.25rem 1rem;
+        }
+        .pros-cons {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- HERO -->
+    <header class="hero">
+      <div class="hero-inner">
+        <div class="hero-breadcrumb"><a href="#">PM-151</a><span class="sep">/</span>RFC</div>
+        <div class="hero-meta-row">
+          <span class="pill pill-draft-dark"><span class="dot"></span>Draft</span>
+          <span class="pill pill-rfc-dark">Engineering Plan</span>
+        </div>
+        <h1>Linear Issue to Dev Flow &mdash; Engineering Plan</h1>
+        <p class="hero-summary">
+          Teach dev intake to fetch Linear issues, assess readiness, auto-groom thin ones, and write
+          product memory on ship. Three skill files, zero new artifacts.
+        </p>
+
+        <div class="hero-meta">
+          <span class="hero-meta-item">3 issues</span>
+          <span class="hero-meta-sep">&middot;</span>
+          <span class="hero-meta-item">Size: M</span>
+          <span class="hero-meta-sep">&middot;</span>
+          <span class="hero-meta-item">Plugin only</span>
+          <span class="hero-meta-sep">&middot;</span>
+          <span class="hero-meta-item">Apr 9, 2026</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- TOC -->
+    <nav class="toc">
+      <div class="toc-inner">
+        <a href="#codebase" class="active">Codebase</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#decisions">Decisions</a>
+        <a href="#risks">Risks</a>
+        <a href="#issues">Issues</a>
+        <a href="#questions">Resolved</a>
+        <a href="#log">Log</a>
+      </div>
+    </nav>
+
+    <!-- MAIN -->
+    <main class="content">
+      <!-- CODEBASE FINDINGS -->
+      <section class="section" id="codebase">
+        <div class="section-header">
+          <div class="section-icon icon-codebase">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="5.5 4.5 2.5 8 5.5 11.5" />
+              <polyline points="10.5 4.5 13.5 8 10.5 11.5" />
+            </svg>
+          </div>
+          <h2>Codebase Findings</h2>
+        </div>
+        <p class="section-lead">
+          Five findings from exploring the three skill files. These shaped the approach and issue
+          boundaries.
+        </p>
+
+        <div class="finding">
+          <div class="finding-path">skills/dev/SKILL.md &mdash; Route Detection, Step 2</div>
+          <div class="finding-text">
+            <strong>Local backlog resolution runs first.</strong> Step 2 checks
+            <code>pm/backlog/{slug}.md</code>, then scans frontmatter for matching
+            <code>id:</code> fields. Only after both local checks fail does it fall through to
+            <strong>"Epic detection (MCP fallback)"</strong> which fetches via MCP and checks for
+            sub-issues. Single issues from Linear that have no local backlog match currently get
+            routed with the raw argument as "topic" &mdash; no readiness check, no structured
+            context.
+            <strong>This is the insertion point for the new Linear fetch-and-assess logic.</strong>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="finding-path">
+            skills/dev/references/single-issue-flow.md &mdash; Stage 1, Step 3 + Stage 2.5
+          </div>
+          <div class="finding-text">
+            <strong>Intake already fetches tickets but never assesses readiness.</strong> Stage 1
+            Step 3 says: "Issue tracker ticket ID provided? Fetch via MCP." But there is no quality
+            gate between fetching and proceeding. Stage 2.5 (RFC Check) assumes a local
+            <code>pm/backlog/{slug}.md</code> exists &mdash; its Step 1 reads frontmatter for
+            <code>handoff_ready</code> and <code>rfc</code> fields. Linear-sourced issues that
+            bypass groom will not have this file.
+            <strong
+              >Stage 2.5 needs a parallel path for dev-ready Linear issues that have no local
+              backlog entry.</strong
+            >
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="finding-path">skills/groom/phases/phase-1-intake.md</div>
+          <div class="finding-text">
+            <strong
+              >Phase 1 handles "existing idea from backlog" but not "existing Linear issue."</strong
+            >
+            The existing backlog path reads <code>pm/backlog/{slug}.md</code> with
+            <code>status: idea</code> and pre-fills intake. A similar path for Linear issues would
+            read the issue title + description from MCP and pre-fill, skipping clarification
+            questions when the description is rich enough.
+            <strong>This is the Linear-seeded groom entry point.</strong>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="finding-path">skills/groom/phases/phase-6-link.md &mdash; Step 2</div>
+          <div class="finding-text">
+            <strong>Phase 6 creates Linear issues but never updates existing ones.</strong> When
+            Linear is configured, Phase 6 creates a new parent issue. It does not handle the case
+            where the Linear issue already exists (because groom was triggered by dev's readiness
+            check on an existing Linear issue).
+            <strong
+              >Needs a write-back path: comment with groom output + update description with enriched
+              AC.</strong
+            >
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="finding-path">
+            skills/ship/SKILL.md + skills/dev/references/single-issue-flow.md &mdash; Knowledge Base
+            Updates
+          </div>
+          <div class="finding-text">
+            <strong
+              >Post-merge knowledge base updates assume a local backlog entry already
+              exists.</strong
+            >
+            The section says: "If <code>pm/backlog/{slug}.md</code> exists, update its frontmatter."
+            For Linear-originated work with no local backlog, nothing happens &mdash; product memory
+            is lost.
+            <strong
+              >Ship needs a creation path (not just update) for Linear-sourced work, with
+              <code>linear_id</code> in frontmatter.</strong
+            >
+          </div>
+        </div>
+
+        <div class="callout callout-info">
+          <div class="callout-icon">&#8505;</div>
+          <div class="callout-body">
+            <strong>Linear MCP tools already available:</strong> <code>get_issue</code> (fetch),
+            <code>save_issue</code> (update description/fields), <code>save_comment</code> (write
+            comment), <code>list_issue_statuses</code> (get status options). No new MCP capabilities
+            needed.
+          </div>
+        </div>
+      </section>
+
+      <!-- ARCHITECTURE -->
+      <section class="section" id="architecture">
+        <div class="section-header">
+          <div class="section-icon icon-arch">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+              <line x1="2.5" y1="6" x2="13.5" y2="6" />
+              <line x1="6" y1="6" x2="6" y2="13.5" />
+            </svg>
+          </div>
+          <h2>Architecture</h2>
+        </div>
+        <p class="section-lead">
+          Three Markdown skill files modified. No new files, no new artifact types. The dev session
+          state file carries the <code>linear_id</code> through the pipeline.
+        </p>
+
+        <div class="diagram-card">
+          <div class="diagram-label">Linear Issue to Dev Pipeline</div>
+          <div class="mermaid">
+            graph TD A["User: build PM-45"] --> B["Dev SKILL.md<br />Route Detection Step 2"] B -->
+            C{"Local backlog?"} C -->|"Found"| D["Existing flow<br />(unchanged)"] C -->|"Not
+            found"| E["Fetch via Linear MCP<br />get_issue"] E --> F{"Dev-ready?<br />AC + Scope +
+            Size"} F -->|"All pass"| G["Pass Linear data to<br />single-issue-flow.md<br />Stage 2.5
+            new path"] F -->|"Any fail"| H["Auto-groom<br />pm:groom with<br />Linear seed data"] H
+            --> I["Write-back to Linear<br />comment + description"] I --> G G --> J["RFC
+            generation<br />(existing flow)"] J --> K["Implementation<br />(existing flow)"] K -->
+            L["Ship / merge"] L --> M["Create pm/backlog entry<br />with linear_id"]
+          </div>
+        </div>
+
+        <p>
+          <strong>Skills affected:</strong> <code>skills/dev/SKILL.md</code>,
+          <code>skills/dev/references/single-issue-flow.md</code>,
+          <code>skills/groom/phases/phase-1-intake.md</code>,
+          <code>skills/groom/phases/phase-6-link.md</code>, <code>skills/ship/SKILL.md</code>
+        </p>
+        <p>
+          <strong>Cross-boundary sync required:</strong> No. All changes are within the plugin's
+          Markdown instruction files.
+        </p>
+
+        <details>
+          <summary>Why modify existing files instead of creating a new reference file</summary>
+          <div class="details-body">
+            <p>
+              The Linear integration touches three points in the existing workflow (intake, groom,
+              ship). Creating a separate <code>linear-integration.md</code> reference would force
+              every flow to check "am I a Linear issue?" and load an extra file. Instead, the Linear
+              path is woven into each skill's existing decision tree &mdash; one more branch in the
+              routing logic. This is how the epic detection already works: inline in the routing,
+              not a separate file.
+            </p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Why linear_id lives in the session state, not a stub file</summary>
+          <div class="details-body">
+            <p>
+              The proposal says "no local file at intake." The <code>linear_id</code> needs to
+              survive from intake to ship. The dev session state file
+              (<code>.pm/dev-sessions/{slug}.md</code>) already persists across the full dev
+              lifecycle and is read at every stage transition. Adding <code>linear_id</code> there
+              is zero overhead. Ship reads the session state to know what to write back.
+            </p>
+          </div>
+        </details>
+      </section>
+
+      <!-- KEY DECISIONS -->
+      <section class="section" id="decisions">
+        <div class="section-header">
+          <div class="section-icon icon-alt">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 8h10" />
+              <path d="M8 3v10" />
+            </svg>
+          </div>
+          <h2>Key Decisions</h2>
+        </div>
+        <p class="section-lead">
+          Three design decisions. Each shaped by codebase findings and the proposal's principles.
+        </p>
+
+        <div class="option-card selected">
+          <div class="option-header">
+            <span class="option-name">Generous dev-readiness check</span>
+            <span class="option-verdict verdict-chosen">Chosen</span>
+          </div>
+          <div class="option-desc">
+            Accept testable statements anywhere in the description, not just under "AC:" headers.
+            Check for: (1) acceptance criteria exist as testable statements, (2) scope is inferable
+            from the description, (3) size can be classified. All three must pass.
+          </div>
+          <div class="pros-cons">
+            <div class="pros-col">
+              <div class="pc-label">Pros</div>
+              <ul>
+                <li>Works with varied Linear description formats</li>
+                <li>Well-groomed issues skip ceremony immediately</li>
+                <li>No need to enforce a description template in Linear</li>
+              </ul>
+            </div>
+            <div class="cons-col">
+              <div class="pc-label">Cons</div>
+              <ul>
+                <li>May let through marginally-ready issues</li>
+                <li>Judgment call by the LLM, not deterministic</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-card">
+          <div class="option-header">
+            <span class="option-name">Strict AC header matching</span>
+            <span class="option-verdict verdict-rejected">Rejected</span>
+          </div>
+          <div class="option-desc">
+            Require "Acceptance Criteria" or "AC:" header in the Linear description. Parse only
+            structured content under that header.
+          </div>
+          <div class="pros-cons">
+            <div class="pros-col">
+              <div class="pc-label">Pros</div>
+              <ul>
+                <li>Deterministic, no ambiguity</li>
+                <li>Enforces consistent Linear hygiene</li>
+              </ul>
+            </div>
+            <div class="cons-col">
+              <div class="pc-label">Cons</div>
+              <ul>
+                <li>Most Linear issues use free-form descriptions</li>
+                <li>
+                  Would cause nearly all issues to fail readiness, making the fast-path useless
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-card selected">
+          <div class="option-header">
+            <span class="option-name">Groom writes both comment and description to Linear</span>
+            <span class="option-verdict verdict-chosen">Chosen</span>
+          </div>
+          <div class="option-desc">
+            When auto-groom enriches a thin Linear issue: (1) write the full groom output as a
+            comment (preserves original description), (2) append enriched AC to the issue
+            description. Team sees the enrichment where they work.
+          </div>
+          <div class="pros-cons">
+            <div class="pros-col">
+              <div class="pc-label">Pros</div>
+              <ul>
+                <li>Comment preserves history and audit trail</li>
+                <li>Updated description makes issue self-contained</li>
+                <li>Both channels inform the team</li>
+              </ul>
+            </div>
+            <div class="cons-col">
+              <div class="pc-label">Cons</div>
+              <ul>
+                <li>Two MCP calls instead of one</li>
+                <li>Description edit could surprise authors</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-card selected">
+          <div class="option-header">
+            <span class="option-name">Product memory created at ship, not intake</span>
+            <span class="option-verdict verdict-chosen">Chosen</span>
+          </div>
+          <div class="option-desc">
+            The <code>pm/backlog/{slug}.md</code> file for Linear-originated work is only created
+            post-merge by the ship skill. No stub at intake. The RFC is the local artifact during
+            development.
+          </div>
+          <div class="pros-cons">
+            <div class="pros-col">
+              <div class="pc-label">Pros</div>
+              <ul>
+                <li>Knowledge base records outcomes, not intentions</li>
+                <li>Abandoned work leaves no trace (cleaner pm/)</li>
+                <li>Matches proposal principle: "pm/ records outcomes"</li>
+              </ul>
+            </div>
+            <div class="cons-col">
+              <div class="pc-label">Cons</div>
+              <ul>
+                <li>Dashboard does not show in-progress Linear work</li>
+                <li>If ship is skipped, no record exists</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RISKS -->
+      <section class="section" id="risks">
+        <div class="section-header">
+          <div class="section-icon icon-risk">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M8 2L1.5 13h13L8 2z" />
+              <line x1="8" y1="6.5" x2="8" y2="9.5" />
+              <circle cx="8" cy="11.25" r="0.5" fill="currentColor" stroke="none" />
+            </svg>
+          </div>
+          <h2>Technical Risks</h2>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 25%">Risk</th>
+                <th>Impact</th>
+                <th style="width: 30%">Mitigation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Linear MCP unavailable at intake</strong></td>
+                <td>
+                  Dev cannot fetch issue data. No fallback context exists because no local file was
+                  created.
+                </td>
+                <td>
+                  Catch MCP error, ask user to paste issue description manually. Log
+                  <code>linear_fetch: failed</code> in session state and proceed as a
+                  conversation-sourced task.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Most issues fail readiness</strong></td>
+                <td>
+                  The fast-path (skip groom) is rarely used. Every Linear issue triggers auto-groom,
+                  adding 5-15 minutes.
+                </td>
+                <td>
+                  Accepted trade-off. Thin issues need grooming regardless. The readiness check
+                  prevents wasted RFC generation on vague requirements.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Groom write-back overwrites manual edits</strong></td>
+                <td>
+                  A teammate edits the Linear description after groom fetched it. Groom's
+                  <code>save_issue</code> overwrites the teammate's change.
+                </td>
+                <td>
+                  Append enriched AC below a separator (<code>---\n## Enriched AC (auto-groom)</code
+                  >) instead of replacing the description. Original content is preserved.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Session state loses linear_id</strong></td>
+                <td>
+                  If the session file is corrupted or deleted, ship does not know this was a
+                  Linear-originated issue. No product memory written.
+                </td>
+                <td>
+                  Also store <code>linear_id</code> in the RFC metadata (<code
+                    >&lt;script type="application/json"&gt;</code
+                  >
+                  block). Ship checks both sources.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ISSUE BREAKDOWN -->
+      <section class="section" id="issues">
+        <div class="section-header">
+          <div class="section-icon icon-issues">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <path
+                d="M4 2.5h8a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5H4A1.5 1.5 0 012.5 12V4A1.5 1.5 0 014 2.5z"
+              />
+              <line x1="5.5" y1="5.5" x2="10.5" y2="5.5" />
+              <line x1="5.5" y1="8" x2="10.5" y2="8" />
+              <line x1="5.5" y1="10.5" x2="8.5" y2="10.5" />
+            </svg>
+          </div>
+          <h2>Issue Breakdown</h2>
+        </div>
+        <p class="section-lead">
+          3 issues following the "Workflow Steps" splitting pattern. Each follows the natural dev
+          lifecycle and is independently testable.
+        </p>
+
+        <div class="phase-group">
+          <div class="phase-label">Phase 1 &mdash; Intake</div>
+          <div class="issue-row">
+            <span class="issue-id">1</span
+            ><span class="issue-title-text"
+              >Dev intake: Linear fetch, readiness assessment, and routing</span
+            ><span class="issue-size">M</span>
+          </div>
+        </div>
+
+        <div class="phase-group">
+          <div class="phase-label">Phase 2 &mdash; Enrichment</div>
+          <div class="issue-row">
+            <span class="issue-id">2</span
+            ><span class="issue-title-text">Groom: Linear-seeded intake and write-back</span
+            ><span class="issue-size">S</span><span class="issue-dep">&rarr; 1</span>
+          </div>
+        </div>
+
+        <div class="phase-group">
+          <div class="phase-label">Phase 3 &mdash; Product Memory</div>
+          <div class="issue-row">
+            <span class="issue-id">3</span
+            ><span class="issue-title-text">Ship: backlog creation for Linear-originated work</span
+            ><span class="issue-size">S</span><span class="issue-dep">&rarr; 1</span>
+          </div>
+        </div>
+
+        <!-- ═══════════ ISSUE 1 DETAIL ═══════════ -->
+        <div class="issue-detail" id="issue-1">
+          <div class="issue-detail-header">
+            <span class="issue-id">1</span>
+            <h3>Dev intake: Linear fetch, readiness assessment, and routing</h3>
+            <span class="issue-detail-meta">Size: M &middot; Depends on: none</span>
+          </div>
+
+          <p>
+            <strong>Outcome:</strong> When a user says "build PM-45" and no local backlog entry
+            exists, dev fetches the Linear issue, assesses whether it has AC + scope + size, and
+            either routes to RFC planning (ready) or triggers auto-groom (not ready). The Linear
+            issue ID is stored in the session state for downstream use by groom and ship.
+          </p>
+
+          <div class="issue-label">Acceptance Criteria</div>
+          <ol>
+            <li>
+              When <code>$ARGUMENTS</code> matches an issue ID pattern (e.g., <code>PM-45</code>,
+              <code>CLE-200</code>) and no local <code>pm/backlog/{slug}.md</code> or frontmatter
+              <code>id:</code> match is found, dev fetches the issue via Linear MCP
+              <code>get_issue</code>.
+            </li>
+            <li>
+              After fetch, dev assesses dev-readiness by checking: (a) testable acceptance criteria
+              exist in the description, (b) scope is inferable, (c) size can be classified. All
+              three must pass.
+            </li>
+            <li>
+              If all three pass, dev sets <code>linear_id</code> and
+              <code>linear_data</code> (title, description, labels) in
+              <code>.pm/dev-sessions/{slug}.md</code> and proceeds to Stage 2.5 &mdash; the RFC
+              check recognizes this as a Linear-sourced dev-ready issue and skips to RFC generation.
+            </li>
+            <li>
+              If any check fails, dev announces the gaps and invokes <code>pm:groom</code> with the
+              Linear issue data as seed context (title, description, labels, ID).
+            </li>
+            <li>
+              If MCP <code>get_issue</code> fails (timeout, auth error, Linear down), dev catches
+              the error, logs <code>linear_fetch: failed</code>, and asks the user to paste the
+              issue description manually. Session proceeds as conversation-sourced.
+            </li>
+            <li>
+              The epic detection path (issue with sub-issues) is unchanged &mdash; sub-issue check
+              still runs first.
+            </li>
+            <li>
+              Validation passes: <code>node scripts/validate.js --dir pm</code> succeeds after all
+              file changes.
+            </li>
+          </ol>
+
+          <div class="issue-label">Approach</div>
+          <p>
+            Modify two files: <code>skills/dev/SKILL.md</code> and
+            <code>skills/dev/references/single-issue-flow.md</code>.
+          </p>
+
+          <details>
+            <summary>Changes to skills/dev/SKILL.md</summary>
+            <div class="details-body">
+              <p>
+                <strong>Location:</strong> Route Detection &gt; Step 2 &gt; after "Epic detection
+                (MCP fallback)" paragraph.
+              </p>
+              <p>
+                Add a new paragraph titled <strong>"Linear issue readiness check"</strong> between
+                the epic detection paragraph and "After routing, read ONLY the selected flow
+                reference file." The content:
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment"
+                  >**Linear issue readiness check (after epic detection):** If the MCP fetch
+                  returned a single issue (no sub-issues), assess dev-readiness before
+                  routing:</span
+                >
+
+                <span class="code-comment"
+                  >1. **Fetch context:** Read the issue title, description, labels, and status from
+                  the `get_issue` response.</span
+                >
+                <span class="code-comment"
+                  >2. **Dev-readiness assessment:** Check three criteria:</span
+                >
+                <span class="code-comment">
+                  - **AC exist:** The description contains testable acceptance criteria (specific,
+                  verifiable statements — not just a vague description). Be generous: look for
+                  testable statements anywhere, not just under "AC:" headers.</span
+                >
+                <span class="code-comment">
+                  - **Scope is clear:** The description distinguishes what's in scope. It should be
+                  possible to determine what the issue does and doesn't cover.</span
+                >
+                <span class="code-comment">
+                  - **Size is inferrable:** Enough detail exists to classify as XS/S/M/L/XL.</span
+                >
+                <span class="code-comment"
+                  >3. **If all three pass:** Route to Single Issue. Store `linear_id`,
+                  `linear_title`, and `linear_description` in the session state file. Log: `Linear
+                  issue {ID}: dev-ready. Proceeding to RFC.`</span
+                >
+                <span class="code-comment"
+                  >4. **If any fail:** Route to Single Issue but flag for auto-groom. Store
+                  `linear_id` and `linear_readiness: needs-groom` with the specific gaps (e.g.,
+                  `gaps: [missing-ac, vague-scope]`) in the session state. Log: `Linear issue {ID}:
+                  needs grooming ({gaps}). Invoking pm:groom.`</span
+                >
+                <span class="code-comment"
+                  >5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error
+                  message}`. Ask the user: "Could not fetch Linear issue {ID}. Can you paste the
+                  issue description?" Proceed with the pasted text as conversation-sourced task
+                  context.</span
+                >
+              </div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Changes to skills/dev/references/single-issue-flow.md</summary>
+            <div class="details-body">
+              <p>
+                <strong>Stage 1 (Intake), after Step 3:</strong> Add a new Step 3.5 titled
+                <strong>"Linear issue readiness routing."</strong>
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment"
+                  >3.5. **Linear issue readiness routing** — If `linear_id` is set in the session
+                  state (set by SKILL.md routing):</span
+                >
+
+                <span class="code-comment"> If `linear_readiness` is `dev-ready`:</span>
+                <span class="code-comment">
+                  - Use `linear_title` as the task title and `linear_description` as task
+                  context.</span
+                >
+                <span class="code-comment">
+                  - Skip proposal existence check in Stage 2.5 — the Linear issue IS the product
+                  context.</span
+                >
+                <span class="code-comment">
+                  - Proceed to size classification (Step 4) using the Linear description.</span
+                >
+
+                <span class="code-comment"> If `linear_readiness` is `needs-groom`:</span>
+                <span class="code-comment">
+                  - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking
+                  pm:groom."</span
+                >
+                <span class="code-comment">
+                  - Invoke `pm:groom` with arguments: `--linear-id {ID} --linear-title "{title}"
+                  --linear-description "{description}"`</span
+                >
+                <span class="code-comment">
+                  - After groom completes, re-read `pm/backlog/{slug}.md` (groom creates this).
+                  Continue to Stage 2.5 via the existing proposal path.</span
+                >
+              </div>
+
+              <p style="margin-top: 0.75rem">
+                <strong>Stage 2.5 (RFC Check), Step 1:</strong> Add a condition before the existing
+                backlog check.
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment">### Step 0.5: Linear-sourced dev-ready shortcut</span>
+
+                <span class="code-comment"
+                  >If `linear_readiness` is `dev-ready` in the session state AND no
+                  `pm/backlog/{slug}.md` exists:</span
+                >
+                <span class="code-comment"
+                  >- This is a Linear issue that passed the readiness check. No local proposal
+                  needed.</span
+                >
+                <span class="code-comment"
+                  >- **RFC needed.** Proceed to Stage 3 (RFC Generation).</span
+                >
+                <span class="code-comment"
+                  >- Pass the Linear issue data (title, description, labels, ID) as product context
+                  to the RFC generation prompt, in place of the proposal/PRD context block:</span
+                >
+
+                <span class="code-comment"> ```</span>
+                <span class="code-comment"> **Product Context (from Linear issue):**</span>
+                <span class="code-comment"> - Linear ID: {linear_id}</span>
+                <span class="code-comment"> - Title: {linear_title}</span>
+                <span class="code-comment"> - Description: {linear_description}</span>
+                <span class="code-comment"> - Labels: {linear_labels}</span>
+                <span class="code-comment"> ```</span>
+
+                <span class="code-comment"
+                  >- Log: `RFC check: needs-rfc (Linear-sourced, dev-ready, no local
+                  proposal)`</span
+                >
+              </div>
+
+              <p style="margin-top: 0.75rem">
+                <strong>Session state additions:</strong> Add these fields to the state file schema
+                at the bottom of single-issue-flow.md.
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment">## Linear Context (if sourced from Linear)</span>
+                <span class="code-comment">| Field | Value |</span>
+                <span class="code-comment">|-------|-------|</span>
+                <span class="code-comment">| Linear ID | {ID or null} |</span>
+                <span class="code-comment"
+                  >| Linear readiness | dev-ready / needs-groom / null |</span
+                >
+                <span class="code-comment">| Linear fetch | succeeded / failed / null |</span>
+                <span class="code-comment"
+                  >| Linear gaps | [missing-ac, vague-scope, unclear-size] or [] |</span
+                >
+              </div>
+            </div>
+          </details>
+
+          <div class="issue-label">Test Strategy</div>
+          <ol>
+            <li>
+              Run <code>node scripts/validate.js --dir pm</code> &mdash; all modified Markdown files
+              pass frontmatter/structure validation.
+            </li>
+            <li>
+              Manual invocation: <code>/dev PM-999</code> (mock Linear issue with full AC) &mdash;
+              verify it skips groom and proceeds to RFC.
+            </li>
+            <li>
+              Manual invocation: <code>/dev PM-888</code> (mock Linear issue with vague description)
+              &mdash; verify it triggers groom.
+            </li>
+            <li>
+              Manual invocation: <code>/dev PM-777</code> (MCP failure) &mdash; verify it falls back
+              to asking user for description.
+            </li>
+          </ol>
+        </div>
+
+        <!-- ═══════════ ISSUE 2 DETAIL ═══════════ -->
+        <div class="issue-detail" id="issue-2">
+          <div class="issue-detail-header">
+            <span class="issue-id">2</span>
+            <h3>Groom: Linear-seeded intake and write-back</h3>
+            <span class="issue-detail-meta">Size: S &middot; Depends on: Issue 1</span>
+          </div>
+
+          <p>
+            <strong>Outcome:</strong> When groom is invoked by dev for a thin Linear issue, Phase 1
+            pre-fills intake from Linear data (skipping "What's the idea?") and Phase 6 writes
+            enriched output back to the existing Linear issue instead of creating a new one.
+          </p>
+
+          <div class="issue-label">Acceptance Criteria</div>
+          <ol>
+            <li>
+              When groom is invoked with Linear seed data (<code>--linear-id</code>,
+              <code>--linear-title</code>, <code>--linear-description</code>), Phase 1 intake
+              pre-fills the topic from the Linear title, pre-fills existing context from the Linear
+              description, and skips "What's the idea?" &mdash; going directly to clarification
+              questions if needed.
+            </li>
+            <li>
+              The Linear issue ID is stored in the groom session state as
+              <code>linear_source_id</code>.
+            </li>
+            <li>
+              In Phase 6 (Link), when <code>linear_source_id</code> is set, groom writes a comment
+              to the existing Linear issue via <code>save_comment</code> with the full groom output
+              (scope, AC, feasibility, research summary).
+            </li>
+            <li>
+              In Phase 6, groom also updates the existing Linear issue description via
+              <code>save_issue</code> &mdash; appending enriched AC below a separator (<code
+                >---\n## Enriched AC (auto-groom)</code
+              >), preserving the original description.
+            </li>
+            <li>
+              In Phase 6, when <code>linear_source_id</code> is set, groom does NOT create a new
+              Linear issue (it skips the "Create a single parent issue" step).
+            </li>
+            <li>
+              The backlog entry (<code>pm/backlog/{slug}.md</code>) created by Phase 6 includes
+              <code>linear_id: {linear_source_id}</code> in its frontmatter.
+            </li>
+            <li>
+              Validation passes: <code>node scripts/validate.js --dir pm</code> succeeds after all
+              file changes.
+            </li>
+          </ol>
+
+          <div class="issue-label">Approach</div>
+          <p>
+            Modify two files: <code>skills/groom/phases/phase-1-intake.md</code> and
+            <code>skills/groom/phases/phase-6-link.md</code>.
+          </p>
+
+          <details>
+            <summary>Changes to skills/groom/phases/phase-1-intake.md</summary>
+            <div class="details-body">
+              <p>
+                <strong>Location:</strong> After the existing "If grooming an existing idea from
+                backlog" block (before "Otherwise:").
+              </p>
+              <p>Add a new block:</p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment"
+                  >**If invoked with Linear issue seed data** (`--linear-id`, `--linear-title`,
+                  `--linear-description` arguments):</span
+                >
+
+                <span class="code-comment"
+                  >This is a Linear issue that failed the dev-readiness check. Dev has already
+                  fetched the issue and identified the gaps.</span
+                >
+
+                <span class="code-comment"
+                  >1. Set `linear_source_id` in the groom session state.</span
+                >
+                <span class="code-comment">2. Pre-fill the topic from `--linear-title`.</span>
+                <span class="code-comment"
+                  >3. Pre-fill existing context from `--linear-description`.</span
+                >
+                <span class="code-comment">4. Confirm with the user:</span>
+                <span class="code-comment">
+                  > "Grooming Linear issue {ID}: '{title}'. Dev flagged gaps: {gaps from dev
+                  session}.</span
+                >
+                <span class="code-comment">
+                  > Here's the current description: {first 200 chars}...</span
+                >
+                <span class="code-comment"> > Anything to add before I proceed?"</span>
+                <span class="code-comment"
+                  >5. Skip to step 3 (existing research check) after confirmation.</span
+                >
+              </div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Changes to skills/groom/phases/phase-6-link.md</summary>
+            <div class="details-body">
+              <p>
+                <strong>Location:</strong> Step 2 &mdash; replace the existing Linear section with a
+                conditional.
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment">2. **Linear integration:**</span>
+
+                <span class="code-comment">
+                  **If `linear_source_id` is set in the groom session state** (issue already exists
+                  in Linear):</span
+                >
+                <span class="code-comment"> - Do NOT create a new Linear issue.</span>
+                <span class="code-comment">
+                  - Fetch the current issue description via `get_issue` (to get the latest
+                  version).</span
+                >
+                <span class="code-comment">
+                  - Write a comment to the existing issue via `save_comment` with the groom
+                  output:</span
+                >
+                <span class="code-comment"> ```</span>
+                <span class="code-comment"> ## Groom Output (auto-generated)</span>
+                <span class="code-comment"> </span>
+                <span class="code-comment"> **Scope:** {in-scope items}</span>
+                <span class="code-comment"> **Out of scope:** {out-of-scope items}</span>
+                <span class="code-comment"> **Acceptance Criteria:**</span>
+                <span class="code-comment"> {numbered AC list}</span>
+                <span class="code-comment"> **Feasibility:** {verdict}</span>
+                <span class="code-comment"> **Research:** {1-line summary}</span>
+                <span class="code-comment"> ```</span>
+                <span class="code-comment">
+                  - Update the issue description via `save_issue`: append below a separator:</span
+                >
+                <span class="code-comment"> ```</span>
+                <span class="code-comment"> {existing description}</span>
+                <span class="code-comment"> </span>
+                <span class="code-comment"> ---</span>
+                <span class="code-comment"> ## Enriched AC (auto-groom)</span>
+                <span class="code-comment"> {numbered AC list}</span>
+                <span class="code-comment"> ```</span>
+                <span class="code-comment">
+                  - Set `linear_id` in the backlog entry frontmatter to `linear_source_id`.</span
+                >
+                <span class="code-comment">
+                  - Say: "Groom output written back to Linear issue {ID}. AC enriched."</span
+                >
+
+                <span class="code-comment">
+                  **If `linear_source_id` is NOT set** (existing flow, unchanged):</span
+                >
+                <span class="code-comment">
+                  - If Linear is configured, create a single parent issue. Capture the Linear
+                  ID.</span
+                >
+                <span class="code-comment">
+                  - Sanitize local file links before sending (existing logic).</span
+                >
+                <span class="code-comment"> - Say: "Proposal linked in Linear. ID: {ID}."</span>
+              </div>
+              <p style="margin-top: 0.75rem">
+                Also add <code>linear_id</code> to the backlog entry frontmatter in Step 1:
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment">linear_id: "{linear_source_id}" | null</span>
+              </div>
+            </div>
+          </details>
+
+          <div class="issue-label">Test Strategy</div>
+          <ol>
+            <li>
+              Run <code>node scripts/validate.js --dir pm</code> &mdash; all modified Markdown files
+              pass validation.
+            </li>
+            <li>
+              Manual invocation:
+              <code
+                >/groom --linear-id PM-888 --linear-title "Add auth" --linear-description "Users
+                need login"</code
+              >
+              &mdash; verify pre-filled intake and write-back at Phase 6.
+            </li>
+            <li>
+              Manual invocation: standard <code>/groom</code> (no Linear args) &mdash; verify
+              existing flow unchanged.
+            </li>
+          </ol>
+        </div>
+
+        <!-- ═══════════ ISSUE 3 DETAIL ═══════════ -->
+        <div class="issue-detail" id="issue-3">
+          <div class="issue-detail-header">
+            <span class="issue-id">3</span>
+            <h3>Ship: backlog creation for Linear-originated work</h3>
+            <span class="issue-detail-meta">Size: S &middot; Depends on: Issue 1</span>
+          </div>
+
+          <p>
+            <strong>Outcome:</strong> After merging Linear-originated work, ship creates a
+            <code>pm/backlog/{slug}.md</code> entry with <code>status: done</code>,
+            <code>linear_id</code>, and links to the RFC and PR. Product memory is preserved for
+            work that started in Linear.
+          </p>
+
+          <div class="issue-label">Acceptance Criteria</div>
+          <ol>
+            <li>
+              After merge, when <code>linear_id</code> is set in the session state AND no
+              <code>pm/backlog/{slug}.md</code> exists, ship creates the backlog entry.
+            </li>
+            <li>
+              The created backlog entry includes: <code>type: backlog-issue</code>,
+              <code>title</code> (from Linear or RFC), <code>status: done</code>,
+              <code>linear_id</code>, <code>rfc: rfcs/{slug}.html</code> (if RFC exists),
+              <code>prs: ["#{N}"]</code> (from the merged PR), <code>created</code> and
+              <code>updated</code> dates.
+            </li>
+            <li>
+              If <code>pm/backlog/{slug}.md</code> already exists (e.g., created by groom), ship
+              updates its <code>status</code> to <code>done</code> and adds <code>prs</code> field
+              &mdash; existing behavior, extended to also write <code>linear_id</code> if not
+              already present.
+            </li>
+            <li>
+              Ship also checks the RFC metadata for <code>linear_id</code> as a fallback if the
+              session state does not have it.
+            </li>
+            <li>
+              The <code>pm/backlog/</code> directory is created if it does not exist (<code
+                >mkdir -p</code
+              >).
+            </li>
+            <li>
+              Validation passes: <code>node scripts/validate.js --dir pm</code> succeeds after the
+              backlog entry is created.
+            </li>
+          </ol>
+
+          <div class="issue-label">Approach</div>
+          <p>
+            Modify two files: <code>skills/ship/SKILL.md</code> and
+            <code>skills/dev/references/single-issue-flow.md</code>.
+          </p>
+
+          <details>
+            <summary>
+              Changes to skills/dev/references/single-issue-flow.md &mdash; Knowledge Base Updates
+            </summary>
+            <div class="details-body">
+              <p>
+                <strong>Location:</strong> "Knowledge Base Updates (after merge)" section. Add a new
+                Step 0 before the existing Step 1.
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment"
+                  >0. **Create backlog entry for Linear-originated work:** If `linear_id` is set in
+                  `.pm/dev-sessions/{slug}.md` (or in the RFC metadata) AND `pm/backlog/{slug}.md`
+                  does NOT exist:</span
+                >
+                <span class="code-comment">
+                  - Create `pm/backlog/` if needed: `mkdir -p pm/backlog`</span
+                >
+                <span class="code-comment">
+                  - Scan existing `pm/backlog/*.md` for the highest `id` value (format: `PM-{NNN}`).
+                  Increment by 1.</span
+                >
+                <span class="code-comment">
+                  - Write `pm/backlog/{slug}.md` with this frontmatter and body:</span
+                >
+                <span class="code-comment"> ```yaml</span>
+                <span class="code-comment"> ---</span>
+                <span class="code-comment"> type: backlog-issue</span>
+                <span class="code-comment"> id: "PM-{next_id}"</span>
+                <span class="code-comment"> title: "{title from Linear or RFC}"</span>
+                <span class="code-comment">
+                  outcome: "{one-sentence from RFC summary or Linear description}"</span
+                >
+                <span class="code-comment"> status: done</span>
+                <span class="code-comment"> linear_id: "{linear_id}"</span>
+                <span class="code-comment"> rfc: rfcs/{slug}.html</span>
+                <span class="code-comment"> prs:</span>
+                <span class="code-comment"> - "#{pr_number}"</span>
+                <span class="code-comment"> created: YYYY-MM-DD</span>
+                <span class="code-comment"> updated: YYYY-MM-DD</span>
+                <span class="code-comment"> ---</span>
+                <span class="code-comment"> </span>
+                <span class="code-comment"> ## Outcome</span>
+                <span class="code-comment"> </span>
+                <span class="code-comment">
+                  {Summary of what was built, derived from RFC or Linear description.}</span
+                >
+                <span class="code-comment"> </span>
+                <span class="code-comment"> ## Notes</span>
+                <span class="code-comment"> </span>
+                <span class="code-comment">
+                  Originated from Linear issue {linear_id}. Product memory created at ship.</span
+                >
+                <span class="code-comment"> ```</span>
+                <span class="code-comment">
+                  - Log: `Product memory created: pm/backlog/{slug}.md (source: Linear
+                  {linear_id})`</span
+                >
+                <span class="code-comment">
+                  - Then continue to Step 1 (which will now find the file and update status — but
+                  it's already `done`, so this is a no-op).</span
+                >
+              </div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Changes to skills/ship/SKILL.md</summary>
+            <div class="details-body">
+              <p>
+                <strong>Location:</strong> After "Final Report" section, before the end of the file.
+                Add a new section.
+              </p>
+              <div class="code-block" data-lang="markdown">
+                <span class="code-comment">## Product Memory (Linear-originated work)</span>
+
+                <span class="code-comment"
+                  >After merge, check the session state for `linear_id`. If set and
+                  `pm/backlog/{slug}.md` does not exist, the Knowledge Base Updates section in
+                  `single-issue-flow.md` handles backlog creation. Ship ensures the PR number is
+                  available in the session state for the backlog entry's `prs` field.</span
+                >
+
+                <span class="code-comment"
+                  >Before cleanup, verify the backlog entry was written:</span
+                >
+                <span class="code-comment">- Check: `test -f pm/backlog/{slug}.md`</span>
+                <span class="code-comment"
+                  >- If missing and `linear_id` is set: warn the user that product memory was not
+                  created.</span
+                >
+              </div>
+            </div>
+          </details>
+
+          <div class="issue-label">Test Strategy</div>
+          <ol>
+            <li>
+              Run <code>node scripts/validate.js --dir pm</code> &mdash; backlog entry passes
+              validation.
+            </li>
+            <li>
+              Manual invocation: complete a dev session with <code>linear_id</code> set, ship, and
+              verify <code>pm/backlog/{slug}.md</code> is created with correct frontmatter.
+            </li>
+            <li>
+              Manual invocation: complete a dev session from a local proposal (no Linear), ship, and
+              verify existing behavior unchanged.
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- RESOLVED QUESTIONS -->
+      <section class="section" id="questions">
+        <div class="section-header">
+          <div class="section-icon icon-question">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <circle cx="8" cy="8" r="6.25" />
+              <path d="M6 6.25a2 2 0 013.5 1.25c0 1-1.5 1.25-1.5 2.25" />
+              <circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none" />
+            </svg>
+          </div>
+          <h2>Resolved Questions</h2>
+        </div>
+        <p style="font-size: 0.84rem; color: var(--ink-tertiary); margin-bottom: 0.5rem">
+          Populated during RFC review. Empty in initial draft.
+        </p>
+      </section>
+
+      <!-- DECISION LOG -->
+      <section class="section" id="log">
+        <div class="section-header">
+          <div class="section-icon icon-log">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z" />
+              <line x1="6" y1="5.5" x2="10" y2="5.5" />
+              <line x1="6" y1="8" x2="10" y2="8" />
+              <line x1="6" y1="10.5" x2="8.5" y2="10.5" />
+            </svg>
+          </div>
+          <h2>Decision Log</h2>
+        </div>
+
+        <div class="decision-item">
+          <div class="decision-date">Apr 9</div>
+          <div class="decision-text">
+            <strong>RFC created</strong> from PM-151 proposal. Three issues: intake routing, groom
+            write-back, ship product memory.
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>RFC &middot; Updated Apr 9, 2026</span>
+      <span>from PM-151 &middot; pm/ knowledge base</span>
+    </footer>
+
+    <script>
+      (function () {
+        const sections = document.querySelectorAll(".section[id]");
+        const tocLinks = document.querySelectorAll(".toc a");
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                const id = entry.target.getAttribute("id");
+                tocLinks.forEach((a) =>
+                  a.classList.toggle("active", a.getAttribute("href") === "#" + id)
+                );
+              }
+            });
+          },
+          { rootMargin: "-20% 0px -75% 0px" }
+        );
+        sections.forEach((s) => observer.observe(s));
+      })();
+    </script>
+  </body>
+</html>
