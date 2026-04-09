@@ -196,7 +196,7 @@ scope:
     - "{item}"
   out_of_scope:
     - "{item}: {reason}"
-  filter_result: 10x | parity | gap-fill | null
+  filter_result: 10x | gap-fill | table-stakes | parity | null
 
 scope_review:
   pm_verdict: ship-it | rethink-scope | wrong-priority | null
