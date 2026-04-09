@@ -137,8 +137,13 @@ function validateBacklogItem(filePath, data, errors) {
     pushIssue(errors, rel, "type", `expected "backlog-issue", got "${data.type}"`);
   }
 
-  if (data.id && !/^PM-\d{3,}$/.test(data.id)) {
-    pushIssue(errors, rel, "id", `invalid ID format "${data.id}" — expected PM-NNN`);
+  if (data.id && !/^[A-Z]+-\d+$/.test(data.id)) {
+    pushIssue(
+      errors,
+      rel,
+      "id",
+      `invalid ID format "${data.id}" — expected TEAM-NNN (e.g., PM-036, CLE-123)`
+    );
   }
 
   if (data.status && !VALID_STATUSES.includes(data.status)) {

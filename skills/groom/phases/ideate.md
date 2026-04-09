@@ -124,12 +124,14 @@ Then ask:
 
 ### Step 7: Write to backlog
 
-On user confirmation, write each idea to `pm/backlog/{idea-slug}.md`:
+On user confirmation, write each idea to `pm/backlog/{idea-slug}.md`.
+
+**ID rule:** If a Linear issue is created for this idea, use the Linear identifier as `id`. Otherwise fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1).
 
 ```markdown
 ---
 type: backlog-issue
-id: "PM-{NNN}"
+id: "{linear_id or PM-NNN}"
 title: "{Idea Name}"
 outcome: "{One-liner}"
 status: idea
