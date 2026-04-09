@@ -778,10 +778,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .suggested-next { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
 .suggested-next code { background: var(--accent-subtle); padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.8125rem; color: var(--accent); }
-.session-brief-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 0.75rem; padding-top: 0.5rem; }
+.session-brief-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 0.75rem; padding-top: 0.5rem; align-items: baseline; }
 .session-brief-row:first-of-type { padding-top: 0; }
-.session-brief-key { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.session-brief-value { min-width: 0; }
+.session-brief-key { font-size: 0.6875rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; line-height: 1.5rem; }
+.session-brief-value { min-width: 0; font-size: 0.9375rem; line-height: 1.5rem; }
 .session-brief-actions { margin-top: 0.875rem; padding-top: 0.875rem; border-top: 1px solid var(--border); }
 .session-brief-actions-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
 .session-brief-actions ul { margin: 0.375rem 0 0; padding-left: 1.125rem; color: var(--text-muted); }
@@ -1168,8 +1168,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
   font-variant-numeric: tabular-nums;
 }
+/* ===== KB Search ===== */
+.kb-search { margin-bottom: var(--space-4); }
+.kb-search-input {
+  width: 100%; padding: 0.5rem 0.75rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius, 6px);
+  font-size: var(--text-sm); outline: none;
+}
+.kb-search-input:focus { border-color: var(--accent); }
+.kb-search-input::placeholder { color: var(--text-dim, var(--text-muted)); }
 
 /* ===== KB HUB PAGE ===== */
+.kb-domain-section { margin-bottom: var(--space-8); }
 
 /* Strategy banner */
 .strategy-banner {
@@ -1188,7 +1199,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   line-height: 1.4; margin-bottom: var(--space-3);
 }
 .strategy-banner-priorities {
-  display: flex; gap: var(--space-6); font-size: var(--text-sm); color: var(--text-muted);
+  display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--text-muted);
 }
 .strategy-banner-priority { display: flex; align-items: baseline; gap: var(--space-2); }
 .strategy-banner-actions {
@@ -2161,6 +2172,10 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404);
       res.end("Not found");
     }
+    // RFC (implementation plan) viewer
+  } else if (urlPath.startsWith("/rfc/")) {
+    const fileName = decodeURIComponent(urlPath.slice("/rfc/".length)).replace(/\/$/, "");
+    handleRfcDetail(res, pmDir, fileName);
     // Legacy /backlog redirects
   } else if (urlPath === "/backlog") {
     res.writeHead(302, { Location: "/roadmap" });
@@ -2369,35 +2384,50 @@ function extractMarkdownTitle(body, fallback) {
   return titleMatch ? titleMatch[1].trim() : fallback;
 }
 
-function buildInsightDomainCards(pmDir) {
-  const domains = listInsightDomains(pmDir).filter(
-    (domain) => domain.slug !== "business" && domain.slug !== "competitors"
-  );
-  if (domains.length === 0) return "";
+// ========== RFC Resolution ==========
 
-  const cards = domains
-    .map((domain) => {
-      const raw = fs.readFileSync(domain.indexPath, "utf-8");
-      const { body } = parseFrontmatter(raw);
-      const label = extractMarkdownTitle(body, humanizeSlug(domain.slug));
-      const summary = extractMarkdownSummary(body, 180);
-      const docCount = fs
-        .readdirSync(path.dirname(domain.indexPath), { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-        .filter((entry) => entry.name !== "index.md" && entry.name !== "log.md").length;
-      const stale = stalenessInfo(getNewestUpdated(path.dirname(domain.indexPath)));
-      return `<article class="card">
-  <h3><a href="/insights/${escHtml(domain.slug)}">${escHtml(label)}</a></h3>
-  <p class="meta">${escHtml(summary || `${docCount} document${docCount === 1 ? "" : "s"}`)}</p>
-  <div class="card-footer">
-    ${stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : ""}
-    <a href="/insights/${escHtml(domain.slug)}" class="view-link">View &rarr;</a>
-  </div>
-</article>`;
-    })
-    .join("");
+/**
+ * Find RFC (implementation plan) files matching an issue slug.
+ * Convention: docs/plans/YYYY-MM-DD-{slug}.md
+ * Searches pm_plugin/docs/plans/, docs/plans/, and pm_server/docs/plans/.
+ */
+function findRfcsForSlug(pmDir, slug) {
+  const projectRoot = path.dirname(pmDir);
+  const planDirs = [
+    path.join(projectRoot, "pm_plugin", "docs", "plans"),
+    path.join(projectRoot, "docs", "plans"),
+    path.join(projectRoot, "pm_server", "docs", "plans"),
+  ];
+  const results = [];
+  const suffix = "-" + slug + ".md";
+  for (const dir of planDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir)) {
+      if (file.endsWith(suffix)) {
+        const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+        results.push({
+          fileName: file,
+          filePath: path.join(dir, file),
+          date: dateMatch ? dateMatch[1] : "",
+          repo: dir.includes("pm_server") ? "server" : "plugin",
+        });
+      }
+    }
+  }
+  return results;
+}
 
-  return `<div class="card-grid">${cards}</div>`;
+/**
+ * Find RFCs for a slug and all its children slugs.
+ */
+function findRfcsForIssueTree(pmDir, slug, childrenSlugs) {
+  const rfcs = findRfcsForSlug(pmDir, slug);
+  if (Array.isArray(childrenSlugs)) {
+    for (const child of childrenSlugs) {
+      rfcs.push(...findRfcsForSlug(pmDir, child));
+    }
+  }
+  return rfcs;
 }
 
 // ========== Shipped Enrichment Helpers ==========
@@ -2900,6 +2930,7 @@ function renderKanbanTemplate(opts) {
 }
 
 function handleProposalsPage(res, pmDir) {
+  const strategyBanner = buildStrategyBanner(pmDir);
   const proposals = buildProposalRows(pmDir);
 
   // Collect ideas (ungroomed backlog items)
@@ -2964,6 +2995,20 @@ function handleProposalsPage(res, pmDir) {
       layout: "rows",
       itemsClass: "proposal-grid",
     });
+  } else if (ideaItems.length > 0) {
+    // No active proposals but ideas exist — show a prompt
+    sections.push({
+      title: "Groomed",
+      items: [
+        renderEmptyState(
+          "No active proposals",
+          "Pick an idea below and groom it into a structured proposal with research, strategy alignment, and scoped issues.",
+          "/pm:groom"
+        ),
+      ],
+      layout: "rows",
+      itemsClass: "proposal-grid",
+    });
   }
   if (ideaItems.length > 0) {
     sections.push({
@@ -2973,11 +3018,25 @@ function handleProposalsPage(res, pmDir) {
       layout: "rows",
       itemsClass: "idea-list",
     });
+  } else if (groomedItems.length > 0 || sections.length > 0) {
+    sections.push({
+      title: "Ideas",
+      items: [
+        renderEmptyState(
+          "No ideas in the backlog",
+          "Ideas are the raw starting point. Add one to start the grooming pipeline.",
+          "/pm:groom ideate"
+        ),
+      ],
+      layout: "rows",
+      itemsClass: "idea-list",
+    });
   }
 
   const body = renderListTemplate({
     title: "Proposals",
     subtitle: subtitle || undefined,
+    contentBefore: strategyBanner || undefined,
     sections,
     emptyState: renderEmptyState(
       "No proposals yet",
@@ -3049,25 +3108,9 @@ function handleDashboardHome(res, pmDir) {
   const projectName = getProjectName(pmDir);
 
   // ===== 1. Strategy snapshot =====
-  const strategyData = parseStrategySnapshot(pmDir);
-  const strategySection = strategyData
-    ? `
-<section class="home-section">
-  <div class="home-section-header">
-    <span class="home-section-title">Strategy</span>
-    <a href="/kb?tab=strategy" class="home-section-link">View full strategy</a>
-  </div>
-  <div class="strategy-card">
-    ${strategyData.focus ? `<div class="strategy-focus">${escHtml(strategyData.focus)}</div>` : ""}
-    <div class="strategy-priorities">
-      ${strategyData.priorities.map((p, i) => `<div class="priority-item"><span class="priority-num">${i + 1}</span> ${escHtml(p)}</div>`).join("")}
-    </div>
-    <div class="staleness">
-      <span class="staleness-dot ${strategyData.staleness.level}"></span>
-      ${escHtml(strategyData.staleness.label)}
-    </div>
-  </div>
-</section>`
+  const strategyBannerHtml = buildStrategyBanner(pmDir);
+  const strategySection = strategyBannerHtml
+    ? `<section class="home-section">${strategyBannerHtml}</section>`
     : "";
 
   // ===== 2. What's coming (active proposals) =====
@@ -3141,15 +3184,15 @@ function handleDashboardHome(res, pmDir) {
   activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
   activeProposals.splice(5);
 
-  const proposalsSection =
-    activeProposals.length > 0
-      ? `
+  const proposalsSection = `
 <section class="home-section">
   <div class="home-section-header">
     <span class="home-section-title">What's coming</span>
     <a href="/proposals" class="home-section-link">All proposals</a>
   </div>
-  <div class="home-proposal-list">
+  ${
+    activeProposals.length > 0
+      ? `<div class="home-proposal-list">
     ${activeProposals
       .map(
         (
@@ -3166,9 +3209,14 @@ function handleDashboardHome(res, pmDir) {
 </a>`
       )
       .join("")}
-  </div>
-</section>`
-      : "";
+  </div>`
+      : renderEmptyState(
+          "No active proposals",
+          "Groom an idea to create your next proposal.",
+          "/pm:groom"
+        )
+  }
+</section>`;
 
   // ===== 3. Recently shipped =====
   const recentShipped = [];
@@ -3222,7 +3270,13 @@ function handleDashboardHome(res, pmDir) {
       .join("")}
   </div>
 </section>`
-      : "";
+      : `
+<section class="home-section">
+  <div class="home-section-header">
+    <span class="home-section-title">Recently shipped</span>
+  </div>
+  ${renderEmptyState("Nothing shipped yet", "Ship your first feature to see it here.", "/pm:dev")}
+</section>`;
 
   // ===== 4. KB health =====
   const researchFreshness = stalenessInfo(updatedDates.research) || {
@@ -3309,11 +3363,22 @@ function handleDashboardHome(res, pmDir) {
   </div>`
       : "";
 
+  // Count actual ungroomed ideas (status: idea only, not drafted)
+  let unrefinedIdeas = 0;
+  if (fs.existsSync(backlogDir)) {
+    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
+      const { data } = parseFrontmatter(raw);
+      if ((data.status || "idea") === "idea" && data.type !== "proposal") unrefinedIdeas++;
+    }
+  }
+  const pipelineLabel = `${unrefinedIdeas} ungroomed idea${unrefinedIdeas !== 1 ? "s" : ""}, ${status.counts.inProgress} active proposal${status.counts.inProgress !== 1 ? "s" : ""}`;
+
   const suggestedHtml = `<div class="suggested-next">
   <div class="suggested-next-label">Session brief</div>
   ${status.update.available ? renderBriefValue("Update", status.update.message) : ""}
   ${renderBriefValue("Focus", status.focus)}
-  ${renderBriefValue("Backlog", status.backlog)}
+  ${renderBriefValue("Pipeline", pipelineLabel)}
   ${renderBriefValue("Next", status.next)}
   ${alternativeActions}
   ${firstWorkflowActions}
@@ -3321,7 +3386,7 @@ function handleDashboardHome(res, pmDir) {
 
   const proposalCount = activeProposals.length;
   const isFullyEmpty =
-    !strategyData &&
+    !strategyBannerHtml &&
     proposalCount === 0 &&
     recentShipped.length === 0 &&
     stats.backlog === 0 &&
@@ -3337,7 +3402,7 @@ function handleDashboardHome(res, pmDir) {
 </div>
 ${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:groom", "Start your first feature")}
 ${suggestedHtml}`;
-  } else if (proposalCount === 0 && !shippedSection) {
+  } else if (proposalCount === 0 && recentShipped.length === 0) {
     // Partial state: strategy/KB exists but no proposals yet
     const partialProposals = `
 <section class="home-section">
@@ -3369,24 +3434,6 @@ ${suggestedHtml}`;
   const html = dashboardPage("Home", "/", body, projectName);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
-}
-
-function buildKbSubTabs(activeTab) {
-  const tabs = [
-    { id: "research", label: "Research", href: "/kb?tab=research" },
-    { id: "competitors", label: "Competitors", href: "/kb?tab=competitors" },
-    { id: "strategy", label: "Strategy", href: "/kb?tab=strategy" },
-  ];
-  return (
-    '<div class="kb-tabs">' +
-    tabs
-      .map(
-        (t) =>
-          `<a href="${t.href}" class="kb-tab${t.id === activeTab ? " active" : ""}">${t.label}</a>`
-      )
-      .join("") +
-    "</div>"
-  );
 }
 
 function renderSwotGrid(body) {
@@ -4164,68 +4211,6 @@ function buildStrategyBanner(pmDir) {
 </div>`;
 }
 
-function buildLandscapeCard(pmDir) {
-  const landscapePath = getLandscapePath(pmDir);
-  if (!fs.existsSync(landscapePath)) return "";
-  const raw = fs.readFileSync(landscapePath, "utf-8");
-  const { body } = parseFrontmatter(raw);
-  const title = extractMarkdownTitle(body, "Market Landscape");
-  const summary = extractMarkdownSummary(body, 200);
-  const statsData = parseStatsData(body);
-  const topStats = (statsData || []).slice(0, 3);
-  return `<a href="/insights/business/landscape" class="landscape-card">
-  <div class="landscape-title">${escHtml(title)}</div>
-  <div class="landscape-summary">${escHtml(summary)}</div>
-  ${
-    topStats.length > 0
-      ? `<div class="landscape-stats">${topStats
-          .map(
-            (s) =>
-              `<div><div class="landscape-stat">${escHtml(s.value)}</div><div class="landscape-stat-label">${escHtml(s.label)}</div></div>`
-          )
-          .join("")}</div>`
-      : ""
-  }
-  <span class="landscape-view-link">View &rarr;</span>
-</a>`;
-}
-
-function buildCompetitorGrid(pmDir) {
-  const compDir = getCompetitorsDir(pmDir);
-  if (!fs.existsSync(compDir)) return "";
-  const slugs = fs
-    .readdirSync(compDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
-  if (slugs.length === 0) return "";
-  const displaySlugs = slugs.length > 6 ? slugs.slice(0, 6) : slugs;
-  const cards = displaySlugs
-    .map((slug) => {
-      const profilePath = path.join(compDir, slug, "profile.md");
-      let name = humanizeSlug(slug);
-      let category = "";
-      if (fs.existsSync(profilePath)) {
-        const raw = fs.readFileSync(profilePath, "utf-8");
-        const parsed = parseFrontmatter(raw);
-        if (parsed.data.company) name = parsed.data.company;
-        const summary = extractProfileSummary(parsed.body);
-        if (summary.company) name = summary.company;
-        if (summary.category) category = summary.category;
-      }
-      return `<article class="card">
-  <h3><a href="/insights/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
-  <p class="meta">${escHtml(category)}</p>
-  <div class="card-footer"><a href="/insights/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
-</article>`;
-    })
-    .join("");
-  const viewAll =
-    slugs.length > 6
-      ? `<a href="/insights/competitors" class="section-link">View all ${slugs.length}</a>`
-      : "";
-  return `<div class="card-grid">${cards}</div>${viewAll ? `<div class="view-all-wrap">${viewAll}</div>` : ""}`;
-}
-
 function buildTopicRows(pmDir, maxTopics) {
   const topics = listResearchTopicFiles(pmDir);
   if (topics.length === 0) return { html: "", total: 0 };
@@ -4273,107 +4258,168 @@ function buildTopicRows(pmDir, maxTopics) {
   return { html: `<div class="topic-list">${rows}</div>`, total: topicData.length };
 }
 
-function buildEvidenceSummary(pmDir) {
-  const runtimeRoot = getPmRuntimeRoot(pmDir);
-  const manifestPath = path.join(runtimeRoot, "imports", "manifest.json");
-  const evidenceDir = path.join(runtimeRoot, "evidence");
+function buildKbDomainSection(pmDir, domain) {
+  const domainDir = path.dirname(domain.indexPath);
+  const label = humanizeSlug(domain.slug);
 
-  // Check if any evidence data exists
-  if (!fs.existsSync(manifestPath) && !fs.existsSync(evidenceDir)) {
-    return `<div class="empty-state-hub">
-  <div class="empty-state-hub-title">No customer evidence yet</div>
-  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  ${renderClickToCopy("/pm:ingest path/to/evidence")}
+  if (domain.slug === "competitors") {
+    const slugs = fs
+      .readdirSync(domainDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    if (slugs.length === 0) {
+      return `<div class="kb-domain-section">
+  <div class="section-header"><span class="section-title">${escHtml(label)}</span></div>
+  ${renderEmptyState("No competitor profiles yet", "Research competitors to build profiles.", "/pm:research competitors")}
 </div>`;
-  }
-
-  // Read manifest for import summaries
-  let imports = [];
-  if (fs.existsSync(manifestPath)) {
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-      imports = manifest.imports || [];
-    } catch (_) {
-      /* ignore parse errors */
     }
-  }
-
-  // Read evidence records for topic/tag aggregation
-  const records = [];
-  if (fs.existsSync(evidenceDir)) {
-    const files = fs.readdirSync(evidenceDir).filter((f) => f.endsWith(".json"));
-    for (const f of files) {
-      try {
-        records.push(JSON.parse(fs.readFileSync(path.join(evidenceDir, f), "utf-8")));
-      } catch (_) {
-        /* skip malformed */
-      }
-    }
-  }
-
-  if (imports.length === 0 && records.length === 0) {
-    return `<div class="empty-state-hub">
-  <div class="empty-state-hub-title">No customer evidence yet</div>
-  <div class="empty-state-hub-text">Import interview notes, support tickets, or feedback to ground decisions in real user signals.</div>
-  ${renderClickToCopy("/pm:ingest path/to/evidence")}
-</div>`;
-  }
-
-  // Build import rows
-  const importRows = imports
-    .map((imp) => {
-      const filename = path.basename(imp.path || "");
-      const format = (imp.format_hint || "")
-        .replace(/^(audio|csv|md)-?/, "$1: ")
-        .replace(/-/g, " ");
-      const count = imp.record_count || 0;
-      const date = imp.imported_at ? imp.imported_at.split("T")[0] : "";
-      const hasTranscript = imp.transcript_path
-        ? `<a href="/evidence/transcripts/${escHtml(path.basename(imp.transcript_path, ".md"))}" class="view-link">Transcript &rarr;</a>`
+    const preview = slugs.slice(0, 3);
+    const cards = preview
+      .map((slug) => {
+        const profilePath = path.join(domainDir, slug, "profile.md");
+        let name = humanizeSlug(slug);
+        let category = "";
+        if (fs.existsSync(profilePath)) {
+          const raw = fs.readFileSync(profilePath, "utf-8");
+          const parsed = parseFrontmatter(raw);
+          if (parsed.data.company) name = parsed.data.company;
+          const summary = extractProfileSummary(parsed.body);
+          if (summary.company) name = summary.company;
+          if (summary.category) category = summary.category;
+        }
+        return `<article class="card">
+  <h3><a href="/insights/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
+  <p class="meta">${escHtml(category)}</p>
+  <div class="card-footer"><a href="/insights/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
+</article>`;
+      })
+      .join("");
+    const viewAll =
+      slugs.length > 3
+        ? `<div class="view-all-wrap"><a href="/insights/competitors" class="section-link">View all ${slugs.length} profiles</a></div>`
         : "";
-      return `<div class="evidence-import-row">
-  <div class="evidence-import-info">
-    <span class="evidence-import-name">${escHtml(filename)}</span>
-    <span class="evidence-import-meta">${escHtml(format)} &middot; ${count} record${count !== 1 ? "s" : ""} &middot; ${escHtml(date)}</span>
+    return `<div class="kb-domain-section">
+  <div class="section-header">
+    <span class="section-title">${escHtml(label)}</span>
+    <span class="section-count">${slugs.length} profile${slugs.length !== 1 ? "s" : ""}</span>
   </div>
-  <div class="evidence-import-actions">${hasTranscript}</div>
+  <div class="card-grid">${cards}</div>
+  ${viewAll}
 </div>`;
+  }
+
+  // Generic insight domain (product, business, custom)
+  const files = fs
+    .readdirSync(domainDir, { withFileTypes: true })
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
+    );
+  if (files.length === 0) {
+    const hint = domain.slug === "product" ? "/pm:research" : "/pm:research";
+    return `<div class="kb-domain-section">
+  <div class="section-header"><span class="section-title">${escHtml(label)}</span></div>
+  ${renderEmptyState("No " + label.toLowerCase() + " insights yet", "Run research or groom features to synthesize insights here.", hint)}
+</div>`;
+  }
+  const preview = files.slice(0, 3);
+  const cards = preview
+    .map((f) => {
+      const filePath = path.join(domainDir, f.name);
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const { data, body } = parseFrontmatter(raw);
+      const title = extractMarkdownTitle(body, humanizeSlug(f.name.replace(".md", "")));
+      const summary = extractMarkdownSummary(body, 120);
+      const stale = stalenessInfo(getUpdatedDate(filePath));
+      const slug = f.name.replace(".md", "");
+      return `<article class="card">
+  <h3><a href="/insights/${escHtml(domain.slug)}/${escHtml(slug)}">${escHtml(title)}</a></h3>
+  <p class="meta">${escHtml(summary)}</p>
+  <div class="card-footer">
+    ${stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : ""}
+    <a href="/insights/${escHtml(domain.slug)}/${escHtml(slug)}" class="view-link">View &rarr;</a>
+  </div>
+</article>`;
     })
     .join("");
+  const viewAll =
+    files.length > 3
+      ? `<div class="view-all-wrap"><a href="/insights/${escHtml(domain.slug)}" class="section-link">View all ${files.length} topics</a></div>`
+      : "";
+  return `<div class="kb-domain-section">
+  <div class="section-header">
+    <span class="section-title">${escHtml(label)}</span>
+    <span class="section-count">${files.length} topic${files.length !== 1 ? "s" : ""}</span>
+  </div>
+  <div class="card-grid">${cards}</div>
+  ${viewAll}
+</div>`;
+}
 
-  // Aggregate topics from records
-  const topicCounts = {};
-  const tagCounts = {};
-  for (const r of records) {
-    if (r.topic) topicCounts[r.topic] = (topicCounts[r.topic] || 0) + 1;
-    if (Array.isArray(r.tags)) {
-      for (const t of r.tags) tagCounts[t] = (tagCounts[t] || 0) + 1;
-    }
+function buildKbEvidenceSection(pmDir, subdir) {
+  const evidenceDir = path.join(pmDir, "evidence", subdir);
+  const label = humanizeSlug(subdir);
+  if (!fs.existsSync(evidenceDir)) {
+    return `<div class="kb-domain-section">
+  <div class="section-header"><span class="section-title">${escHtml(label)}</span></div>
+  ${renderEmptyState("No " + label.toLowerCase() + " yet", "Import evidence to populate this section.", "/pm:ingest")}
+</div>`;
+  }
+  const files = fs
+    .readdirSync(evidenceDir, { withFileTypes: true })
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
+    );
+  if (files.length === 0) {
+    const commands = {
+      research: "/pm:research",
+      transcripts: "/pm:ingest",
+      "user-feedback": "/pm:ingest",
+    };
+    return `<div class="kb-domain-section">
+  <div class="section-header"><span class="section-title">${escHtml(label)}</span></div>
+  ${renderEmptyState("No " + label.toLowerCase() + " yet", "Import evidence to populate this section.", commands[subdir] || "/pm:ingest")}
+</div>`;
   }
 
-  const topicBadges = Object.entries(topicCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(
-      ([topic, count]) =>
-        `<span class="badge badge-customer">${escHtml(humanizeSlug(topic))} (${count})</span>`
-    )
-    .join("");
+  // Sort by freshness
+  const sorted = files
+    .map((f) => {
+      const filePath = path.join(evidenceDir, f.name);
+      const dateStr = getUpdatedDate(filePath) || "";
+      return { name: f.name, filePath, dateStr };
+    })
+    .sort((a, b) => (b.dateStr || "").localeCompare(a.dateStr || ""));
 
-  const tagBadges = Object.entries(tagCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([tag]) => `<span class="badge">${escHtml(tag)}</span>`)
-    .join("");
-
-  return `<div class="evidence-summary">
-  <div class="evidence-stats">
-    <span class="evidence-stat">${imports.length} source${imports.length !== 1 ? "s" : ""}</span>
-    <span class="evidence-stat">${records.length} record${records.length !== 1 ? "s" : ""}</span>
+  const preview = sorted.slice(0, 3);
+  const cards = preview
+    .map((f) => {
+      const raw = fs.readFileSync(f.filePath, "utf-8");
+      const { data, body } = parseFrontmatter(raw);
+      const slug = f.name.replace(".md", "");
+      const title = data.topic || extractMarkdownTitle(body, humanizeSlug(slug));
+      const summary = extractMarkdownSummary(body, 120);
+      const stale = stalenessInfo(f.dateStr);
+      return `<article class="card">
+  <h3><a href="/evidence/${escHtml(subdir)}/${escHtml(slug)}">${escHtml(title)}</a></h3>
+  <p class="meta">${escHtml(summary)}</p>
+  <div class="card-footer">
+    ${stale ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>` : ""}
+    <a href="/evidence/${escHtml(subdir)}/${escHtml(slug)}" class="view-link">View &rarr;</a>
   </div>
-  ${importRows ? `<div class="evidence-imports">${importRows}</div>` : ""}
-  ${topicBadges ? `<div class="evidence-topics"><span class="evidence-section-label">Topics</span><div class="evidence-badges">${topicBadges}</div></div>` : ""}
-  ${tagBadges ? `<div class="evidence-tags"><span class="evidence-section-label">Tags</span><div class="evidence-badges">${tagBadges}</div></div>` : ""}
+</article>`;
+    })
+    .join("");
+  const viewAll =
+    sorted.length > 3
+      ? `<div class="view-all-wrap"><a href="/evidence/${escHtml(subdir)}" class="section-link">View all ${sorted.length} items</a></div>`
+      : "";
+  return `<div class="kb-domain-section">
+  <div class="section-header">
+    <span class="section-title">${escHtml(label)}</span>
+    <span class="section-count">${sorted.length} item${sorted.length !== 1 ? "s" : ""}</span>
+  </div>
+  <div class="card-grid">${cards}</div>
+  ${viewAll}
 </div>`;
 }
 
@@ -4392,80 +4438,65 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     return handleKbTopicsDetail(res, pmDir);
   }
 
-  // Hub page (default) -- single scrollable view
-  const strategyBanner = buildStrategyBanner(pmDir);
-  const landscapeCard = buildLandscapeCard(pmDir);
-  const competitorGrid = buildCompetitorGrid(pmDir);
-  const { html: topicRows, total: topicCount } = buildTopicRows(pmDir, 8);
-  const insightDomainCards = buildInsightDomainCards(pmDir);
+  // Hub page -- two tabs: Insights and Evidence
+  // Each tab has domain subsections with 3-card previews
 
-  // Customer evidence section
-  const evidenceHtml = buildEvidenceSummary(pmDir);
+  // Build Insights tab content
+  const insightDomains = listInsightDomains(pmDir);
+  const insightSections = insightDomains
+    .map((domain) => buildKbDomainSection(pmDir, domain))
+    .join("");
+  const insightsHtml =
+    insightSections ||
+    renderEmptyState(
+      "No insight domains yet",
+      "Run research to start building your knowledge base.",
+      "/pm:research"
+    );
 
-  const compDir = getCompetitorsDir(pmDir);
-  const compCount = fs.existsSync(compDir)
-    ? fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory()).length
-    : 0;
-  const compViewAllLink =
-    compCount > 0
-      ? `<a href="/insights/competitors" class="section-link">View all ${compCount} competitors</a>`
-      : "";
+  // Build Evidence tab content
+  const evidenceSubdirs = ["research", "transcripts", "user-feedback"];
+  const evidenceHtml = evidenceSubdirs
+    .map((subdir) => buildKbEvidenceSection(pmDir, subdir))
+    .join("");
+
+  const prefix = "kb" + _tabCounter++;
 
   const body = `
 <div class="page-header">
   <h1>Knowledge Base</h1>
-  <p class="subtitle">Everything the team knows -- strategy, market, competitors, and research</p>
+  <p class="subtitle">Everything the team knows -- market, competitors, and research</p>
 </div>
-${strategyBanner}
-${
-  landscapeCard
-    ? `<section class="section">
-  <div class="section-header">
-    <span class="section-title">Market Landscape</span>
+<div class="detail-page">
+  <div class="tabs" role="tablist">
+    <div class="tab active" role="tab" tabindex="0" aria-selected="true" data-tab="${prefix}-insights" onclick="${prefix}Switch(this,'${prefix}-insights')" onkeydown="${prefix}Key(event,this,'${prefix}-insights')">Insights</div>
+    <div class="tab" role="tab" tabindex="0" aria-selected="false" data-tab="${prefix}-evidence" onclick="${prefix}Switch(this,'${prefix}-evidence')" onkeydown="${prefix}Key(event,this,'${prefix}-evidence')">Evidence</div>
   </div>
-  ${landscapeCard}
-</section>`
-    : ""
+  <div id="${prefix}-insights" class="tab-panel active" role="tabpanel">${insightsHtml}</div>
+  <div id="${prefix}-evidence" class="tab-panel" role="tabpanel">${evidenceHtml}</div>
+</div>
+<script>
+function ${prefix}Switch(el, panelId) {
+  el.closest('.detail-page').querySelectorAll('.tabs .tab').forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  el.closest('.detail-page').querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  el.classList.add('active');
+  el.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+  history.replaceState(null, '', '#' + el.getAttribute('data-tab'));
 }
-${
-  compCount > 0
-    ? `<section class="section">
-  <div class="section-header">
-    <span class="section-title">Competitors</span>
-    ${compViewAllLink}
-  </div>
-  ${competitorGrid}
-</section>`
-    : ""
+function ${prefix}Key(e, el, panelId) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ${prefix}Switch(el, panelId); }
+  if (e.key === 'ArrowRight') { var next = el.nextElementSibling; if (next) { next.focus(); next.click(); } }
+  if (e.key === 'ArrowLeft') { var prev = el.previousElementSibling; if (prev) { prev.focus(); prev.click(); } }
 }
-${
-  topicCount > 0
-    ? `<section class="section">
-  <div class="section-header">
-    <span class="section-title">Research</span>
-    <span class="section-count">${topicCount} topics</span>
-  </div>
-  ${topicRows}
-  ${topicCount > 8 ? `<div class="view-all-wrap"><a href="/evidence/research" class="section-link">View all ${topicCount} topics</a></div>` : ""}
-</section>`
-    : ""
-}
-${
-  insightDomainCards
-    ? `<section class="section">
-  <div class="section-header">
-    <span class="section-title">Insight Domains</span>
-  </div>
-  ${insightDomainCards}
-</section>`
-    : ""
-}
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">Customer Evidence</span>
-  </div>
-  ${evidenceHtml}
-</section>`;
+(function() {
+  var hash = location.hash.slice(1);
+  if (hash && /^[a-zA-Z0-9_-]+$/.test(hash)) {
+    var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
+    if (tab) ${prefix}Switch(tab, hash);
+  }
+})();
+</script>`;
 
   const html = dashboardPage("Knowledge Base", "/kb", body);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -4526,9 +4557,32 @@ function handleKbCompetitorsDetail(res, pmDir) {
       </article>`);
     }
   }
+  const searchBar =
+    cardItems.length > 0
+      ? `<div class="kb-search">
+  <input type="text" class="kb-search-input" placeholder="Filter competitors..." oninput="kbFilter(this.value)">
+</div>
+<script>
+function kbFilter(q) {
+  var cards = document.querySelectorAll('.card-grid .card');
+  var lower = q.toLowerCase();
+  var visible = 0;
+  cards.forEach(function(card) {
+    var text = card.textContent.toLowerCase();
+    var match = !q || text.indexOf(lower) !== -1;
+    card.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  var empty = document.getElementById('kb-no-results');
+  if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+}
+</script>
+<div id="kb-no-results" class="empty-state" style="display:none"><h2>No matches</h2><p>Try a different search term.</p></div>`
+      : "";
   const contentHtml = renderListTemplate({
     breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
     title: "Competitors",
+    contentBefore: searchBar,
     sections: [{ items: cardItems, layout: "cards" }],
     emptyState: renderEmptyState(
       "No competitor profiles",
@@ -4774,8 +4828,12 @@ function handleResearchTopic(res, pmDir, topic) {
 function handleInsightDomainDetail(res, pmDir, domain) {
   const indexPath = getInsightIndexPath(pmDir, domain);
   if (!fs.existsSync(indexPath)) {
-    res.writeHead(404);
-    res.end("Not found");
+    const body =
+      renderEmptyState("Insight domain not found", "This insight domain does not exist.") +
+      '<p><a href="/kb">&larr; Back to knowledge base</a></p>';
+    const html = dashboardPage("Not Found", "/kb", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
@@ -4815,8 +4873,12 @@ function handleInsightDomainDetail(res, pmDir, domain) {
 function handleInsightDocumentDetail(res, pmDir, domain, slug) {
   const filePath = path.join(pmDir, "insights", domain, slug + ".md");
   if (!fs.existsSync(filePath)) {
-    res.writeHead(404);
-    res.end("Not found");
+    const body =
+      renderEmptyState("Insight document not found", "This insight document does not exist.") +
+      `<p><a href="/insights/${escHtml(encodeURIComponent(domain))}">&larr; Back to ${escHtml(humanizeSlug(domain))}</a></p>`;
+    const html = dashboardPage("Not Found", "/kb", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
@@ -5060,6 +5122,12 @@ function handleBacklog(res, pmDir) {
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
+  const COL_EMPTY_HINTS = {
+    groomed: "Groom an idea to create proposals",
+    "in-progress": "Start building with /pm:dev",
+    shipped: "Ship features to see them here",
+  };
+
   const templateColumns = STATUS_ORDER.map((status) => {
     const allItems = (columns[status] || []).sort((a, b) =>
       (b.updated || "").localeCompare(a.updated || "")
@@ -5077,6 +5145,7 @@ function handleBacklog(res, pmDir) {
       viewAllHref: isShipped ? "/roadmap/shipped" : undefined,
       viewAllLabel: "shipped",
       cssClass: isShipped ? "shipped" : "",
+      hint: totalCount === 0 ? COL_EMPTY_HINTS[status] : undefined,
     };
   });
 
@@ -5221,16 +5290,24 @@ function handleProposalDetail(res, pmDir, slug) {
     meta = readProposalMeta(slug, pmDir);
   }
   if (!meta) {
-    res.writeHead(404);
-    res.end("Not found");
+    const body =
+      renderEmptyState("Proposal not found", "This proposal does not exist.") +
+      '<p><a href="/proposals">&larr; Back to proposals</a></p>';
+    const html = dashboardPage("Not Found", "/proposals", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
   // Serve the proposal HTML directly with a sticky header bar
   const htmlPath = path.resolve(pmDir, "backlog", "proposals", slug + ".html");
   if (!fs.existsSync(htmlPath)) {
-    res.writeHead(404);
-    res.end("Not found");
+    const body =
+      renderEmptyState("Proposal not found", "This proposal does not exist.") +
+      '<p><a href="/proposals">&larr; Back to proposals</a></p>';
+    const html = dashboardPage("Not Found", "/proposals", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 
@@ -5370,6 +5447,21 @@ function handleBacklogItem(res, pmDir, slug) {
     });
   }
 
+  // RFC section — find implementation plans matching this issue or its children
+  const rfcs = findRfcsForIssueTree(pmDir, slug, data.children);
+  if (rfcs.length > 0) {
+    const rfcItems = rfcs
+      .map((rfc) => {
+        const label = rfc.fileName.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
+        return `<li><a href="/rfc/${escHtml(encodeURIComponent(rfc.fileName))}">${escHtml(humanizeSlug(label))}</a> <span class="meta-item">${escHtml(rfc.date)}</span></li>`;
+      })
+      .join("\n");
+    templateSections.push({
+      title: `Implementation Plan${rfcs.length > 1 ? "s" : ""}`,
+      html: `<ul class="detail-issue-list">${rfcItems}</ul>`,
+    });
+  }
+
   // Proposal link section — check for matching proposal (own slug first, then parent)
   const proposalsBase = path.join(pmDir, "backlog", "proposals");
   let proposalSlug = null;
@@ -5437,6 +5529,67 @@ function handleBacklogItem(res, pmDir, slug) {
   });
 
   const html = dashboardPage(title, "/roadmap", pageBody);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function handleRfcDetail(res, pmDir, fileName) {
+  if (!fileName || fileName.includes("..") || fileName.includes("/")) {
+    const body =
+      renderEmptyState("Implementation plan not found", "This RFC does not exist.") +
+      '<p><a href="/roadmap">&larr; Back to roadmap</a></p>';
+    const html = dashboardPage("Not Found", "/roadmap", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+  const projectRoot = path.dirname(pmDir);
+  const candidates = [
+    path.join(projectRoot, "pm_plugin", "docs", "plans", fileName),
+    path.join(projectRoot, "docs", "plans", fileName),
+    path.join(projectRoot, "pm_server", "docs", "plans", fileName),
+  ];
+  const filePath = candidates.find((p) => fs.existsSync(p));
+  if (!filePath) {
+    const body =
+      renderEmptyState("Implementation plan not found", "This RFC does not exist.") +
+      '<p><a href="/roadmap">&larr; Back to roadmap</a></p>';
+    const html = dashboardPage("Not Found", "/roadmap", body);
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const { data, body } = parseFrontmatter(raw);
+  const slug = fileName.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  const title = extractMarkdownTitle(body, humanizeSlug(slug));
+  const dateMatch = fileName.match(/^(\d{4}-\d{2}-\d{2})/);
+  const date = dateMatch ? dateMatch[1] : "";
+
+  const metaBadges = [];
+  metaBadges.push({ html: '<span class="badge badge-ready">RFC</span>' });
+  if (date) metaBadges.push({ html: `<span class="meta-item">${escHtml(date)}</span>` });
+
+  // Try to link back to the backlog item
+  const backlogPath = path.join(pmDir, "backlog", slug + ".md");
+  const backlogExists = fs.existsSync(backlogPath);
+
+  const breadcrumbItems = backlogExists
+    ? [
+        { label: "Roadmap", href: "/roadmap" },
+        { label: humanizeSlug(slug), href: "/roadmap/" + slug },
+        { label: "RFC" },
+      ]
+    : [{ label: "Roadmap", href: "/roadmap" }, { label: "RFC" }];
+
+  const pageBody = renderTemplate("detail", {
+    breadcrumb: breadcrumbItems,
+    title,
+    metaBadges,
+    sections: [{ title: null, html: `<div class="markdown-body">${renderMarkdown(body)}</div>` }],
+  });
+
+  const html = dashboardPage("RFC: " + title, "/roadmap", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
