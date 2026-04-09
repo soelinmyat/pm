@@ -2040,8 +2040,8 @@ function getProjectName(pmDir) {
 
 function handleNotesPage(res, pmDir) {
   const notesDir = path.join(pmDir, "evidence", "notes");
-  let allEntries = [];
-  let monthDigestStatus = [];
+  const allEntries = [];
+  const monthDigestStatus = [];
 
   if (fs.existsSync(notesDir)) {
     const files = fs
