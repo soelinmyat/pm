@@ -495,7 +495,38 @@ If no issue tracker is configured, skip these updates.
 
 After merge, update the local knowledge base to reflect shipped work:
 
-1. **Backlog item:** If `pm/backlog/{slug}.md` exists, update its frontmatter `status` to `done` and set `updated` to today's date.
+0. **Create backlog entry for Linear-originated work:** If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or in the RFC metadata) AND `pm/backlog/{slug}.md` does NOT exist:
+   - Create `pm/backlog/` if needed: `mkdir -p pm/backlog`
+   - Scan existing `pm/backlog/*.md` for the highest `id` value (format: `PM-{NNN}`). Increment by 1.
+   - Write `pm/backlog/{slug}.md` with this frontmatter and body:
+     ```yaml
+     ---
+     type: backlog-issue
+     id: "PM-{next_id}"
+     title: "{title from Linear or RFC}"
+     outcome: "{one-sentence from RFC summary or Linear description}"
+     status: done
+     priority: medium
+     linear_id: "{linear_id}"
+     rfc: rfcs/{slug}.html
+     prs:
+       - "#{pr_number}"
+     created: YYYY-MM-DD
+     updated: YYYY-MM-DD
+     ---
+
+     ## Outcome
+
+     {Summary of what was built, derived from RFC or Linear description.}
+
+     ## Notes
+
+     Originated from Linear issue {linear_id}. Product memory created at ship.
+     ```
+   - Log: `Product memory created: pm/backlog/{slug}.md (source: Linear {linear_id})`
+   - Then continue to Step 1 (which will now find the file and update status — but it's already `done`, so this is a no-op).
+
+1. **Backlog item:** If `pm/backlog/{slug}.md` exists, update its frontmatter `status` to `done` and set `updated` to today's date. If `linear_id` is available in the session state and not already present in the frontmatter, add it.
 
 2. **Proposal status:** Proposals have two status dimensions — `verdict` (grooming outcome, never changed by dev) and `status` (implementation lifecycle). Dev only updates `status`. **Never overwrite `verdict` or `verdictLabel`** — those belong to the groom skill.
 
