@@ -19,7 +19,7 @@
       {
         "type": "rfc",
         "parent": "linear-issue-to-dev",
-        "status": "draft",
+        "status": "approved",
         "created": "2026-04-09",
         "updated": "2026-04-09"
       }
@@ -853,7 +853,15 @@
       <div class="hero-inner">
         <div class="hero-breadcrumb"><a href="#">PM-151</a><span class="sep">/</span>RFC</div>
         <div class="hero-meta-row">
-          <span class="pill pill-draft-dark"><span class="dot"></span>Draft</span>
+          <span
+            class="pill pill-draft-dark"
+            style="
+              background: rgba(43, 138, 62, 0.2);
+              color: rgba(150, 255, 170, 0.9);
+              border-color: rgba(43, 138, 62, 0.25);
+            "
+            ><span class="dot" style="background: #4ade80"></span>Approved</span
+          >
           <span class="pill pill-rfc-dark">Engineering Plan</span>
         </div>
         <h1>Linear Issue to Dev Flow &mdash; Engineering Plan</h1>
@@ -1351,7 +1359,7 @@
           <div class="issue-row">
             <span class="issue-id">3</span
             ><span class="issue-title-text">Ship: backlog creation for Linear-originated work</span
-            ><span class="issue-size">S</span><span class="issue-dep">&rarr; 1</span>
+            ><span class="issue-size">S</span><span class="issue-dep">&rarr; 1, 2</span>
           </div>
         </div>
 
@@ -1384,14 +1392,19 @@
               three must pass.
             </li>
             <li>
-              If all three pass, dev sets <code>linear_id</code> and
-              <code>linear_data</code> (title, description, labels) in
+              If all three pass, dev sets <code>linear_id</code>, <code>linear_title</code>,
+              <code>linear_description</code>, and <code>linear_labels</code> in
               <code>.pm/dev-sessions/{slug}.md</code> and proceeds to Stage 2.5 &mdash; the RFC
               check recognizes this as a Linear-sourced dev-ready issue and skips to RFC generation.
             </li>
             <li>
-              If any check fails, dev announces the gaps and invokes <code>pm:groom</code> with the
-              Linear issue data as seed context (title, description, labels, ID).
+              If any check fails, dev also classifies size (XS/S/M/L/XL) from the available context.
+              For <strong>XS/S</strong>: handle inline &mdash; confirm scope + ACs with the user
+              conversationally (same as existing XS/S ungroomed path), storing
+              <code>linear_id</code> in session state. For <strong>M/L/XL</strong>: announce the
+              gaps and invoke <code>pm:groom</code> within the same conversation, passing Linear
+              context (title, description, labels, ID) as conversation context &mdash; not CLI
+              flags. Dev specifies the slug for groom to use: &ldquo;Use slug: {slug}&rdquo;.
             </li>
             <li>
               If MCP <code>get_issue</code> fails (timeout, auth error, Linear down), dev catches
@@ -1458,10 +1471,20 @@
                   issue {ID}: dev-ready. Proceeding to RFC.`</span
                 >
                 <span class="code-comment"
-                  >4. **If any fail:** Route to Single Issue but flag for auto-groom. Store
-                  `linear_id` and `linear_readiness: needs-groom` with the specific gaps (e.g.,
-                  `gaps: [missing-ac, vague-scope]`) in the session state. Log: `Linear issue {ID}:
-                  needs grooming ({gaps}). Invoking pm:groom.`</span
+                  >4. **If any fail:** Also classify size (XS/S/M/L/XL) from the available context.
+                  Store `linear_id` and `linear_readiness: needs-groom` with the specific gaps
+                  (e.g., `gaps: [missing-ac, vague-scope]`) in the session state.</span
+                >
+                <span class="code-comment">
+                  - **XS/S:** Handle inline — confirm scope + ACs with the user conversationally
+                  (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do NOT invoke
+                  pm:groom.</span
+                >
+                <span class="code-comment">
+                  - **M/L/XL:** Announce gaps and invoke pm:groom within the same conversation. Pass
+                  Linear context as conversation text (not CLI flags). Specify the slug for groom:
+                  "Use slug: {slug}". Log: `Linear issue {ID}: needs grooming ({gaps}). Invoking
+                  pm:groom.`</span
                 >
                 <span class="code-comment"
                   >5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error
@@ -1499,18 +1522,37 @@
                   - Proceed to size classification (Step 4) using the Linear description.</span
                 >
 
-                <span class="code-comment"> If `linear_readiness` is `needs-groom`:</span>
+                <span class="code-comment">
+                  If `linear_readiness` is `needs-groom` AND size is M/L/XL:</span
+                >
                 <span class="code-comment">
                   - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking
                   pm:groom."</span
                 >
                 <span class="code-comment">
-                  - Invoke `pm:groom` with arguments: `--linear-id {ID} --linear-title "{title}"
-                  --linear-description "{description}"`</span
+                  - Invoke `pm:groom` within the same conversation. Pass the Linear context as
+                  conversation text: title, description, labels, ID, and the slug to use. Groom
+                  picks up this context from the preceding messages — no CLI flags needed.</span
                 >
                 <span class="code-comment">
-                  - After groom completes, re-read `pm/backlog/{slug}.md` (groom creates this).
-                  Continue to Stage 2.5 via the existing proposal path.</span
+                  - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment.
+                  Linear ID: {ID}. Title: {title}. Description: {description}."</span
+                >
+                <span class="code-comment">
+                  - After groom completes, re-read `pm/backlog/{slug}.md` (groom creates this with
+                  `handoff_ready: true` and `rfc: null`). Stage 2.5 Step 1 routes to Stage 3 (RFC
+                  generation).</span
+                >
+
+                <span class="code-comment">
+                  If `linear_readiness` is `needs-groom` AND size is XS/S:</span
+                >
+                <span class="code-comment">
+                  - Handle inline: confirm scope + ACs with the user conversationally (same as
+                  existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.</span
+                >
+                <span class="code-comment">
+                  - Store `linear_id` in session state for ship write-back.</span
                 >
               </div>
 
@@ -1609,20 +1651,20 @@
           <div class="issue-label">Acceptance Criteria</div>
           <ol>
             <li>
-              When groom is invoked with Linear seed data (<code>--linear-id</code>,
-              <code>--linear-title</code>, <code>--linear-description</code>), Phase 1 intake
-              pre-fills the topic from the Linear title, pre-fills existing context from the Linear
+              When groom is invoked from dev with Linear context in the conversation (title,
+              description, labels, ID, and slug), Phase 1 intake pre-fills the topic from the Linear
+              title, uses the slug specified by dev, pre-fills existing context from the Linear
               description, and skips "What's the idea?" &mdash; going directly to clarification
               questions if needed.
             </li>
             <li>
               The Linear issue ID is stored in the groom session state as
-              <code>linear_source_id</code>.
+              <code>linear_id</code>.
             </li>
             <li>
-              In Phase 6 (Link), when <code>linear_source_id</code> is set, groom writes a comment
-              to the existing Linear issue via <code>save_comment</code> with the full groom output
-              (scope, AC, feasibility, research summary).
+              In Phase 6 (Link), when <code>linear_id</code> is set, groom writes a comment to the
+              existing Linear issue via <code>save_comment</code> with the full groom output (scope,
+              AC, feasibility, research summary).
             </li>
             <li>
               In Phase 6, groom also updates the existing Linear issue description via
@@ -1631,12 +1673,12 @@
               >), preserving the original description.
             </li>
             <li>
-              In Phase 6, when <code>linear_source_id</code> is set, groom does NOT create a new
-              Linear issue (it skips the "Create a single parent issue" step).
+              In Phase 6, when <code>linear_id</code> is set, groom does NOT create a new Linear
+              issue (it skips the "Create a single parent issue" step).
             </li>
             <li>
               The backlog entry (<code>pm/backlog/{slug}.md</code>) created by Phase 6 includes
-              <code>linear_id: {linear_source_id}</code> in its frontmatter.
+              <code>linear_id: {linear_id}</code> in its frontmatter.
             </li>
             <li>
               Validation passes: <code>node scripts/validate.js --dir pm</code> succeeds after all
@@ -1646,7 +1688,8 @@
 
           <div class="issue-label">Approach</div>
           <p>
-            Modify two files: <code>skills/groom/phases/phase-1-intake.md</code> and
+            Modify three files: <code>skills/groom/SKILL.md</code> (state schema),
+            <code>skills/groom/phases/phase-1-intake.md</code>, and
             <code>skills/groom/phases/phase-6-link.md</code>.
           </p>
 
@@ -1660,23 +1703,25 @@
               <p>Add a new block:</p>
               <div class="code-block" data-lang="markdown">
                 <span class="code-comment"
-                  >**If invoked with Linear issue seed data** (`--linear-id`, `--linear-title`,
-                  `--linear-description` arguments):</span
+                  >**If invoked from dev with Linear issue context** (dev passes title, description,
+                  labels, ID, and slug in the preceding conversation messages):</span
                 >
 
                 <span class="code-comment"
                   >This is a Linear issue that failed the dev-readiness check. Dev has already
-                  fetched the issue and identified the gaps.</span
+                  fetched the issue and identified the gaps. No CLI flags — groom reads the Linear
+                  context from the conversation.</span
                 >
 
+                <span class="code-comment">1. Set `linear_id` in the groom session state.</span>
+                <span class="code-comment">2. Pre-fill the topic from the Linear title.</span>
                 <span class="code-comment"
-                  >1. Set `linear_source_id` in the groom session state.</span
+                  >3. Use the slug specified by dev (from the conversation).</span
                 >
-                <span class="code-comment">2. Pre-fill the topic from `--linear-title`.</span>
                 <span class="code-comment"
-                  >3. Pre-fill existing context from `--linear-description`.</span
+                  >4. Pre-fill existing context from the Linear description.</span
                 >
-                <span class="code-comment">4. Confirm with the user:</span>
+                <span class="code-comment">5. Confirm with the user:</span>
                 <span class="code-comment">
                   > "Grooming Linear issue {ID}: '{title}'. Dev flagged gaps: {gaps from dev
                   session}.</span
@@ -1686,7 +1731,7 @@
                 >
                 <span class="code-comment"> > Anything to add before I proceed?"</span>
                 <span class="code-comment"
-                  >5. Skip to step 3 (existing research check) after confirmation.</span
+                  >6. Skip to step 3 (existing research check) after confirmation.</span
                 >
               </div>
             </div>
@@ -1703,8 +1748,8 @@
                 <span class="code-comment">2. **Linear integration:**</span>
 
                 <span class="code-comment">
-                  **If `linear_source_id` is set in the groom session state** (issue already exists
-                  in Linear):</span
+                  **If `linear_id` is set in the groom session state** (issue already exists in
+                  Linear):</span
                 >
                 <span class="code-comment"> - Do NOT create a new Linear issue.</span>
                 <span class="code-comment">
@@ -1726,24 +1771,29 @@
                 <span class="code-comment"> **Research:** {1-line summary}</span>
                 <span class="code-comment"> ```</span>
                 <span class="code-comment">
-                  - Update the issue description via `save_issue`: append below a separator:</span
+                  - Update the issue description via `save_issue`: append below a separator.
+                  **Idempotency rule:** If the description already contains `## Enriched AC
+                  (auto-groom)`, replace everything from that heading onward instead of appending
+                  again.</span
                 >
                 <span class="code-comment"> ```</span>
-                <span class="code-comment"> {existing description}</span>
+                <span class="code-comment">
+                  {existing description, up to but not including any prior enrichment}</span
+                >
                 <span class="code-comment"> </span>
                 <span class="code-comment"> ---</span>
                 <span class="code-comment"> ## Enriched AC (auto-groom)</span>
                 <span class="code-comment"> {numbered AC list}</span>
                 <span class="code-comment"> ```</span>
                 <span class="code-comment">
-                  - Set `linear_id` in the backlog entry frontmatter to `linear_source_id`.</span
+                  - Set `linear_id` in the backlog entry frontmatter to `linear_id`.</span
                 >
                 <span class="code-comment">
                   - Say: "Groom output written back to Linear issue {ID}. AC enriched."</span
                 >
 
                 <span class="code-comment">
-                  **If `linear_source_id` is NOT set** (existing flow, unchanged):</span
+                  **If `linear_id` is NOT set** (existing flow, unchanged):</span
                 >
                 <span class="code-comment">
                   - If Linear is configured, create a single parent issue. Capture the Linear
@@ -1758,7 +1808,7 @@
                 Also add <code>linear_id</code> to the backlog entry frontmatter in Step 1:
               </p>
               <div class="code-block" data-lang="markdown">
-                <span class="code-comment">linear_id: "{linear_source_id}" | null</span>
+                <span class="code-comment">linear_id: "{linear_id}" | null</span>
               </div>
             </div>
           </details>
@@ -1789,7 +1839,7 @@
           <div class="issue-detail-header">
             <span class="issue-id">3</span>
             <h3>Ship: backlog creation for Linear-originated work</h3>
-            <span class="issue-detail-meta">Size: S &middot; Depends on: Issue 1</span>
+            <span class="issue-detail-meta">Size: S &middot; Depends on: Issue 1, Issue 2</span>
           </div>
 
           <p>
@@ -1873,6 +1923,7 @@
                   outcome: "{one-sentence from RFC summary or Linear description}"</span
                 >
                 <span class="code-comment"> status: done</span>
+                <span class="code-comment"> priority: medium</span>
                 <span class="code-comment"> linear_id: "{linear_id}"</span>
                 <span class="code-comment"> rfc: rfcs/{slug}.html</span>
                 <span class="code-comment"> prs:</span>
@@ -1970,9 +2021,60 @@
           </div>
           <h2>Resolved Questions</h2>
         </div>
-        <p style="font-size: 0.84rem; color: var(--ink-tertiary); margin-bottom: 0.5rem">
-          Populated during RFC review. Empty in initial draft.
-        </p>
+        <div class="question-item">
+          <div class="question-num">1</div>
+          <div>
+            <div class="question-text">How does groom receive Linear context from dev?</div>
+            <p style="font-size: 0.84rem; color: var(--ink-secondary); margin-top: 0.3rem">
+              <strong>A:</strong> Conversation context, not CLI flags. Dev passes Linear data
+              (title, description, labels, ID, slug) as conversation text before invoking groom.
+              Groom reads it from preceding messages. This follows the existing inter-skill pattern.
+            </p>
+          </div>
+        </div>
+        <div class="question-item">
+          <div class="question-num">2</div>
+          <div>
+            <div class="question-text">
+              What happens for XS/S Linear issues that fail readiness?
+            </div>
+            <p style="font-size: 0.84rem; color: var(--ink-secondary); margin-top: 0.3rem">
+              <strong>A:</strong> Handle inline, same as existing XS/S ungroomed path. Confirm scope
+              + ACs conversationally. Only M/L/XL trigger auto-groom.
+            </p>
+          </div>
+        </div>
+        <div class="question-item">
+          <div class="question-num">3</div>
+          <div>
+            <div class="question-text">Should groom write-back be idempotent?</div>
+            <p style="font-size: 0.84rem; color: var(--ink-secondary); margin-top: 0.3rem">
+              <strong>A:</strong> Yes. If the description already contains &ldquo;## Enriched AC
+              (auto-groom)&rdquo;, replace that section instead of appending again.
+            </p>
+          </div>
+        </div>
+        <div class="question-item">
+          <div class="question-num">4</div>
+          <div>
+            <div class="question-text">Does the ship backlog template pass validate.js?</div>
+            <p style="font-size: 0.84rem; color: var(--ink-secondary); margin-top: 0.3rem">
+              <strong>A:</strong> Fixed. Added <code>priority: medium</code> to the template. This
+              matches the required fields in validate.js.
+            </p>
+          </div>
+        </div>
+        <div class="question-item">
+          <div class="question-num">5</div>
+          <div>
+            <div class="question-text">What about slug mismatch between dev and groom?</div>
+            <p style="font-size: 0.84rem; color: var(--ink-secondary); margin-top: 0.3rem">
+              <strong>A:</strong> Dev specifies the slug for groom to use via conversation context.
+              Groom uses that slug instead of deriving its own. This ensures both skills write to
+              the same backlog path.
+            </p>
+          </div>
+        </div>
       </section>
 
       <!-- DECISION LOG -->
@@ -2000,6 +2102,20 @@
           <div class="decision-text">
             <strong>RFC created</strong> from PM-151 proposal. Three issues: intake routing, groom
             write-back, ship product memory.
+          </div>
+        </div>
+        <div class="decision-item">
+          <div class="decision-date">Apr 9</div>
+          <div class="decision-text">
+            <strong>RFC reviewed by 3 engineers.</strong> 10 blocking issues found and fixed: (1)
+            XS/S linear issues handled inline, not via groom; (2) Slug agreement via conversation
+            context; (3) Conversation context replaces CLI flags for inter-skill data; (4)
+            Write-back idempotency rule added; (5) <code>priority</code> field added to ship backlog
+            template; (6) <code>linear_source_id</code> renamed to
+            <code>linear_id</code> everywhere; (7) Groom SKILL.md added to Issue 2 file list; (8)
+            Issue 3 dependency corrected to Issue 1+2; (9) Post-groom re-entry path made explicit;
+            (10) <code>linear_data</code> replaced with discrete fields. All reviewers signed off
+            after fixes.
           </div>
         </div>
       </section>
