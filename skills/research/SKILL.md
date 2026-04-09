@@ -333,10 +333,16 @@ What this research did NOT answer.
    - Append external `sources` entries and `[external]` findings without deleting internal evidence
    - Rewrite shared sections (`Summary`, `Strategic Relevance`, `Implications`) so they reflect both internal and external evidence
 
-6. **Update evidence indexes**:
+6. **Route findings to insight topics.**
+   Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+   Pass the evidence file path (`pm/evidence/research/{topic-slug}.md`)
+   and the key findings from Step 5 as input.
+   If no insight domains exist and no `pm/strategy.md` exists, skip this step.
+
+7. **Update evidence indexes**:
    - `pm/evidence/research/index.md` — add or update the topic row with description, updated date, and `external` or `mixed` status.
    - `pm/evidence/index.md` — keep the top-level Research Evidence list in sync with the topic file.
-7. **Update evidence logs**:
+8. **Update evidence logs**:
    - append the topic write to `pm/evidence/research/log.md`
    - append the topic write to `pm/evidence/log.md`
 
