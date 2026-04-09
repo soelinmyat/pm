@@ -185,24 +185,6 @@ test("invalid status enum reports error", (t) => {
   assert.ok(err.message.includes("yolo"));
 });
 
-test("planned status is accepted", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/rfc-done.md": makeBacklogItem({ status: "planned" }),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, true);
-});
-
-test("proposed status is accepted", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/groomed-item.md": makeBacklogItem({ status: "proposed" }),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, true);
-});
-
 test("invalid priority enum reports error", (t) => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/bad-prio.md": makeBacklogItem({ priority: "urgent" }),
@@ -218,7 +200,7 @@ test("invalid priority enum reports error", (t) => {
 
 test("invalid ID format reports error", (t) => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/bad-id.md": makeBacklogItem({ id: "ISSUE-1" }),
+    "pm/backlog/bad-id.md": makeBacklogItem({ id: "bad-format" }),
   });
   t.after(cleanup);
 
@@ -226,7 +208,7 @@ test("invalid ID format reports error", (t) => {
   assert.equal(result.ok, false);
   const err = result.details.find((d) => d.field === "id");
   assert.ok(err);
-  assert.ok(err.message.includes("ISSUE-1"));
+  assert.ok(err.message.includes("bad-format"));
 });
 
 test("duplicate IDs report error", (t) => {
@@ -479,6 +461,82 @@ test("bidirectional citation validation rejects missing target files", (t) => {
       d.message.includes('missing evidence file "evidence/research/reporting-gaps.md"')
     )
   );
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Artifact traceability — status lifecycle & type validation
+// ---------------------------------------------------------------------------
+
+test("PM-150: proposed status passes validation", () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/proposed-item.md": makeBacklogItem({ status: "proposed" }),
+  });
+  try {
+    const result = runValidate(pmDir);
+    assert.equal(result.ok, true, `proposed status should pass: ${JSON.stringify(result.details)}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: planned status passes validation", () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/planned-item.md": makeBacklogItem({ status: "planned" }),
+  });
+  try {
+    const result = runValidate(pmDir);
+    assert.equal(result.ok, true, `planned status should pass: ${JSON.stringify(result.details)}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: approved status is rejected by validation", () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/approved-item.md": makeBacklogItem({ status: "approved" }),
+  });
+  try {
+    const result = runValidate(pmDir);
+    assert.equal(result.ok, false, "approved status should fail validation");
+    assert.ok(
+      result.details.some((d) => d.message.includes("approved")),
+      "error message must mention approved"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: type proposal passes validation", () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/proposal-item.md": makeBacklogItem({ type: "proposal" }),
+  });
+  try {
+    const result = runValidate(pmDir);
+    assert.equal(result.ok, true, `type proposal should pass: ${JSON.stringify(result.details)}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: frontmatter parser handles prs YAML list with quoted # values", () => {
+  const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
+  const content = [
+    "---",
+    "type: backlog-issue",
+    "prs:",
+    '  - "#42"',
+    '  - "#43"',
+    "linear_id: LIN-442",
+    "thinking: thinking/my-feature.md",
+    "---",
+    "",
+    "# Test",
+  ].join("\n");
+  const { data } = parseFrontmatter(content);
+  assert.deepEqual(data.prs, ["#42", "#43"], "prs must parse as array with # values");
+  assert.equal(data.linear_id, "LIN-442", "linear_id must parse as scalar");
+  assert.equal(data.thinking, "thinking/my-feature.md", "thinking must parse as scalar");
 });
 
 test("real pm/ directory passes validation", (t) => {

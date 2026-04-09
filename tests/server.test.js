@@ -373,7 +373,7 @@ test("GET /roadmap returns kanban HTML grouped by status", async () => {
       const { statusCode, body } = await httpGet(port, "/roadmap");
       assert.equal(statusCode, 200);
       assert.ok(body.includes("Idea") || body.includes("idea"), "must show idea column");
-      assert.ok(body.includes("Groomed") || body.includes("groomed"), "must show groomed column");
+      assert.ok(body.includes("Ideas") || body.includes("ideas"), "must show ideas column");
       assert.ok(body.includes("Shipped") || body.includes("shipped"), "must show shipped column");
     } finally {
       await close();
@@ -1889,9 +1889,10 @@ test("PM-123: nav sidebar shows Roadmap not Backlog", async () => {
   }
 });
 
-test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async () => {
+test("PM-123: kanban columns are labeled Ideas / Proposed / In Progress / Shipped", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/idea-1.md": "---\nstatus: idea\ntitle: Idea One\n---\n# Idea\n",
+    "pm/backlog/proposed-1.md": "---\nstatus: proposed\ntitle: Proposed One\n---\n# Proposed\n",
     "pm/backlog/wip-1.md": "---\nstatus: in-progress\ntitle: WIP One\n---\n# WIP\n",
     "pm/backlog/done-1.md": "---\nstatus: done\ntitle: Done One\n---\n# Done\n",
   });
@@ -1899,15 +1900,9 @@ test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap");
-      assert.ok(body.includes(">Idea<") || body.includes(">Idea "), "must show Idea column");
-      assert.ok(
-        body.includes(">Groomed<") || body.includes(">Groomed "),
-        "must show Groomed column"
-      );
-      assert.ok(
-        body.includes(">Shipped<") || body.includes(">Shipped "),
-        "must show Shipped column"
-      );
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
     } finally {
       await close();
     }
@@ -3334,7 +3329,7 @@ test("PM-125: GET /roadmap/{slug} renders .detail-page wrapper", async () => {
 test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/parent-proposal.md":
-      "---\nstatus: approved\ntitle: Parent Proposal\n---\n# Parent\n",
+      "---\nstatus: proposed\ntitle: Parent Proposal\n---\n# Parent\n",
     "pm/backlog/child-issue.md":
       "---\nstatus: drafted\ntitle: Child Issue\nid: PM-050\nparent: parent-proposal\n---\n# Child\n",
   });
@@ -5381,9 +5376,53 @@ test("PM-141: kanban template — backlog items from schema example render in co
       assert.ok(body.includes("Shipped Feature"), "must include shipped item");
       assert.ok(body.includes("PM-100"), "must include groomed item ID");
       assert.ok(body.includes("PM-101"), "must include active item ID");
-      assert.ok(body.includes("Groomed"), "must include Groomed column label");
+      assert.ok(body.includes("Ideas"), "must include Ideas column label");
       assert.ok(body.includes("In Progress"), "must include In Progress column label");
       assert.ok(body.includes("Shipped"), "must include Shipped column label");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: STATUS_MAP integration test — all 6 statuses land in correct columns
+// ---------------------------------------------------------------------------
+
+test("PM-150: STATUS_MAP routes all 6 statuses to correct kanban columns", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/item-idea.md": "---\nstatus: idea\ntitle: Idea Item\nid: PM-201\n---\n# Idea\n",
+    "pm/backlog/item-drafted.md":
+      "---\nstatus: drafted\ntitle: Drafted Item\nid: PM-202\n---\n# Drafted\n",
+    "pm/backlog/item-planned.md":
+      "---\nstatus: planned\ntitle: Planned Item\nid: PM-203\n---\n# Planned\n",
+    "pm/backlog/item-proposed.md":
+      "---\nstatus: proposed\ntitle: Proposed Item\nid: PM-204\n---\n# Proposed\n",
+    "pm/backlog/item-wip.md": "---\nstatus: in-progress\ntitle: WIP Item\nid: PM-205\n---\n# WIP\n",
+    "pm/backlog/item-done.md": "---\nstatus: done\ntitle: Done Item\nid: PM-206\n---\n# Done\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      // Ideas column: idea + drafted
+      assert.ok(body.includes("Idea Item"), "idea status must appear");
+      assert.ok(body.includes("Drafted Item"), "drafted status must appear");
+      // Proposed column: planned + proposed
+      assert.ok(body.includes("Planned Item"), "planned status must appear");
+      assert.ok(body.includes("Proposed Item"), "proposed status must appear");
+      // In Progress column
+      assert.ok(body.includes("WIP Item"), "in-progress status must appear");
+      // Shipped column
+      assert.ok(body.includes("Done Item"), "done status must appear");
+
+      // Verify 4 columns exist
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">In Progress"), "must show In Progress column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
     } finally {
       await close();
     }
@@ -5402,6 +5441,301 @@ test("GET /roadmap kanban shows RFC ready badge for planned items", async () => 
       const { body } = await httpGet(port, "/roadmap");
       assert.ok(body.includes("kanban-badge-planned"), "planned item must show RFC ready badge");
       assert.ok(body.includes("RFC ready"), "badge must say RFC ready");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Thread view tests
+// ---------------------------------------------------------------------------
+
+test("PM-150: GET /roadmap?view=threads renders thread table with correct columns", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/my-feature.md": [
+      "---",
+      "type: proposal",
+      "id: PM-301",
+      "title: My Feature",
+      "outcome: Better things",
+      "status: proposed",
+      "prd: proposals/my-feature.html",
+      "rfc: rfcs/my-feature.html",
+      "linear_id: LIN-100",
+      "prs:",
+      '  - "#42"',
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# My Feature",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/roadmap?view=threads");
+      assert.equal(statusCode, 200, "must return 200");
+      // Table columns
+      assert.ok(body.includes("Feature"), "must show Feature column");
+      assert.ok(body.includes("Status"), "must show Status column");
+      assert.ok(body.includes("Proposal"), "must show Proposal column");
+      assert.ok(body.includes("RFC"), "must show RFC column");
+      assert.ok(body.includes("Linear"), "must show Linear column");
+      assert.ok(body.includes("PRs"), "must show PRs column");
+      // Data
+      assert.ok(body.includes("My Feature"), "must show feature title");
+      assert.ok(body.includes("PM-301"), "must show feature ID");
+      assert.ok(body.includes("proposed"), "must show status");
+      assert.ok(body.includes("/proposals/my-feature"), "must link to proposal");
+      assert.ok(body.includes("/rfc/my-feature"), "must link to RFC");
+      assert.ok(body.includes("LIN-100"), "must show Linear ID");
+      assert.ok(body.includes("#42"), "must show PR number");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads shows empty state when no items exist", async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(
+        body.includes("No features yet") || body.includes("no features"),
+        "must show empty state"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads shows dashes for idea status with no artifacts", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/raw-idea.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-302",
+      "title: Raw Idea",
+      "outcome: Something",
+      "status: idea",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Raw Idea",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Raw Idea"), "must show idea title");
+      // Count dashes in the row — artifacts should all be dashes
+      const dashCount = (body.match(/\u2014/g) || []).length;
+      assert.ok(dashCount >= 4, "idea row must have dashes for empty artifact cells");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads excludes sub-issues from top-level rows", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/parent-feat.md": [
+      "---",
+      "type: proposal",
+      "id: PM-303",
+      "title: Parent Feature",
+      "outcome: Big feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Parent Feature",
+    ].join("\n"),
+    "pm/backlog/child-task.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-304",
+      "title: Child Task",
+      "outcome: Sub task",
+      "status: in-progress",
+      "parent: parent-feat",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child Task",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Parent Feature"), "must show parent");
+      // Child must appear only inside disclosure, not as a separate <tr>
+      // Count <tr> elements — should be 1 data row (parent) + 1 header row
+      const trMatches = body.match(/<tr>/g) || [];
+      // Header row + 1 parent row = 2 total
+      assert.equal(trMatches.length, 2, "must have only header row and parent row (no child row)");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap (no view param) renders kanban, not thread table", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/kanban-item.md": "---\nstatus: idea\ntitle: Kanban Item\nid: PM-305\n---\n# Item\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      assert.ok(body.includes("kanban"), "must render kanban view by default");
+      assert.ok(body.includes("Kanban Item"), "must show the item");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: roadmap view toggle links are present", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/toggle-item.md": "---\nstatus: idea\ntitle: Toggle Item\nid: PM-306\n---\n# Item\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Check kanban view has toggle
+      const { body: kanbanBody } = await httpGet(port, "/roadmap");
+      assert.ok(
+        kanbanBody.includes("view=threads") || kanbanBody.includes("Threads"),
+        "kanban view must have threads toggle link"
+      );
+
+      // Check threads view has toggle
+      const { body: threadsBody } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(
+        threadsBody.includes('"/roadmap"') || threadsBody.includes("Kanban"),
+        "threads view must have kanban toggle link"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Thread view — children disclosure toggle
+// ---------------------------------------------------------------------------
+
+test("PM-150: thread view shows children disclosure toggle for parent with children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/parent-with-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-310",
+      "title: Parent With Kids",
+      "outcome: Feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Parent With Kids",
+    ].join("\n"),
+    "pm/backlog/child-one.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-311",
+      "title: Child One",
+      "outcome: Sub task",
+      "status: in-progress",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child One",
+    ].join("\n"),
+    "pm/backlog/child-two.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-312",
+      "title: Child Two",
+      "outcome: Sub task 2",
+      "status: idea",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child Two",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Parent With Kids"), "must show parent");
+      assert.ok(body.includes("2 sub-issue"), "must show sub-issue count");
+      assert.ok(body.includes("<details"), "must have disclosure toggle");
+      assert.ok(body.includes("Child One"), "must list child in disclosure");
+      assert.ok(body.includes("Child Two"), "must list child in disclosure");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: thread view does not show disclosure toggle for items without children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/no-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-313",
+      "title: No Kids Feature",
+      "outcome: Solo feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# No Kids Feature",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("No Kids Feature"), "must show feature");
+      assert.ok(
+        !body.includes('<details class="thread-children-toggle"'),
+        "must not have disclosure toggle element when no children"
+      );
     } finally {
       await close();
     }
