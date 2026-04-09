@@ -5,6 +5,20 @@
 
 Skip to step 3 after confirmation.
 
+**If invoked from dev with Linear issue context** (dev passes title, description, labels, ID, and slug in the preceding conversation messages):
+
+This is a Linear issue that failed the dev-readiness check. Dev has already fetched the issue and identified the gaps. No CLI flags — groom reads the Linear context from the conversation.
+
+1. Set `linear_id` in the groom session state.
+2. Pre-fill the topic from the Linear title.
+3. Use the slug specified by dev (from the conversation).
+4. Pre-fill existing context from the Linear description.
+5. Confirm with the user:
+   > "Grooming Linear issue {ID}: '{title}'. Dev flagged gaps: {gaps from dev session}.
+   > Here's the current description: {first 200 chars}...
+   > Anything to add before I proceed?"
+6. Skip to step 3 (existing research check) after confirmation.
+
 **Otherwise:**
 
 1. Ask: "What's the idea?"

@@ -2,16 +2,44 @@
 
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
-   - Set `status: proposed`, `verdict:` from bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`.
+   - Set `status: proposed`, `verdict:` from bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`, `linear_id: "{linear_id}" | null`.
    - Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 
-2. **If Linear is configured** (`.pm/config.json` has `linear: true` or Linear MCP is available):
-   - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
-     - Convert `[text](pm/...)` → `text (\`pm/...\`)` — plain text with path in backticks
-     - Leave absolute URLs (starting with `http://` or `https://`) unchanged
-   - Create a single parent issue in Linear. Capture the Linear ID.
-   - Do NOT create child issues — issue splitting happens later during RFC generation in `pm:dev`.
-   - Say: "Proposal linked in Linear. ID: {ID}."
+2. **Linear integration:**
+
+   **If `linear_id` is set in the groom session state** (issue already exists in Linear):
+   - Do NOT create a new Linear issue.
+   - Fetch the current issue description via `get_issue` (to get the latest version).
+   - Write a comment to the existing issue via `save_comment` with the groom output:
+     ```
+     ## Groom Output (auto-generated)
+
+     **Scope:** {in-scope items}
+     **Out of scope:** {out-of-scope items}
+     **Acceptance Criteria:**
+     {numbered AC list}
+     **Feasibility:** {verdict}
+     **Research:** {1-line summary}
+     ```
+   - Update the issue description via `save_issue`: append below a separator. **Idempotency rule:** If the description already contains `## Enriched AC (auto-groom)`, replace content from that heading up to (but not including) the next `## ` heading or end of description, whichever comes first. This preserves any human-added sections below the enriched block.
+     ```
+     {existing description, up to but not including any prior enrichment}
+
+     ---
+     ## Enriched AC (auto-groom)
+     {numbered AC list}
+     ```
+   - Set `linear_id` in the backlog entry frontmatter to `linear_id`.
+   - Say: "Groom output written back to Linear issue {ID}. AC enriched."
+
+   **If `linear_id` is NOT set** (existing flow, unchanged):
+   - If Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available):
+     - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
+       - Convert `[text](pm/...)` → `text (\`pm/...\`)` — plain text with path in backticks
+       - Leave absolute URLs (starting with `http://` or `https://`) unchanged
+     - Create a single parent issue in Linear. Capture the Linear ID.
+     - Do NOT create child issues — issue splitting happens later during RFC generation in `pm:dev`.
+     - Say: "Proposal linked in Linear. ID: {ID}."
 
 3. **Validate written artifacts.** Run:
    ```bash
