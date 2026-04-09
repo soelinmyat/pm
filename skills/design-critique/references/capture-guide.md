@@ -157,9 +157,9 @@ After capture, write a manifest file listing what each screenshot shows:
 
 ## Enriched Capture (after screenshots)
 
-After all screenshots for a page are captured, collect two additional artifacts that give designer agents hard data instead of visual guesses.
+After all screenshots for a page are captured, collect two additional artifacts that give the reviewer hard data instead of visual guesses.
 
-### Accessibility Snapshot (for Designer B)
+### Accessibility Snapshot
 
 Use Playwright MCP's `browser_snapshot` tool on each page after the screenshot is taken. This returns the accessibility tree: element roles, accessible names, states, tab order, ARIA attributes.
 
@@ -170,128 +170,328 @@ browser_snapshot  # returns full accessibility tree
 
 Save the output to `/tmp/design-review/{feature}/a11y-snapshot-{page-slug}.md`.
 
-This gives Designer B concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No more guessing from PNGs.
+Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
-### DOM Measurement Audit (for Designer C)
+### Visual Consistency Audit
 
-After screenshots, run a measurement script via `browser_evaluate` that walks visible elements and compares computed styles against the project's design tokens.
+**Purpose:** Detect visual inconsistencies — elements that should look the same but don't. This is NOT token compliance (linters catch hardcoded values). This catches cases where every value is a valid token but the *combination* produces inconsistent results: a card with `container-lg` padding on top and `container-sm` on bottom, sibling sections using different spacing tokens for the same role, headings at the same level styled differently across pages.
 
-**Step 1:** Read the project's token file (`tokens.ts`, `tailwind.config.ts`, `theme.ts`, or CSS variables) and extract the token scales (spacing, typography, color, border-radius, shadow).
+**The test:** Group elements by visual role. Within each group, flag variance.
 
-**Step 2:** For each page, run this measurement via `browser_evaluate`:
+For each page, run this via `browser_evaluate`:
 
 ```javascript
 (() => {
-  const elements = document.querySelectorAll(
-    'h1,h2,h3,h4,h5,h6,p,span,a,button,input,select,textarea,label,' +
-    '[class*="card"],[class*="modal"],[class*="drawer"],[class*="dialog"],' +
-    '[class*="badge"],[class*="chip"],[class*="tag"],' +
-    '[role="button"],[role="link"],[role="heading"]'
-  );
-  const results = [];
-  elements.forEach(el => {
-    const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return; // skip invisible
+  const inconsistencies = {};
+  const hierarchy = [];
+  const asymmetry = [];
+
+  function desc(el) {
+    const tag = el.tagName.toLowerCase();
+    const cls = (el.className?.toString() || '').split(/\s+/).filter(Boolean).slice(0, 3).join('.');
+    const text = (el.textContent || '').trim().slice(0, 30);
+    return `${tag}${cls ? '.' + cls : ''}${text ? ' "' + text + '"' : ''}`;
+  }
+
+  function borderShorthand(cs) {
+    const w = cs.borderTopWidth;
+    return w === '0px' ? 'none' : `${w} ${cs.borderTopStyle} ${cs.borderTopColor}`;
+  }
+
+  function getStyles(el, type) {
     const cs = getComputedStyle(el);
-    results.push({
-      tag: el.tagName.toLowerCase(),
-      className: el.className?.toString().slice(0, 120) || '',
-      text: (el.textContent || '').trim().slice(0, 60),
-      fontSize: cs.fontSize,
-      fontWeight: cs.fontWeight,
-      lineHeight: cs.lineHeight,
-      color: cs.color,
-      backgroundColor: cs.backgroundColor,
+    const base = { _el: desc(el) };
+    const shared = { opacity: cs.opacity };
+    if (type === 'typography') {
+      return { ...base, ...shared,
+        fontSize: cs.fontSize, fontWeight: cs.fontWeight,
+        lineHeight: cs.lineHeight, color: cs.color,
+        letterSpacing: cs.letterSpacing,
+        textTransform: cs.textTransform, textDecoration: cs.textDecorationLine,
+      };
+    }
+    if (type === 'interactive') {
+      return { ...base, ...shared,
+        height: `${Math.round(el.getBoundingClientRect().height)}px`,
+        padding: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`,
+        fontSize: cs.fontSize, fontWeight: cs.fontWeight,
+        borderRadius: cs.borderRadius, border: borderShorthand(cs),
+        backgroundColor: cs.backgroundColor,
+        textTransform: cs.textTransform, textDecoration: cs.textDecorationLine,
+      };
+    }
+    // container
+    return { ...base, ...shared,
       padding: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`,
-      margin: `${cs.marginTop} ${cs.marginRight} ${cs.marginBottom} ${cs.marginLeft}`,
-      gap: cs.gap,
-      borderRadius: cs.borderRadius,
+      borderRadius: cs.borderRadius, border: borderShorthand(cs),
+      gap: cs.gap, overflow: cs.overflow,
+      backgroundColor: cs.backgroundColor,
       boxShadow: cs.boxShadow === 'none' ? '' : cs.boxShadow,
-      width: `${Math.round(rect.width)}px`,
-      height: `${Math.round(rect.height)}px`,
-    });
+    };
+  }
+
+  function visible(el) {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  // --- Group 1: Headings by level (typography consistency) ---
+  // Collect ALL heading data for hierarchy check, even single instances
+  const headingData = {};
+  ['h1','h2','h3','h4','h5','h6'].forEach(tag => {
+    const els = [...document.querySelectorAll(tag)].filter(visible);
+    if (els.length === 0) return;
+    const styles = els.map(el => getStyles(el, 'typography'));
+    headingData[tag] = styles;
+    // Within-level consistency (needs 2+)
+    if (els.length >= 2) checkGroup(tag, styles);
   });
-  return JSON.stringify(results, null, 2);
+
+  // --- Typography hierarchy check (cross-level) ---
+  const levels = Object.keys(headingData).sort(); // h1, h2, h3...
+  for (let i = 0; i < levels.length - 1; i++) {
+    const upper = levels[i];   // e.g. h1
+    const lower = levels[i+1]; // e.g. h2
+    // Use the majority (most common) fontSize for each level
+    const upperSize = majorityValue(headingData[upper], 'fontSize');
+    const lowerSize = majorityValue(headingData[lower], 'fontSize');
+    const upperPx = parseFloat(upperSize);
+    const lowerPx = parseFloat(lowerSize);
+    if (lowerPx > upperPx) {
+      hierarchy.push({ issue: 'inverted', upper, lower, property: 'fontSize',
+        upperValue: upperSize, lowerValue: lowerSize,
+        detail: `${lower} (${lowerSize}) is larger than ${upper} (${upperSize})` });
+    } else if (upperPx === lowerPx) {
+      hierarchy.push({ issue: 'collapsed', upper, lower, property: 'fontSize',
+        value: upperSize,
+        detail: `${upper} and ${lower} are both ${upperSize}` });
+    }
+    // Weight: upper should be >= lower (or at least not dramatically less)
+    const upperWeight = parseInt(majorityValue(headingData[upper], 'fontWeight'));
+    const lowerWeight = parseInt(majorityValue(headingData[lower], 'fontWeight'));
+    if (lowerWeight > upperWeight && lowerWeight - upperWeight >= 200) {
+      hierarchy.push({ issue: 'weight-inverted', upper, lower, property: 'fontWeight',
+        upperValue: String(upperWeight), lowerValue: String(lowerWeight),
+        detail: `${lower} (${lowerWeight}) is bolder than ${upper} (${upperWeight})` });
+    }
+  }
+  // Body vs smallest heading
+  const bodyEls = [...document.querySelectorAll('p')].filter(visible);
+  if (bodyEls.length > 0 && levels.length > 0) {
+    const bodySize = parseFloat(getComputedStyle(bodyEls[0]).fontSize);
+    const smallest = levels[levels.length - 1];
+    const smallestSize = parseFloat(majorityValue(headingData[smallest], 'fontSize'));
+    if (bodySize >= smallestSize) {
+      hierarchy.push({ issue: 'body-exceeds-heading', property: 'fontSize',
+        bodyValue: `${bodySize}px`, heading: smallest, headingValue: `${smallestSize}px`,
+        detail: `Body text (${bodySize}px) is >= ${smallest} (${smallestSize}px)` });
+    }
+  }
+
+  function majorityValue(styles, prop) {
+    const counts = {};
+    styles.forEach(s => { counts[s[prop]] = (counts[s[prop]] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  // --- Group 2: Interactive elements (buttons, inputs) ---
+  ['button','input','select','textarea'].forEach(tag => {
+    const els = [...document.querySelectorAll(tag)].filter(visible);
+    if (els.length < 2) return;
+    checkGroup(tag, els.map(el => getStyles(el, 'interactive')));
+  });
+
+  // --- Group 3: Links styled as actions ---
+  const linkEls = [...document.querySelectorAll('a')].filter(el => {
+    if (!visible(el)) return false;
+    const cs = getComputedStyle(el);
+    // Only links that look like buttons or nav items (have padding or background)
+    return parseFloat(cs.paddingTop) > 2 || cs.backgroundColor !== 'rgba(0, 0, 0, 0)';
+  });
+  if (linkEls.length >= 2) {
+    checkGroup('link-actions', linkEls.map(el => getStyles(el, 'interactive')));
+  }
+
+  // --- Group 4: Component patterns (cards, badges, panels) ---
+  const componentGroups = [
+    { name: 'card', sel: '[class*="card"]:not([class*="discard"])' },
+    { name: 'badge', sel: '[class*="badge"],[class*="chip"],[class*="tag"]:not(meta):not(link)' },
+    { name: 'panel', sel: '[class*="panel"],[class*="sheet"]' },
+    { name: 'alert', sel: '[class*="alert"],[class*="banner"],[class*="toast"]' },
+  ];
+  componentGroups.forEach(({ name, sel }) => {
+    try {
+      const els = [...document.querySelectorAll(sel)].filter(visible);
+      if (els.length < 2) return;
+      checkGroup(`component:${name}`, els.map(el => getStyles(el, 'container')));
+    } catch(e) { /* invalid selector, skip */ }
+  });
+
+  // --- Group 5: Sibling rhythm (children of flex/grid parents) ---
+  document.querySelectorAll('*').forEach(parent => {
+    const cs = getComputedStyle(parent);
+    if (cs.display !== 'flex' && cs.display !== 'grid') return;
+    if (!visible(parent)) return;
+    const byTag = {};
+    [...parent.children].filter(visible).forEach(child => {
+      const tag = child.tagName.toLowerCase();
+      if (!byTag[tag]) byTag[tag] = [];
+      byTag[tag].push(child);
+    });
+    for (const [tag, els] of Object.entries(byTag)) {
+      if (els.length < 3) continue;
+      const styles = els.map(el => {
+        const s = getComputedStyle(el);
+        return {
+          _el: desc(el),
+          opacity: s.opacity,
+          height: `${Math.round(el.getBoundingClientRect().height)}px`,
+          padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`,
+          marginBottom: s.marginBottom, border: borderShorthand(s),
+        };
+      });
+      checkGroup(`siblings:${desc(parent)}>${tag}`, styles);
+    }
+  });
+
+  // --- Asymmetry check: containers with unbalanced padding ---
+  document.querySelectorAll('div,section,article,aside,main,header,footer').forEach(el => {
+    if (!visible(el)) return;
+    const cs = getComputedStyle(el);
+    const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
+    const pl = parseFloat(cs.paddingLeft), pr = parseFloat(cs.paddingRight);
+    if (pt > 4 && pb > 4 && Math.abs(pt - pb) > 4) {
+      asymmetry.push({ element: desc(el), axis: 'vertical',
+        values: `top=${cs.paddingTop} bottom=${cs.paddingBottom}` });
+    }
+    if (pl > 4 && pr > 4 && Math.abs(pl - pr) > 4) {
+      asymmetry.push({ element: desc(el), axis: 'horizontal',
+        values: `left=${cs.paddingLeft} right=${cs.paddingRight}` });
+    }
+  });
+
+  // --- Variance detection ---
+  function checkGroup(name, members) {
+    const props = Object.keys(members[0]).filter(k => k !== '_el');
+    const variances = {};
+    props.forEach(prop => {
+      const counts = {};
+      members.forEach(m => { counts[m[prop]] = (counts[m[prop]] || 0) + 1; });
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      if (sorted.length <= 1) return;
+      variances[prop] = {
+        majority: { value: sorted[0][0], count: sorted[0][1] },
+        outliers: sorted.slice(1).flatMap(([value, count]) =>
+          members.filter(m => m[prop] === value).map(m => ({
+            element: m._el, value, majorityValue: sorted[0][0]
+          }))
+        ),
+      };
+    });
+    if (Object.keys(variances).length > 0) {
+      inconsistencies[name] = variances;
+    }
+  }
+
+  // Cap asymmetry at 10 most significant
+  asymmetry.sort((a, b) => {
+    const diffA = Math.abs(parseFloat(a.values.split(' ')[0].split('=')[1]) -
+                           parseFloat(a.values.split(' ')[1].split('=')[1]));
+    const diffB = Math.abs(parseFloat(b.values.split(' ')[0].split('=')[1]) -
+                           parseFloat(b.values.split(' ')[1].split('=')[1]));
+    return diffB - diffA;
+  });
+
+  return JSON.stringify({
+    inconsistencies,
+    hierarchy,
+    asymmetry: asymmetry.slice(0, 10),
+    _meta: {
+      groups_checked: Object.keys(inconsistencies).length,
+      groups_with_variance: Object.values(inconsistencies).filter(v => Object.keys(v).length > 0).length,
+      hierarchy_issues: hierarchy.length,
+      asymmetric_elements: asymmetry.length,
+    }
+  }, null, 2);
 })()
 ```
 
-**Step 3:** Compare measurements against the token scales from Step 1. Write a structured report:
+Save the raw JSON output to `/tmp/design-review/{feature}/consistency-{page-slug}.json`.
+
+Then write a human-readable report:
 
 ```markdown
-# DOM Measurement Audit
+# Visual Consistency Audit
 
 **Page:** {page}
-**Viewport:** {viewport}
-**Token source:** {token file path}
+**Viewport:** 1440px
 
-## Token Mismatches
+## Typography Hierarchy
 
-| Element | Property | Actual | Nearest Token | Token Value | Match |
-|---------|----------|--------|---------------|-------------|-------|
-| h2.card-title | font-size | 14px | --text-base | 16px | MISMATCH |
-| div.form-group | gap | 8px | --gap-field | 16px | MISMATCH |
-| ... | ... | ... | ... | ... | OK |
+| Issue | Levels | Property | Detail |
+|-------|--------|----------|--------|
+| Inverted | h2 vs h3 | font-size | h3 (24px) is larger than h2 (20px) |
+| Collapsed | h3 vs h4 | font-size | both 16px — no visual distinction |
+| Body exceeds heading | p vs h4 | font-size | body (18px) >= h4 (16px) |
+| Weight inverted | h2 vs h3 | font-weight | h3 (700) is bolder than h2 (400) |
 
-## Hardcoded Values (no matching token)
+## Group Inconsistencies
 
-| Element | Property | Value |
-|---------|----------|-------|
-| span.badge | background-color | #3b82f6 |
-| ... | ... | ... |
+### {group name} ({N} instances)
+| Property | Majority ({N}) | Outlier | Element |
+|----------|---------------|---------|---------|
+| font-size | 24px | 20px | h2.sidebar-title "Settings" |
+| opacity | 1 | 0.8 | h2.muted-title "Archive" |
+| textTransform | none | uppercase | h2.section-label "FILTERS" |
+
+### component:card ({N} instances)
+| Property | Majority ({N}) | Outlier | Element |
+|----------|---------------|---------|---------|
+| border | none | 1px solid rgb(...) | div.card.featured |
+| overflow | visible | hidden | div.card.compact |
+
+### siblings:div.list>li ({N} instances)
+| Property | Majority ({N}) | Outlier | Element |
+|----------|---------------|---------|---------|
+| height | 48px | 64px | li.list-item "Long title..." |
+
+## Asymmetric Padding
+
+| Element | Axis | Values |
+|---------|------|--------|
+| div.hero-section | vertical | top=48px bottom=24px |
+| section.card-body | horizontal | left=24px right=16px |
 
 ## Summary
-- {N} elements measured
-- {N} token mismatches
-- {N} hardcoded values with no matching token
+- {N} groups checked, {N} with inconsistencies
+- {N} hierarchy issues
+- {N} elements with asymmetric padding
 ```
 
-Save to `/tmp/design-review/{feature}/dom-audit-{page-slug}.md`.
+Save to `/tmp/design-review/{feature}/consistency-{page-slug}.md`.
 
-Run the measurement at desktop viewport (1440px). One audit per page is sufficient since token compliance is viewport-independent.
+Run at desktop viewport (1440px). One audit per page is sufficient.
 
-### Component Pattern Inventory (for Designer C)
+**What this catches that linting can't:**
+- h3 is visually larger than h2 — both use valid tokens, hierarchy is broken
+- All h2s use valid tokens, but one section uses `text-xl` while others use `text-2xl`
+- One card has `opacity: 0.8`, siblings are `1` — valid CSS, inconsistent visual weight
+- Cards all use token spacing, but one uses `p-4` and another uses `p-6`
+- One card has a border, sibling cards don't — inconsistent component treatment
+- One container clips overflow, identical sibling scrolls
+- Links styled as buttons have inconsistent text-decoration or text-transform
+- List items in a flex container have inconsistent heights
+- A section has `pt-8 pb-4` — valid tokens, unbalanced result
+- Body text is the same size as the smallest heading — no visual distinction
 
-After all pages are captured, scan the rendered DOM for repeated component patterns:
-
-```javascript
-(() => {
-  const patterns = {};
-  const selectors = [
-    '[class*="drawer"]', '[class*="modal"]', '[class*="dialog"]',
-    '[class*="card"]', '[class*="panel"]', '[class*="sheet"]',
-    '[class*="dropdown"]', '[class*="popover"]', '[class*="tooltip"]',
-    '[role="dialog"]', '[role="alertdialog"]'
-  ];
-  selectors.forEach(sel => {
-    const els = document.querySelectorAll(sel);
-    els.forEach(el => {
-      const cs = getComputedStyle(el);
-      const key = sel.replace(/[^a-z]/g, '');
-      if (!patterns[key]) patterns[key] = [];
-      patterns[key].push({
-        className: el.className?.toString().slice(0, 120) || '',
-        padding: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`,
-        borderRadius: cs.borderRadius,
-        boxShadow: cs.boxShadow === 'none' ? '' : cs.boxShadow,
-        backgroundColor: cs.backgroundColor,
-        width: `${Math.round(el.getBoundingClientRect().width)}px`,
-      });
-    });
-  });
-  // Only return patterns with 2+ instances
-  const dupes = {};
-  for (const [k, v] of Object.entries(patterns)) {
-    if (v.length >= 2) dupes[k] = v;
-  }
-  return JSON.stringify(dupes, null, 2);
-})()
-```
-
-If duplicates are found, save to `/tmp/design-review/{feature}/pattern-inventory.md` with a comparison table showing how instances differ.
+**What this does NOT catch (leave to the reviewer):**
+- Intentional variants (`.btn-sm` vs `.btn-lg` will flag — reviewer uses judgment)
+- Cross-page consistency (script runs per page — reviewer compares across pages)
+- Semantic appropriateness (script can't know if `text-sm` is right for a label)
 
 ### Manifest Update
 
-Add these enriched artifacts to the manifest:
+Add enriched artifacts to the manifest:
 
 ```markdown
 ## Enriched Artifacts
@@ -299,8 +499,8 @@ Add these enriched artifacts to the manifest:
 | File | Type | Description |
 |------|------|-------------|
 | a11y-snapshot-{page}.md | Accessibility tree | Element roles, names, states, tab order |
-| dom-audit-{page}.md | DOM measurement | Computed styles vs token values |
-| pattern-inventory.md | Pattern scan | Repeated component patterns (if duplicates found) |
+| consistency-{page}.json | Raw consistency data | Full variance detection output |
+| consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding |
 ```
 
 ## Cleanup

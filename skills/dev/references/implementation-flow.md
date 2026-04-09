@@ -234,10 +234,7 @@ Runs after every implement stage, all sizes. Invoke `pm:simplify` — it handles
 
 Check: `git diff {DEFAULT_BRANCH}...HEAD --name-only | grep -E '\.(tsx|jsx|css)$'`
 
-Design Critique is the **single visual quality stage** for UI changes. Its designer agents evaluate UX quality, copy, resilience, accessibility, visual polish, and design system compliance against real app screenshots with real seed data.
-
-- **S (UI):** 3 designers, 1 round
-- **M/L/XL (UI):** 3 designers + Fresh Eyes, up to 3 rounds, PM bar-raiser
+Design Critique is the **single visual quality stage** for UI changes. A focused reviewer evaluates UX quality, accessibility, design system compliance, and interaction resilience against real app screenshots with enriched data (a11y snapshots, visual consistency audit).
 
 ### Closed-loop visual verification
 
@@ -247,11 +244,12 @@ The implementing agent owns the full visual verification cycle:
 2. **Start servers**: Rails API + Vite (web) or Expo (mobile). Per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`.
 3. **Run seed**: `cd apps/api && bin/rails design:seed:{feature_slug}`
 4. **Capture screenshots**: Playwright CLI (web) or Maestro MCP (mobile). Max 10. Save to `/tmp/design-review/{feature}/`. Write manifest.
-5. **Visual self-check**: Review own screenshots. Fix obvious issues before invoking critique.
-6. **Invoke `/design-critique`** (embedded mode): Returns consolidated findings + Design Score + AI Slop Score.
-7. **Fix findings**: Implement fixes from the consolidated findings list.
-8. **Re-seed, re-capture, re-invoke**: Verify fixes. Max 3 rounds.
-9. **Commit**: All design critique changes committed before proceeding to QA.
+5. **Capture enriched artifacts**: a11y snapshots, visual consistency audit per capture-guide.md.
+6. **Visual self-check**: Review own screenshots. Fix obvious issues before invoking critique.
+7. **Invoke `/design-critique`** (embedded mode): Returns prioritized findings (P0/P1/P2) with confidence tiers + verdict (Ship/Fix/Rethink).
+8. **Fix findings**: Implement P0 and P1 fixes from the findings list.
+9. **Re-seed, re-capture, re-invoke**: If P0s were found. Max 2 rounds total.
+10. **Commit**: All design critique changes committed before proceeding to QA.
 
 The seed task is committed alongside feature code. It becomes a reusable artifact for future QA and demos.
 
