@@ -373,7 +373,7 @@ test("GET /roadmap returns kanban HTML grouped by status", async () => {
       const { statusCode, body } = await httpGet(port, "/roadmap");
       assert.equal(statusCode, 200);
       assert.ok(body.includes("Idea") || body.includes("idea"), "must show idea column");
-      assert.ok(body.includes("Groomed") || body.includes("groomed"), "must show groomed column");
+      assert.ok(body.includes("Ideas") || body.includes("ideas"), "must show ideas column");
       assert.ok(body.includes("Shipped") || body.includes("shipped"), "must show shipped column");
     } finally {
       await close();
@@ -1889,9 +1889,10 @@ test("PM-123: nav sidebar shows Roadmap not Backlog", async () => {
   }
 });
 
-test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async () => {
+test("PM-123: kanban columns are labeled Ideas / Proposed / In Progress / Shipped", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/idea-1.md": "---\nstatus: idea\ntitle: Idea One\n---\n# Idea\n",
+    "pm/backlog/proposed-1.md": "---\nstatus: proposed\ntitle: Proposed One\n---\n# Proposed\n",
     "pm/backlog/wip-1.md": "---\nstatus: in-progress\ntitle: WIP One\n---\n# WIP\n",
     "pm/backlog/done-1.md": "---\nstatus: done\ntitle: Done One\n---\n# Done\n",
   });
@@ -1899,15 +1900,9 @@ test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap");
-      assert.ok(body.includes(">Idea<") || body.includes(">Idea "), "must show Idea column");
-      assert.ok(
-        body.includes(">Groomed<") || body.includes(">Groomed "),
-        "must show Groomed column"
-      );
-      assert.ok(
-        body.includes(">Shipped<") || body.includes(">Shipped "),
-        "must show Shipped column"
-      );
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
     } finally {
       await close();
     }
@@ -5381,9 +5376,53 @@ test("PM-141: kanban template — backlog items from schema example render in co
       assert.ok(body.includes("Shipped Feature"), "must include shipped item");
       assert.ok(body.includes("PM-100"), "must include groomed item ID");
       assert.ok(body.includes("PM-101"), "must include active item ID");
-      assert.ok(body.includes("Groomed"), "must include Groomed column label");
+      assert.ok(body.includes("Ideas"), "must include Ideas column label");
       assert.ok(body.includes("In Progress"), "must include In Progress column label");
       assert.ok(body.includes("Shipped"), "must include Shipped column label");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: STATUS_MAP integration test — all 6 statuses land in correct columns
+// ---------------------------------------------------------------------------
+
+test("PM-150: STATUS_MAP routes all 6 statuses to correct kanban columns", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/item-idea.md": "---\nstatus: idea\ntitle: Idea Item\nid: PM-201\n---\n# Idea\n",
+    "pm/backlog/item-drafted.md":
+      "---\nstatus: drafted\ntitle: Drafted Item\nid: PM-202\n---\n# Drafted\n",
+    "pm/backlog/item-planned.md":
+      "---\nstatus: planned\ntitle: Planned Item\nid: PM-203\n---\n# Planned\n",
+    "pm/backlog/item-proposed.md":
+      "---\nstatus: proposed\ntitle: Proposed Item\nid: PM-204\n---\n# Proposed\n",
+    "pm/backlog/item-wip.md": "---\nstatus: in-progress\ntitle: WIP Item\nid: PM-205\n---\n# WIP\n",
+    "pm/backlog/item-done.md": "---\nstatus: done\ntitle: Done Item\nid: PM-206\n---\n# Done\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      // Ideas column: idea + drafted
+      assert.ok(body.includes("Idea Item"), "idea status must appear");
+      assert.ok(body.includes("Drafted Item"), "drafted status must appear");
+      // Proposed column: planned + proposed
+      assert.ok(body.includes("Planned Item"), "planned status must appear");
+      assert.ok(body.includes("Proposed Item"), "proposed status must appear");
+      // In Progress column
+      assert.ok(body.includes("WIP Item"), "in-progress status must appear");
+      // Shipped column
+      assert.ok(body.includes("Done Item"), "done status must appear");
+
+      // Verify 4 columns exist
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">In Progress"), "must show In Progress column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
     } finally {
       await close();
     }

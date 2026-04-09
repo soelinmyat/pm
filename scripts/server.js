@@ -621,7 +621,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .card .card-footer .view-link { font-size: 0.8125rem; font-weight: 500; }
 
 /* Kanban */
-.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 1.5rem 0; align-items: start; }
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 1.5rem 0; align-items: start; }
 .kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .kanban-col .col-header { display: flex; align-items: center; gap: 8px;
   padding: 12px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase;
@@ -5069,15 +5069,21 @@ function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
   const columns = {};
   const childCounts = {};
-  const STATUS_ORDER = ["groomed", "in-progress", "shipped"];
+  const STATUS_ORDER = ["ideas", "proposed", "in-progress", "shipped"];
   const STATUS_MAP = {
-    idea: "groomed",
-    drafted: "groomed",
-    approved: "groomed",
+    idea: "ideas",
+    drafted: "ideas",
+    planned: "proposed",
+    proposed: "proposed",
     "in-progress": "in-progress",
     done: "shipped",
   };
-  const COL_LABELS = { groomed: "Groomed", "in-progress": "In Progress", shipped: "Shipped" };
+  const COL_LABELS = {
+    ideas: "Ideas",
+    proposed: "Proposed",
+    "in-progress": "In Progress",
+    shipped: "Shipped",
+  };
   const COL_LIMIT = 10;
 
   if (fs.existsSync(backlogDir)) {
@@ -5099,7 +5105,7 @@ function handleBacklog(res, pmDir) {
       const parent = data.parent || null;
       if (parent && parent !== "null") continue; // skip sub-issues
       const rawStatus = data.status || "idea";
-      const status = STATUS_MAP[rawStatus] || "groomed";
+      const status = STATUS_MAP[rawStatus] || "ideas";
       if (!columns[status]) columns[status] = [];
       columns[status].push({
         slug,
@@ -5123,7 +5129,8 @@ function handleBacklog(res, pmDir) {
   };
 
   const COL_EMPTY_HINTS = {
-    groomed: "Groom an idea to create proposals",
+    ideas: "Capture ideas during research or grooming",
+    proposed: "Groom an idea to create proposals",
     "in-progress": "Start building with /pm:dev",
     shipped: "Ship features to see them here",
   };
