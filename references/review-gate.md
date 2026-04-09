@@ -134,8 +134,8 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 | Spec review | brainstorming | 1 (spec-document-reviewer) | `skills/brainstorming/spec-document-reviewer-prompt.md` |
 | Plan review | writing-plans | 1 (plan-document-reviewer) | `skills/writing-plans/plan-document-reviewer-prompt.md` |
 | Scope review | groom phase 4.5 | 3 (PM, Competitive, EM) | `skills/groom/phases/phase-4.5-scope-review.md` |
-| Team review | groom phase 5.5 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/phases/phase-5.5-team-review.md` |
-| Bar raiser | groom phase 5.7 | 1 (Product Director) | `skills/groom/phases/phase-5.7-bar-raiser.md` |
+| Team review | groom phase 6 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/phases/phase-6-team-review.md` |
+| Bar raiser | groom phase 6.5 | 1 (Product Director) | `skills/groom/phases/phase-6.5-bar-raiser.md` |
 | Code review | review | 5 (code, fix, PM, design, edge-case) | `skills/review/SKILL.md` |
 | Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/subagent-dev/spec-reviewer-prompt.md` |
 | Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/subagent-dev/code-quality-reviewer-prompt.md` |

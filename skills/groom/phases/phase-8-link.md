@@ -1,4 +1,4 @@
-### Phase 6: Link
+### Phase 8: Link
 
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
