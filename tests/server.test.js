@@ -3759,8 +3759,8 @@ test('PM-126: Home empty state contains "shared product brain" text and click-to
         'must contain "shared product brain" explanatory text'
       );
       assert.ok(
-        body.includes("click-to-copy") && body.includes('data-copy="/pm:groom"'),
-        'must contain click-to-copy with data-copy="/pm:groom"'
+        body.includes("click-to-copy") && body.includes('data-copy="/pm:think"'),
+        'must contain click-to-copy with data-copy="/pm:think"'
       );
     } finally {
       await close();
