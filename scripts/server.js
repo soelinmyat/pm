@@ -2022,7 +2022,8 @@ function renderPositioningMap(data) {
 function readConfig(pmDir) {
   const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
   try {
-    return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }

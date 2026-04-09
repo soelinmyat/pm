@@ -5827,6 +5827,32 @@ test("PM-33: readConfig returns {} when config file contains invalid JSON", () =
   }
 });
 
+test("PM-33: readConfig returns {} when config file contains JSON null", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": "null",
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig returns {} when config file contains JSON array", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": "[1,2,3]",
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
 test("PM-33: readConfig reads fresh data (no stale cache)", () => {
   const { pmDir, cleanup } = withPmDir({
     ".pm/config.json": JSON.stringify({ project_name: "Before" }),
