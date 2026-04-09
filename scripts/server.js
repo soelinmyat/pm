@@ -3339,12 +3339,12 @@ function handleDashboardHome(res, pmDir) {
 </section>`;
 
   const firstWorkflowActions =
-    status.next === "/pm:start (choose your first workflow)"
+    status.next === "/pm:think (explore a product idea)"
       ? `
   <div class="session-brief-actions">
     <div class="session-brief-actions-label">Good first moves</div>
     <ul>
-      <li><code>/pm:ingest &lt;path&gt;</code> if you already have customer evidence</li>
+      <li><code>/pm:think</code> to explore and pressure-test a product idea</li>
       <li><code>/pm:research landscape</code> to understand the market</li>
       <li><code>/pm:research competitors</code> to profile alternatives</li>
       <li><code>/pm:groom &lt;idea&gt;</code> if you already know what feature to scope</li>
@@ -3400,7 +3400,7 @@ function handleDashboardHome(res, pmDir) {
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Product knowledge base</p>
 </div>
-${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:groom", "Start your first feature")}
+${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:think", "Start with an idea")}
 ${suggestedHtml}`;
   } else if (proposalCount === 0 && recentShipped.length === 0) {
     // Partial state: strategy/KB exists but no proposals yet
@@ -5149,16 +5149,22 @@ function handleBacklog(res, pmDir) {
     };
   });
 
+  const totalItems = templateColumns.reduce((sum, col) => sum + col.totalCount, 0);
   const filterBar =
-    '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
-  const filterScript = `<script>
+    totalItems > 0
+      ? '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>'
+      : "";
+  const filterScript =
+    totalItems > 0
+      ? `<script>
 document.getElementById('roadmap-filter').addEventListener('input', function(e) {
   var q = e.target.value.toLowerCase();
   document.querySelectorAll('.kanban-card').forEach(function(card) {
     card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
   });
 });
-</script>`;
+</script>`
+      : "";
 
   const body =
     renderKanbanTemplate({
