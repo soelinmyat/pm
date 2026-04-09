@@ -123,6 +123,11 @@ Tight polling wastes tokens, floods the terminal, and provides no benefit over `
 
 **3. Review comments**
 
+<HARD-GATE>
+NEVER resolve a comment thread without first reading and evaluating it.
+Every thread — human or bot — must be reviewed before resolution. Follow the handling-feedback protocol (skills/review/references/handling-feedback.md): READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT. Skipping straight to "resolve" is forbidden.
+</HARD-GATE>
+
 ```bash
 # Fetch unresolved threads
 gh api graphql -f query='
@@ -143,15 +148,15 @@ query {
 }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
 ```
 
-For each unresolved thread:
+For each unresolved thread, **read the full comment chain first**, then categorize and act:
 
 | Comment type | Action |
 |-------------|--------|
-| Code fix (bug, style, missing check) | Fix the code, commit, push, reply explaining the fix, resolve the thread |
-| Question (why did you do X?) | Reply with the answer, resolve the thread |
-| Suggestion (consider doing X) | Evaluate: if it improves the code, apply it. If not, reply explaining why, resolve the thread |
-| Design/taste decision (should we use A or B?) | **Surface to user** — don't auto-respond to subjective feedback |
-| Bot noise (Linear, dependabot, CI bots, Codex) | Resolve directly — no reply needed, just resolve the thread so it doesn't block merge |
+| Code fix (bug, style, missing check) | **Read the comment.** Verify the issue exists in the code. Fix it, commit, push, reply explaining the fix, resolve the thread |
+| Question (why did you do X?) | **Read the comment.** Understand what's being asked. Reply with the answer, resolve the thread |
+| Suggestion (consider doing X) | **Read the comment.** Evaluate against the codebase: if it improves the code, apply it. If not, reply explaining why. Resolve after responding |
+| Design/taste decision (should we use A or B?) | **Read the comment.** **Surface to user** — don't auto-respond to subjective feedback |
+| Bot noise (Linear, dependabot, CI bots, Codex) | **Read the comment** to confirm it's actually bot noise. Resolve — no reply needed |
 
 **Reply format:**
 ```bash
