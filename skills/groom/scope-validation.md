@@ -30,6 +30,7 @@ Before finalizing scope, work through these four questions with the user. Ask th
 - Yes, clearly differentiated → `10x`
 - Matches competitors, closes a gap → `gap-fill`
 - Replicates what competitors already do well → `parity`
+- Basic expectation users assume exists (auth, search, dark mode) → `table-stakes`
 
 **Q2: Who specifically benefits, and can you name them?**
 Vague beneficiaries ("all users," "teams") are a red flag. Name the persona, the workflow, and the friction point being removed.
@@ -46,9 +47,10 @@ Name one leading indicator (not a lagging metric like revenue). If you cannot na
 |---|---|---|
 | `10x` | Meaningfully better, clear differentiation | Proceed. Document the differentiation claim in the parent issue. |
 | `gap-fill` | Closes an expected capability gap | Proceed. Note that this is table stakes, not a moat. |
-| `parity` | Replicates what competitors do | Flag it. Ask for explicit strategic intent before proceeding. |
+| `table-stakes` | Basic expected capability (auth, search, dark mode) | Proceed. No differentiation claim needed — users expect this to exist. |
+| `parity` | Replicates what competitors do beyond table stakes | Flag it. Ask for explicit strategic intent before proceeding. |
 
-Parity is not automatically wrong. Catching up to competitors is sometimes necessary. But it should be a deliberate call, not an accident.
+Parity and table-stakes are different. Table-stakes features are things users assume any product has — not building them is a bug, not a strategy choice. Parity is actively copying a competitor's non-essential feature, which should be a deliberate call.
 
 ---
 

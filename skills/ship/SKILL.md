@@ -288,3 +288,11 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 **Local branch:** [branch] — deleted
 **Worktree:** [removed at path / n/a]
 ```
+
+## Product Memory (Linear-originated work)
+
+After merge, check the session state for `linear_id`. If set and `pm/backlog/{slug}.md` does not exist, the Knowledge Base Updates section in `single-issue-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
+
+Before cleanup, verify the backlog entry was written:
+- Check: `test -f pm/backlog/{slug}.md`
+- If missing and `linear_id` is set: warn the user that product memory was not created.

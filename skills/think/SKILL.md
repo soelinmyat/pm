@@ -135,9 +135,9 @@ Save to `pm/thinking/{slug}.md`. Create the `pm/thinking/` directory if it doesn
 
 After saving, ask ONE question:
 
-> "Want to groom this into issues?"
+> "Want to groom this into a proposal? (This runs a lightweight scoping flow — typically 5-10 minutes.)"
 
-- **Yes** → Invoke `pm:groom` with the thinking summary as context. The groom skill will pick up from here — it can skip or shorten intake since the thinking is already captured.
+- **Yes** → Invoke `pm:groom` with `groom_tier: quick` and the thinking summary as context. The groom skill will pick up from here — it can skip or shorten intake since the thinking is already captured. Always default to quick tier when promoting from think, since the user just had a lightweight conversation and shouldn't be surprised by heavy ceremony.
 - **No** → Done. The thinking is saved and can be revisited later.
 
 ---
