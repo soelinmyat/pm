@@ -88,6 +88,35 @@ function httpGet(port, urlPath) {
   });
 }
 
+/**
+ * Make a POST request with JSON body, return { statusCode, headers, body }.
+ */
+function httpPost(port, urlPath, jsonBody) {
+  return new Promise((resolve, reject) => {
+    const data = typeof jsonBody === "string" ? jsonBody : JSON.stringify(jsonBody);
+    const options = {
+      hostname: "127.0.0.1",
+      port,
+      path: urlPath,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(data),
+      },
+    };
+    const req = http.request(options, (res) => {
+      let body = "";
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => resolve({ statusCode: res.statusCode, headers: res.headers, body }));
+    });
+    req.on("error", reject);
+    req.write(data);
+    req.end();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 1. --mode dashboard flag is parsed
 // ---------------------------------------------------------------------------
@@ -5384,6 +5413,210 @@ test("PM-141: kanban template — backlog items from schema example render in co
       assert.ok(body.includes("Groomed"), "must include Groomed column label");
       assert.ok(body.includes("In Progress"), "must include In Progress column label");
       assert.ok(body.includes("Shipped"), "must include Shipped column label");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Notes page: GET /notes
+// ---------------------------------------------------------------------------
+
+test("GET /notes returns HTML page with notes form", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": [
+      "---",
+      "type: notes",
+      "month: 2026-04",
+      "updated: 2026-04-09",
+      "note_count: 2",
+      "digested_through: null",
+      "---",
+      "",
+      "### 2026-04-09 14:32 — sales call",
+      "Lost deal to CompetitorX.",
+      "Tags: competitor",
+      "",
+      "### 2026-04-09 16:10 — support thread",
+      "Third user hitting timeout on CSV imports.",
+      "Tags: performance",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/notes");
+      assert.equal(statusCode, 200);
+      assert.ok(
+        body.includes("<!DOCTYPE html") || body.includes("<!doctype html"),
+        "full HTML doc"
+      );
+      assert.ok(body.includes("Notes"), "must show Notes heading");
+      assert.ok(body.includes("Lost deal to CompetitorX"), "must show first note");
+      assert.ok(body.includes("Third user hitting timeout"), "must show second note");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /notes shows empty state when notes directory does not exist", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/notes");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("No notes yet"), "must show empty state message");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /notes shows notes newest-first", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": [
+      "---",
+      "type: notes",
+      "month: 2026-04",
+      "updated: 2026-04-09",
+      "note_count: 2",
+      "digested_through: null",
+      "---",
+      "",
+      "### 2026-04-01 10:00 — observation",
+      "Early note.",
+      "Tags: test",
+      "",
+      "### 2026-04-09 16:00 — support thread",
+      "Later note.",
+      "Tags: performance",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/notes");
+      const earlyIdx = body.indexOf("Early note");
+      const laterIdx = body.indexOf("Later note");
+      assert.ok(earlyIdx > -1, "early note must be present");
+      assert.ok(laterIdx > -1, "later note must be present");
+      assert.ok(laterIdx < earlyIdx, "later note must appear before early note (newest first)");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Notes page: POST /notes
+// ---------------------------------------------------------------------------
+
+test("POST /notes creates a note and returns success", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(port, "/notes", {
+        text: "Customer wants better CSV export",
+        source: "sales call",
+        tags: "feature-request, export",
+      });
+      assert.equal(statusCode, 200);
+      const json = JSON.parse(body);
+      assert.equal(json.ok, true, "must return ok:true");
+
+      // Verify the file was created
+      const notesDir = path.join(pmDir, "evidence", "notes");
+      assert.ok(fs.existsSync(notesDir), "notes directory must exist");
+      const files = fs.readdirSync(notesDir).filter((f) => f.endsWith(".md"));
+      assert.equal(files.length, 1, "one monthly file must exist");
+      const content = fs.readFileSync(path.join(notesDir, files[0]), "utf8");
+      assert.ok(content.includes("Customer wants better CSV export"), "must contain note text");
+      assert.ok(content.includes("sales call"), "must contain source type");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /notes with empty text returns 400", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpPost(port, "/notes", { text: "", source: "observation" });
+      assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /notes with missing body returns 400", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpPost(port, "/notes", "");
+      assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /notes with malformed JSON returns 400", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpPost(port, "/notes", "{bad json");
+      assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("sidebar navigation includes Notes link", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/");
+      assert.ok(body.includes('href="/notes"'), "sidebar must include Notes link");
+      assert.ok(body.includes("Notes"), "sidebar must show Notes label");
     } finally {
       await close();
     }
