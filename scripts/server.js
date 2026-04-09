@@ -2389,7 +2389,7 @@ function extractMarkdownTitle(body, fallback) {
 /**
  * Find RFC (implementation plan) files matching an issue slug.
  * Convention: docs/plans/YYYY-MM-DD-{slug}.md
- * Searches pm_plugin/docs/plans/ and pm_server/docs/plans/.
+ * Searches pm_plugin/docs/plans/, docs/plans/, and pm_server/docs/plans/.
  */
 function findRfcsForSlug(pmDir, slug) {
   const projectRoot = path.dirname(pmDir);
@@ -3369,7 +3369,7 @@ function handleDashboardHome(res, pmDir) {
     for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
       const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
       const { data } = parseFrontmatter(raw);
-      if ((data.status || "idea") === "idea") unrefinedIdeas++;
+      if ((data.status || "idea") === "idea" && data.type !== "proposal") unrefinedIdeas++;
     }
   }
   const pipelineLabel = `${unrefinedIdeas} ungroomed idea${unrefinedIdeas !== 1 ? "s" : ""}, ${status.counts.inProgress} active proposal${status.counts.inProgress !== 1 ? "s" : ""}`;
@@ -3402,7 +3402,7 @@ function handleDashboardHome(res, pmDir) {
 </div>
 ${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:groom", "Start your first feature")}
 ${suggestedHtml}`;
-  } else if (proposalCount === 0 && !shippedSection) {
+  } else if (proposalCount === 0 && recentShipped.length === 0) {
     // Partial state: strategy/KB exists but no proposals yet
     const partialProposals = `
 <section class="home-section">
@@ -4491,7 +4491,7 @@ function ${prefix}Key(e, el, panelId) {
 }
 (function() {
   var hash = location.hash.slice(1);
-  if (hash) {
+  if (hash && /^[a-zA-Z0-9_-]+$/.test(hash)) {
     var tab = document.querySelector('.tab[data-tab="' + hash + '"]');
     if (tab) ${prefix}Switch(tab, hash);
   }
