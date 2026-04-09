@@ -351,7 +351,7 @@ function backlogEntries(pmDir) {
 
 function attentionSummary(staleCount, agingCount) {
   if (staleCount === 0 && agingCount === 0) {
-    return "all fresh";
+    return "no attention needed";
   }
   if (staleCount > 0 && agingCount > 0) {
     return `${staleCount} stale, ${agingCount} aging ideas`;
@@ -660,7 +660,7 @@ function buildStatus(projectDir) {
   }
 
   if (emptyWorkspace) {
-    pushSuggestion("/pm:start (choose your first workflow)");
+    pushSuggestion("/pm:think (explore a product idea)");
   } else {
     if (!hasStrategy && (hasLandscape || insightCount > 0 || evidenceCount > 0)) {
       pushSuggestion("/pm:strategy");
@@ -689,7 +689,7 @@ function buildStatus(projectDir) {
     }
   }
 
-  const [next = "/pm:start (choose your first workflow)", ...alternatives] = suggestions;
+  const [next = "/pm:think (explore a product idea)", ...alternatives] = suggestions;
   const focus = active ? active.summary : attentionSummary(staleCount, agingIdeas);
 
   return {

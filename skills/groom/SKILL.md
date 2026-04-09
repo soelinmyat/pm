@@ -144,12 +144,12 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 | 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
 | 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
 | 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | 3 parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Design | `phases/phase-3.5-design.md` | Design exploration: mockups, user flows, wireframes. Skip for backend/infra. |
-| 5.5. Draft Proposal | `phases/phase-5-groom.md` | Detect feature type, generate flows/wireframes, draft proposal content |
-| 6. Team Review | `phases/phase-5.5-team-review.md` | 3-4 parallel agents review the proposal for quality (max 3 iterations) |
-| 6.5. Bar Raiser | `phases/phase-5.7-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 7. Present | `phases/phase-5.8-present.md` | Generate HTML PRD, open in browser, get user approval |
-| 8. Link | `phases/phase-6-link.md` | Create proposal entry in backlog (+ Linear if configured), clean up |
+| 5. Design | `phases/phase-5-design.md` | Design exploration: mockups, user flows, wireframes. Skip for backend/infra. |
+| 5.5. Draft Proposal | `phases/phase-5.5-draft-proposal.md` | Detect feature type, generate flows/wireframes, draft proposal content |
+| 6. Team Review | `phases/phase-6-team-review.md` | 3-4 parallel agents review the proposal for quality (max 3 iterations) |
+| 6.5. Bar Raiser | `phases/phase-6.5-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
+| 7. Present | `phases/phase-7-present.md` | Generate HTML PRD, open in browser, get user approval |
+| 8. Link | `phases/phase-8-link.md` | Create proposal entry in backlog (+ Linear if configured), clean up |
 
 **How to use:** At the start of each phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
 
@@ -196,7 +196,7 @@ scope:
     - "{item}"
   out_of_scope:
     - "{item}: {reason}"
-  filter_result: 10x | parity | gap-fill | null
+  filter_result: 10x | gap-fill | table-stakes | parity | null
 
 scope_review:
   pm_verdict: ship-it | rethink-scope | wrong-priority | null

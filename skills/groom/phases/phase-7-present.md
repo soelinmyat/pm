@@ -1,4 +1,4 @@
-### Phase 5.8: Present to User
+### Phase 7: Present to User
 
 Present the reviewed, iterated proposal as a self-contained HTML presentation in the browser. The terminal is not the medium for an executive-ready package.
 
