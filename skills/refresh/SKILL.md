@@ -350,6 +350,14 @@ RULES:
 
 Parent skill handles: audit report, trust level selection, synthesis files, and the final summary.
 
+### Post-patch Insight Routing
+
+After patching evidence files, route updated findings to insight topics.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+Pass only the evidence files that were refreshed in this run (content actually changed, not just a date bump).
+Skip `source_origin: internal` evidence (already skipped by refresh).
+If no evidence files were refreshed, skip routing entirely.
+
 ### Synthesis File Refresh
 
 After individual competitor files are refreshed, regenerate synthesis files:

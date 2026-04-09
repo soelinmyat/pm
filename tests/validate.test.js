@@ -638,6 +638,177 @@ test("PM-150: frontmatter parser handles prs YAML list with quoted # values", ()
   assert.equal(data.thinking, "thinking/my-feature.md", "thinking must parse as scalar");
 });
 
+// ---------------------------------------------------------------------------
+// PM-154: Insight synthesis — validator prerequisites
+// ---------------------------------------------------------------------------
+
+test("PM-154: mixed source_origin is accepted", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/mixed-topic.md": makeEvidence({
+      source_origin: "mixed",
+      cited_by: [],
+    }),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [mixed-topic.md](mixed-topic.md) | Mixed topic | 2026-04-09 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog(["2026-04-09 create evidence/research/mixed-topic.md"]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `mixed origin should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-154: object-style sources with url and accessed are accepted", (t) => {
+  const doc = [
+    "---",
+    "type: evidence",
+    "evidence_type: research",
+    "source_origin: external",
+    "created: 2026-04-09",
+    "sources:",
+    "  - url: https://example.com/article",
+    "    accessed: 2026-04-09",
+    "cited_by: []",
+    "---",
+    "",
+    "# Object sources test",
+  ].join("\n");
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/obj-sources.md": doc,
+    "pm/evidence/research/index.md": makeIndex([
+      "| [obj-sources.md](obj-sources.md) | Object sources | 2026-04-09 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog(["2026-04-09 create evidence/research/obj-sources.md"]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `object sources should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-154: object-style source without url property is rejected", (t) => {
+  const doc = [
+    "---",
+    "type: evidence",
+    "evidence_type: research",
+    "source_origin: external",
+    "created: 2026-04-09",
+    "sources:",
+    "  - accessed: 2026-04-09",
+    "cited_by: []",
+    "---",
+    "",
+    "# Bad object source",
+  ].join("\n");
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/bad-obj.md": doc,
+    "pm/evidence/research/index.md": makeIndex([
+      "| [bad-obj.md](bad-obj.md) | Bad obj | 2026-04-09 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog(["2026-04-09 create evidence/research/bad-obj.md"]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "sources"));
+});
+
+test("PM-154: skip log action is accepted", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/reporting-gaps.md": makeInsight(),
+    "pm/insights/business/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Export pain clusters | 2026-04-06 | active |",
+    ]),
+    "pm/insights/business/log.md": makeLog([
+      "2026-04-06 create insights/business/reporting-gaps.md",
+      "2026-04-09 skip reason: no match for evidence/research/some-topic.md",
+    ]),
+    "pm/evidence/research/reporting-gaps.md": makeEvidence(),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [reporting-gaps.md](reporting-gaps.md) | Source notes | 2026-04-06 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog([
+      "2026-04-06 cite insights/business/reporting-gaps.md -> evidence/research/reporting-gaps.md",
+    ]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `skip log action should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-154: bidirectional insight-evidence citation passes", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/product/index.md": makeIndex([
+      "| [test-topic.md](test-topic.md) | Test Topic | 2026-04-09 | active |",
+    ]),
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/test-topic.md"]),
+    "pm/insights/product/test-topic.md": makeInsight({
+      domain: "product",
+      topic: "Test Topic",
+      sources: ["evidence/research/test-source.md"],
+    }),
+    "pm/evidence/research/test-source.md": makeEvidence({
+      cited_by: ["insights/product/test-topic.md"],
+    }),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [test-source.md](test-source.md) | Source notes | 2026-04-09 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog([
+      "2026-04-09 cite insights/product/test-topic.md -> evidence/research/test-source.md",
+    ]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(
+    result.ok,
+    true,
+    `bidirectional citation should pass: ${JSON.stringify(result.details)}`
+  );
+});
+
+test("PM-154: mismatched citation pair fails validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/product/index.md": makeIndex([
+      "| [test-topic.md](test-topic.md) | Test Topic | 2026-04-09 | active |",
+    ]),
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/test-topic.md"]),
+    "pm/insights/product/test-topic.md": makeInsight({
+      domain: "product",
+      topic: "Test Topic",
+      sources: ["evidence/research/test-source.md"],
+    }),
+    "pm/evidence/research/test-source.md": makeEvidence({
+      cited_by: [],
+    }),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [test-source.md](test-source.md) | Source notes | 2026-04-09 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog(["2026-04-09 create evidence/research/test-source.md"]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.message.includes("does not cite")));
+});
+
+test("PM-154: insight with empty sources passes validation (seeded files)", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/product/index.md": makeIndex([
+      "| [seeded-topic.md](seeded-topic.md) | Seeded Topic | 2026-04-09 | draft |",
+    ]),
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/seeded-topic.md"]),
+    "pm/insights/product/seeded-topic.md": makeInsight({
+      domain: "product",
+      topic: "Seeded Topic",
+      status: "draft",
+      confidence: "low",
+      sources: [],
+    }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `empty sources should pass: ${JSON.stringify(result.details)}`);
+});
+
 test("real pm/ directory passes validation", (t) => {
   const realPmDir = path.join(__dirname, "..", "pm");
   if (!fs.existsSync(realPmDir)) {

@@ -23,8 +23,8 @@ const VALID_GAP = ["unique", "partial", "parity", "behind"];
 
 const VALID_INSIGHT_STATUSES = ["active", "stale", "draft"];
 const VALID_CONFIDENCE = ["high", "medium", "low"];
-const VALID_SOURCE_ORIGINS = ["internal", "external"];
-const VALID_LOG_ACTIONS = new Set(["create", "update", "move", "delete", "cite", "uncite"]);
+const VALID_SOURCE_ORIGINS = ["internal", "external", "mixed"];
+const VALID_LOG_ACTIONS = new Set(["create", "update", "move", "delete", "cite", "uncite", "skip"]);
 
 const REQUIRED_BACKLOG_FIELDS = [
   "type",
@@ -335,21 +335,32 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
 
   if (validateArrayField(relativeFile, "sources", data.sources, errors)) {
     for (const source of data.sources) {
-      if (typeof source !== "string") {
-        pushIssue(errors, relativeFile, "sources", "evidence sources entries must be strings");
+      // Accept both string URLs and {url, accessed} objects
+      let urlValue;
+      if (typeof source === "string") {
+        urlValue = source;
+      } else if (source && typeof source === "object" && typeof source.url === "string") {
+        urlValue = source.url;
+      } else {
+        pushIssue(
+          errors,
+          relativeFile,
+          "sources",
+          "evidence sources entries must be strings or {url, accessed} objects"
+        );
         continue;
       }
-      if (/^https?:\/\//.test(source)) {
+      if (/^https?:\/\//.test(urlValue)) {
         continue;
       }
 
-      const inspected = inspectKbPath(source);
+      const inspected = inspectKbPath(urlValue);
       if (!inspected.ok) {
         pushIssue(
           errors,
           relativeFile,
           "sources",
-          `invalid path "${source}" (${inspected.reason})`
+          `invalid path "${urlValue}" (${inspected.reason})`
         );
         continue;
       }
@@ -358,7 +369,7 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
           errors,
           relativeFile,
           "sources",
-          `canonical KB paths must not include "pm/" prefix: "${source}"`
+          `canonical KB paths must not include "pm/" prefix: "${urlValue}"`
         );
         continue;
       }
@@ -367,7 +378,7 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
           errors,
           relativeFile,
           "sources",
-          `internal evidence sources must target evidence paths, got "${source}"`
+          `internal evidence sources must target evidence paths, got "${urlValue}"`
         );
       }
     }

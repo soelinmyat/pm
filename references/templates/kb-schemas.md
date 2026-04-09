@@ -48,9 +48,9 @@ Required frontmatter:
 |---|---|---|
 | `type` | string | Must be `evidence` |
 | `evidence_type` | string | Folder-aligned type under `evidence/` |
-| `source_origin` | enum | `internal`, `external` |
+| `source_origin` | enum | `internal`, `external`, `mixed` |
 | `created` | date | `YYYY-MM-DD` |
-| `sources` | array | URLs or canonical internal evidence paths |
+| `sources` | array | Strings (URLs, internal paths) or `{url, accessed}` objects |
 | `cited_by` | array | Canonical insight file paths |
 
 Evidence type folders:
@@ -65,10 +65,12 @@ Example:
 ---
 type: evidence
 evidence_type: research
-source_origin: external
+source_origin: external  # or: internal, mixed
 created: 2026-04-06
 sources:
-  - https://example.com/report.pdf
+  - https://example.com/report.pdf           # string URL
+  - url: https://example.com/article          # object with url + accessed
+    accessed: 2026-04-09
 cited_by:
   - insights/business/reporting-gaps.md
 ---
@@ -102,6 +104,7 @@ Supported actions:
 - `delete`
 - `cite`
 - `uncite`
+- `skip`
 
 ## Bidirectional Citations
 

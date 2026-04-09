@@ -539,6 +539,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
+### Phase 3.5: Route Findings to Insight Topics
+
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+Pass all evidence file paths written or updated during Phase 3 and
+their key findings as input. Batch all evidence together for one
+routing pass (not one per file).
+
+If no insight domains exist and no `pm/strategy.md` exists, skip.
+
 ### Phase 4: Report Back
 
 End with a concise import report:
