@@ -144,14 +144,44 @@ Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
 If no proposal exists, decide whether grooming is needed:
 
+<!-- KB maturity criteria: keep in sync with skills/groom/phases/phase-1-intake.md -->
+
+**For M/L/XL: detect KB maturity first.** Check the knowledge base before choosing a groom tier:
+
+| Signal | Check |
+|--------|-------|
+| Strategy | `pm/strategy.md` exists |
+| Research | Any file in `pm/evidence/research/` |
+| Competitors | Any `pm/insights/competitors/*/profile.md` |
+
+Classify:
+- **Fresh** (none of the three signals) → max tier: `quick`
+- **Developing** (strategy OR research present) → max tier: `standard`
+- **Mature** (strategy AND research AND competitors) → max tier: `full`
+
+Log in `.pm/dev-sessions/{slug}.md`: `kb_maturity: {level}, tier_cap: {tier}`
+
 | Size | Action |
 |------|--------|
 | XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Stage 5 (Implementation). |
 | S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Stage 5. |
-| M | Invoke `pm:groom` with `groom_tier: quick`. After groom, return here for RFC generation. |
-| L/XL | Invoke `pm:groom` with `groom_tier: standard`. After groom, return here for RFC generation. User can request `full` explicitly. |
+| M | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC generation. |
+| L/XL | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC generation. |
 
-**User can skip:** If the user says "skip grooming" or "just build it," respect it. Proceed with available context.
+**Before invoking groom, ask:**
+
+> No product proposal exists for this work. KB maturity: **{level}**.
+> I can groom this first ({tier} tier, ~{time}) or just build it now. Which do you prefer?
+
+Time estimates by tier:
+
+| Tier | Estimate |
+|------|----------|
+| `quick` | ~5 min |
+| `standard` | ~15 min |
+| `full` | ~30 min |
+
+If the user says to skip, proceed with available context. Log: `groom: skipped-by-user`
 
 Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
