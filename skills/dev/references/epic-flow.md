@@ -484,6 +484,23 @@ After all sub-issues are merged and tracker is updated:
 Every item in this checklist MUST be verified. Do not skip cleanup even if you believe artifacts were already removed. Stale artifacts from prior sessions may also be present.
 </HARD-RULE>
 
+**5.3.0 Shut down all workers and delete the team:**
+
+Send `shutdown_request` to every teammate still active (planning workers, review workers, implementation workers). Wait up to 10 seconds for each to acknowledge. If a worker does not respond to shutdown after 2 attempts, move on — it will time out on its own.
+
+After all workers are terminated (or non-responsive ones abandoned), delete the team:
+
+```
+TeamDelete()
+```
+
+If `TeamDelete` fails because a worker is stuck, remove the team files manually:
+```bash
+rm -rf ~/.claude/teams/{team-name} ~/.claude/tasks/{team-name}
+```
+
+Do NOT skip this step. Leftover teams clutter the UI and confuse subsequent sessions.
+
 **5.3.1 Remove this epic's state file:**
 ```bash
 rm -f .pm/dev-sessions/epic-{parent-slug}.md

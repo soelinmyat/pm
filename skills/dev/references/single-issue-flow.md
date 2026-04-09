@@ -421,6 +421,20 @@ Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md.
 
 After the developer agent returns (merged or blocked), continue to Stage 9 below.
 
+## Stage 8: Team Cleanup
+
+If a team was created for this session (M/L/XL with persistent workers), shut it down:
+
+1. Send `shutdown_request` to every teammate still active (developer worker, review workers, QA worker).
+2. Wait up to 10 seconds per worker. If a worker doesn't respond after 2 attempts, move on.
+3. Run `TeamDelete()` to remove the team and its task list.
+4. If `TeamDelete` fails because a stuck worker won't terminate, remove files manually:
+   ```bash
+   rm -rf ~/.claude/teams/{team-name} ~/.claude/tasks/{team-name}
+   ```
+
+Do NOT skip this step. Leftover teams clutter the UI and confuse subsequent sessions.
+
 ## Stage 9: Retro — Compound Learning
 
 Runs after EVERY task regardless of size.
