@@ -153,16 +153,53 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from S
 
 ---
 
-## Step 7: Update Tracker
+## Step 7: Update Status (local backlog + tracker)
 
 After push is verified:
 
-**If issue tracker available:**
-1. **Real bugs that were fixed:** Update issue to "Done" with comment: "Fixed in [commit SHA]. Root cause: [brief]."
-2. **Not-a-bug / already-fixed:** Update issue to "Canceled" with comment explaining why.
-3. **needs_info:** Leave as-is, add comment with what information is needed.
+<HARD-RULE>
+Both local backlog and issue tracker must be updated for each bug. Do not skip either.
+</HARD-RULE>
 
-**If no tracker:** Log results to console.
+For each bug processed:
+
+### 1. Real bugs that were fixed
+
+**Local backlog:**
+- If `pm/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}` in frontmatter
+- Log: `Backlog: pm/backlog/{slug}.md → done`
+
+**Issue tracker** (if available):
+- If the issue has children, close them ALL first:
+  ```
+  mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
+  # For EACH child:
+  mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ID}", state: "Done" })
+  ```
+- Close the issue:
+  ```
+  mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
+  mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "Fixed in {commit SHA}. Root cause: {brief}." })
+  ```
+
+### 2. Not-a-bug / already-fixed
+
+**Local backlog:** If `pm/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}`.
+
+**Issue tracker** (if available):
+```
+mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Canceled" })
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "{explanation}" })
+```
+
+### 3. needs_info
+
+Leave local backlog and tracker status as-is.
+
+**Issue tracker** (if available):
+```
+mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "Needs info: {what}" })
+```
 
 ---
 

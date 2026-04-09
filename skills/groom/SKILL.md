@@ -251,12 +251,12 @@ Never silently overwrite an existing state file. Always ask resume vs. fresh. St
 
 Write the proposal entry to `pm/backlog/{topic-slug}.md`. This is the parent backlog item — it links to the HTML PRD and (later) the RFC.
 
-**ID assignment:** Each proposal gets a sequential `id` in the format `PM-{NNN}`. Before creating a new entry, scan all existing `pm/backlog/*.md` files for the highest `id` value and increment by 1. The first entry is `PM-001`. IDs are zero-padded to 3 digits.
+**ID assignment:** When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
 
 ```markdown
 ---
 type: proposal
-id: "PM-{NNN}"
+id: "{linear_id or PM-NNN}"
 title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
 status: proposed | in-progress | done

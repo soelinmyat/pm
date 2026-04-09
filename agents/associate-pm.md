@@ -40,7 +40,7 @@ Before starting work, check for user instructions:
 ## Methodology
 
 ### 1. ID Assignment
-Scan all existing `pm/backlog/*.md` files for the highest `id` value. Increment by 1. Format: `PM-{NNN}` (zero-padded to 3 digits). First issue is `PM-001`.
+When an issue tracker is available (Linear) and a Linear issue exists for this work, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first issue `PM-001`) when no issue tracker is configured.
 
 ### 2. Decomposition
 Break the scope into issues following these rules:
@@ -80,7 +80,7 @@ Write each issue to `pm/backlog/{issue-slug}.md` using this template:
 ```markdown
 ---
 type: backlog-issue
-id: "PM-{NNN}"
+id: "{linear_id or PM-NNN}"
 title: "{Issue Title}"
 outcome: "{One-sentence outcome}"
 status: drafted
