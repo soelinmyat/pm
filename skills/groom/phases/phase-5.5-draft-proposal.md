@@ -96,7 +96,7 @@ Behavior depends on the current `groom_tier` from session state.
    - Minor edits (wording, AC tweaks): revise the draft and re-show. No need to re-run earlier phases.
    - Scope changes: for `standard`, re-run from Phase 4.5 (Scope Review). For `quick` (which has no scope review), revise scope inline.
 
-4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-5.8-present.md` to write the proposal presentation to `pm/backlog/proposals/{topic-slug}.html` and open it in the browser.
+4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-7-present.md` to write the proposal presentation to `pm/backlog/proposals/{topic-slug}.html` and open it in the browser.
 
 5. Update state and proceed directly to Phase 8 (Link):
 

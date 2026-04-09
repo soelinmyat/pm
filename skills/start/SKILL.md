@@ -26,15 +26,6 @@ Minimum coverage for `pm:start`:
 - one step span for `detect-situation`
 - one step span for the selected path: `bootstrap`, `resume`, `open`, or `pulse`
 
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Minimum coverage for `pm:start`:
-- run start / run end for every invocation
-- one step span for `detect-situation`
-- one step span for the selected path: `setup-handoff`, `dashboard-pulse`, or `explicit-open`
-
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next.
