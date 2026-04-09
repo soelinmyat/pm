@@ -172,6 +172,7 @@ started_at: YYYY-MM-DDTHH:MM:SSZ
 phase_started_at: YYYY-MM-DDTHH:MM:SSZ
 completed_at: null | YYYY-MM-DDTHH:MM:SSZ
 effective_verdict: ready | ready-if | send-back | pause | null
+linear_id: "{Linear ID}" | null
 codebase_available: true | false
 kb_maturity: fresh | developing | mature
 kb_maturity_tier: quick | standard | full
