@@ -185,6 +185,24 @@ test("invalid status enum reports error", (t) => {
   assert.ok(err.message.includes("yolo"));
 });
 
+test("planned status is accepted", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/rfc-done.md": makeBacklogItem({ status: "planned" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true);
+});
+
+test("proposed status is accepted", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/groomed-item.md": makeBacklogItem({ status: "proposed" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true);
+});
+
 test("invalid priority enum reports error", (t) => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/bad-prio.md": makeBacklogItem({ priority: "urgent" }),
