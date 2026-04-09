@@ -1,17 +1,48 @@
 ### Phase 2: Strategy Check
 
-<HARD-GATE>
-Strategy misalignment must be flagged explicitly. Do NOT silently proceed.
-If pm/strategy.md is missing, do NOT skip this phase — offer to create it first.
-</HARD-GATE>
+**Tier routing:** Read `groom_tier` from groom session state. If the field is absent, default to `quick`.
+
+**Quick tier:** Skip this phase entirely.
+  - Log: "Strategy check skipped (quick tier)."
+  - Update state and proceed to Phase 3:
+    ```yaml
+    strategy_check:
+      status: skipped
+      reason: "quick tier"
+      checked_against: null
+      conflicts: []
+      supporting_priority: null
+    ```
+
+**Standard and full tiers:** Continue below.
+
+---
 
 1. Check if `pm/strategy.md` exists.
 
-   If it does NOT exist:
-   > "No strategy doc found. Strategy check requires one. Options:
-   > (a) Run $pm-strategy now to create it, then continue grooming
-   > (b) Skip strategy check and proceed at your own risk"
+   **Standard tier — file missing:**
+   > "No strategy doc yet — skipping alignment check."
+   Update state and proceed to Phase 3:
+   ```yaml
+   strategy_check:
+     status: skipped
+     reason: "no strategy doc (standard tier)"
+     checked_against: null
+     conflicts: []
+     supporting_priority: null
+   ```
+
+   **Full tier — file missing:**
+   <HARD-GATE>
+   Strategy alignment is required for full-tier grooming.
+   </HARD-GATE>
+   > "No strategy doc found. Full-tier grooming checks alignment against your
+   > product strategy. Options:
+   > (a) Run pm:strategy now to create it, then continue grooming
+   > (b) Skip strategy check for now"
    Wait for selection. If (a): invoke pm:strategy, then return here when complete.
+
+   **File exists (any tier):** Continue to step 2.
 
 2. Read `pm/strategy.md`. Check the idea against:
 
