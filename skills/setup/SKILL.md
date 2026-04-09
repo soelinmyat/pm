@@ -1,3 +1,8 @@
+---
+name: setup
+description: "Toggle integrations on or off for this project. Triggers on 'setup enable/disable <integration>', 'enable linear', 'disable ahrefs', 'configure integrations'."
+---
+
 # Setup Skill
 
 Toggle integrations on or off for this project.
