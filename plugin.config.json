@@ -38,7 +38,17 @@
   ],
   "codex": {
     "fallbackSkillAliases": {
-      "pm": ["start", "setup", "research", "strategy", "groom", "think", "ingest", "refresh"],
+      "pm": [
+        "start",
+        "setup",
+        "research",
+        "strategy",
+        "groom",
+        "think",
+        "ingest",
+        "note",
+        "refresh"
+      ],
       "dev": [
         "debugging",
         "design-critique",
