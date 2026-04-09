@@ -1,5 +1,12 @@
 # Learnings
 
+## 2026-04-09 — PM-154 (Insight Synthesis Workflow)
+
+- **Shared reference docs are the right pattern for LLM-driven cross-skill workflows.** The routing sub-step is a ~250-line markdown reference read by research, ingest, and refresh — not a script. This matches the existing competitor-profiling.md pattern and avoids brittle script abstractions for LLM-executed logic.
+- **Prerequisite validator fixes must land before schema-dependent tests.** Issue #1 (mixed origin + object sources) had to be done first — all downstream test fixtures for insight files depended on the validator accepting the new formats. Sequencing was correct from the RFC.
+- **Bidirectional citation validation makes routing robust but unforgiving.** The existing validate.js reciprocity check (lines 525-584) means any routing write must update both the insight `sources` and evidence `cited_by` atomically. The "skip on failure" pattern in the routing doc prevents partial writes from breaking validation.
+- **Version bumps need plugin.config.json as source of truth, then regenerate.** Editing generated platform files directly causes sync check failures. Always update `plugin.config.json` first, then run `node scripts/generate-platform-files.js`.
+
 ## 2026-03-22 — PM-064 Epic (Strategy Narrative Slide Deck)
 
 - **Groom-to-epic pipeline validated again:** Full cycle from groom (research, scope, 3+3 review rounds, bar raiser) through dev-epic (2 sequential S-sized issues) completed smoothly. Reduced ceremony for groomed issues worked — zero rework.
