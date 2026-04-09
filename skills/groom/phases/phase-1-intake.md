@@ -35,13 +35,39 @@ Skip to step 3 after confirmation.
 
    This scan is lightweight — save deep analysis for the EM review in Phase 4.5.
 
-5. Derive a topic slug from the idea (kebab-case, max 4 words).
+5. **KB maturity detection.** Check the knowledge base to determine the max available groom tier:
 
-5. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
+   | Signal | Check | Present? |
+   |---|---|---|
+   | Strategy | `pm/strategy.md` exists | yes / no |
+   | Research | Any file exists in `pm/evidence/research/` (excluding index.md) | yes / no |
+   | Competitors | Any `pm/insights/competitors/*/profile.md` exists | yes / no |
+
+   Classify maturity:
+   - **Fresh** (none of the three signals) — max tier: `quick`
+   - **Developing** (strategy OR research present — either one is enough) — max tier: `standard`
+   - **Mature** (strategy AND research AND competitors) — max tier: `full`
+
+   Report to the user:
+   > "KB maturity: **{level}** (strategy: {yes/no}, research: {yes/no}, competitors: {yes/no}).
+   > Max available tier: **{tier}**."
+
+   If the user explicitly requested a tier higher than the max:
+   > "You requested `{requested}` but the KB only supports `{max}` right now.
+   > Missing: {list what's absent}.
+   > Options:
+   > (a) Proceed with `{max}` tier
+   > (b) Build the missing prerequisites first (I can help with /pm:strategy or /pm:research)"
+   Wait for the user's choice.
+
+6. Derive a topic slug from the idea (kebab-case, max 4 words).
+
+7. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"
 phase: intake
+groom_tier: "{effective tier after maturity cap}"
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 run_id: "{PM_RUN_ID}"
@@ -50,4 +76,10 @@ phase_started_at: YYYY-MM-DDTHH:MM:SSZ
 completed_at: null
 codebase_available: true | false
 codebase_context: "{brief summary of related existing code, or 'greenfield'}"
+kb_maturity: fresh | developing | mature
+kb_maturity_tier: quick | standard | full
+kb_signals:
+  strategy: true | false
+  research: true | false
+  competitors: true | false
 ```
