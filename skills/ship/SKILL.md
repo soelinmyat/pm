@@ -289,7 +289,20 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 **Worktree:** [removed at path / n/a]
 ```
 
-## Product Memory (Linear-originated work)
+## Product Memory
+
+### Backlog prs write (after merge, before cleanup)
+
+After merge confirmation, if `pm/backlog/{slug}.md` exists, update its frontmatter to record the PR number(s):
+
+1. Read the existing frontmatter of `pm/backlog/{slug}.md`
+2. If `prs` field already exists, append the new PR number to the list. If not, create it.
+3. Use quoted YAML format for PR values: `- "#N"` (the `#` is a YAML comment character — quoting is load-bearing)
+4. Commit and push to the default branch so the data reaches `main` before the feature branch is deleted
+
+**This write must happen on the default branch after merge lands, before worktree cleanup.**
+
+### Linear-originated work
 
 After merge, check the session state for `linear_id`. If set and `pm/backlog/{slug}.md` does not exist, the Knowledge Base Updates section in `single-issue-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
 

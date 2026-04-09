@@ -74,7 +74,12 @@ First research activity in a new project. Produces the market overview that make
 
 ### Flow
 
-1. **SEO market intelligence** (if provider configured).
+1. **Determine the market space.**
+   - If `pm/strategy.md` exists, read it and extract the market/product space from the positioning or product description.
+   - Otherwise, ask the user: *"What market or product space should I research?"*
+   - Use the answer as `{space}` in all search templates below.
+
+2. **SEO market intelligence** (if provider configured).
    Read `.pm/config.json` for the `seo.provider` value.
    - If `"ahrefs-mcp"`: use the Ahrefs MCP tools:
      - `keywords-explorer-matching-terms` — get keyword ideas for the product category (limit 30). Shows search demand behind the space.
@@ -83,16 +88,16 @@ First research activity in a new project. Produces the market overview that make
      - `site-explorer-organic-competitors` — if any known competitor domains exist, discover who else competes in the same keyword space. Reveals players not found via web search.
    - If `"none"` or returns an error: skip, log the error, continue with web search.
 
-2. **Web search for market overview.** Search for:
+3. **Web search for market overview.** Search for:
    - "{space} market overview" / "{space} industry landscape {year}"
    - Key vendors and their positioning
    - Market segments and buyer types
    - Analyst or press coverage
 
-3. **Present findings for validation.** Show a structured summary before writing. Ask:
+4. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
-4. **Write `pm/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
+5. **Write `pm/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
    After writing, append the touched file to `pm/insights/business/log.md`. Update `pm/insights/business/index.md` too if it needs to reflect the new state of the domain.
 
 ### Landscape Document Structure

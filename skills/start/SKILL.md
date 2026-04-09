@@ -26,15 +26,6 @@ Minimum coverage for `pm:start`:
 - one step span for `detect-situation`
 - one step span for the selected path: `bootstrap`, `resume`, `open`, or `pulse`
 
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Minimum coverage for `pm:start`:
-- run start / run end for every invocation
-- one step span for `detect-situation`
-- one step span for the selected path: `setup-handoff`, `dashboard-pulse`, or `explicit-open`
-
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next.
@@ -78,6 +69,7 @@ Interpret the argument or surrounding user message as a routing hint:
 - "research X", "look into X", "investigate X" → topic research
 - "think", "brainstorm", "what if", "how should we" → `pm:think`
 - "groom", "feature idea", "spec", "PRD", "break this down" → `pm:groom`
+- "explore", "look around", "just show me", "skip" → show dashboard brief and stop
 
 If no clear hint exists, ask the user what they want to do first.
 
@@ -92,12 +84,13 @@ Get the user to value quickly. Do not front-load integration questions.
 1. Create the minimum PM workspace
 2. Ensure `.gitignore` is correct
 3. Write minimal config with sensible defaults
-4. Decide the user's first workflow
-5. Route directly into that workflow
+4. Summarize what was created
+5. Decide the user's first workflow
+6. Route directly into that workflow
 
 ### Step 1: Create Folder Structure
 
-Create the layered KB folders and the empty index/log artifacts that go with them.
+Create the layered KB folders and seed each index/log file with a minimal header so the KB is self-explanatory.
 
 ```bash
 mkdir -p pm/insights/{product,competitors,business}
@@ -108,22 +101,26 @@ mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
 mkdir -p .pm/dev-sessions
-
-touch pm/insights/product/index.md
-touch pm/insights/product/log.md
-touch pm/insights/competitors/index.md
-touch pm/insights/competitors/log.md
-touch pm/insights/business/index.md
-touch pm/insights/business/log.md
-touch pm/evidence/index.md
-touch pm/evidence/log.md
-touch pm/evidence/research/index.md
-touch pm/evidence/research/log.md
-touch pm/evidence/transcripts/index.md
-touch pm/evidence/transcripts/log.md
-touch pm/evidence/user-feedback/index.md
-touch pm/evidence/user-feedback/log.md
 ```
+
+Write each index and log file with a one-line heading (do not use `touch` — files should never be blank):
+
+| File | Content |
+|------|---------|
+| `pm/insights/product/index.md` | `# Product Insights` |
+| `pm/insights/product/log.md` | `# Product Insights Log` |
+| `pm/insights/competitors/index.md` | `# Competitor Insights` |
+| `pm/insights/competitors/log.md` | `# Competitor Insights Log` |
+| `pm/insights/business/index.md` | `# Business Insights` |
+| `pm/insights/business/log.md` | `# Business Insights Log` |
+| `pm/evidence/index.md` | `# Evidence` |
+| `pm/evidence/log.md` | `# Evidence Log` |
+| `pm/evidence/research/index.md` | `# Research` |
+| `pm/evidence/research/log.md` | `# Research Log` |
+| `pm/evidence/transcripts/index.md` | `# Transcripts` |
+| `pm/evidence/transcripts/log.md` | `# Transcripts Log` |
+| `pm/evidence/user-feedback/index.md` | `# User Feedback` |
+| `pm/evidence/user-feedback/log.md` | `# User Feedback Log` |
 
 Default insight domains are `product`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
 
@@ -149,7 +146,6 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
     "seo": { "provider": "none" }
   },
   "preferences": {
-    "backlog_format": "markdown",
     "auto_launch": true
   }
 }
@@ -160,37 +156,77 @@ Populate:
 - `project_name` from the repo directory name by default
 - `integrations.linear.enabled` as `false`
 - `integrations.seo.provider` as `"none"`
-- `preferences.backlog_format` as `"markdown"`
-- `preferences.auto_launch` as `true`
+- `preferences.auto_launch` as `true` — controls whether the dashboard server starts automatically on session start. Set to `false` to disable.
 
 Only ask for a project name if the repo directory name is obviously generic or the user already gave you a better name.
 
 Do **not** ask about Linear or Ahrefs during Bootstrap Mode. Those are deferred until a later workflow needs them.
 
-### Step 4: Choose The First Workflow
+### Step 3.5: Update CLAUDE.md
+
+If `CLAUDE.md` exists at the project root, append a brief PM section so future sessions (even without the plugin) know the `pm/` directory is a structured knowledge base:
+
+```markdown
+## PM Knowledge Base
+
+This project uses PM for product management. The `pm/` directory contains the structured knowledge base:
+- `pm/insights/` — product, competitor, and business insights
+- `pm/evidence/` — research, transcripts, and user feedback
+- `pm/backlog/` — feature proposals and issues
+- `pm/thinking/` — exploratory product thinking
+```
+
+If `CLAUDE.md` already contains a `## PM Knowledge Base` section, skip this step. If `CLAUDE.md` does not exist, skip this step — do not create it just for this.
+
+### Step 3.6: Customization (optional, mention only)
+
+Do **not** create these files during bootstrap. Just mention they exist so the user knows how to customize later:
+
+- `pm/instructions.md` — shared team instructions (terminology, writing style, output format, competitors to track). Read by groom, research, think, ingest, strategy, and refresh skills.
+- `pm/instructions.local.md` — personal overrides (gitignored via `pm/*.local.md`). Takes precedence over shared instructions on conflict.
+- `learnings.md` — auto-generated by dev retro. No need to create manually.
+
+Include this as a single line in the bootstrap summary (Step 4): "Create `pm/instructions.md` to customize how PM writes and what it tracks."
+
+### Step 4: Summarize What Was Created
+
+Before asking the user to choose a workflow, give a brief orientation so they understand the workspace:
+
+> "PM is set up. Here's what was created:
+> - `pm/` — your knowledge base (insights, evidence, backlog, thinking)
+> - `.pm/` — internal state (gitignored, you won't see this in commits)
+> - Dashboard: {url}"
+
+If the dashboard URL is not available, omit the dashboard line.
+
+Keep this brief — no more than 4 lines. The goal is orientation, not a tutorial.
+
+### Step 5: Choose The First Workflow
 
 If the user already gave a clear starting intent, route directly.
 
 If not, ask ONE question:
 
 > "What do you want to do first?
-> (a) Import customer evidence
-> (b) Research the market
-> (c) Research competitors
-> (d) Research a specific topic
-> (e) Think through an idea
-> (f) Groom a feature idea"
+> (a) Think through an idea — explore and pressure-test a product idea
+> (b) Research the market — landscape overview of your space
+> (c) Research competitors — profile specific alternatives
+> (d) Research a specific topic — deep dive into any question
+> (e) Groom a feature idea — scope and spec a feature for development
+> (f) Import customer evidence — bring in transcripts, feedback, or data files
+> (g) Just explore — look around the dashboard first"
 
-### Step 5: Route Immediately
+### Step 6: Route Immediately
 
 Routing rules:
 
-- File/folder path or evidence import request → invoke `pm:ingest`
+- Thinking / brainstorming → if the idea is missing, ask for it, then invoke `pm:think`
 - Market / landscape research → invoke `pm:research landscape`
 - Competitor research → invoke `pm:research competitors`
 - Specific topic research → if the topic is missing, ask for it, then invoke `pm:research <topic>`
-- Thinking / brainstorming → if the idea is missing, ask for it, then invoke `pm:think`
 - Grooming / feature scoping → if the idea is missing, ask for it, then invoke `pm:groom`
+- File/folder path or evidence import request → invoke `pm:ingest`
+- Just explore → show the dashboard brief and stop. Do not route into a workflow.
 
 Tell the user briefly which lane you are taking, then hand off to that skill immediately.
 

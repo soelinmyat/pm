@@ -53,9 +53,9 @@ test("buildStatus treats an initialized empty workspace as first-workflow ready"
 
     const status = buildStatus(project.root);
     assert.equal(status.initialized, true);
-    assert.equal(status.focus, "all fresh");
-    assert.equal(status.backlog, "0 ideas, 0 in progress, 0 shipped");
-    assert.equal(status.next, "/pm:start (choose your first workflow)");
+    assert.equal(status.focus, "no attention needed");
+    assert.equal(status.backlog, "0 ideas, 0 planned, 0 in progress, 0 shipped");
+    assert.equal(status.next, "/pm:think (explore a product idea)");
   } finally {
     project.cleanup();
   }
@@ -106,7 +106,7 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
 
     const status = buildStatus(project.root);
     assert.equal(status.initialized, true);
-    assert.equal(status.focus, "all fresh");
+    assert.equal(status.focus, "no attention needed");
     assert.equal(status.next, "/pm:strategy");
     assert.equal(status.counts.insights, 1);
     assert.equal(status.counts.evidence, 1);
@@ -211,8 +211,8 @@ test("renderTextStatus includes cached update guidance when requested", () => {
 
     assert.equal(status.update.available, true);
     assert.match(rendered, /Update: v/);
-    assert.match(rendered, /Focus: all fresh/);
-    assert.match(rendered, /Next: \/pm:start \(choose your first workflow\)/);
+    assert.match(rendered, /Focus: no attention needed/);
+    assert.match(rendered, /Next: \/pm:think \(explore a product idea\)/);
   } finally {
     project.cleanup();
   }
@@ -285,6 +285,79 @@ test("buildStatus prefers layered KB counts when legacy directories still exist"
     assert.equal(status.counts.insights, 1);
     assert.equal(status.counts.evidence, 0);
     assert.equal(status.counts.stale, 0);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus counts planned items, shows in summary, and adds suggestion", () => {
+  const project = createProject();
+  try {
+    project.write("pm/strategy.md", "---\ntype: strategy\n---\n");
+    project.write(
+      "pm/backlog/ready-item.md",
+      [
+        "---",
+        "type: backlog-issue",
+        "id: PM-200",
+        "title: Ready to Build",
+        "outcome: Test planned",
+        "status: planned",
+        "priority: high",
+        "created: 2026-04-01",
+        "updated: 2026-04-09",
+        "---",
+      ].join("\n")
+    );
+    const status = buildStatus(project.root);
+    assert.equal(status.counts.planned, 1);
+    assert.ok(status.backlog.includes("1 planned"));
+    const allSuggestions = [status.next, ...(status.alternatives || [])];
+    assert.ok(allSuggestions.some((s) => s.includes("ready-item")));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus surfaces oldest planned item when multiple exist", () => {
+  const project = createProject();
+  try {
+    project.write("pm/strategy.md", "---\ntype: strategy\n---\n");
+    project.write(
+      "pm/backlog/older-item.md",
+      [
+        "---",
+        "type: backlog-issue",
+        "id: PM-201",
+        "title: Older Planned",
+        "outcome: Older",
+        "status: planned",
+        "priority: high",
+        "created: 2026-04-01",
+        "updated: 2026-04-05",
+        "---",
+      ].join("\n")
+    );
+    project.write(
+      "pm/backlog/newer-item.md",
+      [
+        "---",
+        "type: backlog-issue",
+        "id: PM-202",
+        "title: Newer Planned",
+        "outcome: Newer",
+        "status: planned",
+        "priority: high",
+        "created: 2026-04-01",
+        "updated: 2026-04-09",
+        "---",
+      ].join("\n")
+    );
+    const status = buildStatus(project.root);
+    assert.equal(status.counts.planned, 2);
+    // Oldest planned item should be surfaced in the suggestion
+    const allSuggestions = [status.next, ...(status.alternatives || [])];
+    assert.ok(allSuggestions.some((s) => s.includes("older-item")));
   } finally {
     project.cleanup();
   }

@@ -667,7 +667,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .card .card-footer .view-link { font-size: 0.8125rem; font-weight: 500; }
 
 /* Kanban */
-.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 1.5rem 0; align-items: start; }
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 1.5rem 0; align-items: start; }
 .kanban-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .kanban-col .col-header { display: flex; align-items: center; gap: 8px;
   padding: 12px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase;
@@ -684,13 +684,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .kanban-card-id { font-size: 11px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
 .kanban-card-sub { font-size: 11px; color: var(--text-dim); }
+.kanban-badge-planned { font-size: 0.625rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; font-weight: 600; background: var(--badge-info-bg); color: var(--accent); margin-left: auto; }
 .kanban-card-title { font-size: 13px; font-weight: 500; line-height: 1.4; }
 .kanban-view-all { display: block; text-align: center; padding: 10px; font-size: 12px; color: var(--accent);
   text-decoration: none; border-top: 1px solid var(--border); }
 .kanban-view-all:hover { background: var(--surface-hover); }
 /* Status badges */
 .status-badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500; margin-left: 0.5rem; }
+.badge-idea { background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.badge-drafted { background: var(--badge-neutral-bg); color: var(--text-muted); }
+.badge-proposed { background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
+.badge-planned { background: var(--badge-info-bg); color: var(--badge-info-text); }
 .badge-in-progress { background: var(--badge-info-bg); color: var(--accent); }
+.badge-done { background: var(--badge-success-bg); color: var(--badge-success-text); }
 .badge-approved { background: var(--badge-success-bg); color: var(--badge-success-text); }
 /* Filter bar */
 .filter-bar { margin-bottom: 24px; }
@@ -820,6 +826,33 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .action-hint code { background: var(--accent-subtle); padding: 0.125em 0.375em; border-radius: 3px; font-size: 0.75rem; color: var(--accent); }
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
+
+/* View toggle */
+.view-toggle { display: flex; gap: 4px; margin-bottom: 1rem; }
+.view-toggle-btn { padding: 6px 14px; font-size: 0.8125rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text-secondary); background: var(--surface); transition: all 0.15s; }
+.view-toggle-btn:hover { background: var(--surface-hover); }
+.view-toggle-btn.active { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+
+/* Thread table */
+.thread-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 1rem 0; }
+.thread-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.thread-table thead { background: var(--bg); }
+.thread-table th { text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); }
+.thread-table td { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border-subtle, var(--border)); vertical-align: middle; color: var(--text-secondary); }
+.thread-table tr:last-child td { border-bottom: none; }
+.thread-id { font-family: var(--font-mono, monospace); font-size: 0.75rem; font-weight: 600; color: var(--accent); background: var(--accent-subtle); padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
+.thread-feature { font-weight: 500; color: var(--text-primary, var(--text)); }
+.thread-pill { display: inline-block; padding: 2px 8px; font-size: 0.75rem; font-weight: 500; border-radius: 4px; text-decoration: none; background: var(--accent-subtle); color: var(--accent); }
+.thread-pill:hover { text-decoration: underline; }
+.thread-pill-pr { background: var(--badge-info-bg); color: var(--badge-info-text); }
+.thread-children-toggle { margin-top: 4px; }
+.thread-children-toggle summary { font-size: 0.75rem; color: var(--text-muted); cursor: pointer; list-style: none; }
+.thread-children-toggle summary::-webkit-details-marker { display: none; }
+.thread-children-toggle summary::before { content: "\\25B6 "; font-size: 0.625rem; }
+.thread-children-toggle[open] summary::before { content: "\\25BC "; }
+.thread-children-list { list-style: none; padding: 4px 0 0 0; margin: 0; font-size: 0.75rem; color: var(--text-muted); }
+.thread-children-list li { padding: 2px 0; }
+
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
 .suggested-next { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
@@ -1225,6 +1258,34 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kb-search-input:focus { border-color: var(--accent); }
 .kb-search-input::placeholder { color: var(--text-dim, var(--text-muted)); }
 
+/* ===== SETTINGS PAGE ===== */
+.settings-header { margin-bottom: var(--space-6); }
+.settings-header h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); }
+.settings-header .settings-subtitle { font-size: var(--text-sm); color: var(--text-secondary); margin: 0 0 var(--space-2); }
+.settings-header .config-path { font-family: var(--mono, monospace); font-size: var(--text-xs); color: var(--text-muted); background: var(--surface-raised); padding: 2px 8px; border-radius: var(--radius-sm); display: inline-block; }
+.settings-section { margin-bottom: var(--space-8); }
+.settings-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.settings-section-header h2 { font-size: var(--text-base); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0; }
+.section-count { font-size: var(--text-xs); color: var(--text-muted); font-weight: 500; }
+.setting-row { display: flex; gap: var(--space-4); align-items: flex-start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-subtle, var(--border)); border-radius: var(--radius-sm); margin-bottom: var(--space-2); }
+.setting-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface-raised); }
+.setting-icon svg { width: 18px; height: 18px; color: var(--text-secondary); }
+.setting-body { flex: 1; min-width: 0; }
+.setting-body h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); display: flex; align-items: center; gap: var(--space-2); }
+.setting-body p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 var(--space-2); line-height: 1.5; }
+.setting-details { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.detail-item { font-size: var(--text-xs); color: var(--text-secondary); }
+.detail-label { font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.04em; margin-right: var(--space-1); }
+.detail-divider { color: var(--border-subtle, var(--border)); margin: 0 var(--space-1); }
+.badge-connected { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-success-bg); color: var(--badge-success-text); }
+.badge-connected::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-disconnected { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.badge-disconnected::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-on { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-success-bg); color: var(--badge-success-text); }
+.badge-off { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.settings-help { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.6; padding: var(--space-4); background: var(--surface-raised); border-radius: var(--radius-sm); margin-top: var(--space-6); }
+.settings-help strong { color: var(--text-secondary); }
+
 /* ===== KB HUB PAGE ===== */
 .kb-domain-section { margin-bottom: var(--space-8); }
 
@@ -1461,7 +1522,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 // ========== Dashboard HTML Shell ==========
 
 function dashboardPage(title, activeNav, bodyContent, projectName) {
-  projectName = projectName || _cachedProjectName || "PM";
+  projectName = projectName || "PM";
   const navLinks = [
     {
       href: "/",
@@ -1487,6 +1548,11 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       href: "/notes",
       label: "Notes",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"/><line x1="6" y1="5.5" x2="10" y2="5.5"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.5" x2="8.5" y2="10.5"/></svg>',
+    },
+    {
+      href: "/settings",
+      label: "Settings",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
     },
   ];
   const navHtml = navLinks
@@ -2025,24 +2091,151 @@ function renderPositioningMap(data) {
   );
 }
 
-// ========== Project Name ==========
+// ========== Config + Project Name ==========
 
-let _cachedProjectName = null;
-let _cachedProjectPmDir = null;
+function readConfig(pmDir) {
+  const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 function getProjectName(pmDir) {
-  if (_cachedProjectPmDir === pmDir && _cachedProjectName) return _cachedProjectName;
-  const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
-  let name = path.basename(path.dirname(pmDir)) || "PM";
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    if (config.project_name) name = config.project_name;
-  } catch {
-    /* no config or invalid JSON */
+  const config = readConfig(pmDir);
+  return config.project_name || path.basename(path.dirname(pmDir)) || "PM";
+}
+
+// ========== Settings Page ==========
+
+function handleSettingsPage(res, pmDir) {
+  const config = readConfig(pmDir);
+  const projectName = config.project_name || path.basename(path.dirname(pmDir)) || "PM";
+
+  // Empty state: no config at all (readConfig returns {})
+  if (
+    !config.config_schema &&
+    !config.project_name &&
+    !config.integrations &&
+    !config.preferences
+  ) {
+    const html = dashboardPage(
+      "Settings",
+      "/settings",
+      renderEmptyState(
+        "No configuration yet",
+        "Initialize the project to configure integrations and preferences.",
+        "/pm:start",
+        "Set up this project"
+      ),
+      projectName
+    );
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
   }
-  _cachedProjectPmDir = pmDir;
-  _cachedProjectName = name;
-  return name;
+
+  const linear = config.integrations?.linear ?? {};
+  const seo = config.integrations?.seo ?? {};
+  const prefs = config.preferences ?? {};
+
+  const linearConnected = linear.enabled === true;
+  const seoConnected = seo.provider === "ahrefs";
+  const connectedCount = (linearConnected ? 1 : 0) + (seoConnected ? 1 : 0);
+
+  // Linear card
+  const linearBadge = linearConnected
+    ? '<span class="badge-connected">Connected</span>'
+    : '<span class="badge-disconnected">Disconnected</span>';
+  const linearDetails = linearConnected
+    ? '<div class="setting-details">' +
+      (linear.team
+        ? '<span class="detail-item"><span class="detail-label">Team</span>' +
+          escHtml(String(linear.team)) +
+          "</span>"
+        : "") +
+      (linear.team && linear.project ? '<span class="detail-divider">&middot;</span>' : "") +
+      (linear.project
+        ? '<span class="detail-item"><span class="detail-label">Project</span>' +
+          escHtml(String(linear.project)) +
+          "</span>"
+        : "") +
+      "</div>"
+    : "";
+  const linearCommand = linearConnected ? "/pm:setup disable linear" : "/pm:setup enable linear";
+
+  // SEO card
+  const seoBadge = seoConnected
+    ? '<span class="badge-connected">Connected</span>'
+    : '<span class="badge-disconnected">Disconnected</span>';
+  const seoCommand = seoConnected ? "/pm:setup disable ahrefs" : "/pm:setup enable ahrefs";
+
+  // Auto launch preference
+  const autoLaunch = prefs.auto_launch;
+  const autoLaunchBadge =
+    autoLaunch === true ? '<span class="badge-on">on</span>' : '<span class="badge-off">off</span>';
+
+  const bodyHtml =
+    '<div class="settings-header">' +
+    "<h1>Settings</h1>" +
+    '<p class="settings-subtitle">Plugin configuration for this project</p>' +
+    '<span class="config-path">.pm/config.json</span>' +
+    "</div>" +
+    // Integrations section
+    '<div class="settings-section">' +
+    '<div class="settings-section-header">' +
+    "<h2>Integrations</h2>" +
+    '<span class="section-count">' +
+    connectedCount +
+    " of 2 connected</span>" +
+    "</div>" +
+    // Linear card
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l6-2 6 2v8l-6 2-6-2V4z"/><path d="M2 4l6 2 6-2"/><path d="M8 6v8"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>Linear " +
+    linearBadge +
+    "</h3>" +
+    "<p>Issue tracking and project management sync</p>" +
+    linearDetails +
+    renderClickToCopy(linearCommand) +
+    "</div></div>" +
+    // SEO/Ahrefs card
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><ellipse cx="8" cy="8" rx="3" ry="6"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>SEO / Ahrefs " +
+    seoBadge +
+    "</h3>" +
+    "<p>SEO research and competitive analysis</p>" +
+    renderClickToCopy(seoCommand) +
+    "</div></div>" +
+    "</div>" +
+    // Preferences section
+    '<div class="settings-section">' +
+    '<div class="settings-section-header">' +
+    "<h2>Preferences</h2>" +
+    "</div>" +
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M5 8h6"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>Auto-launch dashboard " +
+    autoLaunchBadge +
+    "</h3>" +
+    "<p>Automatically start the dashboard when a PM session begins</p>" +
+    "</div></div>" +
+    "</div>" +
+    // Help footer
+    '<div class="settings-help">' +
+    "<strong>How to change settings:</strong> Copy a command above and paste it to your AI agent, " +
+    "or edit <code>.pm/config.json</code> directly." +
+    "</div>";
+
+  const html = dashboardPage("Settings", "/settings", bodyHtml, projectName);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
 }
 
 // ========== Notes Page ==========
@@ -2389,7 +2582,12 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === "/notes") {
     handleNotesPage(res, pmDir);
   } else if (urlPath === "/roadmap") {
-    handleBacklog(res, pmDir);
+    const view = urlObj.searchParams.get("view");
+    if (view === "threads") {
+      handleBacklogThreads(res, pmDir);
+    } else {
+      handleBacklog(res, pmDir);
+    }
   } else if (urlPath === "/roadmap/shipped") {
     handleShipped(res, pmDir);
   } else if (urlPath.startsWith("/roadmap/wireframes/")) {
@@ -2424,6 +2622,8 @@ function routeDashboard(req, res, pmDir) {
     const rest = urlPath.slice("/backlog".length);
     res.writeHead(302, { Location: "/roadmap" + rest });
     res.end();
+  } else if (urlPath === "/settings") {
+    handleSettingsPage(res, pmDir);
   } else {
     res.writeHead(404);
     res.end("Not found");
@@ -3572,12 +3772,12 @@ function handleDashboardHome(res, pmDir) {
 </section>`;
 
   const firstWorkflowActions =
-    status.next === "/pm:start (choose your first workflow)"
+    status.next === "/pm:think (explore a product idea)"
       ? `
   <div class="session-brief-actions">
     <div class="session-brief-actions-label">Good first moves</div>
     <ul>
-      <li><code>/pm:ingest &lt;path&gt;</code> if you already have customer evidence</li>
+      <li><code>/pm:think</code> to explore and pressure-test a product idea</li>
       <li><code>/pm:research landscape</code> to understand the market</li>
       <li><code>/pm:research competitors</code> to profile alternatives</li>
       <li><code>/pm:groom &lt;idea&gt;</code> if you already know what feature to scope</li>
@@ -3633,7 +3833,7 @@ function handleDashboardHome(res, pmDir) {
   <h1>${escHtml(projectName)}</h1>
   <p class="subtitle">Product knowledge base</p>
 </div>
-${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:groom", "Start your first feature")}
+${renderEmptyState("Your team's shared product brain", "Strategy, research, proposals, and roadmap in one place. Once content is added, you'll see project health, active sessions, and recent proposals here.", "/pm:think", "Start with an idea")}
 ${suggestedHtml}`;
   } else if (proposalCount === 0 && recentShipped.length === 0) {
     // Partial state: strategy/KB exists but no proposals yet
@@ -5298,19 +5498,31 @@ function handleWireframe(res, pmDir, slug) {
   }
 }
 
+function renderViewToggle(activeView) {
+  const kanbanClass = activeView === "kanban" ? " active" : "";
+  const threadsClass = activeView === "threads" ? " active" : "";
+  return `<div class="view-toggle"><a href="/roadmap" class="view-toggle-btn${kanbanClass}">Kanban</a><a href="/roadmap?view=threads" class="view-toggle-btn${threadsClass}">Threads</a></div>`;
+}
+
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
   const columns = {};
   const childCounts = {};
-  const STATUS_ORDER = ["groomed", "in-progress", "shipped"];
+  const STATUS_ORDER = ["ideas", "proposed", "in-progress", "shipped"];
   const STATUS_MAP = {
-    idea: "groomed",
-    drafted: "groomed",
-    approved: "groomed",
+    idea: "ideas",
+    drafted: "ideas",
+    proposed: "proposed",
+    planned: "proposed",
     "in-progress": "in-progress",
     done: "shipped",
   };
-  const COL_LABELS = { groomed: "Groomed", "in-progress": "In Progress", shipped: "Shipped" };
+  const COL_LABELS = {
+    ideas: "Ideas",
+    proposed: "Proposed",
+    "in-progress": "In Progress",
+    shipped: "Shipped",
+  };
   const COL_LIMIT = 10;
 
   if (fs.existsSync(backlogDir)) {
@@ -5332,7 +5544,7 @@ function handleBacklog(res, pmDir) {
       const parent = data.parent || null;
       if (parent && parent !== "null") continue; // skip sub-issues
       const rawStatus = data.status || "idea";
-      const status = STATUS_MAP[rawStatus] || "groomed";
+      const status = STATUS_MAP[rawStatus] || "ideas";
       if (!columns[status]) columns[status] = [];
       columns[status].push({
         slug,
@@ -5340,6 +5552,7 @@ function handleBacklog(res, pmDir) {
         id: data.id || null,
         subCount: childCounts[slug] || 0,
         updated: data.updated || data.created || "",
+        rawStatus,
       });
     }
   }
@@ -5350,13 +5563,18 @@ function handleBacklog(res, pmDir) {
       item.subCount > 0
         ? `<span class="kanban-card-sub">${item.subCount} sub-issue${item.subCount !== 1 ? "s" : ""}</span>`
         : "";
+    const plannedHtml =
+      item.rawStatus === "planned" ? '<span class="kanban-badge-planned">RFC ready</span>' : "";
     const header =
-      idHtml || subHtml ? `<div class="kanban-card-header">${idHtml}${subHtml}</div>` : "";
+      idHtml || subHtml || plannedHtml
+        ? `<div class="kanban-card-header">${idHtml}${subHtml}${plannedHtml}</div>`
+        : "";
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
   const COL_EMPTY_HINTS = {
-    groomed: "Groom an idea to create proposals",
+    ideas: "Capture ideas during research or grooming",
+    proposed: "Groom an idea to create proposals",
     "in-progress": "Start building with /pm:dev",
     shipped: "Ship features to see them here",
   };
@@ -5382,18 +5600,27 @@ function handleBacklog(res, pmDir) {
     };
   });
 
+  const totalItems = templateColumns.reduce((sum, col) => sum + col.totalCount, 0);
   const filterBar =
-    '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>';
-  const filterScript = `<script>
+    totalItems > 0
+      ? '<div class="filter-bar"><input type="text" class="filter-input" id="roadmap-filter" placeholder="Filter issues..."></div>'
+      : "";
+  const filterScript =
+    totalItems > 0
+      ? `<script>
 document.getElementById('roadmap-filter').addEventListener('input', function(e) {
   var q = e.target.value.toLowerCase();
   document.querySelectorAll('.kanban-card').forEach(function(card) {
     card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
   });
 });
-</script>`;
+</script>`
+      : "";
+
+  const viewToggle = renderViewToggle("kanban");
 
   const body =
+    viewToggle +
     renderKanbanTemplate({
       title: "Roadmap",
       subtitle: "What's coming, what's in progress, and what just shipped",
@@ -5405,9 +5632,145 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
         "/pm:groom",
         "Start grooming"
       ),
-    }) + filterScript;
+    }) +
+    filterScript;
 
   const html = dashboardPage("Roadmap", "/roadmap", body);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function handleBacklogThreads(res, pmDir) {
+  const backlogDir = path.join(pmDir, "backlog");
+  const items = [];
+  const childrenByParent = {};
+
+  if (fs.existsSync(backlogDir)) {
+    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
+    // First pass: collect children per parent
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
+      const { data } = parseFrontmatter(raw);
+      const parent = data.parent || null;
+      if (parent && parent !== "null") {
+        if (!childrenByParent[parent]) childrenByParent[parent] = [];
+        childrenByParent[parent].push({
+          id: data.id || null,
+          title: data.title || file.replace(".md", ""),
+        });
+      }
+    }
+    // Second pass: collect parent items
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
+      const { data } = parseFrontmatter(raw);
+      const slug = file.replace(".md", "");
+      const parent = data.parent || null;
+      if (parent && parent !== "null") continue; // skip sub-issues
+      items.push({
+        slug,
+        title: data.title || slug,
+        id: data.id || null,
+        status: data.status || "idea",
+        prd: data.prd || null,
+        rfc: data.rfc || null,
+        linear_id: data.linear_id || null,
+        prs: Array.isArray(data.prs) ? data.prs : [],
+        updated: data.updated || data.created || "",
+        children: childrenByParent[slug] || [],
+      });
+    }
+  }
+
+  // Sort by updated date descending
+  items.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+
+  const viewToggle = renderViewToggle("threads");
+
+  let pageBody = "";
+  pageBody += '<div class="thread-view">';
+  pageBody += '<div class="page-header">';
+  pageBody += "<h1>Roadmap</h1>";
+  pageBody += '<p class="subtitle">Feature lifecycle — from idea to shipped</p>';
+  pageBody += "</div>";
+  pageBody += viewToggle;
+
+  if (items.length === 0) {
+    pageBody += renderEmptyState(
+      "No features yet",
+      "Start with /pm:groom to create your first proposal.",
+      "/pm:groom",
+      "Start grooming"
+    );
+  } else {
+    pageBody += '<div class="thread-table-wrap">';
+    pageBody += '<table class="thread-table">';
+    pageBody += "<thead><tr>";
+    pageBody +=
+      "<th>Feature</th><th>Status</th><th>Proposal</th><th>RFC</th><th>Linear</th><th>PRs</th>";
+    pageBody += "</tr></thead>";
+    pageBody += "<tbody>";
+
+    for (const item of items) {
+      const titleHtml = item.id
+        ? `<span class="thread-id">${escHtml(item.id)}</span> ${escHtml(item.title)}`
+        : escHtml(item.title);
+
+      const statusHtml = `<span class="badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>`;
+
+      const prdSlug = item.prd ? item.prd.replace(/^proposals\//, "").replace(/\.html$/, "") : null;
+      const prdHtml = prdSlug
+        ? `<a href="/proposals/${escHtml(prdSlug)}" class="thread-pill">PRD</a>`
+        : "\u2014";
+
+      const rfcSlug = item.rfc ? item.rfc.replace(/^rfcs\//, "").replace(/\.html$/, "") : null;
+      const rfcHtml =
+        rfcSlug && rfcSlug !== "null"
+          ? `<a href="/rfc/${escHtml(rfcSlug)}" class="thread-pill">RFC</a>`
+          : "\u2014";
+
+      const linearHtml =
+        item.linear_id && item.linear_id !== "null"
+          ? `<span class="thread-pill">${escHtml(item.linear_id)}</span>`
+          : "\u2014";
+
+      const prsHtml =
+        item.prs.length > 0
+          ? item.prs
+              .map((pr) => `<span class="thread-pill thread-pill-pr">${escHtml(pr)}</span>`)
+              .join(" ")
+          : "\u2014";
+
+      let featureCell = `<div class="thread-feature">${titleHtml}`;
+      if (item.children.length > 0) {
+        const count = item.children.length;
+        const childListHtml = item.children
+          .map((c) => {
+            const cId = c.id ? `<strong>${escHtml(c.id)}</strong> ` : "";
+            return `<li>${cId}${escHtml(c.title)}</li>`;
+          })
+          .join("");
+        featureCell += `<details class="thread-children-toggle"><summary>${count} sub-issue${count !== 1 ? "s" : ""}</summary><ul class="thread-children-list">${childListHtml}</ul></details>`;
+      }
+      featureCell += "</div>";
+
+      pageBody += "<tr>";
+      pageBody += `<td>${featureCell}</td>`;
+      pageBody += `<td>${statusHtml}</td>`;
+      pageBody += `<td>${prdHtml}</td>`;
+      pageBody += `<td>${rfcHtml}</td>`;
+      pageBody += `<td>${linearHtml}</td>`;
+      pageBody += `<td>${prsHtml}</td>`;
+      pageBody += "</tr>";
+    }
+
+    pageBody += "</tbody></table>";
+    pageBody += "</div>";
+  }
+
+  pageBody += "</div>";
+
+  const html = dashboardPage("Roadmap", "/roadmap", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -5547,7 +5910,9 @@ function handleProposalDetail(res, pmDir, slug) {
   const status = meta.status || meta.verdict || "draft";
   // Always use slug for dev command — dev resolves slugs to local backlog entries
   const actionCommand =
-    status === "ready" || status === "proposed" ? `/pm:dev ${slug}` : `/pm:groom ${slug}`;
+    status === "ready" || status === "proposed" || status === "planned"
+      ? `/pm:dev ${slug}`
+      : `/pm:groom ${slug}`;
   const title = meta.title || humanizeSlug(slug);
 
   const header = injectableHeaderBar("Back", title, actionCommand);
@@ -6292,6 +6657,7 @@ module.exports = {
   renderMarkdown,
   inlineMarkdown,
   escHtml,
+  readConfig,
   createDashboardServer,
   dashboardPage,
   readProposalMeta,

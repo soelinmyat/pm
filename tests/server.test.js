@@ -88,9 +88,6 @@ function httpGet(port, urlPath) {
   });
 }
 
-/**
- * Make a POST request with JSON body, return { statusCode, headers, body }.
- */
 function httpPost(port, urlPath, jsonBody) {
   return new Promise((resolve, reject) => {
     const data = typeof jsonBody === "string" ? jsonBody : JSON.stringify(jsonBody);
@@ -402,7 +399,7 @@ test("GET /roadmap returns kanban HTML grouped by status", async () => {
       const { statusCode, body } = await httpGet(port, "/roadmap");
       assert.equal(statusCode, 200);
       assert.ok(body.includes("Idea") || body.includes("idea"), "must show idea column");
-      assert.ok(body.includes("Groomed") || body.includes("groomed"), "must show groomed column");
+      assert.ok(body.includes("Ideas") || body.includes("ideas"), "must show ideas column");
       assert.ok(body.includes("Shipped") || body.includes("shipped"), "must show shipped column");
     } finally {
       await close();
@@ -1918,9 +1915,10 @@ test("PM-123: nav sidebar shows Roadmap not Backlog", async () => {
   }
 });
 
-test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async () => {
+test("PM-123: kanban columns are labeled Ideas / Proposed / In Progress / Shipped", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/idea-1.md": "---\nstatus: idea\ntitle: Idea One\n---\n# Idea\n",
+    "pm/backlog/proposed-1.md": "---\nstatus: proposed\ntitle: Proposed One\n---\n# Proposed\n",
     "pm/backlog/wip-1.md": "---\nstatus: in-progress\ntitle: WIP One\n---\n# WIP\n",
     "pm/backlog/done-1.md": "---\nstatus: done\ntitle: Done One\n---\n# Done\n",
   });
@@ -1928,15 +1926,9 @@ test("PM-123: kanban columns are labeled Groomed / In Progress / Shipped", async
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap");
-      assert.ok(body.includes(">Idea<") || body.includes(">Idea "), "must show Idea column");
-      assert.ok(
-        body.includes(">Groomed<") || body.includes(">Groomed "),
-        "must show Groomed column"
-      );
-      assert.ok(
-        body.includes(">Shipped<") || body.includes(">Shipped "),
-        "must show Shipped column"
-      );
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
     } finally {
       await close();
     }
@@ -3363,7 +3355,7 @@ test("PM-125: GET /roadmap/{slug} renders .detail-page wrapper", async () => {
 test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/parent-proposal.md":
-      "---\nstatus: approved\ntitle: Parent Proposal\n---\n# Parent\n",
+      "---\nstatus: proposed\ntitle: Parent Proposal\n---\n# Parent\n",
     "pm/backlog/child-issue.md":
       "---\nstatus: drafted\ntitle: Child Issue\nid: PM-050\nparent: parent-proposal\n---\n# Child\n",
   });
@@ -3788,8 +3780,8 @@ test('PM-126: Home empty state contains "shared product brain" text and click-to
         'must contain "shared product brain" explanatory text'
       );
       assert.ok(
-        body.includes("click-to-copy") && body.includes('data-copy="/pm:groom"'),
-        'must contain click-to-copy with data-copy="/pm:groom"'
+        body.includes("click-to-copy") && body.includes('data-copy="/pm:think"'),
+        'must contain click-to-copy with data-copy="/pm:think"'
       );
     } finally {
       await close();
@@ -5410,9 +5402,866 @@ test("PM-141: kanban template — backlog items from schema example render in co
       assert.ok(body.includes("Shipped Feature"), "must include shipped item");
       assert.ok(body.includes("PM-100"), "must include groomed item ID");
       assert.ok(body.includes("PM-101"), "must include active item ID");
-      assert.ok(body.includes("Groomed"), "must include Groomed column label");
+      assert.ok(body.includes("Ideas"), "must include Ideas column label");
       assert.ok(body.includes("In Progress"), "must include In Progress column label");
       assert.ok(body.includes("Shipped"), "must include Shipped column label");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: STATUS_MAP integration test — all 6 statuses land in correct columns
+// ---------------------------------------------------------------------------
+
+test("PM-150: STATUS_MAP routes all 6 statuses to correct kanban columns", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/item-idea.md": "---\nstatus: idea\ntitle: Idea Item\nid: PM-201\n---\n# Idea\n",
+    "pm/backlog/item-drafted.md":
+      "---\nstatus: drafted\ntitle: Drafted Item\nid: PM-202\n---\n# Drafted\n",
+    "pm/backlog/item-planned.md":
+      "---\nstatus: planned\ntitle: Planned Item\nid: PM-203\n---\n# Planned\n",
+    "pm/backlog/item-proposed.md":
+      "---\nstatus: proposed\ntitle: Proposed Item\nid: PM-204\n---\n# Proposed\n",
+    "pm/backlog/item-wip.md": "---\nstatus: in-progress\ntitle: WIP Item\nid: PM-205\n---\n# WIP\n",
+    "pm/backlog/item-done.md": "---\nstatus: done\ntitle: Done Item\nid: PM-206\n---\n# Done\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      // Ideas column: idea + drafted
+      assert.ok(body.includes("Idea Item"), "idea status must appear");
+      assert.ok(body.includes("Drafted Item"), "drafted status must appear");
+      // Proposed column: planned + proposed
+      assert.ok(body.includes("Planned Item"), "planned status must appear");
+      assert.ok(body.includes("Proposed Item"), "proposed status must appear");
+      // In Progress column
+      assert.ok(body.includes("WIP Item"), "in-progress status must appear");
+      // Shipped column
+      assert.ok(body.includes("Done Item"), "done status must appear");
+
+      // Verify 4 columns exist
+      assert.ok(body.includes(">Ideas"), "must show Ideas column");
+      assert.ok(body.includes(">Proposed"), "must show Proposed column");
+      assert.ok(body.includes(">In Progress"), "must show In Progress column");
+      assert.ok(body.includes(">Shipped"), "must show Shipped column");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /roadmap kanban shows RFC ready badge for planned items", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/rfc-ready.md": "---\nstatus: planned\ntitle: RFC Ready Item\n---\n# RFC Ready\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      assert.ok(body.includes("kanban-badge-planned"), "planned item must show RFC ready badge");
+      assert.ok(body.includes("RFC ready"), "badge must say RFC ready");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Thread view tests
+// ---------------------------------------------------------------------------
+
+test("PM-150: GET /roadmap?view=threads renders thread table with correct columns", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/my-feature.md": [
+      "---",
+      "type: proposal",
+      "id: PM-301",
+      "title: My Feature",
+      "outcome: Better things",
+      "status: proposed",
+      "prd: proposals/my-feature.html",
+      "rfc: rfcs/my-feature.html",
+      "linear_id: LIN-100",
+      "prs:",
+      '  - "#42"',
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# My Feature",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/roadmap?view=threads");
+      assert.equal(statusCode, 200, "must return 200");
+      // Table columns
+      assert.ok(body.includes("Feature"), "must show Feature column");
+      assert.ok(body.includes("Status"), "must show Status column");
+      assert.ok(body.includes("Proposal"), "must show Proposal column");
+      assert.ok(body.includes("RFC"), "must show RFC column");
+      assert.ok(body.includes("Linear"), "must show Linear column");
+      assert.ok(body.includes("PRs"), "must show PRs column");
+      // Data
+      assert.ok(body.includes("My Feature"), "must show feature title");
+      assert.ok(body.includes("PM-301"), "must show feature ID");
+      assert.ok(body.includes("proposed"), "must show status");
+      assert.ok(body.includes("/proposals/my-feature"), "must link to proposal");
+      assert.ok(body.includes("/rfc/my-feature"), "must link to RFC");
+      assert.ok(body.includes("LIN-100"), "must show Linear ID");
+      assert.ok(body.includes("#42"), "must show PR number");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads shows empty state when no items exist", async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(
+        body.includes("No features yet") || body.includes("no features"),
+        "must show empty state"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads shows dashes for idea status with no artifacts", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/raw-idea.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-302",
+      "title: Raw Idea",
+      "outcome: Something",
+      "status: idea",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Raw Idea",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Raw Idea"), "must show idea title");
+      // Count dashes in the row — artifacts should all be dashes
+      const dashCount = (body.match(/\u2014/g) || []).length;
+      assert.ok(dashCount >= 4, "idea row must have dashes for empty artifact cells");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap?view=threads excludes sub-issues from top-level rows", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/parent-feat.md": [
+      "---",
+      "type: proposal",
+      "id: PM-303",
+      "title: Parent Feature",
+      "outcome: Big feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Parent Feature",
+    ].join("\n"),
+    "pm/backlog/child-task.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-304",
+      "title: Child Task",
+      "outcome: Sub task",
+      "status: in-progress",
+      "parent: parent-feat",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child Task",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Parent Feature"), "must show parent");
+      // Child must appear only inside disclosure, not as a separate <tr>
+      // Count <tr> elements — should be 1 data row (parent) + 1 header row
+      const trMatches = body.match(/<tr>/g) || [];
+      // Header row + 1 parent row = 2 total
+      assert.equal(trMatches.length, 2, "must have only header row and parent row (no child row)");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: GET /roadmap (no view param) renders kanban, not thread table", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/kanban-item.md": "---\nstatus: idea\ntitle: Kanban Item\nid: PM-305\n---\n# Item\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      assert.ok(body.includes("kanban"), "must render kanban view by default");
+      assert.ok(body.includes("Kanban Item"), "must show the item");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: roadmap view toggle links are present", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/toggle-item.md": "---\nstatus: idea\ntitle: Toggle Item\nid: PM-306\n---\n# Item\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      // Check kanban view has toggle
+      const { body: kanbanBody } = await httpGet(port, "/roadmap");
+      assert.ok(
+        kanbanBody.includes("view=threads") || kanbanBody.includes("Threads"),
+        "kanban view must have threads toggle link"
+      );
+
+      // Check threads view has toggle
+      const { body: threadsBody } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(
+        threadsBody.includes('"/roadmap"') || threadsBody.includes("Kanban"),
+        "threads view must have kanban toggle link"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-150: Thread view — children disclosure toggle
+// ---------------------------------------------------------------------------
+
+test("PM-150: thread view shows children disclosure toggle for parent with children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/parent-with-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-310",
+      "title: Parent With Kids",
+      "outcome: Feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Parent With Kids",
+    ].join("\n"),
+    "pm/backlog/child-one.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-311",
+      "title: Child One",
+      "outcome: Sub task",
+      "status: in-progress",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child One",
+    ].join("\n"),
+    "pm/backlog/child-two.md": [
+      "---",
+      "type: backlog-issue",
+      "id: PM-312",
+      "title: Child Two",
+      "outcome: Sub task 2",
+      "status: idea",
+      "parent: parent-with-kids",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# Child Two",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("Parent With Kids"), "must show parent");
+      assert.ok(body.includes("2 sub-issue"), "must show sub-issue count");
+      assert.ok(body.includes("<details"), "must have disclosure toggle");
+      assert.ok(body.includes("Child One"), "must list child in disclosure");
+      assert.ok(body.includes("Child Two"), "must list child in disclosure");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-150: thread view does not show disclosure toggle for items without children", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/no-kids.md": [
+      "---",
+      "type: proposal",
+      "id: PM-313",
+      "title: No Kids Feature",
+      "outcome: Solo feature",
+      "status: proposed",
+      "created: 2026-04-01",
+      "updated: 2026-04-01",
+      "---",
+      "",
+      "# No Kids Feature",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap?view=threads");
+      assert.ok(body.includes("No Kids Feature"), "must show feature");
+      assert.ok(
+        !body.includes('<details class="thread-children-toggle"'),
+        "must not have disclosure toggle element when no children"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-33: Deprecated config fields removed from SKILL.md
+// ---------------------------------------------------------------------------
+
+test("PM-33: skills/start/SKILL.md does not contain visual_companion or backlog_format", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "start", "SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+  assert.ok(!content.includes("visual_companion"), "SKILL.md must not reference visual_companion");
+  assert.ok(!content.includes("backlog_format"), "SKILL.md must not reference backlog_format");
+});
+
+// ---------------------------------------------------------------------------
+// PM-33: Setup skill file existence and content contract
+// ---------------------------------------------------------------------------
+
+test("PM-33: skills/setup/SKILL.md exists", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "setup", "SKILL.md");
+  assert.ok(fs.existsSync(skillPath), "skills/setup/SKILL.md must exist");
+});
+
+test("PM-33: commands/setup.md exists", () => {
+  const cmdPath = path.join(__dirname, "..", "commands", "setup.md");
+  assert.ok(fs.existsSync(cmdPath), "commands/setup.md must exist");
+});
+
+test("PM-33: setup skill contains supported integrations and argument patterns", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "setup", "SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+  assert.ok(content.includes("linear"), "setup SKILL.md must reference linear integration");
+  assert.ok(content.includes("ahrefs"), "setup SKILL.md must reference ahrefs integration");
+  assert.ok(content.includes("enable"), "setup SKILL.md must reference enable action");
+  assert.ok(content.includes("disable"), "setup SKILL.md must reference disable action");
+});
+
+// ---------------------------------------------------------------------------
+// PM-33: readConfig() and getProjectName() refactoring
+// ---------------------------------------------------------------------------
+
+test("PM-33: readConfig returns full config object for valid config", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test Project",
+      integrations: { linear: { enabled: true, team: "pm" } },
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config.project_name, "Test Project");
+    assert.deepStrictEqual(config.integrations.linear.enabled, true);
+    assert.deepStrictEqual(config.integrations.linear.team, "pm");
+    assert.deepStrictEqual(config.preferences.auto_launch, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig returns {} when config file is missing", () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig returns {} when config file contains invalid JSON", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": "not valid json {{{",
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig returns {} when config file contains JSON null", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": "null",
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig returns {} when config file contains JSON array", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": "[1,2,3]",
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.deepStrictEqual(config, {});
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig reads fresh data (no stale cache)", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": JSON.stringify({ project_name: "Before" }),
+  });
+  try {
+    const mod = loadServer();
+    const config1 = mod.readConfig(pmDir);
+    assert.strictEqual(config1.project_name, "Before");
+
+    // Modify the underlying file
+    const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
+    fs.writeFileSync(configPath, JSON.stringify({ project_name: "After" }));
+
+    const config2 = mod.readConfig(pmDir);
+    assert.strictEqual(config2.project_name, "After");
+  } finally {
+    cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PM-33: Backward compatibility — deprecated fields in existing configs
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// PM-33: Settings page (/settings route)
+// ---------------------------------------------------------------------------
+
+test("PM-33: GET /settings returns 200 with valid config", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test App",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "ahrefs" },
+      },
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("Settings"), "page must contain Settings heading");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings nav link appears in dashboard", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({ config_schema: 1, project_name: "Test" }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/");
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, "page must have a nav element");
+      const navHtml = navMatch[1];
+      assert.ok(navHtml.includes("Settings"), "nav must show Settings");
+      assert.ok(navHtml.includes('href="/settings"'), "nav must link to /settings");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows connected/disconnected badges", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "none" },
+      },
+      preferences: { auto_launch: false },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("Connected"), "must show Connected badge for linear");
+      assert.ok(body.includes("Disconnected"), "must show Disconnected badge for seo");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows integration detail metadata", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "ahrefs" },
+      },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("pm"), "must show team metadata");
+      assert.ok(body.includes("PM Plugin"), "must show project metadata");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows integration count header", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: false }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("0 of 2 connected"), "all disconnected shows 0 of 2 connected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows 1 of 2 connected when one integration active", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: true }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("1 of 2 connected"), "one connected shows 1 of 2 connected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows preferences auto_launch badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("badge-on"), "auto_launch true renders on badge");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page auto_launch off badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: false },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("badge-off"), "auto_launch false renders off badge");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows correct copiable commands", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: true }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("disable linear"), "connected linear shows disable command");
+      assert.ok(body.includes("enable ahrefs"), "disconnected seo shows enable command");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page title contains Settings", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({ config_schema: 1, project_name: "Test" }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      const titleMatch = body.match(/<title>(.*?)<\/title>/);
+      assert.ok(titleMatch, "page must have a title");
+      assert.ok(titleMatch[1].includes("Settings"), "title must contain Settings");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page escapes XSS in config values", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "<script>alert(1)</script>", project: "safe" },
+      },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(!body.includes("<script>alert(1)</script>"), "must not produce raw script tags");
+      assert.ok(body.includes("&lt;script&gt;"), "must escape script tags");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page empty state when no config exists", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("No configuration yet"), "must show empty state when no config");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page with partial config (missing integrations) renders without error", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("0 of 2 connected"), "all integrations show disconnected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: readConfig handles config with deprecated fields without error", () => {
+  const { pmDir, cleanup } = withPmDir({
+    ".pm/config.json": JSON.stringify({
+      preferences: { visual_companion: true, backlog_format: "kanban" },
+      integrations: { linear: { enabled: true } },
+    }),
+  });
+  try {
+    const mod = loadServer();
+    const config = mod.readConfig(pmDir);
+    assert.strictEqual(config.integrations.linear.enabled, true);
+    // Deprecated fields are present in raw config but that's fine — the settings
+    // page just won't display them
+    assert.strictEqual(config.preferences.visual_companion, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page renders deprecated fields config without crash", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Legacy",
+      preferences: { visual_companion: true, backlog_format: "kanban", auto_launch: true },
+      integrations: { linear: { enabled: true } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("Connected"), "valid linear shows as connected");
+      assert.ok(!body.includes("visual_companion"), "deprecated field not displayed");
+      assert.ok(!body.includes("backlog_format"), "deprecated field not displayed");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /proposals/<slug> planned item shows dev action not groom", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/rfc-ready.md":
+      "---\ntype: proposal\nstatus: planned\ntitle: RFC Ready Item\n---\n# RFC Ready\n",
+    "pm/backlog/proposals/rfc-ready.html": "<html><head></head><body>Proposal</body></html>",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/proposals/rfc-ready");
+      assert.ok(body.includes("/pm:dev rfc-ready"), "planned item detail must show dev action");
+      assert.ok(!body.includes("/pm:groom rfc-ready"), "planned item must not show groom action");
     } finally {
       await close();
     }
