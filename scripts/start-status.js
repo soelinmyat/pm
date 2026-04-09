@@ -589,14 +589,16 @@ function buildStatus(projectDir) {
 
   let agingIdeas = 0;
   let ideas = 0;
+  let planned = 0;
   let inProgress = 0;
   let shipped = 0;
   let oldestInProgress = null;
   let oldestIdea = null;
+  let oldestPlanned = null;
 
   for (const entry of backlogEntries(pmDir)) {
     const status = entry.status;
-    if (status === "idea" || status === "drafted") {
+    if (status === "idea" || status === "drafted" || status === "proposed") {
       ideas += 1;
       const updatedEpoch = dateToEpoch(entry.updated);
       if (status === "idea" && updatedEpoch > 0 && updatedEpoch < agingThreshold) {
@@ -605,6 +607,17 @@ function buildStatus(projectDir) {
       const candidateEpoch = updatedEpoch > 0 ? updatedEpoch : Number.MAX_SAFE_INTEGER;
       if (!oldestIdea || candidateEpoch < oldestIdea.updatedEpoch) {
         oldestIdea = {
+          slug: path.basename(entry.filePath, ".md"),
+          title: entry.title || path.basename(entry.filePath, ".md"),
+          updatedEpoch: candidateEpoch,
+        };
+      }
+    } else if (status === "planned") {
+      planned += 1;
+      const updatedEpoch = dateToEpoch(entry.updated);
+      const candidateEpoch = updatedEpoch > 0 ? updatedEpoch : Number.MAX_SAFE_INTEGER;
+      if (!oldestPlanned || candidateEpoch < oldestPlanned.updatedEpoch) {
+        oldestPlanned = {
           slug: path.basename(entry.filePath, ".md"),
           title: entry.title || path.basename(entry.filePath, ".md"),
           updatedEpoch: candidateEpoch,
@@ -682,6 +695,10 @@ function buildStatus(projectDir) {
       );
     }
 
+    if (planned > 0 && oldestPlanned) {
+      pushSuggestion(`/pm:dev ${oldestPlanned.slug} (RFC ready, ${planned} planned)`);
+    }
+
     if (oldestIdea) {
       pushSuggestion(`/pm:groom ${oldestIdea.slug}`);
     } else if (!active && staleCount === 0 && inProgress === 0) {
@@ -696,7 +713,7 @@ function buildStatus(projectDir) {
     initialized: true,
     update,
     focus,
-    backlog: `${ideas} ideas, ${inProgress} in progress, ${shipped} shipped`,
+    backlog: `${ideas} ideas, ${planned} planned, ${inProgress} in progress, ${shipped} shipped`,
     next,
     alternatives: alternatives.slice(0, 2),
     active,
@@ -704,6 +721,7 @@ function buildStatus(projectDir) {
       stale: staleCount,
       agingIdeas,
       ideas,
+      planned,
       inProgress,
       shipped,
       insights: insightCount,

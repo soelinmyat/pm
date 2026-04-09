@@ -638,6 +638,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kanban-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .kanban-card-id { font-size: 11px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
 .kanban-card-sub { font-size: 11px; color: var(--text-dim); }
+.kanban-badge-planned { font-size: 0.625rem; padding: 0.0625rem 0.4rem; border-radius: 9999px; font-weight: 600; background: var(--badge-info-bg); color: var(--accent); margin-left: auto; }
 .kanban-card-title { font-size: 13px; font-weight: 500; line-height: 1.4; }
 .kanban-view-all { display: block; text-align: center; padding: 10px; font-size: 12px; color: var(--accent);
   text-decoration: none; border-top: 1px solid var(--border); }
@@ -5116,8 +5117,8 @@ function handleBacklog(res, pmDir) {
   const STATUS_MAP = {
     idea: "ideas",
     drafted: "ideas",
-    planned: "proposed",
     proposed: "proposed",
+    planned: "proposed",
     "in-progress": "in-progress",
     done: "shipped",
   };
@@ -5156,6 +5157,7 @@ function handleBacklog(res, pmDir) {
         id: data.id || null,
         subCount: childCounts[slug] || 0,
         updated: data.updated || data.created || "",
+        rawStatus,
       });
     }
   }
@@ -5166,8 +5168,12 @@ function handleBacklog(res, pmDir) {
       item.subCount > 0
         ? `<span class="kanban-card-sub">${item.subCount} sub-issue${item.subCount !== 1 ? "s" : ""}</span>`
         : "";
+    const plannedHtml =
+      item.rawStatus === "planned" ? '<span class="kanban-badge-planned">RFC ready</span>' : "";
     const header =
-      idHtml || subHtml ? `<div class="kanban-card-header">${idHtml}${subHtml}</div>` : "";
+      idHtml || subHtml || plannedHtml
+        ? `<div class="kanban-card-header">${idHtml}${subHtml}${plannedHtml}</div>`
+        : "";
     return `<a class="kanban-card" href="/roadmap/${escHtml(encodeURIComponent(item.slug))}" role="article">${header}<div class="kanban-card-title">${escHtml(item.title)}</div></a>`;
   };
 
@@ -5509,7 +5515,9 @@ function handleProposalDetail(res, pmDir, slug) {
   const status = meta.status || meta.verdict || "draft";
   // Always use slug for dev command — dev resolves slugs to local backlog entries
   const actionCommand =
-    status === "ready" || status === "proposed" ? `/pm:dev ${slug}` : `/pm:groom ${slug}`;
+    status === "ready" || status === "proposed" || status === "planned"
+      ? `/pm:dev ${slug}`
+      : `/pm:groom ${slug}`;
   const title = meta.title || humanizeSlug(slug);
 
   const header = injectableHeaderBar("Back", title, actionCommand);

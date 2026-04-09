@@ -15,7 +15,7 @@ const {
 
 // ========== Config ==========
 
-const VALID_STATUSES = ["idea", "drafted", "planned", "proposed", "in-progress", "done"];
+const VALID_STATUSES = ["idea", "drafted", "proposed", "planned", "in-progress", "done"];
 const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
 const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];

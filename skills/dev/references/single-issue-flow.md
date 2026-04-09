@@ -189,7 +189,7 @@ If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{sl
 Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`handoff_ready:` is not `true`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
-- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Read it and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
+- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`. Note: for `planned` items resumed after a prior session, no old session file exists (it was deleted on stop). This is the expected fresh-session path.
 - **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
 
@@ -365,17 +365,19 @@ Review this engineering RFC for complexity and long-term maintainability.
     > "RFC approved. Continue implementation now, or stop and resume later?"
 
     - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Stage 5.
-    - **(b) Stop and resume later** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Stage: rfc-approved`. Print:
-
-      ```
-      RFC approved. Session saved.
-      - RFC: pm/backlog/rfcs/{slug}.html
-      - Branch: {BRANCH}
-      - Worktree: {WORKTREE_PATH}
-      - Resume: run /dev to continue implementation.
-      ```
-
-      **Stop here. Do not proceed to Stage 5.** The user will start a new session and invoke `/dev` to resume.
+    - **(b) Stop and resume later** → Do these in order:
+      1. Update `pm/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
+      2. Delete the session file: `rm .pm/dev-sessions/{slug}.md`
+         (No need to set `completed_at` first — the file is being deleted.
+         The backlog status and RFC are the durable artifacts.)
+      3. Print:
+         ```
+         Session complete. RFC approved, ready to build.
+         - RFC: pm/backlog/rfcs/{slug}.html
+         - Backlog: pm/backlog/{slug}.md (status: planned)
+         - Resume: run /dev {slug} to start implementation.
+         ```
+      **Stop here. Do not proceed to Stage 5.**
 
 ## Stage 5: Implementation via Fresh Developer Agent
 
