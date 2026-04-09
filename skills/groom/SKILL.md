@@ -53,7 +53,13 @@ Use this priority:
 
 1. Explicit tier from the caller or user request
 2. Tier requested by `pm:dev`
-3. Default to `full` for direct `pm:groom` invocations
+3. Default to the max tier allowed by KB maturity (detected in Phase 1 intake)
+
+**KB maturity cap:** Phase 1 runs a KB maturity check and records the max available tier in the session state as `kb_maturity_tier`. The effective tier is `min(requested_or_default_tier, kb_maturity_tier)` unless the user explicitly overrides after being informed of the constraint.
+
+If no maturity check has run yet (first invocation, before Phase 1 completes), treat the default as `quick` to avoid launching full ceremony on an unknown KB.
+
+> Note: Phase 1 intake may adjust the effective tier based on KB maturity detection. The `groom_tier` in state after Phase 1 is authoritative.
 
 Write the selected tier to the state file:
 
@@ -165,6 +171,12 @@ phase_started_at: YYYY-MM-DDTHH:MM:SSZ
 completed_at: null | YYYY-MM-DDTHH:MM:SSZ
 effective_verdict: ready | ready-if | send-back | pause | null
 codebase_available: true | false
+kb_maturity: fresh | developing | mature
+kb_maturity_tier: quick | standard | full
+kb_signals:
+  strategy: true | false
+  research: true | false
+  competitors: true | false
 
 strategy_check:
   status: passed | failed | override | skipped
