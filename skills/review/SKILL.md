@@ -159,7 +159,7 @@ The agent already knows its methodology (JTBD clarity, ICP fit, outcome clarity,
 
 ### Agent 3: Design Review (reviewer)
 
-**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran 3 enriched designer agents with screenshots. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran an enriched reviewer with screenshots, a11y snapshots, and visual consistency audit. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
 Dispatch reviewer intent `pm:design-system-lead` via `agent-runtime.md`:
 

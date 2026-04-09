@@ -41,7 +41,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
 | `pm:review` | ship | Multi-perspective code review (code + PM + design + edge-cases) |
 | `pm:review` (handling-feedback ref) | dev, ship | Verify feedback before implementing suggestions |
-| `pm:design-critique` | dev (UI changes) | Multi-agent visual critique with screenshots |
+| `pm:design-critique` | dev (UI changes) | Design review with screenshots, a11y snapshots, consistency audit |
 | `pm:qa` | dev (UI changes) | QA ship gate — assertion-driven testing via Playwright MCP, health score verdict |
 
 ## Utilities

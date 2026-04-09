@@ -1,13 +1,13 @@
 ---
 name: design-critique
-description: "Multi-agent design critique against real running app with seed data. 3 designers + Fresh Eyes review actual pages via Playwright CLI (web) or Maestro MCP (mobile)."
+description: "Design review against real running app with seed data. Single focused reviewer + Fresh Eyes examine actual pages via Playwright CLI (web) or Maestro MCP (mobile)."
 ---
 
 # Design Critique Skill
 
 ## Overview
 
-Three parallel designer reviewers plus a Fresh Eyes reviewer examine screenshots captured from real running applications (not Storybook). A PM review step frames the critique and consolidates findings.
+One design reviewer examines screenshots captured from real running applications with seed data in the database. A separate Fresh Eyes reviewer (zero-context) catches regressions and context bias. All findings are backed by accessibility snapshots and visual consistency audits where possible.
 
 ## Telemetry (opt-in)
 
@@ -19,15 +19,13 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capabilit
 Minimum coverage for `design-critique`:
 - run start / run end
 - one step span for `capture`
-- one step span for `pm-framing`
-- one step span for `designer-batch`
-- one step span for `fresh-eyes` when applicable
-- one step span for `consolidation`
+- one step span for `review`
+- one step span for `fresh-eyes`
 - one step span for each re-review round when standalone mode iterates
 
 **Two modes:**
 
-- **Embedded** (called from `/dev`). Acts as a review service. Returns consolidated findings to the implementing agent, which applies fixes itself.
+- **Embedded** (called from `/dev`). Acts as a review service. Returns findings to the implementing agent, which applies fixes itself.
 - **Standalone** (invoked directly). Full self-contained flow with its own engineer worker that captures screenshots, applies fixes, and iterates.
 
 **Screenshot sources.** Always real servers with seed data in the database. Web pages are captured via Playwright CLI. Mobile screens are captured via Maestro MCP tools. Never Storybook, never MSW mocks.
@@ -36,9 +34,8 @@ Minimum coverage for `design-critique`:
 
 | File | Purpose |
 |------|---------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md` | 3 designer agent dispatch refs, scoring rubric, grade computation |
+| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/reviewer-prompt.md` | Design reviewer dispatch context |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md` | Zero-context regression reviewer prompt |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md` | PM Framing (inline), Conflict Resolution (inline), Bar-Raiser (agent dispatch) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md` | Platform detection, server lifecycle, screenshot capture sequences |
 | `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md` | Seed task conventions, template, edge case checklist |
 
@@ -61,40 +58,29 @@ PLATFORM detection:
 
 ---
 
-## Size Routing
-
-| Size | PM Framing | Designers | Fresh Eyes | Max Rounds | PM Bar-Raiser |
-|------|-----------|-----------|------------|------------|---------------|
-| S | Skip (use ticket) | 3 parallel | Skip | 1 | Skip |
-| M/L/XL | Full | 3 parallel | Yes | 3 | Full |
-
----
-
 ## Embedded Mode Flow (called from /dev)
 
 No engineer agent. Returns findings to the calling agent.
 
-**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, page context from `.pm/dev-sessions/{slug}.md`.
-**Output:** Consolidated findings (P0/P1/P2) + Design Score + AI Slop Score.
+**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, enriched artifacts (a11y snapshots, consistency audit), page context from `.pm/dev-sessions/{slug}.md`.
+**Output:** Prioritized findings (P0/P1/P2) with confidence tiers + Verdict (Ship/Fix/Rethink).
 
 ### Flow
 
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
 2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
-4. **PM Framing** (M+ only). Run the PM framing step per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/pm-prompts.md`.
-5. **Dispatch 3 designer reviewers** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/designer-prompts.md`. In runtimes with delegation, run them in parallel. Otherwise run the same briefs inline. Each receives: all screenshots (via Read tool), manifest, CLAUDE.md design principles, PM brief (if available).
-6. **Dispatch Fresh Eyes reviewer** (M+ only) per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md`.
-7. **PM Conflict Resolution.** Run the PM consolidation step to combine all designer and Fresh Eyes reports into a single prioritized list.
-8. **Return** consolidated findings + scores to the calling agent.
+4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/reviewer-prompt.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
+5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md`. Run in parallel with the primary reviewer when the runtime supports delegation.
+6. **Merge findings.** Deduplicate overlapping findings between the reviewer and Fresh Eyes. Keep the better-written version. Prioritize: P0 (blocks users) > P1 (degrades experience) > P2 (polish). If both flag the same issue, that's a strong signal — keep it.
+7. **Return** merged findings + verdict to the calling agent.
 
 ### Verify Mode (re-invocation after fixes)
 
 Same flow, with these differences:
 
-- Designer reviewers also receive the previous round's findings for comparison.
+- The design reviewer also receives the previous round's findings for comparison.
 - Fresh Eyes still gets zero context. It never sees prior findings.
-- PM adds the round number to the brief.
 
 ---
 
@@ -104,88 +90,103 @@ Full self-contained flow for when there is no implementing agent.
 
 1. **User provides:** app path, page/screen, description.
 2. **Platform detection** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`.
-3. **Size classification** from description complexity.
-4. **Engineer worker** (standalone mode only):
+3. **Engineer worker:**
    a. Create seed task if none exists (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md`).
    b. Start servers (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`).
    c. Run seed, capture screenshots to `/tmp/design-review/{feature}/`, write manifest.
-5. **PM Framing** (M+ only).
-6. **3 Designers** review in parallel.
-7. **Fresh Eyes** (M+ only).
-8. **PM Conflict Resolution.**
-9. **Engineer fixes** findings (P0 and P1).
-10. **Re-capture, re-review** (max 3 rounds).
-11. **PM Bar-Raiser** (M+ only).
-12. **Final report** written to `/tmp/design-review/{feature}/final-report.md`.
-13. **Commit changes.**
+   d. Capture enriched artifacts (a11y snapshots, consistency audit) per capture-guide.md.
+4. **Design reviewer** examines screenshots + enriched data.
+5. **Fresh Eyes** examines screenshots with zero context.
+6. **Merge findings.**
+7. **Engineer fixes** P0 and P1 findings.
+8. **Re-capture, re-review** if P0s were found. Max 2 rounds total.
+9. **Final report** written to `/tmp/design-review/{feature}/final-report.md`.
+10. **Commit changes.**
 
 ---
 
-## Reviewer Dispatch Patterns
+## Reviewer Dispatch
 
 Read `agent-runtime.md` before dispatching any reviewer or worker.
 
-- Designers: reviewer intents `pm:design-director`, `pm:qa-lead`, and `pm:design-system-lead`
-- Fresh Eyes: reviewer intent `general-purpose` with zero prior findings context
-- PM Bar-Raiser (M+ only): reviewer intent `pm:product-director`
-- Engineer (standalone mode only): persistent worker intent `general-purpose`
+- Design reviewer: `pm:design-reviewer`
+- Fresh Eyes: `general-purpose` with zero prior findings context
+- Engineer (standalone mode only): persistent worker `general-purpose`
 
 In Claude or Codex-with-delegation:
-- run designer reviewers in parallel
-- run Fresh Eyes separately with zero-context isolation
-- keep the standalone engineer as a persistent worker when fixes are needed
+- Run design reviewer and Fresh Eyes in parallel
+- Keep the standalone engineer as a persistent worker when fixes are needed
 
 In Codex without delegation:
-- run the same reviewer briefs inline
-- keep Fresh Eyes isolated by not passing prior findings
-- perform standalone engineer steps in the main context
+- Run the reviewer brief inline
+- Run Fresh Eyes inline with zero-context isolation
+- Perform standalone engineer steps in the main context
 
-### What each designer reviewer receives
+### What the design reviewer receives
 
 - All screenshots (read via Read tool)
 - The manifest from `/tmp/design-review/{feature}/manifest.md`
+- Enriched artifacts: a11y snapshots, consistency audit
 - CLAUDE.md design principles
-- PM brief (if available)
-- Previous round findings (verify mode only, NOT for Fresh Eyes)
+- Ticket/page context
+- Previous round findings (verify mode only)
+
+### What Fresh Eyes receives
+
+- All screenshots (read via Read tool)
+- Brief: page description, target persona, job to be done
+- CLAUDE.md design principles
+- **Nothing else.** No prior findings, no round history, no reviewer reports.
+
+---
+
+## Finding Merge (inline step, not an agent)
+
+After both the design reviewer and Fresh Eyes return:
+
+1. **Deduplicate:** Identify findings that describe the same issue. Keep the better-written version with higher confidence.
+2. **Resolve contradictions:** If findings conflict, the one backed by data (`[HIGH]`) wins. If both are `[MEDIUM]`/`[LOW]`, note both perspectives.
+3. **Order by priority:** P0 > P1 > P2.
+4. **Compute verdict:**
+   - **Ship** — No P0s or P1s remaining
+   - **Fix** — P0s or P1s need attention
+   - **Rethink** — Fundamental issues that can't be fixed incrementally
+
+This is a simple merge, not a separate agent dispatch.
 
 ---
 
 ## Final Report Format
 
 ```markdown
-# Design Critique Report
+# Design Review Report
 
 **Feature:** {feature}
 **Platform:** {web/mobile}
 **Rounds:** {N}
 **Date:** {date}
 
-## Scores
-- **Design Score:** {A-F}
-- **AI Slop Score:** {A-F} ({Pass/Fail})
+## Verdict
+{Ship / Fix / Rethink}
 
-## Category Grades
-{all categories with grades}
+## Findings
 
-## Resolved Findings
-{findings that were fixed during iteration}
+### Resolved
+{findings fixed during iteration}
 
-## Remaining Items
+### Remaining
 {P2 items deferred to backlog}
-
-## PM Verdict (M+ only)
-{Ship / Elevate / Rethink with rationale}
 ```
 
 ---
 
 ## Critical Rules
 
-1. **NEVER skip PM conflict resolution.** Even for S-size (just skip PM framing, not consolidation).
-2. **All designer reviewers run in parallel when the runtime supports delegation.** Otherwise run the same briefs inline before consolidation.
-3. **Fresh Eyes NEVER receives prior context.** No prior findings, no round history, no previous screenshots.
-4. **Screenshots come from real running apps.** NEVER from Storybook.
-5. **Seed data from rake tasks.** NEVER from MSW mocks.
-6. **Max 10 screenshots per capture round.**
-7. **Max 3 iteration rounds,** then PM bar-raiser decides.
-8. **In embedded mode, return findings only.** Do NOT fix issues. The implementing agent does that.
+1. **Findings merge is inline.** Deduplication and prioritization happen in the orchestrator, not a separate agent.
+2. **Fresh Eyes NEVER receives prior context.** No prior findings, no round history, no reviewer reports.
+3. **Screenshots come from real running apps.** NEVER from Storybook.
+4. **Seed data from rake tasks.** NEVER from MSW mocks.
+5. **Max 10 screenshots per capture round.**
+6. **Max 2 iteration rounds.** Second round only if P0s remain after first fix pass.
+7. **In embedded mode, return findings only.** Do NOT fix issues. The implementing agent does that.
+8. **Data first.** The reviewer must process a11y snapshots and consistency audit before visual screenshot analysis. Provable findings take priority over visual guesses.
