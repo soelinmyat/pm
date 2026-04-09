@@ -5391,3 +5391,41 @@ test("PM-141: kanban template — backlog items from schema example render in co
     cleanup();
   }
 });
+
+test("GET /roadmap kanban shows RFC ready badge for planned items", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/rfc-ready.md": "---\nstatus: planned\ntitle: RFC Ready Item\n---\n# RFC Ready\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/roadmap");
+      assert.ok(body.includes("kanban-badge-planned"), "planned item must show RFC ready badge");
+      assert.ok(body.includes("RFC ready"), "badge must say RFC ready");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /proposals/<slug> planned item shows dev action not groom", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/rfc-ready.md":
+      "---\ntype: proposal\nstatus: planned\ntitle: RFC Ready Item\n---\n# RFC Ready\n",
+    "pm/backlog/proposals/rfc-ready.html": "<html><head></head><body>Proposal</body></html>",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/proposals/rfc-ready");
+      assert.ok(body.includes("/pm:dev rfc-ready"), "planned item detail must show dev action");
+      assert.ok(!body.includes("/pm:groom rfc-ready"), "planned item must not show groom action");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
