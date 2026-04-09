@@ -792,7 +792,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .thread-feature { font-weight: 500; color: var(--text-primary, var(--text)); }
 .thread-pill { display: inline-block; padding: 2px 8px; font-size: 0.75rem; font-weight: 500; border-radius: 4px; text-decoration: none; background: var(--accent-subtle); color: var(--accent); }
 .thread-pill:hover { text-decoration: underline; }
-.thread-pill-linear { background: var(--accent-subtle); color: var(--accent); }
 .thread-pill-pr { background: var(--badge-info-bg); color: var(--badge-info-text); }
 .thread-children-toggle { margin-top: 4px; }
 .thread-children-toggle summary { font-size: 0.75rem; color: var(--text-muted); cursor: pointer; list-style: none; }
@@ -5098,6 +5097,12 @@ function handleWireframe(res, pmDir, slug) {
   }
 }
 
+function renderViewToggle(activeView) {
+  const kanbanClass = activeView === "kanban" ? " active" : "";
+  const threadsClass = activeView === "threads" ? " active" : "";
+  return `<div class="view-toggle"><a href="/roadmap" class="view-toggle-btn${kanbanClass}">Kanban</a><a href="/roadmap?view=threads" class="view-toggle-btn${threadsClass}">Threads</a></div>`;
+}
+
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
   const columns = {};
@@ -5206,8 +5211,7 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
 </script>`
       : "";
 
-  const viewToggle =
-    '<div class="view-toggle"><a href="/roadmap" class="view-toggle-btn active">Kanban</a><a href="/roadmap?view=threads" class="view-toggle-btn">Threads</a></div>';
+  const viewToggle = renderViewToggle("kanban");
 
   const body =
     viewToggle +
@@ -5275,8 +5279,7 @@ function handleBacklogThreads(res, pmDir) {
   // Sort by updated date descending
   items.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
 
-  const viewToggle =
-    '<div class="view-toggle"><a href="/roadmap" class="view-toggle-btn">Kanban</a><a href="/roadmap?view=threads" class="view-toggle-btn active">Threads</a></div>';
+  const viewToggle = renderViewToggle("threads");
 
   let pageBody = "";
   pageBody += '<div class="thread-view">';
@@ -5322,7 +5325,7 @@ function handleBacklogThreads(res, pmDir) {
 
       const linearHtml =
         item.linear_id && item.linear_id !== "null"
-          ? `<span class="thread-pill thread-pill-linear">${escHtml(item.linear_id)}</span>`
+          ? `<span class="thread-pill">${escHtml(item.linear_id)}</span>`
           : "\u2014";
 
       const prsHtml =
