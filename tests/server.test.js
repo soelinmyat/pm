@@ -5868,6 +5868,308 @@ test("PM-33: getProjectName delegates to readConfig and returns project_name", (
 // PM-33: Backward compatibility — deprecated fields in existing configs
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// PM-33: Settings page (/settings route)
+// ---------------------------------------------------------------------------
+
+test("PM-33: GET /settings returns 200 with valid config", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test App",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "ahrefs" },
+      },
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("Settings"), "page must contain Settings heading");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings nav link appears in dashboard", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({ config_schema: 1, project_name: "Test" }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/");
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, "page must have a nav element");
+      const navHtml = navMatch[1];
+      assert.ok(navHtml.includes("Settings"), "nav must show Settings");
+      assert.ok(navHtml.includes('href="/settings"'), "nav must link to /settings");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows connected/disconnected badges", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "none" },
+      },
+      preferences: { auto_launch: false },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("Connected"), "must show Connected badge for linear");
+      assert.ok(body.includes("Disconnected"), "must show Disconnected badge for seo");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows integration detail metadata", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "pm", project: "PM Plugin" },
+        seo: { provider: "ahrefs" },
+      },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("pm"), "must show team metadata");
+      assert.ok(body.includes("PM Plugin"), "must show project metadata");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows integration count header", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: false }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("0 of 2 connected"), "all disconnected shows 0 of 2 connected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows 1 of 2 connected when one integration active", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: true }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("1 of 2 connected"), "one connected shows 1 of 2 connected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows preferences auto_launch badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("badge-on"), "auto_launch true renders on badge");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page auto_launch off badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: false },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("badge-off"), "auto_launch false renders off badge");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page shows correct copiable commands", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: { linear: { enabled: true }, seo: { provider: "none" } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("disable linear"), "connected linear shows disable command");
+      assert.ok(body.includes("enable ahrefs"), "disconnected seo shows enable command");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page title contains Settings", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({ config_schema: 1, project_name: "Test" }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      const titleMatch = body.match(/<title>(.*?)<\/title>/);
+      assert.ok(titleMatch, "page must have a title");
+      assert.ok(titleMatch[1].includes("Settings"), "title must contain Settings");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page escapes XSS in config values", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      integrations: {
+        linear: { enabled: true, team: "<script>alert(1)</script>", project: "safe" },
+      },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(!body.includes("<script>alert(1)</script>"), "must not produce raw script tags");
+      assert.ok(body.includes("&lt;script&gt;"), "must escape script tags");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page empty state when no config exists", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("No configuration yet"), "must show empty state when no config");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page with partial config (missing integrations) renders without error", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("0 of 2 connected"), "all integrations show disconnected");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test("PM-33: readConfig handles config with deprecated fields without error", () => {
   const { pmDir, cleanup } = withPmDir({
     ".pm/config.json": JSON.stringify({
@@ -5882,6 +6184,32 @@ test("PM-33: readConfig handles config with deprecated fields without error", ()
     // Deprecated fields are present in raw config but that's fine — the settings
     // page just won't display them
     assert.strictEqual(config.preferences.visual_companion, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-33: Settings page renders deprecated fields config without crash", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Legacy",
+      preferences: { visual_companion: true, backlog_format: "kanban", auto_launch: true },
+      integrations: { linear: { enabled: true } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/settings");
+      assert.strictEqual(statusCode, 200);
+      assert.ok(body.includes("Connected"), "valid linear shows as connected");
+      assert.ok(!body.includes("visual_companion"), "deprecated field not displayed");
+      assert.ok(!body.includes("backlog_format"), "deprecated field not displayed");
+    } finally {
+      await close();
+    }
   } finally {
     cleanup();
   }

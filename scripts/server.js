@@ -1212,6 +1212,34 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kb-search-input:focus { border-color: var(--accent); }
 .kb-search-input::placeholder { color: var(--text-dim, var(--text-muted)); }
 
+/* ===== SETTINGS PAGE ===== */
+.settings-header { margin-bottom: var(--space-6); }
+.settings-header h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); }
+.settings-header .settings-subtitle { font-size: var(--text-sm); color: var(--text-secondary); margin: 0 0 var(--space-2); }
+.settings-header .config-path { font-family: var(--mono, monospace); font-size: var(--text-xs); color: var(--text-muted); background: var(--surface-raised); padding: 2px 8px; border-radius: var(--radius-sm); display: inline-block; }
+.settings-section { margin-bottom: var(--space-8); }
+.settings-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.settings-section-header h2 { font-size: var(--text-base); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0; }
+.section-count { font-size: var(--text-xs); color: var(--text-muted); font-weight: 500; }
+.setting-row { display: flex; gap: var(--space-4); align-items: flex-start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-subtle, var(--border)); border-radius: var(--radius-sm); margin-bottom: var(--space-2); }
+.setting-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface-raised); }
+.setting-icon svg { width: 18px; height: 18px; color: var(--text-secondary); }
+.setting-body { flex: 1; min-width: 0; }
+.setting-body h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); display: flex; align-items: center; gap: var(--space-2); }
+.setting-body p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 var(--space-2); line-height: 1.5; }
+.setting-details { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.detail-item { font-size: var(--text-xs); color: var(--text-secondary); }
+.detail-label { font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.04em; margin-right: var(--space-1); }
+.detail-divider { color: var(--border-subtle, var(--border)); margin: 0 var(--space-1); }
+.badge-connected { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-success-bg); color: var(--badge-success-text); }
+.badge-connected::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-disconnected { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.badge-disconnected::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-on { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-success-bg); color: var(--badge-success-text); }
+.badge-off { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
+.settings-help { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.6; padding: var(--space-4); background: var(--surface-raised); border-radius: var(--radius-sm); margin-top: var(--space-6); }
+.settings-help strong { color: var(--text-secondary); }
+
 /* ===== KB HUB PAGE ===== */
 .kb-domain-section { margin-bottom: var(--space-8); }
 
@@ -1446,6 +1474,11 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       href: "/roadmap",
       label: "Roadmap",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>',
+    },
+    {
+      href: "/settings",
+      label: "Settings",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
     },
   ];
   const navHtml = navLinks
@@ -2000,6 +2033,136 @@ function getProjectName(pmDir) {
   return config.project_name || path.basename(path.dirname(pmDir)) || "PM";
 }
 
+// ========== Settings Page ==========
+
+function handleSettingsPage(res, pmDir) {
+  const config = readConfig(pmDir);
+  const projectName = config.project_name || getProjectName(pmDir);
+
+  // Empty state: no config at all (readConfig returns {})
+  if (
+    !config.config_schema &&
+    !config.project_name &&
+    !config.integrations &&
+    !config.preferences
+  ) {
+    const html = dashboardPage(
+      "Settings",
+      "/settings",
+      renderEmptyState(
+        "No configuration yet",
+        "Initialize the project to configure integrations and preferences.",
+        "/pm:start",
+        "Set up this project"
+      ),
+      projectName
+    );
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
+  const linear = config.integrations?.linear ?? {};
+  const seo = config.integrations?.seo ?? {};
+  const prefs = config.preferences ?? {};
+
+  const linearConnected = linear.enabled === true;
+  const seoConnected = seo.provider === "ahrefs";
+  const connectedCount = (linearConnected ? 1 : 0) + (seoConnected ? 1 : 0);
+
+  // Linear card
+  const linearBadge = linearConnected
+    ? '<span class="badge-connected">Connected</span>'
+    : '<span class="badge-disconnected">Disconnected</span>';
+  const linearDetails = linearConnected
+    ? '<div class="setting-details">' +
+      (linear.team
+        ? '<span class="detail-item"><span class="detail-label">Team</span>' +
+          escHtml(String(linear.team)) +
+          "</span>"
+        : "") +
+      (linear.team && linear.project ? '<span class="detail-divider">&middot;</span>' : "") +
+      (linear.project
+        ? '<span class="detail-item"><span class="detail-label">Project</span>' +
+          escHtml(String(linear.project)) +
+          "</span>"
+        : "") +
+      "</div>"
+    : "";
+  const linearCommand = linearConnected ? "/pm:setup disable linear" : "/pm:setup enable linear";
+
+  // SEO card
+  const seoBadge = seoConnected
+    ? '<span class="badge-connected">Connected</span>'
+    : '<span class="badge-disconnected">Disconnected</span>';
+  const seoCommand = seoConnected ? "/pm:setup disable ahrefs" : "/pm:setup enable ahrefs";
+
+  // Auto launch preference
+  const autoLaunch = prefs.auto_launch;
+  const autoLaunchBadge =
+    autoLaunch === true ? '<span class="badge-on">on</span>' : '<span class="badge-off">off</span>';
+
+  const bodyHtml =
+    '<div class="settings-header">' +
+    "<h1>Settings</h1>" +
+    '<p class="settings-subtitle">Plugin configuration for this project</p>' +
+    '<span class="config-path">.pm/config.json</span>' +
+    "</div>" +
+    // Integrations section
+    '<div class="settings-section">' +
+    '<div class="settings-section-header">' +
+    "<h2>Integrations</h2>" +
+    '<span class="section-count">' +
+    connectedCount +
+    " of 2 connected</span>" +
+    "</div>" +
+    // Linear card
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l6-2 6 2v8l-6 2-6-2V4z"/><path d="M2 4l6 2 6-2"/><path d="M8 6v8"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>Linear " +
+    linearBadge +
+    "</h3>" +
+    "<p>Issue tracking and project management sync</p>" +
+    linearDetails +
+    renderClickToCopy(linearCommand) +
+    "</div></div>" +
+    // SEO/Ahrefs card
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><ellipse cx="8" cy="8" rx="3" ry="6"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>SEO / Ahrefs " +
+    seoBadge +
+    "</h3>" +
+    "<p>SEO research and competitive analysis</p>" +
+    renderClickToCopy(seoCommand) +
+    "</div></div>" +
+    "</div>" +
+    // Preferences section
+    '<div class="settings-section">' +
+    '<div class="settings-section-header">' +
+    "<h2>Preferences</h2>" +
+    "</div>" +
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M5 8h6"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>Auto-launch dashboard " +
+    autoLaunchBadge +
+    "</h3>" +
+    "<p>Automatically start the dashboard when a PM session begins</p>" +
+    "</div></div>" +
+    "</div>" +
+    // Help footer
+    '<div class="settings-help">' +
+    "<strong>How to change settings:</strong> Copy a command above and paste it to your AI agent, " +
+    "or edit <code>.pm/config.json</code> directly." +
+    "</div>";
+
+  const html = dashboardPage("Settings", "/settings", bodyHtml, projectName);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
 // ========== Dashboard Route Handlers ==========
 
 function routeDashboard(req, res, pmDir) {
@@ -2225,6 +2388,8 @@ function routeDashboard(req, res, pmDir) {
     const rest = urlPath.slice("/backlog".length);
     res.writeHead(302, { Location: "/roadmap" + rest });
     res.end();
+  } else if (urlPath === "/settings") {
+    handleSettingsPage(res, pmDir);
   } else {
     res.writeHead(404);
     res.end("Not found");
