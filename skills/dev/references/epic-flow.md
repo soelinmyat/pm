@@ -6,22 +6,22 @@ This reference is loaded on-demand by the dev skill router when handling a paren
 
 # /dev-epic [parent-issue-id]
 
-Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state and dispatches fresh agents for planning and implementation. Each sub-issue gets **two separate agents** — one for planning (RFC) and one for implementation — with the approved RFC as the handoff contract.
+Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**: it manages state and dispatches fresh agents for planning and implementation. One RFC covers the entire epic — sub-issues are Issue sections within it, matching the standard RFC template.
 
 **Architecture:**
 - **Orchestrator (this context):** Intake, state management, result tracking
-- **Planning agents:** One fresh agent per sub-issue. Explores codebase, writes RFC, commits, returns summary, terminates.
-- **Epic review agents:** 1-3 short-lived review agents reviewing all plans as a set. Return compact JSON verdicts directly.
-- **Implementation agents:** One fresh agent per sub-issue. Reads the approved RFC, implements, merges, terminates.
+- **Planning agent:** One fresh agent writes the RFC for the entire epic. Explores codebase, writes a single RFC with all sub-issues as Issue sections, commits, returns summary, terminates.
+- **Epic review agents:** 1-3 short-lived review agents reviewing the RFC as a whole. Return compact JSON verdicts directly.
+- **Implementation agents:** One fresh agent per sub-issue. Reads the approved parent RFC (their issue section), implements, merges, terminates.
 
 **Agent lifecycle:**
 1. Orchestrator initializes the state file with one slot per sub-issue
-2. **Planning phase:** For each sub-issue, dispatch a fresh agent that writes the RFC, returns summary, terminates
+2. **Planning phase:** Dispatch one fresh agent that writes the parent-level RFC containing all sub-issues as Issue sections. Returns summary, terminates.
 3. **Epic review:** Orchestrator dispatches short-lived review agents — compact JSON comes back directly
-4. **Implementation phase:** For each sub-issue in dependency order, dispatch a fresh agent with the RFC as input. Agent implements, merges, terminates. Next sub-issue starts.
+4. **Implementation phase:** For each sub-issue in dependency order, dispatch a fresh agent. Agent reads the parent RFC, implements its Issue section, merges, terminates. Next sub-issue starts.
 
 **Reference files (read on-demand, NOT upfront):**
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2, raw issues only)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2 raw specs, Stage 3 epic review)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review prompts (Stage 3)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue implementation instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
@@ -181,61 +181,19 @@ In autonomous mode (after Stage 3.3 approval), do NOT pause for confirmation. An
 
 ---
 
-## Stage 2: Sequential Planning (via fresh agents)
+## Stage 2: Planning (one RFC for the epic)
 
-No user interaction. For each sub-issue in dependency order.
+No user interaction. One planning agent writes the entire RFC.
 
-**Before dispatching any agent:** Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.pm/dev-sessions/epic-{parent-slug}.md`. Build the `{PROJECT_CONTEXT}` block and pass it to every dispatched agent.
+**Before dispatching:** Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.pm/dev-sessions/epic-{parent-slug}.md`. Build the `{PROJECT_CONTEXT}` block.
 
-### 2.1 Groomed sub-issues
+### 2.1 Pre-planning: Raw sub-issue specs
 
-Dispatch a **fresh agent** per sub-issue using agent intent `pm:developer`. The agent explores the codebase, writes the RFC, commits it, returns the RFC path + summary, and terminates. A separate fresh agent handles implementation after epic review.
+Before the main RFC, handle any raw M/L/XL sub-issues that need design exploration:
 
-Before dispatching agents, follow the runtime setup rules in `agent-runtime.md`.
+**Raw XS:** Note "direct implementation, no plan needed" in state file. Include in the RFC as an XS issue with minimal approach section.
 
-**Prompt for the planning agent:**
-
-```
-Phase 1 — Planning for {ISSUE_ID} ({ISSUE_TITLE}).
-
-## Project Context
-{PROJECT_CONTEXT}
-
-**CWD:** {REPO_ROOT}
-**Sub-issue description + ACs:**
-{ISSUE_DESCRIPTION}
-
-**Parent issue context:**
-{PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
-
-**Previous plans in this epic (for reference):**
-{LIST_OF_PREVIOUS_PLAN_PATHS_AND_SUMMARIES}
-
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md.
-Save RFC to pm/backlog/rfcs/{SLUG}.html.
-Commit, then end your response with:
-RFC_COMPLETE
-- issue: {ISSUE_ID}
-- path: pm/backlog/rfcs/{SLUG}.html
-- summary: {3-line summary}
-- tasks: {N}
-
-Stop after sending the summary. A separate agent will handle implementation after epic review.
-```
-
-The orchestrator waits for the agent's planning result (the Agent returns when done). Only the returned summary enters the orchestrator's context — not the agent's internal work.
-
-**Skip individual RFC review for groomed issues.** Epic review (Stage 3) is the quality gate.
-
-### 2.2 Raw sub-issues
-
-**Raw XS:** Note "direct implementation, no plan needed" in state file. Skip planning.
-
-**Raw S:** Dispatch a fresh agent (same prompt as 2.1), then dispatch RFC reviewers from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` (reviewers 2+3: Testing & Quality + Complexity & Maintainability). Fix blocking issues, commit.
-
-**Raw M/L/XL:** Three-step process:
-
-1. **Dispatch a short-lived design worker** to generate a spec:
+**Raw S/M/L/XL that are NOT groomed:** Dispatch a short-lived design worker per raw sub-issue to generate a spec:
 
 ```
 Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
@@ -259,26 +217,72 @@ SPEC_COMPLETE
 - summary: {2-line summary}
 ```
 
-2. **Dispatch raw-spec reviewers in parallel** using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md`:
-   - UX Spec Review
-   - Product Spec Review
-   - Competitive Spec Review
+For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md`. Fix blocking issues, commit.
 
-   Merge findings, fix all blocking issues in the spec, and re-run the spec reviewers if needed before moving on.
+Groomed sub-issues skip this step — their proposal is sufficient context.
 
-3. **Dispatch a fresh agent** (same prompt as 2.1, but referencing the approved spec file instead of ACs). Then dispatch all 3 RFC reviewers. Fix blocking issues, commit.
+### 2.2 Generate the parent RFC
 
-### 2.3 Context accumulation
+Dispatch a **single fresh agent** using agent intent `pm:developer`. This agent writes ONE RFC covering the entire epic. Each sub-issue becomes an Issue section within the RFC, matching the standard RFC template structure.
 
-When dispatching plan agents, pass previous plan summaries (not full plans). The agent reads the full plan files from disk if needed. For 5+ sub-issues: after plan N is approved, plans 1 through N-2 are replaced with a one-paragraph summary (goal + file structure + key interfaces). Most recent 2 plans always passed in full.
+Before dispatching, follow the runtime setup rules in `agent-runtime.md`.
 
-### 2.4 Size reconciliation
+**Prompt for the planning agent:**
 
-After each RFC agent returns, check if the RFC's task count suggests a different size than the intake classification. If the RFC sizes differently (e.g., intake said S but RFC has 10+ tasks across 5 chunks, suggesting M), update the size in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
+```
+Phase 1 — Generate engineering RFC for epic: {PARENT_ISSUE_ID} ({PARENT_TITLE}).
 
-### 2.5 State updates
+## Project Context
+{PROJECT_CONTEXT}
 
-After each RFC agent returns, update `.pm/dev-sessions/epic-{parent-slug}.md` with RFC path and commit SHA.
+**CWD:** {REPO_ROOT}
+
+**Epic description:**
+{PARENT_DESCRIPTION}
+
+**Sub-issues (each becomes an Issue section in the RFC):**
+{FOR_EACH_SUB_ISSUE:}
+  - {ISSUE_ID}: {ISSUE_TITLE} (size: {SIZE}, groomed: {yes/no})
+    Description: {ISSUE_DESCRIPTION}
+    ACs: {ACCEPTANCE_CRITERIA}
+    Spec: {SPEC_PATH or "from proposal ACs"}
+{END_FOR_EACH}
+
+**Dependency order:** {ORDERED_LIST_FROM_STAGE_1.4}
+
+**Proposal (if groomed):** pm/backlog/{parent-slug}.md
+**PRD (if exists):** pm/backlog/proposals/{parent-slug}.html
+
+Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
+Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
+
+Write ONE RFC as a self-contained HTML file to pm/backlog/rfcs/{parent-slug}.html.
+Each sub-issue is an Issue section within the RFC (Issue 1, Issue 2, etc.).
+Include shared architecture, data model, and risks that span sub-issues.
+
+Commit the RFC, then end your response with:
+RFC_COMPLETE
+- slug: {parent-slug}
+- path: pm/backlog/rfcs/{parent-slug}.html
+- summary: {3-line summary}
+- issues: {N}
+
+Stop after sending the summary. Separate agents will handle implementation after epic review.
+```
+
+The orchestrator waits for the agent to return. Only the `RFC_COMPLETE` payload enters the orchestrator's context.
+
+### 2.3 Size reconciliation
+
+After the RFC agent returns, check if any sub-issue's task count in the RFC suggests a different size than the intake classification. Update sizes in `.pm/dev-sessions/epic-{parent-slug}.md`. This matters because size determines the review path in Stage 4 (code scan for XS/S vs full `/review` for M/L/XL).
+
+### 2.4 State and backlog updates
+
+After the RFC agent returns:
+
+1. Update `.pm/dev-sessions/epic-{parent-slug}.md` with RFC path and commit SHA.
+2. **Update the parent backlog item.** If `pm/backlog/{parent-slug}.md` exists, set `rfc: rfcs/{parent-slug}.html` in its frontmatter. This is a single value — the parent RFC contains all sub-issues as Issue sections. This keeps the RFC link in the committed knowledge base, not just the gitignored session state.
 
 ---
 
@@ -321,16 +325,15 @@ Reviewer results return directly to the orchestrator — no worker handoff neede
 
 ### 3.3 Present to user (LAST INTERACTIVE GATE)
 
-For each sub-issue RFC, render a self-contained HTML file at `pm/backlog/rfcs/{slug}.html`.
+The RFC was already written as HTML by the planning agent in Stage 2.2. Open it in the browser:
 
-**Before generating, read the reference template** at `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html`. Match its structure, styling, and quality level. Do not invent a new design; replicate the reference with the actual RFC content. Populate sections (Codebase Findings, Architecture, Key Decisions, Data Model, API, Risks, Issues/Tasks, Questions, Change Log) from the actual RFC data. Omit sections that don't apply.
-
-Open the first one in the browser:
 ```bash
-open pm/backlog/rfcs/{first-slug}.html
+open pm/backlog/rfcs/{parent-slug}.html
 ```
 
-Show verdict table. List RFC paths (with `.html` links). Ask: "Approve to begin one-shot implementation through to merge?"
+Show the verdict table (reviewer findings summary). The RFC contains all sub-issues as Issue sections — the user reviews the whole plan in one document.
+
+Ask: "Approve to begin one-shot implementation through to merge?"
 
 After approval, update state file with `Continuous execution: authorized`.
 
@@ -342,7 +345,7 @@ After approval, update state file with `Continuous execution: authorized`.
 After approval, proceed through ALL sub-issues without pausing. Only stop for: QA Blocked, 3x test failures, merge conflicts, CI failures needing human intervention, human review feedback on PRs.
 </HARD-RULE>
 
-**Agent dispatch:** Each sub-issue gets a fresh `pm:developer` agent for implementation. The agent reads the approved RFC for full planning context. Sub-issues execute sequentially in dependency order — one at a time.
+**Agent dispatch:** Each sub-issue gets a fresh `pm:developer` agent for implementation. The agent reads the approved parent RFC and focuses on its Issue section. Sub-issues execute sequentially in dependency order — one at a time.
 
 ### 4.pre Environment readiness check
 
@@ -379,16 +382,20 @@ Phase 2 — Implementation approved. Go implement.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** feat/{slug}
-**RFC:** {RFC_FILE_PATH}
+**RFC:** pm/backlog/rfcs/{parent-slug}.html
+**Your issue:** Issue {N} — {ISSUE_TITLE}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
+Read the RFC. Focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also
+contains shared architecture and data model sections that apply to your issue.
+
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md for install command), verify clean test baseline
-3. Read the RFC and implement all tasks
+3. Read the RFC, focus on Issue {N}, implement its tasks
 4. Invoke pm:simplify - fix findings, run tests, commit
 5. If UI changes (tsx/jsx/css in diff): invoke /design-critique if available, else skip
 6. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
@@ -544,5 +551,5 @@ Report any remaining untracked files to the user.
 5. Fix ALL review findings from ALL active agents
 6. Fresh test evidence before every merge
 7. State file is single source of truth
-8. Plans committed to main so sub-issue agent worktrees can read them
+8. Parent RFC committed to main so sub-issue agent worktrees can read it
 9. Orchestrator creates worktrees; agents work inside them
