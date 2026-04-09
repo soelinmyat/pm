@@ -361,16 +361,20 @@ function parseJsonBody(req, maxBytes = 65536) {
     }
     const chunks = [];
     let size = 0;
+    let settled = false;
     req.on("data", (chunk) => {
       size += chunk.length;
-      if (size > maxBytes) {
+      if (size > maxBytes && !settled) {
+        settled = true;
         req.destroy();
         reject(new Error("Body too large"));
         return;
       }
-      chunks.push(chunk);
+      if (!settled) chunks.push(chunk);
     });
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString("utf8");
       if (!raw || !raw.trim()) {
         reject(new Error("Empty body"));
@@ -382,7 +386,12 @@ function parseJsonBody(req, maxBytes = 65536) {
         reject(new Error("Invalid JSON"));
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
   });
 }
 

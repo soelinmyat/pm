@@ -430,10 +430,11 @@ function validateNotesFile(pmDir, filePath, data, errors) {
     );
   }
 
+  const parsedCount = parseInt(data.note_count, 10);
   if (
     data.note_count !== undefined &&
     data.note_count !== null &&
-    (isNaN(parseInt(data.note_count, 10)) || parseInt(data.note_count, 10) < 0)
+    (isNaN(parsedCount) || parsedCount < 0)
   ) {
     pushIssue(
       errors,
