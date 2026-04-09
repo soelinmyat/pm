@@ -30,7 +30,7 @@ Write the PRD to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals
 2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
 4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
-5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link.
+5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link. **Use absolute paths** in the format `/proposals/{topic-slug}/wireframes/{wireframe-name}` for both `<iframe src>` and `<a href>`. Never use relative paths (`../wireframes/...`) or temp paths (`/tmp/...`) — these break when the dashboard serves the proposal. The dashboard server routes `/proposals/{slug}/wireframes/{name}` to `pm/backlog/wireframes/{name}.html`.
 6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
 8. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.
