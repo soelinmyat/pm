@@ -21,7 +21,7 @@ Orchestrate an entire epic from a parent issue. The orchestrator stays **thin**:
 4. **Implementation phase:** For each sub-issue in dependency order, dispatch a fresh agent. Agent reads the parent RFC, implements its Issue section, merges, terminates. Next sub-issue starts.
 
 **Reference files (read on-demand, NOT upfront):**
-- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2, raw issues only)
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-rfc-reviewer-prompts.md` - RFC reviewer prompts (Stage 2 raw specs, Stage 3 epic review)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-review-prompts.md` - Epic review prompts (Stage 3)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` - Sub-issue implementation instructions (Stage 4)
 - `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-state-template.md` - State file template
@@ -243,7 +243,8 @@ Phase 1 — Generate engineering RFC for epic: {PARENT_ISSUE_ID} ({PARENT_TITLE}
 **Sub-issues (each becomes an Issue section in the RFC):**
 {FOR_EACH_SUB_ISSUE:}
   - {ISSUE_ID}: {ISSUE_TITLE} (size: {SIZE}, groomed: {yes/no})
-    Description + ACs: {ISSUE_DESCRIPTION}
+    Description: {ISSUE_DESCRIPTION}
+    ACs: {ACCEPTANCE_CRITERIA}
     Spec: {SPEC_PATH or "from proposal ACs"}
 {END_FOR_EACH}
 

@@ -3779,7 +3779,7 @@ test("PM-126: Home partial state shows strategy + proposals empty state", async 
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
-      assert.ok(body.includes("No active proposals"), "must show proposals empty state");
+      assert.ok(body.includes("Ready for your first feature"), "must show proposals empty state");
       assert.ok(
         body.includes('data-copy="/pm:groom"'),
         "proposals empty state must have click-to-copy for /pm:groom"
