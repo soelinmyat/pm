@@ -80,9 +80,42 @@ Write the draft proposal to `pm/backlog/{topic-slug}.md` so that review agents (
 
 Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 
-#### Step 5: Update state
+#### Step 5: Show draft and update state
 
-Do NOT present the proposal to the user yet. Proceed directly to Phase 6 (Team Review).
+Behavior depends on the current `groom_tier` from session state.
+
+**If `groom_tier` is `quick` or `standard`:**
+
+1. Present the full draft proposal to the user. Show the outcome statement, scope (in-scope and out-of-scope), competitive context summary, and research links from the draft at `pm/backlog/{topic-slug}.md`.
+
+2. Ask:
+   > "Here's the draft proposal for '{topic}'. Review the outcome, scope, and competitive context above.
+   > Approve this proposal, or tell me what to change?"
+
+3. Wait for explicit approval.
+   - Minor edits (wording, AC tweaks): revise the draft and re-show. No need to re-run earlier phases.
+   - Scope changes: for `standard`, re-run from Phase 4.5 (Scope Review). For `quick` (which has no scope review), revise scope inline.
+
+4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-5.8-present.md` to write the proposal presentation to `pm/backlog/proposals/{topic-slug}.html` and open it in the browser.
+
+5. Update state and proceed directly to Phase 8 (Link):
+
+```yaml
+phase: draft-proposal
+proposal_path: pm/backlog/{topic-slug}.md
+```
+
+**If `groom_tier` is `full`:**
+
+1. Show a brief preview to the user:
+   > "Draft proposal assembled for '{topic}'.
+   > Outcome: {outcome statement from draft}
+   > Scope: {N} items in-scope, {M} items out-of-scope.
+   > This is now entering team review. You'll see the full proposal after reviews complete."
+
+2. Do NOT wait for approval. Proceed directly to Phase 6 (Team Review).
+
+3. Update state:
 
 ```yaml
 phase: draft-proposal

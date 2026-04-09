@@ -1,8 +1,11 @@
 ### Phase 6: Team Review
 
 <HARD-GATE>
+This phase runs only for `full` tier. Quick and standard tiers skip team review entirely (per SKILL.md phase loading rules) — they show the draft directly to the user in Phase 5.5 Step 5 and proceed to Link.
+
+For `full` tier:
 All applicable reviews are required before the bar raiser. Do NOT skip based on feature type, perceived quality, or time pressure.
-The user must NOT see the proposal until both Team Review and Bar Raiser Review complete.
+The user must NOT see the complete proposal until both Team Review and Bar Raiser Review complete. (They received a brief preview in Phase 5.5 Step 5.)
 If a reviewer's angle genuinely doesn't apply, the reviewer will say so — that is different from never asking.
 </HARD-GATE>
 
