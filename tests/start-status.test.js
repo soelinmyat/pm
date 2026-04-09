@@ -53,9 +53,9 @@ test("buildStatus treats an initialized empty workspace as first-workflow ready"
 
     const status = buildStatus(project.root);
     assert.equal(status.initialized, true);
-    assert.equal(status.focus, "all fresh");
+    assert.equal(status.focus, "no attention needed");
     assert.equal(status.backlog, "0 ideas, 0 in progress, 0 shipped");
-    assert.equal(status.next, "/pm:start (choose your first workflow)");
+    assert.equal(status.next, "/pm:think (explore a product idea)");
   } finally {
     project.cleanup();
   }
@@ -106,7 +106,7 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
 
     const status = buildStatus(project.root);
     assert.equal(status.initialized, true);
-    assert.equal(status.focus, "all fresh");
+    assert.equal(status.focus, "no attention needed");
     assert.equal(status.next, "/pm:strategy");
     assert.equal(status.counts.insights, 1);
     assert.equal(status.counts.evidence, 1);
@@ -211,8 +211,8 @@ test("renderTextStatus includes cached update guidance when requested", () => {
 
     assert.equal(status.update.available, true);
     assert.match(rendered, /Update: v/);
-    assert.match(rendered, /Focus: all fresh/);
-    assert.match(rendered, /Next: \/pm:start \(choose your first workflow\)/);
+    assert.match(rendered, /Focus: no attention needed/);
+    assert.match(rendered, /Next: \/pm:think \(explore a product idea\)/);
   } finally {
     project.cleanup();
   }

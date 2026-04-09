@@ -22,10 +22,11 @@ Follow the full methodology in `scope-validation.md`.
    - What is explicitly OUT of scope? (with reasons — prevents scope creep)
 
 3. Apply the 10x filter (from `scope-validation.md`):
-   > "Is this meaningfully better than what competitors offer — or incremental parity?"
-   Document the filter result explicitly: `10x` | `parity` | `gap-fill`.
+   > "Is this meaningfully better than what competitors offer, or is it something users simply expect?"
+   Document the filter result explicitly: `10x` | `gap-fill` | `table-stakes` | `parity`.
 
-4. If the result is `parity`: flag it.
+4. If the result is `table-stakes`: proceed without warning — users expect this feature to exist.
+   If the result is `parity`: flag it.
    > "This appears to be feature parity with {competitor}. Parity is a valid reason
    > to build, but not a differentiation story. Note the strategic intent before proceeding."
 
@@ -36,5 +37,5 @@ phase: scope
 scope:
   in_scope: []
   out_of_scope: []
-  filter_result: 10x | parity | gap-fill
+  filter_result: 10x | gap-fill | table-stakes | parity
 ```
