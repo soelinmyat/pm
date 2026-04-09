@@ -78,8 +78,8 @@ Parse `$ARGUMENTS` and user message:
    - **AC exist:** The description contains testable acceptance criteria (specific, verifiable statements — not just a vague description). Be generous: look for testable statements anywhere, not just under "AC:" headers.
    - **Scope is clear:** The description distinguishes what's in scope. It should be possible to determine what the issue does and doesn't cover.
    - **Size is inferrable:** Enough detail exists to classify as XS/S/M/L/XL.
-3. **If all three pass:** Route to Single Issue. Store `linear_id`, `linear_title`, and `linear_description` in the session state file. Log: `Linear issue {ID}: dev-ready. Proceeding to RFC.`
-4. **If any fail:** Also classify size (XS/S/M/L/XL) from the available context. Store `linear_id` and `linear_readiness: needs-groom` with the specific gaps (e.g., `gaps: [missing-ac, vague-scope]`) in the session state.
+3. **If all three pass:** Route to Single Issue. Store `linear_id`, `linear_readiness: dev-ready`, `linear_title`, `linear_description`, and `linear_labels` in the session state file. Log: `Linear issue {ID}: dev-ready. Proceeding to RFC.`
+4. **If any fail:** Also classify size (XS/S/M/L/XL) from the available context. Store `linear_id`, `linear_readiness: needs-groom`, `size`, and the specific gaps (e.g., `gaps: [missing-ac, vague-scope]`) in the session state.
    - **XS/S:** Handle inline — confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do NOT invoke pm:groom.
    - **M/L/XL:** Announce gaps and invoke pm:groom within the same conversation. Pass Linear context as conversation text (not CLI flags). Specify the slug for groom: "Use slug: {slug}". Log: `Linear issue {ID}: needs grooming ({gaps}). Invoking pm:groom.`
 5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error message}`. Ask the user: "Could not fetch Linear issue {ID}. Can you paste the issue description?" Proceed with the pasted text as conversation-sourced task context.

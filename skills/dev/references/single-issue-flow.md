@@ -30,11 +30,15 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
    - Skip proposal existence check in Stage 2.5 — the Linear issue IS the product context.
    - Proceed to size classification (Step 4) using the Linear description.
 
-   If `linear_readiness` is `needs-groom` AND size is M/L/XL:
+   If `linear_readiness` is `needs-groom` AND size is M/L/XL (size was classified during SKILL.md routing):
    - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
    - Invoke `pm:groom` within the same conversation. Pass the Linear context as conversation text: title, description, labels, ID, and the slug to use. Groom picks up this context from the preceding messages — no CLI flags needed.
    - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment. Linear ID: {ID}. Title: {title}. Description: {description}."
-   - After groom completes, re-read `pm/backlog/{slug}.md` (groom creates this with `handoff_ready: true` and `rfc: null`). Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
+   - After groom completes, re-read `pm/backlog/{slug}.md`. If the file does not exist or `handoff_ready` is not `true`:
+     - Log: `Groom did not produce a valid proposal. Falling back to conversational scoping.`
+     - Set `groom_attempted: true` in the session state.
+     - Handle inline — confirm scope + ACs with the user conversationally (same as XS/S path). Do not re-invoke groom.
+   - If the file exists with `handoff_ready: true` and `rfc: null`: Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
 
    If `linear_readiness` is `needs-groom` AND size is XS/S:
    - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.
@@ -525,8 +529,8 @@ After merge, update the local knowledge base to reflect shipped work:
      rfc: rfcs/{slug}.html
      prs:
        - "#{pr_number}"
-     created: YYYY-MM-DD
-     updated: YYYY-MM-DD
+     created: {today's date, YYYY-MM-DD format}
+     updated: {today's date, YYYY-MM-DD format}
      ---
 
      ## Outcome
@@ -537,6 +541,7 @@ After merge, update the local knowledge base to reflect shipped work:
 
      Originated from Linear issue {linear_id}. Product memory created at ship.
      ```
+   - Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify the entry is valid. Fix any errors before proceeding.
    - Log: `Product memory created: pm/backlog/{slug}.md (source: Linear {linear_id})`
    - Then continue to Step 1 (which will now find the file and update status — but it's already `done`, so this is a no-op).
 
@@ -635,6 +640,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Linear readiness | dev-ready / needs-groom / null |
 | Linear fetch | succeeded / failed / null |
 | Linear gaps | [missing-ac, vague-scope, unclear-size] or [] |
+| Linear labels | {labels or []} |
 
 ## Resume Instructions
 - Stage: [current stage name]

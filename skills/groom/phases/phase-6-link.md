@@ -21,7 +21,7 @@
      **Feasibility:** {verdict}
      **Research:** {1-line summary}
      ```
-   - Update the issue description via `save_issue`: append below a separator. **Idempotency rule:** If the description already contains `## Enriched AC (auto-groom)`, replace everything from that heading onward instead of appending again.
+   - Update the issue description via `save_issue`: append below a separator. **Idempotency rule:** If the description already contains `## Enriched AC (auto-groom)`, replace content from that heading up to (but not including) the next `## ` heading or end of description, whichever comes first. This preserves any human-added sections below the enriched block.
      ```
      {existing description, up to but not including any prior enrichment}
 
