@@ -1564,10 +1564,10 @@ test("PM-129: remaining style= attributes are all dynamic (data-driven)", () => 
   const styleCount = styleMatches.length;
 
   // All remaining style= should be dynamic (contain variable interpolation)
-  // Target: <= 8 dynamic exceptions
+  // Target: <= 9 dynamic exceptions (includes display:none for KB search no-results)
   assert.ok(
-    styleCount <= 8,
-    `Too many inline style= attributes remain (${styleCount}). Target: <= 8 dynamic exceptions.`
+    styleCount <= 9,
+    `Too many inline style= attributes remain (${styleCount}). Target: <= 9 dynamic exceptions.`
   );
 });
 
@@ -1584,10 +1584,14 @@ test("PM-129: no static inline styles with hardcoded values remain", () => {
   let match;
   const staticViolations = [];
 
+  // display:none is used for KB search no-results div (toggled by JS)
+  const allowedStatic = new Set(["display:none"]);
+
   while ((match = styleRe.exec(codeOnly)) !== null) {
     const val = match[1];
     // Dynamic: contains template literal or string concatenation
     if (val.includes("${") || val.includes("' +") || val.includes('" +')) continue;
+    if (allowedStatic.has(val)) continue;
     staticViolations.push(val);
   }
 
@@ -2016,8 +2020,8 @@ test("PM-120: home page contains four section titles", async () => {
       const { statusCode, body } = await httpGet(port, "/");
       assert.equal(statusCode, 200);
       assert.ok(
-        body.includes('<span class="home-section-title">Strategy</span>'),
-        "must have Strategy section"
+        body.includes('class="strategy-banner-label">Strategy</div>'),
+        "must have Strategy banner"
       );
       assert.ok(
         body.includes('<span class="home-section-title">Recently shipped</span>'),
@@ -2069,12 +2073,15 @@ test("PM-120: strategy snapshot shows focus, priorities, and staleness", async (
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
-      assert.ok(body.includes("strategy-focus"), "must have strategy-focus element");
+      assert.ok(
+        body.includes("strategy-banner-headline"),
+        "must have strategy-banner-headline element"
+      );
       assert.ok(body.includes("best PM tool"), "must show focus statement");
-      assert.ok(body.includes("priority-item"), "must have priority items");
+      assert.ok(body.includes("strategy-banner-priority"), "must have priority items");
       assert.ok(body.includes("Ship fast dashboard"), "must show first priority");
       assert.ok(body.includes("staleness-dot"), "must show staleness indicator");
-      assert.ok(body.includes("View full strategy"), "must have link to full strategy");
+      assert.ok(body.includes("View strategy"), "must have link to full strategy");
     } finally {
       await close();
     }
@@ -2621,7 +2628,7 @@ test("PM-122: KB hub has strategy-banner, landscape-card, competitor-grid, topic
   }
 });
 
-test("PM-122: KB hub does NOT contain tablist or kb-tab classes", async () => {
+test("PM-122: KB hub uses tabbed Insights/Evidence layout", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md":
       "---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n- Ship fast\n",
@@ -2630,8 +2637,12 @@ test("PM-122: KB hub does NOT contain tablist or kb-tab classes", async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/kb");
-      assert.ok(!body.includes('role="tablist"'), 'hub must not contain role="tablist"');
-      assert.ok(!body.includes('class="kb-tab'), "hub must not contain kb-tab element class");
+      assert.ok(
+        body.includes('role="tablist"'),
+        'hub must contain role="tablist" for Insights/Evidence tabs'
+      );
+      assert.ok(body.includes("Insights"), "hub must have Insights tab");
+      assert.ok(body.includes("Evidence"), "hub must have Evidence tab");
     } finally {
       await close();
     }
@@ -2673,7 +2684,7 @@ test("PM-122: KB hub shows origin and freshness badges in topic rows", async () 
   }
 });
 
-test("PM-122: KB hub shows customer evidence empty state", async () => {
+test("PM-122: KB hub shows evidence empty state sections", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n## Focus\nTest\n",
   });
@@ -2681,11 +2692,8 @@ test("PM-122: KB hub shows customer evidence empty state", async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/kb");
-      assert.ok(body.includes("Customer Evidence"), "must have Customer Evidence section");
-      assert.ok(
-        body.includes("empty-state-hub"),
-        "must use empty-state-hub class for empty evidence"
-      );
+      assert.ok(body.includes("Research"), "must have Research evidence section");
+      assert.ok(body.includes("empty-state"), "must use empty-state class for empty evidence");
       assert.ok(body.includes("/pm:ingest"), "must suggest /pm:ingest for adding evidence");
     } finally {
       await close();
@@ -2708,11 +2716,14 @@ test("PM-122: KB hub discovers non-default insight domains and links to canonica
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/kb");
-      assert.ok(body.includes("Insight Domains"), "must show insight domains section");
-      assert.ok(body.includes('href="/insights/product"'), "must link to default product domain");
       assert.ok(
-        body.includes('href="/insights/developer-experience"'),
-        "must link to discovered custom domain"
+        body.includes("kb-domain-section"),
+        "must show insight domain sections in Insights tab"
+      );
+      assert.ok(body.includes('href="/insights/product/'), "must link to product domain content");
+      assert.ok(
+        body.includes('href="/insights/developer-experience/'),
+        "must link to discovered custom domain content"
       );
     } finally {
       await close();
@@ -2800,9 +2811,11 @@ test("PM-122: KB hub CSS uses design tokens, not raw px/rem (except borders)", (
   );
 });
 
-test("PM-122: competitor grid shows 6-item cap with View all link", async () => {
-  // Create 8 competitors to exceed the 6-item cap
-  const files = {};
+test("PM-122: competitor grid shows 3-item preview with View all link", async () => {
+  // Create 8 competitors to exceed the 3-item preview cap on the hub
+  const files = {
+    "pm/insights/competitors/index.md": "# Competitors\n",
+  };
   for (let i = 1; i <= 8; i++) {
     files[`pm/insights/competitors/comp-${i}/profile.md`] =
       `---\ncompany: Company ${i}\n---\n# Company ${i}\n**Category claim:** Cat ${i}\n`;
@@ -2813,10 +2826,13 @@ test("PM-122: competitor grid shows 6-item cap with View all link", async () => 
     try {
       const { body } = await httpGet(port, "/kb");
       assert.ok(body.includes("card-grid"), "must have card grid");
-      assert.ok(body.includes("View all 8"), "must show View all link when > 6 competitors");
+      assert.ok(
+        body.includes("View all 8 profiles"),
+        "must show View all link when > 3 competitors"
+      );
       // Count actual card elements within the competitor section
       const cardCount = (body.match(/<article class="card">/g) || []).length;
-      assert.equal(cardCount, 6, "must cap at 6 competitor cards");
+      assert.equal(cardCount, 3, "must cap at 3 competitor cards on hub preview");
     } finally {
       await close();
     }
@@ -2825,7 +2841,7 @@ test("PM-122: competitor grid shows 6-item cap with View all link", async () => 
   }
 });
 
-test("PM-122: research topics sorted by freshness, capped at 8", async () => {
+test("PM-122: research topics sorted by freshness on detail page", async () => {
   const files = {};
   for (let i = 1; i <= 10; i++) {
     const month = String(i).padStart(2, "0");
@@ -2836,12 +2852,11 @@ test("PM-122: research topics sorted by freshness, capped at 8", async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/kb");
+      const { body } = await httpGet(port, "/kb?tab=research");
       assert.ok(body.includes("topic-list"), "must have topic list");
       // Count actual topic-row elements (class="topic-row" in HTML)
       const rowCount = (body.match(/class="topic-row"/g) || []).length;
-      assert.equal(rowCount, 8, "must cap at 8 topic rows");
-      assert.ok(body.includes("View all 10 topics"), "must show View all link when > 8 topics");
+      assert.equal(rowCount, 10, "must show all 10 topic rows on detail page");
       // Newest topic (Topic 10, October) should appear before Topic 3 (March)
       const topic10Pos = body.indexOf("Topic 10");
       const topic3Pos = body.indexOf("Topic 3");
@@ -3755,7 +3770,7 @@ test('PM-126: Home empty state contains "shared product brain" text and click-to
   }
 });
 
-test('PM-126: Home partial state shows strategy + "Ready for your first feature"', async () => {
+test("PM-126: Home partial state shows strategy + proposals empty state", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md":
       "---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n1. Ship fast\n",
@@ -3764,10 +3779,10 @@ test('PM-126: Home partial state shows strategy + "Ready for your first feature"
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
-      assert.ok(body.includes("Ready for your first feature"), "must show partial state CTA title");
+      assert.ok(body.includes("No active proposals"), "must show proposals empty state");
       assert.ok(
         body.includes('data-copy="/pm:groom"'),
-        "partial state must have click-to-copy for /pm:groom"
+        "proposals empty state must have click-to-copy for /pm:groom"
       );
       assert.ok(body.includes("Strategy"), "must still show strategy section");
     } finally {
