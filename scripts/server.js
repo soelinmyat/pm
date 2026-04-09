@@ -2037,7 +2037,7 @@ function getProjectName(pmDir) {
 
 function handleSettingsPage(res, pmDir) {
   const config = readConfig(pmDir);
-  const projectName = config.project_name || getProjectName(pmDir);
+  const projectName = config.project_name || path.basename(path.dirname(pmDir)) || "PM";
 
   // Empty state: no config at all (readConfig returns {})
   if (

@@ -5847,23 +5847,6 @@ test("PM-33: readConfig reads fresh data (no stale cache)", () => {
   }
 });
 
-test("PM-33: getProjectName delegates to readConfig and returns project_name", () => {
-  const { pmDir, cleanup } = withPmDir({
-    ".pm/config.json": JSON.stringify({ project_name: "My App" }),
-  });
-  try {
-    const mod = loadServer();
-    // getProjectName is not exported, but we can test via dashboardPage title
-    // Since readConfig is tested above, test via the dashboard server
-    // Actually, let's test via the home page title
-    // For a direct test, we test readConfig + the delegation pattern
-    const config = mod.readConfig(pmDir);
-    assert.strictEqual(config.project_name, "My App");
-  } finally {
-    cleanup();
-  }
-});
-
 // ---------------------------------------------------------------------------
 // PM-33: Backward compatibility — deprecated fields in existing configs
 // ---------------------------------------------------------------------------
