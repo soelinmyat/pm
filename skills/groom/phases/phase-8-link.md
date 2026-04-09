@@ -3,6 +3,7 @@
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
    - Set `status: proposed`, `verdict:` from bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`, `linear_id: "{linear_id}" | null`.
+   - **Thinking discovery:** Check if `pm/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
    - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence.
    - Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 
