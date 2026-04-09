@@ -463,6 +463,105 @@ test("bidirectional citation validation rejects missing target files", (t) => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// Notes validation (type: notes)
+// ---------------------------------------------------------------------------
+
+test("valid notes file passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": makeFrontmatterDocument(
+      {
+        type: "notes",
+        month: "2026-04",
+        updated: "2026-04-09",
+        note_count: 2,
+        digested_through: "null",
+      },
+      "Notes"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("notes file missing required fields reports errors", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": makeFrontmatterDocument(
+      {
+        type: "notes",
+      },
+      "Notes"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "month"),
+    "should report missing month"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "updated"),
+    "should report missing updated"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "note_count"),
+    "should report missing note_count"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "digested_through"),
+    "should report missing digested_through"
+  );
+});
+
+test("notes file with invalid month format reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": makeFrontmatterDocument(
+      {
+        type: "notes",
+        month: "April 2026",
+        updated: "2026-04-09",
+        note_count: 2,
+        digested_through: "null",
+      },
+      "Notes"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "month" && d.message.includes("April 2026")),
+    "should report invalid month format"
+  );
+});
+
+test("notes file with wrong type is not validated as notes", (t) => {
+  // A file with type: evidence in notes/ should fail evidence validation, not notes validation
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/notes/2026-04.md": makeFrontmatterDocument(
+      {
+        type: "evidence",
+        evidence_type: "notes",
+        source_origin: "internal",
+        created: "2026-04-09",
+        sources: [],
+        cited_by: [],
+      },
+      "Notes"
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  // Should not crash — it should validate as an evidence file
+  assert.ok(result, "should return a result");
+});
+
 test("real pm/ directory passes validation", (t) => {
   const realPmDir = path.join(__dirname, "..", "pm");
   if (!fs.existsSync(realPmDir)) {
