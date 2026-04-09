@@ -1425,7 +1425,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 // ========== Dashboard HTML Shell ==========
 
 function dashboardPage(title, activeNav, bodyContent, projectName) {
-  projectName = projectName || _cachedProjectName || "PM";
+  projectName = projectName || "PM";
   const navLinks = [
     {
       href: "/",
@@ -1984,24 +1984,20 @@ function renderPositioningMap(data) {
   );
 }
 
-// ========== Project Name ==========
+// ========== Config + Project Name ==========
 
-let _cachedProjectName = null;
-let _cachedProjectPmDir = null;
+function readConfig(pmDir) {
+  const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  } catch {
+    return {};
+  }
+}
 
 function getProjectName(pmDir) {
-  if (_cachedProjectPmDir === pmDir && _cachedProjectName) return _cachedProjectName;
-  const configPath = path.join(path.dirname(pmDir), ".pm", "config.json");
-  let name = path.basename(path.dirname(pmDir)) || "PM";
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    if (config.project_name) name = config.project_name;
-  } catch {
-    /* no config or invalid JSON */
-  }
-  _cachedProjectPmDir = pmDir;
-  _cachedProjectName = name;
-  return name;
+  const config = readConfig(pmDir);
+  return config.project_name || path.basename(path.dirname(pmDir)) || "PM";
 }
 
 // ========== Dashboard Route Handlers ==========
@@ -6260,6 +6256,7 @@ module.exports = {
   renderMarkdown,
   inlineMarkdown,
   escHtml,
+  readConfig,
   createDashboardServer,
   dashboardPage,
   readProposalMeta,
