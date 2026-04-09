@@ -54,6 +54,7 @@ const REQUIRED_EVIDENCE_FIELDS = [
   "sources",
   "cited_by",
 ];
+const REQUIRED_NOTES_FIELDS = ["type", "month", "updated", "note_count", "digested_through"];
 
 // ========== Helpers ==========
 
@@ -418,6 +419,62 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
   kbState.evidence.set(relativeFile, data);
 }
 
+function validateNotesFile(pmDir, filePath, data, errors) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+
+  validateRequiredFields(relativeFile, data, REQUIRED_NOTES_FIELDS, errors);
+
+  if (data.type && data.type !== "notes") {
+    pushIssue(errors, relativeFile, "type", `expected "notes", got "${data.type}"`);
+  }
+
+  if (data.month && !/^\d{4}-\d{2}$/.test(data.month)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "month",
+      `invalid month format "${data.month}" — expected YYYY-MM`
+    );
+  }
+
+  if (data.updated && !isIsoDate(data.updated)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "updated",
+      `invalid date format "${data.updated}" — expected YYYY-MM-DD`
+    );
+  }
+
+  const parsedCount = parseInt(data.note_count, 10);
+  if (
+    data.note_count !== undefined &&
+    data.note_count !== null &&
+    (isNaN(parsedCount) || parsedCount < 0)
+  ) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "note_count",
+      `invalid note_count "${data.note_count}" — expected non-negative integer`
+    );
+  }
+
+  if (
+    data.digested_through !== undefined &&
+    data.digested_through !== null &&
+    data.digested_through !== "null" &&
+    !/^\d{4}-\d{2}-\d{2}/.test(data.digested_through)
+  ) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "digested_through",
+      `invalid digested_through "${data.digested_through}" — expected null or ISO timestamp`
+    );
+  }
+}
+
 function parseIndexRows(content) {
   const tableLines = content
     .split(/\r?\n/)
@@ -718,7 +775,11 @@ function validate(pmDir) {
       continue;
     }
 
-    validateEvidenceFile(pmDir, filePath, parsed.data, errors, kbState);
+    if (parsed.data.type === "notes") {
+      validateNotesFile(pmDir, filePath, parsed.data, errors);
+    } else {
+      validateEvidenceFile(pmDir, filePath, parsed.data, errors, kbState);
+    }
   }
 
   validateBidirectionalCitations(errors, kbState);

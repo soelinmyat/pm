@@ -30,6 +30,8 @@ research_note: "{1-line summary of inline finding}"
 
 #### Standard / Full tier
 
+**Note digest pre-step:** Before proceeding to research, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes, so the research phase has the latest internal signals. If no un-digested notes exist, the pre-step completes silently.
+
 <HARD-GATE>
 Research is required before scoping. Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
 If the research yields "nothing relevant," that is a valid finding — it is different from never looking.
