@@ -54,6 +54,9 @@ Flow docs use `pm:*` labels as intent names:
 - `pm:staff-engineer`
 - `pm:system-architect`
 - `pm:integration-engineer`
+- `pm:design-director`
+- `pm:qa-lead`
+- `pm:design-system-lead`
 - `pm:design-reviewer`
 - `pm:edge-case-tester`
 - `general-purpose`
