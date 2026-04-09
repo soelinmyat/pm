@@ -146,7 +146,6 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
     "seo": { "provider": "none" }
   },
   "preferences": {
-    "backlog_format": "markdown",
     "auto_launch": true
   }
 }
@@ -157,7 +156,6 @@ Populate:
 - `project_name` from the repo directory name by default
 - `integrations.linear.enabled` as `false`
 - `integrations.seo.provider` as `"none"`
-- `preferences.backlog_format` as `"markdown"`
 - `preferences.auto_launch` as `true` — controls whether the dashboard server starts automatically on session start. Set to `false` to disable.
 
 Only ask for a project name if the repo directory name is obviously generic or the user already gave you a better name.

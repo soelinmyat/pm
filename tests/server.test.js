@@ -5744,6 +5744,17 @@ test("PM-150: thread view does not show disclosure toggle for items without chil
   }
 });
 
+// ---------------------------------------------------------------------------
+// PM-33: Deprecated config fields removed from SKILL.md
+// ---------------------------------------------------------------------------
+
+test("PM-33: skills/start/SKILL.md does not contain visual_companion or backlog_format", () => {
+  const skillPath = path.join(__dirname, "..", "skills", "start", "SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+  assert.ok(!content.includes("visual_companion"), "SKILL.md must not reference visual_companion");
+  assert.ok(!content.includes("backlog_format"), "SKILL.md must not reference backlog_format");
+});
+
 test("GET /proposals/<slug> planned item shows dev action not groom", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/rfc-ready.md":
