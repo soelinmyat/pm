@@ -189,7 +189,7 @@ If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{sl
 Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`handoff_ready:` is not `true`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
-- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Read it and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
+- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`. Note: for `planned` items resumed after a prior session, no old session file exists (it was deleted on stop). This is the expected fresh-session path.
 - **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
 
