@@ -14,9 +14,9 @@ Shared implementation lifecycle used by both single-issue dev and epic sub-issue
 ## Lifecycle
 
 ```
-Setup -> Implement -> Simplify -> Design Critique (if UI) ->
+Setup -> Implement -> Simplify (S+, skip XS) -> Design Critique (if UI) ->
   QA (if UI, iterates on Fail) ->
-  Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Push + PR ->
+  Review (M/L/XL) or Code Scan (XS only) -> Verification -> Push + PR ->
   Merge -> Cleanup -> Done
 
 ```
@@ -207,7 +207,7 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ## Step 3: Simplify — `pm:simplify`
 
-Runs after every implement stage, all sizes. Invoke `pm:simplify` — it handles runtime routing (Anthropic official simplify in Claude Code, built-in 3-agent review in other runtimes) and returns structured findings.
+Runs after implement for S+ sizes. **Skip for XS** — the code scan gate is sufficient for one-line fixes.
 
 1. Invoke `pm:simplify`
 2. Fix all real findings, skip false positives
@@ -217,10 +217,11 @@ Runs after every implement stage, all sizes. Invoke `pm:simplify` — it handles
 **Why here (after implement, before design critique/QA):**
 - Implementation is complete, so there's real code to simplify
 - Cleaning up code before design critique and QA means those stages see cleaner code with fewer noise findings
-- For XS/S, catches issues before the code scan gate (reducing code scan findings)
+- For S, this is the only code review gate (no separate code scan needed — simplify already catches what code scan catches)
 - For M/L/XL, reduces review churn
 
-**Skip conditions (handled inside `pm:simplify`):**
+**Skip conditions:**
+- **XS size** — code scan gate handles it
 - No code changes in the diff (config-only, docs-only)
 - All agents find nothing to simplify (proceed immediately)
 
@@ -362,11 +363,12 @@ Agents 2 and 3 are skipped when upstream gates already covered their concerns. `
 - [ ] Verification gate passed (fresh test run, output read, 0 failures confirmed)
 - [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
 
-### Code Scan Gate (XS/S — HARD GATE)
+### Code Scan Gate (XS only — HARD GATE)
 
 <HARD-GATE>
-BEFORE merging XS/S tasks, you MUST run a lightweight code scan.
+BEFORE merging XS tasks, you MUST run a lightweight code scan.
 This catches bugs that tests alone miss: silent no-ops, swallowed errors, race conditions, missing error feedback.
+S tasks skip this — `pm:simplify` (which runs for S+) already covers the same ground.
 </HARD-GATE>
 
 Dispatch reviewer intent `pm:code-reviewer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.

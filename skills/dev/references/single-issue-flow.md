@@ -49,10 +49,10 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 | RFC generation | — | — | Stage 3 (fresh agent writes RFC) | Stage 3 | Stage 3 |
 | RFC review | — | — | Stage 4 (3 reviewers) | Stage 4 | Stage 4 |
 | Implement | TDD | TDD | Stage 5 (fresh agent, inside-out TDD) | Stage 5 | Stage 5 |
-| Simplify | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
+| Simplify | — | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
 | QA | If UI (Quick) | If UI (Focused) | If UI (Full) | If UI (Full) | If UI (Full) |
-| Code scan | Code scan | Code scan | `/review` (full) | `/review` (full) | `/review` (full) |
+| Code scan | Code scan | — | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
 | Review feedback | — | — | `review/references/handling-feedback.md` | handling-feedback | handling-feedback |
@@ -148,8 +148,8 @@ If no proposal exists, decide whether grooming is needed:
 |------|--------|
 | XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Stage 5 (Implementation). |
 | S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Stage 5. |
-| M | Invoke `pm:groom` with `groom_tier: standard`. After groom, return here for RFC generation. |
-| L/XL | Invoke `pm:groom` with `groom_tier: full`. After groom, return here for RFC generation. |
+| M | Invoke `pm:groom` with `groom_tier: quick`. After groom, return here for RFC generation. |
+| L/XL | Invoke `pm:groom` with `groom_tier: standard`. After groom, return here for RFC generation. User can request `full` explicitly. |
 
 **User can skip:** If the user says "skip grooming" or "just build it," respect it. Proceed with available context.
 
@@ -316,11 +316,12 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the RFC end-to-end and implement all issues
-4. Invoke pm:simplify — fix findings, run tests, commit
+4. If SIZE is S+: invoke pm:simplify — fix findings, run tests, commit (skip for XS)
 5. If UI changes: invoke /design-critique if available, else skip
 6. If UI changes: dispatch QA agent per implementation-flow.md
 7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
-   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
+   If SIZE is XS: run code scan (single reviewer per implementation-flow.md)
+   If SIZE is S: skip code scan (simplify already covers it)
 8. Run full test suite as final verification
 9. Push branch, create PR, squash merge via merge-loop
 10. Cleanup worktree and branch
