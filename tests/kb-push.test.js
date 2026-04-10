@@ -9,6 +9,18 @@ const { execSync } = require("child_process");
 
 const HOOK_PATH = path.join(__dirname, "..", "hooks", "kb-push.sh");
 
+// Prevent inheriting global/system git config (hooks, etc.) in test fixtures
+const GIT_ENV = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+};
+
+function gitExec(cmd, opts = {}) {
+  const defaults = opts.encoding ? { env: GIT_ENV } : { env: GIT_ENV, stdio: "ignore" };
+  return execSync(cmd, { ...defaults, ...opts });
+}
+
 /**
  * Create a temp directory with a bare remote and a local clone.
  * Returns { local, remote, cleanup }.
@@ -19,10 +31,10 @@ function createGitFixture() {
   const local = path.join(base, "local");
 
   // Create bare remote
-  execSync(`git init --bare "${remote}"`, { stdio: "ignore" });
+  gitExec(`git init --bare "${remote}"`);
 
   // Clone and add initial commit
-  execSync(`git clone "${remote}" "${local}"`, { stdio: "ignore" });
+  gitExec(`git clone "${remote}" "${local}"`);
   fs.mkdirSync(path.join(local, "pm"), { recursive: true });
   fs.writeFileSync(path.join(local, "pm", "strategy.md"), "# Strategy v1\n");
   fs.mkdirSync(path.join(local, "src"), { recursive: true });
@@ -32,11 +44,8 @@ function createGitFixture() {
     path.join(local, ".pm", "config.json"),
     JSON.stringify({ config_schema: 1, preferences: {} })
   );
-  execSync("git add -A && git commit -m 'init'", {
-    cwd: local,
-    stdio: "ignore",
-  });
-  execSync("git push", { cwd: local, stdio: "ignore" });
+  gitExec("git add -A && git commit -m 'init'", { cwd: local });
+  gitExec("git push", { cwd: local });
 
   return {
     base,
@@ -53,7 +62,7 @@ function runHook(projectDir, args = "", env = {}) {
     const result = execSync(`bash "${HOOK_PATH}" ${args}`, {
       cwd: projectDir,
       env: {
-        ...process.env,
+        ...GIT_ENV,
         CLAUDE_PROJECT_DIR: projectDir,
         ...env,
       },
@@ -76,7 +85,7 @@ test("kb-push: commits and pushes pm/ changes successfully", () => {
     assert.equal(exitCode, 0);
 
     // Verify the change was committed
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -85,7 +94,7 @@ test("kb-push: commits and pushes pm/ changes successfully", () => {
 
     // Verify the change was pushed (check remote)
     const tmp = path.join(fixture.base, "verify");
-    execSync(`git clone "${fixture.remote}" "${tmp}"`, { stdio: "ignore" });
+    gitExec(`git clone "${fixture.remote}" "${tmp}"`);
     const content = fs.readFileSync(path.join(tmp, "pm", "strategy.md"), "utf8");
     assert.match(content, /v2/);
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -101,7 +110,7 @@ test("kb-push: no-op when pm/ has no changes", () => {
     assert.equal(exitCode, 0);
 
     // No new commits should have been created
-    const log = execSync("git log --oneline", {
+    const log = gitExec("git log --oneline", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -123,7 +132,7 @@ test("kb-push: stages only pm/ files — non-pm/ changes remain unstaged", () =>
     assert.equal(exitCode, 0);
 
     // Verify pm/ was committed (use HEAD~1 HEAD to compare commits, not working tree)
-    const committed = execSync("git diff HEAD~1 HEAD --name-only", {
+    const committed = gitExec("git diff HEAD~1 HEAD --name-only", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -131,7 +140,7 @@ test("kb-push: stages only pm/ files — non-pm/ changes remain unstaged", () =>
     assert.doesNotMatch(committed, /src\//);
 
     // Verify src/ changes still exist as unstaged
-    const status = execSync("git status --porcelain", {
+    const status = gitExec("git status --porcelain", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -152,7 +161,7 @@ test("kb-push: commits new untracked files in pm/", () => {
     assert.equal(exitCode, 0);
 
     // Verify the new file was committed
-    const committed = execSync("git diff HEAD~1 --name-only", {
+    const committed = gitExec("git diff HEAD~1 --name-only", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -169,7 +178,7 @@ test("kb-push: commit message includes skill name from --skill flag", () => {
 
     runHook(fixture.local, "--skill research");
 
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -186,7 +195,7 @@ test("kb-push: commit message defaults to 'manual' when no --skill and no .curre
 
     runHook(fixture.local);
 
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -207,7 +216,7 @@ test("kb-push: reads skill name from .pm/analytics/.current-skill when --skill n
 
     runHook(fixture.local);
 
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -221,15 +230,12 @@ test("kb-push: push failure writes .sync-push-failed marker and exits 0", () => 
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kb-push-nopush-"));
   try {
     // Create a local-only repo (no remote to push to)
-    execSync("git init", { cwd: base, stdio: "ignore" });
+    gitExec("git init", { cwd: base });
     fs.mkdirSync(path.join(base, "pm"), { recursive: true });
     fs.writeFileSync(path.join(base, "pm", "test.md"), "test");
     fs.mkdirSync(path.join(base, ".pm"), { recursive: true });
     fs.writeFileSync(path.join(base, ".pm", "config.json"), JSON.stringify({ config_schema: 1 }));
-    execSync("git add -A && git commit -m 'init'", {
-      cwd: base,
-      stdio: "ignore",
-    });
+    gitExec("git add -A && git commit -m 'init'", { cwd: base });
 
     // Now make a pm/ change
     fs.writeFileSync(path.join(base, "pm", "test.md"), "test v2");
@@ -238,7 +244,7 @@ test("kb-push: push failure writes .sync-push-failed marker and exits 0", () => 
     assert.equal(exitCode, 0);
 
     // Verify the commit was created
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: base,
       encoding: "utf8",
     });
@@ -263,7 +269,7 @@ test("kb-push: skips when lockfile is held (exits 0, no error)", () => {
     assert.equal(exitCode, 0);
 
     // Verify NO commit was created (still only init commit)
-    const log = execSync("git log --oneline", {
+    const log = gitExec("git log --oneline", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -290,7 +296,7 @@ test("kb-push: no-op when auto_sync is false and called as hook", () => {
     assert.equal(exitCode, 0);
 
     // No commit should have been created
-    const log = execSync("git log --oneline", {
+    const log = gitExec("git log --oneline", {
       cwd: fixture.local,
       encoding: "utf8",
     });
@@ -330,7 +336,7 @@ test("kb-push: uses --no-verify for auto-commits", () => {
     assert.equal(exitCode, 0);
 
     // The commit should succeed despite the pre-commit hook rejecting
-    const log = execSync("git log --oneline -1", {
+    const log = gitExec("git log --oneline -1", {
       cwd: fixture.local,
       encoding: "utf8",
     });

@@ -9,6 +9,18 @@ const { execSync } = require("child_process");
 
 const HOOK_PATH = path.join(__dirname, "..", "hooks", "kb-pull.sh");
 
+// Prevent inheriting global/system git config (hooks, etc.) in test fixtures
+const GIT_ENV = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+};
+
+function gitExec(cmd, opts = {}) {
+  const defaults = opts.encoding ? { env: GIT_ENV } : { env: GIT_ENV, stdio: "ignore" };
+  return execSync(cmd, { ...defaults, ...opts });
+}
+
 /**
  * Create a temp directory with a bare remote and a local clone.
  * The remote has an initial commit with pm/strategy.md.
@@ -20,10 +32,10 @@ function createGitFixture() {
   const local = path.join(base, "local");
 
   // Create bare remote
-  execSync(`git init --bare "${remote}"`, { stdio: "ignore" });
+  gitExec(`git init --bare "${remote}"`);
 
   // Clone and add initial commit
-  execSync(`git clone "${remote}" "${local}"`, { stdio: "ignore" });
+  gitExec(`git clone "${remote}" "${local}"`);
   fs.mkdirSync(path.join(local, "pm"), { recursive: true });
   fs.writeFileSync(path.join(local, "pm", "strategy.md"), "# Strategy v1\n");
   fs.mkdirSync(path.join(local, "src"), { recursive: true });
@@ -33,11 +45,8 @@ function createGitFixture() {
     path.join(local, ".pm", "config.json"),
     JSON.stringify({ config_schema: 1, preferences: {} })
   );
-  execSync("git add -A && git commit -m 'init'", {
-    cwd: local,
-    stdio: "ignore",
-  });
-  execSync("git push", { cwd: local, stdio: "ignore" });
+  gitExec("git add -A && git commit -m 'init'", { cwd: local });
+  gitExec("git push", { cwd: local });
 
   return {
     base,
@@ -49,16 +58,13 @@ function createGitFixture() {
      */
     pushRemoteChange(files) {
       const tmp = path.join(base, "pusher");
-      execSync(`git clone "${remote}" "${tmp}"`, { stdio: "ignore" });
+      gitExec(`git clone "${remote}" "${tmp}"`);
       for (const [relPath, content] of Object.entries(files)) {
         const full = path.join(tmp, relPath);
         fs.mkdirSync(path.dirname(full), { recursive: true });
         fs.writeFileSync(full, content);
       }
-      execSync("git add -A && git commit -m 'remote change' && git push", {
-        cwd: tmp,
-        stdio: "ignore",
-      });
+      gitExec("git add -A && git commit -m 'remote change' && git push", { cwd: tmp });
       fs.rmSync(tmp, { recursive: true, force: true });
     },
     cleanup() {
@@ -72,7 +78,7 @@ function runHook(projectDir, env = {}) {
     const result = execSync(`bash "${HOOK_PATH}"`, {
       cwd: projectDir,
       env: {
-        ...process.env,
+        ...GIT_ENV,
         CLAUDE_PROJECT_DIR: projectDir,
         ...env,
       },
@@ -119,15 +125,12 @@ test("kb-pull: no-op when no remote configured", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kb-pull-norem-"));
   try {
     // Create a git repo with no remote
-    execSync("git init", { cwd: base, stdio: "ignore" });
+    gitExec("git init", { cwd: base });
     fs.mkdirSync(path.join(base, ".pm"), { recursive: true });
     fs.writeFileSync(path.join(base, ".pm", "config.json"), JSON.stringify({ config_schema: 1 }));
     fs.mkdirSync(path.join(base, "pm"), { recursive: true });
     fs.writeFileSync(path.join(base, "pm", "test.md"), "test");
-    execSync("git add -A && git commit -m 'init'", {
-      cwd: base,
-      stdio: "ignore",
-    });
+    gitExec("git add -A && git commit -m 'init'", { cwd: base });
 
     const { exitCode } = runHook(base);
     assert.equal(exitCode, 0);
@@ -187,7 +190,7 @@ test("kb-pull: still runs when auto_sync is false but called with --manual flag"
     execSync(`bash "${HOOK_PATH}" --manual`, {
       cwd: fixture.local,
       env: {
-        ...process.env,
+        ...GIT_ENV,
         CLAUDE_PROJECT_DIR: fixture.local,
       },
       encoding: "utf8",
@@ -252,20 +255,14 @@ test("kb-pull: does NOT modify non-pm/ files", () => {
 test("kb-pull: always exits 0 even when fetch fails", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kb-pull-badfetch-"));
   try {
-    execSync("git init", { cwd: base, stdio: "ignore" });
+    gitExec("git init", { cwd: base });
     // Add a remote that doesn't exist
-    execSync("git remote add origin https://nonexistent.invalid/repo.git", {
-      cwd: base,
-      stdio: "ignore",
-    });
+    gitExec("git remote add origin https://nonexistent.invalid/repo.git", { cwd: base });
     fs.mkdirSync(path.join(base, ".pm"), { recursive: true });
     fs.writeFileSync(path.join(base, ".pm", "config.json"), JSON.stringify({ config_schema: 1 }));
     // Need at least one commit for git branch --show-current to work
     fs.writeFileSync(path.join(base, "README.md"), "# test\n");
-    execSync("git add -A && git commit -m 'init'", {
-      cwd: base,
-      stdio: "ignore",
-    });
+    gitExec("git add -A && git commit -m 'init'", { cwd: base });
 
     const { exitCode } = runHook(base);
     assert.equal(exitCode, 0);
