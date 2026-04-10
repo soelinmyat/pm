@@ -255,13 +255,10 @@ Write the proposal entry to `pm/backlog/{topic-slug}.md`. This is the parent bac
 
 ```markdown
 ---
-type: proposal
 id: "{linear_id or PM-NNN}"
 title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
 status: proposed | in-progress | done
-verdict: ready | send-back | pause
-handoff_ready: true | false
 prd: proposals/{topic-slug}.html
 rfc: rfcs/{topic-slug}.html | null
 linear_id: "{Linear ID}" | null

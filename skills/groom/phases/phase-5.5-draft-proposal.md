@@ -76,7 +76,7 @@ This content feeds into the HTML PRD (Phase 7) and the proposal backlog entry (P
 
 #### Step 4: Write proposal backlog entry
 
-Write the draft proposal to `pm/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: draft`, `verdict: null`, `handoff_ready: false`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed`, generate the HTML PRD, and set the final verdict.
+Write the draft proposal to `pm/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed` and generate the HTML PRD.
 
 Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
 

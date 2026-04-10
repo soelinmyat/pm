@@ -45,7 +45,6 @@ function runValidate(pmDir) {
 
 function makeBacklogItem(overrides = {}) {
   const defaults = {
-    type: "backlog-issue",
     id: "PM-001",
     title: "Test item",
     outcome: "Something happens",
@@ -606,13 +605,33 @@ test("PM-150: approved status is rejected by validation", () => {
   }
 });
 
-test("PM-150: type proposal passes validation", () => {
+test("PM-155: item without type passes validation", () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposal-item.md": makeBacklogItem({ type: "proposal" }),
+    "pm/backlog/no-type-item.md": makeBacklogItem({}),
   });
   try {
     const result = runValidate(pmDir);
-    assert.equal(result.ok, true, `type proposal should pass: ${JSON.stringify(result.details)}`);
+    assert.equal(
+      result.ok,
+      true,
+      `item without type should pass: ${JSON.stringify(result.details)}`
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("PM-155: item with type still passes validation (backwards compat)", () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/typed-item.md": makeBacklogItem({ type: "backlog-issue" }),
+  });
+  try {
+    const result = runValidate(pmDir);
+    assert.equal(
+      result.ok,
+      true,
+      `item with type should still pass: ${JSON.stringify(result.details)}`
+    );
   } finally {
     cleanup();
   }

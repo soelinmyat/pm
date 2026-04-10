@@ -35,11 +35,11 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
    - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
    - Invoke `pm:groom` within the same conversation. Pass the Linear context as conversation text: title, description, labels, ID, and the slug to use. Groom picks up this context from the preceding messages — no CLI flags needed.
    - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment. Linear ID: {ID}. Title: {title}. Description: {description}."
-   - After groom completes, re-read `pm/backlog/{slug}.md`. If the file does not exist or `handoff_ready` is not `true`:
+   - After groom completes, re-read `pm/backlog/{slug}.md`. If the file does not exist or `status` is not `proposed`, `planned`, or `in-progress`:
      - Log: `Groom did not produce a valid proposal. Falling back to conversational scoping.`
      - Set `groom_attempted: true` in the session state.
      - Handle inline — confirm scope + ACs with the user conversationally (same as XS/S path). Do not re-invoke groom.
-   - If the file exists with `handoff_ready: true` and `rfc: null`: Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
+   - If the file exists with `status: proposed` and `rfc: null`: Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
 
    If `linear_readiness` is `needs-groom` AND size is XS/S:
    - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.
@@ -117,8 +117,6 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
       - If `linear_id` is available in session state and not already in frontmatter, add it
 
    b. If the backlog item has a `parent` field, find `pm/backlog/{parent-slug}.md` and set its `status: in-progress` too (if not already `in-progress` or `done`).
-
-   c. For legacy `.meta.json` sidecars: if `pm/backlog/proposals/{slug}.meta.json` exists, set `"status": "in-progress"`.
 
    Log: `Backlog: pm/backlog/{slug}.md → in-progress`
 
@@ -199,7 +197,7 @@ If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{sl
 
 Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
 
-- **`handoff_ready:` is not `true`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
+- **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`. Note: for `planned` items resumed after a prior session, no old session file exists (it was deleted on stop). This is the expected fresh-session path.
 - **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
@@ -249,7 +247,7 @@ If the user says to skip, proceed with available context. Log: `groom: skipped-b
 
 Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
-- RFC check: approved (path: {rfc_path}) | needs-rfc | incomplete-groom (handoff_ready not set) | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
+- RFC check: approved (path: {rfc_path}) | needs-rfc | incomplete-groom (status not proposed/planned/in-progress) | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
 ```
 
 ## Stage 3: RFC Generation (M/L/XL)
@@ -754,14 +752,12 @@ Log: `Backlog: pm/backlog/{slug}.md → done`
 
 **Step 3: Update parent/proposal status.**
 
-Proposals have two status dimensions — `verdict` (grooming outcome, owned by groom, NEVER changed by dev) and `status` (implementation lifecycle, owned by dev).
-
 a. If the backlog item has a `parent` field pointing to a proposal slug:
    - Read all sibling backlog items (same `parent` value)
-   - If ALL siblings are now `done`, update `pm/backlog/proposals/{parent}.meta.json` — set `"status": "shipped"`
-   - Log: `Proposal: {parent} → shipped`
+   - If ALL siblings are now `done`, update `pm/backlog/{parent}.md` — set `status: done`
+   - Log: `Proposal: {parent} → done`
 
-b. If `pm/backlog/proposals/{slug}.meta.json` exists (single-issue proposal), set `"status": "shipped"`.
+b. If this is a standalone proposal (has `prd:` field, no `parent`), its status was already set to `done` in Step 2.
 
 **Step 4: Close Linear child issues** (if tracker available).
 
