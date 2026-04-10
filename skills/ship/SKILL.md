@@ -210,6 +210,34 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 
 ---
 
+## Step 5.5: Check Auto-Merge Setting
+
+Read `.pm/config.json` and check `preferences.ship.auto_merge`.
+
+- **If `auto_merge` is `true`:** Continue to Step 6 and Phase 2 as normal.
+- **If `auto_merge` is `false`:** Monitor CI (Step 6) but **stop after CI passes**. Do NOT enter Phase 2 (merge loop). Print the early-exit report below.
+- **If the key is missing or `preferences.ship` doesn't exist:** Ask the user once:
+
+> Ship can auto-merge your PR after CI passes, or stop at a green PR so you merge manually. Which do you prefer?
+> 1. **Auto-merge** — ship merges when all gates pass (default for most workflows)
+> 2. **Stop at green PR** — ship creates PR and monitors CI, you merge when ready (recommended if main is your production branch)
+
+Persist their choice to `.pm/config.json` under `preferences.ship.auto_merge` so they're never asked again. Then continue based on their answer.
+
+```
+## Shipped to PR
+
+**PR:** #N — [title] ([URL])
+**Branch:** [branch name]
+**Review:** [N issues found and fixed by review agents]
+**CI:** passed
+**Auto-merge:** disabled (preferences.ship.auto_merge = false)
+
+PR is green and ready. Merge manually or run `/merge` when ready.
+```
+
+Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup (Steps 5-6 of merge-loop) — the branch stays open.
+
 ---
 
 ## Step 6: Monitor CI + Auto-fix (Pre-Merge)
