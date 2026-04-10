@@ -3469,58 +3469,55 @@ function handleDashboardHome(res, pmDir) {
     : "";
 
   // ===== 2. What's coming (active proposals) =====
+  // Single pass: build child-count map and collect active proposals together
   const activeProposals = [];
-
-  // Build parent → child count map once
   const homeChildCount = {};
+  const pendingProposals = []; // collect candidates, resolve counts after loop
   if (fs.existsSync(backlogDir)) {
     for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
       try {
         const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
         const { data } = parseFrontmatter(raw);
+
+        // Track child → parent relationships
         if (data.parent && data.parent !== "null") {
           homeChildCount[data.parent] = (homeChildCount[data.parent] || 0) + 1;
+        }
+
+        // Collect active proposals
+        if (data.prd) {
+          const st = (data.status || "").toLowerCase();
+          if (["proposed", "planned", "in-progress"].includes(st)) {
+            const slug = file.replace(/\.md$/, "");
+            const statusLabel =
+              st === "in-progress"
+                ? "In Progress"
+                : st === "proposed"
+                  ? "Ready"
+                  : st === "planned"
+                    ? "Planned"
+                    : "Active";
+            const badgeClass =
+              st === "in-progress" ? "in-progress" : st === "proposed" ? "ready" : "neutral";
+            pendingProposals.push({
+              slug,
+              id: data.id || "",
+              title: data.title || humanizeSlug(slug),
+              statusLabel,
+              badgeClass,
+              updated: data.updated || data.created || "",
+            });
+          }
         }
       } catch {
         /* skip */
       }
     }
   }
-
-  // Backlog .md files with prd field and active status
-  if (fs.existsSync(backlogDir)) {
-    for (const file of fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"))) {
-      try {
-        const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
-        const { data } = parseFrontmatter(raw);
-        if (!data.prd) continue;
-        const st = (data.status || "").toLowerCase();
-        if (!["proposed", "planned", "in-progress"].includes(st)) continue;
-        const slug = file.replace(/\.md$/, "");
-
-        const statusLabel =
-          st === "in-progress"
-            ? "In Progress"
-            : st === "proposed"
-              ? "Ready"
-              : st === "planned"
-                ? "Planned"
-                : "Active";
-        const badgeClass =
-          st === "in-progress" ? "in-progress" : st === "proposed" ? "ready" : "neutral";
-        activeProposals.push({
-          slug,
-          id: data.id || "",
-          title: data.title || humanizeSlug(slug),
-          statusLabel,
-          badgeClass,
-          issueCount: homeChildCount[slug] || 0,
-          updated: data.updated || data.created || "",
-        });
-      } catch {
-        /* skip */
-      }
-    }
+  // Resolve child counts after the full scan (children may appear before parents)
+  for (const p of pendingProposals) {
+    p.issueCount = homeChildCount[p.slug] || 0;
+    activeProposals.push(p);
   }
   activeProposals.sort((a, b) => (b.updated > a.updated ? 1 : -1));
   activeProposals.splice(5);
