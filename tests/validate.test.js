@@ -828,6 +828,178 @@ test("PM-154: insight with empty sources passes validation (seeded files)", (t) 
   assert.equal(result.ok, true, `empty sources should pass: ${JSON.stringify(result.details)}`);
 });
 
+// ---------------------------------------------------------------------------
+// PM-160: Thinking artifact validation
+// ---------------------------------------------------------------------------
+
+function makeThinking(overrides = {}) {
+  return makeFrontmatterDocument(
+    {
+      type: "thinking",
+      topic: "Test idea",
+      slug: "test-idea",
+      created: "2026-04-10",
+      status: "active",
+      promoted_to: "null",
+      ...overrides,
+    },
+    "Test idea"
+  );
+}
+
+test("PM-160: valid thinking artifact passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/test-idea.md": makeThinking(),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-160: thinking artifact missing required fields reports errors", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/bad.md": makeFrontmatterDocument({ type: "thinking" }, "Bad"),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "topic"),
+    "should report missing topic"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "slug"),
+    "should report missing slug"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "created"),
+    "should report missing created"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "status"),
+    "should report missing status"
+  );
+});
+
+test("PM-160: thinking artifact with invalid status reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/bad-status.md": makeThinking({ status: "completed" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "status" && d.message.includes("completed")));
+});
+
+test("PM-160: thinking artifact with wrong type reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/wrong-type.md": makeThinking({ type: "idea" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "type"));
+});
+
+test("PM-160: promoted thinking artifact passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/promoted.md": makeThinking({
+      status: "promoted",
+      promoted_to: "PM-042",
+    }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-160: parked thinking artifact passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/parked.md": makeThinking({ status: "parked" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `should pass: ${JSON.stringify(result.details)}`);
+});
+
+// ---------------------------------------------------------------------------
+// PM-160: Single-file validation (validate-file.js)
+// ---------------------------------------------------------------------------
+
+const VALIDATE_FILE_SCRIPT = path.join(__dirname, "..", "scripts", "validate-file.js");
+
+function runValidateFile(filePath, pmDir) {
+  const args = [VALIDATE_FILE_SCRIPT, "--file", filePath];
+  if (pmDir) args.push("--pm-dir", pmDir);
+  try {
+    const stdout = execFileSync("node", args, { encoding: "utf8" });
+    return JSON.parse(stdout);
+  } catch (err) {
+    return JSON.parse(err.stdout);
+  }
+}
+
+test("PM-160: validate-file passes for valid backlog item", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/good.md": makeBacklogItem(),
+  });
+  t.after(cleanup);
+  const result = runValidateFile(path.join(pmDir, "backlog", "good.md"), pmDir);
+  assert.equal(result.ok, true);
+});
+
+test("PM-160: validate-file fails for backlog item missing fields", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad.md": "---\ntitle: Missing fields\n---\n\n# Bad\n",
+  });
+  t.after(cleanup);
+  const result = runValidateFile(path.join(pmDir, "backlog", "bad.md"), pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.length > 0);
+});
+
+test("PM-160: validate-file passes for valid thinking artifact", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/good.md": makeThinking(),
+  });
+  t.after(cleanup);
+  const result = runValidateFile(path.join(pmDir, "thinking", "good.md"), pmDir);
+  assert.equal(result.ok, true);
+});
+
+test("PM-160: validate-file fails for thinking artifact missing fields", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/thinking/bad.md": "---\ntype: thinking\n---\n\n# Bad\n",
+  });
+  t.after(cleanup);
+  const result = runValidateFile(path.join(pmDir, "thinking", "bad.md"), pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.length > 0);
+});
+
+test("PM-160: validate-file skips non-pm files", (t) => {
+  const tmpFile = path.join(os.tmpdir(), "not-pm-file.md");
+  fs.writeFileSync(tmpFile, "# Not in pm\n");
+  try {
+    const result = runValidateFile(tmpFile);
+    assert.equal(result.ok, true, "non-pm files should pass (skip)");
+    assert.equal(result.skipped, true);
+  } finally {
+    fs.unlinkSync(tmpFile);
+  }
+});
+
+test("PM-160: validate-file passes for valid evidence file", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/topic.md": makeEvidence({ cited_by: [] }),
+  });
+  t.after(cleanup);
+  const result = runValidateFile(path.join(pmDir, "evidence", "research", "topic.md"), pmDir);
+  assert.equal(result.ok, true, `should pass: ${JSON.stringify(result.errors)}`);
+});
+
+// ---------------------------------------------------------------------------
+
 test("real pm/ directory passes validation", (t) => {
   const realPmDir = path.join(__dirname, "..", "pm");
   if (!fs.existsSync(realPmDir)) {
