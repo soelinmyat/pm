@@ -230,6 +230,12 @@ mkdir -p ~/.agents/vendor ~/.agents/skills
 git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 \`\`\`
 
+If you already cloned PM there, update the existing checkout instead of cloning again:
+
+\`\`\`bash
+git -C ~/.agents/vendor/pm pull --ff-only
+\`\`\`
+
 ### 2. Expose the skills to Codex
 
 #### Product management skills (${pmSkills.length})
@@ -246,9 +252,25 @@ ${devLinkLines}
 
 ### 3. Restart Codex
 
-Restart Codex so it reloads the newly installed skills.
+Restart Codex so it reloads the newly installed skills. Existing sessions do not hot-reload skills, so open a fresh session after restarting.
 
 ## Verification
+
+### Quick filesystem check
+
+\`\`\`bash
+ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
+# Should list ${pmSkills.length} pm-* and ${devSkills.length} dev-* directories
+\`\`\`
+
+You can also verify that one alias resolves to the vendor clone:
+
+\`\`\`bash
+readlink ~/.agents/skills/pm-groom
+readlink ~/.agents/skills/dev-dev
+\`\`\`
+
+### Quick Codex check
 
 Start a new Codex session and verify that Codex exposes one PM skill and one dev workflow skill:
 
@@ -260,15 +282,9 @@ pm:dev
 If Codex does not find a skill:
 
 1. Check that the fallback alias directories exist, for example \`~/.agents/skills/pm-groom/SKILL.md\` and \`~/.agents/skills/dev-dev/SKILL.md\`.
-2. Confirm the symlink points at your PM clone.
-3. Restart Codex again.
-
-### Quick check: all ${pmSkills.length + devSkills.length} skills
-
-\`\`\`bash
-ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list ${pmSkills.length} pm-* and ${devSkills.length} dev-* directories
-\`\`\`
+2. Confirm the symlink points at your PM clone with \`readlink ~/.agents/skills/pm-groom\`.
+3. Restart Codex and open a fresh session again.
+4. If the problem persists, remove the broken alias and recreate it from step 2.
 
 ## Updating
 
