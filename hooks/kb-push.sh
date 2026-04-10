@@ -41,6 +41,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 
 # Ensure lock is released on exit
+# shellcheck disable=SC2317  # cleanup_lock is invoked via trap, not direct call
 cleanup_lock() {
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }

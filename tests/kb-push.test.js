@@ -9,11 +9,16 @@ const { execSync } = require("child_process");
 
 const HOOK_PATH = path.join(__dirname, "..", "hooks", "kb-push.sh");
 
-// Prevent inheriting global/system git config (hooks, etc.) in test fixtures
+// Prevent inheriting global/system git config (hooks, etc.) in test fixtures.
+// Provide git identity via env vars so commits work without any config file.
 const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_AUTHOR_NAME: "Test",
+  GIT_AUTHOR_EMAIL: "test@test.local",
+  GIT_COMMITTER_NAME: "Test",
+  GIT_COMMITTER_EMAIL: "test@test.local",
 };
 
 function gitExec(cmd, opts = {}) {
