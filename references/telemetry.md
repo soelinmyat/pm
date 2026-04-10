@@ -122,7 +122,7 @@ Run lifecycle is also automatic. Each `pm:` skill invocation emits `run-start` a
 Stateful PM workflows also get automatic phase/stage tracking via the Write/Edit hooks.
 
 - Edits to `.pm/groom-sessions/*.md` (and legacy `.pm/.groom-state.md`) close the previous groom phase and keep the next phase active.
-- Edits to `.pm/dev-sessions/*.md` (and legacy `.dev-state-*.md`, `.dev-epic-state-*.md`) close the previous development stage and keep the next stage active.
+- Edits to `.pm/dev-sessions/*.md` (and legacy `.dev-state-*.md`, `.dev-epic-state-*.md`, `epic-*.md`) close the previous development stage and keep the next stage active.
 - The final active phase/stage is closed automatically when the run changes or the session ends.
 
 This automatic layer depends on the state file fields staying current:

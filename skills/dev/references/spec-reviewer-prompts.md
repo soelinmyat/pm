@@ -1,6 +1,6 @@
-# RFC Reviewer Prompts
+# Spec Reviewer Prompts
 
-Agent prompts for individual plan review (Stage 2). Dispatch as formal plugin agents.
+Agent prompts for raw sub-issue spec review before RFC generation. Dispatch as formal plugin agents.
 
 ---
 

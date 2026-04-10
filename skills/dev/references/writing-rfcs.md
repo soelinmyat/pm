@@ -128,7 +128,7 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 
 ## RFC Review Loop
 
-After writing the complete RFC, the orchestrator handles review (Stage 4 in single-issue-flow.md). The RFC writer should:
+After writing the complete RFC, the orchestrator handles review (Stage 4 in dev-flow.md). The RFC writer should:
 
 1. Commit the RFC to `pm/backlog/rfcs/{slug}.html`
 2. Update the proposal's frontmatter to link the RFC

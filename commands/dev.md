@@ -1,5 +1,5 @@
 ---
-description: "Development lifecycle — single issues, epics, or batch bug triage. Auto-detects scope and routes to the right flow."
+description: "Development lifecycle — auto-detects scope. Whether work is 1 task or N tasks emerges from the RFC."
 argument-hint: "[ticket-id or description]"
 ---
 

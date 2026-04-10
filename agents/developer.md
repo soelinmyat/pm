@@ -2,9 +2,9 @@
 name: developer
 description: |
   Developer agent for planning and implementing features. Dispatched by dev
-  skill for single-issue plan writing and epic combined workers. Explores
-  the codebase, writes implementation plans (RFCs), builds features with TDD,
-  and preserves context across planning and implementation phases.
+  skill for RFC writing and task implementation. Explores the codebase,
+  writes implementation plans (RFCs), builds features with TDD, and
+  preserves context across planning and implementation phases.
 model: inherit
 color: green
 ---
@@ -117,21 +117,21 @@ When spawned as `dev-{slug}` for a single issue, you plan and implement as one c
 - Module boundaries and import chains
 - Understanding of which files need modification
 
-## Working as Persistent Worker (Epic Flow)
+## Working as Task Agent (Multi-Task Flow)
 
-When dispatched as a combined worker in an epic (same pattern, different orchestration):
+When dispatched for a specific task in a multi-task RFC:
 
 ### Planning Phase
-1. Receive your sub-issue assignment
+1. Receive your task assignment (an Issue section from the RFC)
 2. Explore the codebase for your specific domain
 3. Write the implementation plan
 4. Commit the plan
-5. Reply in your worker thread: "Plan committed at {path}. Ready for review."
+5. Reply: "Plan committed at {path}. Ready for review."
 6. **STOP and wait** for "go implement" message
 
 ### Implementation Phase
 1. Receive approval to implement
-2. Read your plan (it's committed — don't rely on conversation context)
+2. Read the RFC (it's committed — don't rely on conversation context)
 3. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md` — it covers implement, simplify, design critique, QA, review, merge, and cleanup
 4. Reply to the orchestrator per the implementation flow's Step 9 reporting format
 

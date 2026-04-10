@@ -1,13 +1,13 @@
 # Implementation Flow
 
-Shared implementation lifecycle used by both single-issue dev and epic sub-issue agents. Everything from "plan approved" through "merged and cleaned up" lives here.
+Shared implementation lifecycle for all dev work. Everything from "plan approved" through "merged and cleaned up" lives here.
 
 **Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how `pm:*` agent intents map to Claude and Codex.
 
 **Context:** This flow is invoked by fresh agents or inline execution:
-- **Single-issue (M/L/XL):** A fresh `pm:developer` agent follows this after receiving the approved RFC.
-- **Single-issue (XS/S):** The orchestrator follows this inline after intake (no planning phase).
-- **Epic sub-issue:** A fresh agent follows this after the orchestrator dispatches it with the approved RFC. All epic sub-issues run sequentially.
+- **Single-task (M/L/XL):** A fresh `pm:developer` agent follows this after receiving the approved RFC.
+- **Single-task (XS/S):** The orchestrator follows this inline after intake (no planning phase).
+- **Multi-task:** A fresh agent follows this for each task after the orchestrator dispatches it with the RFC and its assigned Issue section. All tasks run sequentially.
 
 ---
 
@@ -159,7 +159,7 @@ grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/featu
 
 **If no existing component exists but you need multiple instances in this task:** Build the first instance as a reusable, prop-driven component in the appropriate components directory. Then import and configure it for each use case. Never copy-paste a component and tweak it.
 
-**If you're building across multiple sub-issues in an epic:** Check what earlier sub-issues already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
+**If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
 
 Log the scan result in `.pm/dev-sessions/{slug}.md`:
 ```
@@ -343,18 +343,17 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
-This runs up to 4 review agents (conditionally skipping PM and Design when upstream gates passed). This gate is NOT optional. Do NOT skip it.
+This runs up to 3 review agents (conditionally skipping Design when upstream gate passed). This gate is NOT optional. Do NOT skip it.
 If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
 
-**Fix ALL findings from ALL active agents.** `/review` runs up to 4 agents:
+**Fix ALL findings from ALL active agents.** `/review` runs up to 3 agents:
 1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere). No confidence threshold filtering.
-2. **PM Review** — JTBD alignment, feature completeness. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows `Spec review: passed`.
-3. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
-4. **Input Edge-Case Review** — untested edge cases
+2. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
+3. **Input Edge-Case Review** — untested edge cases
 
-Agents 2 and 3 are skipped when upstream gates already covered their concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
+Agent 2 is skipped when upstream gate already covered its concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
 
 **Checklist (all must be true before PR):**
 - [ ] `/review` invoked on the branch
@@ -410,7 +409,7 @@ gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BR
 
 **Single-issue:** Invoke `/ship` — it handles push, PR creation, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
 
-**Epic sub-issue (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
+**Multi-task (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
 
 ### Handling review feedback
 
@@ -473,9 +472,9 @@ Both local backlog and issue tracker must be updated. Do not skip either. A merg
 
 ### Single-issue context
 
-Proceed to retro (Stage 9 in single-issue-flow.md).
+Proceed to retro (Stage 7 in dev-flow.md).
 
-### Epic sub-issue context
+### Multi-task context
 
 <HARD-RULE>
 The only valid terminal messages are:

@@ -115,7 +115,7 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
   }
 });
 
-test("buildStatus prioritizes active bug-fix sessions over generic lifecycle suggestions", () => {
+test("buildStatus prioritizes active dev sessions over generic lifecycle suggestions", () => {
   const project = createProject();
   try {
     project.mkdir("pm");
@@ -148,8 +148,8 @@ test("buildStatus prioritizes active bug-fix sessions over generic lifecycle sug
         "\n"
       )
     );
-    const bugfixPath = project.write(
-      ".pm/dev-sessions/bugfix-checkout-flow.md",
+    const devPath = project.write(
+      ".pm/dev-sessions/checkout-flow.md",
       [
         "| Field | Value |",
         "| --- | --- |",
@@ -162,11 +162,11 @@ test("buildStatus prioritizes active bug-fix sessions over generic lifecycle sug
     );
 
     const now = new Date("2026-04-04T12:00:00Z");
-    fs.utimesSync(bugfixPath, now, now);
+    fs.utimesSync(devPath, now, now);
 
     const status = buildStatus(project.root);
-    assert.equal(status.active.kind, "bugfix");
-    assert.equal(status.focus, "bug-fix in progress: bug-fix batch: checkout-flow");
+    assert.equal(status.active.kind, "dev");
+    assert.equal(status.focus, "delivery in progress: checkout-flow (verify)");
     assert.equal(status.next, "rerun checkout regression tests");
     assert.deepEqual(status.alternatives, ["/pm:strategy", "/pm:refresh (1 stale items)"]);
   } finally {

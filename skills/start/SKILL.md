@@ -272,7 +272,7 @@ This script is the shared source of truth used by the runtime hook and should de
 
 4. Pick the recommended next move using this priority:
 
-- Any active delivery work (`dev`, `epic`, `bugfix`) → resume that work
+- Any active delivery work (`dev`) → resume that work
 - Active grooming work → resume `pm:groom`
 - No durable work yet (no strategy, no insights, no evidence, no backlog) → go back to the first-workflow selector from Bootstrap Mode
 - Missing strategy with insights or evidence already present → `pm:strategy`

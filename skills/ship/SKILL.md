@@ -304,7 +304,7 @@ After merge confirmation, if `pm/backlog/{slug}.md` exists, update its frontmatt
 
 ### Linear-originated work
 
-After merge, check the session state for `linear_id`. If set and `pm/backlog/{slug}.md` does not exist, the Knowledge Base Updates section in `single-issue-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
+After merge, check the session state for `linear_id`. If set and `pm/backlog/{slug}.md` does not exist, the Status Updates section in `dev-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
 
 Before cleanup, verify the backlog entry was written:
 - Check: `test -f pm/backlog/{slug}.md`

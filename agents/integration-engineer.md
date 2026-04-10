@@ -1,10 +1,10 @@
 ---
 name: integration-engineer
 description: |
-  Integration Engineer for data flow and contract review of epic implementation
-  plans. Dispatched by dev skill during epic review. Evaluates integration
-  seams, E2E test coverage, data migration ordering, and contract consistency
-  between sub-issues.
+  Integration Engineer for data flow and contract review of multi-task
+  implementation plans. Dispatched by dev skill during RFC review when
+  task_count > 1. Evaluates integration seams, E2E test coverage, data
+  migration ordering, and contract consistency between tasks.
 model: inherit
 color: yellow
 ---
