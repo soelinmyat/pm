@@ -159,7 +159,7 @@ grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/featu
 
 **If no existing component exists but you need multiple instances in this task:** Build the first instance as a reusable, prop-driven component in the appropriate components directory. Then import and configure it for each use case. Never copy-paste a component and tweak it.
 
-**If you're building across multiple tasks in a multi-task RFC:** Check what earlier sub-issues already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
+**If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
 
 Log the scan result in `.pm/dev-sessions/{slug}.md`:
 ```

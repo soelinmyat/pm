@@ -630,19 +630,24 @@ Multi-task: For each task in order, fresh developer agent dispatched (Stage 5)
   → orchestrator checkpoints, syncs main, dispatches next
 ```
 
-## Stage 6: Team Cleanup
+## Stage 6: Worktree Cleanup
 
-If a team was created for this session (M/L/XL with persistent workers), shut it down:
+Clean up any worktrees created during this session:
 
-1. Send `shutdown_request` to every teammate still active (developer worker, review workers, QA worker).
-2. Wait up to 10 seconds per worker. If a worker doesn't respond after 2 attempts, move on.
-3. Run `TeamDelete()` to remove the team and its task list.
-4. If `TeamDelete` fails because a stuck worker won't terminate, remove files manually:
+1. For each worktree created in Stage 2 or by dispatched agents, remove it:
    ```bash
-   rm -rf ~/.claude/teams/{team-name} ~/.claude/tasks/{team-name}
+   git worktree remove <worktree-path> --force
+   ```
+2. Delete any leftover branches that were only used inside worktrees:
+   ```bash
+   git branch -d <worktree-branch>
+   ```
+3. If removal fails (locked worktree), force-remove:
+   ```bash
+   git worktree remove <worktree-path> --force
    ```
 
-Do NOT skip this step. Leftover teams clutter the UI and confuse subsequent sessions.
+Do NOT skip this step. Leftover worktrees consume disk and confuse subsequent sessions.
 
 ## Stage 7: Retro — Compound Learning
 

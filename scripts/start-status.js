@@ -459,9 +459,10 @@ function describeDevSession(filePath, text, stat) {
   const parentTitle = markdownTableValue(text, "Parent Title");
   const currentSubIssue = bulletValue(text, "Current sub-issue");
 
-  let label = ticket || baseName;
+  const cleanName = baseName.replace(/^(epic|bugfix)-/, "");
+  let label = ticket || cleanName;
   if (parentTitle) {
-    label = `${ticket || baseName}: ${parentTitle}`;
+    label = `${ticket || cleanName}: ${parentTitle}`;
   }
 
   let summary = `delivery in progress: ${label} (${stage})`;
