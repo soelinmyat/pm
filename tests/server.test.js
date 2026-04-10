@@ -1314,68 +1314,13 @@ test("KB nav item is highlighted on /kb routes", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 28. readProposalMeta reads JSON sidecar and returns parsed data
+// 28. readProposalMeta is deprecated (returns null for any input)
 // ---------------------------------------------------------------------------
 
-test("readProposalMeta returns parsed JSON for existing sidecar", () => {
-  const meta = {
-    title: "Dashboard Redesign",
-    date: "2026-03-17",
-    verdict: "ready",
-    verdictLabel: "Ready",
-    phase: "completed",
-    issueCount: 7,
-    gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    labels: ["dashboard", "ux"],
-  };
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/dashboard-redesign.meta.json": JSON.stringify(meta),
-  });
-  try {
-    const mod = loadServer();
-    const result = mod.readProposalMeta("dashboard-redesign", pmDir);
-    assert.deepEqual(result, meta);
-  } finally {
-    cleanup();
-  }
-});
-
-test("readProposalMeta returns null for missing sidecar", () => {
-  const { pmDir, cleanup } = withPmDir({});
-  try {
-    const mod = loadServer();
-    const result = mod.readProposalMeta("nonexistent", pmDir);
-    assert.equal(result, null);
-  } finally {
-    cleanup();
-  }
-});
-
-test("readProposalMeta returns null for corrupted JSON", () => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/bad.meta.json": "{ broken json",
-  });
-  try {
-    const mod = loadServer();
-    const result = mod.readProposalMeta("bad", pmDir);
-    assert.equal(result, null);
-  } finally {
-    cleanup();
-  }
-});
-
-test("readProposalMeta rejects path traversal slugs", () => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/legit.meta.json": '{"title":"ok"}',
-  });
-  try {
-    const mod = loadServer();
-    assert.equal(mod.readProposalMeta("../../../etc/passwd", pmDir), null);
-    assert.equal(mod.readProposalMeta("foo/bar", pmDir), null);
-    assert.equal(mod.readProposalMeta("..", pmDir), null);
-  } finally {
-    cleanup();
-  }
+test("readProposalMeta always returns null (deprecated)", () => {
+  const mod = loadServer();
+  assert.equal(mod.readProposalMeta("any-slug", "/tmp"), null);
+  assert.equal(mod.readProposalMeta(null, "/tmp"), null);
 });
 
 // ---------------------------------------------------------------------------
@@ -2285,16 +2230,19 @@ test("PM-120: parseStrategySnapshot returns null when no strategy.md", () => {
 });
 
 test("PM-120: What's coming section shows active proposals", async () => {
-  const meta = {
-    title: "Dashboard Redesign",
-    date: "2026-03-28",
-    verdict: "ready",
-    verdictLabel: "Ready",
-    id: "PM-120",
-    issueCount: 5,
-  };
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/dashboard-redesign.meta.json": JSON.stringify(meta),
+    "pm/backlog/dashboard-redesign.md":
+      "---\nid: PM-120\ntitle: Dashboard Redesign\nstatus: proposed\nprd: proposals/dashboard-redesign.html\npriority: high\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
+    "pm/backlog/sub-1.md":
+      "---\nid: PM-121\ntitle: Sub 1\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
+    "pm/backlog/sub-2.md":
+      "---\nid: PM-122\ntitle: Sub 2\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
+    "pm/backlog/sub-3.md":
+      "---\nid: PM-123\ntitle: Sub 3\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
+    "pm/backlog/sub-4.md":
+      "---\nid: PM-124\ntitle: Sub 4\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
+    "pm/backlog/sub-5.md":
+      "---\nid: PM-125\ntitle: Sub 5\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -2306,7 +2254,7 @@ test("PM-120: What's coming section shows active proposals", async () => {
       );
       assert.ok(body.includes("Dashboard Redesign"), "must show proposal title");
       assert.ok(body.includes("PM-120"), "must show proposal ID");
-      assert.ok(body.includes("5 issues"), "must show issue count");
+      assert.ok(body.includes("5 issues"), "must show issue count from children");
     } finally {
       await close();
     }
@@ -2315,40 +2263,26 @@ test("PM-120: What's coming section shows active proposals", async () => {
   }
 });
 
-test("PM-120: shipped proposals are not shown in What's coming", async () => {
-  const shipped = {
-    title: "Old Feature",
-    date: "2026-03-01",
-    verdict: "shipped",
-    verdictLabel: "Shipped",
-    id: "PM-050",
-    issueCount: 3,
-  };
-  const active = {
-    title: "New Feature",
-    date: "2026-03-28",
-    verdict: "ready",
-    verdictLabel: "Ready",
-    id: "PM-060",
-    issueCount: 2,
-  };
+test("PM-120: done proposals are not shown in What's coming", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/old-feature.meta.json": JSON.stringify(shipped),
-    "pm/backlog/proposals/new-feature.meta.json": JSON.stringify(active),
+    "pm/backlog/old-feature.md":
+      "---\nid: PM-050\ntitle: Old Feature\nstatus: done\nprd: proposals/old-feature.html\npriority: low\ncreated: 2026-03-01\nupdated: 2026-03-01\n---\n",
+    "pm/backlog/new-feature.md":
+      "---\nid: PM-060\ntitle: New Feature\nstatus: proposed\nprd: proposals/new-feature.html\npriority: high\ncreated: 2026-03-28\nupdated: 2026-03-28\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
       assert.ok(body.includes("New Feature"), "must show active proposal");
-      // Shipped proposal title should not appear in the proposals section
-      const proposalSection = body.substring(
-        body.indexOf("What"),
-        body.indexOf("Knowledge base") !== -1 ? body.indexOf("Knowledge base") : body.length
-      );
+      // Extract the "What's coming" section — from "home-proposal-list" to the next section
+      const proposalListStart = body.indexOf("home-proposal-list");
+      const proposalListEnd = body.indexOf("</section>", proposalListStart);
+      const proposalSection =
+        proposalListStart !== -1 ? body.substring(proposalListStart, proposalListEnd) : "";
       assert.ok(
         !proposalSection.includes("Old Feature"),
-        "must NOT show shipped proposal in What's coming"
+        "must NOT show done proposal in What's coming"
       );
     } finally {
       await close();
@@ -2385,43 +2319,26 @@ test("PM-120: :root contains design token scale variables", () => {
 // PM-121: Proposals Page Redesign
 // ---------------------------------------------------------------------------
 
-test("PM-121: buildProposalRows returns structured proposal data", () => {
+test("PM-121: buildProposalRows returns structured proposal data from .md with prd", () => {
   const mod = loadServer();
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/dashboard-redesign.meta.json": JSON.stringify({
-      id: "P-01",
-      title: "Dashboard Redesign",
-      outcome: "Make the dashboard look amazing",
-      verdict: "in-progress",
-      verdictLabel: "In Progress",
-      issueCount: 5,
-      date: "2026-04-01",
-    }),
-    "pm/backlog/proposals/api-v2.meta.json": JSON.stringify({
-      id: "P-02",
-      title: "API V2",
-      outcome: "Better developer experience",
-      verdict: "ready",
-      verdictLabel: "Ready",
-      issueCount: 3,
-      date: "2026-04-03",
-    }),
-    "pm/backlog/proposals/old-shipped.meta.json": JSON.stringify({
-      id: "P-00",
-      title: "Old Feature",
-      verdict: "shipped",
-      date: "2026-01-01",
-    }),
+    "pm/backlog/dashboard-redesign.md":
+      "---\nid: PM-101\ntitle: Dashboard Redesign\noutcome: Make the dashboard look amazing\nstatus: in-progress\nprd: proposals/dashboard-redesign.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/api-v2.md":
+      "---\nid: PM-102\ntitle: API V2\noutcome: Better developer experience\nstatus: proposed\nprd: proposals/api-v2.html\npriority: high\ncreated: 2026-04-03\nupdated: 2026-04-03\n---\n",
+    "pm/backlog/old-shipped.md":
+      "---\nid: PM-100\ntitle: Old Feature\nstatus: done\nprd: proposals/old-shipped.html\npriority: low\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n",
   });
   try {
     const rows = mod.buildProposalRows(pmDir);
     assert.ok(Array.isArray(rows), "must return array");
-    assert.equal(rows.length, 2, "must exclude shipped proposals");
+    assert.equal(rows.length, 2, "must exclude done proposals");
     // Sorted by date descending — API V2 (04-03) first
-    assert.equal(rows[0].id, "P-02");
-    assert.equal(rows[1].id, "P-01");
+    assert.equal(rows[0].id, "PM-102");
+    assert.equal(rows[1].id, "PM-101");
     assert.equal(rows[0].outcome, "Better developer experience");
-    assert.equal(rows[1].issueCount, 5);
+    assert.equal(rows[0].verdict, "ready", "proposed status maps to ready badge");
+    assert.equal(rows[1].verdict, "in-progress", "in-progress status maps to in-progress badge");
   } finally {
     cleanup();
   }
@@ -2441,15 +2358,14 @@ test("PM-121: buildProposalRows returns empty array when no proposals dir", () =
 
 test("PM-121: Proposals page contains Groomed section with proposal-card-outcome", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/dashboard-redesign.meta.json": JSON.stringify({
-      id: "P-01",
-      title: "Dashboard Redesign",
-      outcome: "Ship a polished dashboard",
-      verdict: "in-progress",
-      verdictLabel: "In Progress",
-      issueCount: 3,
-      date: "2026-04-01",
-    }),
+    "pm/backlog/dashboard-redesign.md":
+      "---\nid: PM-101\ntitle: Dashboard Redesign\noutcome: Ship a polished dashboard\nstatus: in-progress\nprd: proposals/dashboard-redesign.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/sub-issue-1.md":
+      "---\nid: PM-102\ntitle: Sub Issue 1\nstatus: done\nparent: dashboard-redesign\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/sub-issue-2.md":
+      "---\nid: PM-103\ntitle: Sub Issue 2\nstatus: in-progress\nparent: dashboard-redesign\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/sub-issue-3.md":
+      "---\nid: PM-104\ntitle: Sub Issue 3\nstatus: idea\nparent: dashboard-redesign\npriority: medium\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -2461,11 +2377,11 @@ test("PM-121: Proposals page contains Groomed section with proposal-card-outcome
         "must have Groomed section title"
       );
       assert.ok(body.includes("proposal-card-outcome"), "must have proposal-card-outcome class");
-      assert.ok(body.includes("P-01"), "must show proposal ID");
+      assert.ok(body.includes("PM-101"), "must show proposal ID");
       assert.ok(body.includes("Dashboard Redesign"), "must show proposal title");
       assert.ok(body.includes("Ship a polished dashboard"), "must show outcome text");
       assert.ok(body.includes("badge-in-progress"), "must show in-progress badge");
-      assert.ok(body.includes("3 issues"), "must show issue count");
+      assert.ok(body.includes("3 issues"), "must show issue count from children");
     } finally {
       await close();
     }
@@ -2502,19 +2418,12 @@ test("PM-121: Proposals page contains Ideas section with idea-row class", async 
 
 test("PM-121: Proposals page subtitle shows groomed and ideas counts", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/feat-one.meta.json": JSON.stringify({
-      id: "P-01",
-      title: "Feat One",
-      verdict: "ready",
-      date: "2026-04-01",
-    }),
-    "pm/backlog/proposals/feat-two.meta.json": JSON.stringify({
-      id: "P-02",
-      title: "Feat Two",
-      verdict: "in-progress",
-      date: "2026-04-02",
-    }),
-    "pm/backlog/idea-one.md": "---\ntitle: Idea One\nstatus: idea\n---\n",
+    "pm/backlog/feat-one.md":
+      "---\nid: PM-101\ntitle: Feat One\nstatus: proposed\nprd: proposals/feat-one.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/feat-two.md":
+      "---\nid: PM-102\ntitle: Feat Two\nstatus: in-progress\nprd: proposals/feat-two.html\npriority: high\ncreated: 2026-04-02\nupdated: 2026-04-02\n---\n",
+    "pm/backlog/idea-one.md":
+      "---\nid: PM-103\ntitle: Idea One\nstatus: idea\npriority: low\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -2550,12 +2459,8 @@ test("PM-121: Proposals page shows empty state when no proposals exist", async (
 
 test("PM-121: Proposals page body does not use card-grid class", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/feat.meta.json": JSON.stringify({
-      id: "P-01",
-      title: "Feat",
-      verdict: "ready",
-      date: "2026-04-01",
-    }),
+    "pm/backlog/feat.md":
+      "---\nid: PM-101\ntitle: Feat\nstatus: proposed\nprd: proposals/feat.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -2593,13 +2498,10 @@ test("PM-121: CSS contains proposal page classes with design tokens", () => {
 
 test("PM-121: Proposals page section headers are uppercase with section-count", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/feat.meta.json": JSON.stringify({
-      id: "P-01",
-      title: "Feat",
-      verdict: "ready",
-      date: "2026-04-01",
-    }),
-    "pm/backlog/idea.md": "---\ntitle: An Idea\nstatus: idea\n---\n",
+    "pm/backlog/feat.md":
+      "---\nid: PM-101\ntitle: Feat\nstatus: proposed\nprd: proposals/feat.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
+    "pm/backlog/idea.md":
+      "---\nid: PM-102\ntitle: An Idea\nstatus: idea\npriority: low\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -3023,20 +2925,22 @@ test("PM-124: shipped items without enrichment render cleanly", async () => {
   }
 });
 
-test("PM-124: shipped page shows strategy alignment tag", async () => {
+test("PM-124: shipped page does not show strategy alignment tag (deprecated)", async () => {
   const { pmDir, cleanup } = withPmDir({
-    // Root shipped item with parent pointing to a proposal slug
     "pm/backlog/dashboard-redesign.md":
-      "---\nstatus: done\ntitle: Dashboard Redesign\nid: PM-005\nupdated: 2026-03-18\nparent: dashboard-proposal\n---\n# Dashboard\n",
-    // Proposal meta with strategy_check
-    "pm/backlog/proposals/dashboard-proposal.meta.json": '{"strategy_check":"Ship dashboard"}',
+      "---\nstatus: done\ntitle: Dashboard Redesign\nid: PM-005\nupdated: 2026-03-18\nparent: dashboard-proposal\npriority: high\ncreated: 2026-03-18\n---\n# Dashboard\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap/shipped");
-      assert.ok(body.includes("shipped-tag-strategy"), "must have strategy tag class");
-      assert.ok(body.includes("Ship dashboard"), "must show strategy alignment text");
+      // resolveStrategyAlignment now returns null (meta.json removed)
+      // Check the HTML content after </style>, not the CSS definitions
+      const mainContent = body.substring(body.lastIndexOf("</style>"));
+      assert.ok(
+        !mainContent.includes("shipped-tag-strategy"),
+        "must NOT have strategy tag in content (deprecated)"
+      );
     } finally {
       await close();
     }
@@ -3151,10 +3055,10 @@ test("PM-124: resolveResearchRefs supports both legacy and layered KB paths", ()
   }
 });
 
-test("PM-124: resolveStrategyAlignment returns null without parent", () => {
+test("PM-124: resolveStrategyAlignment always returns null (deprecated)", () => {
   const { resolveStrategyAlignment } = loadServer();
-  const item = { slug: "test", parent: null };
-  assert.equal(resolveStrategyAlignment(item, {}, "/tmp"), null);
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: null }, {}, "/tmp"), null);
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: "some-parent" }, {}, "/tmp"), null);
 });
 
 test("PM-124: resolveCompetitiveContext returns empty array without competitors", () => {
@@ -3234,11 +3138,11 @@ test("PM-125: DASHBOARD_CSS contains detail page classes", () => {
 });
 
 test("PM-125: GET /proposals/{slug} serves proposal HTML with back link", async () => {
-  const meta = { title: "Dashboard Redesign", verdict: "ready", id: "P-05" };
   const proposalHtml =
     "<!DOCTYPE html><html><head><title>Test</title></head><body><h1>Proposal</h1></body></html>";
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/dashboard-redesign.meta.json": JSON.stringify(meta),
+    "pm/backlog/dashboard-redesign.md":
+      "---\nid: PM-105\ntitle: Dashboard Redesign\nstatus: proposed\nprd: proposals/dashboard-redesign.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
     "pm/backlog/proposals/dashboard-redesign.html": proposalHtml,
   });
   try {
@@ -3257,11 +3161,11 @@ test("PM-125: GET /proposals/{slug} serves proposal HTML with back link", async 
   }
 });
 
-test("PM-125: GET /proposals/{slug} shows /pm:dev for ready proposals", async () => {
-  const meta = { title: "My Proposal", verdict: "ready", id: "P-05" };
+test("PM-125: GET /proposals/{slug} shows /pm:dev for proposed status", async () => {
   const proposalHtml = "<!DOCTYPE html><html><head></head><body><h1>Ready</h1></body></html>";
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/my-proposal.meta.json": JSON.stringify(meta),
+    "pm/backlog/my-proposal.md":
+      "---\nid: PM-105\ntitle: My Proposal\nstatus: proposed\nprd: proposals/my-proposal.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
     "pm/backlog/proposals/my-proposal.html": proposalHtml,
   });
   try {
@@ -3270,7 +3174,7 @@ test("PM-125: GET /proposals/{slug} shows /pm:dev for ready proposals", async ()
       const { body } = await httpGet(port, "/proposals/my-proposal");
       assert.ok(
         body.includes("/pm:dev my-proposal"),
-        "ready proposals must show /pm:dev with slug"
+        "proposed status must show /pm:dev with slug"
       );
     } finally {
       await close();
@@ -3280,18 +3184,18 @@ test("PM-125: GET /proposals/{slug} shows /pm:dev for ready proposals", async ()
   }
 });
 
-test("PM-125: GET /proposals/{slug} shows /pm:groom for non-ready proposals", async () => {
-  const meta = { title: "My Proposal", verdict: "draft" };
-  const proposalHtml = "<!DOCTYPE html><html><head></head><body><h1>Draft</h1></body></html>";
+test("PM-125: GET /proposals/{slug} shows /pm:groom for idea status", async () => {
+  const proposalHtml = "<!DOCTYPE html><html><head></head><body><h1>Idea</h1></body></html>";
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/my-proposal.meta.json": JSON.stringify(meta),
+    "pm/backlog/my-proposal.md":
+      "---\nid: PM-105\ntitle: My Proposal\nstatus: idea\nprd: proposals/my-proposal.html\npriority: low\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
     "pm/backlog/proposals/my-proposal.html": proposalHtml,
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/proposals/my-proposal");
-      assert.ok(body.includes("/pm:groom my-proposal"), "draft proposals must show /pm:groom");
+      assert.ok(body.includes("/pm:groom my-proposal"), "idea status must show /pm:groom");
     } finally {
       await close();
     }
@@ -3300,10 +3204,10 @@ test("PM-125: GET /proposals/{slug} shows /pm:groom for non-ready proposals", as
   }
 });
 
-test("PM-125: GET /proposals/{slug} returns 404 without HTML file", async () => {
-  const meta = { title: "My Proposal", verdict: "draft" };
+test("PM-125: GET /proposals/{slug} returns 404 without prd field", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/proposals/my-proposal.meta.json": JSON.stringify(meta),
+    "pm/backlog/my-proposal.md":
+      "---\nid: PM-105\ntitle: My Proposal\nstatus: idea\npriority: low\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -4412,9 +4316,10 @@ test("PM-128 Task 13: home page body is wrapped in <main>", async () => {
 
 test("PM-128 Task 14: section elements used in proposals page", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/test-idea.md": "---\ntitle: Test Idea\nstatus: idea\npriority: medium\n---\n",
-    "pm/backlog/proposals/test-prop.meta.json":
-      '{"title":"Test Prop","verdict":"ready","issueCount":2,"date":"2026-01-01"}',
+    "pm/backlog/test-idea.md":
+      "---\nid: PM-101\ntitle: Test Idea\nstatus: idea\npriority: medium\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n",
+    "pm/backlog/test-prop.md":
+      "---\nid: PM-102\ntitle: Test Prop\nstatus: proposed\nprd: proposals/test-prop.html\npriority: high\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n",
     "pm/backlog/proposals/test-prop.html": "<h1>Test Prop</h1>",
   });
   try {
@@ -6253,7 +6158,7 @@ test("PM-33: Settings page renders deprecated fields config without crash", asyn
 test("GET /proposals/<slug> planned item shows dev action not groom", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/rfc-ready.md":
-      "---\ntype: proposal\nstatus: planned\ntitle: RFC Ready Item\n---\n# RFC Ready\n",
+      "---\nstatus: planned\ntitle: RFC Ready Item\nprd: proposals/rfc-ready.html\npriority: high\ncreated: 2026-04-01\nupdated: 2026-04-01\n---\n# RFC Ready\n",
     "pm/backlog/proposals/rfc-ready.html": "<html><head></head><body>Proposal</body></html>",
   });
   try {
