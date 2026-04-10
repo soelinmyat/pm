@@ -11,15 +11,21 @@ const HOOK_PATH = path.join(__dirname, "..", "hooks", "kb-pull.sh");
 
 // Prevent inheriting global/system git config (hooks, etc.) in test fixtures.
 // Provide git identity via env vars so commits work without any config file.
-const GIT_ENV = {
-  ...process.env,
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null",
-  GIT_AUTHOR_NAME: "Test",
-  GIT_AUTHOR_EMAIL: "test@test.local",
-  GIT_COMMITTER_NAME: "Test",
-  GIT_COMMITTER_EMAIL: "test@test.local",
-};
+// Delete GIT_DIR/GIT_WORK_TREE so tests work correctly inside git hooks (pre-push).
+const GIT_ENV = (() => {
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@test.local",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@test.local",
+  };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  return env;
+})();
 
 function gitExec(cmd, opts = {}) {
   const defaults = opts.encoding ? { env: GIT_ENV } : { env: GIT_ENV, stdio: "ignore" };
