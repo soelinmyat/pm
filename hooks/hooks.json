@@ -23,6 +23,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reconcile-merged.sh",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-pull.sh",
+            "async": false
           }
         ]
       }
@@ -56,6 +61,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/analytics-log.sh",
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-push.sh",
             "async": true
           }
         ]
