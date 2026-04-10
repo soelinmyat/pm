@@ -20,7 +20,7 @@ The goal: the HTML presentation shows a **Resolved Questions** section with clea
 
 Write the PRD to `pm/backlog/proposals/{topic-slug}.html` (create the `proposals/` directory if needed).
 
-**Write the proposal backlog entry** at `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md. This is the parent backlog item. Set `status: proposed`, `verdict:` from the bar raiser, `handoff_ready: true`, `prd: proposals/{topic-slug}.html`, `rfc: null`.
+**Write the proposal backlog entry** at `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md. This is the parent backlog item. Set `status: proposed`, `prd: proposals/{topic-slug}.html`, `rfc: null`.
 
 **No `.meta.json` sidecar.** All metadata lives in the proposal `.md` frontmatter. The dashboard reads frontmatter directly.
 
