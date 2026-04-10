@@ -55,6 +55,9 @@ const REQUIRED_EVIDENCE_FIELDS = [
 ];
 const REQUIRED_NOTES_FIELDS = ["type", "month", "updated", "note_count", "digested_through"];
 
+const VALID_THINKING_STATUSES = ["active", "parked", "promoted"];
+const REQUIRED_THINKING_FIELDS = ["type", "topic", "slug", "created", "status"];
+
 // ========== Helpers ==========
 
 function toPosix(value) {
@@ -470,6 +473,34 @@ function validateNotesFile(pmDir, filePath, data, errors) {
   }
 }
 
+function validateThinkingFile(pmDir, filePath, data, errors) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+
+  validateRequiredFields(relativeFile, data, REQUIRED_THINKING_FIELDS, errors);
+
+  if (data.type && data.type !== "thinking") {
+    pushIssue(errors, relativeFile, "type", `expected "thinking", got "${data.type}"`);
+  }
+
+  if (data.status && !VALID_THINKING_STATUSES.includes(data.status)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "status",
+      `invalid status "${data.status}" — valid: ${VALID_THINKING_STATUSES.join(", ")}`
+    );
+  }
+
+  if (data.created && !isIsoDate(data.created)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "created",
+      `invalid date format "${data.created}" — expected YYYY-MM-DD`
+    );
+  }
+}
+
 function parseIndexRows(content) {
   const tableLines = content
     .split(/\r?\n/)
@@ -779,6 +810,17 @@ function validate(pmDir) {
 
   validateBidirectionalCitations(errors, kbState);
 
+  const thinkingDir = path.join(pmDir, "thinking");
+  for (const filePath of walkMarkdownFiles(thinkingDir)) {
+    const relativeFile = relativeToPm(pmDir, filePath);
+    const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+    if (!parsed) {
+      continue;
+    }
+
+    validateThinkingFile(pmDir, filePath, parsed.data, errors);
+  }
+
   return { errors, warnings, backlogCount: backlogIds.size };
 }
 
@@ -833,4 +875,20 @@ function main() {
   process.exit(errors.length > 0 ? 1 : 0);
 }
 
-main();
+// ========== Exports (for validate-file.js) ==========
+
+module.exports = {
+  validateBacklogItem,
+  validateStrategy,
+  validateInsightFile,
+  validateEvidenceFile,
+  validateNotesFile,
+  validateThinkingFile,
+  pushIssue,
+  relativeToPm,
+  readParsedFrontmatter,
+};
+
+if (require.main === module) {
+  main();
+}
