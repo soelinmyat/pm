@@ -2177,6 +2177,16 @@ function handleSettingsPage(res, pmDir) {
   const autoLaunchBadge =
     autoLaunch === true ? '<span class="badge-on">on</span>' : '<span class="badge-off">off</span>';
 
+  // Ship auto-merge preference
+  const shipPrefs = prefs.ship || {};
+  const autoMerge = shipPrefs.auto_merge;
+  const autoMergeBadge =
+    autoMerge === true
+      ? '<span class="badge-on">on</span>'
+      : autoMerge === false
+        ? '<span class="badge-off">off</span>'
+        : '<span class="badge-off">not set</span>';
+
   const bodyHtml =
     '<div class="settings-header">' +
     "<h1>Settings</h1>" +
@@ -2225,6 +2235,15 @@ function handleSettingsPage(res, pmDir) {
     autoLaunchBadge +
     "</h3>" +
     "<p>Automatically start the dashboard when a PM session begins</p>" +
+    "</div></div>" +
+    // Ship auto-merge card
+    '<div class="setting-row">' +
+    '<div class="setting-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12"/><path d="M4 6l4-4 4 4"/><path d="M3 14h10"/></svg></div>' +
+    '<div class="setting-body">' +
+    "<h3>Ship auto-merge " +
+    autoMergeBadge +
+    "</h3>" +
+    "<p>Automatically merge PR after CI passes. Turn off if main is your production branch.</p>" +
     "</div></div>" +
     "</div>" +
     // Help footer

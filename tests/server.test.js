@@ -6002,6 +6002,82 @@ test("PM-33: Settings page auto_launch off badge", async () => {
   }
 });
 
+test("Settings page shows ship auto-merge on badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true, ship: { auto_merge: true } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(body.includes("Ship auto-merge"), "must show ship auto-merge heading");
+      assert.ok(
+        body.includes('auto-merge <span class="badge-on">on</span>'),
+        "auto_merge true renders on badge"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("Settings page shows ship auto-merge off badge", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true, ship: { auto_merge: false } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(
+        body.includes('auto-merge <span class="badge-off">off</span>'),
+        "auto_merge false renders off badge"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("Settings page shows ship auto-merge not set badge when missing", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      config_schema: 1,
+      project_name: "Test",
+      preferences: { auto_launch: true },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/settings");
+      assert.ok(
+        body.includes('auto-merge <span class="badge-off">not set</span>'),
+        "missing auto_merge renders not set badge"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test("PM-33: Settings page shows correct copiable commands", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",

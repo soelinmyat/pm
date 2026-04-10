@@ -157,6 +157,7 @@ Populate:
 - `integrations.linear.enabled` as `false`
 - `integrations.seo.provider` as `"none"`
 - `preferences.auto_launch` as `true` — controls whether the dashboard server starts automatically on session start. Set to `false` to disable.
+- `preferences.ship.auto_merge` is **not set during bootstrap** — `/ship` will ask the user on first invocation and persist their choice. This ensures every user makes a conscious decision about merge behavior.
 
 Only ask for a project name if the repo directory name is obviously generic or the user already gave you a better name.
 
