@@ -27,7 +27,6 @@ const VALID_SOURCE_ORIGINS = ["internal", "external", "mixed"];
 const VALID_LOG_ACTIONS = new Set(["create", "update", "move", "delete", "cite", "uncite", "skip"]);
 
 const REQUIRED_BACKLOG_FIELDS = [
-  "type",
   "id",
   "title",
   "outcome",
@@ -133,10 +132,6 @@ function validateBacklogItem(filePath, data, errors) {
   const rel = path.basename(filePath);
 
   validateRequiredFields(rel, data, REQUIRED_BACKLOG_FIELDS, errors);
-
-  if (data.type && !["backlog-issue", "proposal"].includes(data.type)) {
-    pushIssue(errors, rel, "type", `expected "backlog-issue" or "proposal", got "${data.type}"`);
-  }
 
   if (data.id && !/^[A-Z]+-\d+$/.test(data.id)) {
     pushIssue(
