@@ -1,10 +1,10 @@
 ---
 name: system-architect
 description: |
-  System Architect for cross-cutting review of epic implementation plans.
-  Dispatched by dev skill during epic review. Evaluates interface consistency,
-  dependency ordering, shared code extraction, migration sequencing, and
-  UI pattern consistency across multiple sub-issue plans.
+  System Architect for cross-cutting review of multi-task implementation plans.
+  Dispatched by dev skill during RFC review when task_count > 1. Evaluates
+  interface consistency, dependency ordering, shared code extraction, migration
+  sequencing, and UI pattern consistency across multiple tasks.
 model: inherit
 color: cyan
 ---
@@ -22,7 +22,7 @@ Your job is to find the integration problems that no single-issue reviewer would
 Read ALL plans provided in the dispatch prompt — every sub-issue's implementation plan. You need the full set to find cross-cutting issues.
 
 Also read:
-- The parent spec or epic description
+- The parent spec or issue description
 - `AGENTS.md` — project architecture conventions
 
 ## Methodology

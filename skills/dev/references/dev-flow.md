@@ -1,6 +1,6 @@
-# Single Issue Flow
+# Dev Flow
 
-This reference is loaded on-demand by the dev skill router when handling a single issue (feature, bug fix, refactor, or test backfill).
+Unified development lifecycle for all work — single issues, multi-task features, and issues with sub-issues. Whether work is 1 task or N tasks emerges from the RFC, not from routing.
 
 **Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching agents. This file defines how `pm:*` agent intents map to Claude and Codex.
 
@@ -23,12 +23,13 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
-3.5. **Linear issue readiness routing** — If `linear_id` is set in the session state (set by SKILL.md routing):
+4. **Fetch sub-issues** — After fetching the issue, also check for sub-issues via `list_issues({ parentId })`. If sub-issues exist, store them in session state under `## Sub-Issues`. They become context for RFC generation. If no sub-issues, proceed normally.
+5. **Linear issue readiness routing** — If `linear_id` is set in the session state (set by SKILL.md routing):
 
    If `linear_readiness` is `dev-ready`:
    - Use `linear_title` as the task title and `linear_description` as task context.
    - Skip proposal existence check in Stage 2.5 — the Linear issue IS the product context.
-   - Proceed to size classification (Step 4) using the Linear description.
+   - Proceed to size classification (Step 6) using the Linear description.
 
    If `linear_readiness` is `needs-groom` AND size is M/L/XL (size was classified during SKILL.md routing):
    - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
@@ -44,7 +45,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
    - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.
    - Store `linear_id` in session state for ship write-back.
 
-4. **Classify size:**
+6. **Classify size:**
 
 | Size | Signal | Example |
 |------|--------|---------|
@@ -54,11 +55,13 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 | **L** | New domain/module, cross-cutting refactor | New domain module, redesign auth flow |
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
-5. **Confirm size with user** before proceeding.
-6. **Issue tracking (M/L/XL only):**
+   **Multi-task:** If sub-issues exist, classify each sub-issue individually. Present a table. The parent size is the largest sub-issue size.
+
+7. **Confirm size with user** before proceeding.
+8. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-8. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. This is the single source of truth for the session.
+9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -68,7 +71,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 | Worktree | Stage 2 | Stage 2 | Stage 2 | Stage 2 | Stage 2 |
 | RFC check | Stage 2.5 (skip RFC) | Stage 2.5 (skip RFC) | Stage 2.5 | Stage 2.5 | Stage 2.5 |
 | RFC generation | — | — | Stage 3 (fresh agent writes RFC) | Stage 3 | Stage 3 |
-| RFC review | — | — | Stage 4 (3 reviewers) | Stage 4 | Stage 4 |
+| RFC review | — | — | Stage 4 (3+ reviewers) | Stage 4 | Stage 4 |
 | Implement | TDD | TDD | Stage 5 (fresh agent, inside-out TDD) | Stage 5 | Stage 5 |
 | Simplify | — | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
@@ -182,6 +185,14 @@ If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{sl
   - Labels: {linear_labels}
   ```
 
+  If sub-issues exist, also include:
+  ```
+  - Sub-issues:
+    - {SUB_ID}: {SUB_TITLE} (size: {SIZE})
+      Description: {SUB_DESCRIPTION}
+      ACs: {SUB_ACS}
+  ```
+
 - Log: `RFC check: needs-rfc (Linear-sourced, dev-ready, no local proposal)`
 
 ### Step 1: Check for existing proposal + RFC
@@ -249,6 +260,40 @@ Dispatch a fresh developer agent that writes the RFC. A separate fresh agent han
 
 Use the current runtime instructions from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`.
 
+### Pre-planning: Raw sub-issue specs (multi-task only)
+
+If sub-issues exist and some are raw (ungroomed) M/L/XL, handle them before RFC generation:
+
+**Raw XS:** Note "direct implementation, no plan needed" in state file. Include in the RFC as an XS issue with minimal approach section.
+
+**Raw S/M/L/XL that are NOT groomed:** Dispatch a short-lived design worker per raw sub-issue to generate a spec:
+
+```
+Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
+
+## Project Context
+{PROJECT_CONTEXT}
+
+**CWD:** {REPO_ROOT}
+**Sub-issue description:**
+{ISSUE_DESCRIPTION}
+
+**Parent issue context:**
+{PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
+
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-5-design.md.
+Save spec to docs/specs/{DATE}-{SLUG}.md.
+Commit, then end your response with:
+SPEC_COMPLETE
+- issue: {ISSUE_ID}
+- path: docs/specs/{file}
+- summary: {2-line summary}
+```
+
+For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/spec-reviewer-prompts.md`. Fix blocking issues, commit.
+
+Groomed sub-issues skip this step — their proposal is sufficient context.
+
 ### RFC generation prompt
 
 Dispatch an `Agent(subagent_type="pm:developer", ...)` with this brief (or run inline in Codex without delegation):
@@ -272,6 +317,24 @@ Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section cont
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
 
+{IF SUB-ISSUES EXIST:}
+**Sub-issues (each becomes an Issue section in the RFC):**
+{FOR_EACH_SUB_ISSUE:}
+  - {ISSUE_ID}: {ISSUE_TITLE} (size: {SIZE}, groomed: {yes/no})
+    Description: {ISSUE_DESCRIPTION}
+    ACs: {ACCEPTANCE_CRITERIA}
+    Spec: {SPEC_PATH or "from proposal ACs"}
+{END_FOR_EACH}
+
+**Dependency order:** {ORDERED_LIST}
+
+Each sub-issue becomes an Issue section within the RFC. You may also split sub-issues
+further or merge trivial ones if the technical structure warrants it.
+{ELSE:}
+The RFC may produce multiple Issues if the work naturally splits. Use splitting-patterns.md.
+A single Issue is fine if the work is genuinely one concern.
+{END IF}
+
 Write the RFC as a self-contained HTML file to pm/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
 Commit the RFC, then end your response with:
 
@@ -289,15 +352,17 @@ Stop after sending the summary. A separate agent will handle implementation afte
 Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
 
 After receiving `RFC_COMPLETE`:
-1. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `pm/backlog/{slug}.md`
-2. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
-3. Proceed to Stage 4.
+1. Record `task_count: {N}` in the session state (from `issues: {N}`).
+2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
+3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `pm/backlog/{slug}.md`
+4. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
+5. Proceed to Stage 4.
 
 ## Stage 4: RFC Review (M/L/XL)
 
-Three senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate. After this passes, the same developer worker implements.
+Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate. After this passes, agents implement.
 
-### The 3 RFC reviewers
+### The 3 standard RFC reviewers
 
 Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
 
@@ -337,15 +402,27 @@ Review this engineering RFC for complexity and long-term maintainability.
 {PROJECT_CONTEXT}
 ```
 
+### Cross-cutting reviewers (multi-task only)
+
+When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/cross-cutting-review-prompts.md` for the prompts. Scale by task count:
+
+| Tasks with code work | Cross-cutting reviewers | Standard reviewers |
+|---|---|---|
+| 1 | None | 3 (adversarial, test, staff) |
+| 2 | 1 combined (architect + integration + scope) | 3 (adversarial, test, staff) |
+| 3+ | 3 parallel (architect, integration, scope) | 3 (adversarial, test, staff) |
+
+Cross-cutting reviewers return compact JSON verdicts. Merge their findings with the standard reviewer findings.
+
 ### Handling findings
 
-1. Merge all 3 RFC reviewer outputs. Deduplicate.
+1. Merge all reviewer outputs. Deduplicate.
 2. Fix all **Blocking issues** in the RFC (orchestrator edits directly). Non-blocking items are advisory.
 3. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
 4. Commit RFC updates.
 5. Update RFC frontmatter to `status: approved`.
 6. Update the proposal status to `planned` in `pm/backlog/{slug}.md`.
-7. **Resolve open questions.** Collect all questions from the 3 RFC reviewers and any open questions in the RFC's Risks section. For each:
+7. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
    - **Answer it** using the proposal (`pm/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
    - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
    - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
@@ -359,7 +436,7 @@ Review this engineering RFC for complexity and long-term maintainability.
    open pm/backlog/rfcs/{slug}.html
    ```
 
-   Present to the user: "RFC reviewed by 3 engineers. [N] blocking issues found and fixed. Opening RFC in browser."
+   Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
 10. Wait for user approval. Then ask:
 
     > "RFC approved. Continue implementation now, or stop and resume later?"
@@ -379,9 +456,13 @@ Review this engineering RFC for complexity and long-term maintainability.
          ```
       **Stop here. Do not proceed to Stage 5.**
 
-## Stage 5: Implementation via Fresh Developer Agent
+## Stage 5: Implementation
 
-Dispatch a **fresh** `pm:developer` agent using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
+Dispatch **fresh** `pm:developer` agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
+
+### Single-task implementation (task_count == 1)
+
+One fresh agent in the existing worktree.
 
 **Implementation brief:**
 
@@ -416,12 +497,105 @@ If blocked, report: "Blocked: {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
 
+### Multi-task implementation (task_count > 1)
+
+Sequential implementation, one task at a time. Each task gets a fresh agent with its own worktree.
+
+#### Environment readiness check
+
+Before dispatching the first implementation agent, check whether any task touches mobile code (React Native/Expo). If so, ensure Metro is running:
+
+```bash
+# Only needed when tasks include mobile changes
+pgrep -f 'expo.*start' > /dev/null || (cd apps/mobile && npx expo start --dev-client &)
+sleep 3
+```
+
+Skip if no task touches mobile code. Log in the state file whether Metro was started.
+
+#### Skip fully-implemented tasks
+
+If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
+
+#### Sequential execution
+
+For each task (Issue section) in dependency order from the RFC:
+
+1. **Create worktree:**
+   ```bash
+   git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
+   ```
+
+2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID):
+   ```
+   mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
+   ```
+
+3. **Dispatch fresh `pm:developer` agent:**
+
+```text
+Implement the approved RFC.
+
+**CWD:** {TASK_WORKTREE_PATH}
+**Branch:** feat/{task-slug}
+**RFC:** pm/backlog/rfcs/{slug}.html
+**Your issue:** Issue {N} — {ISSUE_TITLE}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
+implementation lifecycle, then execute it.
+
+Read the RFC. Focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also
+contains shared architecture and data model sections that apply to your issue.
+
+Lifecycle:
+1. cd {TASK_WORKTREE_PATH}
+2. Install deps (read AGENTS.md), verify clean test baseline
+3. Read the RFC, focus on Issue {N}, implement its tasks
+4. Invoke pm:simplify — fix findings, run tests, commit
+5. If UI changes: invoke /design-critique if available, else skip
+6. If UI changes: dispatch QA agent per implementation-flow.md
+7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
+   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
+8. Run full test suite as final verification
+9. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+10. Report: "Merged. {ISSUE_ID} PR #{N}, sha {abc}, {N} files changed."
+
+If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
+Do NOT pause for confirmation — the RFC is the contract. Execute it.
+```
+
+4. **Wait for agent to return** "Merged" or "Blocked."
+
+5. **Checkpoint** — update state file `## Sub-Issues` table immediately. Update `## Implementation Progress`.
+
+6. **Sync main** before the next task:
+   ```bash
+   git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
+   ```
+
+7. **Announce progress:**
+   > **Task {N} of {TOTAL} complete.** Next: {ISSUE_TITLE}. Proceeding.
+
+8. Proceed to next task.
+
+#### Agent failure recovery
+
+If an implementation agent fails (API overload, timeout, 529 errors):
+
+1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
+2. Update state file with failure
+3. Dispatch a fresh recovery agent with the RFC path, git state, and instruction to continue from where the previous agent left off
+4. Max 3 total attempts per task. After 3 failures, mark as "Failed" and continue to next.
+
+Track retry count per task in the state file.
+
 ### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of Stage 4.5, the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the plan at the end of Stage 4, the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
-The rationale: by this point, the spec has been reviewed by 3 product/design agents, the plan has been reviewed by 3 engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
+The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
 **Only stop for:**
 - QA verdict of **Fail** (fix issues, re-run QA, then continue)
@@ -437,46 +611,26 @@ The rationale: by this point, the spec has been reviewed by 3 product/design age
 ```
 Fresh developer agent dispatched (Stage 3)
   → explores codebase, writes RFC, commits
-  → returns RFC_COMPLETE summary
+  → returns RFC_COMPLETE summary (includes task_count)
 
 Orchestrator runs RFC review (Stage 4)
+  → standard + cross-cutting reviewers (if multi-task)
   → fixes blocking issues in RFC
   → user approves
 
-Fresh developer agent dispatched (Stage 5)
-  → reads approved RFC (the handoff contract)
+Single-task: Fresh developer agent dispatched (Stage 5)
+  → reads approved RFC
   → implements → simplify → design critique → QA → review → merge → cleanup
   → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
+
+Multi-task: For each task in order, fresh developer agent dispatched (Stage 5)
+  → reads approved RFC, focuses on assigned Issue section
+  → implements → simplify → design critique → QA → review → merge → cleanup
+  → returns "Merged. {ISSUE_ID} PR #{N}" or "Blocked: {reason}"
+  → orchestrator checkpoints, syncs main, dispatches next
 ```
 
-### Agent failure recovery
-
-If the developer agent fails during implementation (API overload, timeout, 529 errors):
-
-1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
-2. Read `.pm/dev-sessions/{slug}.md` for progress
-3. Dispatch a **fresh** `pm:developer` agent:
-
-```text
-You are a RECOVERY agent. A previous developer agent failed during implementation.
-
-**Session file:** .pm/dev-sessions/{slug}.md
-**RFC:** pm/backlog/rfcs/{slug}.html
-**CWD:** {WORKTREE_PATH}
-**Branch:** {BRANCH}
-
-Check what was already done before starting:
-- git log --oneline to see committed work
-- git status for uncommitted changes
-- Read the RFC to identify remaining tasks
-
-Continue from where the previous agent left off.
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md.
-```
-
-After the developer agent returns (merged or blocked), continue to Stage 9 below.
-
-## Stage 8: Team Cleanup
+## Stage 6: Team Cleanup
 
 If a team was created for this session (M/L/XL with persistent workers), shut it down:
 
@@ -490,7 +644,7 @@ If a team was created for this session (M/L/XL with persistent workers), shut it
 
 Do NOT skip this step. Leftover teams clutter the UI and confuse subsequent sessions.
 
-## Stage 9: Retro — Compound Learning
+## Stage 7: Retro — Compound Learning
 
 Runs after EVERY task regardless of size.
 
@@ -579,13 +733,15 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `pm/
 - Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify. Fix errors before proceeding.
 - Log: `Backlog created: pm/backlog/{slug}.md (id: {linear_id})`
 
-**Step 2: Update local backlog item to done.**
+**Step 2: Update local backlog item(s) to done.**
 
 Read `pm/backlog/{slug}.md`. Update frontmatter:
 - Set `status: done`
 - Set `updated: {today's date}`
 - If `linear_id` is available in session state and not already in frontmatter, add it
 - If `prs` field exists, append `"#{pr_number}"` if not already listed
+
+**Multi-task:** Also update each sub-issue's backlog entry (`pm/backlog/{sub-issue-slug}.md`) to `status: done`.
 
 Verify the file was written: read it back and confirm `status: done`.
 
@@ -638,6 +794,17 @@ Log summary: `Status updates complete: backlog → done, Linear → Done`
 mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "{learnings summary}" })
 ```
 
+## Progress Announcements (multi-task)
+
+<HARD-RULE>
+When task_count > 1, announce progress at every stage transition and after each task completes. The user should never need to ask "what's next?"
+
+**Format:**
+> **Stage N complete.** [M of N] tasks {planned/implemented/merged}. Next: {specific next action}. {Proceeding. | Approve to proceed?}
+
+In autonomous mode (after Stage 4 approval), do NOT pause for confirmation. Announce and proceed.
+</HARD-RULE>
+
 ## State File (.pm/dev-sessions/{slug}.md)
 
 The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
@@ -652,6 +819,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Run ID | {PM_RUN_ID} |
 | Stage | implement |
 | Size | M |
+| Task Count | 1 |
 | Ticket | PROJ-456 |
 | Repo root | /path/to/project |
 | Active cwd | /path/to/project/.worktrees/feature-name |
@@ -680,6 +848,13 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Contract gate: passed (commit ghi789) — frontend detected, gate required
 - Design critique: required (frontend files modified)
 - E2E: yes (CRUD flow)
+
+## Sub-Issues (only present when task_count > 1)
+
+| # | ID | Title | Size | Status | PR | Retries | Started | Completed |
+|---|----|-------|------|--------|----|---------|---------|-----------|
+| 1 | ISSUE-001 | First task | S | Merged (PR #312) | #312 | 0 | ... | ... |
+| 2 | ISSUE-002 | Second task | M | Implementing | — | 0 | ... | — |
 
 ## Tasks
 - [x] 1. Add migration

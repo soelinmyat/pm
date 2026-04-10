@@ -451,7 +451,7 @@ function detectGroomSession(runtimeDir) {
   return best;
 }
 
-function describeDevSession(kind, filePath, text, stat) {
+function describeDevSession(filePath, text, stat) {
   const baseName = path.basename(filePath, ".md");
   const stage = markdownTableValue(text, "Stage") || bulletValue(text, "Stage") || "active";
   const nextAction = bulletValue(text, "Next action");
@@ -460,28 +460,23 @@ function describeDevSession(kind, filePath, text, stat) {
   const currentSubIssue = bulletValue(text, "Current sub-issue");
 
   let label = ticket || baseName;
-  if (kind === "epic" && parentTitle) {
-    label = `${ticket || "epic"}: ${parentTitle}`;
-  } else if (kind === "bugfix") {
-    label = `bug-fix batch: ${baseName.replace(/^bugfix-/, "")}`;
+  if (parentTitle) {
+    label = `${ticket || baseName}: ${parentTitle}`;
   }
 
   let summary = `delivery in progress: ${label} (${stage})`;
-  if (kind === "epic" && currentSubIssue) {
-    summary = `epic in progress: ${label} — ${currentSubIssue}`;
-  }
-  if (kind === "bugfix") {
-    summary = `bug-fix in progress: ${label}`;
+  if (currentSubIssue) {
+    summary = `delivery in progress: ${label} — ${currentSubIssue} (${stage})`;
   }
 
   return {
-    kind: kind === "single" ? "dev" : kind,
+    kind: "dev",
     filePath,
     stage,
     updated: "",
     updatedEpoch: Math.floor(stat.mtimeMs / 1000),
     summary,
-    next: nextAction || `resume active ${kind === "single" ? "delivery" : kind} work`,
+    next: nextAction || "resume active delivery work",
   };
 }
 
@@ -513,15 +508,8 @@ function detectDevSession(projectDir, runtimeDir) {
     }
 
     const text = safeRead(filePath);
-    const baseName = path.basename(filePath);
-    const kind =
-      baseName.startsWith("epic-") || baseName.startsWith(".dev-epic-state-")
-        ? "epic"
-        : baseName.startsWith("bugfix-")
-          ? "bugfix"
-          : "single";
 
-    const session = describeDevSession(kind, filePath, text, stat);
+    const session = describeDevSession(filePath, text, stat);
     if (!best || session.updatedEpoch > best.updatedEpoch) {
       best = session;
     }

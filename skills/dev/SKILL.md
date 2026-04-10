@@ -1,24 +1,18 @@
 ---
 name: dev
-description: "Use when starting any development work, debugging, or bug fixing — single issues, multi-issue epics, or batch bug triage. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'start the epic,' 'cycle bugs,' 'add a feature,' 'refactor this,' 'backfill tests.'"
+description: "Use when starting any development work, debugging, or bug fixing. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Whether work is 1 task or N tasks emerges from the RFC, not from routing. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'add a feature,' 'refactor this,' 'backfill tests.'"
 ---
 
 # Dev — Development Lifecycle
 
-Unified orchestrator for all development work. Auto-detects scope and routes to one of three flows:
+Unified orchestrator for all development work. One flow handles everything — whether work is 1 task or N tasks emerges from the RFC.
 
-| Flow | When | Reference |
-|------|------|-----------|
-| **Single Issue** | Feature, bug fix, refactor, test backfill | `dev/references/single-issue-flow.md` |
-| **Epic** | Parent issue with multiple sub-issues | `dev/references/epic-flow.md` |
-| **Bug Fix** | Batch triage of cycle bugs | `dev/references/bug-fix-flow.md` |
-
-**Read ONE flow reference, not all three.** The routing section below determines which.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/dev-flow.md` and follow it.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-**Hard rules (all flows):**
-- **Protect the orchestrator's context window in epic flow.** Each sub-issue's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
+**Hard rules:**
+- **Protect the orchestrator's context window for multi-task work.** Each task's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
 - Before design critique or review, always run `pm:simplify` (it routes to Anthropic official simplify in Claude Code and normalizes output to PM-required fields)
 - No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
@@ -30,61 +24,49 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime 
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
-- Bug-fix: investigation AND fixes run in delegated agents when available — main context only sees summaries
-
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
-## Route Detection
+## Resume Detection
 
 **Runs FIRST on every invocation.**
 
-### Step 1: Resume Detection
-
 Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.dev-epic-state-*.md` at repo root):
 
-| Pattern | Route |
-|---------|-------|
-| `epic-*.md` | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-flow.md`, resume epic |
-| `bugfix-*.md` | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/bug-fix-flow.md`, resume bug-fix |
-| Other `*.md` | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/single-issue-flow.md`, resume single |
-| Multiple types | List all with stage and last-modified, ask user which to resume |
-| None found | Proceed to Step 2 |
+| Matches | Action |
+|---------|--------|
+| 1 session file | Read it, resume from where it left off |
+| Multiple files | List all with stage and last-modified, ask user which to resume |
+| None found | Proceed to fresh start |
 
 **Staleness guard:** If a session file is older than 48 hours and the user didn't explicitly reference it, ask whether to resume or discard.
 
-### Step 2: Fresh Start Classification
+**Legacy migration:** Old `epic-{slug}.md` and `.dev-epic-state-*.md` files are treated identically to regular session files. All resume to `dev-flow.md`.
 
-Parse `$ARGUMENTS` and user message:
-
-| Signal | Route | Action |
-|--------|-------|--------|
-| Argument is an issue ID with sub-issues (check via MCP) | **Epic** | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/epic-flow.md` |
-| Argument is a cycle name, or user says "fix bugs" / "bug triage" / "batch bugs" / "cycle bugs" | **Bug Fix** | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/bug-fix-flow.md` |
-| Everything else (single issue, topic, slug, "build X", "fix Y") | **Single Issue** | Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/single-issue-flow.md` |
+## Fresh Start
 
 **Local backlog resolution (always runs first):** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
-1. First, check `pm/backlog/{slug}.md` — if found, read frontmatter and use as task context. Route to Single Issue.
-2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `pm/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context. Route to Single Issue.
+1. First, check `pm/backlog/{slug}.md` — if found, read frontmatter and use as task context.
+2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `pm/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
 3. Only if no local backlog match: fall through to MCP lookup below.
 
-**Epic detection (MCP fallback):** If `$ARGUMENTS` looks like an issue ID (e.g., `PM-036`, `CLE-1200`) and was NOT resolved from local backlog above, fetch via MCP and check for sub-issues. If it has sub-issues → epic. If not → single issue. If MCP returns nothing, route to Single Issue with the argument as the topic.
+**MCP lookup:** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog above, fetch via MCP. Also fetch sub-issues — they become context for RFC generation (not a routing decision). If MCP returns nothing, proceed with the argument as the topic.
 
-**Linear issue readiness check (after epic detection):** If the MCP fetch returned a single issue (no sub-issues), assess dev-readiness before routing:
+**Linear issue readiness check:** If the MCP fetch returned an issue, assess dev-readiness:
 
 1. **Fetch context:** Read the issue title, description, labels, and status from the `get_issue` response.
 2. **Dev-readiness assessment:** Check three criteria:
    - **AC exist:** The description contains testable acceptance criteria (specific, verifiable statements — not just a vague description). Be generous: look for testable statements anywhere, not just under "AC:" headers.
    - **Scope is clear:** The description distinguishes what's in scope. It should be possible to determine what the issue does and doesn't cover.
    - **Size is inferrable:** Enough detail exists to classify as XS/S/M/L/XL.
-3. **If all three pass:** Route to Single Issue. Store `linear_id`, `linear_readiness: dev-ready`, `linear_title`, `linear_description`, and `linear_labels` in the session state file. Log: `Linear issue {ID}: dev-ready. Proceeding to RFC.`
+3. **If all three pass:** Store `linear_id`, `linear_readiness: dev-ready`, `linear_title`, `linear_description`, and `linear_labels` in the session state file. Log: `Linear issue {ID}: dev-ready. Proceeding to RFC.`
 4. **If any fail:** Also classify size (XS/S/M/L/XL) from the available context. Store `linear_id`, `linear_readiness: needs-groom`, `size`, and the specific gaps (e.g., `gaps: [missing-ac, vague-scope]`) in the session state.
    - **XS/S:** Handle inline — confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do NOT invoke pm:groom.
    - **M/L/XL:** Announce gaps and invoke pm:groom within the same conversation. Pass Linear context as conversation text (not CLI flags). Specify the slug for groom: "Use slug: {slug}". Log: `Linear issue {ID}: needs grooming ({gaps}). Invoking pm:groom.`
 5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error message}`. Ask the user: "Could not fetch Linear issue {ID}. Can you paste the issue description?" Proceed with the pasted text as conversation-sourced task context.
 
-After routing, read ONLY the selected flow reference file and follow it.
+After intake is resolved, read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/dev-flow.md` and follow it.
 
 ## Bundled Skills
 
@@ -92,17 +74,17 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 | Skill / Reference | Used in |
 |-------------------|---------|
-| `pm:groom` | Single: Auto-invoked when no proposal exists (M/L/XL) |
-| `dev/references/writing-rfcs.md` (reference) | Single: RFC Generation (M/L/XL) |
-| `dev/references/splitting-patterns.md` (reference) | Single: Issue splitting within RFC (M/L/XL) |
-| `dev/references/epic-review-prompts.md` (reference) | Epic: Stage 3 review |
-| `dev/references/epic-rfc-reviewer-prompts.md` (reference) | Epic: Stage 2 RFC review |
-| `dev/references/implementation-flow.md` (reference) | Single: Stage 5, Epic: Stage 4 implementation |
-| `pm:tdd` | Single: Implementation agent (all) |
-| `pm:subagent-dev` | Single: Implementation agent (all) |
-| `pm:debugging` | Single/Bug-fix: Debug |
-| `pm:qa` | Single: QA ship gate (all UI changes) |
-| `review/references/handling-feedback.md` (reference) | Single: Ship (M/L/XL) — handling PR feedback |
+| `pm:groom` | Auto-invoked when no proposal exists (M/L/XL) |
+| `dev/references/writing-rfcs.md` (reference) | RFC Generation (M/L/XL) |
+| `dev/references/splitting-patterns.md` (reference) | Issue splitting within RFC (M/L/XL) |
+| `dev/references/cross-cutting-review-prompts.md` (reference) | Multi-task RFC review (task_count > 1) |
+| `dev/references/spec-reviewer-prompts.md` (reference) | Raw sub-issue spec review before RFC |
+| `dev/references/implementation-flow.md` (reference) | Stage 5 implementation |
+| `pm:tdd` | Implementation agent (all) |
+| `pm:subagent-dev` | Implementation agent (all) |
+| `pm:debugging` | Debug |
+| `pm:qa` | QA ship gate (all UI changes) |
+| `review/references/handling-feedback.md` (reference) | Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery
 
@@ -117,41 +99,18 @@ All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contrac
 
 State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
 
-- **Single issue:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.pm/dev-sessions/add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
-- **Epic:** `.pm/dev-sessions/epic-{parent-slug}.md`
-- **Bug-fix:** `.pm/dev-sessions/bugfix-{cycle-slug}.md`
+- **All sessions:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.pm/dev-sessions/add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
 - **`.gitignore`:** `.pm/` covers all state files (no separate pattern needed).
 
 When referencing the state file in subsequent sections, `.dev-state.md` means `.pm/dev-sessions/{slug}.md` — the slug is determined at intake.
 
 **Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.
 
-**Legacy migration:** On resume detection or any state file read, also check the legacy path (`.dev-state-{slug}.md` at repo root). If found at legacy path but not at new path, read from legacy. New writes always go to `.pm/dev-sessions/`.
-
-## Resume Detection
-
-```dot
-digraph resume {
-    "dev invoked" [shape=box];
-    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" [shape=diamond];
-    "One found: read it, resume" [shape=box];
-    "Multiple found: list, ask user" [shape=box];
-    "None found: fresh start" [shape=box];
-
-    "dev invoked" -> "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md";
-    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "One found: read it, resume" [label="1 match"];
-    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "Multiple found: list, ask user" [label="2+ matches"];
-    "Glob .pm/dev-sessions/*.md\n+ legacy .dev-state-*.md" -> "None found: fresh start" [label="0 matches"];
-}
-```
-
-On resume: read the state file, announce current stage and progress, continue from there.
-
-If multiple state files exist: list them with their stage and last-updated time. Ask user which to resume or whether to start fresh.
+**Legacy migration:** On resume detection or any state file read, also check legacy paths (`.dev-state-{slug}.md`, `.dev-epic-state-{slug}.md` at repo root, and `epic-{slug}.md` in `.pm/dev-sessions/`). If found at legacy path but not at new path, read from legacy. New writes always go to `.pm/dev-sessions/{slug}.md`.
 
 **Context recovery:** At the start of every turn, if you're unsure which stage you're in or what decisions were made, read the state file first. The state file is the single source of truth — not conversation history.
 
-## Execution Defaults (all flows)
+## Execution Defaults
 
 ### Workspace checkpoint format
 

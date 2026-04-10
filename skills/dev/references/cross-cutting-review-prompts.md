@@ -1,10 +1,10 @@
-# Epic Review Agent Prompts
+# Cross-Cutting Review Agent Prompts
 
-Agent prompts for Stage 3 (Epic Review). Dispatch as formal plugin agents.
+Agent prompts for multi-task RFC review. Dispatched when the RFC contains >1 task.
 
 **These agents run as sub-agents.** Their output returns directly to the orchestrator's context. Each agent should produce its JSON verdict as its final output.
 
-**Scaling:** If only 1-2 sub-issues have code work, combine all 3 review perspectives into a single agent prompt. Use 3 parallel agents only when 3+ sub-issues have substantial code changes.
+**Scaling:** If only 1-2 tasks have code work, combine all 3 review perspectives into a single agent prompt. Use 3 parallel agents only when 3+ tasks have substantial code changes.
 
 ---
 
