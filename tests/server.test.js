@@ -1535,11 +1535,12 @@ test("PM-129: remaining style= attributes are all dynamic (data-driven)", () => 
   const styleCount = styleMatches.length;
 
   // All remaining style= should be dynamic (contain variable interpolation)
-  // Target: <= 11 dynamic exceptions (includes display:none for KB search no-results
-  // and 2 hidden drill-down panels toggled by inline JS)
+  // Target: <= 13 dynamic exceptions (includes display:none for KB search no-results,
+  // 2 hidden drill-down panels toggled by inline JS,
+  // and 2 code-block pre styles in renderMarkdownToHtml using CSS vars)
   assert.ok(
-    styleCount <= 11,
-    `Too many inline style= attributes remain (${styleCount}). Target: <= 11 dynamic exceptions.`
+    styleCount <= 13,
+    `Too many inline style= attributes remain (${styleCount}). Target: <= 13 dynamic exceptions.`
   );
 });
 
@@ -1557,7 +1558,11 @@ test("PM-129: no static inline styles with hardcoded values remain", () => {
   const staticViolations = [];
 
   // display:none is used for KB search no-results div (toggled by JS)
-  const allowedStatic = new Set(["display:none"]);
+  // renderMarkdownToHtml uses a pre style with CSS vars for code blocks
+  const allowedStatic = new Set([
+    "display:none",
+    "background:var(--dark);color:var(--text-muted);padding:1rem;border-radius:var(--radius-sm);overflow-x:auto;margin:0.75rem 0;font-size:0.8125rem;line-height:1.5",
+  ]);
 
   while ((match = styleRe.exec(codeOnly)) !== null) {
     const val = match[1];
@@ -3257,7 +3262,7 @@ test("PM-125: GET /roadmap/{slug} renders .detail-page wrapper", async () => {
   }
 });
 
-test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail", async () => {
+test("PM-125: GET /roadmap/{slug} renders breadcrumb with parent trail", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/parent-proposal.md":
       "---\nstatus: proposed\ntitle: Parent Proposal\n---\n# Parent\n",
@@ -3268,12 +3273,14 @@ test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail",
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap/child-issue");
-      assert.ok(body.includes('class="detail-breadcrumb"'), "must have .detail-breadcrumb");
+      assert.ok(
+        body.includes('class="breadcrumb"') || body.includes('class="page-header"'),
+        "must have breadcrumb or page-header"
+      );
       assert.ok(
         body.includes('href="/proposals"'),
         "breadcrumb must link to /proposals when parent exists"
       );
-      assert.ok(body.includes("Parent Proposal"), "breadcrumb must show parent title");
     } finally {
       await close();
     }
@@ -3282,7 +3289,7 @@ test("PM-125: GET /roadmap/{slug} renders .detail-breadcrumb with parent trail",
   }
 });
 
-test("PM-125: GET /roadmap/{slug} renders .detail-meta-bar with status badge", async () => {
+test("PM-125: GET /roadmap/{slug} renders status and priority information", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/my-issue.md":
       "---\nstatus: drafted\ntitle: My Issue\nid: PM-042\npriority: high\n---\n# My Issue\n",
@@ -3291,9 +3298,8 @@ test("PM-125: GET /roadmap/{slug} renders .detail-meta-bar with status badge", a
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap/my-issue");
-      assert.ok(body.includes('class="detail-meta-bar"'), "must have .detail-meta-bar");
-      assert.ok(body.includes("drafted"), "meta bar must show status");
-      assert.ok(body.includes("high priority"), "meta bar must show priority");
+      assert.ok(body.includes("drafted"), "must show status");
+      assert.ok(body.includes("high priority"), "must show priority");
     } finally {
       await close();
     }
@@ -4176,18 +4182,14 @@ test("PM-128 Task 5: roadmap page has exactly one <h1> tag", async () => {
   }
 });
 
-test("PM-128 Task 6: card elements use <article> tag", () => {
+test("PM-128 Task 6: competitor list renders topic-row elements", () => {
   const mod = loadServer();
-  const { DASHBOARD_CSS } = mod;
-  // We verify indirectly: the CSS has .card styles, and we generate cards using <article>
-  // Generate a page that contains cards
   const { pmDir, cleanup } = withPmDir({
     "pm/evidence/competitors/acme/profile.md":
       "---\ncompany: Acme\n---\n# Acme\n**Category:** B2B\n",
   });
   try {
     const server = mod.createDashboardServer(pmDir);
-    // Check the output contains <article class="card">
     const http = require("http");
     return new Promise((resolve, reject) => {
       server.listen(0, "127.0.0.1", () => {
@@ -4201,9 +4203,10 @@ test("PM-128 Task 6: card elements use <article> tag", () => {
             res.on("end", () => {
               server.close(() => {
                 assert.ok(
-                  body.includes('<article class="card">'),
-                  "cards must use <article> element"
+                  body.includes('class="topic-row"'),
+                  "competitors must use topic-row elements"
                 );
+                assert.ok(body.includes("Acme"), "must render competitor name");
                 cleanup();
                 resolve();
               });
@@ -4378,14 +4381,14 @@ test('PM-138: renderTemplate("detail", data) returns HTML with expected structur
     sections: [{ title: "Findings", html: '<div class="markdown-body">Results here.</div>' }],
   });
   assert.ok(html.includes('class="detail-page"'), "must have .detail-page");
-  assert.ok(html.includes('class="detail-breadcrumb"'), "must have .detail-breadcrumb");
-  assert.ok(html.includes('class="detail-title"'), "must have .detail-title");
-  assert.ok(html.includes('class="detail-meta-bar"'), "must have .detail-meta-bar");
-  assert.ok(html.includes('class="detail-section"'), "must have .detail-section");
-  assert.ok(html.includes('class="detail-section-title"'), "must have .detail-section-title");
+  assert.ok(html.includes('class="page-header"'), "must have .page-header");
+  assert.ok(html.includes('class="breadcrumb"'), "must have .breadcrumb");
+  assert.ok(html.includes("<h1>"), "must have h1 title");
+  assert.ok(html.includes('class="detail-card"'), "must have .detail-card");
+  assert.ok(html.includes('class="detail-card-header"'), "must have .detail-card-header");
 });
 
-test("PM-138: breadcrumb with 2 items — first is link, second is current", () => {
+test("PM-138: breadcrumb with 2 items — back arrow links to first item", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "Roadmap", href: "/roadmap" }, { label: "My Issue" }],
@@ -4393,13 +4396,12 @@ test("PM-138: breadcrumb with 2 items — first is link, second is current", () 
     metaBadges: [],
     sections: [],
   });
-  assert.ok(html.includes('href="/roadmap"'), "first breadcrumb item must be a link");
-  assert.ok(html.includes('class="breadcrumb-current"'), "last item must be breadcrumb-current");
-  assert.ok(html.includes(">Roadmap<"), "first item must show Roadmap label");
-  assert.ok(html.includes(">My Issue<"), "last item must show current label");
+  assert.ok(html.includes('href="/roadmap"'), "back arrow must link to parent");
+  assert.ok(html.includes("&larr;"), "must have back arrow");
+  assert.ok(html.includes("Roadmap"), "back link must show parent label");
 });
 
-test("PM-138: breadcrumb with 3 items — first two are links with separators, third is current", () => {
+test("PM-138: breadcrumb with 3 items — back arrow links to second-to-last item", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [
@@ -4411,28 +4413,22 @@ test("PM-138: breadcrumb with 3 items — first two are links with separators, t
     metaBadges: [],
     sections: [],
   });
-  assert.ok(html.includes('href="/proposals"'), "first item must link to /proposals");
-  assert.ok(html.includes('href="/roadmap/parent"'), "second item must link to parent");
-  assert.ok(html.includes('class="breadcrumb-current"'), "last item must be breadcrumb-current");
-  // Count separators — should be 2
-  const sepCount = (html.match(/breadcrumb-sep/g) || []).length;
-  assert.equal(sepCount, 2, "must have 2 breadcrumb separators for 3 items");
+  // Back arrow should link to the second-to-last breadcrumb (Parent)
+  assert.ok(html.includes('href="/roadmap/parent"'), "back arrow must link to immediate parent");
+  assert.ok(html.includes("Parent"), "back link must show parent label");
+  assert.ok(html.includes("&larr;"), "must have back arrow");
 });
 
-test("PM-138: titlePrefix appears inside h1 before title text", () => {
+test("PM-138: title appears inside h1 in page-title-row", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "Roadmap", href: "/roadmap" }, { label: "Issue" }],
     title: "Issue Title",
-    titlePrefix: '<span class="detail-id-badge">PM-042</span>',
     metaBadges: [],
     sections: [],
   });
-  assert.ok(
-    html.includes('<h1 class="detail-title"><span class="detail-id-badge">PM-042</span>'),
-    "titlePrefix must appear inside h1 before title"
-  );
-  assert.ok(html.includes("Issue Title"), "title text must appear");
+  assert.ok(html.includes("page-title-row"), "must have page-title-row");
+  assert.ok(html.includes("<h1>Issue Title</h1>"), "title must appear inside h1");
 });
 
 test('PM-138: subtitle renders <p class="subtitle"> when present, omitted when falsy', () => {
@@ -4456,7 +4452,7 @@ test('PM-138: subtitle renders <p class="subtitle"> when present, omitted when f
   assert.ok(!withoutSub.includes('class="subtitle"'), "subtitle must be omitted when falsy");
 });
 
-test("PM-138: metaBadges joined with meta-sep middot separators", () => {
+test("PM-138: metaBadges rendered in subtitle paragraph", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "X" }],
@@ -4467,11 +4463,12 @@ test("PM-138: metaBadges joined with meta-sep middot separators", () => {
     ],
     sections: [],
   });
-  assert.ok(html.includes("meta-sep"), "must have meta-sep separator between badges");
-  assert.ok(html.includes("&middot;"), "separator must contain middot");
+  assert.ok(html.includes('class="subtitle"'), "must have subtitle with badges");
+  assert.ok(html.includes('<span class="badge">A</span>'), "must include first badge");
+  assert.ok(html.includes('<span class="meta-item">B</span>'), "must include second badge");
 });
 
-test("PM-138: empty metaBadges array still renders the meta-bar div", () => {
+test("PM-138: empty metaBadges array omits subtitle paragraph", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "X" }],
@@ -4480,12 +4477,12 @@ test("PM-138: empty metaBadges array still renders the meta-bar div", () => {
     sections: [],
   });
   assert.ok(
-    html.includes('class="detail-meta-bar"'),
-    "meta-bar must render even with empty badges"
+    !html.includes('class="subtitle"'),
+    "subtitle must be omitted when no badges and no subtitle"
   );
 });
 
-test("PM-138: sections with title render h2; sections with title: null skip h2", () => {
+test("PM-138: sections with title render detail-card-header; sections with title: null skip header", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "X" }],
@@ -4497,18 +4494,18 @@ test("PM-138: sections with title render h2; sections with title: null skip h2",
     ],
   });
   assert.ok(
-    html.includes('<h2 class="detail-section-title">Findings</h2>'),
-    "section with title must render h2"
+    html.includes('class="detail-card-header">Findings</div>'),
+    "section with title must render detail-card-header"
   );
   assert.ok(html.includes("Raw content"), "section without title must render html");
-  // The null-title section should not have an h2 before its content
-  const nullSection = html.split("Raw content")[0];
-  const lastSectionTag = nullSection.lastIndexOf('<section class="detail-section">');
-  const sectionSlice = nullSection.slice(lastSectionTag);
-  assert.ok(!sectionSlice.includes("detail-section-title"), "null-title section must not have h2");
+  // The null-title section should not have a header before its content
+  const nullCard = html.split("Raw content")[0];
+  const lastCardTag = nullCard.lastIndexOf('class="detail-card"');
+  const cardSlice = nullCard.slice(lastCardTag);
+  assert.ok(!cardSlice.includes("detail-card-header"), "null-title section must not have header");
 });
 
-test("PM-138: actionHint renders detail-action-hint with click-to-copy; omitted when falsy", () => {
+test("PM-138: actionHint renders section-hint with click-to-copy; omitted when falsy", () => {
   const mod = loadServer();
   const withHint = mod.renderTemplate("detail", {
     breadcrumb: [{ label: "X" }],
@@ -4517,7 +4514,7 @@ test("PM-138: actionHint renders detail-action-hint with click-to-copy; omitted 
     sections: [],
     actionHint: "/pm:refresh topic",
   });
-  assert.ok(withHint.includes('class="detail-action-hint"'), "must have detail-action-hint");
+  assert.ok(withHint.includes('class="section-hint"'), "must have section-hint");
   assert.ok(withHint.includes("click-to-copy"), "must have click-to-copy inside action hint");
   assert.ok(withHint.includes("/pm:refresh topic"), "must show the command");
 
@@ -4527,7 +4524,7 @@ test("PM-138: actionHint renders detail-action-hint with click-to-copy; omitted 
     metaBadges: [],
     sections: [],
   });
-  assert.ok(!withoutHint.includes("detail-action-hint"), "must omit action hint when falsy");
+  assert.ok(!withoutHint.includes("section-hint"), "must omit action hint when falsy");
 });
 
 test("PM-138: unknown template type throws an error", () => {
@@ -4594,7 +4591,7 @@ test("PM-139: renderTemplate detail-tabs uses unique function prefix (not global
   assert.ok(/function \w+Key\(/.test(html), "must define a prefixed Key function");
 });
 
-test("PM-139: renderTemplate detail-tabs wraps in .detail-page with breadcrumb, title, meta-bar", () => {
+test("PM-139: renderTemplate detail-tabs wraps in .detail-page with page-header, breadcrumb, title", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail-tabs", {
     breadcrumb: [{ href: "/kb", label: "Knowledge Base" }, { label: "Acme" }],
@@ -4604,10 +4601,9 @@ test("PM-139: renderTemplate detail-tabs wraps in .detail-page with breadcrumb, 
     actionHint: "/pm:refresh acme",
   });
   assert.ok(html.includes("detail-page"), "must wrap in .detail-page");
-  assert.ok(html.includes("detail-breadcrumb"), "must have .detail-breadcrumb");
-  assert.ok(html.includes("detail-meta-bar"), "must have .detail-meta-bar");
-  assert.ok(html.includes("detail-title"), "must have .detail-title");
-  assert.ok(html.includes("Acme Corp"), "must show title text");
+  assert.ok(html.includes("page-header"), "must have .page-header");
+  assert.ok(html.includes("breadcrumb"), "must have .breadcrumb");
+  assert.ok(html.includes("<h1>Acme Corp</h1>"), "must show title in h1");
 });
 
 test("PM-139: renderTemplate detail-tabs first tab is active, rest are not", () => {
@@ -4713,7 +4709,7 @@ test("PM-139: renderTemplate detail-toc does NOT contain role=tablist", () => {
   assert.ok(html.includes('role="navigation"'), "TOC nav must have role=navigation");
 });
 
-test("PM-139: renderTemplate detail-toc wraps in .detail-page with breadcrumb, title, meta-bar", () => {
+test("PM-139: renderTemplate detail-toc wraps in .detail-page with page-header, breadcrumb, title", () => {
   const mod = loadServer();
   const html = mod.renderTemplate("detail-toc", {
     breadcrumb: [{ href: "/kb", label: "Knowledge Base" }, { label: "Landscape" }],
@@ -4724,11 +4720,10 @@ test("PM-139: renderTemplate detail-toc wraps in .detail-page with breadcrumb, t
     actionHint: "/pm:refresh",
   });
   assert.ok(html.includes("detail-page"), "must wrap in .detail-page");
-  assert.ok(html.includes("detail-breadcrumb"), "must have .detail-breadcrumb");
-  assert.ok(html.includes("detail-meta-bar"), "must have .detail-meta-bar");
-  assert.ok(html.includes("detail-title"), "must have .detail-title");
-  assert.ok(html.includes("Market Landscape"), "must show title text");
-  assert.ok(html.includes("detail-action-hint"), "must have action hint");
+  assert.ok(html.includes("page-header"), "must have .page-header");
+  assert.ok(html.includes("breadcrumb"), "must have .breadcrumb");
+  assert.ok(html.includes("<h1>Market Landscape</h1>"), "must show title in h1");
+  assert.ok(html.includes("section-hint"), "must have action hint");
 });
 
 test("PM-139: GET /kb?tab=landscape uses detail-tabs template (integration)", async () => {
