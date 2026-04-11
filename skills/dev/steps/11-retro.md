@@ -24,7 +24,7 @@ entries:
 
 3. If learnings suggest AGENTS.md or CLAUDE.md updates — flag to user, don't auto-modify
 4. If a learning is a "review should catch this" anti-pattern, and a review checklist exists (e.g., `.claude/references/review-checklist.md`), append it under the appropriate section
-5. Cap: 50 entries. Archive >3 months old to `{pm_dir}/memory-archive.md` (type: `project-memory-archive`, add `archived_at` date per entry)
+5. **Cap enforcement:** After writing entries, follow the algorithm in `references/memory-cap.md` — if more than 50 entries, archive the oldest non-pinned entries to `{pm_dir}/memory-archive.md`
 
 ### Linear retro comment (M/L/XL)
 
