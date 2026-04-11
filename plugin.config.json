@@ -1,7 +1,7 @@
 {
   "name": "pm",
   "displayName": "PM",
-  "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge",
+  "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo",
   "version": "1.0.62",
   "author": {
     "name": "Soe Lin Myat",
@@ -66,8 +66,8 @@
       ]
     },
     "interface": {
-      "shortDescription": "Product research, grooming, implementation, and shipping workflows.",
-      "longDescription": "PM helps product engineers research markets, define strategy, groom ideas into sprint-ready work, and ship with TDD, review, QA, and merge loops.",
+      "shortDescription": "Shared product brain for small teams.",
+      "longDescription": "PM keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo. Context compounds over time — every session builds on prior research, decisions, and evidence.",
       "developerName": "Soe Lin Myat",
       "category": "Productivity",
       "capabilities": ["Interactive", "Write"],
@@ -83,7 +83,7 @@
     }
   },
   "marketplace": {
-    "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
+    "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo. Context compounds over time.",
     "category": "productivity"
   }
 }

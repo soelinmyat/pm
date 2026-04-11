@@ -45,15 +45,7 @@ jobs:
       - run: npm ci
 
       - name: Run tests
-        run: |
-          node --test tests/*.test.js 2>&1 | tee test-output.txt || true
-          FAILS=$(grep '^# fail' test-output.txt | awk '{print $3}')
-          KNOWN_FAILURES=6
-          if [ "$FAILS" -gt "$KNOWN_FAILURES" ]; then
-            echo "ERROR: New test failures detected (expected <=$KNOWN_FAILURES, got $FAILS)"
-            exit 1
-          fi
-          echo "Tests: $FAILS failures (all pre-existing, threshold: $KNOWN_FAILURES)"
+        run: node --test tests/*.test.js
 
   validate:
     name: Plugin Validation
@@ -65,29 +57,30 @@ jobs:
         with:
           node-version: 20
 
+      - run: npm ci
+
       - name: JSON validity
         run: |
-          for f in .claude-plugin/plugin.json .cursor-plugin/plugin.json .claude-plugin/marketplace.json gemini-extension.json; do
-            if [ -f "$f" ]; then
-              python3 -m json.tool "$f" > /dev/null || { echo "Invalid JSON: $f"; exit 1; }
-            fi
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .codex-plugin/plugin.json; do
+            python3 -m json.tool "$f" > /dev/null || { echo "Invalid JSON: $f"; exit 1; }
           done
 
       - name: Version consistency
         run: |
           first=""
-          for f in .claude-plugin/plugin.json .cursor-plugin/plugin.json .claude-plugin/marketplace.json gemini-extension.json; do
-            if [ -f "$f" ]; then
-              v=$(python3 -c "import json; d=json.load(open('$f')); print(d.get('version') or d['plugins'][0]['version'])")
-              if [ -z "$first" ]; then
-                first="$v"
-              elif [ "$v" != "$first" ]; then
-                echo "ERROR: Version mismatch — $f has $v, expected $first"
-                exit 1
-              fi
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .codex-plugin/plugin.json; do
+            v=$(python3 -c "import json; d=json.load(open('$f')); print(d.get('version') or d['plugins'][0]['version'])")
+            if [ -z "$first" ]; then
+              first="$v"
+            elif [ "$v" != "$first" ]; then
+              echo "ERROR: Version mismatch — $f has $v, expected $first"
+              exit 1
             fi
           done
           echo "All manifests at version $first"
+
+      - name: Generated files in sync
+        run: node scripts/generate-platform-files.js --check
 
       - name: Skill structure
         run: |
