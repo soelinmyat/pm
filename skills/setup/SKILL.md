@@ -23,6 +23,45 @@ Toggle integrations on or off for this project.
 | `linear` | `integrations.linear.enabled` | `true` | `false` |
 | `ahrefs` | `integrations.seo.provider` | `"ahrefs"` | `"none"` |
 
+## Config Schema v2 Fields
+
+Schema v2 (`config_schema: 2`) adds two optional repo pointer fields for separate-repo mode. These fields are not present in same-repo mode configs.
+
+| Field | Type | Description |
+|---|---|---|
+| `pm_repo` | `{ type: "local", path: "<relative-path>" }` | Points from a **source repo** to the PM repo. Path is relative to the config file location (`.pm/config.json`). |
+| `source_repo` | `{ type: "local", path: "<relative-path>" }` | Points from a **PM repo** to the source repo. Path is relative to the config file location. |
+
+Example — source repo config (`.pm/config.json` in the app repo):
+
+```json
+{
+  "config_schema": 2,
+  "project_name": "My App",
+  "pm_repo": { "type": "local", "path": "../../my-app-pm" },
+  "integrations": { "linear": { "enabled": false }, "seo": { "provider": "none" } },
+  "preferences": { "auto_launch": true }
+}
+```
+
+Example — PM repo config (`.pm/config.json` in the PM repo):
+
+```json
+{
+  "config_schema": 2,
+  "project_name": "My App",
+  "source_repo": { "type": "local", "path": "../../my-app" },
+  "integrations": { "linear": { "enabled": false }, "seo": { "provider": "none" } },
+  "preferences": { "auto_launch": true }
+}
+```
+
+Rules:
+- A config with `config_schema: 1` or missing `pm_repo`/`source_repo` fields is same-repo mode — no behavioral change.
+- Paths are always stored relative to the directory containing `.pm/config.json`, never as absolute paths.
+- `type` is always `"local"` for now. The field exists to support future remote backends.
+- A config should have either `pm_repo` or `source_repo`, not both.
+
 ## Behavior
 
 1. **Parse the argument.** Extract the action (`enable` or `disable`) and the integration name from the user's message. If either is missing or unrecognized, show usage examples and stop.
