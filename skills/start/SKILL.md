@@ -93,11 +93,10 @@ Get the user to value quickly. Do not front-load integration questions.
 Create the layered KB folders and seed each index/log file with a minimal header so the KB is self-explanatory.
 
 ```bash
-mkdir -p pm/insights/{trends,competitors,business}
+mkdir -p pm/insights/{product,competitors,business}
 mkdir -p pm/evidence/{research,transcripts,user-feedback}
 mkdir -p pm/backlog
 mkdir -p pm/thinking
-mkdir -p pm/product
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
@@ -108,8 +107,8 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 
 | File | Content |
 |------|---------|
-| `pm/insights/trends/index.md` | `# Trends` |
-| `pm/insights/trends/log.md` | `# Trends Log` |
+| `pm/insights/product/index.md` | `# Product Insights` |
+| `pm/insights/product/log.md` | `# Product Insights Log` |
 | `pm/insights/competitors/index.md` | `# Competitor Insights` |
 | `pm/insights/competitors/log.md` | `# Competitor Insights Log` |
 | `pm/insights/business/index.md` | `# Business Insights` |
@@ -122,11 +121,8 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 | `pm/evidence/transcripts/log.md` | `# Transcripts Log` |
 | `pm/evidence/user-feedback/index.md` | `# User Feedback` |
 | `pm/evidence/user-feedback/log.md` | `# User Feedback Log` |
-| `pm/product/index.md` | `# Product` |
 
-Default insight domains are `trends`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
-
-**Migration:** If `pm/insights/product/` exists and `pm/insights/trends/` does not, rename the directory (`mv pm/insights/product pm/insights/trends`). This preserves existing user data from the pre-1.0.52 naming convention.
+Default insight domains are `product`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
 
 ### Step 2: Gitignore
 
@@ -175,11 +171,10 @@ If `CLAUDE.md` exists at the project root, append a brief PM section so future s
 ## PM Knowledge Base
 
 This project uses PM for product management. The `pm/` directory contains the structured knowledge base:
-- `pm/insights/` — trends, competitor, and business insights
+- `pm/insights/` — product, competitor, and business insights
 - `pm/evidence/` — research, transcripts, and user feedback
 - `pm/backlog/` — feature proposals and issues
 - `pm/thinking/` — exploratory product thinking
-- `pm/product/` — feature inventory and product capabilities
 ```
 
 If `CLAUDE.md` already contains a `## PM Knowledge Base` section, skip this step. If `CLAUDE.md` does not exist, skip this step — do not create it just for this.

@@ -647,45 +647,6 @@ function validateBidirectionalCitations(errors, kbState) {
   }
 }
 
-const REQUIRED_FEATURES_FIELDS = [
-  "generated",
-  "source_project",
-  "files_scanned",
-  "feature_count",
-  "area_count",
-  "areas",
-];
-
-function validateFeaturesFile(pmDir, filePath, content, errors) {
-  const relativeFile = relativeToPm(pmDir, filePath);
-  const parsed = parseFrontmatter(content);
-  if (!parsed.hasFrontmatter) {
-    pushIssue(errors, relativeFile, "-", "no YAML frontmatter found");
-    return;
-  }
-  const data = parsed.data;
-
-  validateRequiredFields(relativeFile, data, REQUIRED_FEATURES_FIELDS, errors);
-
-  if (!Array.isArray(data.areas) || data.areas.length === 0) {
-    pushIssue(errors, relativeFile, "areas", "areas must be a non-empty array");
-  }
-
-  // Count h3 headings in the markdown body to verify feature_count
-  if (data.feature_count !== undefined && data.feature_count !== null) {
-    const body = parsed.body || "";
-    const h3Count = (body.match(/^### /gm) || []).length;
-    if (Number(data.feature_count) !== h3Count) {
-      pushIssue(
-        errors,
-        relativeFile,
-        "feature_count",
-        `feature_count is ${data.feature_count} but found ${h3Count} h3 headings in body`
-      );
-    }
-  }
-}
-
 function validate(pmDir) {
   const errors = [];
   const warnings = [];
@@ -817,12 +778,6 @@ function validate(pmDir) {
   }
 
   validateBidirectionalCitations(errors, kbState);
-
-  const featuresPath = path.join(pmDir, "product", "features.md");
-  if (fs.existsSync(featuresPath)) {
-    const content = fs.readFileSync(featuresPath, "utf8");
-    validateFeaturesFile(pmDir, featuresPath, content, errors);
-  }
 
   return { errors, warnings, backlogCount: backlogIds.size };
 }

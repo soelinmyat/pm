@@ -33,17 +33,6 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
 3. Check `pm/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
 
-3.5. **Feature inventory check.** Check if `pm/product/features.md` exists.
-
-   If it exists, parse frontmatter for `feature_count` and `area_count`. Read the body for the feature list. Report to user:
-   > "Found feature inventory with {feature_count} features across {area_count} areas. Existing capabilities will be referenced during scope review."
-
-   Store in groom session state:
-   - `product_features_available: true`
-   - `product_feature_count: {feature_count}`
-
-   If it does not exist, skip silently. Set `product_features_available: false` in session state.
-
 4. **Codebase scan** (if `codebase_available: true` in groom state):
    Explore the project source code for existing implementation related to this idea. Look for:
    - Existing files, modules, or components that touch this feature area

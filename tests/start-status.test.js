@@ -120,14 +120,14 @@ test("buildStatus prioritizes active dev sessions over generic lifecycle suggest
   try {
     project.mkdir("pm");
     project.write(".pm/config.json", '{"config_schema":1}');
-    project.write("pm/insights/trends/index.md", "");
-    project.write("pm/insights/trends/log.md", "");
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
     project.write(
-      "pm/insights/trends/checkout.md",
+      "pm/insights/product/checkout.md",
       [
         "---",
         "type: insight",
-        "domain: trends",
+        "domain: product",
         "topic: Checkout",
         "last_updated: 2026-02-01",
         "status: active",
@@ -223,14 +223,14 @@ test("renderTextStatus includes alternative actions when available", () => {
   try {
     project.mkdir("pm");
     project.write(".pm/config.json", '{"config_schema":1}');
-    project.write("pm/insights/trends/index.md", "");
-    project.write("pm/insights/trends/log.md", "");
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
     project.write(
-      "pm/insights/trends/checkout.md",
+      "pm/insights/product/checkout.md",
       [
         "---",
         "type: insight",
-        "domain: trends",
+        "domain: product",
         "topic: Checkout",
         "last_updated: 2026-03-25",
         "status: active",
@@ -358,22 +358,6 @@ test("buildStatus surfaces oldest planned item when multiple exist", () => {
     // Oldest planned item should be surfaced in the suggestion
     const allSuggestions = [status.next, ...(status.alternatives || [])];
     assert.ok(allSuggestions.some((s) => s.includes("older-item")));
-  } finally {
-    project.cleanup();
-  }
-});
-
-test("buildStatus handles workspace with pm/product/ directory", () => {
-  const project = createProject();
-  try {
-    project.mkdir("pm");
-    project.write(".pm/config.json", '{"config_schema":1}');
-    project.write("pm/product/index.md", "# Product\n");
-
-    const status = buildStatus(project.root);
-    assert.equal(status.initialized, true);
-    // pm/product/ presence should not break status
-    assert.ok(status.focus);
   } finally {
     project.cleanup();
   }

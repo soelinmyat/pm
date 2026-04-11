@@ -756,23 +756,23 @@ test("PM-154: skip log action is accepted", (t) => {
 
 test("PM-154: bidirectional insight-evidence citation passes", (t) => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/trends/index.md": makeIndex([
+    "pm/insights/product/index.md": makeIndex([
       "| [test-topic.md](test-topic.md) | Test Topic | 2026-04-09 | active |",
     ]),
-    "pm/insights/trends/log.md": makeLog(["2026-04-09 create insights/trends/test-topic.md"]),
-    "pm/insights/trends/test-topic.md": makeInsight({
-      domain: "trends",
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/test-topic.md"]),
+    "pm/insights/product/test-topic.md": makeInsight({
+      domain: "product",
       topic: "Test Topic",
       sources: ["evidence/research/test-source.md"],
     }),
     "pm/evidence/research/test-source.md": makeEvidence({
-      cited_by: ["insights/trends/test-topic.md"],
+      cited_by: ["insights/product/test-topic.md"],
     }),
     "pm/evidence/research/index.md": makeIndex([
       "| [test-source.md](test-source.md) | Source notes | 2026-04-09 | active |",
     ]),
     "pm/evidence/research/log.md": makeLog([
-      "2026-04-09 cite insights/trends/test-topic.md -> evidence/research/test-source.md",
+      "2026-04-09 cite insights/product/test-topic.md -> evidence/research/test-source.md",
     ]),
   });
   t.after(cleanup);
@@ -786,12 +786,12 @@ test("PM-154: bidirectional insight-evidence citation passes", (t) => {
 
 test("PM-154: mismatched citation pair fails validation", (t) => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/trends/index.md": makeIndex([
+    "pm/insights/product/index.md": makeIndex([
       "| [test-topic.md](test-topic.md) | Test Topic | 2026-04-09 | active |",
     ]),
-    "pm/insights/trends/log.md": makeLog(["2026-04-09 create insights/trends/test-topic.md"]),
-    "pm/insights/trends/test-topic.md": makeInsight({
-      domain: "trends",
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/test-topic.md"]),
+    "pm/insights/product/test-topic.md": makeInsight({
+      domain: "product",
       topic: "Test Topic",
       sources: ["evidence/research/test-source.md"],
     }),
@@ -811,12 +811,12 @@ test("PM-154: mismatched citation pair fails validation", (t) => {
 
 test("PM-154: insight with empty sources passes validation (seeded files)", (t) => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/trends/index.md": makeIndex([
+    "pm/insights/product/index.md": makeIndex([
       "| [seeded-topic.md](seeded-topic.md) | Seeded Topic | 2026-04-09 | draft |",
     ]),
-    "pm/insights/trends/log.md": makeLog(["2026-04-09 create insights/trends/seeded-topic.md"]),
-    "pm/insights/trends/seeded-topic.md": makeInsight({
-      domain: "trends",
+    "pm/insights/product/log.md": makeLog(["2026-04-09 create insights/product/seeded-topic.md"]),
+    "pm/insights/product/seeded-topic.md": makeInsight({
+      domain: "product",
       topic: "Seeded Topic",
       status: "draft",
       confidence: "low",
@@ -826,116 +826,6 @@ test("PM-154: insight with empty sources passes validation (seeded files)", (t) 
   t.after(cleanup);
   const result = runValidate(pmDir);
   assert.equal(result.ok, true, `empty sources should pass: ${JSON.stringify(result.details)}`);
-});
-
-// ---- pm/product/features.md schema validation ----
-
-test("valid pm/product/features.md passes validation", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/product/features.md": [
-      "---",
-      "generated: 2026-04-11",
-      "source_project: my-app",
-      "files_scanned: 42",
-      "feature_count: 2",
-      "area_count: 1",
-      "areas:",
-      '  - name: "Core"',
-      "    features:",
-      '      - "structured-discovery"',
-      '      - "evidence-routing"',
-      "---",
-      "",
-      "## Core",
-      "",
-      "### Structured discovery",
-      "A multi-phase grooming pipeline.",
-      "",
-      "### Evidence routing",
-      "Routes evidence into insight topics.",
-      "",
-    ].join("\n"),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, true, `valid features.md should pass: ${JSON.stringify(result.details)}`);
-});
-
-test("pm/product/features.md missing generated field fails validation", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/product/features.md": [
-      "---",
-      "source_project: my-app",
-      "files_scanned: 42",
-      "feature_count: 1",
-      "area_count: 1",
-      "areas:",
-      '  - name: "Core"',
-      "    features:",
-      '      - "some-feature"',
-      "---",
-      "",
-      "## Core",
-      "",
-      "### Some feature",
-      "Description.",
-      "",
-    ].join("\n"),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, false);
-  assert.ok(result.details.some((d) => d.field === "generated"));
-});
-
-test("pm/product/features.md feature_count mismatch with h3 count fails validation", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/product/features.md": [
-      "---",
-      "generated: 2026-04-11",
-      "source_project: my-app",
-      "files_scanned: 42",
-      "feature_count: 5",
-      "area_count: 1",
-      "areas:",
-      '  - name: "Core"',
-      "    features:",
-      '      - "one-feature"',
-      "---",
-      "",
-      "## Core",
-      "",
-      "### One feature",
-      "Description.",
-      "",
-    ].join("\n"),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, false);
-  assert.ok(result.details.some((d) => d.field === "feature_count"));
-});
-
-test("pm/product/features.md empty areas array fails validation", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/product/features.md": [
-      "---",
-      "generated: 2026-04-11",
-      "source_project: my-app",
-      "files_scanned: 42",
-      "feature_count: 0",
-      "area_count: 0",
-      "areas: []",
-      "---",
-      "",
-      "No features.",
-      "",
-    ].join("\n"),
-  });
-  t.after(cleanup);
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, false);
-  assert.ok(result.details.some((d) => d.field === "areas"));
 });
 
 test("real pm/ directory passes validation", (t) => {
