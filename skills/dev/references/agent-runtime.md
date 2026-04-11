@@ -1,4 +1,4 @@
-# Agent Runtime Mapping
+# Persona Runtime Mapping
 
 This reference defines how to execute the PM workflow in the two supported runtimes:
 
@@ -37,38 +37,26 @@ capabilities:
 
 For additional tool/skill requirements, read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md`.
 
-## Intent Labels
+## Persona Intent Labels
 
-Flow docs use `pm:*` labels as intent names:
+Flow docs use `@persona` references to indicate which persona perspective to apply. There are 7 personas:
 
-- `pm:developer`
-- `pm:product-manager`
-- `pm:strategist`
-- `pm:engineering-manager`
-- `pm:ux-designer`
-- `pm:product-director`
-- `pm:qa-tester`
-- `pm:code-reviewer`
-- `pm:adversarial-engineer`
-- `pm:test-engineer`
-- `pm:staff-engineer`
-- `pm:system-architect`
-- `pm:integration-engineer`
-- `pm:design-director`
-- `pm:qa-lead`
-- `pm:design-system-lead`
-- `pm:design-reviewer`
-- `pm:edge-case-tester`
-- `general-purpose`
+- `@developer` — implementation, debugging, TDD
+- `@staff-engineer` — architecture, code review, maintainability, integration
+- `@adversarial-engineer` — risk assessment, attack surface analysis
+- `@tester` — QA, edge cases, test coverage, assertion-driven testing
+- `@designer` — UX review, design system compliance, visual quality
+- `@product-manager` — scope validation, JTBD clarity, outcome coverage
+- `@strategist` — competitive intelligence, positioning, differentiation
 
-These are intent labels, not a guarantee that the runtime has a built-in specialized agent for each one.
+These are intent labels, not a guarantee that the runtime has a built-in specialized agent for each one. The persona file content (from `${CLAUDE_PLUGIN_ROOT}/personas/`) is injected into agent prompts via the step loader.
 
 ## Claude Adapter
 
 All dispatches use fresh, short-lived agents:
 
 ```text
-Agent(description=..., subagent_type=..., prompt=...)
+Agent(description=..., prompt=...)
 ```
 
 No `team_name`. The result returns directly to the orchestrator.
@@ -96,12 +84,12 @@ Each agent is short-lived — no agent reuse across phases.
 
 ## How Flow Docs Should Read
 
-Flow docs should describe the agent intent and dispatch, then point here for runtime execution.
+Flow docs should describe the persona intent and dispatch, then point here for runtime execution.
 
 Good:
 
 ```text
-Dispatch a fresh developer agent to write the RFC. After approval, dispatch a fresh developer agent for implementation with the RFC as input.
+Dispatch a fresh @developer agent to write the RFC. After approval, dispatch a fresh @developer agent for implementation with the RFC as input.
 Use the current runtime's instructions from agent-runtime.md.
 ```
 
@@ -110,7 +98,7 @@ Use the current runtime's instructions from agent-runtime.md.
 ### Claude agent dispatch
 
 ```text
-Agent(description="Write RFC for {slug}", subagent_type="pm:developer", prompt="...")
+Agent(description="Write RFC for {slug}", prompt="You are a @developer. ...")
 ```
 
 ### Codex delegated agent dispatch

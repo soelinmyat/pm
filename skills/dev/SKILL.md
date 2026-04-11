@@ -7,7 +7,19 @@ description: "Use when starting any development work, debugging, or bug fixing. 
 
 Unified orchestrator for all development work. One flow handles everything — whether work is 1 task or N tasks emerges from the RFC.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/dev-flow.md` and follow it.
+## Workflow Loading
+
+Load the dev workflow steps using the step loader:
+
+```
+const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
+const steps = loadWorkflow('dev', pmDir, '${CLAUDE_PLUGIN_ROOT}');
+const workflowPrompt = buildPrompt(steps);
+```
+
+The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` (defaults) with user overrides from `.pm/workflows/dev/` (if any). Steps are sorted by order and concatenated into the workflow prompt. Persona references (`@persona`) in step files are resolved from `${CLAUDE_PLUGIN_ROOT}/personas/`.
+
+Execute the loaded workflow steps in order. Each step contains its own instructions.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
@@ -17,7 +29,7 @@ If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes
 
 If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
 
-**Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See `dev-flow.md` Stage 0.7 for the full check.
+**Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See step 01 (Tool Check) for the full check.
 
 **Hard rules:**
 - **Protect the orchestrator's context window for multi-task work.** Each task's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
@@ -50,7 +62,7 @@ Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.d
 
 **Staleness guard:** If a session file is older than 48 hours and the user didn't explicitly reference it, ask whether to resume or discard.
 
-**Legacy migration:** Old `epic-{slug}.md` and `.dev-epic-state-*.md` files are treated identically to regular session files. All resume to `dev-flow.md`.
+**Legacy migration:** Old `epic-{slug}.md` and `.dev-epic-state-*.md` files are treated identically to regular session files. All resume to the loaded workflow steps.
 
 ## Fresh Start
 
@@ -74,7 +86,7 @@ Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.d
    - **M/L/XL:** Announce gaps and invoke pm:groom within the same conversation. Pass Linear context as conversation text (not CLI flags). Specify the slug for groom: "Use slug: {slug}". Log: `Linear issue {ID}: needs grooming ({gaps}). Invoking pm:groom.`
 5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error message}`. Ask the user: "Could not fetch Linear issue {ID}. Can you paste the issue description?" Proceed with the pasted text as conversation-sourced task context.
 
-After intake is resolved, read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/dev-flow.md` and follow it.
+After intake is resolved, execute the loaded workflow steps in order.
 
 ## Bundled Skills
 

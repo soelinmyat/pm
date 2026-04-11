@@ -108,7 +108,7 @@ Review-heavy flows should also store iteration counts, review verdict timestamps
 
 Agent dispatches are tracked automatically via PostToolUse hook (`hooks/agent-step.sh`). When analytics is enabled, every Agent tool call logs a step span to `steps.jsonl` with:
 
-- **actor**: `agent:{subagent_type}` (e.g., `agent:pm:code-reviewer`)
+- **actor**: `agent:{persona}` (e.g., `agent:@staff-engineer`)
 - **input_chars / est_input_tokens**: prompt size sent to the agent
 - **output_chars / est_output_tokens**: result size returned from the agent
 - **run_id**: correlated to the active skill run via `.pm/analytics/.current-run`

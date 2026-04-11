@@ -42,7 +42,7 @@ Dispatch all 3 agents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-r
 - Codex with delegation: 3 `spawn_agent` calls, `wait_agent` all
 - Codex inline / other runtimes: run 3 review briefs sequentially, merge findings
 
-Intent label for all 3: `pm:code-reviewer` (same base intent, different briefs).
+Persona for all 3: `@staff-engineer` (same base persona, different briefs).
 
 ### Inputs (shared across all agents)
 

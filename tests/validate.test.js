@@ -947,3 +947,112 @@ test("real pm/ directory passes validation", (t) => {
   const result = runValidate(realPmDir);
   assert.equal(result.ok, true, `validation failed: ${JSON.stringify(result.details)}`);
 });
+
+// ---------------------------------------------------------------------------
+// PM-170 Issue 3: Plugin registration — commands, agents, stale references
+// ---------------------------------------------------------------------------
+
+test("PM-170: plugin.config.json has exactly 12 commands (no merge, no features, has note and sync)", () => {
+  const configPath = path.join(__dirname, "..", "plugin.config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+  const expected = [
+    "dev",
+    "groom",
+    "ingest",
+    "note",
+    "refresh",
+    "research",
+    "setup",
+    "ship",
+    "start",
+    "strategy",
+    "sync",
+    "think",
+  ];
+
+  assert.deepEqual(
+    [...config.commands].sort(),
+    [...expected].sort(),
+    `Expected commands: ${expected.join(", ")}. Got: ${config.commands.join(", ")}`
+  );
+
+  assert.ok(!config.commands.includes("merge"), "merge command must be removed");
+  assert.ok(!config.commands.includes("features"), "features command must be removed");
+  assert.ok(config.commands.includes("note"), "note command must be present");
+  assert.ok(config.commands.includes("sync"), "sync command must be present");
+});
+
+test("PM-170: plugin.config.json has 0 agents", () => {
+  const configPath = path.join(__dirname, "..", "plugin.config.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+  // agents key should not exist or be an empty array
+  if (config.agents) {
+    assert.equal(config.agents.length, 0, "agents array must be empty");
+  }
+});
+
+test("PM-170: agents/ directory does not exist or is empty", () => {
+  const agentsDir = path.join(__dirname, "..", "agents");
+  if (fs.existsSync(agentsDir)) {
+    const files = fs.readdirSync(agentsDir).filter((f) => f.endsWith(".md"));
+    assert.equal(files.length, 0, `agents/ should be empty, found: ${files.join(", ")}`);
+  }
+  // If directory doesn't exist, that's also valid
+});
+
+test("PM-170: no stale agent names in skill files", () => {
+  const staleAgentNames = [
+    "code-reviewer",
+    "edge-case-tester",
+    "engineering-manager",
+    "system-architect",
+    "integration-engineer",
+    "design-director",
+    "qa-lead",
+    "design-system-lead",
+    "design-reviewer",
+    "product-director",
+    "qa-tester",
+    "test-engineer",
+    "ux-designer",
+    "design-qa",
+    "associate-pm",
+  ];
+
+  const skillDirs = [
+    path.join(__dirname, "..", "skills"),
+    path.join(__dirname, "..", "references"),
+  ];
+
+  const violations = [];
+
+  function scanDir(dir) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDir(fullPath);
+      } else if (entry.name.endsWith(".md")) {
+        const content = fs.readFileSync(fullPath, "utf8");
+        for (const agent of staleAgentNames) {
+          // Match pm:agent-name pattern (the old intent labels)
+          const pattern = `pm:${agent}`;
+          if (content.includes(pattern)) {
+            violations.push(
+              `${path.relative(path.join(__dirname, ".."), fullPath)}: contains "${pattern}"`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  for (const dir of skillDirs) {
+    scanDir(dir);
+  }
+
+  assert.equal(violations.length, 0, `Found stale agent references:\n  ${violations.join("\n  ")}`);
+});

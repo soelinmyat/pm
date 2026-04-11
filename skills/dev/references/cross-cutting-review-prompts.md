@@ -12,8 +12,7 @@ Agent prompts for multi-task RFC review. Dispatched when the RFC contains >1 tas
 
 ```
 Agent({
-  subagent_type: "pm:system-architect",
-  prompt: `Review these implementation plans AS A SET for cross-cutting architectural concerns.
+  prompt: `You are a @staff-engineer. Review these implementation plans AS A SET for cross-cutting architectural concerns.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
@@ -35,8 +34,7 @@ Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": 
 
 ```
 Agent({
-  subagent_type: "pm:integration-engineer",
-  prompt: `Review these implementation RFCs AS A SET for integration gaps and cross-sub-issue testing.
+  prompt: `You are a @staff-engineer. Review these implementation RFCs AS A SET for integration gaps and cross-sub-issue testing.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
@@ -55,8 +53,7 @@ Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": 
 
 ```
 Agent({
-  subagent_type: "pm:product-manager",
-  prompt: `Validate scope coverage for this epic's implementation plans.
+  prompt: `You are a @product-manager. Validate scope coverage for this epic's implementation plans.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}

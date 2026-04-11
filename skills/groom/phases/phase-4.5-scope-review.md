@@ -10,7 +10,7 @@ After scope is confirmed, dispatch **3 parallel reviewers** to challenge the sco
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. If delegation is unavailable, run the same briefs inline before merging findings.
 
-**Reviewer intent: `pm:product-manager`**
+**Reviewer persona: `@product-manager`**
 
 ```
 You are a product manager reviewing a scoped feature initiative.
@@ -41,7 +41,7 @@ Review from these angles:
 - [concern] - [what to watch for]
 ```
 
-**Reviewer intent: `pm:strategist`**
+**Reviewer persona: `@strategist`**
 
 ```
 You are a competitive strategist reviewing a scoped feature initiative.
@@ -70,7 +70,7 @@ Review from these angles:
 - [opportunity] - [why it matters]
 ```
 
-**Reviewer intent: `pm:engineering-manager`**
+**Reviewer persona: `@staff-engineer`**
 
 ```
 You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.

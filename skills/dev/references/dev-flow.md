@@ -324,7 +324,7 @@ Groomed sub-issues skip this step — their proposal is sufficient context.
 
 ### RFC generation prompt
 
-Dispatch an `Agent(subagent_type="pm:developer", ...)` with this brief (or run inline in Codex without delegation):
+Dispatch an `Agent(...)` with the @developer persona brief (or run inline in Codex without delegation):
 
 ```text
 Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
@@ -397,7 +397,7 @@ Senior engineers challenge the RFC — architecture decisions, test strategy, an
 
 Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
 
-**Reviewer intent: `pm:adversarial-engineer`**
+**Reviewer persona: `@adversarial-engineer`**
 
 ```text
 Review this engineering RFC for architecture soundness and risk.
@@ -409,7 +409,7 @@ Review this engineering RFC for architecture soundness and risk.
 {PROJECT_CONTEXT}
 ```
 
-**Reviewer intent: `pm:test-engineer`**
+**Reviewer persona: `@tester`**
 
 ```text
 Review this engineering RFC for testing strategy and coverage.
@@ -421,7 +421,7 @@ Review this engineering RFC for testing strategy and coverage.
 {PROJECT_CONTEXT}
 ```
 
-**Reviewer intent: `pm:staff-engineer`**
+**Reviewer persona: `@staff-engineer`**
 
 ```text
 Review this engineering RFC for complexity and long-term maintainability.
@@ -489,7 +489,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
 ## Stage 5: Implementation
 
-Dispatch **fresh** `pm:developer` agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
+Dispatch **fresh** @developer agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
 
 ### Single-task implementation (task_count == 1)
 
@@ -565,7 +565,7 @@ For each task (Issue section) in dependency order from the RFC:
    mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
    ```
 
-3. **Dispatch fresh `pm:developer` agent:**
+3. **Dispatch fresh @developer agent:**
 
 ```text
 Implement the approved RFC.

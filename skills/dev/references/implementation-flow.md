@@ -2,10 +2,10 @@
 
 Shared implementation lifecycle for all dev work. Everything from "plan approved" through "merged and cleaned up" lives here.
 
-**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how `pm:*` agent intents map to Claude and Codex.
+**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how persona intents map to Claude and Codex.
 
 **Context:** This flow is invoked by fresh agents or inline execution:
-- **Single-task (M/L/XL):** A fresh `pm:developer` agent follows this after receiving the approved RFC.
+- **Single-task (M/L/XL):** A fresh @developer agent follows this after receiving the approved RFC.
 - **Single-task (XS/S):** The orchestrator follows this inline after intake (no planning phase).
 - **Multi-task:** A fresh agent follows this for each task after the orchestrator dispatches it with the RFC and its assigned Issue section. All tasks run sequentially.
 
@@ -272,7 +272,7 @@ Runs after simplify and design critique for any task that changes UI. The QA ski
 
 ### Dispatch
 
-Dispatch reviewer intent `pm:qa-tester` using `agent-runtime.md`.
+Dispatch reviewer persona `@tester` using `agent-runtime.md`.
 
 **QA brief:**
 
@@ -349,7 +349,7 @@ STOP and run the review first.
 </HARD-GATE>
 
 **Fix ALL findings from ALL active agents.** `/review` runs up to 3 agents:
-1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere). No confidence threshold filtering.
+1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in @staff-engineer elsewhere). No confidence threshold filtering.
 2. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
 3. **Input Edge-Case Review** — untested edge cases
 
@@ -370,7 +370,7 @@ This catches bugs that tests alone miss: silent no-ops, swallowed errors, race c
 S tasks skip this — `pm:simplify` (which runs for S+) already covers the same ground.
 </HARD-GATE>
 
-Dispatch reviewer intent `pm:code-reviewer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.
+Dispatch reviewer persona `@staff-engineer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.
 
 ```text
 Scan for genuine bugs in this diff. Max 5 findings.

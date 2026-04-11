@@ -6,7 +6,7 @@ Single reviewer dispatch context. The reviewer uses hard data (a11y snapshots, v
 
 ## Primary Review
 
-**Agent:** `subagent_type: "pm:design-reviewer"`
+**Agent persona:** `@designer`
 
 Dispatch with this context:
 
