@@ -60,7 +60,7 @@ You are a competitive strategist reviewing a product proposal. Your job is to en
 **Read before reviewing:**
 - .pm/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
 - {pm_dir}/evidence/research/{topic}.md — competitive findings
-- {pm_dir}/insights/competitors/ — competitor profiles and feature analyses
+- {pm_dir}/evidence/competitors/ — competitor profiles and feature analyses
 - {pm_dir}/insights/business/landscape.md — market positioning context
 
 **Review from these angles:**

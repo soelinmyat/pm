@@ -404,8 +404,8 @@ test("insights card aggregates product + competitors + business domains", async 
     "pm/insights/business/index.md": `---\ntype: insight-index\n---\n# Business\n`,
     "pm/insights/business/insight-b.md": `---\ntitle: B\nupdated: ${daysAgo(10)}\n---\n# B\n`,
     // Competitors domain: 1 competitor profile
-    "pm/insights/competitors/index.md": `---\ntype: competitor-index\n---\n# Competitors\n`,
-    "pm/insights/competitors/acme/profile.md": `---\ntitle: Acme\nupdated: ${daysAgo(3)}\n---\n# Acme\n`,
+    "pm/evidence/competitors/index.md": `---\ntype: competitor-index\n---\n# Competitors\n`,
+    "pm/evidence/competitors/acme/profile.md": `---\ntitle: Acme\nupdated: ${daysAgo(3)}\n---\n# Acme\n`,
     "pm/evidence/research/index.md": `---\ntype: evidence-index\n---\n# Research\n`,
   });
   try {

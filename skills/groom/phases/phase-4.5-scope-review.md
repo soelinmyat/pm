@@ -18,7 +18,7 @@ You are a product manager reviewing a scoped feature initiative.
 **Read before reviewing:**
 - {pm_dir}/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
 - {pm_dir}/insights/business/landscape.md — market context
-- {pm_dir}/insights/competitors/index.md — competitive landscape
+- {pm_dir}/evidence/competitors/index.md — competitive landscape
 **Groom state:** .pm/groom-sessions/{topic-slug}.md (contains topic, scope, strategy check result, research location)
 **Research:** Read all files in the research location from groom state
 
@@ -49,14 +49,14 @@ You are a competitive strategist reviewing a scoped feature initiative.
 **Read before reviewing:**
 - {pm_dir}/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
 - {pm_dir}/insights/business/landscape.md — market context and positioning map
-- {pm_dir}/insights/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
+- {pm_dir}/evidence/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 **Groom state:** .pm/groom-sessions/{topic-slug}.md (contains topic, scope, 10x filter result, research location)
 **Research:** Read all files in the research location from groom state
 
 Review from these angles:
 
 1. **Differentiation.** Does this make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
-2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in {pm_dir}/insights/competitors/)? Or is it "nice to have" post-switch?
+2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in {pm_dir}/evidence/competitors/)? Or is it "nice to have" post-switch?
 3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
 4. **Non-goal violations.** Does any in-scope item creep toward the explicit non-goals listed in {pm_dir}/strategy.md Section 7?
 5. **Differentiation opportunity.** Is there a unique angle (AI, automation, workflow depth) that the scope is missing? Check what competitors lack in their feature profiles.

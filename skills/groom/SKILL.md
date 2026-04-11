@@ -298,7 +298,7 @@ Out-of-scope:
 ## Competitor Context
 
 {How do competitors handle this? Where do they fall short?
-Reference specific profiles from {pm_dir}/insights/competitors/ if applicable.}
+Reference specific profiles from {pm_dir}/evidence/competitors/ if applicable.}
 
 ## Technical Feasibility
 

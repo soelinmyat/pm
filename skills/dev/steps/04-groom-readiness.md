@@ -64,7 +64,7 @@ If no proposal exists, decide whether grooming is needed:
 |--------|-------|
 | Strategy | `{pm_dir}/strategy.md` exists |
 | Research | Any file in `{pm_dir}/evidence/research/` |
-| Competitors | Any `{pm_dir}/insights/competitors/*/profile.md` |
+| Competitors | Any `{pm_dir}/evidence/competitors/*/profile.md` |
 
 Classify:
 - **Fresh** (none of the three signals) → max tier: `quick`

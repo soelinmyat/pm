@@ -16,7 +16,7 @@ Ideas are early-stage backlog items. They live in `{pm_dir}/backlog/` with `stat
 
 2. Check if `{pm_dir}/insights/business/landscape.md` exists. Note its presence for signal mining. Not required.
 
-3. Check if `{pm_dir}/insights/competitors/index.md` exists. Note profiled competitors. Not required.
+3. Check if `{pm_dir}/evidence/competitors/index.md` exists. Note profiled competitors. Not required.
 
 ---
 
@@ -28,9 +28,9 @@ Read all available sources before generating ideas. Each idea must trace back to
 |---|---|---|
 | Strategy priorities | `{pm_dir}/strategy.md` § 6 | Top 3 priorities — ideas should advance these |
 | Strategy non-goals | `{pm_dir}/strategy.md` § 7 | Filter out ideas that conflict |
-| Market gaps | `{pm_dir}/insights/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
-| Feature matrix | `{pm_dir}/insights/competitors/index.md` | Cells where the product shows "No" or "Planned" |
-| Competitor weaknesses | `{pm_dir}/insights/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
+| Market gaps | `{pm_dir}/evidence/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
+| Feature matrix | `{pm_dir}/evidence/competitors/index.md` | Cells where the product shows "No" or "Planned" |
+| Competitor weaknesses | `{pm_dir}/evidence/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
 | Landscape observations | `{pm_dir}/insights/business/landscape.md` § Initial Observations | Whitespace and macro trends |
 | Keyword opportunities | `{pm_dir}/insights/business/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
 | Customer evidence | `{pm_dir}/evidence/research/index.md` | Internal/mixed topics with high evidence counts |
@@ -49,7 +49,7 @@ Read strategy, feature matrix, and codebase (if present). Without this step, ide
 </HARD-GATE>
 
 1. **Read strategy context** — `{pm_dir}/strategy.md` describes the product identity, ICP, and what's in/out of scope.
-2. **Read the feature matrix** — `{pm_dir}/insights/competitors/index.md` shows what the product already does.
+2. **Read the feature matrix** — `{pm_dir}/evidence/competitors/index.md` shows what the product already does.
 3. **Explore the project codebase (if one exists)** — scan source code to catalog existing capabilities. If no codebase exists, rely on strategy and the feature matrix.
 
 **Comprehension check:** Before proceeding, state: (a) the top 3 priorities, (b) the 3 most relevant competitive gaps, and (c) 1 customer evidence signal if available.

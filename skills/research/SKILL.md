@@ -193,7 +193,7 @@ The goal is to find **genuinely close competitors** — not just well-known play
    - **Aspirational competitors**: Different segment entirely (e.g., enterprise SaaS), but set user expectations for what the product category should do.
    Present all three tiers. Recommend profiling direct and adjacent competitors. Aspirational competitors are optional context.
 4. **Confirm with user.** Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
-5. Write or update `{pm_dir}/insights/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier), then append touched files to `{pm_dir}/insights/competitors/log.md`.
+5. Write or update `{pm_dir}/evidence/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier), then append touched files to `{pm_dir}/evidence/competitors/log.md`.
 
 ### Phase 2: Profile
 
@@ -202,11 +202,11 @@ Determine dispatch strategy based on candidate count and environment:
 **1 competitor:** Profile inline. Create all 5 files per competitor:
 1. Read methodology in `skills/research/competitor-profiling.md`
 2. Read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md` — this documents the 5-file directory structure and frontmatter the dashboard expects for competitor detail pages.
-3. Create `{pm_dir}/insights/competitors/{slug}/profile.md`
-3. Create `{pm_dir}/insights/competitors/{slug}/features.md`
-4. Create `{pm_dir}/insights/competitors/{slug}/api.md`
-5. Create `{pm_dir}/insights/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
-6. Create `{pm_dir}/insights/competitors/{slug}/sentiment.md`
+3. Create `{pm_dir}/evidence/competitors/{slug}/profile.md`
+3. Create `{pm_dir}/evidence/competitors/{slug}/features.md`
+4. Create `{pm_dir}/evidence/competitors/{slug}/api.md`
+5. Create `{pm_dir}/evidence/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
+6. Create `{pm_dir}/evidence/competitors/{slug}/sentiment.md`
 
 Verify all 5 files exist before proceeding to Phase 3.
 
@@ -216,19 +216,19 @@ Dispatch one researcher agent per competitor in parallel. Use this syntax for ea
 ```
 Agent tool: name="researcher-{slug}", prompt="Profile {Company Name} in the {space} space.
 Slug: {slug}. Follow the methodology in skills/research/competitor-profiling.md exactly.
-Write all output files to {pm_dir}/insights/competitors/{slug}/.
-Do NOT write to {pm_dir}/insights/competitors/index.md — that is owned by the parent skill."
+Write all output files to {pm_dir}/evidence/competitors/{slug}/.
+Do NOT write to {pm_dir}/evidence/competitors/index.md — that is owned by the parent skill."
 ```
 
 Wait for all agents to complete, then validate output for each competitor:
 
 ```
 For each {slug}, verify these 5 files exist:
-- {pm_dir}/insights/competitors/{slug}/profile.md
-- {pm_dir}/insights/competitors/{slug}/features.md
-- {pm_dir}/insights/competitors/{slug}/api.md
-- {pm_dir}/insights/competitors/{slug}/seo.md
-- {pm_dir}/insights/competitors/{slug}/sentiment.md
+- {pm_dir}/evidence/competitors/{slug}/profile.md
+- {pm_dir}/evidence/competitors/{slug}/features.md
+- {pm_dir}/evidence/competitors/{slug}/api.md
+- {pm_dir}/evidence/competitors/{slug}/seo.md
+- {pm_dir}/evidence/competitors/{slug}/sentiment.md
 
 If any file is missing, re-run that section of research before proceeding to Phase 3.
 ```
@@ -238,7 +238,7 @@ Profile sequentially inline, one at a time. After each: "Finished {name}. Profil
 
 **Subagent detection:** Attempt the Agent tool dispatch. If the environment returns an error or the tool is unavailable, fall back to sequential inline profiling automatically.
 
-**Index ownership:** Researcher agents write only to `{pm_dir}/insights/competitors/{slug}/`. The parent skill owns `{pm_dir}/insights/competitors/index.md`. Never delegate index writes to subagents.
+**Index ownership:** Researcher agents write only to `{pm_dir}/evidence/competitors/{slug}/`. The parent skill owns `{pm_dir}/evidence/competitors/index.md`. Never delegate index writes to subagents.
 
 ### Phase 3: Synthesize
 
@@ -251,24 +251,24 @@ Without synthesis, profiling is raw data — not knowledge.
 **Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
 
 For each competitor slug, check:
-- [ ] `{pm_dir}/insights/competitors/{slug}/profile.md` exists
-- [ ] `{pm_dir}/insights/competitors/{slug}/features.md` exists
-- [ ] `{pm_dir}/insights/competitors/{slug}/api.md` exists
-- [ ] `{pm_dir}/insights/competitors/{slug}/seo.md` exists
-- [ ] `{pm_dir}/insights/competitors/{slug}/sentiment.md` exists
+- [ ] `{pm_dir}/evidence/competitors/{slug}/profile.md` exists
+- [ ] `{pm_dir}/evidence/competitors/{slug}/features.md` exists
+- [ ] `{pm_dir}/evidence/competitors/{slug}/api.md` exists
+- [ ] `{pm_dir}/evidence/competitors/{slug}/seo.md` exists
+- [ ] `{pm_dir}/evidence/competitors/{slug}/sentiment.md` exists
 
 If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?"
 
 Only proceed to synthesis after all files are present.
 
-1. Update `{pm_dir}/insights/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
-2. Add or update a **Market Gaps** section in `{pm_dir}/insights/competitors/index.md` — capabilities absent or weak across all competitors.
+1. Update `{pm_dir}/evidence/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
+2. Add or update a **Market Gaps** section in `{pm_dir}/evidence/competitors/index.md` — capabilities absent or weak across all competitors.
 3. **Update `{pm_dir}/insights/business/landscape.md`** — keep the landscape as the single source of truth for the market view:
    - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
    - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `updated:` date in frontmatter.
-4. Append touched paths to `{pm_dir}/insights/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
+4. Append touched paths to `{pm_dir}/evidence/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
 ### Cost Guardrail
 
 Before running batch SEO calls across multiple competitors, estimate the request count and show:
