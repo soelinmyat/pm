@@ -426,6 +426,158 @@ function inlineMarkdown(str) {
   return str;
 }
 
+function renderMarkdownToHtml(src) {
+  const lines = src.split("\n");
+  const out = [];
+  let inCode = false;
+  let codeLines = [];
+  let inList = false;
+
+  function flushList() {
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+  }
+
+  function isTableRow(l) {
+    return l.trim().startsWith("|") && l.trim().endsWith("|");
+  }
+  function isSeparator(l) {
+    return /^\|[\s:-]+(\|[\s:-]+)*\|$/.test(l.trim());
+  }
+  function parseCells(l) {
+    return l
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map(function (c) {
+        return c.trim();
+      });
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Code block toggle
+    if (line.trimStart().startsWith("```")) {
+      if (!inCode) {
+        flushList();
+        inCode = true;
+        codeLines = [];
+      } else {
+        out.push(
+          '<pre style="background:var(--dark);color:var(--text-muted);padding:1rem;border-radius:var(--radius-sm);overflow-x:auto;margin:0.75rem 0;font-size:0.8125rem;line-height:1.5"><code>' +
+            escHtml(codeLines.join("\n")) +
+            "</code></pre>"
+        );
+        inCode = false;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    // Blank line
+    if (!line.trim()) {
+      flushList();
+      out.push("");
+      continue;
+    }
+
+    // Table: collect consecutive | rows
+    if (isTableRow(line)) {
+      flushList();
+      var tableLines = [line];
+      while (i + 1 < lines.length && isTableRow(lines[i + 1])) {
+        i++;
+        tableLines.push(lines[i]);
+      }
+      // Need at least header + separator
+      if (tableLines.length >= 2 && isSeparator(tableLines[1])) {
+        var headerCells = parseCells(tableLines[0]);
+        out.push("<table><thead><tr>");
+        headerCells.forEach(function (c) {
+          out.push("<th>" + inlineMarkdown(c) + "</th>");
+        });
+        out.push("</tr></thead><tbody>");
+        for (var t = 2; t < tableLines.length; t++) {
+          var cells = parseCells(tableLines[t]);
+          out.push("<tr>");
+          cells.forEach(function (c) {
+            out.push("<td>" + inlineMarkdown(c) + "</td>");
+          });
+          out.push("</tr>");
+        }
+        out.push("</tbody></table>");
+      } else {
+        // Not a proper table, render as paragraphs
+        tableLines.forEach(function (tl) {
+          out.push("<p>" + inlineMarkdown(tl) + "</p>");
+        });
+      }
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      flushList();
+      out.push("<hr>");
+      continue;
+    }
+
+    // HTML comment (skip)
+    if (/^<!--.*-->$/.test(line.trim())) continue;
+
+    // Headings
+    const hMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (hMatch) {
+      flushList();
+      const level = hMatch[1].length;
+      out.push("<h" + level + ">" + inlineMarkdown(hMatch[2]) + "</h" + level + ">");
+      continue;
+    }
+
+    // List items
+    const liMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
+    if (liMatch) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push("<li>" + inlineMarkdown(liMatch[2]) + "</li>");
+      continue;
+    }
+
+    // Numbered list
+    const olMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
+    if (olMatch) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push("<li>" + inlineMarkdown(olMatch[2]) + "</li>");
+      continue;
+    }
+
+    // Paragraph
+    flushList();
+    out.push("<p>" + inlineMarkdown(line) + "</p>");
+  }
+  flushList();
+  if (inCode) {
+    out.push(
+      '<pre style="background:var(--dark);color:var(--text-muted);padding:1rem;border-radius:var(--radius-sm);overflow-x:auto;margin:0.75rem 0;font-size:0.8125rem;line-height:1.5"><code>' +
+        escHtml(codeLines.join("\n")) +
+        "</code></pre>"
+    );
+  }
+  return out.join("\n");
+}
+
 // ========== Dashboard CSS ==========
 
 const DASHBOARD_CSS = `
@@ -875,14 +1027,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .topic-badges { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-top: 0.5rem; }
 
 /* Markdown body — content pages */
-.markdown-body { max-width: 820px; }
-.markdown-body h1 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
-.markdown-body h2 { font-size: 1.25rem; margin: 1.75rem 0 0.625rem; }
-.markdown-body h3 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
-.markdown-body p { line-height: 1.7; }
+.markdown-body { max-width: 820px; font-size: var(--text-sm); line-height: 1.6; }
+.markdown-body h1 { font-size: var(--text-base); font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.markdown-body h2 { font-size: var(--text-sm); font-weight: 600; margin: 1rem 0 0.375rem; }
+.markdown-body h3 { font-size: var(--text-sm); font-weight: 500; margin: 0.75rem 0 0.25rem; }
+.markdown-body p { line-height: 1.6; }
 .markdown-body ul, .markdown-body ol { margin-left: 1.25rem; }
-.markdown-body li { margin-bottom: 0.375rem; line-height: 1.6; }
-.markdown-body table { font-size: 0.8125rem; }
+.markdown-body li { margin-bottom: 0.25rem; line-height: 1.6; }
+.markdown-body table { font-size: var(--text-xs); }
 .markdown-body table th { white-space: nowrap; }
 .markdown-body strong { font-weight: 600; }
 
@@ -1303,19 +1455,24 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .settings-help code { background: var(--surface-raised); padding: 0.15em 0.4em; border-radius: 3px; font-size: var(--text-xs); }
 
 /* ===== WORKFLOWS PAGE ===== */
-.wf-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: var(--space-6); }
+.wf-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: var(--space-3); }
 .wf-tab { padding: var(--space-2) var(--space-4); font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit; }
 .wf-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .wf-tab-content { display: none; }
 .wf-tab-content.active { display: block; }
 .wf-group-header { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: var(--space-3) var(--space-4); background: var(--surface-raised); border-bottom: 1px solid var(--border); }
-.wf-table { width: 100%; border-collapse: collapse; }
-.wf-table th { text-align: left; font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border); }
+.wf-table { width: 100%; border-collapse: collapse; margin: 0; }
+.wf-table th { text-align: left; font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border); background: var(--surface-raised); }
 .wf-table td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-size: var(--text-sm); color: var(--text-secondary); vertical-align: middle; }
 .wf-table tr:last-child td { border-bottom: none; }
+.wf-table tbody tr { cursor: pointer; transition: background 0.1s; }
 .wf-table tr:hover { background: var(--surface-hover); }
+.wf-table td a { color: inherit; text-decoration: none; }
+.wf-table td a:hover { color: var(--accent); }
+.wf-table .wf-view-btn { display: inline-block !important; font-size: var(--text-xs); font-weight: 500; padding: 4px 10px; border-radius: 6px; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-muted) !important; text-decoration: none !important; cursor: pointer; font-family: inherit; line-height: 1.4; text-align: center; }
+.wf-table .wf-view-btn:hover { background: var(--surface-hover); color: var(--text) !important; }
 .wf-table a { color: inherit; text-decoration: none; display: block; }
-.wf-cmd { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--text); font-size: var(--text-sm); }
+.wf-cmd { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--accent); font-size: var(--text-sm); }
 .wf-badge-default { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
 .wf-badge-customized { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
 .wf-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-4); }
@@ -1352,20 +1509,23 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .wf-coming-soon-title { font-size: var(--text-lg); margin-bottom: var(--space-2); }
 .wf-editor-status { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
 .wf-editor-diff { font-size: var(--text-xs); color: var(--text-muted); }
-.wf-editor-split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4); }
-.wf-editor-split h3 { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2); color: var(--text); }
-.wf-editor-textarea { width: 100%; min-height: 400px; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; padding: var(--space-3); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; }
+.wf-editor-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border); }
+.wf-editor-tab { font-size: var(--text-sm); font-weight: 500; padding: 8px 20px; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; background: transparent; color: var(--text-muted); cursor: pointer; font-family: inherit; margin-bottom: -1px; }
+.wf-editor-tab:hover { color: var(--text); }
+.wf-editor-tab.active { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 600; }
+.wf-editor-pane { display: none; height: calc(100vh - 320px); min-height: 300px; }
+.wf-editor-pane.active { display: flex; flex-direction: column; }
+.wf-editor-textarea { width: 100%; flex: 1; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; padding: var(--space-3); border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; background: var(--surface); color: var(--text); resize: none; overflow: auto; }
 .wf-editor-textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
-.wf-editor-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: var(--space-3); min-height: 400px; overflow: auto; }
-.wf-editor-preview-text { white-space: pre-wrap; word-wrap: break-word; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; color: var(--text); margin: 0; }
-.wf-editor-actions { display: flex; gap: var(--space-2); }
+.wf-editor-preview { flex: 1; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; padding: var(--space-3); overflow: auto; min-height: 0; font-size: var(--text-sm); line-height: 1.6; }
+.wf-editor-preview-text { white-space: pre-wrap; word-wrap: break-word; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; color: var(--text); background: transparent; padding: 0; margin: 0; }
+.wf-editor-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
 .wf-editor-save-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: var(--accent); border: none; color: var(--text-on-accent); cursor: pointer; font-family: inherit; }
 .wf-editor-save-btn:hover { opacity: 0.9; }
 .wf-editor-reset-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; }
 .wf-editor-reset-btn:hover { background: var(--surface-hover); color: var(--text); }
 .wf-editor-cancel-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; line-height: 1.4; }
 .wf-editor-cancel-btn:hover { background: var(--surface-hover); color: var(--text); }
-@media (max-width: 768px) { .wf-editor-split { grid-template-columns: 1fr; } }
 
 /* ===== KB HUB PAGE ===== */
 .kb-domain-section { margin-bottom: var(--space-8); }
@@ -1459,6 +1619,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
+.section-summary { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6; margin-bottom: var(--space-4); }
+
 /* Origin badges */
 .badge-external { background: var(--accent-subtle, rgba(94,106,210,0.1)); color: var(--accent); }
 .badge-customer { background: var(--badge-success-bg); color: var(--badge-success-text); }
@@ -1522,6 +1684,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .detail-meta-bar .meta-item a { color: var(--accent); text-decoration: none; }
 .detail-meta-bar .meta-item a:hover { text-decoration: underline; }
 .meta-sep { color: var(--text-muted); opacity: 0.4; }
+.detail-card { margin-bottom: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.detail-card:first-child { border-top: none; padding-top: 0; }
+.detail-card-header { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: var(--space-3); }
+.detail-card-body { }
 .detail-section { margin-top: var(--space-12); }
 .detail-section-title { font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: var(--space-3); }
 .detail-action-hint { margin-left: auto; }
@@ -1960,24 +2126,75 @@ function renderDetailHeader(data) {
 }
 
 function renderDetailTemplate(data) {
-  const { sections = [] } = data;
-  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+  const {
+    sections = [],
+    breadcrumb = [],
+    title = "",
+    subtitle = "",
+    metaBadges = [],
+    actionHint = "",
+  } = data;
+
+  // Build back-arrow breadcrumb matching listing pages
+  const parentLink = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2] : breadcrumb[0];
+  const backHtml =
+    parentLink && parentLink.href
+      ? `<div class="breadcrumb"><a href="${escHtml(parentLink.href)}">&larr; ${escHtml(parentLink.label)}</a></div>`
+      : "";
+
+  const actionHintHtml = actionHint
+    ? `<span class="section-hint">${renderClickToCopy(actionHint)}</span>`
+    : "";
+  const badgesHtml = metaBadges.map((b) => b.html).join(" ");
+  const subtitleHtml =
+    subtitle || badgesHtml
+      ? `<p class="subtitle">${subtitle ? escHtml(subtitle) : ""}${subtitle && badgesHtml ? " " : ""}${badgesHtml}</p>`
+      : "";
 
   const sectionsHtml = sections
     .map((s) => {
-      const sectionTitle = s.title ? `\n  <h2 class="detail-section-title">${s.title}</h2>` : "";
-      return `<section class="detail-section">${sectionTitle}\n  ${s.html}\n</section>`;
+      const sectionTitle = s.title
+        ? `<div class="detail-card-header">${escHtml(s.title)}</div>`
+        : "";
+      return `<div class="detail-card">${sectionTitle}<div class="detail-card-body">${s.html}</div></div>`;
     })
     .join("\n");
 
-  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${sectionsHtml}\n</div>`;
+  return `<div class="detail-page">
+<div class="page-header">
+  ${backHtml}
+  <div class="page-title-row"><h1>${escHtml(title)}</h1>${actionHintHtml}</div>
+  ${subtitleHtml}
+</div>
+${sectionsHtml}
+</div>`;
 }
 
 var _tabCounter = 0;
 
 function renderDetailTabsTemplate(data) {
-  const { tabs = [] } = data;
-  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+  const {
+    tabs = [],
+    breadcrumb = [],
+    title = "",
+    subtitle = "",
+    metaBadges = [],
+    actionHint = "",
+  } = data;
+
+  const parentLink = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2] : breadcrumb[0];
+  const backHtml =
+    parentLink && parentLink.href
+      ? `<div class="breadcrumb"><a href="${escHtml(parentLink.href)}">&larr; ${escHtml(parentLink.label)}</a></div>`
+      : "";
+  const actionHintHtml = actionHint
+    ? `<span class="section-hint">${renderClickToCopy(actionHint)}</span>`
+    : "";
+  const badgesHtml = metaBadges.map((b) => b.html).join(" ");
+  const subtitleHtml =
+    subtitle || badgesHtml
+      ? `<p class="subtitle">${subtitle ? escHtml(subtitle) : ""}${subtitle && badgesHtml ? " " : ""}${badgesHtml}</p>`
+      : "";
 
   const prefix = "t" + _tabCounter++;
 
@@ -2025,12 +2242,41 @@ function ${prefix}Key(e, el, panelId) {
 })();
 </script>`;
 
-  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${tabBar}\n</div>\n${script}`;
+  return `<div class="detail-page">
+<div class="page-header">
+  ${backHtml}
+  <div class="page-title-row"><h1>${escHtml(title)}</h1>${actionHintHtml}</div>
+  ${subtitleHtml}
+</div>
+${tabBar}
+</div>
+${script}`;
 }
 
 function renderDetailTocTemplate(data) {
-  const { toc = [], bodyHtml = "" } = data;
-  const { breadcrumbHtml, titleHtml, subtitleHtml, metaBarHtml } = renderDetailHeader(data);
+  const {
+    toc = [],
+    bodyHtml = "",
+    breadcrumb = [],
+    title = "",
+    subtitle = "",
+    metaBadges = [],
+    actionHint = "",
+  } = data;
+
+  const parentLink = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2] : breadcrumb[0];
+  const backHtml =
+    parentLink && parentLink.href
+      ? `<div class="breadcrumb"><a href="${escHtml(parentLink.href)}">&larr; ${escHtml(parentLink.label)}</a></div>`
+      : "";
+  const actionHintHtml = actionHint
+    ? `<span class="section-hint">${renderClickToCopy(actionHint)}</span>`
+    : "";
+  const badgesHtml = metaBadges.map((b) => b.html).join(" ");
+  const subtitleHtml =
+    subtitle || badgesHtml
+      ? `<p class="subtitle">${subtitle ? escHtml(subtitle) : ""}${subtitle && badgesHtml ? " " : ""}${badgesHtml}</p>`
+      : "";
 
   const tocNav =
     toc.length > 0
@@ -2058,7 +2304,16 @@ function renderDetailTocTemplate(data) {
 })();
 </script>`;
 
-  return `<div class="detail-page">\n${breadcrumbHtml}\n${titleHtml}${subtitleHtml}\n${metaBarHtml}\n${tocNav}\n<div class="markdown-body">${bodyHtml}</div>\n</div>\n${script}`;
+  return `<div class="detail-page">
+<div class="page-header">
+  ${backHtml}
+  <div class="page-title-row"><h1>${escHtml(title)}</h1>${actionHintHtml}</div>
+  ${subtitleHtml}
+</div>
+${tocNav}
+<div class="markdown-body">${bodyHtml}</div>
+</div>
+${script}`;
 }
 
 /**
@@ -2432,12 +2687,12 @@ function handleWorkflowsPage(res, pmDir) {
   let commandsHtml =
     '<div class="wf-table-wrap">' +
     '<table class="wf-table">' +
-    "<thead><tr><th>Command</th><th>Description</th><th>Status</th></tr></thead>" +
+    "<thead><tr><th>Command</th><th>Description</th><th>Status</th><th></th></tr></thead>" +
     "<tbody>";
 
   for (const group of WORKFLOW_COMMANDS) {
     commandsHtml +=
-      '<tr><td colspan="3" class="wf-group-header">' + escHtml(group.group) + "</td></tr>";
+      '<tr><td colspan="4" class="wf-group-header">' + escHtml(group.group) + "</td></tr>";
 
     for (const cmd of group.commands) {
       const customized = isWorkflowCustomized(cmd.name, pmDir);
@@ -2446,7 +2701,9 @@ function handleWorkflowsPage(res, pmDir) {
         : '<span class="wf-badge-default">Default</span>';
 
       commandsHtml +=
-        "<tr>" +
+        "<tr onclick=\"window.location.href='/workflows/" +
+        escHtml(cmd.name) +
+        "'\">" +
         '<td><a href="/workflows/' +
         escHtml(cmd.name) +
         '"><span class="wf-cmd">/' +
@@ -2458,6 +2715,9 @@ function handleWorkflowsPage(res, pmDir) {
         "<td>" +
         badge +
         "</td>" +
+        '<td><a href="/workflows/' +
+        escHtml(cmd.name) +
+        '" class="wf-view-btn">View</a></td>' +
         "</tr>";
     }
   }
@@ -2703,7 +2963,7 @@ function handleWorkflowDetail(res, pmDir, command) {
   // Only dev has step files for now; others show "Coming soon"
   if (command !== "dev") {
     const bodyHtml =
-      '<div class="wf-breadcrumb"><a href="/workflows">Workflows</a> / /' +
+      '<div class="wf-breadcrumb"><a href="/workflows">Workflows</a> / ' +
       escHtml(command) +
       "</div>" +
       "<h1>/" +
@@ -2724,7 +2984,7 @@ function handleWorkflowDetail(res, pmDir, command) {
   const steps = loadWorkflow(command, pmDir, pluginRoot);
 
   let stepsHtml =
-    '<div class="wf-breadcrumb"><a href="/workflows">Workflows</a> / /' +
+    '<div class="wf-breadcrumb"><a href="/workflows">Workflows</a> / ' +
     escHtml(command) +
     "</div>" +
     "<h1>/" +
@@ -2877,7 +3137,7 @@ function handleStepEditorPage(res, pmDir, command, stepStem) {
     '<a href="/workflows">Workflows</a> / ' +
     '<a href="/workflows/' +
     escHtml(command) +
-    '">/' +
+    '">' +
     escHtml(command) +
     "</a> / " +
     escHtml(stepName) +
@@ -2893,19 +3153,19 @@ function handleStepEditorPage(res, pmDir, command, stepStem) {
         "</span>" +
         "</div>"
       : '<div class="wf-editor-status"><span class="wf-badge-default">Default</span></div>') +
-    '<div class="wf-editor-split">' +
-    '<div class="wf-editor-left">' +
-    "<h3>Markdown</h3>" +
+    '<div class="wf-editor-tabs">' +
+    '<button class="wf-editor-tab active" onclick="switchTab(\'preview\')">Preview</button>' +
+    '<button class="wf-editor-tab" onclick="switchTab(\'markdown\')">Markdown</button>' +
+    "</div>" +
+    '<div id="pane-preview" class="wf-editor-pane active">' +
+    '<div id="wf-preview-content" class="wf-editor-preview">' +
+    renderMarkdownToHtml(currentBody.trim()) +
+    "</div>" +
+    "</div>" +
+    '<div id="pane-markdown" class="wf-editor-pane">' +
     '<textarea id="wf-editor-textarea" class="wf-editor-textarea" rows="20">' +
     escHtml(currentBody.trim()) +
     "</textarea>" +
-    "</div>" +
-    '<div class="wf-editor-right">' +
-    "<h3>Preview</h3>" +
-    '<div class="wf-editor-preview">' +
-    renderPreview(currentBody.trim()) +
-    "</div>" +
-    "</div>" +
     "</div>" +
     '<div class="wf-editor-actions">' +
     '<button class="wf-editor-save-btn" onclick="saveStep()">Save</button>' +
@@ -2915,6 +3175,23 @@ function handleStepEditorPage(res, pmDir, command, stepStem) {
     '" class="wf-editor-cancel-btn">Cancel</a>' +
     "</div>" +
     "<script>" +
+    "function switchTab(tab) {" +
+    "  document.querySelectorAll('.wf-editor-tab').forEach(t => t.classList.remove('active'));" +
+    "  document.querySelectorAll('.wf-editor-pane').forEach(p => p.classList.remove('active'));" +
+    "  document.getElementById('pane-' + tab).classList.add('active');" +
+    "  event.target.classList.add('active');" +
+    "  if (tab === 'preview') {" +
+    "    var md = document.getElementById('wf-editor-textarea').value;" +
+    "    fetch('/api/render-markdown', {" +
+    "      method: 'POST'," +
+    "      headers: { 'Content-Type': 'application/json' }," +
+    "      body: JSON.stringify({ markdown: md })" +
+    "    }).then(r => r.json()).then(data => {" +
+    "      if (data.ok) document.getElementById('wf-preview-content').replaceChildren()," +
+    "        document.getElementById('wf-preview-content').insertAdjacentHTML('afterbegin', data.html);" +
+    "    });" +
+    "  }" +
+    "}" +
     "function saveStep() {" +
     "  var body = document.getElementById('wf-editor-textarea').value;" +
     "  fetch('/api/workflows/" +
@@ -3202,6 +3479,21 @@ function routeDashboardPost(req, res, pmDir) {
 
   if (url === "/notes") {
     handleNoteCreate(req, res, pmDir);
+    return;
+  }
+
+  // Markdown preview render
+  if (url === "/api/render-markdown") {
+    parseJsonBody(req)
+      .then(function (body) {
+        const html = renderMarkdownToHtml(body.markdown || "");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, html: html }));
+      })
+      .catch(function (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      });
     return;
   }
 
@@ -6213,6 +6505,11 @@ function handleInsightDomainDetail(res, pmDir, domain) {
   const domainDir = path.dirname(indexPath);
   const title = humanizeSlug(domain) + " Insights";
 
+  // Read index.md summary for the domain header
+  const indexRaw = fs.readFileSync(indexPath, "utf-8");
+  const { body: indexBody } = parseFrontmatter(indexRaw);
+  const domainSummary = extractMarkdownSummary(indexBody, 200);
+
   // Scan documents in the domain directory
   const docs = fs
     .readdirSync(domainDir, { withFileTypes: true })
@@ -6266,6 +6563,7 @@ function handleInsightDomainDetail(res, pmDir, domain) {
   <div class="page-title-row"><h1>${escHtml(title)}</h1><span class="section-hint">${renderClickToCopy("/pm:refresh " + domain)}</span></div>
   <p class="subtitle">${docs.length} document${docs.length !== 1 ? "s" : ""}</p>
 </div>
+${domainSummary ? `<p class="section-summary">${escHtml(domainSummary)}</p>` : ""}
 ${
   docs.length > 0
     ? `<section class="section">${listHtml}</section>`
