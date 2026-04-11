@@ -837,32 +837,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .col-hint { font-size: 0.6875rem; color: var(--text-muted); padding: 0 1rem 0.25rem; }
 .col-hint code { background: var(--accent-subtle); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.6875rem; color: var(--accent); }
 
-/* View toggle */
-.view-toggle { display: flex; gap: 4px; margin-bottom: 1rem; }
-.view-toggle-btn { padding: 6px 14px; font-size: 0.8125rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text-secondary); background: var(--surface); transition: all 0.15s; }
-.view-toggle-btn:hover { background: var(--surface-hover); }
-.view-toggle-btn.active { background: var(--accent); color: var(--surface); border-color: var(--accent); }
-
-/* Thread table */
-.thread-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 1rem 0; }
-.thread-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin: 0; }
-.thread-table thead { background: var(--bg); }
-.thread-table th { text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); }
-.thread-table td { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border-subtle, var(--border)); vertical-align: middle; color: var(--text-secondary); }
-.thread-table tr:last-child td { border-bottom: none; }
-.thread-id { font-family: var(--font-mono, monospace); font-size: 0.75rem; font-weight: 600; color: var(--accent); background: var(--accent-subtle); padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
-.thread-feature { font-weight: 500; color: var(--text-primary, var(--text)); }
-.thread-pill { display: inline-block; padding: 2px 8px; font-size: 0.75rem; font-weight: 500; border-radius: 4px; text-decoration: none; background: var(--accent-subtle); color: var(--accent); }
-.thread-pill:hover { text-decoration: underline; }
-.thread-pill-pr { background: var(--badge-info-bg); color: var(--badge-info-text); }
-.thread-children-toggle { margin-top: 4px; }
-.thread-children-toggle summary { font-size: 0.75rem; color: var(--text-muted); cursor: pointer; list-style: none; }
-.thread-children-toggle summary::-webkit-details-marker { display: none; }
-.thread-children-toggle summary::before { content: "\\25B6 "; font-size: 0.625rem; }
-.thread-children-toggle[open] summary::before { content: "\\25BC "; }
-.thread-children-list { list-style: none; padding: 4px 0 0 0; margin: 0; font-size: 0.75rem; color: var(--text-muted); }
-.thread-children-list li { padding: 2px 0; }
-
 .kanban-item-hint { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
 .suggested-next { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .suggested-next-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.375rem; }
@@ -1257,6 +1231,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   font-size: var(--text-xs); color: var(--text-dim, var(--text-muted));
   font-variant-numeric: tabular-nums;
 }
+.section-hint { margin-left: auto; }
+.section-hint .click-to-copy { padding: var(--space-1) var(--space-2); }
+.section-hint .click-to-copy code { font-size: var(--text-xs); }
 /* ===== KB Search ===== */
 .kb-search { margin-bottom: var(--space-4); }
 .kb-search-input {
@@ -2609,12 +2586,7 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === "/notes") {
     handleNotesPage(res, pmDir);
   } else if (urlPath === "/roadmap") {
-    const view = urlObj.searchParams.get("view");
-    if (view === "threads") {
-      handleBacklogThreads(res, pmDir);
-    } else {
-      handleBacklog(res, pmDir);
-    }
+    handleBacklog(res, pmDir);
   } else if (urlPath === "/roadmap/shipped") {
     handleShipped(res, pmDir);
   } else if (urlPath.startsWith("/roadmap/wireframes/")) {
@@ -3259,7 +3231,7 @@ function renderListTemplate(opts) {
 }
 
 function renderKanbanTemplate(opts) {
-  const { title, subtitle, legend, columns = [], emptyState, headerExtra } = opts;
+  const { title, subtitle, legend, columns = [], emptyState } = opts;
 
   const parts = [];
 
@@ -3269,9 +3241,6 @@ function renderKanbanTemplate(opts) {
   parts.push(`<h1>${escHtml(title)}</h1>`);
   if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
   parts.push("</div>");
-
-  // Optional extra content after header (e.g. view toggle)
-  if (headerExtra) parts.push(headerExtra);
 
   // Optional legend
   if (legend) parts.push(legend);
@@ -4626,6 +4595,16 @@ function buildTopicRows(pmDir, maxTopics) {
   return { html: `<div class="topic-list">${rows}</div>`, total: topicData.length };
 }
 
+function kbDomainCommand(slug) {
+  if (slug === "competitors") return "/pm:research competitors";
+  if (slug === "business") return "/pm:research landscape";
+  return "/pm:research";
+}
+
+function renderSectionHint(command) {
+  return `<span class="section-hint">${renderClickToCopy(command)}</span>`;
+}
+
 function buildKbDomainSection(pmDir, domain) {
   const domainDir = path.dirname(domain.indexPath);
   const label = humanizeSlug(domain.slug);
@@ -4670,6 +4649,7 @@ function buildKbDomainSection(pmDir, domain) {
   <div class="section-header">
     <span class="section-title">${escHtml(label)}</span>
     <span class="section-count">${slugs.length} profile${slugs.length !== 1 ? "s" : ""}</span>
+    ${renderSectionHint(kbDomainCommand("competitors"))}
   </div>
   <div class="card-grid">${cards}</div>
   ${viewAll}
@@ -4683,7 +4663,7 @@ function buildKbDomainSection(pmDir, domain) {
       (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
     );
   if (files.length === 0) {
-    const hint = domain.slug === "product" ? "/pm:research" : "/pm:research";
+    const hint = kbDomainCommand(domain.slug);
     return `<div class="kb-domain-section">
   <div class="section-header"><span class="section-title">${escHtml(label)}</span></div>
   ${renderEmptyState("No " + label.toLowerCase() + " insights yet", "Run research or groom features to synthesize insights here.", hint)}
@@ -4717,6 +4697,7 @@ function buildKbDomainSection(pmDir, domain) {
   <div class="section-header">
     <span class="section-title">${escHtml(label)}</span>
     <span class="section-count">${files.length} topic${files.length !== 1 ? "s" : ""}</span>
+    ${renderSectionHint(kbDomainCommand(domain.slug))}
   </div>
   <div class="card-grid">${cards}</div>
   ${viewAll}
@@ -4781,10 +4762,16 @@ function buildKbEvidenceSection(pmDir, subdir) {
     sorted.length > 3
       ? `<div class="view-all-wrap"><a href="/evidence/${escHtml(subdir)}" class="section-link">View all ${sorted.length} items</a></div>`
       : "";
+  const evidenceCommands = {
+    research: "/pm:research",
+    transcripts: "/pm:ingest",
+    "user-feedback": "/pm:ingest",
+  };
   return `<div class="kb-domain-section">
   <div class="section-header">
     <span class="section-title">${escHtml(label)}</span>
     <span class="section-count">${sorted.length} item${sorted.length !== 1 ? "s" : ""}</span>
+    ${renderSectionHint(evidenceCommands[subdir] || "/pm:ingest")}
   </div>
   <div class="card-grid">${cards}</div>
   ${viewAll}
@@ -5446,12 +5433,6 @@ function handleWireframe(res, pmDir, slug) {
   }
 }
 
-function renderViewToggle(activeView) {
-  const kanbanClass = activeView === "kanban" ? " active" : "";
-  const threadsClass = activeView === "threads" ? " active" : "";
-  return `<div class="view-toggle"><a href="/roadmap" class="view-toggle-btn${kanbanClass}">Kanban</a><a href="/roadmap?view=threads" class="view-toggle-btn${threadsClass}">Threads</a></div>`;
-}
-
 function handleBacklog(res, pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
   const columns = {};
@@ -5565,13 +5546,10 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
 </script>`
       : "";
 
-  const viewToggle = renderViewToggle("kanban");
-
   const body =
     renderKanbanTemplate({
       title: "Roadmap",
       subtitle: "What's coming, what's in progress, and what just shipped",
-      headerExtra: viewToggle,
       legend: filterBar,
       columns: templateColumns,
       emptyState: renderEmptyState(
@@ -5583,141 +5561,6 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
     }) + filterScript;
 
   const html = dashboardPage("Roadmap", "/roadmap", body);
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(html);
-}
-
-function handleBacklogThreads(res, pmDir) {
-  const backlogDir = path.join(pmDir, "backlog");
-  const items = [];
-  const childrenByParent = {};
-
-  if (fs.existsSync(backlogDir)) {
-    const files = fs.readdirSync(backlogDir).filter((f) => f.endsWith(".md"));
-    // First pass: collect children per parent
-    for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
-      const { data } = parseFrontmatter(raw);
-      const parent = data.parent || null;
-      if (parent && parent !== "null") {
-        if (!childrenByParent[parent]) childrenByParent[parent] = [];
-        childrenByParent[parent].push({
-          id: data.id || null,
-          title: data.title || file.replace(".md", ""),
-        });
-      }
-    }
-    // Second pass: collect parent items
-    for (const file of files) {
-      const raw = fs.readFileSync(path.join(backlogDir, file), "utf-8");
-      const { data } = parseFrontmatter(raw);
-      const slug = file.replace(".md", "");
-      const parent = data.parent || null;
-      if (parent && parent !== "null") continue; // skip sub-issues
-      items.push({
-        slug,
-        title: data.title || slug,
-        id: data.id || null,
-        status: data.status || "idea",
-        prd: data.prd || null,
-        rfc: data.rfc || null,
-        linear_id: data.linear_id || null,
-        prs: Array.isArray(data.prs) ? data.prs : [],
-        updated: data.updated || data.created || "",
-        children: childrenByParent[slug] || [],
-      });
-    }
-  }
-
-  // Sort by updated date descending
-  items.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
-
-  const viewToggle = renderViewToggle("threads");
-
-  let pageBody = "";
-  pageBody += '<div class="thread-view">';
-  pageBody += '<div class="page-header">';
-  pageBody += "<h1>Roadmap</h1>";
-  pageBody += '<p class="subtitle">Feature lifecycle — from idea to shipped</p>';
-  pageBody += "</div>";
-  pageBody += viewToggle;
-
-  if (items.length === 0) {
-    pageBody += renderEmptyState(
-      "No features yet",
-      "Start with /pm:groom to create your first proposal.",
-      "/pm:groom",
-      "Start grooming"
-    );
-  } else {
-    pageBody += '<div class="thread-table-wrap">';
-    pageBody += '<table class="thread-table">';
-    pageBody += "<thead><tr>";
-    pageBody +=
-      "<th>Feature</th><th>Status</th><th>Proposal</th><th>RFC</th><th>Linear</th><th>PRs</th>";
-    pageBody += "</tr></thead>";
-    pageBody += "<tbody>";
-
-    for (const item of items) {
-      const titleHtml = item.id
-        ? `<span class="thread-id">${escHtml(item.id)}</span> ${escHtml(item.title)}`
-        : escHtml(item.title);
-
-      const statusHtml = `<span class="badge badge-${escHtml(item.status)}">${escHtml(item.status)}</span>`;
-
-      const prdSlug = item.prd ? item.prd.replace(/^proposals\//, "").replace(/\.html$/, "") : null;
-      const prdHtml = prdSlug
-        ? `<a href="/proposals/${escHtml(prdSlug)}" class="thread-pill">PRD</a>`
-        : "\u2014";
-
-      const rfcSlug = item.rfc ? item.rfc.replace(/^rfcs\//, "").replace(/\.html$/, "") : null;
-      const rfcHtml =
-        rfcSlug && rfcSlug !== "null"
-          ? `<a href="/rfc/${escHtml(rfcSlug)}" class="thread-pill">RFC</a>`
-          : "\u2014";
-
-      const linearHtml =
-        item.linear_id && item.linear_id !== "null"
-          ? `<span class="thread-pill">${escHtml(item.linear_id)}</span>`
-          : "\u2014";
-
-      const prsHtml =
-        item.prs.length > 0
-          ? item.prs
-              .map((pr) => `<span class="thread-pill thread-pill-pr">${escHtml(pr)}</span>`)
-              .join(" ")
-          : "\u2014";
-
-      let featureCell = `<div class="thread-feature">${titleHtml}`;
-      if (item.children.length > 0) {
-        const count = item.children.length;
-        const childListHtml = item.children
-          .map((c) => {
-            const cId = c.id ? `<strong>${escHtml(c.id)}</strong> ` : "";
-            return `<li>${cId}${escHtml(c.title)}</li>`;
-          })
-          .join("");
-        featureCell += `<details class="thread-children-toggle"><summary>${count} sub-issue${count !== 1 ? "s" : ""}</summary><ul class="thread-children-list">${childListHtml}</ul></details>`;
-      }
-      featureCell += "</div>";
-
-      pageBody += "<tr>";
-      pageBody += `<td>${featureCell}</td>`;
-      pageBody += `<td>${statusHtml}</td>`;
-      pageBody += `<td>${prdHtml}</td>`;
-      pageBody += `<td>${rfcHtml}</td>`;
-      pageBody += `<td>${linearHtml}</td>`;
-      pageBody += `<td>${prsHtml}</td>`;
-      pageBody += "</tr>";
-    }
-
-    pageBody += "</tbody></table>";
-    pageBody += "</div>";
-  }
-
-  pageBody += "</div>";
-
-  const html = dashboardPage("Roadmap", "/roadmap", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
