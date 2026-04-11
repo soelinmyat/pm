@@ -11,6 +11,12 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/dev-flow.md` and follow it.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
+If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
+
 **Hard rules:**
 - **Protect the orchestrator's context window for multi-task work.** Each task's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
@@ -47,8 +53,8 @@ Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.d
 ## Fresh Start
 
 **Local backlog resolution (always runs first):** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
-1. First, check `pm/backlog/{slug}.md` — if found, read frontmatter and use as task context.
-2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `pm/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
+1. First, check `{pm_dir}/backlog/{slug}.md` — if found, read frontmatter and use as task context.
+2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `{pm_dir}/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
 3. Only if no local backlog match: fall through to MCP lookup below.
 
 **MCP lookup:** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog above, fetch via MCP. Also fetch sub-issues — they become context for RFC generation (not a routing decision). If MCP returns nothing, proceed with the argument as the topic.

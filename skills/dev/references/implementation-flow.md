@@ -449,9 +449,9 @@ Both local backlog and issue tracker must be updated. Do not skip either. A merg
 </HARD-RULE>
 
 **Local backlog:**
-- If `pm/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}` in frontmatter
+- If `{pm_dir}/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}` in frontmatter
 - If `linear_id` is available and not in frontmatter, add it
-- Log: `Backlog: pm/backlog/{slug}.md → done`
+- Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
 **Issue tracker** (if available):
 - If this issue has child/sub-issues, close them ALL first:
