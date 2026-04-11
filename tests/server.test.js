@@ -6228,3 +6228,234 @@ test("sidebar navigation does not include Notes link (nested under KB)", async (
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Workflows page — commands table + personas grid (Issue 4)
+// ---------------------------------------------------------------------------
+
+test("GET /workflows returns 200 with Workflows nav active", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/workflows");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("<!DOCTYPE html"), "must be a full HTML doc");
+      // Workflows nav link should be active
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, "page must have a nav element");
+      assert.ok(navMatch[1].includes('href="/workflows"'), "nav must include Workflows link");
+      assert.ok(
+        body.includes('class="nav-item active"') && body.includes('href="/workflows"'),
+        "Workflows nav item must be active"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows shows commands grouped by function", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      // Group headers
+      assert.ok(body.includes("Product"), "must show Product group header");
+      assert.ok(body.includes("Research"), "must show Research group header");
+      assert.ok(body.includes("Development"), "must show Development group header");
+      // Commands in the table
+      assert.ok(body.includes("/think"), "must show /think command");
+      assert.ok(body.includes("/groom"), "must show /groom command");
+      assert.ok(body.includes("/strategy"), "must show /strategy command");
+      assert.ok(body.includes("/research"), "must show /research command");
+      assert.ok(body.includes("/dev"), "must show /dev command");
+      assert.ok(body.includes("/ship"), "must show /ship command");
+      // System/utility commands must NOT appear
+      assert.ok(!body.match(/>\/start</), "must not show /start command in table");
+      assert.ok(!body.match(/>\/setup</), "must not show /setup command in table");
+      assert.ok(!body.match(/>\/sync</), "must not show /sync command in table");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows shows Default badges for unmodified workflows", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      assert.ok(body.includes("Default"), "must show Default badge for unmodified commands");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows shows Customized badge when steps are overridden", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/workflows/dev/01-tool-check.md":
+      "---\nname: Tool Check\norder: 1\ndescription: Custom check\n---\nCustom body\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      assert.ok(
+        body.includes("Customized"),
+        "must show Customized badge when user overrides exist"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows shows Customized badge when steps are disabled in config", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      workflows: { dev: { steps: { "01-tool-check": { enabled: false } } } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      assert.ok(
+        body.includes("Customized"),
+        "must show Customized badge when steps are disabled in config"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows personas tab renders all 7 persona cards", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      // All 7 personas
+      assert.ok(body.includes("Product Manager"), "must show Product Manager persona");
+      assert.ok(body.includes("Developer"), "must show Developer persona");
+      assert.ok(body.includes("Designer"), "must show Designer persona");
+      assert.ok(body.includes("Tester"), "must show Tester persona");
+      assert.ok(body.includes("Staff Engineer"), "must show Staff Engineer persona");
+      assert.ok(body.includes("Adversarial Engineer"), "must show Adversarial Engineer persona");
+      assert.ok(body.includes("Strategist"), "must show Strategist persona");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows personas show Customized badge for overridden persona", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/personas/developer.md":
+      "---\nname: Developer\ndescription: My custom dev\n---\nCustom body\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows");
+      assert.ok(body.includes("Customized"), "must show Customized badge for overridden persona");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev returns step detail page with all steps", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/workflows/dev");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("<!DOCTYPE html"), "must be a full HTML doc");
+      // Should show dev workflow steps
+      assert.ok(body.includes("Tool Check"), "must show Tool Check step");
+      assert.ok(body.includes("Intake"), "must show Intake step");
+      assert.ok(body.includes("Implementation"), "must show Implementation step");
+      assert.ok(body.includes("Ship"), "must show Ship step");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/think returns Coming soon detail page", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/workflows/think");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("Coming soon"), "must show Coming soon for non-dev commands");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("Workflows nav appears between Roadmap and Settings in sidebar", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/");
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, "page must have a nav element");
+      const navContent = navMatch[1];
+      const roadmapIdx = navContent.indexOf('href="/roadmap"');
+      const workflowsIdx = navContent.indexOf('href="/workflows"');
+      assert.ok(roadmapIdx >= 0, "nav must include Roadmap link");
+      assert.ok(workflowsIdx >= 0, "nav must include Workflows link");
+      assert.ok(workflowsIdx > roadmapIdx, "Workflows must appear after Roadmap in nav");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
