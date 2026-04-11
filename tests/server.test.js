@@ -6459,3 +6459,351 @@ test("Workflows nav appears between Roadmap and Settings in sidebar", async () =
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Workflow step editor — toggle, save, reset, editor page (Issue 5)
+// ---------------------------------------------------------------------------
+
+test("POST /api/workflows/dev/steps/01-tool-check/toggle writes enabled:false to config", async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/01-tool-check/toggle",
+        { enabled: false }
+      );
+      assert.equal(statusCode, 200);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, true);
+      // Verify config was written
+      const configPath = path.join(root, ".pm", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      assert.equal(config.workflows.dev.steps["01-tool-check"].enabled, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/01-tool-check/toggle writes enabled:true to config", async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      workflows: { dev: { steps: { "01-tool-check": { enabled: false } } } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/01-tool-check/toggle",
+        { enabled: true }
+      );
+      assert.equal(statusCode, 200);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, true);
+      // Verify config was written
+      const configPath = path.join(root, ".pm", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      assert.equal(config.workflows.dev.steps["01-tool-check"].enabled, true);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/invalid-step/toggle returns 404", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/invalid-step/toggle",
+        { enabled: false }
+      );
+      assert.equal(statusCode, 404);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/01-tool-check/save creates user override file", async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/01-tool-check/save",
+        { body: "## Custom Tool Check\n\nMy custom instructions here.\n" }
+      );
+      assert.equal(statusCode, 200);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, true);
+      // Verify file was created
+      const filePath = path.join(root, ".pm", "workflows", "dev", "01-tool-check.md");
+      assert.ok(fs.existsSync(filePath), "user override file must be created");
+      const content = fs.readFileSync(filePath, "utf-8");
+      // Frontmatter should be preserved from the shipped default
+      assert.ok(content.includes("name: Tool Check"), "must preserve name frontmatter");
+      assert.ok(content.includes("order: 1"), "must preserve order frontmatter");
+      assert.ok(content.includes("Custom Tool Check"), "must contain user body");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/01-tool-check/save with empty body returns 400", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/01-tool-check/save",
+        { body: "" }
+      );
+      assert.equal(statusCode, 400);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/invalid-step/save returns 404", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/invalid-step/save",
+        { body: "Some content" }
+      );
+      assert.equal(statusCode, 404);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/01-tool-check/reset deletes user override and config entry", async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/workflows/dev/01-tool-check.md":
+      "---\nname: Tool Check\norder: 1\ndescription: Custom\n---\nCustom body\n",
+    ".pm/config.json": JSON.stringify({
+      project_name: "test",
+      workflows: { dev: { steps: { "01-tool-check": { enabled: false } } } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/01-tool-check/reset",
+        {}
+      );
+      assert.equal(statusCode, 200);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, true);
+      // Verify file was deleted
+      const filePath = path.join(root, ".pm", "workflows", "dev", "01-tool-check.md");
+      assert.ok(!fs.existsSync(filePath), "user override file must be deleted");
+      // Verify config entry was removed
+      const configPath = path.join(root, ".pm", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      assert.equal(config.workflows?.dev?.steps?.["01-tool-check"], undefined);
+      // Other config preserved
+      assert.equal(config.project_name, "test");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST /api/workflows/dev/steps/invalid-step/reset returns 404", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpPost(
+        port,
+        "/api/workflows/dev/steps/invalid-step/reset",
+        {}
+      );
+      assert.equal(statusCode, 404);
+      const result = JSON.parse(body);
+      assert.equal(result.ok, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("POST toggle preserves existing config keys", async () => {
+  const { root, pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/config.json": JSON.stringify({
+      project_name: "myproject",
+      preferences: { ship: { auto_merge: true } },
+    }),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      await httpPost(port, "/api/workflows/dev/steps/01-tool-check/toggle", { enabled: false });
+      const configPath = path.join(root, ".pm", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      assert.equal(config.project_name, "myproject");
+      assert.equal(config.preferences.ship.auto_merge, true);
+      assert.equal(config.workflows.dev.steps["01-tool-check"].enabled, false);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev/steps/01-tool-check/edit returns editor page", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/workflows/dev/steps/01-tool-check/edit");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("<!DOCTYPE html"), "must be a full HTML doc");
+      assert.ok(body.includes("textarea"), "must contain a textarea for editing");
+      assert.ok(body.includes("Tool Check"), "must show step name");
+      assert.ok(body.includes("Save"), "must have a Save button");
+      assert.ok(body.includes("Reset to Default"), "must have a Reset to Default button");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev/steps/invalid-step/edit returns 404", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode } = await httpGet(port, "/workflows/dev/steps/invalid-step/edit");
+      assert.equal(statusCode, 404);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev/steps/01-tool-check/edit shows Modified indicator when user override exists", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+    ".pm/workflows/dev/01-tool-check.md":
+      "---\nname: Tool Check\norder: 1\ndescription: Verify gh CLI\n---\nCustom body here\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows/dev/steps/01-tool-check/edit");
+      assert.ok(body.includes("Modified"), "must show Modified indicator");
+      assert.ok(body.includes("lines changed"), "must show diff summary");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev detail page has toggle inline JS and data-step attributes", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows/dev");
+      assert.ok(body.includes("data-step="), "toggle must have data-step attribute");
+      assert.ok(body.includes("data-enabled="), "toggle must have data-enabled attribute");
+      assert.ok(
+        body.includes("/api/workflows/dev/steps/"),
+        "page must include toggle API URL pattern"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("GET /workflows/dev detail page Edit buttons link to editor pages", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { body } = await httpGet(port, "/workflows/dev");
+      assert.ok(
+        body.includes("/workflows/dev/steps/01-tool-check/edit"),
+        "Edit button must link to step editor page"
+      );
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});

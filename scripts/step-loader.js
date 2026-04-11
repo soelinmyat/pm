@@ -180,6 +180,7 @@ function loadWorkflow(command, pmDir, pluginRoot) {
     const enabled = stepCfg?.enabled !== false;
 
     steps.push({
+      stem,
       name: parsed.name,
       order: parsed.order,
       description: parsed.description,
