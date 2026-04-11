@@ -263,6 +263,16 @@ After all writes complete:
   {today} cite insights/{domain}/{slug}.md -> {evidence path}
   ```
 
+### Regenerate hot index
+
+After all index and log updates are complete, regenerate the hot index:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --generate
+```
+
+This keeps `insights/.hot.md` in sync with the latest routing changes.
+
 ### Skip path
 
 When no matches exist and no new topic is warranted:

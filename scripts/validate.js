@@ -67,6 +67,9 @@ function walkMarkdownFiles(dirPath, files = []) {
   }
 
   for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
     const entryPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
       walkMarkdownFiles(entryPath, files);
@@ -523,6 +526,7 @@ function validateIndexFile(pmDir, filePath, errors) {
       (entry) =>
         entry.isFile() &&
         entry.name.endsWith(".md") &&
+        !entry.name.startsWith(".") &&
         entry.name !== "index.md" &&
         entry.name !== "log.md"
     )
