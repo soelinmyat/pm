@@ -361,7 +361,7 @@ Present a numbered list:
 
 ```text
 Evidence drop zone — {N} new file(s):
-1. "Pricing confusion on enterprise tier" (support ticket, 4.8KB)
+1. "Pricing confusion on enterprise tier" (text, 4.8KB)
 2. "user-interview-2026-04.md" (markdown, 12.1KB)
 3. "feedback-export.csv" (csv, 89KB)
 ```
