@@ -5,6 +5,10 @@ description: "Use when creating or maintaining a product strategy document. Cove
 
 # pm:strategy
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
 ## Purpose
 The strategy doc is the alignment filter for all grooming decisions.
 Every feature idea gets evaluated against it. Without one, grooming drifts.
@@ -21,7 +25,7 @@ Minimum coverage for `pm:strategy`:
 
 ## Prerequisite Check
 
-Check if `pm/insights/business/landscape.md` exists.
+Check if `{pm_dir}/insights/business/landscape.md` exists.
 
 If it does NOT exist, say:
 
@@ -35,7 +39,7 @@ Respect the user's answer. Do not block.
 ## Existing Strategy Detection
 
 Search for any of the following:
-- `pm/strategy.md`
+- `{pm_dir}/strategy.md`
 - `STRATEGY.md`
 - `PRODUCT.md`
 - `PRD.md`
@@ -43,7 +47,7 @@ Search for any of the following:
 
 If found, say:
 
-> "Found existing strategy doc at {path}. Want to adopt it into pm/strategy.md
+> "Found existing strategy doc at {path}. Want to adopt it into {pm_dir}/strategy.md
 > (I'll restructure it to the standard format) or start fresh?"
 
 If adopting: extract existing answers and skip re-asking questions already answered.
@@ -51,11 +55,11 @@ If starting fresh: proceed with the full interview.
 
 ## Update Flow
 
-When `pm/strategy.md` already exists and the user invokes `$pm-strategy` again:
+When `{pm_dir}/strategy.md` already exists and the user invokes `$pm-strategy` again:
 
 1. Ask: "What changed? (e.g., pivoted ICP, new competitors, revised priorities)"
 2. Re-interview only the affected sections.
-3. Update `pm/strategy.md` in place. Bump `updated:` in frontmatter.
+3. Update `{pm_dir}/strategy.md` in place. Bump `updated:` in frontmatter.
 
 Not a full re-interview. Surgical updates only.
 
@@ -64,11 +68,11 @@ Not a full re-interview. Surgical updates only.
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 
@@ -81,10 +85,10 @@ Rules:
 - Prefer multiple-choice when there is a natural set of options.
 - Start with Essentials. Move to Depth only if the user's answers are expansive.
 - If the user gives a short answer, accept it and move on — do not interrogate.
-- If `pm/insights/business/landscape.md` exists, read it first. Use named competitors and market
+- If `{pm_dir}/insights/business/landscape.md` exists, read it first. Use named competitors and market
   segments from it to make questions more specific (e.g., "How do you differ
   from [Competitor A] and [Competitor B]?" instead of "Who are your competitors?").
-- If `pm/evidence/research/` contains internal or mixed topic findings from `$pm-ingest`,
+- If `{pm_dir}/evidence/research/` contains internal or mixed topic findings from `$pm-ingest`,
   use them to sharpen ICP, segmentation, priorities, and non-goals. Customer
   evidence should influence strategy when available.
 - After Essentials are complete, ask: "Want to go deeper on any area, or is
@@ -92,7 +96,7 @@ Rules:
 
 ## Strategy Document
 
-Write to `pm/strategy.md` with this structure:
+Write to `{pm_dir}/strategy.md` with this structure:
 
 ```markdown
 ---
@@ -138,7 +142,7 @@ Leading indicators preferred over lagging.
 
 After writing, say:
 
-> "Strategy doc written to pm/strategy.md. Recommended next steps:
+> "Strategy doc written to {pm_dir}/strategy.md. Recommended next steps:
 > $pm-research competitors -> $pm-ideate -> $pm-groom [feature idea]
 > If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
 

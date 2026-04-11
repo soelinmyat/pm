@@ -5,6 +5,12 @@ description: "Use when updating existing research to backfill gaps from newly ad
 
 # pm:refresh
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
+If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
+
 ## Purpose
 
 Re-run data collection on existing research to backfill gaps from newly added tools and update stale data — without losing user-written content or burning unnecessary API budget.
@@ -28,8 +34,8 @@ Minimum coverage for `pm:refresh`:
 |---|---|
 | _(no arg)_ | Full audit — scan everything, present report, user picks |
 | `seo` | Scoped: SEO files only (all `*/seo.md` + landscape keyword sections) |
-| `landscape` | Scoped: `pm/insights/business/landscape.md` only |
-| `topics` | Scoped: all `pm/evidence/research/*.md` |
+| `landscape` | Scoped: `{pm_dir}/insights/business/landscape.md` only |
+| `topics` | Scoped: all `{pm_dir}/evidence/research/*.md` |
 | `{domain}` | Scoped: all refreshable files within a discovered insights domain |
 | `{domain}/{slug}` | Scoped: one discovered insight file or competitor folder |
 | `{slug}` | Backward-compatible shorthand for `competitors/{slug}` when that competitor exists |
@@ -38,27 +44,27 @@ All paths hit the cost guardrail before executing.
 
 ### Domain Discovery
 
-Discover available insight domains by scanning `pm/insights/*/index.md`.
+Discover available insight domains by scanning `{pm_dir}/insights/*/index.md`.
 
 Rules:
 - Treat every matching directory name as a valid domain (`business`, `competitors`, `product`, `developer-experience`, etc.).
 - Do not hardcode the domain list.
 - For `{domain}` scope: refresh the domain index plus refreshable markdown files directly under that domain.
 - For `{domain}/{slug}` scope:
-  - if `pm/insights/{domain}/{slug}.md` exists, target that single file
-  - if `pm/insights/{domain}/{slug}/` exists, target the files within that directory
+  - if `{pm_dir}/insights/{domain}/{slug}.md` exists, target that single file
+  - if `{pm_dir}/insights/{domain}/{slug}/` exists, target the files within that directory
 - If the argument does not resolve, show the discovered domains and any valid competitor slugs.
 
 ### Scope
 
 **In scope:**
-- `pm/insights/business/landscape.md`
-- `pm/insights/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
-- discovered domain indexes at `pm/insights/*/index.md`
-- `pm/evidence/research/{topic}.md` — **origin-aware** (see Topic Research Rules below)
+- `{pm_dir}/insights/business/landscape.md`
+- `{pm_dir}/insights/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
+- discovered domain indexes at `{pm_dir}/insights/*/index.md`
+- `{pm_dir}/evidence/research/{topic}.md` — **origin-aware** (see Topic Research Rules below)
 
 **Out of scope:**
-- `pm/strategy.md` — created via interactive interview. Use `$pm-strategy` to update.
+- `{pm_dir}/strategy.md` — created via interactive interview. Use `$pm-strategy` to update.
 
 ### Topic Research Origin Rules
 
@@ -93,9 +99,9 @@ If `source_origin` is absent, treat as `external`.
 | Landscape | `landscape.md` | 90 days |
 | Features | `*/features.md` | 90 days |
 | API | `*/api.md` | 90 days |
-| Topic research | `pm/evidence/research/*.md` | 90 days |
+| Topic research | `{pm_dir}/evidence/research/*.md` | 90 days |
 
-Defaults are hardcoded. Override in `.pm/config.json` under `refresh.thresholds`:
+Defaults are hardcoded. Override in `{pm_state_dir}/config.json` under `refresh.thresholds`:
 
 ```json
 {
@@ -105,7 +111,7 @@ Defaults are hardcoded. Override in `.pm/config.json` under `refresh.thresholds`
 }
 ```
 
-If `.pm/config.json` does not exist, use hardcoded defaults and treat SEO provider as `"none"`.
+If `{pm_state_dir}/config.json` does not exist, use hardcoded defaults and treat SEO provider as `"none"`.
 
 ---
 
@@ -137,11 +143,11 @@ If the file has no recognizable date key, treat it as stale.
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 
@@ -151,7 +157,7 @@ Before starting work, check for user instructions:
 
 Before checking staleness, verify that each competitor directory has all 5 expected files:
 
-For each directory under `pm/insights/competitors/*/`:
+For each directory under `{pm_dir}/insights/competitors/*/`:
 - Check for: `profile.md`, `features.md`, `api.md`, `seo.md`, `sentiment.md`
 - Classify missing files as **[Missing]** (distinct from Incomplete or Stale)
 - Include missing files in the audit report with: `[Missing] {slug}/{file} — never created`
@@ -160,7 +166,7 @@ Missing files should be created during Phase 2 execution using the same methodol
 
 ### Staleness Check
 
-Scan all in-scope `pm/` files with frontmatter. For each file:
+Scan all in-scope `{pm_dir}/` files with frontmatter. For each file:
 
 1. Read the file age using the date priority rules above.
 2. Compare against the staleness threshold for that file type.
@@ -306,7 +312,7 @@ All updates are patches. Existing content is never deleted or overwritten withou
 
 ### SEO Provider Handling
 
-Read `.pm/config.json` for the `seo.provider` value.
+Read `{pm_state_dir}/config.json` for the `seo.provider` value.
 
 - If `"ahrefs-mcp"`: use Ahrefs MCP tools directly. Call `mcp__ahrefs__doc` for tool schema before first use.
 - If `"none"`: skip all SEO refresh. Note in audit: "SEO refresh unavailable (no provider configured)."
@@ -343,7 +349,7 @@ RULES:
 - For STALE files: re-run data collection for existing sections. {If interactive: present diffs to user for approval before writing. If auto-accept: apply changes and report what changed.}
 - Add 'refreshed: {today}' to frontmatter. Never modify 'profiled:' or 'created:'.
 - Preserve all user-added custom sections (sections not in the methodology template).
-- Write only to pm/insights/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
+- Write only to {pm_dir}/insights/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
 - Follow methodology in skills/research/competitor-profiling.md for section content.
 - If an Ahrefs call fails, log the error and continue."
 ```
@@ -362,9 +368,9 @@ If no evidence files were refreshed, skip routing entirely.
 
 After individual competitor files are refreshed, regenerate synthesis files:
 
-1. **`pm/insights/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
-2. Update the **Market Gaps** and any synthesized comparison content in `pm/insights/competitors/index.md` based on refreshed capability data.
-3. If topic research files were refreshed, update `pm/evidence/research/index.md` and `pm/evidence/index.md`.
+1. **`{pm_dir}/insights/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
+2. Update the **Market Gaps** and any synthesized comparison content in `{pm_dir}/insights/competitors/index.md` based on refreshed capability data.
+3. If topic research files were refreshed, update `{pm_dir}/evidence/research/index.md` and `{pm_dir}/evidence/index.md`.
 4. Append touched files to the matching domain or evidence `log.md`.
 
 Only run the relevant index and log sync steps for domains or evidence pools that were actually updated during the refresh.
@@ -386,7 +392,7 @@ Only continue after explicit confirmation.
 
 ### Post-write Validation
 
-After updating any `pm/` artifacts, run:
+After updating any `{pm_dir}/` artifacts, run:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
@@ -423,7 +429,7 @@ After execution, show what changed:
 
 ## Edge Cases
 
-1. **No `pm/` directory exists:** Error: "No research found. Run `$pm-research landscape` first."
+1. **No `{pm_dir}/` directory exists:** Error: "No research found. Run `$pm-research landscape` first."
 2. **File has no frontmatter date:** Treat as stale (unknown age = should refresh).
 3. **SEO provider is `"none"`:** Skip all SEO refresh. Note in audit.
 4. **Ahrefs call fails:** Log the error, note in audit summary, continue with other files.
@@ -434,6 +440,6 @@ After execution, show what changed:
 9. **features.md section detection:** Only check fixed sections (Recent Changelog Highlights, Capability Gaps). Domain sections vary — age-only staleness.
 10. **Synthesis files with no domain updates:** Skip index/log refresh for that domain.
 11. **Interrupted refresh:** Each file is self-contained. Only write `refreshed:` after successfully updating that file. Safe to re-run after interruption.
-12. **`.pm/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
+12. **`{pm_state_dir}/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
