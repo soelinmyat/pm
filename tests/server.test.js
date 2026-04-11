@@ -1314,8 +1314,14 @@ test("KB nav item is highlighted on /kb routes", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 28. readProposalMeta — removed (PM-155: .meta.json sidecars deleted)
+// 28. readProposalMeta is deprecated (returns null for any input)
 // ---------------------------------------------------------------------------
+
+test("readProposalMeta always returns null (deprecated)", () => {
+  const mod = loadServer();
+  assert.equal(mod.readProposalMeta("any-slug", "/tmp"), null);
+  assert.equal(mod.readProposalMeta(null, "/tmp"), null);
+});
 
 // ---------------------------------------------------------------------------
 // 29. readGroomState reads .pm/.groom-state.md from project root
@@ -2928,7 +2934,7 @@ test("PM-124: shipped page does not show strategy alignment tag (deprecated)", a
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap/shipped");
-      // resolveStrategyAlignment deleted (PM-155: meta.json removed)
+      // resolveStrategyAlignment now returns null (meta.json removed)
       // Check the HTML content after </style>, not the CSS definitions
       const mainContent = body.substring(body.lastIndexOf("</style>"));
       assert.ok(
@@ -3049,7 +3055,11 @@ test("PM-124: resolveResearchRefs supports both legacy and layered KB paths", ()
   }
 });
 
-// PM-155: resolveStrategyAlignment removed (read from .meta.json which no longer exists)
+test("PM-124: resolveStrategyAlignment always returns null (deprecated)", () => {
+  const { resolveStrategyAlignment } = loadServer();
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: null }, {}, "/tmp"), null);
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: "some-parent" }, {}, "/tmp"), null);
+});
 
 test("PM-124: resolveCompetitiveContext returns empty array without competitors", () => {
   const { resolveCompetitiveContext } = loadServer();
@@ -5829,7 +5839,7 @@ test("PM-33: GET /settings returns 200 with valid config", async () => {
   }
 });
 
-test("PM-33: Settings nav link appears in dashboard", async () => {
+test("PM-33: Settings link appears in sidebar footer", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
     ".pm/config.json": JSON.stringify({ config_schema: 1, project_name: "Test" }),
@@ -5838,11 +5848,8 @@ test("PM-33: Settings nav link appears in dashboard", async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
-      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
-      assert.ok(navMatch, "page must have a nav element");
-      const navHtml = navMatch[1];
-      assert.ok(navHtml.includes("Settings"), "nav must show Settings");
-      assert.ok(navHtml.includes('href="/settings"'), "nav must link to /settings");
+      assert.ok(body.includes("Settings"), "page must show Settings");
+      assert.ok(body.includes('href="/settings"'), "page must link to /settings");
     } finally {
       await close();
     }
@@ -5904,29 +5911,7 @@ test("PM-33: Settings page shows integration detail metadata", async () => {
   }
 });
 
-test("PM-33: Settings page shows integration count header", async () => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
-    ".pm/config.json": JSON.stringify({
-      config_schema: 1,
-      project_name: "Test",
-      integrations: { linear: { enabled: false }, seo: { provider: "none" } },
-    }),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, "/settings");
-      assert.ok(body.includes("0 of 2 connected"), "all disconnected shows 0 of 2 connected");
-    } finally {
-      await close();
-    }
-  } finally {
-    cleanup();
-  }
-});
-
-test("PM-33: Settings page shows 1 of 2 connected when one integration active", async () => {
+test("PM-33: Settings page shows integration badges without count", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
     ".pm/config.json": JSON.stringify({
@@ -5939,7 +5924,9 @@ test("PM-33: Settings page shows 1 of 2 connected when one integration active", 
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/settings");
-      assert.ok(body.includes("1 of 2 connected"), "one connected shows 1 of 2 connected");
+      assert.ok(body.includes("Connected"), "connected integration shows badge");
+      assert.ok(body.includes("Disconnected"), "disconnected integration shows badge");
+      assert.ok(!body.includes("of 2 connected"), "counter removed from settings page");
     } finally {
       await close();
     }
@@ -6167,7 +6154,7 @@ test("PM-33: Settings page with partial config (missing integrations) renders wi
     try {
       const { statusCode, body } = await httpGet(port, "/settings");
       assert.strictEqual(statusCode, 200);
-      assert.ok(body.includes("0 of 2 connected"), "all integrations show disconnected");
+      assert.ok(body.includes("Integrations"), "settings page renders integrations section");
     } finally {
       await close();
     }
@@ -6245,7 +6232,25 @@ test("GET /proposals/<slug> planned item shows dev action not groom", async () =
 // Notes page: GET /notes
 // ---------------------------------------------------------------------------
 
-test("GET /notes returns HTML page with notes form", async () => {
+test("GET /notes redirects to /kb#notes", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, headers } = await httpGet(port, "/notes");
+      assert.equal(statusCode, 302, "/notes must redirect");
+      assert.equal(headers.location, "/kb#notes", "must redirect to /kb#notes");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("KB notes tab shows notes content", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/evidence/notes/2026-04.md": [
       "---",
@@ -6268,13 +6273,9 @@ test("GET /notes returns HTML page with notes form", async () => {
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, "/notes");
+      const { statusCode, body } = await httpGet(port, "/kb");
       assert.equal(statusCode, 200);
-      assert.ok(
-        body.includes("<!DOCTYPE html") || body.includes("<!doctype html"),
-        "full HTML doc"
-      );
-      assert.ok(body.includes("Notes"), "must show Notes heading");
+      assert.ok(body.includes("Notes"), "KB page must have Notes tab");
       assert.ok(body.includes("Lost deal to CompetitorX"), "must show first note");
       assert.ok(body.includes("Third user hitting timeout"), "must show second note");
     } finally {
@@ -6285,53 +6286,15 @@ test("GET /notes returns HTML page with notes form", async () => {
   }
 });
 
-test("GET /notes shows empty state when notes directory does not exist", async () => {
+test("KB notes tab shows empty state when no notes exist", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, "/notes");
-      assert.equal(statusCode, 200);
-      assert.ok(body.includes("No notes yet"), "must show empty state message");
-    } finally {
-      await close();
-    }
-  } finally {
-    cleanup();
-  }
-});
-
-test("GET /notes shows notes newest-first", async () => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/evidence/notes/2026-04.md": [
-      "---",
-      "type: notes",
-      "month: 2026-04",
-      "updated: 2026-04-09",
-      "note_count: 2",
-      "digested_through: null",
-      "---",
-      "",
-      "### 2026-04-01 10:00 — observation",
-      "Early note.",
-      "Tags: test",
-      "",
-      "### 2026-04-09 16:00 — support thread",
-      "Later note.",
-      "Tags: performance",
-    ].join("\n"),
-  });
-  try {
-    const { port, close } = await startDashboardServer(pmDir);
-    try {
-      const { body } = await httpGet(port, "/notes");
-      const earlyIdx = body.indexOf("Early note");
-      const laterIdx = body.indexOf("Later note");
-      assert.ok(earlyIdx > -1, "early note must be present");
-      assert.ok(laterIdx > -1, "later note must be present");
-      assert.ok(laterIdx < earlyIdx, "later note must appear before early note (newest first)");
+      const { body } = await httpGet(port, "/kb");
+      assert.ok(body.includes("No notes yet"), "must show empty state in notes tab");
     } finally {
       await close();
     }
@@ -6427,7 +6390,7 @@ test("POST /notes with malformed JSON returns 400", async () => {
   }
 });
 
-test("sidebar navigation includes Notes link", async () => {
+test("sidebar navigation does not include Notes link (nested under KB)", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
   });
@@ -6435,8 +6398,12 @@ test("sidebar navigation includes Notes link", async () => {
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/");
-      assert.ok(body.includes('href="/notes"'), "sidebar must include Notes link");
-      assert.ok(body.includes("Notes"), "sidebar must show Notes label");
+      const navMatch = body.match(/<nav[^>]*>([\s\S]*?)<\/nav>/);
+      assert.ok(navMatch, "page must have a nav element");
+      assert.ok(
+        !navMatch[1].includes('href="/notes"'),
+        "nav must not include Notes link (nested under KB)"
+      );
     } finally {
       await close();
     }

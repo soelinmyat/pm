@@ -26,15 +26,9 @@ mkdir -p ~/.agents/vendor ~/.agents/skills
 git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 ```
 
-If you already cloned PM there, update the existing checkout instead of cloning again:
-
-```bash
-git -C ~/.agents/vendor/pm pull --ff-only
-```
-
 ### 2. Expose the skills to Codex
 
-#### Product management skills (10)
+#### Product management skills (9)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/start ~/.agents/skills/pm-start
@@ -46,7 +40,6 @@ ln -sfn ~/.agents/vendor/pm/skills/think ~/.agents/skills/pm-think
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/note ~/.agents/skills/pm-note
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
-ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
 ```
 
 #### Development skills (10)
@@ -66,25 +59,9 @@ ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
 
 ### 3. Restart Codex
 
-Restart Codex so it reloads the newly installed skills. Existing sessions do not hot-reload skills, so open a fresh session after restarting.
+Restart Codex so it reloads the newly installed skills.
 
 ## Verification
-
-### Quick filesystem check
-
-```bash
-ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 10 pm-* and 10 dev-* directories
-```
-
-You can also verify that one alias resolves to the vendor clone:
-
-```bash
-readlink ~/.agents/skills/pm-groom
-readlink ~/.agents/skills/dev-dev
-```
-
-### Quick Codex check
 
 Start a new Codex session and verify that Codex exposes one PM skill and one dev workflow skill:
 
@@ -96,9 +73,15 @@ pm:dev
 If Codex does not find a skill:
 
 1. Check that the fallback alias directories exist, for example `~/.agents/skills/pm-groom/SKILL.md` and `~/.agents/skills/dev-dev/SKILL.md`.
-2. Confirm the symlink points at your PM clone with `readlink ~/.agents/skills/pm-groom`.
-3. Restart Codex and open a fresh session again.
-4. If the problem persists, remove the broken alias and recreate it from step 2.
+2. Confirm the symlink points at your PM clone.
+3. Restart Codex again.
+
+### Quick check: all 19 skills
+
+```bash
+ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
+# Should list 9 pm-* and 10 dev-* directories
+```
 
 ## Updating
 

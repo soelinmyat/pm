@@ -1,11 +1,6 @@
 ---
 name: debugging
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
-runtime:
-  requires: []
-  agents: 0
-  guarantee: "systematic root cause analysis before any fix"
-  degradation: none
 ---
 
 # Systematic Debugging

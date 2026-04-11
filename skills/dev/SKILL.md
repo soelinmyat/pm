@@ -1,11 +1,6 @@
 ---
 name: dev
 description: "Use when starting any development work, debugging, or bug fixing. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Whether work is 1 task or N tasks emerges from the RFC, not from routing. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'add a feature,' 'refactor this,' 'backfill tests.'"
-runtime:
-  requires: [delegation]
-  agents: 2
-  guarantee: "RFC + implementation via independent agents"
-  degradation: inline
 ---
 
 # Dev — Development Lifecycle

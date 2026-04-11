@@ -1,11 +1,6 @@
 ---
 name: strategy
 description: "Use when creating or maintaining a product strategy document. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction.'"
-runtime:
-  requires: []
-  agents: 0
-  guarantee: "strategy document with ICP, positioning, priorities, and non-goals"
-  degradation: none
 ---
 
 # pm:strategy
