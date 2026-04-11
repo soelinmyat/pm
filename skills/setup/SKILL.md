@@ -126,15 +126,15 @@ Before writing any config:
 
 #### 4. Compute Relative Paths
 
-Compute relative paths from each config file's directory (`.pm/config.json` lives in the repo root, so relative from each repo root):
+Compute relative paths from each config file's parent directory (`.pm/`), since `resolvePmDir()` in start-status.js and start-server.sh resolves paths relative to the `.pm/` directory:
 
-- **Source repo config** needs `pm_repo.path`: the relative path from the source repo root to the PM repo root.
-- **PM repo config** needs `source_repo.path`: the relative path from the PM repo root to the source repo root.
+- **Source repo config** needs `pm_repo.path`: the relative path from the source repo's `.pm/` directory to the PM repo root.
+- **PM repo config** needs `source_repo.path`: the relative path from the PM repo's `.pm/` directory to the source repo root.
 
 Use `node -e` to compute relative paths reliably:
 
 ```bash
-node -e "const path = require('path'); console.log(path.relative(process.argv[1], process.argv[2]))" "/absolute/source/repo" "/absolute/pm/repo"
+node -e "const path = require('path'); console.log(path.relative(path.join(process.argv[1], '.pm'), process.argv[2]))" "/absolute/source/repo" "/absolute/pm/repo"
 ```
 
 Always store paths as relative — never absolute.

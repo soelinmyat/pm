@@ -48,14 +48,14 @@ Before detecting the situation, resolve the three path variables that all downst
 1. Read `.pm/config.json` at the current working directory (cwd).
 
 2. **If config contains `pm_repo.path`** (running from a source repo pointing to a separate PM repo):
-   - Resolve `pm_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to cwd)
+   - Resolve `pm_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
    - Set `pm_dir` = `{resolved_pm_repo_path}/pm`
    - Set `pm_state_dir` = `{resolved_pm_repo_path}/.pm`
    - Set `source_dir` = `{cwd}`
    - Validate the resolved PM repo path exists (`test -d {resolved_pm_repo_path}/pm`). If it does not exist, warn: "PM repo at {resolved_pm_repo_path} not found. Run `pm:setup` to update." Do not crash — fall through to bootstrap offer.
 
 3. **If config contains `source_repo.path`** (running from the PM repo pointing to a separate source repo):
-   - Resolve `source_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to cwd)
+   - Resolve `source_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
    - Set `pm_dir` = `{cwd}/pm`
    - Set `pm_state_dir` = `{cwd}/.pm`
    - Set `source_dir` = `{resolved_source_repo_path}`

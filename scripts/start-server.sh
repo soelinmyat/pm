@@ -98,13 +98,14 @@ EFFECTIVE_ROOT="${PROJECT_DIR:-$CALLER_DIR}"
 CONFIG_FILE="${EFFECTIVE_ROOT}/.pm/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   CONFIG_PM_PATH=$(node -e "
+    const fs = require('fs');
     try {
-      const c = require('$CONFIG_FILE');
+      const c = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
       if (c && c.pm_repo && typeof c.pm_repo.path === 'string') {
         console.log(c.pm_repo.path);
       }
     } catch (e) {}
-  " 2>/dev/null) || CONFIG_PM_PATH=""
+  " "$CONFIG_FILE" 2>/dev/null) || CONFIG_PM_PATH=""
 fi
 
 if [[ -n "$CONFIG_PM_PATH" ]]; then
