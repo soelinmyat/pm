@@ -25,6 +25,7 @@
   ],
   "commands": [
     "dev",
+    "features",
     "groom",
     "ingest",
     "merge",
@@ -47,7 +48,8 @@
         "think",
         "ingest",
         "note",
-        "refresh"
+        "refresh",
+        "features"
       ],
       "dev": [
         "debugging",
