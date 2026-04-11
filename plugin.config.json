@@ -82,9 +82,6 @@
       "brandColor": "#1D4ED8"
     }
   },
-  "gemini": {
-    "contextFileName": "GEMINI.md"
-  },
   "marketplace": {
     "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
     "category": "productivity"

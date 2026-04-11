@@ -58,7 +58,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | Reference | What it covers |
 |-----------|---------------|
 | `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
-| `references/merge-loop.md` | Self-healing merge loop — shared by the merge compatibility alias and ship skill |
+| `references/merge-loop.md` | Self-healing merge loop — used by the ship skill |
 | `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
 | `references/visual.md` | Dashboard-first UI invocation standard |
 | `references/templates/` | Strategy deck and proposal HTML templates |

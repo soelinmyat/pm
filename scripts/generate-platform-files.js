@@ -118,22 +118,6 @@ function buildClaudePluginManifest(config, commandFiles) {
   return manifest;
 }
 
-function buildCursorPluginManifest(config, commandFiles) {
-  const manifest = {
-    ...buildCommonManifest(config),
-    displayName: config.displayName,
-    skills: "./skills/",
-    agents: "./agents/",
-    hooks: "./hooks/hooks.json",
-  };
-
-  if (commandFiles.length > 0) {
-    manifest.commands = "./commands/";
-  }
-
-  return manifest;
-}
-
 function buildClaudeMarketplaceManifest(config) {
   return {
     $schema: "https://anthropic.com/claude-code/marketplace.schema.json",
@@ -154,14 +138,6 @@ function buildClaudeMarketplaceManifest(config) {
         homepage: config.homepage,
       },
     ],
-  };
-}
-
-function buildGeminiExtensionManifest(config) {
-  return {
-    name: config.name,
-    contextFileName: config.gemini.contextFileName,
-    version: config.version,
   };
 }
 
@@ -338,16 +314,10 @@ function main() {
       "json",
     ],
     [
-      path.join(repoRoot, ".cursor-plugin", "plugin.json"),
-      buildCursorPluginManifest(config, commandFiles),
-      "json",
-    ],
-    [
       path.join(repoRoot, ".claude-plugin", "marketplace.json"),
       buildClaudeMarketplaceManifest(config),
       "json",
     ],
-    [path.join(repoRoot, "gemini-extension.json"), buildGeminiExtensionManifest(config), "json"],
     [path.join(repoRoot, ".codex-plugin", "plugin.json"), buildCodexPluginManifest(config), "json"],
     [path.join(repoRoot, ".codex", "INSTALL.md"), buildCodexInstallDoc(config), "text"],
   ];

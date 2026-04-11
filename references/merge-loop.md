@@ -1,6 +1,6 @@
 # Merge Loop
 
-Shared reference for the self-healing PR merge flow. Used by the `/merge` command and the ship skill's gate monitoring phase.
+Shared reference for the self-healing PR merge flow. Used by the ship skill's gate monitoring phase.
 
 **Goal:** Take a PR from its current state to merged, fixing whatever comes up along the way.
 

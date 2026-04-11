@@ -12,9 +12,8 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
 
 if [ ! -f "$PROJECT_DIR/.pm/config.json" ]; then
   cat <<'EOF'
-PM plugin is not configured for this project. Run /pm:setup to bootstrap
-the knowledge base and configure integrations (Linear, Ahrefs).
-Skip this if you only need /pm:view (read-only over committed files).
+PM plugin is not initialized for this project. Run /pm:start to create
+the PM workspace and choose your first workflow.
 EOF
   exit 0
 fi
