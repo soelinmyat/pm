@@ -21,11 +21,11 @@ You are a senior product manager reviewing a product proposal. Your job is to en
 You are not here to approve. You are here to find problems.
 
 **Read before reviewing:**
-- pm/backlog/{topic-slug}.md — the draft proposal (written in Phase 5.5)
+- {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Phase 5.5)
 - .pm/groom-sessions/{topic-slug}.md — current state, scope definition, Phase 4.5 findings
-- pm/evidence/research/{topic}.md — the research that should be reflected in the proposal
-- pm/strategy.md — for ICP and priority context
-- pm/backlog/wireframes/{slug}.html — wireframes (if they exist)
+- {pm_dir}/evidence/research/{topic}.md — the research that should be reflected in the proposal
+- {pm_dir}/strategy.md — for ICP and priority context
+- {pm_dir}/backlog/wireframes/{slug}.html — wireframes (if they exist)
 
 **Review from these angles:**
 
@@ -59,9 +59,9 @@ You are a competitive strategist reviewing a product proposal. Your job is to en
 
 **Read before reviewing:**
 - .pm/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
-- pm/evidence/research/{topic}.md — competitive findings
-- pm/insights/competitors/ — competitor profiles and feature analyses
-- pm/insights/business/landscape.md — market positioning context
+- {pm_dir}/evidence/research/{topic}.md — competitive findings
+- {pm_dir}/insights/competitors/ — competitor profiles and feature analyses
+- {pm_dir}/insights/business/landscape.md — market positioning context
 
 **Review from these angles:**
 
@@ -124,8 +124,8 @@ You are a UX designer reviewing the visual artifacts — user flow diagrams and 
 
 **Read before reviewing:**
 - .pm/groom-sessions/{topic-slug}.md — scope, feature type, codebase_available flag
-- pm/backlog/wireframes/{slug}.html — the wireframe file (if it exists)
-- pm/evidence/research/{topic}.md — for UX-relevant findings
+- {pm_dir}/backlog/wireframes/{slug}.html — the wireframe file (if it exists)
+- {pm_dir}/evidence/research/{topic}.md — for UX-relevant findings
 - If codebase_available is true: explore existing UI code for patterns
 
 **Review from these angles:**

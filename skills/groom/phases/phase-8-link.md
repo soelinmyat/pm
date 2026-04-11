@@ -1,11 +1,11 @@
 ### Phase 8: Link
 
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
-   - Write `pm/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
+   - Write `{pm_dir}/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
    - Set `status: proposed`, `prd: proposals/{topic-slug}.html`, `rfc: null`, `linear_id: "{linear_id}" | null`.
-   - **Thinking discovery:** Check if `pm/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
+   - **Thinking discovery:** Check if `{pm_dir}/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
    - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence.
-   - Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
+   - Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
 
 2. **Linear integration:**
 
@@ -37,7 +37,7 @@
    **If `linear_id` is NOT set** (existing flow, unchanged):
    - If Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available):
      - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
-       - Convert `[text](pm/...)` → `text (\`pm/...\`)` — plain text with path in backticks
+       - Convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)` — plain text with path in backticks
        - Leave absolute URLs (starting with `http://` or `https://`) unchanged
      - Create a single parent issue in Linear. Capture the Linear ID.
      - **Update the local backlog entry's `id` to match the Linear identifier.** The Linear ID is the single source of truth when a tracker is available — do not maintain a separate local PM-{NNN} sequence.
@@ -55,13 +55,13 @@
 ```yaml
 proposal:
   slug: "{topic-slug}"
-  backlog_path: pm/backlog/{topic-slug}.md
-  prd_path: pm/backlog/proposals/{topic-slug}.html
+  backlog_path: {pm_dir}/backlog/{topic-slug}.md
+  prd_path: {pm_dir}/backlog/proposals/{topic-slug}.html
   linear_id: "{Linear ID}" | null
 ```
 
 Delete `.pm/groom-sessions/{topic-slug}.md` after successful link. Grooming is complete.
 
 Say:
-> "Grooming complete for '{topic}'. Proposal saved to `pm/backlog/{topic-slug}.md`.
+> "Grooming complete for '{topic}'. Proposal saved to `{pm_dir}/backlog/{topic-slug}.md`.
 > Next: run `pm:dev {topic-slug}` to generate the engineering RFC and begin implementation."
