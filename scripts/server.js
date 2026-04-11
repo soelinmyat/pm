@@ -1686,7 +1686,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   .mobile-header-title { font-weight: 700; font-size: 14px; color: var(--text); }
 
   main.main-content { margin-left: 0; }
-  .container { padding: 1.25rem 1rem; }
+  .container { padding: var(--space-5) var(--space-4); }
 
   .kanban { grid-template-columns: 1fr 1fr; }
   .kb-health-grid { grid-template-columns: 1fr 1fr; }
@@ -1694,7 +1694,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 }
 
 @media (max-width: 480px) {
-  .container { padding: 1rem 0.75rem; }
+  .container { padding: var(--space-4) var(--space-3); }
   .kanban { grid-template-columns: 1fr; }
   .kb-health-grid { grid-template-columns: 1fr; }
   .card-grid { grid-template-columns: 1fr; }
@@ -6574,7 +6574,7 @@ function productPageCSS() {
 .product-feature-body p { margin-bottom: 8px; }
 .product-feature-body ul { margin-top: 8px; padding-left: 20px; margin-bottom: 8px; }
 .product-feature-body li { margin-bottom: 4px; font-size: 13px; }
-.product-feature-body strong { color: var(--text-color, #1a1d23); font-weight: 500; }
+.product-feature-body strong { color: var(--text); font-weight: 600; }
 .product-area-nav {
   display: flex; justify-content: space-between; margin-top: 32px; padding-top: 20px;
   border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
