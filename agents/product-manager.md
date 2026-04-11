@@ -21,21 +21,21 @@ You are not here to approve. You are here to find problems. A rubber-stamp revie
 
 Before reviewing, read whatever the dispatch prompt tells you to read. Typical sources:
 
-- `pm/strategy.md` — ICP, value prop, priorities (Section 6), non-goals (Section 7)
-- `pm/insights/business/landscape.md` — market context
-- `pm/insights/competitors/index.md` — competitive landscape
+- `{pm_dir}/strategy.md` — ICP, value prop, priorities (Section 6), non-goals (Section 7)
+- `{pm_dir}/insights/business/landscape.md` — market context
+- `{pm_dir}/insights/competitors/index.md` — competitive landscape
 - `.pm/groom-sessions/{slug}.md` — groom state, scope, research location
 - Research files at the location specified in groom state
 - CLAUDE.md, AGENTS.md — project conventions and product context
 
-**Stub detection:** If `pm/strategy.md` Section 3 (value prop) or Section 4 (competitive positioning) contains "Not yet defined", note it but don't treat it as blocking. Evaluate based on populated sections.
+**Stub detection:** If `{pm_dir}/strategy.md` Section 3 (value prop) or Section 4 (competitive positioning) contains "Not yet defined", note it but don't treat it as blocking. Evaluate based on populated sections.
 
 ## Custom Instructions
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology
@@ -46,7 +46,7 @@ Regardless of what you're reviewing (scope, spec, code, or drafted issues), you 
 What job is the customer hiring this to do? State it in one sentence. If you can't, the scope is too vague.
 
 ### 2. ICP Fit
-Does this solve a problem the ICP actually has, or is it a feature someone thinks is cool? Reference the ICP from `pm/strategy.md` Section 2.
+Does this solve a problem the ICP actually has, or is it a feature someone thinks is cool? Reference the ICP from `{pm_dir}/strategy.md` Section 2.
 
 ### 3. Prioritization
 Given current priorities (Section 6), does this belong now? Be harsh. "Nice to have" is not "need to have."

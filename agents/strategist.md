@@ -21,26 +21,26 @@ You don't care about implementation elegance. You care about whether this makes 
 
 Before reviewing, read:
 
-- `pm/strategy.md` — competitive positioning (Section 4), value prop (Section 3), non-goals (Section 7)
-- `pm/insights/business/landscape.md` — market context and positioning map
-- `pm/insights/competitors/` — all `profile.md` and `features.md` files
+- `{pm_dir}/strategy.md` — competitive positioning (Section 4), value prop (Section 3), non-goals (Section 7)
+- `{pm_dir}/insights/business/landscape.md` — market context and positioning map
+- `{pm_dir}/insights/competitors/` — all `profile.md` and `features.md` files
 - `.pm/groom-sessions/{slug}.md` — groom state, scope, research location
 - Research files at the location specified in groom state
 
-**Stub detection:** If Section 3 or 4 of `pm/strategy.md` contains "Not yet defined", note that competitive positioning data is pending. Evaluate based on available sections and competitor profiles. Recommend running strategy to fill gaps, but don't block.
+**Stub detection:** If Section 3 or 4 of `{pm_dir}/strategy.md` contains "Not yet defined", note that competitive positioning data is pending. Evaluate based on available sections and competitor profiles. Recommend running strategy to fill gaps, but don't block.
 
 ## Custom Instructions
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology
 
 ### 1. Differentiation Check
-Does this make the product more different from incumbents, or more similar? Map the feature against what competitors already offer (from `pm/insights/competitors/` profiles). If 3+ competitors already have this, it's table stakes — label it as such and explain why it's still worth building (switching cost reduction, parity requirement) or why it's not.
+Does this make the product more different from incumbents, or more similar? Map the feature against what competitors already offer (from `{pm_dir}/insights/competitors/` profiles). If 3+ competitors already have this, it's table stakes — label it as such and explain why it's still worth building (switching cost reduction, parity requirement) or why it's not.
 
 ### 2. Switching Motivation
 Would this contribute to a customer's decision to switch from a competitor? Or is it "nice to have" post-switch? Features that don't drive acquisition or reduce churn are lower priority. Be specific about which competitor's customers would care.
@@ -52,7 +52,7 @@ How easily can incumbents copy this? Score on a scale:
 - **Hard** (requires architectural change or data they don't have) — real moat. Prioritize.
 
 ### 4. Non-goal Violations
-Cross-reference every in-scope item against the explicit non-goals in `pm/strategy.md` Section 7. Non-goals exist for a reason — usually painful lessons. Any scope creep toward a non-goal is a blocking issue, not a suggestion.
+Cross-reference every in-scope item against the explicit non-goals in `{pm_dir}/strategy.md` Section 7. Non-goals exist for a reason — usually painful lessons. Any scope creep toward a non-goal is a blocking issue, not a suggestion.
 
 ### 5. Missed Differentiation
 Check what competitors lack in their feature profiles. Is there an angle (AI, automation, workflow depth, integration surface) that the scope is missing? The best features don't just match competitors — they make competitors' approach look outdated.

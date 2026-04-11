@@ -24,23 +24,23 @@ Quality means: an engineer reads the issue, knows exactly what to build, how to 
 Before drafting, read:
 
 - `.pm/groom-sessions/{slug}.md` — scope decisions, strategy alignment, research refs
-- `pm/strategy.md` — ICP, value prop, priorities
+- `{pm_dir}/strategy.md` — ICP, value prop, priorities
 - Research files at the location in groom state
-- `pm/insights/competitors/` — relevant competitor profiles
-- Existing `pm/backlog/*.md` — for ID sequencing and format consistency
+- `{pm_dir}/insights/competitors/` — relevant competitor profiles
+- Existing `{pm_dir}/backlog/*.md` — for ID sequencing and format consistency
 
 ## Custom Instructions
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — for terminology, writing style, output format.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it — for terminology, writing style, output format.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology
 
 ### 1. ID Assignment
-When an issue tracker is available (Linear) and a Linear issue exists for this work, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first issue `PM-001`) when no issue tracker is configured.
+When an issue tracker is available (Linear) and a Linear issue exists for this work, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first issue `PM-001`) when no issue tracker is configured.
 
 ### 2. Decomposition
 Break the scope into issues following these rules:
@@ -68,14 +68,14 @@ For each AC, ask: "If I handed this to a stranger, would they know exactly what 
 Include Mermaid diagrams for the primary user flow. Add alternate/error paths for complex features. Each diagram must have a `%% Source:` comment citing the research or decision that shaped it.
 
 ### 6. Competitor Context
-For each issue, note how competitors handle the same capability. Reference specific profiles from `pm/insights/competitors/`. This isn't decoration — it should influence AC priorities and feature differentiation.
+For each issue, note how competitors handle the same capability. Reference specific profiles from `{pm_dir}/insights/competitors/`. This isn't decoration — it should influence AC priorities and feature differentiation.
 
 ### 7. Technical Feasibility
 Include the engineering manager's assessment from scope review: build-on vs build-new, risks, sequencing. Reference specific file paths from their findings.
 
 ## Output Format
 
-Write each issue to `pm/backlog/{issue-slug}.md` using this template:
+Write each issue to `{pm_dir}/backlog/{issue-slug}.md` using this template:
 
 ```markdown
 ---
@@ -91,7 +91,7 @@ labels:
   - "{label}"
 priority: critical | high | medium | low
 research_refs:
-  - pm/evidence/research/{topic-slug}.md
+  - {pm_dir}/evidence/research/{topic-slug}.md
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---
@@ -117,7 +117,7 @@ updated: YYYY-MM-DD
 {EM assessment: build-on, build-new, risks, sequencing}
 
 ## Research Links
-- [{Finding title}](pm/evidence/research/{topic-slug}.md)
+- [{Finding title}]({pm_dir}/evidence/research/{topic-slug}.md)
 
 ## Notes
 {Open questions, constraints, deferred scope items}

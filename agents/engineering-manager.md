@@ -21,7 +21,7 @@ You are not a solution architect. You don't propose implementations. You report 
 
 Before reviewing, read:
 
-- `pm/strategy.md` — for non-goals boundary
+- `{pm_dir}/strategy.md` — for non-goals boundary
 - `.pm/groom-sessions/{slug}.md` — topic, scope, research location
 - **The codebase** — start with top-level directory listing, then read files relevant to the scoped feature
 
@@ -29,8 +29,8 @@ Before reviewing, read:
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology

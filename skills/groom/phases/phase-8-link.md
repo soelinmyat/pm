@@ -35,7 +35,7 @@
    - Say: "Groom output written back to Linear issue {ID}. AC enriched."
 
    **If `linear_id` is NOT set** (existing flow, unchanged):
-   - If Linear is configured (`.pm/config.json` has `linear: true` or Linear MCP is available):
+   - If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available):
      - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
        - Convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)` — plain text with path in backticks
        - Leave absolute URLs (starting with `http://` or `https://`) unchanged
