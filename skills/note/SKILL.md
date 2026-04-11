@@ -5,6 +5,10 @@ description: "Quick-capture notes for the shared product brain. Use when the use
 
 # pm:note
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
 ## Purpose
 
 Capture one-sentence product observations into the shared evidence pool. Notes are lightweight — no file paths, no normalization pipeline. They feed into groom and research via the digest pre-step.
@@ -39,10 +43,10 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 
 5. **Write the note** using the shared helper:
    - Call `writeNote(pmDir, text, source, tags)` from `${CLAUDE_PLUGIN_ROOT}/scripts/note-helpers.js`.
-   - This creates/appends to `pm/evidence/notes/YYYY-MM.md` with correct frontmatter.
+   - This creates/appends to `{pm_dir}/evidence/notes/YYYY-MM.md` with correct frontmatter.
 
 6. **Confirm** to the user:
-   > "Note saved to `pm/evidence/notes/YYYY-MM.md`. Want to add more context?"
+   > "Note saved to `{pm_dir}/evidence/notes/YYYY-MM.md`. Want to add more context?"
    - If user says no or ignores, flow ends.
    - If user says yes, proceed to Interview Mode below.
 

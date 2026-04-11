@@ -27,6 +27,50 @@ function parseArgs(argv) {
   return options;
 }
 
+function resolvePmDir(projectDir) {
+  const fallback = path.join(projectDir, "pm");
+  const configPath = path.join(projectDir, ".pm", "config.json");
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return fallback;
+  }
+
+  if (!config || typeof config !== "object" || !config.pm_repo) {
+    return fallback;
+  }
+
+  const pmRepo = config.pm_repo;
+
+  if (pmRepo.type && pmRepo.type !== "local") {
+    throw new Error(`Remote repos not yet supported (pm_repo.type: "${pmRepo.type}")`);
+  }
+
+  if (!pmRepo.path) {
+    return fallback;
+  }
+
+  const configDir = path.dirname(configPath);
+  const resolvedRoot = path.resolve(configDir, pmRepo.path);
+
+  // Self-referential config: resolved path equals project dir — use same-repo mode
+  if (resolvedRoot === path.resolve(projectDir)) {
+    return fallback;
+  }
+
+  const resolvedPmDir = path.join(resolvedRoot, "pm");
+
+  try {
+    fs.accessSync(resolvedRoot, fs.constants.F_OK);
+  } catch {
+    return fallback;
+  }
+
+  return resolvedPmDir;
+}
+
 function safeRead(filePath) {
   try {
     return fs.readFileSync(filePath, "utf8");
@@ -521,7 +565,9 @@ function detectDevSession(projectDir, runtimeDir) {
 
 function buildStatus(projectDir) {
   const runtimeDir = path.join(projectDir, ".pm");
-  const pmDir = path.join(projectDir, "pm");
+  const pmDir = resolvePmDir(projectDir);
+  // In separate-repo mode, groom sessions live in the PM repo's .pm/
+  const pmStateDir = path.join(path.dirname(pmDir), ".pm");
   const kbLayout = detectKnowledgeBaseLayout(pmDir);
   const initialized =
     fileExists(pmDir) && (fileExists(path.join(runtimeDir, "config.json")) || kbLayout !== "none");
@@ -640,7 +686,7 @@ function buildStatus(projectDir) {
     inProgress === 0 &&
     shipped === 0;
 
-  const groomSession = detectGroomSession(runtimeDir);
+  const groomSession = detectGroomSession(pmStateDir);
   const devSession = detectDevSession(projectDir, runtimeDir);
   const active = (() => {
     if (devSession && groomSession) {
@@ -769,4 +815,5 @@ if (require.main === module) {
 module.exports = {
   buildStatus,
   renderTextStatus,
+  resolvePmDir,
 };

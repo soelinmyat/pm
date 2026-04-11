@@ -4,7 +4,7 @@ Run this before research intake (groom Phase 3 standard/full, or pm:research). S
 
 ## Flow
 
-1. **Scan for note files.** Glob `pm/evidence/notes/*.md`. If the directory does not exist or contains no files, skip silently — no user interaction needed.
+1. **Scan for note files.** Glob `{pm_dir}/evidence/notes/*.md`. If the directory does not exist or contains no files, skip silently — no user interaction needed.
 
 2. **Filter to recent months.** Parse each file's frontmatter. Keep only files where `month` is within 30 days of today. For example, if today is 2026-04-15, keep 2026-04 and 2026-03 but not 2026-02.
 
@@ -23,7 +23,7 @@ Run this before research intake (groom Phase 3 standard/full, or pm:research). S
    - Aim for 2-5 clusters depending on note volume.
 
 6. **Write or update research themes.** For each cluster:
-   - If 2+ entries in the cluster, create or update a theme file in `pm/evidence/research/`.
+   - If 2+ entries in the cluster, create or update a theme file in `{pm_dir}/evidence/research/`.
    - If only 1 entry in the cluster, flag it in your output but do not create a theme file (single-signal threshold).
    - Theme files use the existing research schema:
      ```yaml
@@ -40,9 +40,9 @@ Run this before research intake (groom Phase 3 standard/full, or pm:research). S
 7. **Update digested_through.** For each processed monthly log file, set `digested_through` in the frontmatter to the timestamp of the newest note processed from that file.
 
 8. **Update indexes.** If any new or modified theme files were created:
-   - Update `pm/evidence/research/index.md` to include new themes.
-   - Update `pm/evidence/research/log.md` with create/update entries.
-   - Update `pm/evidence/index.md` if it exists and tracks research topics.
+   - Update `{pm_dir}/evidence/research/index.md` to include new themes.
+   - Update `{pm_dir}/evidence/research/log.md` with create/update entries.
+   - Update `{pm_dir}/evidence/index.md` if it exists and tracks research topics.
 
 9. **Report.** Briefly note what was digested:
    > "Digested {N} notes into {M} research themes: {theme-list}"

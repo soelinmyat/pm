@@ -1,13 +1,13 @@
 # Competitor Profiling Methodology
 
-This guide is followed by both the parent `pm:research` skill (inline profiling) and researcher subagents (parallel profiling). Each competitor gets its own directory at `pm/insights/competitors/{slug}/` containing five files.
+This guide is followed by both the parent `pm:research` skill (inline profiling) and researcher subagents (parallel profiling). Each competitor gets its own directory at `{pm_dir}/insights/competitors/{slug}/` containing five files.
 
 ---
 
 ## Directory Structure per Competitor
 
 ```
-pm/insights/competitors/{slug}/
+{pm_dir}/insights/competitors/{slug}/
   profile.md     — company overview, positioning, pricing, strengths/weaknesses
   features.md    — actual product capabilities by domain
   api.md         — API surface, data model, integrations
@@ -15,7 +15,7 @@ pm/insights/competitors/{slug}/
   sentiment.md   — review themes, complaints, praise, churn signals
 ```
 
-Never write to `pm/insights/competitors/index.md` — that is owned by the parent skill.
+Never write to `{pm_dir}/insights/competitors/index.md` — that is owned by the parent skill.
 
 ---
 
@@ -185,7 +185,7 @@ What the API surface reveals about their product architecture and data model mat
 
 ### What to Research
 
-Run the following SEO calls based on the configured provider in `.pm/config.json` (skip if provider is `"none"`):
+Run the following SEO calls based on the configured provider in `{pm_state_dir}/config.json` (skip if provider is `"none"`):
 
 **If `"ahrefs-mcp"`:** Use Ahrefs MCP tools directly. Call `mcp__ahrefs__doc` for each tool before first use to get the schema.
 - `site-explorer-metrics` — organic traffic, keyword count, traffic value for `{domain}`

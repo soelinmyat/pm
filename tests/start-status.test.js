@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { buildStatus, renderTextStatus } = require("../scripts/start-status.js");
+const { buildStatus, renderTextStatus, resolvePmDir } = require("../scripts/start-status.js");
 
 const pluginVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", ".claude-plugin", "plugin.json"), "utf8")
@@ -359,6 +359,151 @@ test("buildStatus surfaces oldest planned item when multiple exist", () => {
     const allSuggestions = [status.next, ...(status.alternatives || [])];
     assert.ok(allSuggestions.some((s) => s.includes("older-item")));
   } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus handles workspace with pm/product/ directory", () => {
+  const project = createProject();
+  try {
+    project.mkdir("pm");
+    project.write(".pm/config.json", '{"config_schema":1}');
+    project.write("pm/product/index.md", "# Product\n");
+
+    const status = buildStatus(project.root);
+    assert.equal(status.initialized, true);
+    // pm/product/ presence should not break status
+    assert.ok(status.focus);
+  } finally {
+    project.cleanup();
+  }
+});
+
+// --- resolvePmDir tests ---
+
+test("resolvePmDir (a) no config — falls back to projectDir/pm", () => {
+  const project = createProject();
+  try {
+    const result = resolvePmDir(project.root);
+    assert.equal(result, path.join(project.root, "pm"));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmDir (b) config with pm_repo.path relative path", () => {
+  const project = createProject();
+  try {
+    // Create a separate PM repo directory adjacent to the project
+    const pmRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-"));
+    fs.mkdirSync(path.join(pmRepoDir, "pm"), { recursive: true });
+
+    // Compute relative path from .pm/ directory to the PM repo
+    const configDir = path.join(project.root, ".pm");
+    const relPath = path.relative(configDir, pmRepoDir);
+
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: relPath } })
+    );
+
+    const result = resolvePmDir(project.root);
+    assert.equal(result, path.join(pmRepoDir, "pm"));
+
+    fs.rmSync(pmRepoDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmDir (c) config with missing pm_repo field", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", JSON.stringify({ config_schema: 2 }));
+
+    const result = resolvePmDir(project.root);
+    assert.equal(result, path.join(project.root, "pm"));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmDir (d) config with malformed JSON", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", "{ not valid json }}}");
+
+    const result = resolvePmDir(project.root);
+    assert.equal(result, path.join(project.root, "pm"));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmDir (e) config pointing to nonexistent directory — falls back gracefully", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({
+        config_schema: 2,
+        pm_repo: { type: "local", path: "../nonexistent-pm-repo" },
+      })
+    );
+
+    const result = resolvePmDir(project.root);
+    assert.equal(result, path.join(project.root, "pm"));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmDir validates pm_repo.type === 'local' and throws on 'remote'", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({
+        config_schema: 2,
+        pm_repo: { type: "remote", path: "../some-repo" },
+      })
+    );
+
+    assert.throws(() => resolvePmDir(project.root), /[Rr]emote.*not.*supported/);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus works with pm_repo config pointing to separate PM repo", () => {
+  const project = createProject();
+  const pmRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-"));
+  try {
+    // Set up PM content in the separate repo
+    fs.mkdirSync(path.join(pmRepoDir, "pm", "backlog"), { recursive: true });
+    fs.mkdirSync(path.join(pmRepoDir, ".pm"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pmRepoDir, ".pm", "config.json"),
+      JSON.stringify({ config_schema: 2 })
+    );
+    fs.writeFileSync(
+      path.join(pmRepoDir, "pm", "strategy.md"),
+      "---\ntype: strategy\n---\n# Strategy\n"
+    );
+
+    // Source repo config pointing to PM repo
+    const configDir = path.join(project.root, ".pm");
+    const relPath = path.relative(configDir, pmRepoDir);
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: relPath } })
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.initialized, true);
+    assert.ok(status.focus);
+  } finally {
+    fs.rmSync(pmRepoDir, { recursive: true, force: true });
     project.cleanup();
   }
 });

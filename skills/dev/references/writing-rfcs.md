@@ -8,9 +8,9 @@ Assume the implementer is a skilled developer but knows almost nothing about the
 
 **Announce at start:** "I'm generating the engineering RFC."
 
-**Context:** This should be run in a dedicated worktree. Read the proposal (`pm/backlog/{slug}.md`) and PRD (`pm/backlog/proposals/{slug}.html`) for product context.
+**Context:** This should be run in a dedicated worktree. Read the proposal (`{pm_dir}/backlog/{slug}.md`) and PRD (`{pm_dir}/backlog/proposals/{slug}.html`) for product context.
 
-**Save RFCs to:** `pm/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
+**Save RFCs to:** `{pm_dir}/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality. RFCs are dense by nature but should still use short sentences, clear structure, and no jargon.
 
@@ -62,8 +62,8 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 
 Read the proposal and PRD for product context before writing the RFC:
 
-1. Read `pm/backlog/{slug}.md` — outcome, scope, competitive context, research refs
-2. Read `pm/backlog/proposals/{slug}.html` — full PRD with design details, user flows, wireframes
+1. Read `{pm_dir}/backlog/{slug}.md` — outcome, scope, competitive context, research refs
+2. Read `{pm_dir}/backlog/proposals/{slug}.html` — full PRD with design details, user flows, wireframes
 3. If `research_refs` exist, read the referenced research files for key findings
 4. Incorporate the product context into the RFC's Codebase Findings and Architecture sections
 
@@ -130,7 +130,7 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 
 After writing the complete RFC, the orchestrator handles review (Stage 4 in dev-flow.md). The RFC writer should:
 
-1. Commit the RFC to `pm/backlog/rfcs/{slug}.html`
+1. Commit the RFC to `{pm_dir}/backlog/rfcs/{slug}.html`
 2. Update the proposal's frontmatter to link the RFC
 3. Return the `RFC_COMPLETE` payload and stop
 

@@ -4,7 +4,7 @@ Reference for pm:strategy. Ask questions one at a time. Start with Essentials.
 Move to Depth based on user energy — expansive answers invite follow-ups,
 terse answers mean move on.
 
-If `pm/insights/business/landscape.md` exists, substitute named competitors and segments into
+If `{pm_dir}/insights/business/landscape.md` exists, substitute named competitors and segments into
 questions marked [use landscape data].
 
 ---
@@ -130,7 +130,7 @@ This surfaces self-awareness and de-risking steps. Accept honest short answers.
 
 ## Using Landscape Data
 
-When `pm/insights/business/landscape.md` exists, before starting the interview:
+When `{pm_dir}/insights/business/landscape.md` exists, before starting the interview:
 1. Read the file.
 2. Note: named competitors, market segments, pricing ranges, key buyer personas.
 3. Substitute into questions. Examples:
@@ -149,4 +149,4 @@ After Essentials (and any Depth questions), say:
 
 > "That's enough to write a solid strategy doc. Anything you want to add before I draft it?"
 
-Then write `pm/strategy.md` without further questions.
+Then write `{pm_dir}/strategy.md` without further questions.

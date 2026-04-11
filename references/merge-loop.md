@@ -301,7 +301,7 @@ If an issue tracker is configured (Linear/Jira via MCP) and the PR title or bran
 
 **5b. Backlog file**
 
-If a backlog file exists in `pm/backlog/` matching the issue slug:
+If a backlog file exists in `{pm_dir}/backlog/` matching the issue slug:
 - Update `status: done` and `updated` date in frontmatter
 - If the PR number is available, add it to the `prs` array (YAML list with quoted values: `- "#N"`)
 - Commit and push to the default branch before cleanup

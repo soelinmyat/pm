@@ -1,6 +1,6 @@
 # RFC Section Content Guide
 
-Describes what goes in each section of an RFC. The RFC is written directly as HTML to `pm/backlog/rfcs/{slug}.html` — use `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` as the visual reference for structure, styling, and quality.
+Describes what goes in each section of an RFC. The RFC is written directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` — use `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` as the visual reference for structure, styling, and quality.
 
 This file defines the **content** for each section. The HTML reference defines the **presentation**.
 
@@ -116,7 +116,7 @@ Format: date + entry (e.g., "Apr 8 — RFC approved. All reviewers signed off.")
 
 ## Usage Notes
 
-- Dev writes the RFC directly as HTML to `pm/backlog/rfcs/{slug}.html` where `{slug}` matches the proposal slug.
+- Dev writes the RFC directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` where `{slug}` matches the proposal slug.
 - After RFC is written, dev updates the proposal's frontmatter: `rfc: rfcs/{slug}.html`.
 - RFC review (3 reviewers) happens before implementation begins.
 - During implementation, the dev state file (`.pm/dev-sessions/{slug}.md`) tracks per-issue progress. The RFC itself is not updated with status — it's the engineering plan, not a tracker.

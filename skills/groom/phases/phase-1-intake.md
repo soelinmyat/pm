@@ -1,6 +1,6 @@
 ### Phase 1: Intake
 
-**If grooming an existing idea from backlog:** Check if `pm/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
+**If grooming an existing idea from backlog:** Check if `{pm_dir}/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
 > "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
 
 Skip to step 3 after confirmation.
@@ -30,8 +30,19 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
-3. Check `pm/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
+3. Check `{pm_dir}/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
+
+3.5. **Feature inventory check.** Check if `{pm_dir}/product/features.md` exists.
+
+   If it exists, parse frontmatter for `feature_count` and `area_count`. Read the body for the feature list. Report to user:
+   > "Found feature inventory with {feature_count} features across {area_count} areas. Existing capabilities will be referenced during scope review."
+
+   Store in groom session state:
+   - `product_features_available: true`
+   - `product_feature_count: {feature_count}`
+
+   If it does not exist, skip silently. Set `product_features_available: false` in session state.
 
 4. **Codebase scan** (if `codebase_available: true` in groom state):
    Explore the project source code for existing implementation related to this idea. Look for:
@@ -53,9 +64,9 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
 
    | Signal | Check | Present? |
    |---|---|---|
-   | Strategy | `pm/strategy.md` exists | yes / no |
-   | Research | Any file exists in `pm/evidence/research/` (excluding index.md) | yes / no |
-   | Competitors | Any `pm/insights/competitors/*/profile.md` exists | yes / no |
+   | Strategy | `{pm_dir}/strategy.md` exists | yes / no |
+   | Research | Any file exists in `{pm_dir}/evidence/research/` (excluding index.md) | yes / no |
+   | Competitors | Any `{pm_dir}/insights/competitors/*/profile.md` exists | yes / no |
 
    Classify maturity:
    - **Fresh** (none of the three signals) — max tier: `quick`

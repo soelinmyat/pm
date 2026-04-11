@@ -31,8 +31,8 @@ Before reviewing, read:
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology

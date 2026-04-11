@@ -62,12 +62,12 @@ Check available MCP tools at session start:
 
 ### 5. Strategy Context (from pm plugin, optional)
 
-If `pm/strategy.md` exists, extract:
+If `{pm_dir}/strategy.md` exists, extract:
 - Strategic priorities (Section 6)
 - Non-goals (Section 7)
 - ICP (Section 2)
 
-If `pm/insights/competitors/index.md` exists, extract top 3 competitors with positioning.
+If `{pm_dir}/insights/competitors/index.md` exists, extract top 3 competitors with positioning.
 
 ---
 

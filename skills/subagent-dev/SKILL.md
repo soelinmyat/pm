@@ -160,7 +160,7 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read RFC file once: pm/backlog/rfcs/feature-plan.html]
+[Read RFC file once: {pm_dir}/backlog/rfcs/feature-plan.html]
 [Extract all 5 tasks with full text and context]
 [Create TodoWrite with all tasks]
 
