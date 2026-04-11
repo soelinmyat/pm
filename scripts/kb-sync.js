@@ -113,10 +113,12 @@ function preparePushPayload(pmDir, manifest, cachedManifest) {
 function applyPullResponse(pmDir, response) {
   let downloaded = 0;
   let deleted = 0;
+  const resolvedPmDir = path.resolve(pmDir);
 
   // Write downloaded files
   for (const file of response.download || []) {
-    const filePath = path.join(pmDir, file.path);
+    const filePath = path.resolve(pmDir, file.path);
+    if (!filePath.startsWith(resolvedPmDir + path.sep)) continue;
     const dir = path.dirname(filePath);
     fs.mkdirSync(dir, { recursive: true });
 
@@ -138,7 +140,8 @@ function applyPullResponse(pmDir, response) {
   const serverEmpty = response._serverEmpty === true;
   if (!serverEmpty) {
     for (const relPath of response.delete || []) {
-      const filePath = path.join(pmDir, relPath);
+      const filePath = path.resolve(pmDir, relPath);
+      if (!filePath.startsWith(resolvedPmDir + path.sep)) continue;
       try {
         fs.unlinkSync(filePath);
         deleted++;

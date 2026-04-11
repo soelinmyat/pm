@@ -20,10 +20,11 @@ process.stdout.write(typeof toolInput.file_path === 'string' ? toolInput.file_pa
 ABS_PROJECT=$(cd "$PROJECT_DIR" 2>/dev/null && pwd) || exit 0
 PM_DIR="$ABS_PROJECT/pm/"
 
-# Check if file is inside pm/ (handles both relative and absolute paths)
+# Check if file is inside pm/ (handles relative, ./relative, and absolute paths)
 case "$TARGET_PATH" in
   "$PM_DIR"*) ;;
   pm/*) ;;
+  ./pm/*) ;;
   *) exit 0 ;;
 esac
 

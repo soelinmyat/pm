@@ -460,6 +460,44 @@ test("writeSyncStatus writes correctly shaped JSON", (t) => {
 });
 
 // ---------------------------------------------------------------------------
+// Test: Path traversal protection
+// ---------------------------------------------------------------------------
+
+test("pull ignores paths that traverse outside pm/", async (t) => {
+  const { root, cleanup } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(cleanup);
+
+  const { applyPullResponse } = require(KB_SYNC_PATH);
+  const pmDir = path.join(root, "pm");
+
+  const response = {
+    download: [
+      {
+        path: "../evil.md",
+        content: "# Evil file\n",
+        hash: sha256("# Evil file\n"),
+      },
+      {
+        path: "../../etc/passwd",
+        content: "malicious\n",
+        hash: sha256("malicious\n"),
+      },
+    ],
+    delete: ["../outside.md"],
+    unchanged: 0,
+    _serverEmpty: false,
+  };
+
+  const result = applyPullResponse(pmDir, response);
+
+  assert.equal(result.downloaded, 0, "should not write files outside pm/");
+  assert.equal(result.deleted, 0, "should not delete files outside pm/");
+  assert.ok(!fs.existsSync(path.join(root, "evil.md")), "evil.md must not exist");
+});
+
+// ---------------------------------------------------------------------------
 // Test: Push manifest preparation
 // ---------------------------------------------------------------------------
 
