@@ -736,64 +736,30 @@ function validateMemoryEntry(relativeFile, entry, index, errors, requireArchived
   }
 }
 
-function validateMemoryFile(pmDir, errors) {
-  const filePath = path.join(pmDir, "memory.md");
+function validateMemoryDocument(pmDir, fileName, expectedType, requireArchivedAt, errors) {
+  const filePath = path.join(pmDir, fileName);
   if (!fs.existsSync(filePath)) {
     return;
   }
 
-  const relativeFile = "memory.md";
-  const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+  const parsed = readParsedFrontmatter(filePath, fileName, errors);
   if (!parsed) {
     return;
   }
 
   const data = parsed.data;
 
-  if (data.type !== "project-memory") {
-    pushIssue(errors, relativeFile, "type", `expected "project-memory", got "${data.type}"`);
+  if (data.type !== expectedType) {
+    pushIssue(errors, fileName, "type", `expected "${expectedType}", got "${data.type}"`);
   }
 
   if (!Array.isArray(data.entries)) {
-    pushIssue(errors, relativeFile, "entries", "entries must be a list");
+    pushIssue(errors, fileName, "entries", "entries must be a list");
     return;
   }
 
   for (let i = 0; i < data.entries.length; i++) {
-    validateMemoryEntry(relativeFile, data.entries[i], i, errors, false);
-  }
-}
-
-function validateMemoryArchive(pmDir, errors) {
-  const filePath = path.join(pmDir, "memory-archive.md");
-  if (!fs.existsSync(filePath)) {
-    return;
-  }
-
-  const relativeFile = "memory-archive.md";
-  const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
-  if (!parsed) {
-    return;
-  }
-
-  const data = parsed.data;
-
-  if (data.type !== "project-memory-archive") {
-    pushIssue(
-      errors,
-      relativeFile,
-      "type",
-      `expected "project-memory-archive", got "${data.type}"`
-    );
-  }
-
-  if (!Array.isArray(data.entries)) {
-    pushIssue(errors, relativeFile, "entries", "entries must be a list");
-    return;
-  }
-
-  for (let i = 0; i < data.entries.length; i++) {
-    validateMemoryEntry(relativeFile, data.entries[i], i, errors, true);
+    validateMemoryEntry(fileName, data.entries[i], i, errors, requireArchivedAt);
   }
 }
 
@@ -935,8 +901,8 @@ function validate(pmDir) {
     validateFeaturesFile(pmDir, featuresPath, content, errors);
   }
 
-  validateMemoryFile(pmDir, errors);
-  validateMemoryArchive(pmDir, errors);
+  validateMemoryDocument(pmDir, "memory.md", "project-memory", false, errors);
+  validateMemoryDocument(pmDir, "memory-archive.md", "project-memory-archive", true, errors);
 
   return { errors, warnings, backlogCount: backlogIds.size };
 }
