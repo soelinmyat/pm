@@ -865,6 +865,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
 /* Page header */
 .page-header { margin-bottom: 2rem; }
+.page-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
 .page-header .subtitle { color: var(--text-muted); margin-top: 0.125rem; font-size: 0.9375rem; }
 .page-header .breadcrumb { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.375rem; }
 .page-header .breadcrumb a { color: var(--text-muted); }
@@ -1559,6 +1560,59 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Mobile menu toggle — hidden on desktop */
+.mobile-header { display: none; }
+
+/* ===== Responsive: Tablet & Mobile ===== */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%; z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 250ms ease;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0; z-index: 99;
+    background: rgba(0,0,0,0.4);
+  }
+  .sidebar.open + .sidebar-overlay { display: block; }
+
+  .mobile-header {
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 50;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .mobile-menu-btn {
+    width: 36px; height: 36px; border: none; border-radius: var(--radius-sm);
+    background: none; cursor: pointer; color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mobile-menu-btn:hover { background: var(--surface-hover, var(--surface)); }
+  .mobile-header-title { font-weight: 700; font-size: 14px; color: var(--text); }
+
+  main.main-content { margin-left: 0; }
+  .container { padding: 1.25rem 1rem; }
+
+  .kanban { grid-template-columns: 1fr 1fr; }
+  .kb-health-grid { grid-template-columns: 1fr 1fr; }
+  .page-title-row { flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  .container { padding: 1rem 0.75rem; }
+  .kanban { grid-template-columns: 1fr; }
+  .kb-health-grid { grid-template-columns: 1fr; }
+  .card-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .detail-meta-bar { flex-wrap: wrap; }
+  .section-header { flex-wrap: wrap; }
+  .section-hint { margin-left: 0; }
+  .page-title-row .section-hint { width: 100%; }
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+}
 `;
 
 // ========== Dashboard HTML Shell ==========
@@ -1630,6 +1684,13 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
     </div>
   </div>
 </aside>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<div class="mobile-header">
+  <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open menu">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+  </button>
+  <span class="mobile-header-title">${escHtml(projectName)}</span>
+</div>
 <main class="main-content" role="main" id="main-content">
 <div class="container">
 ${bodyContent}
@@ -1695,6 +1756,20 @@ document.addEventListener('keydown', function(e) {
     if (input) { e.preventDefault(); input.focus(); }
   }
 });
+// Mobile sidebar toggle
+(function() {
+  var sidebar = document.querySelector('.sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+  var btn = document.getElementById('mobile-menu-btn');
+  if (!btn || !sidebar) return;
+  function open() { sidebar.classList.add('open'); }
+  function close() { sidebar.classList.remove('open'); }
+  btn.addEventListener('click', function() { sidebar.classList.contains('open') ? close() : open(); });
+  overlay.addEventListener('click', close);
+  sidebar.addEventListener('click', function(e) {
+    if (e.target.closest('.nav-item')) close();
+  });
+})();
 </script>
 </body>
 </html>`;
@@ -3187,7 +3262,15 @@ function parseStrategySnapshot(pmDir) {
 }
 
 function renderListTemplate(opts) {
-  const { breadcrumb, title, subtitle, sections = [], emptyState, contentBefore } = opts;
+  const {
+    breadcrumb,
+    title,
+    subtitle,
+    sections = [],
+    emptyState,
+    contentBefore,
+    actionHint,
+  } = opts;
 
   const parts = [];
 
@@ -3195,7 +3278,13 @@ function renderListTemplate(opts) {
   parts.push('<div class="list-template">');
   parts.push('<div class="page-header">');
   if (breadcrumb) parts.push(`<p class="breadcrumb">${breadcrumb}</p>`);
-  parts.push(`<h1>${escHtml(title)}</h1>`);
+  if (actionHint) {
+    parts.push(
+      `<div class="page-title-row"><h1>${escHtml(title)}</h1><span class="section-hint">${renderClickToCopy(actionHint)}</span></div>`
+    );
+  } else {
+    parts.push(`<h1>${escHtml(title)}</h1>`);
+  }
   if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
   parts.push("</div>");
 
@@ -4597,7 +4686,6 @@ function buildTopicRows(pmDir, maxTopics) {
 
 function kbDomainCommand(slug) {
   if (slug === "competitors") return "/pm:research competitors";
-  if (slug === "business") return "/pm:research landscape";
   return "/pm:research";
 }
 
@@ -4871,7 +4959,7 @@ function handleKbStrategyDetail(res, pmDir) {
   if (!fs.existsSync(filePath)) {
     contentHtml =
       `<div class="detail-page">
-<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<nav class="detail-breadcrumb"><a href="/proposals">Proposals</a></nav>
 <h1>Strategy</h1>
 </div>` +
       renderEmptyState(
@@ -4885,12 +4973,12 @@ function handleKbStrategyDetail(res, pmDir) {
     const parsed = parseFrontmatter(raw);
     const rendered = renderStrategyWithViz(parsed.body);
     contentHtml = `<div class="detail-page">
-<nav class="detail-breadcrumb"><a href="/kb">Knowledge Base</a></nav>
+<nav class="detail-breadcrumb"><a href="/proposals">Proposals</a></nav>
 <h1>Strategy</h1>
 <div class="markdown-body">${rendered}</div>
 </div>`;
   }
-  const html = dashboardPage("Strategy", "/kb", contentHtml);
+  const html = dashboardPage("Strategy", "/proposals", contentHtml);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -4944,6 +5032,7 @@ function kbFilter(q) {
     title: "Competitors",
     contentBefore: searchBar,
     sections: [{ items: cardItems, layout: "cards" }],
+    actionHint: "/pm:research competitors",
     emptyState: renderEmptyState(
       "No competitor profiles",
       "Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.",
@@ -5011,7 +5100,7 @@ function handleKbLandscapeDetail(res, pmDir) {
     title: "Market Landscape",
     metaBadges,
     tabs: sectionTabs.map((s) => ({ id: s.id, label: s.label, html: s.rendered })),
-    actionHint: "/pm:research landscape",
+    actionHint: "/pm:research",
   });
 
   const html = dashboardPage("Landscape", "/kb", contentHtml);
@@ -5025,7 +5114,7 @@ function handleKbTopicsDetail(res, pmDir) {
   const body = `
 <div class="page-header">
   <div class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></div>
-  <h1>Research</h1>
+  <div class="page-title-row"><h1>Research</h1><span class="section-hint">${renderClickToCopy("/pm:research")}</span></div>
   <p class="subtitle">${topicCount} topic${topicCount !== 1 ? "s" : ""}</p>
 </div>
 ${
