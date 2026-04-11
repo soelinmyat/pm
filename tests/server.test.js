@@ -2628,9 +2628,9 @@ test("PM-122: KB hub shows evidence empty state sections", async () => {
 
 test("PM-122: KB hub discovers non-default insight domains and links to canonical routes", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/product/index.md":
+    "pm/insights/trends/index.md":
       "# Product Insights\n\nSynthesized product learnings and decision notes.\n",
-    "pm/insights/product/priorities.md": "# Priorities\n\nWhat matters most right now.\n",
+    "pm/insights/trends/priorities.md": "# Priorities\n\nWhat matters most right now.\n",
     "pm/insights/developer-experience/index.md":
       "# Developer Experience\n\nSignals about the builder workflow and tooling friction.\n",
     "pm/insights/developer-experience/ci.md": "# CI\n\nPipeline quality notes.\n",
@@ -2643,7 +2643,7 @@ test("PM-122: KB hub discovers non-default insight domains and links to canonica
         body.includes("kb-domain-section"),
         "must show insight domain sections in Insights tab"
       );
-      assert.ok(body.includes('href="/insights/product/'), "must link to product domain content");
+      assert.ok(body.includes('href="/insights/trends/'), "must link to product domain content");
       assert.ok(
         body.includes('href="/insights/developer-experience/'),
         "must link to discovered custom domain content"

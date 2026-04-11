@@ -93,7 +93,7 @@ Get the user to value quickly. Do not front-load integration questions.
 Create the layered KB folders and seed each index/log file with a minimal header so the KB is self-explanatory.
 
 ```bash
-mkdir -p pm/insights/{product,competitors,business}
+mkdir -p pm/insights/{trends,competitors,business}
 mkdir -p pm/evidence/{research,transcripts,user-feedback}
 mkdir -p pm/backlog
 mkdir -p pm/thinking
@@ -107,8 +107,8 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 
 | File | Content |
 |------|---------|
-| `pm/insights/product/index.md` | `# Product Insights` |
-| `pm/insights/product/log.md` | `# Product Insights Log` |
+| `pm/insights/trends/index.md` | `# Trends` |
+| `pm/insights/trends/log.md` | `# Trends Log` |
 | `pm/insights/competitors/index.md` | `# Competitor Insights` |
 | `pm/insights/competitors/log.md` | `# Competitor Insights Log` |
 | `pm/insights/business/index.md` | `# Business Insights` |
@@ -122,7 +122,9 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 | `pm/evidence/user-feedback/index.md` | `# User Feedback` |
 | `pm/evidence/user-feedback/log.md` | `# User Feedback Log` |
 
-Default insight domains are `product`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
+Default insight domains are `trends`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
+
+**Migration:** If `pm/insights/product/` exists and `pm/insights/trends/` does not, rename the directory (`mv pm/insights/product pm/insights/trends`). This preserves existing user data from the pre-1.0.52 naming convention.
 
 ### Step 2: Gitignore
 
