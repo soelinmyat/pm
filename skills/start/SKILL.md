@@ -143,7 +143,7 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
 
 ```json
 {
-  "config_schema": 1,
+  "config_schema": 2,
   "project_name": "My Product",
   "integrations": {
     "linear": { "enabled": false },
