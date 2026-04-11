@@ -23,6 +23,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reconcile-merged.sh",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-pull.sh",
+            "async": true
           }
         ]
       }
@@ -77,6 +82,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-step.sh",
             "async": false
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-mark-dirty.sh",
+            "async": true
           }
         ]
       }
@@ -88,6 +98,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-end.sh",
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-push.sh",
             "async": true
           }
         ]
