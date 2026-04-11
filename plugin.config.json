@@ -25,10 +25,9 @@
   ],
   "commands": [
     "dev",
-    "features",
     "groom",
     "ingest",
-    "merge",
+    "note",
     "refresh",
     "research",
     "setup",

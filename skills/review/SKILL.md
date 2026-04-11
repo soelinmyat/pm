@@ -8,7 +8,7 @@ description: "Multi-perspective code review (code + design + input edge-cases) w
 **State file convention:** The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If no state file matches, check legacy path `.dev-state-{slug}.md`. If neither exists, proceed without upstream gate data (all agents run). References to `.dev-state.md` below mean `.pm/dev-sessions/{slug}.md`.
 
 Multi-perspective code review with auto-fix. Runs up to three review agents in parallel:
-- **Code Reviewer** — finds ALL genuine code bugs for auto-fix. Routes by runtime: Anthropic official `code-review:code-review` in Claude Code, built-in `pm:code-reviewer` elsewhere.
+- **Code Reviewer** — finds ALL genuine code bugs for auto-fix. Routes by runtime: Anthropic official `code-review:code-review` in Claude Code, built-in @staff-engineer elsewhere.
 - **Design Reviewer** — design system compliance, token usage, component patterns. *Skipped when Design Critique passed upstream.*
 - **Input Edge-Case Reviewer** — enumerates input domains/boundaries and missing branch-coverage tests
 
@@ -96,7 +96,7 @@ Launch all active reviews using the current runtime from `agent-runtime.md`. In 
 Finds ALL genuine code bugs for auto-fix. Routes by runtime:
 
 1. **Claude Code:** Invoke Anthropic's official `code-review:code-review` skill. Auto-fix all findings it returns — do not filter by confidence score.
-2. **Other runtimes:** Dispatch reviewer intent `pm:code-reviewer` via `agent-runtime.md`. Auto-fix all findings.
+2. **Other runtimes:** Dispatch reviewer persona `@staff-engineer` via `agent-runtime.md`. Auto-fix all findings.
 
 No PR comments in either path — findings are fixed directly in code.
 
@@ -136,7 +136,7 @@ This check applies to Design Review (Agent 2) below.
 
 **Conditional skip:** If `.pm/dev-sessions/{slug}.md` exists and contains `Design critique: passed` or `Design critique: completed`, skip this agent — **unless contract drift was detected above**. Design Critique already ran an enriched reviewer with screenshots, a11y snapshots, and visual consistency audit. Log: "Design Review: skipped (Design Critique passed upstream, no drift)."
 
-Dispatch reviewer intent `pm:design-system-lead` via `agent-runtime.md`:
+Dispatch reviewer persona `@designer` via `agent-runtime.md`:
 
 ```
 prompt: |
@@ -158,7 +158,7 @@ The agent already knows its methodology (token compliance, component reuse, typo
 
 ### Agent 3: Input Edge-Case Review (reviewer)
 
-Dispatch reviewer intent `pm:edge-case-tester` via `agent-runtime.md`. In Claude, prefer `model: "opus"` or the strongest available review model. Run **in parallel with Agents 1-2** when delegation is available; otherwise run the same brief inline:
+Dispatch reviewer persona `@tester` via `agent-runtime.md`. In Claude, prefer `model: "opus"` or the strongest available review model. Run **in parallel with Agents 1-2** when delegation is available; otherwise run the same brief inline:
 
 ```
 prompt: |
@@ -252,7 +252,7 @@ Present a final summary:
 
 - NEVER skip Phase 1 context gathering — agents need the full diff and AGENTS.md
 - NEVER bypass pre-commit hooks when committing fixes
-- Agent 1 (Code Review) finds ALL genuine bugs for auto-fix — routes by runtime (Anthropic official in Claude Code, built-in `pm:code-reviewer` elsewhere), no confidence threshold filtering, no PR comments
+- Agent 1 (Code Review) finds ALL genuine bugs for auto-fix — routes by runtime (Anthropic official in Claude Code, built-in @staff-engineer elsewhere), no confidence threshold filtering, no PR comments
 - Agent 3 (Input Edge-Case) findings are first-class findings: same severity rubric, same dedupe, same auto-fix expectations
 - The review stage itself cannot be skipped via flags or state manipulation — it is a hard gate
 - If no issues found by any active agent, report clean and stop (no empty commit)

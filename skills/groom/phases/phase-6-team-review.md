@@ -13,7 +13,7 @@ After the proposal is drafted, dispatch parallel reviewers to review the complet
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. In runtimes that support delegation, run them in parallel. Otherwise run the same briefs inline before merging findings.
 
-**Reviewer intent: `pm:product-manager` — Proposal Quality**
+**Reviewer persona: `@product-manager` — Proposal Quality**
 
 ```
 You are a senior product manager reviewing a product proposal. Your job is to ensure this proposal is clear, complete, and grounded in research — ready for executive review.
@@ -52,7 +52,7 @@ You are not here to approve. You are here to find problems.
 **Scope coverage:** {X}/{Y} in-scope items have clear coverage. Missing: {list if any}
 ```
 
-**Reviewer intent: `pm:strategist` — Positioning Quality**
+**Reviewer persona: `@strategist` — Positioning Quality**
 
 ```
 You are a competitive strategist reviewing a product proposal. Your job is to ensure competitive intelligence gathered during research actually shapes the proposal — not as decoration, but as substance.
@@ -86,7 +86,7 @@ You are a competitive strategist reviewing a product proposal. Your job is to en
 **Research utilization:** {X}/{Y} key competitive findings are reflected. Unused: {list if any}
 ```
 
-**Reviewer intent: `pm:engineering-manager` — Technical Feasibility**
+**Reviewer persona: `@staff-engineer` — Technical Feasibility**
 
 ```
 You are an engineering manager reviewing a product proposal for technical feasibility. Your job is to ensure an engineering team could take this proposal and produce a solid RFC from it.
@@ -115,7 +115,7 @@ You are an engineering manager reviewing a product proposal for technical feasib
 **Existing code overlap:** {list or "None found"}
 ```
 
-**Reviewer intent: `pm:ux-designer` — Visual Quality** *(only dispatch if visual artifacts were generated)*
+**Reviewer persona: `@designer` — Visual Quality** *(only dispatch if visual artifacts were generated)*
 
 Only dispatch this agent if visual artifacts exist (UI or workflow feature type).
 

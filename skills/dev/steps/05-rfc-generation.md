@@ -51,7 +51,7 @@ Groomed sub-issues skip this step — their proposal is sufficient context.
 
 ### RFC generation prompt
 
-Dispatch an `Agent(subagent_type="pm:developer", ...)` with this brief (or run inline in Codex without delegation):
+Dispatch an `Agent(...)` with the @developer persona brief (or run inline in Codex without delegation):
 
 ```text
 Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.

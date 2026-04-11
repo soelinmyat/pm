@@ -1,6 +1,6 @@
 # Spec Reviewer Prompts
 
-Agent prompts for raw sub-issue spec review before RFC generation. Dispatch as formal plugin agents.
+Agent prompts for raw sub-issue spec review before RFC generation. Dispatch as fresh agents with persona context.
 
 ---
 
@@ -10,8 +10,7 @@ Agent prompts for raw sub-issue spec review before RFC generation. Dispatch as f
 
 ```
 Agent({
-  subagent_type: "pm:adversarial-engineer",
-  prompt: `Review this implementation plan (RFC) for architecture soundness and risk.
+  prompt: `You are a @adversarial-engineer. Review this implementation plan (RFC) for architecture soundness and risk.
 
 **RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
@@ -30,8 +29,7 @@ Agent({
 
 ```
 Agent({
-  subagent_type: "pm:test-engineer",
-  prompt: `Review this implementation plan (RFC) for testing strategy and coverage.
+  prompt: `You are a @tester. Review this implementation plan (RFC) for testing strategy and coverage.
 
 **RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
@@ -50,8 +48,7 @@ Agent({
 
 ```
 Agent({
-  subagent_type: "pm:staff-engineer",
-  prompt: `Review this implementation plan (RFC) for complexity and long-term maintainability.
+  prompt: `You are a @staff-engineer. Review this implementation plan (RFC) for complexity and long-term maintainability.
 
 **RFC to review:** {RFC_FILE_PATH}
 **Spec for reference:** {SPEC_FILE_PATH}
@@ -70,8 +67,7 @@ Agent({
 
 ```
 Agent({
-  subagent_type: "pm:ux-designer",
-  prompt: `Review this feature spec for UX and user flow completeness.
+  prompt: `You are a @designer. Review this feature spec for UX and user flow completeness.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
@@ -89,8 +85,7 @@ Agent({
 
 ```
 Agent({
-  subagent_type: "pm:product-manager",
-  prompt: `Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and outcome coverage.
+  prompt: `You are a @product-manager. Review this feature spec for JTBD clarity, ICP fit, prioritization, scope creep, and outcome coverage.
 
 **Spec to review:** {SPEC_FILE_PATH}
 
@@ -108,8 +103,7 @@ Agent({
 
 ```
 Agent({
-  subagent_type: "pm:strategist",
-  prompt: `Review this feature spec for differentiation, switching motivation, competitive response, and non-goal violations.
+  prompt: `You are a @strategist. Review this feature spec for differentiation, switching motivation, competitive response, and non-goal violations.
 
 **Spec to review:** {SPEC_FILE_PATH}
 

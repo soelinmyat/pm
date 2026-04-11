@@ -109,9 +109,9 @@ Full self-contained flow for when there is no implementing agent.
 
 Read `agent-runtime.md` before dispatching any reviewer or worker.
 
-- Design reviewer: `pm:design-reviewer`
-- Fresh Eyes: `general-purpose` with zero prior findings context
-- Engineer (standalone mode only): persistent worker `general-purpose`
+- Design reviewer: `@designer`
+- Fresh Eyes: general-purpose with zero prior findings context
+- Engineer (standalone mode only): persistent worker general-purpose
 
 In Claude or Codex-with-delegation:
 - Run design reviewer and Fresh Eyes in parallel
