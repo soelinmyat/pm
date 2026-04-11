@@ -1,6 +1,11 @@
 ---
 name: qa
 description: "QA testing ship gate. Assertion-driven: verifies acceptance criteria via DOM queries and computed styles, not screenshot guessing. Uses Playwright MCP for browser interaction. Reports findings with health score and ship verdict. Never modifies source code."
+runtime:
+  requires: [delegation]
+  agents: 1
+  guarantee: "assertion-driven QA report with health score and ship verdict"
+  degradation: inline
 ---
 
 # QA — Assertion-Driven Testing Gate

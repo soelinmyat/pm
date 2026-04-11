@@ -1,6 +1,11 @@
 ---
 name: setup
 description: "Toggle integrations on or off for this project. Triggers on 'setup enable/disable <integration>', 'enable linear', 'disable ahrefs', 'configure integrations'."
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "integration toggled on or off in project config"
+  degradation: none
 ---
 
 # Setup Skill

@@ -1,6 +1,11 @@
 ---
 name: start
 description: "Lifecycle router for PM. For new repos, bootstrap PM and route into the best first workflow. For returning sessions, open the dashboard, surface update status, detect in-progress work, and recommend the next move. Triggers on session start (auto-invoked by using-pm), 'start,' 'initialize pm,' 'get started,' 'dashboard,' 'open dashboard,' 'show research,' 'show knowledge base,' 'open pm,' 'view pm,' 'view research.'"
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "PM bootstrapped or dashboard opened with next-action recommendation"
+  degradation: none
 ---
 
 # pm:start

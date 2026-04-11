@@ -1,6 +1,11 @@
 ---
 name: review
 description: "Multi-perspective code review (code + design + input edge-cases) with auto-fix. Conditionally skips Design when upstream gate passed."
+runtime:
+  requires: [delegation]
+  agents: 3
+  guarantee: "3 independent review perspectives with verdicts"
+  degradation: inline
 ---
 
 # /review [PR#]
