@@ -1056,3 +1056,224 @@ test("PM-170: no stale agent names in skill files", () => {
 
   assert.equal(violations.length, 0, `Found stale agent references:\n  ${violations.join("\n  ")}`);
 });
+
+// ---------------------------------------------------------------------------
+// PM-149: Memory file validation (pm/memory.md, pm/memory-archive.md)
+// ---------------------------------------------------------------------------
+
+function makeMemoryFile(entries, overrides = {}) {
+  const data = {
+    type: "project-memory",
+    created: "2026-03-20",
+    updated: "2026-04-04",
+    ...overrides,
+  };
+  let fm = "---\n";
+  for (const [key, value] of Object.entries(data)) {
+    fm += `${key}: ${value}\n`;
+  }
+  fm += "entries:\n";
+  for (const entry of entries) {
+    fm += `  - date: ${entry.date || "2026-04-04"}\n`;
+    fm += `    source: ${entry.source || "retro"}\n`;
+    fm += `    category: ${entry.category || "process"}\n`;
+    fm += `    learning: "${entry.learning || "test learning"}"\n`;
+    if (entry.detail !== undefined) {
+      fm += `    detail: "${entry.detail}"\n`;
+    }
+    if (entry.pinned !== undefined) {
+      fm += `    pinned: ${entry.pinned}\n`;
+    }
+  }
+  fm += "---\n\n# Project Memory\n";
+  return fm;
+}
+
+function makeMemoryArchiveFile(entries, overrides = {}) {
+  const data = {
+    type: "project-memory-archive",
+    created: "2026-03-20",
+    updated: "2026-04-04",
+    ...overrides,
+  };
+  let fm = "---\n";
+  for (const [key, value] of Object.entries(data)) {
+    fm += `${key}: ${value}\n`;
+  }
+  fm += "entries:\n";
+  for (const entry of entries) {
+    fm += `  - date: ${entry.date || "2026-04-04"}\n`;
+    fm += `    source: ${entry.source || "retro"}\n`;
+    fm += `    category: ${entry.category || "process"}\n`;
+    fm += `    learning: "${entry.learning || "archived learning"}"\n`;
+    if (entry.detail !== undefined) {
+      fm += `    detail: "${entry.detail}"\n`;
+    }
+    if (entry.pinned !== undefined) {
+      fm += `    pinned: ${entry.pinned}\n`;
+    }
+    fm += `    archived_at: ${entry.archived_at || "2026-04-10"}\n`;
+  }
+  fm += "---\n\n# Memory Archive\n";
+  return fm;
+}
+
+test("PM-149: valid memory.md passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/memory.md": makeMemoryFile([
+      { date: "2026-04-04", source: "retro", category: "process", learning: "test learning" },
+    ]),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `valid memory.md should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-149: memory.md with optional detail and pinned fields passes", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/memory.md": makeMemoryFile([
+      {
+        date: "2026-04-04",
+        source: "retro",
+        category: "scope",
+        learning: "always check scope",
+        detail: "expanded context here",
+        pinned: true,
+      },
+    ]),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `optional fields should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-149: memory.md missing required entry field reports error", (t) => {
+  // Create a memory file with an entry missing the 'source' field
+  const content = [
+    "---",
+    "type: project-memory",
+    "created: 2026-03-20",
+    "updated: 2026-04-04",
+    "entries:",
+    "  - date: 2026-04-04",
+    "    category: process",
+    '    learning: "missing source field"',
+    "---",
+    "",
+    "# Project Memory",
+  ].join("\n");
+
+  const { pmDir, cleanup } = withPmDir({ "pm/memory.md": content });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.message.includes("source")),
+    "should report missing source field"
+  );
+});
+
+test("PM-149: memory.md with invalid pinned type reports error", (t) => {
+  const content = [
+    "---",
+    "type: project-memory",
+    "created: 2026-03-20",
+    "updated: 2026-04-04",
+    "entries:",
+    "  - date: 2026-04-04",
+    "    source: retro",
+    "    category: process",
+    '    learning: "test"',
+    '    pinned: "yes"',
+    "---",
+    "",
+    "# Project Memory",
+  ].join("\n");
+
+  const { pmDir, cleanup } = withPmDir({ "pm/memory.md": content });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.message.includes("pinned")),
+    "should report invalid pinned type"
+  );
+});
+
+test("PM-149: memory.md with wrong type reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/memory.md": makeMemoryFile(
+      [{ date: "2026-04-04", source: "retro", category: "process", learning: "test" }],
+      { type: "wrong-type" }
+    ),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.message.includes("project-memory")),
+    "should report wrong type"
+  );
+});
+
+test("PM-149: missing memory.md is OK (not all projects have it)", (t) => {
+  const { pmDir, cleanup } = withPmDir({});
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `missing memory.md should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-149: valid memory-archive.md passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/memory-archive.md": makeMemoryArchiveFile([
+      {
+        date: "2026-03-20",
+        source: "retro",
+        category: "quality",
+        learning: "archived learning",
+        archived_at: "2026-04-10",
+      },
+    ]),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(
+    result.ok,
+    true,
+    `valid memory-archive.md should pass: ${JSON.stringify(result.details)}`
+  );
+});
+
+test("PM-149: memory-archive.md entry missing archived_at reports error", (t) => {
+  const content = [
+    "---",
+    "type: project-memory-archive",
+    "created: 2026-03-20",
+    "updated: 2026-04-04",
+    "entries:",
+    "  - date: 2026-04-04",
+    "    source: retro",
+    "    category: process",
+    '    learning: "archived but no timestamp"',
+    "---",
+    "",
+    "# Memory Archive",
+  ].join("\n");
+
+  const { pmDir, cleanup } = withPmDir({ "pm/memory-archive.md": content });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.message.includes("archived_at")),
+    "should report missing archived_at"
+  );
+});
