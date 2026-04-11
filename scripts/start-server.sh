@@ -91,10 +91,33 @@ else
   SCREEN_DIR="/tmp/pm-${SESSION_ID}"
 fi
 
-if [[ -n "$PROJECT_DIR" ]]; then
-  DASHBOARD_DIR="${PROJECT_DIR}/pm"
+# Read pm_repo.path from .pm/config.json (if it exists) to support separate PM repos.
+# Uses node -e exclusively (node is always available since we launch a Node.js server).
+CONFIG_PM_PATH=""
+EFFECTIVE_ROOT="${PROJECT_DIR:-$CALLER_DIR}"
+CONFIG_FILE="${EFFECTIVE_ROOT}/.pm/config.json"
+if [[ -f "$CONFIG_FILE" ]]; then
+  CONFIG_PM_PATH=$(node -e "
+    try {
+      const c = require('$CONFIG_FILE');
+      if (c && c.pm_repo && typeof c.pm_repo.path === 'string') {
+        console.log(c.pm_repo.path);
+      }
+    } catch (e) {}
+  " 2>/dev/null) || CONFIG_PM_PATH=""
+fi
+
+if [[ -n "$CONFIG_PM_PATH" ]]; then
+  # Resolve relative to the directory containing .pm/config.json (i.e., ${EFFECTIVE_ROOT}/.pm/)
+  RESOLVED_PM_REPO=$(cd "${EFFECTIVE_ROOT}/.pm" && cd "$CONFIG_PM_PATH" 2>/dev/null && pwd) || RESOLVED_PM_REPO=""
+  if [[ -n "$RESOLVED_PM_REPO" && -d "${RESOLVED_PM_REPO}/pm" ]]; then
+    DASHBOARD_DIR="${RESOLVED_PM_REPO}/pm"
+  else
+    echo "Warning: pm_repo.path '${CONFIG_PM_PATH}' does not resolve to a valid PM directory. Falling back to default." >&2
+    DASHBOARD_DIR="${EFFECTIVE_ROOT}/pm"
+  fi
 else
-  DASHBOARD_DIR="${CALLER_DIR}/pm"
+  DASHBOARD_DIR="${EFFECTIVE_ROOT}/pm"
 fi
 
 PID_FILE="${SCREEN_DIR}/.server.pid"
