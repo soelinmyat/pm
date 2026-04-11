@@ -60,7 +60,65 @@ proposal:
   linear_id: "{Linear ID}" | null
 ```
 
-Delete `.pm/groom-sessions/{topic-slug}.md` after successful link. Grooming is complete.
+5. **Retro extraction — extract learnings before cleanup.**
+
+   This step runs after artifact validation and before state file deletion. If extraction fails at any point, do NOT delete the state file. Instead, write `retro_failed: true` to the state file and say:
+   > "Retro extraction failed; session state preserved for retry."
+   Then stop — do not proceed to deletion.
+
+   **5a. Scan for extractable events.** Read the groom session state (`.pm/groom-sessions/{topic-slug}.md`) and check for these events:
+
+   | Event | Condition | Category | Learning template |
+   |-------|-----------|----------|-------------------|
+   | Scope review send-back | `scope_review.pm_verdict` = `rethink-scope` or `wrong-priority` | `scope` | "from scope review: sent back for {pm_verdict}" |
+   | Bar raiser send-back | `bar_raiser.verdict` = `send-back` | `quality` | "from bar raiser: sent back — {detail from bar_raiser section if available}" |
+   | Team review blocking fixes | `team_review.blocking_issues_fixed` > 0 | `review` | "from team review: {N} blocking issues fixed" |
+   | Strategy check failure | `strategy_check.status` = `failed` | `process` | "from strategy check: failed against {strategy_check.checked_against}" |
+
+   **5b. No events — skip silently.** If none of the conditions above match, log internally "no learnings detected this session" and skip to step 6 (state file deletion). Do NOT prompt the user.
+
+   **5c. Events found — present auto-extracted learnings.** Build one learning entry per matched event using the templates above, filling in specifics from the session state. Present the list to the user:
+
+   > "Retro: {N} learning(s) extracted from this groom session:
+   > 1. [{category}] {learning text}
+   > ...
+   > Options: (a) Accept as-is (b) Add your own learnings too (c) Accept auto-extracted only"
+
+   Wait for the user's answer.
+   - **(a) or (c):** Proceed with auto-extracted entries only.
+   - **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Append them to the auto-extracted list.
+
+   This is a hard gate — at minimum the auto-extracted learnings must be written before state file deletion.
+
+   **5d. Deduplicate.** Read `{pm_dir}/memory.md`. For each entry to write, check existing entries: if any existing entry matches on `source` + `date` + first 50 characters of `learning`, skip that entry (already written, likely from a prior retro attempt on the same session).
+
+   **5e. Concurrent write guard.** Immediately before appending, re-read `{pm_dir}/memory.md` to get the latest state. Append new (non-duplicate) entries to the `entries` list from the freshly-read version, not from any earlier read.
+
+   **5f. Write entries.** Each entry uses this format inside the `entries` list:
+
+   ```yaml
+   - date: {today, YYYY-MM-DD}
+     source: "{topic-slug}"
+     category: "{mapped category}"
+     learning: "{one-liner from template or user}"
+     detail: "{optional — only if additional context is available}"
+   ```
+
+   Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter structure (`type: project-memory`).
+
+   **5g. Post-write cap check.** After writing, count total entries in `{pm_dir}/memory.md`. If count exceeds 50, follow the algorithm in `${CLAUDE_PLUGIN_ROOT}/references/memory-cap.md`:
+   - Move oldest non-pinned entries to `{pm_dir}/memory-archive.md` until count <= 50
+   - If all entries are pinned, warn the user
+
+   **5h. Validate.** Run:
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
+   ```
+   If validation fails, fix the entries and re-validate before proceeding.
+
+6. **Delete state file.**
+
+Delete `.pm/groom-sessions/{topic-slug}.md` after successful retro extraction (or silent skip) and link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. Proposal saved to `{pm_dir}/backlog/{topic-slug}.md`.
