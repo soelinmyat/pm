@@ -30,6 +30,8 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
+2.5. **Surface past learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the grooming session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
+
 3. Check `{pm_dir}/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
    > "Found related research at {path}. I'll use it in Phase 3."
 
