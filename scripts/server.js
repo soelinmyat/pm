@@ -2198,7 +2198,6 @@ function handleSettingsPage(res, pmDir) {
 
   const linearConnected = linear.enabled === true;
   const seoConnected = seo.provider === "ahrefs";
-  const connectedCount = (linearConnected ? 1 : 0) + (seoConnected ? 1 : 0);
 
   // Linear card
   const linearBadge = linearConnected
@@ -2378,7 +2377,7 @@ ${digestHtml}
 ${notesListHtml}`;
 }
 
-function handleNotesPage(res, pmDir) {
+function handleNotesPage(res, _pmDir) {
   // Redirect to KB notes tab
   res.writeHead(302, { Location: "/kb#notes" });
   res.end();
