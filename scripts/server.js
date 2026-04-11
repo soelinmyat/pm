@@ -3647,13 +3647,6 @@ function listInsightDomains(pmDir) {
       }
     }
   }
-  // Include evidence/competitors/ as a domain if not already in insights
-  if (!domains.some((d) => d.slug === "competitors")) {
-    const evidenceCompIdx = path.join(pmDir, "evidence", "competitors", "index.md");
-    if (fs.existsSync(evidenceCompIdx)) {
-      domains.push({ slug: "competitors", indexPath: evidenceCompIdx });
-    }
-  }
   return domains;
 }
 
@@ -5817,10 +5810,14 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     );
 
   // Build Evidence tab content
+  // Competitors render first (profile-card layout via buildKbDomainSection)
+  let evidenceHtml = "";
+  const competitorsIdx = path.join(pmDir, "evidence", "competitors", "index.md");
+  if (fs.existsSync(competitorsIdx)) {
+    evidenceHtml += buildKbDomainSection(pmDir, { slug: "competitors", indexPath: competitorsIdx });
+  }
   const evidenceSubdirs = ["research", "transcripts", "user-feedback"];
-  const evidenceHtml = evidenceSubdirs
-    .map((subdir) => buildKbEvidenceSection(pmDir, subdir))
-    .join("");
+  evidenceHtml += evidenceSubdirs.map((subdir) => buildKbEvidenceSection(pmDir, subdir)).join("");
 
   // Build Notes tab content
   const notesHtml = buildNotesContent(pmDir);
@@ -5904,62 +5901,65 @@ function handleKbStrategyDetail(res, pmDir) {
 
 function handleKbCompetitorsDetail(res, pmDir) {
   const compDir = getCompetitorsDir(pmDir);
-  const cardItems = [];
+  const profiles = [];
   if (fs.existsSync(compDir)) {
     const dirs = fs.readdirSync(compDir, { withFileTypes: true }).filter((e) => e.isDirectory());
     for (const d of dirs) {
       const profilePath = path.join(compDir, d.name, "profile.md");
       if (!fs.existsSync(profilePath)) continue;
-      const summary = extractProfileSummary(
-        parseFrontmatter(fs.readFileSync(profilePath, "utf-8")).body
-      );
-      const stale = stalenessInfo(getUpdatedDate(profilePath));
-      const staleBadge = stale
-        ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
-        : "";
-      cardItems.push(`<article class="card">
-        <h3><a href="/evidence/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
-        <p class="meta">${escHtml(summary.category || "")}</p>
-        <div class="card-footer">${staleBadge}<a href="/evidence/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
-      </article>`);
+      const parsed = parseFrontmatter(fs.readFileSync(profilePath, "utf-8"));
+      const summary = extractProfileSummary(parsed.body);
+      const rawDate = parsed.data.updated || parsed.data.profiled || parsed.data.created || "";
+      const dateStr = String(rawDate).replace(/#.*$/, "").trim();
+      const stale = stalenessInfo(dateStr);
+      profiles.push({
+        slug: d.name,
+        company: summary.company || humanizeSlug(d.name),
+        category: summary.category || "",
+        stale,
+        dateStr,
+      });
     }
   }
-  const searchBar =
-    cardItems.length > 0
-      ? `<div class="kb-search">
-  <input type="text" class="kb-search-input" placeholder="Filter competitors..." oninput="kbFilter(this.value)">
-</div>
-<script>
-function kbFilter(q) {
-  var cards = document.querySelectorAll('.card-grid .card');
-  var lower = q.toLowerCase();
-  var visible = 0;
-  cards.forEach(function(card) {
-    var text = card.textContent.toLowerCase();
-    var match = !q || text.indexOf(lower) !== -1;
-    card.style.display = match ? '' : 'none';
-    if (match) visible++;
-  });
-  var empty = document.getElementById('kb-no-results');
-  if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
-}
-</script>
-<div id="kb-no-results" class="empty-state" style="display:none"><h2>No matches</h2><p>Try a different search term.</p></div>`
+  profiles.sort((a, b) => (b.dateStr || "").localeCompare(a.dateStr || ""));
+
+  const freshBadge = (s) =>
+    s
+      ? `<span class="badge badge-${s.level}">${s.level.charAt(0).toUpperCase() + s.level.slice(1)}</span>`
       : "";
-  const contentHtml = renderListTemplate({
-    breadcrumb: '<a href="/kb">&larr; Knowledge Base</a>',
-    title: "Competitors",
-    contentBefore: searchBar,
-    sections: [{ items: cardItems, layout: "cards" }],
-    actionHint: "/pm:research competitors",
-    emptyState: renderEmptyState(
-      "No competitor profiles",
-      "Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.",
-      "/pm:research competitors",
-      "Profile your competitors"
-    ),
-  });
-  const html = dashboardPage("Competitors", "/kb", contentHtml);
+
+  const rows = profiles
+    .map(
+      (p) => `<a href="/evidence/competitors/${escHtml(p.slug)}" class="topic-row">
+  <span class="topic-name">${escHtml(p.company)}</span>
+  <div class="topic-badges">
+    ${freshBadge(p.stale)}
+    <span class="topic-date">${escHtml(formatRelativeDate(p.dateStr))}</span>
+  </div>
+</a>`
+    )
+    .join("");
+
+  const listHtml = profiles.length > 0 ? `<div class="topic-list">${rows}</div>` : "";
+
+  const body = `
+<div class="page-header">
+  <div class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></div>
+  <div class="page-title-row"><h1>Competitors</h1><span class="section-hint">${renderClickToCopy("/pm:research competitors")}</span></div>
+  <p class="subtitle">${profiles.length} profile${profiles.length !== 1 ? "s" : ""}</p>
+</div>
+${
+  profiles.length > 0
+    ? `<section class="section">${listHtml}</section>`
+    : renderEmptyState(
+        "No competitor profiles",
+        "Competitor profiles cover features, pricing, API, SEO, and user sentiment for each rival.",
+        "/pm:research competitors",
+        "Profile your competitors"
+      )
+}`;
+
+  const html = dashboardPage("Competitors", "/kb", body);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -6210,35 +6210,73 @@ function handleInsightDomainDetail(res, pmDir, domain) {
     return;
   }
 
-  const raw = fs.readFileSync(indexPath, "utf-8");
-  const { body } = parseFrontmatter(raw);
-  const title = extractMarkdownTitle(body, humanizeSlug(domain));
-  const renderedBody = rewriteKnowledgeBaseLinks(body.replace(/^\s*#\s+.+\n+/, ""));
-  const docCount = fs
-    .readdirSync(path.dirname(indexPath), { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .filter((entry) => entry.name !== "index.md" && entry.name !== "log.md").length;
-  const metaBadges = [
-    { html: `<span class="meta-item">${docCount} document${docCount === 1 ? "" : "s"}</span>` },
-  ];
-  const stale = stalenessInfo(getNewestUpdated(path.dirname(indexPath)));
-  if (stale) {
-    metaBadges.push({
-      html: `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`,
+  const domainDir = path.dirname(indexPath);
+  const title = humanizeSlug(domain) + " Insights";
+
+  // Scan documents in the domain directory
+  const docs = fs
+    .readdirSync(domainDir, { withFileTypes: true })
+    .filter(
+      (e) => e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
+    )
+    .map((e) => {
+      const filePath = path.join(domainDir, e.name);
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const parsed = parseFrontmatter(raw);
+      const slug = e.name.replace(".md", "");
+      const label = parsed.data.topic || extractMarkdownTitle(parsed.body, humanizeSlug(slug));
+      const description = extractMarkdownSummary(parsed.body, 80);
+      const status = parsed.data.status || "";
+      const dateStr =
+        parsed.data.last_updated || parsed.data.updated || getUpdatedDate(filePath) || "";
+      const stale = stalenessInfo(dateStr);
+      return { slug, label, description, status, stale, dateStr };
     });
-  }
 
-  const pageBody = renderTemplate("detail", {
-    breadcrumb: [{ href: "/kb", label: "Knowledge Base" }, { label: title }],
-    title,
-    metaBadges,
-    sections: [
-      { title: null, html: `<div class="markdown-body">${renderMarkdown(renderedBody)}</div>` },
-    ],
-    actionHint: "/pm:refresh " + domain,
-  });
+  docs.sort((a, b) => (b.dateStr || "").localeCompare(a.dateStr || ""));
 
-  const html = dashboardPage(title, "/kb", pageBody);
+  const statusBadge = (s) => {
+    if (!s) return "";
+    const level = s === "active" ? "fresh" : s === "draft" ? "aging" : "external";
+    return `<span class="badge badge-${level}">${escHtml(s.charAt(0).toUpperCase() + s.slice(1))}</span>`;
+  };
+  const freshBadge = (s) =>
+    s
+      ? `<span class="badge badge-${s.level}">${s.level.charAt(0).toUpperCase() + s.level.slice(1)}</span>`
+      : "";
+
+  const rows = docs
+    .map(
+      (d) => `<a href="/insights/${escHtml(domain)}/${escHtml(d.slug)}" class="topic-row">
+  <span class="topic-name">${escHtml(d.label)}</span>
+  <div class="topic-badges">
+    ${statusBadge(d.status)}
+    ${freshBadge(d.stale)}
+    <span class="topic-date">${escHtml(formatRelativeDate(d.dateStr))}</span>
+  </div>
+</a>`
+    )
+    .join("");
+
+  const listHtml = docs.length > 0 ? `<div class="topic-list">${rows}</div>` : "";
+
+  const body = `
+<div class="page-header">
+  <div class="breadcrumb"><a href="/kb">&larr; Knowledge Base</a></div>
+  <div class="page-title-row"><h1>${escHtml(title)}</h1><span class="section-hint">${renderClickToCopy("/pm:refresh " + domain)}</span></div>
+  <p class="subtitle">${docs.length} document${docs.length !== 1 ? "s" : ""}</p>
+</div>
+${
+  docs.length > 0
+    ? `<section class="section">${listHtml}</section>`
+    : renderEmptyState(
+        "No " + humanizeSlug(domain).toLowerCase() + " insights yet",
+        "Run research or groom features to synthesize insights here.",
+        "/pm:refresh " + domain
+      )
+}`;
+
+  const html = dashboardPage(title, "/kb", body);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -6324,6 +6362,7 @@ function handleProductPage(res, pmDir, activeAreaParam) {
   const areas = [];
   let currentArea = null;
   let currentFeature = null;
+  const summaryLines = [];
   const lines = mdBody.split("\n");
 
   for (const line of lines) {
@@ -6340,9 +6379,17 @@ function handleProductPage(res, pmDir, activeAreaParam) {
       currentFeature = { name, slug, lines: [] };
     } else if (currentFeature) {
       currentFeature.lines.push(line);
+    } else if (!currentArea) {
+      summaryLines.push(line);
     }
   }
   if (currentFeature && currentArea) currentArea.features.push(currentFeature);
+
+  // Build product summary from lines before the first area heading
+  const productSummary = summaryLines
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"))
+    .join(" ");
 
   // Determine active area — default to first
   const activeSlug = activeAreaParam || (areas.length > 0 ? areas[0].slug : "");
@@ -6388,6 +6435,10 @@ function handleProductPage(res, pmDir, activeAreaParam) {
     '<p class="product-page-desc">' +
     escHtml(String(activeArea.features.length)) +
     " features in this area</p>";
+
+  if (productSummary) {
+    mainHtml += '<p class="product-summary">' + escHtml(productSummary) + "</p>";
+  }
 
   mainHtml += '<hr class="product-divider">';
 
@@ -6495,7 +6546,7 @@ function productPageCSS() {
 .product-nav {
   width: 240px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
   overflow-y: auto; padding: 24px 0;
-  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border, rgba(0,0,0,0.06));
 }
 .product-nav-header {
   padding: 0 16px 12px; font-size: 11px; font-weight: 600;
@@ -6522,7 +6573,7 @@ function productPageCSS() {
 }
 .product-nav-meta {
   padding: 16px; margin: 0 12px;
-  background: rgba(255,255,255,0.05); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border, rgba(0,0,0,0.06));
   border-radius: 8px; margin-top: 16px;
 }
 .product-nav-meta-row {
@@ -6555,6 +6606,10 @@ function productPageCSS() {
   font-size: 15px; color: var(--text-muted, #6b7280); line-height: 1.6;
   margin-bottom: 12px;
 }
+.product-summary {
+  font-size: 14px; color: var(--text-secondary, #555); line-height: 1.7;
+  margin-bottom: 0;
+}
 .product-badge-row { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
 .product-badge {
   display: inline-flex; padding: 3px 10px; border-radius: 12px;
@@ -6563,7 +6618,7 @@ function productPageCSS() {
 .product-badge-accent { background: rgba(94,106,210,0.1); color: var(--accent, #5e6ad2); }
 .product-badge-success { background: rgba(74,222,128,0.1); color: var(--success, #16a34a); }
 .product-badge-dim { background: rgba(128,128,128,0.1); color: var(--text-muted, #6b7280); }
-.product-divider { border: none; border-top: 1px solid var(--border-color, rgba(0,0,0,0.06)); margin: 32px 0; }
+.product-divider { border: none; border-top: 1px solid var(--border, rgba(0,0,0,0.06)); margin: 32px 0; }
 .product-area-section { margin-bottom: 48px; scroll-margin-top: 24px; }
 .product-area-title {
   font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px;
@@ -6579,7 +6634,7 @@ function productPageCSS() {
 .product-feature-body strong { color: var(--text); font-weight: 600; }
 .product-area-nav {
   display: flex; justify-content: space-between; margin-top: 32px; padding-top: 20px;
-  border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  border-top: 1px solid var(--border, rgba(0,0,0,0.06));
 }
 .product-area-nav a {
   font-size: 13px; color: var(--accent, #5e6ad2); text-decoration: none; font-weight: 500;
