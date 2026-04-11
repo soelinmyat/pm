@@ -6,6 +6,7 @@ const path = require("path");
 const { normalizeKbPath, parseFrontmatter } = require("./kb-frontmatter.js");
 const { buildStatus } = require("./start-status.js");
 const { writeNote, parseNotesFile } = require("./note-helpers.js");
+const { classifyAge } = require("./kb-health-thresholds.js");
 const { loadWorkflow, loadPersonas } = require("./step-loader.js");
 
 // ========== WebSocket Protocol (RFC 6455) ==========
@@ -1150,7 +1151,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 }
 
 /* KB health grid */
-.kb-health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.kb-health-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
 .kb-health-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--space-2); padding: var(--space-4) var(--space-5);
@@ -1167,6 +1168,31 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   display: flex; align-items: center; gap: 6px;
   font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-2);
 }
+.kb-health-sublabel { font-size: var(--text-xs); color: var(--text-dim, var(--text-muted)); margin-top: 2px; }
+.kb-health-card.selected { border-color: var(--accent); }
+.kb-health-card { cursor: pointer; }
+
+/* KB health drill-down */
+.drilldown {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); overflow: hidden; margin-top: var(--space-3);
+}
+.drilldown-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  background: var(--surface-raised, var(--surface));
+}
+.drilldown-header span { font-size: var(--text-xs); font-weight: 600; }
+.drilldown-row {
+  display: flex; align-items: center; padding: 10px 20px;
+  border-bottom: 1px solid var(--border); gap: 10px; font-size: var(--text-xs);
+}
+.drilldown-row:last-child { border-bottom: none; }
+.drilldown-row:hover { background: var(--surface-raised, var(--surface)); }
+.drilldown-name { flex: 1; font-weight: 500; }
+.drilldown-domain { font-size: 11px; color: var(--text-faint, var(--text-muted)); font-weight: 400; }
+.drilldown-age { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.drilldown-fresh { padding: 20px; text-align: center; color: var(--text-muted); font-size: var(--text-xs); }
 
 /* ===== PROPOSALS PAGE ===== */
 .proposal-grid { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -4277,20 +4303,6 @@ function handleDashboardHome(res, pmDir) {
   };
 
   const backlogDir = path.join(pmDir, "backlog");
-  const compDir = getCompetitorsDir(pmDir);
-
-  // Collect updated dates for staleness
-  const updatedDates = {
-    strategy: getUpdatedDate(path.join(pmDir, "strategy.md")),
-    backlog: getNewestUpdated(path.join(pmDir, "backlog")),
-  };
-  const researchDates = [
-    getUpdatedDate(getLandscapePath(pmDir)),
-    getNewestUpdated(getCompetitorsDir(pmDir)),
-    ...listResearchTopicFiles(pmDir).map((topic) => getUpdatedDate(topic.filePath)),
-  ].filter(Boolean);
-  updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
-
   const projectName = getProjectName(pmDir);
 
   // ===== 1. Strategy snapshot =====
@@ -4447,31 +4459,156 @@ function handleDashboardHome(res, pmDir) {
   ${renderEmptyState("Nothing shipped yet", "Ship your first feature to see it here.", "/pm:dev")}
 </section>`;
 
-  // ===== 4. KB health =====
-  const researchFreshness = stalenessInfo(updatedDates.research) || {
-    level: "stale",
-    label: "No data",
-  };
-  const competitorFreshness = stalenessInfo(getNewestUpdated(compDir)) || {
-    level: "stale",
-    label: "No data",
-  };
+  // ===== 4. KB health (2-card layout: Insights + Research) =====
+  // Compute insight health: aggregate product + competitors + business domains
+  const insightDomains = ["product", "competitors", "business"];
+  let insightCount = 0;
+  let insightWorst = "fresh"; // track worst: fresh < aging < stale
+  const levelRank = { fresh: 0, aging: 1, stale: 2 };
+  const levelCounts = { fresh: 0, aging: 0, stale: 0 };
+  const insightItems = []; // {name, days, level, domain}
 
-  // Customer evidence count from research topics with source_origin internal/mixed
-  let evidenceCount = 0;
-  for (const topic of listResearchTopicFiles(pmDir)) {
-    if (fs.existsSync(topic.filePath)) {
-      const { data } = parseFrontmatter(fs.readFileSync(topic.filePath, "utf-8"));
-      const origin = (data.source_origin || "").toLowerCase();
-      if ((origin === "internal" || origin === "mixed") && data.evidence_count) {
-        evidenceCount += parseInt(data.evidence_count, 10) || 0;
+  for (const domain of insightDomains) {
+    const domainDir = path.join(pmDir, "insights", domain);
+    if (!fs.existsSync(domainDir)) continue;
+
+    if (domain === "competitors") {
+      // Competitors have subdirectories with profile.md
+      const entries = fs.readdirSync(domainDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const profilePath = path.join(domainDir, entry.name, "profile.md");
+          if (fs.existsSync(profilePath)) {
+            insightCount++;
+            const dateStr = getUpdatedDate(profilePath);
+            const days = dateStr
+              ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+              : 999;
+            const level = classifyAge(days);
+            levelCounts[level]++;
+            if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+            const { data } = parseFrontmatter(fs.readFileSync(profilePath, "utf-8"));
+            insightItems.push({
+              name: data.title || humanizeSlug(entry.name),
+              days,
+              level,
+              domain,
+            });
+          }
+        } else if (
+          entry.isFile() &&
+          entry.name.endsWith(".md") &&
+          entry.name !== "index.md" &&
+          entry.name !== "log.md"
+        ) {
+          insightCount++;
+          const filePath = path.join(domainDir, entry.name);
+          const dateStr = getUpdatedDate(filePath);
+          const days = dateStr
+            ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+            : 999;
+          const level = classifyAge(days);
+          levelCounts[level]++;
+          if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+          const { data } = parseFrontmatter(fs.readFileSync(filePath, "utf-8"));
+          insightItems.push({
+            name: data.title || humanizeSlug(stripMdExtension(entry.name)),
+            days,
+            level,
+            domain,
+          });
+        }
+      }
+    } else {
+      // product, business: flat .md files
+      const entries = fs
+        .readdirSync(domainDir, { withFileTypes: true })
+        .filter(
+          (e) =>
+            e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
+        );
+      for (const entry of entries) {
+        insightCount++;
+        const filePath = path.join(domainDir, entry.name);
+        const dateStr = getUpdatedDate(filePath);
+        const days = dateStr
+          ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+          : 999;
+        const level = classifyAge(days);
+        levelCounts[level]++;
+        if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+        const { data } = parseFrontmatter(fs.readFileSync(filePath, "utf-8"));
+        insightItems.push({
+          name: data.title || humanizeSlug(stripMdExtension(entry.name)),
+          days,
+          level,
+          domain,
+        });
       }
     }
   }
-  const evidenceFreshness =
-    evidenceCount > 0
-      ? { level: "fresh", label: `${evidenceCount} records` }
-      : { level: "stale", label: "No evidence" };
+  insightItems.sort((a, b) => b.days - a.days);
+
+  let insightStatusText = "No data";
+  if (insightCount > 0) {
+    if (insightWorst === "stale") {
+      insightStatusText = `${levelCounts.stale} stale`;
+    } else if (insightWorst === "aging") {
+      insightStatusText = `${levelCounts.aging} aging`;
+    } else {
+      insightStatusText = "All fresh";
+    }
+  }
+
+  // Compute research health: evidence/research topic files
+  const researchTopics = listResearchTopicFiles(pmDir);
+  const researchCount = researchTopics.length;
+  let researchWorst = "fresh";
+  const researchLevelCounts = { fresh: 0, aging: 0, stale: 0 };
+  const researchItems = []; // {name, days, level}
+
+  for (const topic of researchTopics) {
+    const dateStr = getUpdatedDate(topic.filePath);
+    const days = dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000) : 999;
+    const level = classifyAge(days);
+    researchLevelCounts[level]++;
+    if (levelRank[level] > levelRank[researchWorst]) researchWorst = level;
+    const { data } = parseFrontmatter(fs.readFileSync(topic.filePath, "utf-8"));
+    researchItems.push({ name: data.title || humanizeSlug(topic.slug), days, level });
+  }
+  researchItems.sort((a, b) => b.days - a.days);
+
+  let researchStatusText = "No data";
+  if (researchCount > 0) {
+    if (researchWorst === "stale") {
+      researchStatusText = `${researchLevelCounts.stale} stale`;
+    } else if (researchWorst === "aging") {
+      researchStatusText = `${researchLevelCounts.aging} aging`;
+    } else {
+      researchStatusText = "All fresh";
+    }
+  }
+
+  // Build drill-down panel rows
+  function renderDrilldownRows(items, showDomain) {
+    if (items.length === 0) return "";
+    const allFresh = items.every((it) => it.level === "fresh");
+    if (allFresh) return `\n      <div class="drilldown-fresh">All items are fresh</div>`;
+    return items
+      .filter((it) => it.level !== "fresh")
+      .map(
+        (it) =>
+          `\n      <div class="drilldown-row"><span class="staleness-dot ${it.level}"></span>` +
+          `<span class="drilldown-name">${escHtml(it.name)}${showDomain ? ` <span class="drilldown-domain">&middot; ${escHtml(it.domain)}</span>` : ""}</span>` +
+          `<span class="drilldown-age">${it.days}d</span></div>`
+      )
+      .join("");
+  }
+
+  const insightDrilldownHeader =
+    insightCount > 0 ? `Insights &middot; ${escHtml(insightStatusText)}` : "Insights";
+  const researchDrilldownHeader =
+    researchCount > 0 ? `Research &middot; ${escHtml(researchStatusText)}` : "Research";
 
   const kbSection = `
 <section class="home-section">
@@ -4480,31 +4617,46 @@ function handleDashboardHome(res, pmDir) {
     <a href="/kb" class="home-section-link">Browse</a>
   </div>
   <div class="kb-health-grid">
-    <a href="/kb?tab=research" class="kb-health-card">
-      <div class="kb-health-value">${stats.research}</div>
-      <div class="kb-health-label">Research topics</div>
+    <div class="kb-health-card" data-card-type="insights">
+      <div class="kb-health-value">${insightCount}</div>
+      <div class="kb-health-label">Insights</div>
+      <div class="kb-health-sublabel">product &middot; competitors &middot; business</div>
       <div class="kb-health-freshness">
-        <span class="staleness-dot ${researchFreshness.level}"></span>
-        ${escHtml(researchFreshness.label)}
+        <span class="staleness-dot ${insightCount > 0 ? insightWorst : ""}"></span>
+        ${escHtml(insightStatusText)}
       </div>
-    </a>
-    <a href="/kb?tab=competitors" class="kb-health-card">
-      <div class="kb-health-value">${stats.competitors}</div>
-      <div class="kb-health-label">Competitors profiled</div>
+    </div>
+    <div class="kb-health-card" data-card-type="research">
+      <div class="kb-health-value">${researchCount}</div>
+      <div class="kb-health-label">Research</div>
+      <div class="kb-health-sublabel">evidence topics</div>
       <div class="kb-health-freshness">
-        <span class="staleness-dot ${competitorFreshness.level}"></span>
-        ${escHtml(competitorFreshness.label)}
+        <span class="staleness-dot ${researchCount > 0 ? researchWorst : ""}"></span>
+        ${escHtml(researchStatusText)}
       </div>
-    </a>
-    <a href="/kb" class="kb-health-card">
-      <div class="kb-health-value">${evidenceCount}</div>
-      <div class="kb-health-label">Customer evidence</div>
-      <div class="kb-health-freshness">
-        <span class="staleness-dot ${evidenceFreshness.level}"></span>
-        ${escHtml(evidenceFreshness.label)}
-      </div>
-    </a>
+    </div>
   </div>
+  <div class="drilldown" data-drilldown-type="insights" style="display:none">
+    <div class="drilldown-header"><span>${insightDrilldownHeader}</span></div>${renderDrilldownRows(insightItems, true)}
+  </div>
+  <div class="drilldown" data-drilldown-type="research" style="display:none">
+    <div class="drilldown-header"><span>${researchDrilldownHeader}</span></div>${renderDrilldownRows(researchItems, false)}
+  </div>
+  <script>
+  document.querySelectorAll('.kb-health-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+      var type = card.getAttribute('data-card-type');
+      var wasSelected = card.classList.contains('selected');
+      document.querySelectorAll('.kb-health-card').forEach(function(c) { c.classList.remove('selected'); });
+      document.querySelectorAll('.drilldown').forEach(function(d) { d.style.display = 'none'; });
+      if (!wasSelected) {
+        card.classList.add('selected');
+        var panel = document.querySelector('.drilldown[data-drilldown-type="' + type + '"]');
+        if (panel) panel.style.display = '';
+      }
+    });
+  });
+  </script>
 </section>`;
 
   const firstWorkflowActions =
@@ -7719,4 +7871,5 @@ module.exports = {
   renderTemplate,
   renderListTemplate,
   renderKanbanTemplate,
+  stalenessInfo,
 };
