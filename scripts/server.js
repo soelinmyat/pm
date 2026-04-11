@@ -2915,17 +2915,6 @@ function resolveResearchRefs(refs, pmDir) {
 }
 
 /**
- * Determine strategy alignment for a shipped item.
- * Check the item's parent proposal for strategy_check field,
- * or look at the item's own labels/scope for priority references.
- */
-function resolveStrategyAlignment(_item, _allItems, _pmDir) {
-  // Deprecated: strategy_check lived in .meta.json sidecars which have been removed.
-  // This function is retained as a no-op for backwards compatibility of the export.
-  return null;
-}
-
-/**
  * Find competitive context for a shipped item.
  * If the item or parent proposal references competitor research,
  * extract the competitor name.
@@ -2980,12 +2969,6 @@ function proposalGradient(slug) {
     hash = ((hash << 5) + hash + slug.charCodeAt(i)) >>> 0;
   }
   return PROPOSAL_GRADIENTS[hash % PROPOSAL_GRADIENTS.length];
-}
-
-function readProposalMeta(_slug, _pmDir) {
-  // Deprecated: .meta.json sidecars have been removed. All proposal data now
-  // lives in backlog .md frontmatter. Retained as a no-op for export compat.
-  return null;
 }
 
 function buildProposalRows(pmDir) {
@@ -5741,7 +5724,6 @@ function handleShipped(res, pmDir) {
   const cardItems = roots.map((item) => {
     const subCount = childCount[item.slug] || 0;
     const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
-    const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
     const competitorGaps = resolveCompetitiveContext(item, allItems, pmDir);
 
     // Build tag HTML
@@ -5750,9 +5732,6 @@ function handleShipped(res, pmDir) {
       tags.push(
         `<span class="shipped-tag shipped-tag-research shipped-item-research">${escHtml(topic.label)}</span>`
       );
-    }
-    if (strategyNote) {
-      tags.push(`<span class="shipped-tag shipped-tag-strategy">${escHtml(strategyNote)}</span>`);
     }
     for (const comp of competitorGaps) {
       tags.push(
@@ -6579,14 +6558,12 @@ module.exports = {
   readConfig,
   createDashboardServer,
   dashboardPage,
-  readProposalMeta,
   readGroomState,
   proposalGradient,
   buildProposalRows,
   formatRelativeDate,
   parseStrategySnapshot,
   resolveResearchRefs,
-  resolveStrategyAlignment,
   resolveCompetitiveContext,
   hashProjectPort,
   isPortAvailable,
