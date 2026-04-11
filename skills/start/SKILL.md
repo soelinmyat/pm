@@ -103,7 +103,11 @@ Check these signals using the resolved paths and the current user request:
 - Does `.pm/config.json` exist at cwd?
 - Is the user explicitly asking only to open the dashboard or view PM?
 - Did the user pass a path argument after `/pm:start`?
-- Is there active work in `{pm_state_dir}/groom-sessions/*.md` or `{pm_state_dir}/dev-sessions/*.md`?
+- Is there active work? Check for session files in BOTH locations:
+  - Groom sessions: `{pm_state_dir}/groom-sessions/*.md` (always in the PM repo's `.pm/`)
+  - Dev sessions: depends on repo mode:
+    - **Same-repo mode** (`pm_state_dir` == `{source_dir}/.pm`): `{pm_state_dir}/dev-sessions/*.md`
+    - **Separate-repo mode** (`pm_state_dir` != `{source_dir}/.pm`): check BOTH `{pm_state_dir}/dev-sessions/*.md` AND `{source_dir}/.pm/dev-sessions/*.md` — dev sessions are written to the source repo, but a stale session from before the split may exist in the PM repo
 
 Routing:
 
@@ -166,6 +170,7 @@ mkdir -p {pm_dir}/product
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
+mkdir -p .pm/groom-sessions
 mkdir -p .pm/dev-sessions
 ```
 
@@ -335,11 +340,22 @@ This script is the shared source of truth used by the runtime hook and should de
 
 - whether PM is initialized
 - whether an update is available
-- whether active delivery or grooming work exists
+- whether active delivery or grooming work exists (see session locations below)
 - the focus summary
 - the backlog summary
 - the recommended next move
 - up to two concrete alternative moves
+
+### Session file locations
+
+When detecting active work, check the correct locations based on repo mode:
+
+| Session type | Same-repo mode | Separate-repo mode |
+|---|---|---|
+| Groom sessions | `{pm_state_dir}/groom-sessions/*.md` | `{pm_state_dir}/groom-sessions/*.md` (PM repo) |
+| Dev sessions | `{pm_state_dir}/dev-sessions/*.md` | `{source_dir}/.pm/dev-sessions/*.md` (source repo) |
+
+In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
 
 4. Pick the recommended next move using this priority:
 

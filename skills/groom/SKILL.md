@@ -165,6 +165,8 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 Each grooming session has its own state file under `{pm_state_dir}/groom-sessions/`.
 
+**Repo location:** In separate-repo mode, `pm_state_dir` resolves to the PM repo's `.pm/` directory, so groom sessions are always stored in the PM repo — never in the source repo. This keeps product discovery artifacts co-located with the knowledge base. In same-repo mode, both groom and dev sessions live in the same `.pm/` directory (no change).
+
 ```yaml
 ---
 topic: "{topic name}"

@@ -18,6 +18,33 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 
 ---
 
+## Stage 0.7: Source Repo Access Check
+
+**Runs AFTER resume detection and AFTER the `pm_dir` / `pm_state_dir` fallback checks.**
+
+Dev requires a source code repository to operate — it creates branches, worktrees, and runs tests. This step ensures a source repo is accessible before proceeding.
+
+1. **If `source_dir` is in conversation context** (set by `pm:start`), use it. Proceed.
+2. **If `source_dir` is NOT in conversation context**, check if cwd contains source code indicators:
+
+   ```bash
+   # Source code indicators — presence of any one means cwd is a source repo
+   ls package.json Cargo.toml go.mod pyproject.toml Gemfile pom.xml \
+      build.gradle settings.gradle CMakeLists.txt Makefile mix.exs \
+      *.sln *.csproj composer.json 2>/dev/null | head -1
+   ```
+
+   - **If any indicator is found:** cwd is a source repo. Set `source_dir` to cwd (same-repo mode). Proceed.
+   - **If NO indicator is found:** Block with this message and stop:
+
+     > Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo.
+
+     Do NOT proceed to Stage 1. The user must either configure `source_repo` in `.pm/config.json` (via `pm:setup separate-repo`) or invoke `pm:dev` from within the source repo.
+
+**Dev session files** (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. When `source_dir` differs from the PM repo root, use `{source_dir}/.pm/dev-sessions/` for all session file operations. In same-repo mode, this is the same location as `{pm_state_dir}/dev-sessions/`.
+
+---
+
 ## Stage 1: Intake
 
 1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
@@ -61,7 +88,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 8. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
+9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -273,8 +300,9 @@ Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 {PROJECT_CONTEXT}
 
 **CWD:** {REPO_ROOT}
-**pm_dir:** {pm_dir}
-**pm_state_dir:** {pm_state_dir}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 **Sub-issue description:**
 {ISSUE_DESCRIPTION}
 
@@ -307,9 +335,10 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-**pm_dir:** {pm_dir}
-**pm_state_dir:** {pm_state_dir}
-**Session file:** {pm_state_dir}/dev-sessions/{slug}.md
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
+**Session file:** {source_dir}/.pm/dev-sessions/{slug}.md
 **Proposal:** {pm_dir}/backlog/{slug}.md
 **PRD:** {pm_dir}/backlog/proposals/{slug}.html
 
@@ -476,8 +505,9 @@ Implement the approved RFC.
 **RFC:** {pm_dir}/backlog/rfcs/{slug}.html
 **Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-**pm_dir:** {pm_dir}
-**pm_state_dir:** {pm_state_dir}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -545,8 +575,9 @@ Implement the approved RFC.
 **RFC:** {pm_dir}/backlog/rfcs/{slug}.html
 **Your issue:** Issue {N} — {ISSUE_TITLE}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-**pm_dir:** {pm_dir}
-**pm_state_dir:** {pm_state_dir}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -814,9 +845,11 @@ When task_count > 1, announce progress at every stage transition and after each 
 In autonomous mode (after Stage 4 approval), do NOT pause for confirmation. Announce and proceed.
 </HARD-RULE>
 
-## State File (.pm/dev-sessions/{slug}.md)
+## State File ({source_dir}/.pm/dev-sessions/{slug}.md)
 
 The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
+
+**Repo location:** Dev sessions always live in the source repo's `.pm/dev-sessions/` directory — even in separate-repo mode. This keeps dev state co-located with the code being modified. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before.
 
 After compaction or if context feels stale, read this file to recover full session state.
 
