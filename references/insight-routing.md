@@ -90,7 +90,7 @@ Scan all `insights/*/index.md` files. For each insight file listed, read its fro
 {domain}/{slug}: {
   topic: "Full-lifecycle context",
   sources: ["evidence/research/bulk-editing.md"],
-  filePath: "insights/trends/full-lifecycle-context.md"
+  filePath: "insights/product/full-lifecycle-context.md"
 }
 ```
 
