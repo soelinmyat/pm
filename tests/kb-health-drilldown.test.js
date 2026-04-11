@@ -184,8 +184,8 @@ test("insights drill-down rows have domain tags, research rows do not", async ()
     "pm/strategy.md": `---\ntype: strategy\nupdated: ${daysAgo(1)}\n---\n# Strategy\n`,
     "pm/insights/product/index.md": `---\ntype: insight-index\n---\n# Product\n`,
     "pm/insights/product/insight-a.md": `---\ntitle: Insight A\nupdated: ${daysAgo(40)}\n---\n# Insight A\n`,
-    "pm/insights/competitors/index.md": `---\ntype: competitor-index\n---\n# Competitors\n`,
-    "pm/insights/competitors/acme/profile.md": `---\ntitle: Acme Corp\nupdated: ${daysAgo(50)}\n---\n# Acme\n`,
+    "pm/evidence/competitors/index.md": `---\ntype: competitor-index\n---\n# Competitors\n`,
+    "pm/evidence/competitors/acme/profile.md": `---\ntitle: Acme Corp\nupdated: ${daysAgo(50)}\n---\n# Acme\n`,
     "pm/evidence/research/index.md": `---\ntype: evidence-index\n---\n# Research\n`,
     "pm/evidence/research/topic-1.md": `---\ntitle: Topic 1\nupdated: ${daysAgo(35)}\n---\n# Topic 1\n`,
   });

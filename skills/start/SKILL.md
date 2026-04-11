@@ -180,8 +180,8 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 |------|---------|
 | `{pm_dir}/insights/trends/index.md` | `# Trends` |
 | `{pm_dir}/insights/trends/log.md` | `# Trends Log` |
-| `{pm_dir}/insights/competitors/index.md` | `# Competitor Insights` |
-| `{pm_dir}/insights/competitors/log.md` | `# Competitor Insights Log` |
+| `{pm_dir}/evidence/competitors/index.md` | `# Competitor Insights` |
+| `{pm_dir}/evidence/competitors/log.md` | `# Competitor Insights Log` |
 | `{pm_dir}/insights/business/index.md` | `# Business Insights` |
 | `{pm_dir}/insights/business/log.md` | `# Business Insights Log` |
 | `{pm_dir}/evidence/index.md` | `# Evidence` |

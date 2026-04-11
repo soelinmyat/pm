@@ -142,7 +142,7 @@ test("GET / returns home dashboard HTML with knowledge base stats", async () => 
     "pm/insights/business/landscape.md": "---\ntype: landscape\n---\n# Market Landscape\n",
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
     "pm/backlog/issue-1.md": "---\nstatus: todo\ntitle: Issue 1\n---\n# Issue 1\n",
-    "pm/insights/competitors/index.md": "---\ntype: competitor-index\n---\n# Competitors\n",
+    "pm/evidence/competitors/index.md": "---\ntype: competitor-index\n---\n# Competitors\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -233,7 +233,7 @@ test("GET / shows session brief based on workspace state", async () => {
   const { pmDir: pmDir3, cleanup: cleanup3 } = withPmDir({
     "pm/strategy.md": "---\ntype: strategy\n---\n# Strategy\n",
     "pm/insights/business/landscape.md": "---\ntype: landscape\n---\n# Landscape\n",
-    "pm/insights/competitors/acme/profile.md": "---\ntype: competitor\n---\n# Acme\n",
+    "pm/evidence/competitors/acme/profile.md": "---\ntype: competitor\n---\n# Acme\n",
     "pm/backlog/my-idea.md": "---\nstatus: idea\ntitle: My Idea\n---\n# My Idea\n",
   });
   try {
@@ -328,8 +328,8 @@ test("GET /landscape redirects to /kb?tab=landscape", async () => {
 
 test("GET /competitors redirects to /kb?tab=competitors", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/index.md": "---\ntype: competitor-index\n---\n# Competitors\n",
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/index.md": "---\ntype: competitor-index\n---\n# Competitors\n",
+    "pm/evidence/competitors/acme/profile.md":
       "---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp\n",
   });
   try {
@@ -353,17 +353,17 @@ test("GET /competitors redirects to /kb?tab=competitors", async () => {
 
 test("GET /competitors/acme returns tabbed detail HTML", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\ntype: competitor\nname: Acme Corp\n---\n# Acme Corp Profile\n",
-    "pm/insights/competitors/acme/features.md": "---\n---\n# Features\n",
-    "pm/insights/competitors/acme/api.md": "---\n---\n# API\n",
-    "pm/insights/competitors/acme/seo.md": "---\n---\n# SEO\n",
-    "pm/insights/competitors/acme/sentiment.md": "---\n---\n# Sentiment\n",
+    "pm/evidence/competitors/acme/features.md": "---\n---\n# Features\n",
+    "pm/evidence/competitors/acme/api.md": "---\n---\n# API\n",
+    "pm/evidence/competitors/acme/seo.md": "---\n---\n# SEO\n",
+    "pm/evidence/competitors/acme/sentiment.md": "---\n---\n# Sentiment\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, "/insights/competitors/acme");
+      const { statusCode, body } = await httpGet(port, "/evidence/competitors/acme");
       assert.equal(statusCode, 200);
       assert.ok(body.includes("Acme") || body.includes("acme"), "must reference the competitor");
       // Tabbed: look for tab-like elements or multiple section headings
@@ -994,7 +994,7 @@ test("path traversal via .. in route slugs does not expose parent directory cont
 
       // Percent-encoded traversal: %2e%2e is normalized by URL constructor to ..
       // which resolves /competitors/%2e%2e to / (home page) — content still not exposed
-      const competitorTraversal = await httpGet(port, "/insights/competitors/%2e%2e");
+      const competitorTraversal = await httpGet(port, "/evidence/competitors/%2e%2e");
       assert.ok(
         !competitorTraversal.body.includes("Should not be reachable"),
         "/competitors/%2e%2e must not expose parent content"
@@ -1974,7 +1974,7 @@ test("PM-120: home page contains four section titles", async () => {
     "pm/strategy.md":
       "---\ntype: strategy\nupdated: 2026-04-01\n---\n# Strategy\n\n## Focus\nBuild the best PM tool.\n\n## Priorities\n1. Ship dashboard\n2. Fix bugs\n3. Improve docs\n",
     "pm/insights/business/landscape.md": "---\ntype: landscape\n---\n# Landscape\n",
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\ncompany: Acme\nupdated: 2026-04-01\n---\n# Acme\n",
     "pm/backlog/done-1.md":
       "---\nstatus: done\ntitle: Done Item\nupdated: 2026-03-30\n---\n# Done\n",
@@ -2093,9 +2093,9 @@ test("PM-120: KB health shows 2 metric cards (Insights + Research)", async () =>
       "---\ntopic: Topic A\nsource_origin: internal\nevidence_count: 10\nupdated: 2026-03-20\n---\n# A\n",
     "pm/evidence/research/topic-b.md":
       "---\ntopic: Topic B\nsource_origin: external\nupdated: 2026-03-15\n---\n# B\n",
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\ncompany: Acme\nupdated: 2026-03-18\n---\n# Acme\n",
-    "pm/insights/competitors/beta/profile.md":
+    "pm/evidence/competitors/beta/profile.md":
       "---\ncompany: Beta\nupdated: 2026-03-10\n---\n# Beta\n",
   });
   try {
@@ -2530,7 +2530,7 @@ test("PM-122: KB hub has strategy-banner, landscape-card, competitor-grid, topic
       "---\ntype: strategy\n---\n# Strategy\n## Focus\nBuild the best PM tool\n## Priorities\n- Ship fast\n- Quality\n- Delight users\n",
     "pm/insights/business/landscape.md":
       "---\ntype: landscape\n---\n# Market Landscape\nOverview of the market.\n",
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\ncompany: Acme Corp\n---\n# Acme Corp\n**Category claim:** Project management\n",
     "pm/evidence/research/user-onboarding.md":
       "---\ntopic: User Onboarding\nsource_origin: external\nupdated: 2026-04-01\n---\n# User Onboarding\n",
@@ -2680,7 +2680,7 @@ test("PM-122: /insights/{domain} renders custom domain index content", async () 
 
 test("PM-122: /kb?tab=competitors still renders competitors detail page", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md": "---\ncompany: Acme\n---\n# Acme\n",
+    "pm/evidence/competitors/acme/profile.md": "---\ncompany: Acme\n---\n# Acme\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -2738,10 +2738,10 @@ test("PM-122: KB hub CSS uses design tokens, not raw px/rem (except borders)", (
 test("PM-122: competitor grid shows 3-item preview with View all link", async () => {
   // Create 8 competitors to exceed the 3-item preview cap on the hub
   const files = {
-    "pm/insights/competitors/index.md": "# Competitors\n",
+    "pm/evidence/competitors/index.md": "# Competitors\n",
   };
   for (let i = 1; i <= 8; i++) {
-    files[`pm/insights/competitors/comp-${i}/profile.md`] =
+    files[`pm/evidence/competitors/comp-${i}/profile.md`] =
       `---\ncompany: Company ${i}\n---\n# Company ${i}\n**Category claim:** Cat ${i}\n`;
   }
   const { pmDir, cleanup } = withPmDir(files);
@@ -2955,7 +2955,7 @@ test("PM-124: shipped page shows competitive context tag", async () => {
     "pm/backlog/feature-c.md":
       "---\nstatus: done\ntitle: Feature Gamma\nid: PM-020\nupdated: 2026-03-25\nresearch_refs:\n  - pm/research/acme-gap/findings.md\n---\n# Gamma\n",
     "pm/evidence/research/acme-gap.md": "---\ntopic: Acme Gap Analysis\n---\n# Acme\n",
-    "pm/insights/competitors/acme-gap/profile.md": "---\ncompany: Acme Corp\n---\n# Acme Corp\n",
+    "pm/evidence/competitors/acme-gap/profile.md": "---\ncompany: Acme Corp\n---\n# Acme Corp\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
@@ -3449,13 +3449,13 @@ test("PM-125: GET /roadmap/{slug} renders acceptance criteria from frontmatter a
 
 test("PM-130: GET /competitors/{slug} renders .detail-page wrapper", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(body.includes("detail-page"), "must render .detail-page wrapper");
     } finally {
       await close();
@@ -3467,12 +3467,12 @@ test("PM-130: GET /competitors/{slug} renders .detail-page wrapper", async () =>
 
 test("PM-130: GET /competitors/{slug} renders .detail-breadcrumb linking to /kb?tab=competitors", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
+    "pm/evidence/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(body.includes("detail-breadcrumb"), "must render .detail-breadcrumb");
       assert.ok(
         body.includes('href="/kb?tab=competitors"'),
@@ -3488,13 +3488,13 @@ test("PM-130: GET /competitors/{slug} renders .detail-breadcrumb linking to /kb?
 
 test("PM-130: GET /competitors/{slug} renders .detail-meta-bar", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(body.includes("detail-meta-bar"), "must render .detail-meta-bar");
       assert.ok(body.includes("1/5 sections"), "meta bar must show sections count");
     } finally {
@@ -3507,14 +3507,14 @@ test("PM-130: GET /competitors/{slug} renders .detail-meta-bar", async () => {
 
 test("PM-130: GET /competitors/{slug} renders tabs for available sections", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
-    "pm/insights/competitors/acme/features.md": "---\n---\n# Features\n- Feature A\n",
-    "pm/insights/competitors/acme/seo.md": "---\n---\n# SEO\nGood rankings\n",
+    "pm/evidence/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
+    "pm/evidence/competitors/acme/features.md": "---\n---\n# Features\n- Feature A\n",
+    "pm/evidence/competitors/acme/seo.md": "---\n---\n# SEO\nGood rankings\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(body.includes('role="tablist"'), "must contain role=tablist");
       assert.ok(body.includes(">Profile<"), "must have Profile tab");
       assert.ok(body.includes(">Features<"), "must have Features tab");
@@ -3531,12 +3531,12 @@ test("PM-130: GET /competitors/{slug} renders tabs for available sections", asyn
 
 test("PM-130: GET /competitors/{slug} with single section renders without tabs", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
+    "pm/evidence/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(!body.includes('role="tablist"'), "single section must NOT show tabs");
       assert.ok(body.includes("markdown-body"), "must still render content");
     } finally {
@@ -3549,12 +3549,12 @@ test("PM-130: GET /competitors/{slug} with single section renders without tabs",
 
 test("PM-130: GET /competitors/{slug} renders .click-to-copy with /pm:refresh {slug} in meta bar", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
+    "pm/evidence/competitors/acme/profile.md": "---\nname: Acme Corp\n---\n# Acme Corp\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       assert.ok(body.includes("click-to-copy"), "must render .click-to-copy");
       assert.ok(body.includes("/pm:refresh acme"), "click-to-copy must contain /pm:refresh acme");
       // Action hint should be inside meta bar, not at bottom
@@ -4182,7 +4182,7 @@ test("PM-128 Task 6: card elements use <article> tag", () => {
   // We verify indirectly: the CSS has .card styles, and we generate cards using <article>
   // Generate a page that contains cards
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\ncompany: Acme\n---\n# Acme\n**Category:** B2B\n",
   });
   try {
@@ -4634,15 +4634,15 @@ test("PM-139: renderTemplate detail-tabs first tab is active, rest are not", () 
 
 test("PM-139: GET /competitors/{slug} uses detail-tabs template (integration)", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme/profile.md":
+    "pm/evidence/competitors/acme/profile.md":
       "---\nname: Acme Corp\n---\n# Acme Corp\n**Category claim:** Analytics platform\n",
-    "pm/insights/competitors/acme/features.md": "---\n---\n# Features\n- Feature A\n",
-    "pm/insights/competitors/acme/seo.md": "---\n---\n# SEO\nGood rankings\n",
+    "pm/evidence/competitors/acme/features.md": "---\n---\n# Features\n- Feature A\n",
+    "pm/evidence/competitors/acme/seo.md": "---\n---\n# SEO\nGood rankings\n",
   });
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { body } = await httpGet(port, "/insights/competitors/acme");
+      const { body } = await httpGet(port, "/evidence/competitors/acme");
       // Must contain template structures
       assert.ok(body.includes('role="tablist"'), "must have tablist from template");
       assert.ok(body.includes("detail-page"), "must have .detail-page from template");
@@ -5023,7 +5023,7 @@ test("PM-141: detail template — backlog issue example from schema renders", as
 
 test("PM-141: detail-tabs template — competitor example from schema renders", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/test-comp/profile.md": [
+    "pm/evidence/competitors/test-comp/profile.md": [
       "---",
       "type: competitor-profile",
       "company: Acme Corp",
@@ -5045,7 +5045,7 @@ test("PM-141: detail-tabs template — competitor example from schema renders", 
       "## Weaknesses",
       "- No mobile app",
     ].join("\n"),
-    "pm/insights/competitors/test-comp/features.md": [
+    "pm/evidence/competitors/test-comp/features.md": [
       "---",
       "type: competitor-features",
       "company: Acme Corp",
@@ -5058,7 +5058,7 @@ test("PM-141: detail-tabs template — competitor example from schema renders", 
       "## Task Management",
       "- Kanban boards",
     ].join("\n"),
-    "pm/insights/competitors/test-comp/api.md": [
+    "pm/evidence/competitors/test-comp/api.md": [
       "---",
       "type: competitor-api",
       "company: Acme Corp",
@@ -5071,7 +5071,7 @@ test("PM-141: detail-tabs template — competitor example from schema renders", 
       "## API Availability",
       "Public REST API",
     ].join("\n"),
-    "pm/insights/competitors/test-comp/seo.md": [
+    "pm/evidence/competitors/test-comp/seo.md": [
       "---",
       "type: competitor-seo",
       "company: Acme Corp",
@@ -5084,7 +5084,7 @@ test("PM-141: detail-tabs template — competitor example from schema renders", 
       "## Traffic Overview",
       "Monthly visits: 50,000",
     ].join("\n"),
-    "pm/insights/competitors/test-comp/sentiment.md": [
+    "pm/evidence/competitors/test-comp/sentiment.md": [
       "---",
       "type: competitor-sentiment",
       "company: Acme Corp",
@@ -5101,7 +5101,7 @@ test("PM-141: detail-tabs template — competitor example from schema renders", 
   try {
     const { port, close } = await startDashboardServer(pmDir);
     try {
-      const { statusCode, body } = await httpGet(port, "/insights/competitors/test-comp");
+      const { statusCode, body } = await httpGet(port, "/evidence/competitors/test-comp");
       assert.equal(statusCode, 200, "must return 200");
       assert.ok(body.includes("Acme Corp"), "must include company name as title");
       assert.ok(body.includes("Profile"), "must include Profile tab");
@@ -5204,7 +5204,7 @@ test("PM-141: detail-toc template — research topic example from schema renders
 
 test("PM-141: list template — competitor list renders cards from schema example", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/competitors/acme-test/profile.md": [
+    "pm/evidence/competitors/acme-test/profile.md": [
       "---",
       "type: competitor-profile",
       "company: Acme Test Corp",

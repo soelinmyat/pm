@@ -308,9 +308,52 @@ function analyzeLayeredKnowledgeBase(pmDir) {
     }
   }
 
+  // Scan evidence/competitors/ — competitor profiles count as insights for health
+  const evidenceCompetitorsDir = path.join(pmDir, "evidence", "competitors");
+  if (fileExists(evidenceCompetitorsDir)) {
+    const competitorFiles = listMarkdownFilesRecursive(evidenceCompetitorsDir).filter((filePath) =>
+      isKnowledgeBaseDocument(filePath)
+    );
+
+    insightCount += competitorFiles.length;
+
+    for (const childDir of listDirectories(evidenceCompetitorsDir)) {
+      const hasDocs = listMarkdownFilesRecursive(childDir).some((filePath) =>
+        isKnowledgeBaseDocument(filePath)
+      );
+      if (hasDocs) {
+        competitorProfiles += 1;
+      }
+    }
+
+    if (competitorProfiles === 0 && competitorFiles.length > 0) {
+      competitorProfiles = competitorFiles.length;
+    }
+
+    for (const filePath of competitorFiles) {
+      const text = safeRead(filePath);
+      const updatedEpoch = dateToEpoch(frontmatterDateValue(text, ["last_updated", "updated"]));
+      let level = "fresh";
+      let ageDays = 0;
+      if (updatedEpoch > 0) {
+        level = classifyEpoch(updatedEpoch);
+        ageDays = Math.floor((nowSecs - updatedEpoch) / 86400);
+      }
+      insightsHealth.total += 1;
+      insightsHealth[level] += 1;
+      insightsHealth.items.push({
+        path: filePath,
+        domain: "competitors",
+        age_days: ageDays,
+        level,
+      });
+    }
+  }
+
   const evidenceDir = path.join(pmDir, "evidence");
-  const evidenceFiles = listMarkdownFilesRecursive(evidenceDir).filter((filePath) =>
-    isKnowledgeBaseDocument(filePath)
+  const evidenceFiles = listMarkdownFilesRecursive(evidenceDir).filter(
+    (filePath) =>
+      isKnowledgeBaseDocument(filePath) && !filePath.startsWith(evidenceCompetitorsDir + path.sep)
   );
 
   evidenceCount = evidenceFiles.length;

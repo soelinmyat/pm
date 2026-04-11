@@ -3314,7 +3314,7 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === "/kb") {
     handleKnowledgeBasePage(res, pmDir, tab || null);
   } else if (urlPath === "/product") {
-    handleProductPage(res, pmDir);
+    handleProductPage(res, pmDir, urlObj.searchParams.get("area"));
   } else if (urlPath === "/research") {
     // Redirect old route to KB
     res.writeHead(302, { Location: "/kb?tab=research" });
@@ -3348,7 +3348,7 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === "/insights") {
     res.writeHead(302, { Location: "/kb" });
     res.end();
-  } else if (urlPath === "/insights/competitors") {
+  } else if (urlPath === "/evidence/competitors") {
     handleKbCompetitorsDetail(res, pmDir);
   } else if (urlPath === "/insights/business/landscape") {
     handleKbLandscapeDetail(res, pmDir);
@@ -3378,6 +3378,14 @@ function routeDashboard(req, res, pmDir) {
     res.end();
   } else if (urlPath === "/evidence/research") {
     handleKbTopicsDetail(res, pmDir);
+  } else if (urlPath.startsWith("/evidence/competitors/")) {
+    const slug = urlPath.slice("/evidence/competitors/".length).replace(/\/$/, "");
+    if (slug && !slug.includes("/") && !slug.includes("..")) {
+      handleCompetitorDetail(res, pmDir, slug);
+    } else {
+      res.writeHead(404);
+      res.end("Not found");
+    }
   } else if (urlPath.startsWith("/competitors/")) {
     const slug = urlPath.slice("/competitors/".length).replace(/\/$/, "");
     if (slug && !slug.includes("/") && !slug.includes("..")) {
@@ -3610,8 +3618,10 @@ function listResearchTopicFiles(pmDir) {
 }
 
 function getCompetitorsDir(pmDir) {
-  const layeredDir = path.join(pmDir, "insights", "competitors");
-  if (fs.existsSync(layeredDir)) return layeredDir;
+  const evidenceDir = path.join(pmDir, "evidence", "competitors");
+  if (fs.existsSync(evidenceDir)) return evidenceDir;
+  const legacyInsightsDir = path.join(pmDir, "insights", "competitors");
+  if (fs.existsSync(legacyInsightsDir)) return legacyInsightsDir;
   return path.join(pmDir, "competitors");
 }
 
@@ -3627,15 +3637,24 @@ function getInsightIndexPath(pmDir, domain) {
 
 function listInsightDomains(pmDir) {
   const insightsDir = path.join(pmDir, "insights");
-  if (!fs.existsSync(insightsDir)) return [];
-  return fs
-    .readdirSync(insightsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
+  const domains = [];
+  if (fs.existsSync(insightsDir)) {
+    for (const entry of fs.readdirSync(insightsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
       const indexPath = getInsightIndexPath(pmDir, entry.name);
-      return fs.existsSync(indexPath) ? { slug: entry.name, indexPath } : null;
-    })
-    .filter(Boolean);
+      if (fs.existsSync(indexPath)) {
+        domains.push({ slug: entry.name, indexPath });
+      }
+    }
+  }
+  // Include evidence/competitors/ as a domain if not already in insights
+  if (!domains.some((d) => d.slug === "competitors")) {
+    const evidenceCompIdx = path.join(pmDir, "evidence", "competitors", "index.md");
+    if (fs.existsSync(evidenceCompIdx)) {
+      domains.push({ slug: "competitors", indexPath: evidenceCompIdx });
+    }
+  }
+  return domains;
 }
 
 function extractMarkdownParagraphs(body) {
@@ -4473,7 +4492,8 @@ function handleDashboardHome(res, pmDir) {
   const insightItems = []; // {name, days, level, domain}
 
   for (const domain of insightDomains) {
-    const domainDir = path.join(pmDir, "insights", domain);
+    const domainDir =
+      domain === "competitors" ? getCompetitorsDir(pmDir) : path.join(pmDir, "insights", domain);
     if (!fs.existsSync(domainDir)) continue;
 
     if (domain === "competitors") {
@@ -5622,15 +5642,15 @@ function buildKbDomainSection(pmDir, domain) {
           if (summary.category) category = summary.category;
         }
         return `<article class="card">
-  <h3><a href="/insights/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
+  <h3><a href="/evidence/competitors/${escHtml(slug)}">${escHtml(name)}</a></h3>
   <p class="meta">${escHtml(category)}</p>
-  <div class="card-footer"><a href="/insights/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
+  <div class="card-footer"><a href="/evidence/competitors/${escHtml(slug)}" class="view-link">View &rarr;</a></div>
 </article>`;
       })
       .join("");
     const viewAll =
       slugs.length > 3
-        ? `<div class="view-all-wrap"><a href="/insights/competitors" class="section-link">View all ${slugs.length} profiles</a></div>`
+        ? `<div class="view-all-wrap"><a href="/evidence/competitors" class="section-link">View all ${slugs.length} profiles</a></div>`
         : "";
     return `<div class="kb-domain-section">
   <div class="section-header">
@@ -5898,9 +5918,9 @@ function handleKbCompetitorsDetail(res, pmDir) {
         ? `<span class="badge badge-${stale.level}">${escHtml(stale.label)}</span>`
         : "";
       cardItems.push(`<article class="card">
-        <h3><a href="/insights/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
+        <h3><a href="/evidence/competitors/${escHtml(d.name)}">${escHtml(summary.company || humanizeSlug(d.name))}</a></h3>
         <p class="meta">${escHtml(summary.category || "")}</p>
-        <div class="card-footer">${staleBadge}<a href="/insights/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
+        <div class="card-footer">${staleBadge}<a href="/evidence/competitors/${escHtml(d.name)}" class="view-link">View &rarr;</a></div>
       </article>`);
     }
   }
@@ -6042,7 +6062,7 @@ function handleCompetitorDetail(res, pmDir, slug) {
       "/kb",
       renderEmptyState(
         "Competitor not found",
-        'This competitor profile does not exist.<br><br><a href="/insights/competitors" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+        'This competitor profile does not exist.<br><br><a href="/evidence/competitors" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
       )
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
@@ -6266,7 +6286,7 @@ function handleInsightDocumentDetail(res, pmDir, domain, slug) {
   res.end(html);
 }
 
-function handleProductPage(res, pmDir) {
+function handleProductPage(res, pmDir, activeAreaParam) {
   const featuresPath = path.join(pmDir, "product", "features.md");
 
   // Empty state: file does not exist
@@ -6310,7 +6330,8 @@ function handleProductPage(res, pmDir) {
     if (line.startsWith("## ")) {
       if (currentFeature && currentArea) currentArea.features.push(currentFeature);
       currentFeature = null;
-      currentArea = { name: line.slice(3).trim(), features: [] };
+      const name = line.slice(3).trim();
+      currentArea = { name, slug: slugifySessionTopic(name), features: [] };
       areas.push(currentArea);
     } else if (line.startsWith("### ")) {
       if (currentFeature && currentArea) currentArea.features.push(currentFeature);
@@ -6323,19 +6344,27 @@ function handleProductPage(res, pmDir) {
   }
   if (currentFeature && currentArea) currentArea.features.push(currentFeature);
 
-  // Build feature nav (left column)
+  // Determine active area — default to first
+  const activeSlug = activeAreaParam || (areas.length > 0 ? areas[0].slug : "");
+  const activeArea = areas.find((a) => a.slug === activeSlug) || areas[0];
+
+  // Build left nav — area pages
   let featureNavHtml = '<div class="product-nav">';
-  featureNavHtml += '<div class="product-nav-header">Features</div>';
+  featureNavHtml += '<div class="product-nav-header">Product</div>';
   for (const area of areas) {
-    featureNavHtml += '<div class="product-nav-section">';
-    featureNavHtml += '<div class="product-nav-section-title">' + escHtml(area.name) + "</div>";
-    for (const f of area.features) {
-      featureNavHtml +=
-        '<a href="#' + escHtml(f.slug) + '" class="product-nav-link">' + escHtml(f.name) + "</a>";
-    }
-    featureNavHtml += "</div>";
+    const isActive = area === activeArea;
+    featureNavHtml +=
+      '<a href="/product?area=' +
+      encodeURIComponent(area.slug) +
+      '" class="product-nav-link' +
+      (isActive ? " product-nav-link-active" : "") +
+      '">' +
+      escHtml(area.name) +
+      '<span class="product-nav-count">' +
+      area.features.length +
+      "</span>" +
+      "</a>";
   }
-  // Metadata card
   featureNavHtml += '<div class="product-nav-meta">';
   featureNavHtml +=
     '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Features</span><span class="product-nav-meta-value">' +
@@ -6346,142 +6375,102 @@ function handleProductPage(res, pmDir) {
     escHtml(String(data.area_count || "0")) +
     "</span></div>";
   featureNavHtml +=
-    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Files scanned</span><span class="product-nav-meta-value">' +
-    escHtml(String(data.files_scanned || "0")) +
-    "</span></div>";
-  featureNavHtml +=
     '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Generated</span><span class="product-nav-meta-value">' +
     escHtml(String(data.generated || "-")) +
     "</span></div>";
   featureNavHtml += "</div>";
   featureNavHtml += "</div>";
 
-  // Build main content (center column)
+  // Build main content — only the active area
   let mainHtml = '<div class="product-main">';
-  mainHtml += '<h1 class="product-page-title">Product Features</h1>';
+  mainHtml += '<h1 class="product-page-title">' + escHtml(activeArea.name) + "</h1>";
   mainHtml +=
-    '<p class="product-page-desc">Auto-generated inventory of what this product does, extracted from the codebase by ' +
-    renderClickToCopy("/pm:features") +
-    ".</p>";
-
-  // Tech stack badges
-  const techStack = Array.isArray(data.tech_stack) ? data.tech_stack : [];
-  if (techStack.length > 0 || data.feature_count) {
-    mainHtml += '<div class="product-badge-row">';
-    if (techStack.length > 0) {
-      mainHtml +=
-        '<span class="product-badge product-badge-accent">' +
-        escHtml(techStack.join(" + ")) +
-        "</span>";
-    }
-    mainHtml +=
-      '<span class="product-badge product-badge-success">' +
-      escHtml(String(data.feature_count)) +
-      " features</span>";
-    mainHtml +=
-      '<span class="product-badge product-badge-dim">Generated ' +
-      escHtml(String(data.generated || "")) +
-      "</span>";
-    mainHtml += "</div>";
-  }
+    '<p class="product-page-desc">' +
+    escHtml(String(activeArea.features.length)) +
+    " features in this area</p>";
 
   mainHtml += '<hr class="product-divider">';
 
-  // Build right TOC anchors
-  let tocHtml = '<div class="product-toc">';
-  tocHtml += '<div class="product-toc-title">On this page</div>';
+  for (let fIdx = 0; fIdx < activeArea.features.length; fIdx++) {
+    const f = activeArea.features[fIdx];
+    mainHtml += '<div class="product-feature-item" id="' + escHtml(f.slug) + '">';
+    mainHtml += '<h3 class="product-feature-title">' + escHtml(f.name) + "</h3>";
 
-  // Render feature sections
-  const allFeatures = areas.flatMap((a) => a.features);
-  for (let aIdx = 0; aIdx < areas.length; aIdx++) {
-    const area = areas[aIdx];
-    const areaSlug = slugifySessionTopic(area.name);
-    mainHtml += '<div class="product-area-section" id="' + escHtml(areaSlug) + '-section">';
-    mainHtml += '<h2 class="product-area-title">' + escHtml(area.name) + "</h2>";
-
-    tocHtml +=
-      '<a href="#' +
-      escHtml(areaSlug) +
-      '-section" class="product-toc-link product-toc-area">' +
-      escHtml(area.name) +
-      "</a>";
-
-    for (let fIdx = 0; fIdx < area.features.length; fIdx++) {
-      const f = area.features[fIdx];
-      mainHtml += '<div class="product-feature-item" id="' + escHtml(f.slug) + '">';
-      mainHtml += '<h3 class="product-feature-title">' + escHtml(f.name) + "</h3>";
-
-      // Parse feature content
-      let featureBodyHtml = '<div class="product-feature-body">';
-      let inList = false;
-      for (const fLine of f.lines) {
-        const trimmed = fLine.trim();
-        if (trimmed.startsWith("- ")) {
-          if (!inList) {
-            featureBodyHtml += "<ul>";
-            inList = true;
-          }
-          let li = escHtml(trimmed.slice(2));
-          li = li.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-          featureBodyHtml += "<li>" + li + "</li>";
-        } else {
-          if (inList) {
-            featureBodyHtml += "</ul>";
-            inList = false;
-          }
-          if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-            featureBodyHtml += "<p><strong>" + escHtml(trimmed.slice(2, -2)) + "</strong></p>";
-          } else if (trimmed.startsWith("**")) {
-            let p = escHtml(trimmed);
-            p = p.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-            featureBodyHtml += "<p>" + p + "</p>";
-          } else if (trimmed !== "") {
-            featureBodyHtml += "<p>" + escHtml(trimmed) + "</p>";
-          }
+    // Parse feature content
+    let featureBodyHtml = '<div class="product-feature-body">';
+    let inList = false;
+    for (const fLine of f.lines) {
+      const trimmed = fLine.trim();
+      if (trimmed.startsWith("- ")) {
+        if (!inList) {
+          featureBodyHtml += "<ul>";
+          inList = true;
+        }
+        let li = escHtml(trimmed.slice(2));
+        li = li.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        featureBodyHtml += "<li>" + li + "</li>";
+      } else {
+        if (inList) {
+          featureBodyHtml += "</ul>";
+          inList = false;
+        }
+        if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
+          featureBodyHtml += "<p><strong>" + escHtml(trimmed.slice(2, -2)) + "</strong></p>";
+        } else if (trimmed.startsWith("**")) {
+          let p = escHtml(trimmed);
+          p = p.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+          featureBodyHtml += "<p>" + p + "</p>";
+        } else if (trimmed !== "") {
+          featureBodyHtml += "<p>" + escHtml(trimmed) + "</p>";
         }
       }
-      if (inList) featureBodyHtml += "</ul>";
-      featureBodyHtml += "</div>";
-      mainHtml += featureBodyHtml;
-
-      // Prev/next navigation
-      const globalIdx = allFeatures.indexOf(f);
-      const prev = globalIdx > 0 ? allFeatures[globalIdx - 1] : null;
-      const next = globalIdx < allFeatures.length - 1 ? allFeatures[globalIdx + 1] : null;
-      if (prev || next) {
-        mainHtml += '<div class="product-feature-nav">';
-        if (prev) {
-          mainHtml +=
-            '<a href="#' +
-            escHtml(prev.slug) +
-            '" class="product-feature-nav-prev">&larr; ' +
-            escHtml(prev.name) +
-            "</a>";
-        }
-        if (next) {
-          mainHtml +=
-            '<a href="#' +
-            escHtml(next.slug) +
-            '" class="product-feature-nav-next">' +
-            escHtml(next.name) +
-            " &rarr;</a>";
-        }
-        mainHtml += "</div>";
-      }
-
-      mainHtml += "</div>"; // product-feature-item
-
-      tocHtml +=
-        '<a href="#' + escHtml(f.slug) + '" class="product-toc-link">' + escHtml(f.name) + "</a>";
     }
+    if (inList) featureBodyHtml += "</ul>";
+    featureBodyHtml += "</div>";
+    mainHtml += featureBodyHtml;
 
-    mainHtml += "</div>"; // product-area-section
-    if (aIdx < areas.length - 1) {
+    mainHtml += "</div>"; // product-feature-item
+
+    if (fIdx < activeArea.features.length - 1) {
       mainHtml += '<hr class="product-divider">';
     }
   }
+
+  // Prev/next area navigation
+  const areaIdx = areas.indexOf(activeArea);
+  const prevArea = areaIdx > 0 ? areas[areaIdx - 1] : null;
+  const nextArea = areaIdx < areas.length - 1 ? areas[areaIdx + 1] : null;
+  if (prevArea || nextArea) {
+    mainHtml += '<div class="product-area-nav">';
+    if (prevArea) {
+      mainHtml +=
+        '<a href="/product?area=' +
+        encodeURIComponent(prevArea.slug) +
+        '" class="product-area-nav-prev">&larr; ' +
+        escHtml(prevArea.name) +
+        "</a>";
+    }
+    if (nextArea) {
+      mainHtml +=
+        '<a href="/product?area=' +
+        encodeURIComponent(nextArea.slug) +
+        '" class="product-area-nav-next">' +
+        escHtml(nextArea.name) +
+        " &rarr;</a>";
+    }
+    mainHtml += "</div>";
+  }
+
   mainHtml += "</div>"; // product-main
-  tocHtml += "</div>"; // product-toc
+
+  // Build right TOC — features within the active area
+  let tocHtml = '<div class="product-toc">';
+  tocHtml += '<div class="product-toc-title">On this page</div>';
+  for (const f of activeArea.features) {
+    tocHtml +=
+      '<a href="#' + escHtml(f.slug) + '" class="product-toc-link">' + escHtml(f.name) + "</a>";
+  }
+  tocHtml += "</div>";
 
   // Combine three columns
   const bodyContent =
@@ -6503,30 +6492,35 @@ function productPageCSS() {
   return `
 .product-layout { display: flex; position: relative; min-height: calc(100vh - 60px); }
 .product-nav {
-  width: 220px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
+  width: 240px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
   overflow-y: auto; padding: 24px 0;
   background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border-color, rgba(0,0,0,0.06));
 }
 .product-nav-header {
-  padding: 0 16px 16px; font-size: 11px; font-weight: 600;
+  padding: 0 16px 12px; font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--text-muted, #6b7280);
 }
-.product-nav-section { margin-bottom: 20px; }
-.product-nav-section-title {
-  padding: 4px 16px; font-size: 12px; font-weight: 600;
-  color: var(--text-secondary, #6b7280); margin-bottom: 2px;
-}
 .product-nav-link {
-  display: block; padding: 5px 16px 5px 28px;
-  font-size: 13px; color: var(--text-muted, #6b7280);
-  text-decoration: none; border-left: 2px solid transparent;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 16px; font-size: 13px; font-weight: 500;
+  color: var(--text-secondary, #6b7280); text-decoration: none;
+  border-left: 2px solid transparent;
   transition: color 150ms, border-color 150ms, background 150ms;
 }
 .product-nav-link:hover { color: var(--text-color, #1a1d23); background: rgba(0,0,0,0.03); }
+.product-nav-link-active {
+  color: var(--text-color, #1a1d23); background: rgba(0,0,0,0.04);
+  border-left-color: var(--accent, #5e6ad2);
+}
+.product-nav-count {
+  font-size: 11px; font-weight: 500; color: var(--text-muted, #9ca3af);
+  background: var(--card-bg, rgba(0,0,0,0.04)); border-radius: 10px;
+  padding: 1px 7px; min-width: 20px; text-align: center;
+}
 .product-nav-meta {
   padding: 16px; margin: 0 12px;
-  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
   border-radius: 8px; margin-top: 16px;
 }
 .product-nav-meta-row {
@@ -6536,8 +6530,8 @@ function productPageCSS() {
 .product-nav-meta-label { color: var(--text-muted, #6b7280); }
 .product-nav-meta-value { color: var(--text-secondary, #4a4e56); font-weight: 500; }
 .product-main {
-  margin-left: 220px; margin-right: 230px;
-  padding: 32px 48px; max-width: 720px; flex: 1;
+  margin-left: 240px; margin-right: 220px;
+  padding: 32px 40px; flex: 1;
 }
 .product-toc {
   position: fixed; top: 32px; right: 32px; width: 200px;
@@ -6552,13 +6546,12 @@ function productPageCSS() {
   transition: color 150ms;
 }
 .product-toc-link:hover { color: var(--text-color, #1a1d23); }
-.product-toc-area { font-weight: 600; margin-top: 8px; }
 .product-page-title {
   font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px;
 }
 .product-page-desc {
   font-size: 15px; color: var(--text-muted, #6b7280); line-height: 1.6;
-  margin-bottom: 12px; max-width: 560px;
+  margin-bottom: 12px;
 }
 .product-badge-row { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
 .product-badge {
@@ -6582,15 +6575,15 @@ function productPageCSS() {
 .product-feature-body ul { margin-top: 8px; padding-left: 20px; margin-bottom: 8px; }
 .product-feature-body li { margin-bottom: 4px; font-size: 13px; }
 .product-feature-body strong { color: var(--text-color, #1a1d23); font-weight: 500; }
-.product-feature-nav {
-  display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px;
+.product-area-nav {
+  display: flex; justify-content: space-between; margin-top: 32px; padding-top: 20px;
   border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
 }
-.product-feature-nav a {
+.product-area-nav a {
   font-size: 13px; color: var(--accent, #5e6ad2); text-decoration: none; font-weight: 500;
 }
-.product-feature-nav a:hover { text-decoration: underline; }
-.product-feature-nav-next { margin-left: auto; }
+.product-area-nav a:hover { text-decoration: underline; }
+.product-area-nav-next { margin-left: auto; }
 @media (max-width: 1024px) {
   .product-nav { display: none; }
   .product-toc { display: none; }
@@ -7404,14 +7397,14 @@ function rewriteKnowledgeBaseLinks(md) {
     .replace(/\]\(pm\/insights\/business\/landscape\.md\)/g, "](/insights/business/landscape)")
     .replace(
       /\]\(pm\/insights\/competitors\/([^/]+)\/([^)]+?)\.md\)/g,
-      "](/insights/competitors/$1#$2)"
+      "](/evidence/competitors/$1#$2)"
     )
-    .replace(/\]\(pm\/insights\/competitors\/([^/]+)\/([^)]+)\)/g, "](/insights/competitors/$1#$2)")
-    .replace(/\]\(pm\/insights\/competitors\/([^)]+)\)/g, "](/insights/competitors/$1)")
+    .replace(/\]\(pm\/insights\/competitors\/([^/]+)\/([^)]+)\)/g, "](/evidence/competitors/$1#$2)")
+    .replace(/\]\(pm\/insights\/competitors\/([^)]+)\)/g, "](/evidence/competitors/$1)")
     .replace(/\]\(pm\/insights\/([^/]+)\/index\.md\)/g, "](/insights/$1)")
     .replace(/\]\(pm\/insights\/([^/]+)\/([^).]+)\.md\)/g, "](/insights/$1/$2)")
-    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, "](/insights/competitors/$1#$2)")
-    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, "](/insights/competitors/$1)");
+    .replace(/\]\(pm\/competitors\/([^/]+)\/([^)]+)\)/g, "](/evidence/competitors/$1#$2)")
+    .replace(/\]\(pm\/competitors\/([^)]+)\)/g, "](/evidence/competitors/$1)");
 }
 
 // ========== Dashboard Server Factory ==========

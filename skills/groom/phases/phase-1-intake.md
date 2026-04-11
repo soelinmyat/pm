@@ -66,7 +66,7 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    |---|---|---|
    | Strategy | `{pm_dir}/strategy.md` exists | yes / no |
    | Research | Any file exists in `{pm_dir}/evidence/research/` (excluding index.md) | yes / no |
-   | Competitors | Any `{pm_dir}/insights/competitors/*/profile.md` exists | yes / no |
+   | Competitors | Any `{pm_dir}/evidence/competitors/*/profile.md` exists | yes / no |
 
    Classify maturity:
    - **Fresh** (none of the three signals) — max tier: `quick`

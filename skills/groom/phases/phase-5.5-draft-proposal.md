@@ -30,7 +30,7 @@ If the feature type is UI or workflow and no flow was generated during the Desig
 2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
    ```
    %% Source: {pm_dir}/evidence/research/{topic}.md — Finding N: {description}
-   %% Source: {pm_dir}/insights/competitors/{slug}/features.md — {gap or pattern}
+   %% Source: {pm_dir}/evidence/competitors/{slug}/features.md — {gap or pattern}
    ```
 
 3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.

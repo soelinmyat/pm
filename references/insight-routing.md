@@ -29,7 +29,7 @@ Check each domain under `insights/*/` for existing insight files.
 
 ### 1.1 Discover domains
 
-Scan the filesystem for `insights/*/index.md`. Each directory with an `index.md` is a domain. Skip domains that use subdirectory-based content (e.g., `insights/competitors/` contains per-competitor subdirectories, not flat insight files) — the routing sub-step only operates on domains with flat `type: insight` files.
+Scan the filesystem for `insights/*/index.md`. Each directory with an `index.md` is a domain. Skip domains that use subdirectory-based content (e.g., `evidence/competitors/` contains per-competitor subdirectories, not flat insight files) — the routing sub-step only operates on domains with flat `type: insight` files.
 
 ### 1.2 Check domain emptiness
 

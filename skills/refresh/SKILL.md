@@ -60,7 +60,7 @@ Rules:
 
 **In scope:**
 - `{pm_dir}/insights/business/landscape.md`
-- `{pm_dir}/insights/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
+- `{pm_dir}/evidence/competitors/{slug}/profile.md|features.md|api.md|seo.md|sentiment.md`
 - discovered domain indexes at `{pm_dir}/insights/*/index.md`
 - `{pm_dir}/evidence/research/{topic}.md` — **origin-aware** (see Topic Research Rules below)
 
@@ -173,7 +173,7 @@ fi
 
 Before checking staleness, verify that each competitor directory has all 5 expected files:
 
-For each directory under `{pm_dir}/insights/competitors/*/`:
+For each directory under `{pm_dir}/evidence/competitors/*/`:
 - Check for: `profile.md`, `features.md`, `api.md`, `seo.md`, `sentiment.md`
 - Classify missing files as **[Missing]** (distinct from Incomplete or Stale)
 - Include missing files in the audit report with: `[Missing] {slug}/{file} — never created`
@@ -365,7 +365,7 @@ RULES:
 - For STALE files: re-run data collection for existing sections. {If interactive: present diffs to user for approval before writing. If auto-accept: apply changes and report what changed.}
 - Add 'refreshed: {today}' to frontmatter. Never modify 'profiled:' or 'created:'.
 - Preserve all user-added custom sections (sections not in the methodology template).
-- Write only to {pm_dir}/insights/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
+- Write only to {pm_dir}/evidence/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
 - Follow methodology in skills/research/competitor-profiling.md for section content.
 - If an Ahrefs call fails, log the error and continue."
 ```
@@ -559,8 +559,8 @@ If validation fails, fix the frontmatter errors before proceeding.
 
 After individual competitor files are refreshed, regenerate synthesis files:
 
-1. **`{pm_dir}/insights/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
-2. Update the **Market Gaps** and any synthesized comparison content in `{pm_dir}/insights/competitors/index.md` based on refreshed capability data.
+1. **`{pm_dir}/evidence/competitors/index.md`** — re-read all competitor profiles, update links, last-profiled/refreshed dates.
+2. Update the **Market Gaps** and any synthesized comparison content in `{pm_dir}/evidence/competitors/index.md` based on refreshed capability data.
 3. If topic research files were refreshed, update `{pm_dir}/evidence/research/index.md` and `{pm_dir}/evidence/index.md`.
 4. Append touched files to the matching domain or evidence `log.md`.
 

@@ -88,10 +88,10 @@ test("kbHealth: mixed ages across insight domains", () => {
     project.write("pm/insights/product/stale-item.md", insightMd("product", "Stale Item", 70));
 
     // Competitors domain: 1 aging (45d)
-    project.write("pm/insights/competitors/index.md", "");
-    project.write("pm/insights/competitors/log.md", "");
+    project.write("pm/evidence/competitors/index.md", "");
+    project.write("pm/evidence/competitors/log.md", "");
     project.write(
-      "pm/insights/competitors/aging-item.md",
+      "pm/evidence/competitors/aging-item.md",
       insightMd("competitors", "Aging Item", 45)
     );
 
