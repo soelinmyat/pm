@@ -19,7 +19,7 @@ npm run quality                 # lint + format + tests (matches CI)
 | `commands/` | Public command entrypoints — each `.md` file is a user-invocable command |
 | `skills/` | Workflow implementations — each directory has a `SKILL.md` with frontmatter |
 | `personas/` | Role overlays used by review and critique agents |
-| `agents/` | Internal agent definitions for parallel review workflows |
+| `personas/` | Role overlays used by review and critique agents |
 | `scripts/` | Runtime scripts (server, generator, validation) |
 | `hooks/` | Shell hooks that run on session start/end |
 | `templates/` | HTML templates for proposals, strategy decks |

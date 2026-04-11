@@ -131,8 +131,8 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 
 | Gate | Called by | Reviewers | Prompt locations |
 |------|----------|-----------|-----------------|
-| Spec review | brainstorming | 1 (spec-document-reviewer) | `skills/brainstorming/spec-document-reviewer-prompt.md` |
-| Plan review | writing-plans | 1 (plan-document-reviewer) | `skills/writing-plans/plan-document-reviewer-prompt.md` |
+| Spec review | groom phase 4.5 | 1 (spec-document-reviewer) | `skills/groom/references/spec-document-reviewer-prompt.md` |
+| Plan review | dev (RFC review) | 1 (plan-document-reviewer) | `skills/dev/references/plan-document-reviewer-prompt.md` |
 | Scope review | groom phase 4.5 | 3 (PM, Competitive, EM) | `skills/groom/phases/phase-4.5-scope-review.md` |
 | Team review | groom phase 6 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/phases/phase-6-team-review.md` |
 | Bar raiser | groom phase 6.5 | 1 (Product Director) | `skills/groom/phases/phase-6.5-bar-raiser.md` |
