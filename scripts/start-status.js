@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { classifyEpoch } = require("./kb-health-thresholds.js");
 
 function parseArgs(argv) {
   const options = {
@@ -258,12 +259,16 @@ function detectKnowledgeBaseLayout(pmDir) {
   return "none";
 }
 
-function analyzeLayeredKnowledgeBase(pmDir, staleThreshold) {
-  let staleCount = 0;
+function analyzeLayeredKnowledgeBase(pmDir) {
   let insightCount = 0;
   let evidenceCount = 0;
   let competitorProfiles = 0;
   let researchEvidence = 0;
+
+  const insightsHealth = { total: 0, fresh: 0, aging: 0, stale: 0, items: [] };
+  const researchHealth = { total: 0, fresh: 0, aging: 0, stale: 0, items: [] };
+
+  const nowSecs = Math.floor(Date.now() / 1000);
 
   for (const domainDir of listInsightDomains(pmDir)) {
     const domainName = path.basename(domainDir);
@@ -291,9 +296,15 @@ function analyzeLayeredKnowledgeBase(pmDir, staleThreshold) {
     for (const filePath of insightFiles) {
       const text = safeRead(filePath);
       const updatedEpoch = dateToEpoch(frontmatterDateValue(text, ["last_updated", "updated"]));
-      if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
-        staleCount += 1;
+      let level = "fresh";
+      let ageDays = 0;
+      if (updatedEpoch > 0) {
+        level = classifyEpoch(updatedEpoch);
+        ageDays = Math.floor((nowSecs - updatedEpoch) / 86400);
       }
+      insightsHealth.total += 1;
+      insightsHealth[level] += 1;
+      insightsHealth.items.push({ path: filePath, domain: domainName, age_days: ageDays, level });
     }
   }
 
@@ -314,10 +325,18 @@ function analyzeLayeredKnowledgeBase(pmDir, staleThreshold) {
     const updatedEpoch = dateToEpoch(
       frontmatterDateValue(text, ["created", "last_updated", "updated"])
     );
-    if (updatedEpoch > 0 && updatedEpoch < staleThreshold) {
-      staleCount += 1;
+    let level = "fresh";
+    let ageDays = 0;
+    if (updatedEpoch > 0) {
+      level = classifyEpoch(updatedEpoch);
+      ageDays = Math.floor((nowSecs - updatedEpoch) / 86400);
     }
+    researchHealth.total += 1;
+    researchHealth[level] += 1;
+    researchHealth.items.push({ path: filePath, age_days: ageDays, level });
   }
+
+  const staleCount = insightsHealth.stale + researchHealth.stale;
 
   return {
     staleCount,
@@ -325,6 +344,7 @@ function analyzeLayeredKnowledgeBase(pmDir, staleThreshold) {
     evidenceCount,
     competitorProfiles,
     researchEvidence,
+    kbHealth: { insights: insightsHealth, research: researchHealth },
   };
 }
 
@@ -613,7 +633,7 @@ function buildStatus(projectDir) {
 
   const knowledgeBase =
     kbLayout === "layered"
-      ? analyzeLayeredKnowledgeBase(pmDir, staleThreshold)
+      ? analyzeLayeredKnowledgeBase(pmDir)
       : analyzeLegacyKnowledgeBase(pmDir, staleThreshold);
   const staleCount = knowledgeBase.staleCount;
   const insightCount = knowledgeBase.insightCount;
@@ -764,7 +784,40 @@ function buildStatus(projectDir) {
       researchTopics,
       competitorProfiles,
     },
+    ...(knowledgeBase.kbHealth ? { kbHealth: knowledgeBase.kbHealth } : {}),
   };
+}
+
+function renderKbHealthLine(kbHealth) {
+  if (!kbHealth) {
+    return "";
+  }
+  const { insights, research } = kbHealth;
+  const hasIssues =
+    insights.aging > 0 || insights.stale > 0 || research.aging > 0 || research.stale > 0;
+  if (!hasIssues) {
+    if (insights.total === 0 && research.total === 0) {
+      return "";
+    }
+    return "KB: All fresh";
+  }
+
+  const parts = [];
+  const insightParts = [];
+  if (insights.stale > 0) insightParts.push(`${insights.stale} stale`);
+  if (insights.aging > 0) insightParts.push(`${insights.aging} aging`);
+  if (insightParts.length > 0) {
+    parts.push(`Insights: ${insightParts.join(", ")}`);
+  }
+
+  const researchParts = [];
+  if (research.stale > 0) researchParts.push(`${research.stale} stale`);
+  if (research.aging > 0) researchParts.push(`${research.aging} aging`);
+  if (researchParts.length > 0) {
+    parts.push(`Research: ${researchParts.join(", ")}`);
+  }
+
+  return `KB: ${parts.join(" | ")}`;
 }
 
 function renderTextStatus(status, options = {}) {
@@ -780,6 +833,11 @@ function renderTextStatus(status, options = {}) {
 
   if (status.backlog) {
     lines.push(`Backlog: ${status.backlog}`);
+  }
+
+  const kbLine = renderKbHealthLine(status.kbHealth);
+  if (kbLine) {
+    lines.push(kbLine);
   }
 
   if (status.next) {
