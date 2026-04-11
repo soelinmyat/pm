@@ -142,19 +142,6 @@ The dashboard home (`/`) should show the active session with links to all its ar
 
 1. **Active session detection:** Read `.pm/groom-sessions/*.md` and `.pm/dev-sessions/*.md`, find the most recently updated, display it as "Active Session" on the home page.
 2. **Session hub route (`/session/{slug}`):** A dedicated page showing everything related to the current discussion — research findings, scope, wireframes, review verdicts, proposal.
-3. **Companion integration:** Absorb the brainstorming companion mode into the dashboard as `/companion/{session}`. Same file-watching behavior, but accessible from the dashboard navigation.
-4. **Dashboard link from terminal:** When skills print a dashboard URL, include the session-specific route when a session is active.
+3. **Dashboard link from terminal:** When skills print a dashboard URL, include the session-specific route when a session is active.
 
 These server changes are tracked separately from this reference. Skills should follow the standard invocation pattern now — the routes will resolve correctly once the server is updated.
-
----
-
-## Brainstorming Visual Companion
-
-The companion is a special case — it serves real-time mockups during a conversation, not static artifacts.
-
-**Current:** Runs as a separate server mode (`--mode companion`) with its own session directory and file-watching behavior. See `skills/brainstorming/visual-companion.md` for the detailed guide.
-
-**Target:** The companion becomes a dashboard route (`/companion/{session}`). The dashboard watches the session directory for new HTML files and serves them with the frame template. Skills write mockup HTML fragments; the dashboard wraps and serves them.
-
-**Until the server is updated:** Continue using the companion mode as documented. The migration to dashboard-integrated companion is part of the session awareness work above.

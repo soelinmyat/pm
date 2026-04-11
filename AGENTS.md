@@ -18,35 +18,26 @@ Treat these directories as the runtime surface:
 |---|---|
 | `commands/` | User-facing command surface |
 | `skills/` | Workflow behavior and output expectations |
-| `agents/` | Delegated/subagent behavior |
+| `personas/` | Role overlays used by review and critique agents |
 | `scripts/` | Runtime utilities (dashboard server, helpers) |
 | `hooks/` | Pre/post tool-use hooks |
 | `templates/` | Output templates |
 | `tests/` | Script and regression tests |
 | `.claude-plugin/plugin.json` | Claude Code plugin manifest |
-| `.cursor-plugin/plugin.json` | Cursor plugin manifest |
-| `README.md`, `GEMINI.md`, `.codex/INSTALL.md` | Public docs and install guides |
+| `README.md`, `.codex/INSTALL.md` | Public docs and install guides |
 
 Do not treat this repository itself as a PM project with its own checked-in `pm/`
-or `.pm/` directories.
-
-If you are working inside the private monorepo at `/Users/soelinmyat/Projects/PM`,
-the canonical PM knowledge base lives in the sibling project root:
-
-- `../pm/` for shared committed product data
-- `../.pm/` for shared runtime state
-
-Those directories are consumer-project data, not plugin source code.
+or `.pm/` directories. Those are consumer-project data, not plugin source code.
 
 ## Plugin Architecture
 
 Three copies of the plugin exist on disk. Understand which you're touching:
 
 ```
-Source (this repo)          Marketplace (git clone)           Cache (installed copy)
-/Users/.../Projects/pm/  →  ~/.claude/plugins/marketplaces/pm/  →  ~/.claude/plugins/cache/pm/pm/{version}/
-     ↑                              ↑                                      ↑
-  You edit here              Auto-synced from GitHub             What actually runs
+Source (this repo)              Marketplace (git clone)                   Cache (installed copy)
+<repo-root>/                →   ~/.claude/plugins/marketplaces/pm/    →   ~/.claude/plugins/cache/pm/pm/{version}/
+     ↑                                   ↑                                         ↑
+  You edit here                   Auto-synced from GitHub                  What actually runs
 ```
 
 ### How changes flow
@@ -86,13 +77,13 @@ git config core.hooksPath .githooks
 | Hook | What it does |
 |---|---|
 | `pre-push` | Blocks direct pushes to main; verifies git tag exists for manifest version |
-| `pre-commit` | Validates JSON, version consistency across all 4 manifests, and `pm/` artifact schemas when a project knowledge base is present |
+| `pre-commit` | Validates JSON, version consistency across all 3 manifests, and `pm/` artifact schemas when a project knowledge base is present |
 
 ## Development Flow
 
-### Editing source code (skills, scripts, commands, agents)
+### Editing source code (skills, scripts, commands, personas)
 
-1. **Edit** files in this repo (`/Users/.../Projects/pm/`)
+1. **Edit** files in this repo
 2. **Sync to cache** to test immediately (see sync command below)
 3. **Verify** the change works (restart dashboard, run the skill, etc.)
 4. **Commit** to the source repo when satisfied
@@ -105,7 +96,7 @@ To copy source changes to the plugin cache for immediate testing:
 ```bash
 rsync -av --delete \
   --exclude='.git' --exclude='pm/' --exclude='.pm/' --exclude='.planning/' --exclude='node_modules/' \
-  /Users/soelinmyat/Projects/pm/ \
+  <repo-root>/ \
   ~/.claude/plugins/cache/pm/pm/{version}/
 ```
 
@@ -115,18 +106,14 @@ This overwrites the cache with your local source. It will be overwritten again o
 
 ### Editing project data
 
-PM writes to `pm/` and `.pm/` in the consuming project, not in the plugin source
-repository. In the private monorepo, that means the shared product data belongs in
-the sibling root (`/Users/soelinmyat/Projects/PM/`), not under
-`/Users/soelinmyat/Projects/PM/pm_plugin/`.
+PM writes to `pm/` and `.pm/` in the consuming project, not in the plugin source repository.
 
 ### Dashboard testing
 
 After syncing source to cache, restart the dashboard to pick up changes:
 
 ```bash
-node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
-  --mode dashboard --dir "$PWD/pm"
+node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js --mode dashboard --dir "$PWD/pm"
 ```
 
 ## Source Of Truth
@@ -134,12 +121,12 @@ node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js \
 Runtime behavior lives in:
 - `commands/`
 - `skills/`
-- `agents/`
 - `scripts/`
+- `personas/`
 
 Public product promise lives in:
 - `README.md`
-- platform install guides such as `.codex/INSTALL.md` and `GEMINI.md`
+- platform install guides such as `.codex/INSTALL.md`
 
 Planning notes live in:
 - `.planning/`
@@ -150,7 +137,7 @@ Planning notes live in:
 
 - If command behavior changes, update the corresponding file in `commands/`.
 - If workflow behavior changes, update the relevant `skills/` file.
-- If delegated agent behavior changes, update the relevant file in `agents/`.
+- If persona behavior changes, update the relevant file in `personas/`.
 - If code changes affect the published UX, update `README.md` and any affected install docs.
 - Keep command names and examples aligned across `README.md`, `commands/`, and `skills/`.
 - **After editing scripts or skills, sync to cache before testing.** Do not edit the cache directly.
@@ -165,11 +152,10 @@ When the user says **"bump version"** or **"bump patch"**: increment the **patch
 | "bump minor" | Minor | 1.0.5 → 1.1.0 |
 | "bump major" | Major | 1.0.5 → 2.0.0 |
 
-All version bumps must update **all 4 manifests** and **create a git tag**:
+All version bumps must update **all 3 manifests** and **create a git tag**:
 - `.claude-plugin/plugin.json`
-- `.cursor-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
-- `gemini-extension.json`
+- `.codex-plugin/plugin.json`
 - Run `git tag v{new_version}` after committing the bump
 
 Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.

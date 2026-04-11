@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-commit checks:
-# 1. Version consistency across all 4 manifests
+# 1. Version consistency across all 3 manifests
 # 2. JSON validity for manifest files
 # 3. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
 # 4. ESLint on staged .js files
@@ -16,9 +16,8 @@ STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' '*.json' 
 
 MANIFESTS=(
   ".claude-plugin/plugin.json"
-  ".cursor-plugin/plugin.json"
   ".claude-plugin/marketplace.json"
-  "gemini-extension.json"
+  ".codex-plugin/plugin.json"
 )
 
 # --- JSON validity ---
@@ -53,7 +52,7 @@ for entry in "${versions[@]:1}"; do
     for e in "${versions[@]}"; do
       echo "  ${e#*:}: ${e%%:*}"
     done
-    echo "All 4 manifests must have the same version."
+    echo "All 3 manifests must have the same version."
     exit 1
   fi
 done
