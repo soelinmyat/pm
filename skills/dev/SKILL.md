@@ -17,6 +17,8 @@ If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes
 
 If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
 
+**Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See `dev-flow.md` Stage 0.7 for the full check.
+
 **Hard rules:**
 - **Protect the orchestrator's context window for multi-task work.** Each task's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
 - No frontend work without passing the contract sync gate (when project uses API contract tooling)
