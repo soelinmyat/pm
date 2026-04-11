@@ -285,7 +285,21 @@ For targeted deep dives not covered by landscape or competitor profiling.
 
 ### Flow
 
-1. **Check existing knowledge.** Read `{pm_dir}/evidence/index.md` and `{pm_dir}/evidence/research/index.md` if they exist. Check `{pm_dir}/insights/business/landscape.md` and `{pm_dir}/strategy.md` for relevant context.
+0. **Load Hot Index** (pre-step).
+   Before scanning insight files, check if the hot index exists and use it for faster topic lookup.
+
+   ```bash
+   # Check for hot index
+   if [ -f "{pm_dir}/insights/.hot.md" ]; then
+     node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --domain {relevant_domain}
+   fi
+   ```
+
+   - If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --domain {relevant_domain}` where `{relevant_domain}` is the insight domain most relevant to the research topic (e.g., `product`, `business`). Parse the output table to identify existing insight topics related to the research topic. Log: "Hot index loaded ({N} insights)".
+   - If a match is found in the hot index, read only that specific insight `.md` file for full content instead of scanning all insight files.
+   - If `{pm_dir}/insights/.hot.md` does not exist, fall back to reading insight files directly (current behavior). Log: "Hot index not found, falling back to direct file scan".
+
+1. **Check existing knowledge.** Read `{pm_dir}/evidence/index.md` and `{pm_dir}/evidence/research/index.md` if they exist. Check `{pm_dir}/insights/business/landscape.md` and `{pm_dir}/strategy.md` for relevant context. Use hot index results from Step 0 (if available) instead of scanning all insight files to check for existing topics.
    Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `$pm-ingest`, not just external research.
 2. **Check strategy alignment.** If `{pm_dir}/strategy.md` exists, note how the topic relates to current priorities.
 3. **Search demand check** (if ahrefs-mcp configured).
