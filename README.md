@@ -4,9 +4,32 @@ PM is a free, open-source plugin for Claude Code and Codex. It keeps market rese
 
 Built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead needs context without asking for updates.
 
-> **Early release.** PM already works well for research, strategy, grooming, and disciplined shipping. The dashboard and collaboration layer are still being polished.
+> **Early release.** Research, strategy, grooming, and shipping work well. The dashboard and collaboration layer are still being polished.
 
-## Install PM
+## Quickstart
+
+```text
+/pm:start
+```
+
+That's it. PM detects whether you're new or resuming and routes you to the right workflow.
+
+A typical first session:
+
+```text
+/pm:start                          # bootstrap the knowledge base
+/pm:research landscape             # scan the market
+/pm:strategy                       # define ICP, positioning, priorities
+/pm:groom "feature idea"           # scope and spec the first feature
+```
+
+If you have customer evidence (support tickets, interview notes, sales calls), ingest it before research:
+
+```text
+/pm:ingest ~/path/to/evidence
+```
+
+## Install
 
 #### Claude Code
 
@@ -17,170 +40,95 @@ claude plugin install pm@pm
 
 #### Codex
 
-PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
+PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`. Skills appear as `pm:groom`, `pm:research`, `pm:dev`, etc.
 
-When Codex loads PM as a native plugin, the skills appear under the plugin namespace as
-`pm:groom`, `pm:research`, `pm:strategy`, `pm:ingest`, and `pm:refresh`.
-If your Codex build is still using the fallback symlink install, PM creates `pm-*` and `dev-*`
-alias directories under `~/.agents/skills`, but fresh Codex sessions still surface the usable
-skills as `pm:*` names such as `pm:groom` and `pm:dev`.
+If your Codex install isn't loading the plugin directly yet, use the fallback steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
-If your Codex install is not loading the plugin directly yet, use the fallback install steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
+#### Other platforms
 
-## Run Your First Workflow
+PM officially supports Claude Code and Codex. Community contributions for other platforms are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-If your client supports slash commands:
-
-```text
-/pm:start
-/pm:research landscape
-/pm:strategy
-/pm:groom "feature idea"
-```
-
-If you are using Codex fallback explicit-skill aliases:
-
-```text
-$pm-start
-$pm-research landscape
-$pm-strategy
-$pm-groom "feature idea"
-```
-
-If you already have support tickets, interview notes, or sales call notes, ingest them before research:
-
-```text
-/pm:ingest ~/path/to/customer-evidence
-```
-
-If you are collaborating across machines or a shared PM server, check sync status before you continue work:
-
-```text
-/pm:sync status
-```
-
-## What You Will Get
-
-After onboarding, PM gives you:
-
-- a committed `pm/` knowledge base for strategy, research, competitors, proposals, and backlog context
-- a private `.pm/` runtime folder for config, evidence, sessions, local state, and sync status
-- automatic metadata validation on PM artifacts so malformed files are caught early
-- knowledge base sync workflows for shared PM state across machines
-- a dashboard view so non-engineering teammates can see the current state without digging through files
-- workflows that reuse the same context for both product thinking and implementation
-
----
-
-## What PM Is Good At
-
-- **Research before building.** Market landscape, competitor profiles, and focused topic research.
-- **Turning ideas into strategy.** PM writes and updates product strategy so decisions stay aligned with ICP, positioning, priorities, and non-goals.
-- **Turning strategy into work.** PM grooms ideas into structured issues, proposals, and supporting artifacts.
-- **Carrying context into delivery.** PM supports development, review, QA, ship, deploy, and merge workflows so the why does not get lost after grooming.
-- **Keeping the whole squad aligned.** The dashboard reflects the same knowledge base the editor workflows write to.
-
----
-
-## Who PM Is For
-
-PM is a strong fit if you are:
-
-- a product engineer or technical founder who both decides and builds
-- a small squad that wants research, strategy, and implementation context in one system
-- a team already using Linear or Jira for execution but missing an upstream thinking layer
-
-PM is not trying to replace project management tools. Linear and Jira still handle assignments, sprints, and team execution. PM handles the thinking layer: what to build, why it matters, and how that context carries through the work.
-
----
-
-## What PM Creates In Your Repo
+## What PM Creates
 
 PM writes committed product context to `pm/` and runtime state to `.pm/`.
 
 ```text
 pm/
-  strategy.md
-  landscape.md
-  competitors/
-  research/
-  backlog/
+  strategy.md                  # ICP, positioning, priorities, non-goals
+  evidence/
+    research/                  # market landscape, topic research
+    competitors/               # competitor profiles and intel
+    transcripts/               # ingested interview/call transcripts
+    user-feedback/             # ingested customer evidence
+  backlog/                     # proposals, RFCs, wireframes
+    proposals/                 # HTML PRDs
+    rfcs/                      # implementation plans
+  thinking/                    # pre-commitment exploration artifacts
+  insights/                    # synthesized product and business insights
+  product/
+    features.md                # feature inventory
 
 .pm/
-  config.json
-  evidence/
-  imports/
-  sessions/
-  dev-sessions/
+  config.json                  # integration config (Linear, Ahrefs)
+  dev-sessions/                # active dev session state
+  groom-sessions/              # active groom session state
 ```
 
-In practice:
+`pm/` is the durable product memory — commit it. `.pm/` is runtime state — gitignore it.
 
-- `pm/` is the durable product memory you usually want in git
-- `.pm/` is runtime state, integration config, and session data you usually do not want in git
+## Core Workflows
 
----
-
-## Core Commands
-
-### Command-based clients
+### Product discovery
 
 | Command | What it does |
 |---|---|
 | `/pm:start` | Bootstrap the knowledge base or resume where you left off |
-| `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
+| `/pm:think` | Structured product thinking — challenge assumptions, explore tradeoffs |
+| `/pm:research <topic>` | Market landscape, competitor profiling, or focused topic research |
+| `/pm:strategy` | Create or update ICP, positioning, priorities, and non-goals |
+| `/pm:groom [idea]` | Turn an idea into a scoped proposal with research and competitive context |
+
+### Development and delivery
+
+| Command | What it does |
+|---|---|
+| `/pm:dev [ticket]` | Auto-detects scope, generates RFC, implements with TDD |
+| `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |
+
+### Knowledge base management
+
+| Command | What it does |
+|---|---|
 | `/pm:ingest <path>` | Import customer evidence from files or folders |
-| `/pm:research <topic>` | Research a landscape, competitors, or a focused topic |
-| `/pm:strategy` | Create or update the product strategy document |
-| `/pm:groom [idea]` | Turn an idea into scoped, reviewable work |
+| `/pm:note` | Quick-capture product observations and customer signals |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
-| `/pm:sync [push\|pull\|status]` | Manually inspect or move PM knowledge base changes |
-| `/pm:ship` | Review, push, create PR, monitor CI, and merge |
+| `/pm:sync [push\|pull\|status]` | Sync knowledge base changes across machines |
+| `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
 
-### Codex
+## How PM Fits a Team
 
-On Codex, the fallback install creates `pm-*` and `dev-*` alias directories on disk, but fresh
-sessions expose the user-facing PM workflows under the `pm:*` namespace.
+- **Engineers** use it in the editor — research, groom, build, ship
+- **PMs and biz leads** use the dashboard for strategy, research, and roadmap context
+- **Designers** review proposals and implementation against the original intent
 
-Common examples:
-
-- `pm:groom`
-- `pm:dev`
-- `pm:review`
-- `pm:qa`
-
-See [`.codex/INSTALL.md`](.codex/INSTALL.md) for the exact install flow and current skill names.
-
----
-
-## How PM Fits Into A Team
-
-PM is the shared product brain for small squads:
-
-- Engineers use it in the editor
-- PMs and biz teammates use the dashboard for context
-- Designers use it to review proposals and implementation against the original intent
-
-The point is not just better prompts. The point is persistent context that compounds over time.
-
----
+The knowledge base is the shared context. Everyone works from the same research, strategy, and decisions.
 
 ## What PM Is Not
 
-- Not a project management tool
+- Not a project management tool — Linear and Jira handle sprints and assignments
 - Not a standalone analytics product
 - Not an enterprise workflow suite
 
-PM is free, open-source, and designed for bottom-up adoption by small squads.
+PM handles the thinking layer: what to build, why it matters, and how that context carries through the work.
 
----
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add platform support, create commands and skills, run tests, and submit PRs.
 
 ## Feedback
 
 - Open an [issue](https://github.com/soelinmyat/pm/issues)
 - Start a [discussion](https://github.com/soelinmyat/pm/discussions)
-
----
 
 ## License
 
