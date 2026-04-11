@@ -6,7 +6,7 @@ description: Load project memory, discover project context, classify size, creat
 
 ## Intake
 
-1. **Load learnings** — Read `{pm_dir}/memory.md`. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
+1. **Load learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the dev session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
 4. **Fetch sub-issues** — After fetching the issue, also check for sub-issues via `list_issues({ parentId })`. If sub-issues exist, store them in session state under `## Sub-Issues`. They become context for RFC generation. If no sub-issues, proceed normally.
