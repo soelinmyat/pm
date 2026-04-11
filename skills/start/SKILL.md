@@ -178,7 +178,6 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 
 | File | Content |
 |------|---------|
-<<<<<<< HEAD
 | `{pm_dir}/insights/trends/index.md` | `# Trends` |
 | `{pm_dir}/insights/trends/log.md` | `# Trends Log` |
 | `{pm_dir}/insights/competitors/index.md` | `# Competitor Insights` |
@@ -250,6 +249,7 @@ This project uses PM for product management. The `pm/` directory contains the st
 - `pm/evidence/` — research, transcripts, and user feedback
 - `pm/backlog/` — feature proposals and issues
 - `pm/thinking/` — exploratory product thinking
+- `pm/product/` — feature inventory and product capabilities
 ```
 
 If `CLAUDE.md` already contains a `## PM Knowledge Base` section, skip this step. If `CLAUDE.md` does not exist, skip this step — do not create it just for this.
