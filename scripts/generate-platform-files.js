@@ -373,7 +373,7 @@ function assertSkillFrontmatter(skillDirs) {
   }
 
   // Forbidden-syntax guard: scan all files under skills/ for hardcoded dispatch syntax
-  const forbiddenPatterns = [/Agent tool:/g, /Agent\(\{/g];
+  const forbiddenPatterns = [/Agent tool:/, /Agent\(\{/];
   const forbiddenNames = ["Agent tool:", "Agent({"];
 
   function scanDir(dir) {
@@ -384,7 +384,6 @@ function assertSkillFrontmatter(skillDirs) {
       } else if (entry.name.endsWith(".md")) {
         const fileContent = fs.readFileSync(fullPath, "utf8");
         for (let i = 0; i < forbiddenPatterns.length; i++) {
-          forbiddenPatterns[i].lastIndex = 0;
           if (forbiddenPatterns[i].test(fileContent)) {
             const relPath = path.relative(repoRoot, fullPath);
             errors.push(`${relPath}: contains forbidden syntax "${forbiddenNames[i]}"`);
