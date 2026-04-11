@@ -1168,6 +1168,30 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-2);
 }
 .kb-health-sublabel { font-size: var(--text-xs); color: var(--text-dim, var(--text-muted)); margin-top: 2px; }
+.kb-health-card.selected { border-color: var(--accent); }
+.kb-health-card { cursor: pointer; }
+
+/* KB health drill-down */
+.drilldown {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--space-2); overflow: hidden; margin-top: var(--space-3);
+}
+.drilldown-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  background: var(--surface-raised, var(--surface));
+}
+.drilldown-header span { font-size: var(--text-xs); font-weight: 600; }
+.drilldown-row {
+  display: flex; align-items: center; padding: 10px 20px;
+  border-bottom: 1px solid var(--border); gap: 10px; font-size: var(--text-xs);
+}
+.drilldown-row:last-child { border-bottom: none; }
+.drilldown-row:hover { background: var(--surface-raised, var(--surface)); }
+.drilldown-name { flex: 1; font-weight: 500; }
+.drilldown-domain { font-size: 11px; color: var(--text-faint, var(--text-muted)); font-weight: 400; }
+.drilldown-age { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.drilldown-fresh { padding: 20px; text-align: center; color: var(--text-muted); font-size: var(--text-xs); }
 
 /* ===== PROPOSALS PAGE ===== */
 .proposal-grid { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -3706,6 +3730,7 @@ function handleDashboardHome(res, pmDir) {
   let insightWorst = "fresh"; // track worst: fresh < aging < stale
   const levelRank = { fresh: 0, aging: 1, stale: 2 };
   const levelCounts = { fresh: 0, aging: 0, stale: 0 };
+  const insightItems = []; // {name, days, level, domain}
 
   for (const domain of insightDomains) {
     const domainDir = path.join(pmDir, "insights", domain);
@@ -3726,6 +3751,13 @@ function handleDashboardHome(res, pmDir) {
             const level = classifyAge(days);
             levelCounts[level]++;
             if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+            const { data } = parseFrontmatter(fs.readFileSync(profilePath, "utf-8"));
+            insightItems.push({
+              name: data.title || humanizeSlug(entry.name),
+              days,
+              level,
+              domain,
+            });
           }
         } else if (
           entry.isFile() &&
@@ -3734,13 +3766,21 @@ function handleDashboardHome(res, pmDir) {
           entry.name !== "log.md"
         ) {
           insightCount++;
-          const dateStr = getUpdatedDate(path.join(domainDir, entry.name));
+          const filePath = path.join(domainDir, entry.name);
+          const dateStr = getUpdatedDate(filePath);
           const days = dateStr
             ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
             : 999;
           const level = classifyAge(days);
           levelCounts[level]++;
           if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+          const { data } = parseFrontmatter(fs.readFileSync(filePath, "utf-8"));
+          insightItems.push({
+            name: data.title || humanizeSlug(stripMdExtension(entry.name)),
+            days,
+            level,
+            domain,
+          });
         }
       }
     } else {
@@ -3753,16 +3793,25 @@ function handleDashboardHome(res, pmDir) {
         );
       for (const entry of entries) {
         insightCount++;
-        const dateStr = getUpdatedDate(path.join(domainDir, entry.name));
+        const filePath = path.join(domainDir, entry.name);
+        const dateStr = getUpdatedDate(filePath);
         const days = dateStr
           ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
           : 999;
         const level = classifyAge(days);
         levelCounts[level]++;
         if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+        const { data } = parseFrontmatter(fs.readFileSync(filePath, "utf-8"));
+        insightItems.push({
+          name: data.title || humanizeSlug(stripMdExtension(entry.name)),
+          days,
+          level,
+          domain,
+        });
       }
     }
   }
+  insightItems.sort((a, b) => b.days - a.days);
 
   let insightStatusText = "No data";
   if (insightCount > 0) {
@@ -3780,6 +3829,7 @@ function handleDashboardHome(res, pmDir) {
   const researchCount = researchTopics.length;
   let researchWorst = "fresh";
   const researchLevelCounts = { fresh: 0, aging: 0, stale: 0 };
+  const researchItems = []; // {name, days, level}
 
   for (const topic of researchTopics) {
     const dateStr = getUpdatedDate(topic.filePath);
@@ -3787,7 +3837,10 @@ function handleDashboardHome(res, pmDir) {
     const level = classifyAge(days);
     researchLevelCounts[level]++;
     if (levelRank[level] > levelRank[researchWorst]) researchWorst = level;
+    const { data } = parseFrontmatter(fs.readFileSync(topic.filePath, "utf-8"));
+    researchItems.push({ name: data.title || humanizeSlug(topic.slug), days, level });
   }
+  researchItems.sort((a, b) => b.days - a.days);
 
   let researchStatusText = "No data";
   if (researchCount > 0) {
@@ -3799,6 +3852,27 @@ function handleDashboardHome(res, pmDir) {
       researchStatusText = "All fresh";
     }
   }
+
+  // Build drill-down panel rows
+  function renderDrilldownRows(items, showDomain) {
+    if (items.length === 0) return "";
+    const allFresh = items.every((it) => it.level === "fresh");
+    if (allFresh) return `\n      <div class="drilldown-fresh">All items are fresh</div>`;
+    return items
+      .filter((it) => it.level !== "fresh")
+      .map(
+        (it) =>
+          `\n      <div class="drilldown-row"><span class="staleness-dot ${it.level}"></span>` +
+          `<span class="drilldown-name">${escHtml(it.name)}${showDomain ? ` <span class="drilldown-domain">&middot; ${escHtml(it.domain)}</span>` : ""}</span>` +
+          `<span class="drilldown-age">${it.days}d</span></div>`
+      )
+      .join("");
+  }
+
+  const insightDrilldownHeader =
+    insightCount > 0 ? `Insights &middot; ${escHtml(insightStatusText)}` : "Insights";
+  const researchDrilldownHeader =
+    researchCount > 0 ? `Research &middot; ${escHtml(researchStatusText)}` : "Research";
 
   const kbSection = `
 <section class="home-section">
@@ -3826,6 +3900,27 @@ function handleDashboardHome(res, pmDir) {
       </div>
     </div>
   </div>
+  <div class="drilldown" data-drilldown-type="insights" style="display:none">
+    <div class="drilldown-header"><span>${insightDrilldownHeader}</span></div>${renderDrilldownRows(insightItems, true)}
+  </div>
+  <div class="drilldown" data-drilldown-type="research" style="display:none">
+    <div class="drilldown-header"><span>${researchDrilldownHeader}</span></div>${renderDrilldownRows(researchItems, false)}
+  </div>
+  <script>
+  document.querySelectorAll('.kb-health-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+      var type = card.getAttribute('data-card-type');
+      var wasSelected = card.classList.contains('selected');
+      document.querySelectorAll('.kb-health-card').forEach(function(c) { c.classList.remove('selected'); });
+      document.querySelectorAll('.drilldown').forEach(function(d) { d.style.display = 'none'; });
+      if (!wasSelected) {
+        card.classList.add('selected');
+        var panel = document.querySelector('.drilldown[data-drilldown-type="' + type + '"]');
+        if (panel) panel.style.display = '';
+      }
+    });
+  });
+  </script>
 </section>`;
 
   const firstWorkflowActions =
