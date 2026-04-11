@@ -18,7 +18,9 @@ Perform a lightweight inline research pass. Do NOT invoke `pm:research`.
 3. If the topic turns out to be more complex than expected, say:
    "This looks like it needs deeper research. Consider upgrading to standard tier."
 
-4. Update state:
+4. **Research freshness check.** If existing research files were found in step 1, check their age using the same freshness check described in the Standard / Full tier section below (step 4). Apply the same date priority chain, thresholds, warning format, and `stale_research` state field. If no existing research was found, set `stale_research: []`.
+
+5. Update state:
 
 ```yaml
 phase: research
@@ -48,7 +50,41 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 
 3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
 
-4. Update state:
+4. **Research freshness check.** After research completes, check the age of all cited research files. This is annotation-only — groom always proceeds regardless of staleness.
+
+   For each cited research file (the file at `research_location` plus any other files in `{pm_dir}/evidence/research/` or `{pm_dir}/evidence/competitors/` referenced by the research output):
+
+   a. Read the file's YAML frontmatter. Determine the file's age using the `pm:refresh` date priority chain — use the **most recent** date found:
+      1. `refreshed:`
+      2. `updated:`
+      3. `profiled:`
+      4. `created:`
+
+      If none of these date fields exist, treat the file as stale.
+
+   b. Determine the file type and threshold:
+      - Competitor profiles (`*/profile.md`): **60 days**
+      - Competitor sentiment (`*/sentiment.md`): **60 days**
+      - Landscape (`landscape.md`): **90 days**
+      - Competitor features (`*/features.md`): **90 days**
+      - Competitor API (`*/api.md`): **90 days**
+      - Topic research (`{pm_dir}/evidence/research/*.md`): **90 days**
+
+   c. If age exceeds threshold (or no date fields found), print:
+      > "Research '{name}' is {N} days old (threshold: {T} days for {type}). Consider running `pm:refresh` after this session. Proceeding with stale data flagged."
+
+   d. Collect all stale entries into the `stale_research` state field:
+      ```yaml
+      stale_research:
+        - name: "{filename}"
+          age_days: {N}
+          threshold_days: {T}
+          type: "{topic | profile | sentiment | landscape | features | api}"
+      ```
+
+   If all cited research is within threshold, set `stale_research: []` and show no warning.
+
+5. Update state:
 
 ```yaml
 phase: research
