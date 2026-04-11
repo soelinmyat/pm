@@ -35,7 +35,8 @@ Write the PRD to `{pm_dir}/backlog/proposals/{topic-slug}.html` (create the `pro
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
 8. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.
 9. **Resolved questions.** Each question from reviewers with its answer and evidence. If any questions remain that require human judgment, list them under a **Decisions Needed** subsection with a recommended answer for each.
-10. **Next steps.** Callout: "Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin implementation."
+10. **Freshness notes** (conditional). If `stale_research` in the groom session state is non-empty, add a section with an amber/warning-styled card listing each stale research source: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type})." End with: "Run `pm:refresh` to update stale research before starting implementation." If `stale_research` is empty, omit this section entirely — do not show an empty freshness section.
+11. **Next steps.** Callout: "Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin implementation."
 
 **Styling rules** (all defined in the reference template — copy the CSS):
 

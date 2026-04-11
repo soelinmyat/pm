@@ -72,6 +72,8 @@ Gather all product context into a coherent proposal narrative:
 - **Technical feasibility:** EM assessment from Scope Review (Phase 4.5)
 - **Research links:** Paths to relevant findings
 
+- **Freshness notes:** If `stale_research` in the groom session state is non-empty, include a "Freshness notes" section listing each stale research source. Format each entry as: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." If `stale_research` is empty, omit this section entirely.
+
 This content feeds into the HTML PRD (Phase 7) and the proposal backlog entry (Phase 8).
 
 #### Step 4: Write proposal backlog entry
