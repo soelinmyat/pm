@@ -21,7 +21,7 @@ Minimum coverage for `pm:strategy`:
 - run start / run end
 - one step span for prerequisite detection
 - one step span for the interview itself
-- one step span for write/update of `pm/strategy.md`
+- one step span for write/update of `{pm_dir}/strategy.md`
 
 ## Prerequisite Check
 
