@@ -1,10 +1,8 @@
-# PM — Product Memory
+# PM — Shared Product Brain for Small Teams
 
-PM is a free, open-source plugin that gives small squads using AI coding assistants such as Claude Code and Codex a shared product brain. It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo.
+PM is a free, open-source plugin for Claude Code and Codex. It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo — context that compounds over time, not another doc that decays after the meeting.
 
-PM is built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead wants to know what is happening without asking for updates. PM keeps everyone working from the same context.
-
-Built for Claude Code and Codex.
+Built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead needs context without asking for updates.
 
 > **Early release.** PM already works well for research, strategy, grooming, and disciplined shipping. The dashboard and collaboration layer are still being polished.
 
@@ -34,7 +32,7 @@ If your Codex install is not loading the plugin directly yet, use the fallback i
 If your client supports slash commands:
 
 ```text
-/pm:setup
+/pm:start
 /pm:research landscape
 /pm:strategy
 /pm:groom "feature idea"
@@ -43,7 +41,7 @@ If your client supports slash commands:
 If you are using Codex fallback explicit-skill aliases:
 
 ```text
-$pm-setup
+$pm-start
 $pm-research landscape
 $pm-strategy
 $pm-groom "feature idea"
@@ -129,7 +127,8 @@ In practice:
 
 | Command | What it does |
 |---|---|
-| `/pm:setup` | Bootstrap the knowledge base and configure integrations |
+| `/pm:start` | Bootstrap the knowledge base or resume where you left off |
+| `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
 | `/pm:ingest <path>` | Import customer evidence from files or folders |
 | `/pm:research <topic>` | Research a landscape, competitors, or a focused topic |
 | `/pm:strategy` | Create or update the product strategy document |

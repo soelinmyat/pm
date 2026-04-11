@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "pm",
-      "description": "Structured workflows for the product engineer — from discovery and strategy through implementation and merge. PM activates the right workflow automatically — no commands to memorize.",
+      "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo. Context compounds over time.",
       "version": "1.0.62",
       "author": {
         "name": "Soe Lin Myat"

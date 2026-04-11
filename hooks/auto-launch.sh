@@ -39,7 +39,7 @@ PM_DIR="$PROJECT_DIR/pm"
 
 # If no knowledge base exists, just suggest getting started
 if [ ! -d "$PM_DIR" ]; then
-  echo "  Next: /pm:setup or /pm:groom to get started"
+  echo "  Next: /pm:start to create the PM workspace"
   exit 0
 fi
 
