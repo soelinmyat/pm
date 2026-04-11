@@ -828,6 +828,116 @@ test("PM-154: insight with empty sources passes validation (seeded files)", (t) 
   assert.equal(result.ok, true, `empty sources should pass: ${JSON.stringify(result.details)}`);
 });
 
+// ---- pm/product/features.md schema validation ----
+
+test("valid pm/product/features.md passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "generated: 2026-04-11",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 2",
+      "area_count: 1",
+      "areas:",
+      '  - name: "Core"',
+      "    features:",
+      '      - "structured-discovery"',
+      '      - "evidence-routing"',
+      "---",
+      "",
+      "## Core",
+      "",
+      "### Structured discovery",
+      "A multi-phase grooming pipeline.",
+      "",
+      "### Evidence routing",
+      "Routes evidence into insight topics.",
+      "",
+    ].join("\n"),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `valid features.md should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("pm/product/features.md missing generated field fails validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 1",
+      "area_count: 1",
+      "areas:",
+      '  - name: "Core"',
+      "    features:",
+      '      - "some-feature"',
+      "---",
+      "",
+      "## Core",
+      "",
+      "### Some feature",
+      "Description.",
+      "",
+    ].join("\n"),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "generated"));
+});
+
+test("pm/product/features.md feature_count mismatch with h3 count fails validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "generated: 2026-04-11",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 5",
+      "area_count: 1",
+      "areas:",
+      '  - name: "Core"',
+      "    features:",
+      '      - "one-feature"',
+      "---",
+      "",
+      "## Core",
+      "",
+      "### One feature",
+      "Description.",
+      "",
+    ].join("\n"),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "feature_count"));
+});
+
+test("pm/product/features.md empty areas array fails validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "generated: 2026-04-11",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 0",
+      "area_count: 0",
+      "areas: []",
+      "---",
+      "",
+      "No features.",
+      "",
+    ].join("\n"),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "areas"));
+});
+
 test("real pm/ directory passes validation", (t) => {
   const realPmDir = path.join(__dirname, "..", "pm");
   if (!fs.existsSync(realPmDir)) {
