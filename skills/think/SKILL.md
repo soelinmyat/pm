@@ -5,6 +5,10 @@ description: "Use when the user is thinking through a product idea, exploring a 
 
 # pm:think
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
 ## Purpose
 
 Structured product thinking before commitment. Explore ideas, challenge assumptions, weigh tradeoffs, and reach clarity — without the ceremony of grooming.
@@ -38,8 +42,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 Before starting, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ---
@@ -131,7 +135,7 @@ promoted_to: "{groom-session-slug}" | null
 {What should happen next — groom it, research more, park it, etc.}
 ```
 
-Save to `pm/thinking/{slug}.md`. Create the `pm/thinking/` directory if it doesn't exist.
+Save to `{pm_dir}/thinking/{slug}.md`. Create the `{pm_dir}/thinking/` directory if it doesn't exist.
 
 After saving, ask ONE question:
 
@@ -144,7 +148,7 @@ After saving, ask ONE question:
 
 ## Resuming past thinking
 
-If the user references a past topic, check `pm/thinking/` for a matching file.
+If the user references a past topic, check `{pm_dir}/thinking/` for a matching file.
 
 If found:
 > "Found thinking on '{topic}' from {date}. Pick up where we left off?"

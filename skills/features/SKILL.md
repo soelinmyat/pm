@@ -5,9 +5,13 @@ description: "Scan the codebase, extract user-facing features via a 3-pass pipel
 
 # pm:features
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
 ## Purpose
 
-`pm:features` scans the codebase and produces a structured feature inventory at `pm/product/features.md`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
+`pm:features` scans the codebase and produces a structured feature inventory at `{pm_dir}/product/features.md`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
 
 The output feeds two consumers:
 - **Dashboard** — renders the inventory at `/product`
@@ -19,7 +23,7 @@ Ask ONE question at a time. Wait for the user's answer before asking the next.
 
 ## Overwrite Guard
 
-Before scanning, check if `pm/product/features.md` already exists.
+Before scanning, check if `{pm_dir}/product/features.md` already exists.
 
 If it exists:
 1. Parse frontmatter to get `feature_count`.
@@ -109,7 +113,7 @@ Accept all, or tell me what to change (merge, rename, split, remove).
 
 ### Accept Path
 
-User says "looks good" / "accept all" / "yes" — write to `pm/product/features.md`.
+User says "looks good" / "accept all" / "yes" — write to `{pm_dir}/product/features.md`.
 
 ### Edit Path
 
@@ -123,7 +127,7 @@ Apply edits to the in-memory feature list. Re-present the updated list. Repeat u
 
 ## Output Format
 
-Write `pm/product/features.md` with this structure:
+Write `{pm_dir}/product/features.md` with this structure:
 
 ```yaml
 ---
@@ -169,7 +173,7 @@ The markdown body follows this structure:
 ## Completion
 
 After writing the file:
-1. Confirm: "Feature inventory written to pm/product/features.md ({N} features, {M} areas)."
+1. Confirm: "Feature inventory written to {pm_dir}/product/features.md ({N} features, {M} areas)."
 2. Suggest: "View it on the dashboard at /product, or run /pm:groom to use it in feature discovery."
 
 ## Notes
