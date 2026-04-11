@@ -171,6 +171,80 @@ For each accepted routing, update both files before moving to the next topic:
 
 ---
 
+## Step 5.5: Ripple Rewrite
+
+After Step 5 links citations, rewrite the body of each affected **existing** insight as an evolving synthesis incorporating all linked evidence. Newly seeded topics (Step 5.2) are NOT rewritten — they keep their template body until the next routing pass adds more evidence.
+
+### 5.5.1 Collect rewrite targets
+
+Build a list of insight files that were updated (not created) in Step 5.1. These are files where a new entry was appended to the `sources` array during this routing pass. New topics created in Step 5.2 are excluded.
+
+### 5.5.2 Idempotency guard
+
+For each target insight file, check whether a rewrite is needed:
+
+1. Read the insight file body (everything below the YAML frontmatter).
+2. If the body is a placeholder (e.g., "Seeded from strategy.md. No evidence routed yet." or similarly thin text with no Synthesis section), the rewrite proceeds.
+3. If the body already has a Synthesis section: compare the current `sources` array (sorted alphabetically) against the sources present at the time of the last rewrite. If the sorted arrays are identical, **skip the rewrite** — the insight is already up to date.
+4. If the sorted arrays differ (a source was added, removed, or replaced), the rewrite proceeds even if the source count is unchanged.
+
+### 5.5.3 Dispatch rewrites
+
+For each insight that passes the idempotency guard, dispatch a subagent with this prompt:
+
+> You are rewriting an insight file. You will receive:
+> 1. The full insight file content (frontmatter + body)
+> 2. The full content of every evidence file listed in the `sources` array
+> 3. The rewrite template from `references/insight-rewrite-template.md`
+>
+> **Rules:**
+> - Preserve the YAML frontmatter exactly, except update `confidence`, `status`, and `last_updated`.
+> - Never modify `type`, `domain`, `topic`, or `sources` in frontmatter.
+> - Write the body following the rewrite template: Synthesis (2-4 paragraphs), Key Findings (numbered, citing source paths), Confidence Rationale (1-2 sentences, omit when confidence is low).
+> - Integrate ALL evidence sources — every source must appear in at least one Key Finding citation.
+> - Do not invent findings not present in the evidence.
+> - Update `last_updated` to today's date (YYYY-MM-DD).
+
+Each subagent reads: (a) the full insight file, (b) all evidence files from the `sources` array, (c) the rewrite template at `references/insight-rewrite-template.md`.
+
+**Concurrency:** Dispatch up to **10 rewrites in parallel**. If more than 10 insights need rewriting, batch them in groups of 10 — wait for each batch to complete before starting the next.
+
+### 5.5.4 Confidence and status rules
+
+The subagent applies these rules when updating frontmatter:
+
+**Confidence** (based on source count):
+| Sources | Confidence |
+|---------|------------|
+| 0-1     | `low`      |
+| 2-3     | `medium`   |
+| 4+      | `high`     |
+
+**Status** transition:
+- If the insight has `status: draft`, at least 1 source, and the rewrite produced a non-placeholder body, update `status` to `active`.
+- If the insight is already `active` or any other status, do not change it.
+
+### 5.5.5 Failure handling
+
+If a subagent fails (error, timeout, malformed output):
+
+1. **Log the failure** — record the insight file path and error reason.
+2. **Do not block** — other rewrites and the overall routing flow continue.
+3. **Retain previous body** — the insight keeps its existing body text. No partial writes.
+4. **Do not retry** — the next routing pass that updates this insight's sources will trigger a rewrite attempt.
+
+### 5.5.6 Post-rewrite validation
+
+After all rewrites (successful and failed) complete, run the validator:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+```
+
+If validation fails, report the failure but do not block routing. Pre-existing unrelated validation failures do not block the flow.
+
+---
+
 ## Step 6: Update Indexes and Logs
 
 After all writes complete:
