@@ -2628,9 +2628,9 @@ test("PM-122: KB hub shows evidence empty state sections", async () => {
 
 test("PM-122: KB hub discovers non-default insight domains and links to canonical routes", async () => {
   const { pmDir, cleanup } = withPmDir({
-    "pm/insights/product/index.md":
+    "pm/insights/trends/index.md":
       "# Product Insights\n\nSynthesized product learnings and decision notes.\n",
-    "pm/insights/product/priorities.md": "# Priorities\n\nWhat matters most right now.\n",
+    "pm/insights/trends/priorities.md": "# Priorities\n\nWhat matters most right now.\n",
     "pm/insights/developer-experience/index.md":
       "# Developer Experience\n\nSignals about the builder workflow and tooling friction.\n",
     "pm/insights/developer-experience/ci.md": "# CI\n\nPipeline quality notes.\n",
@@ -2643,7 +2643,7 @@ test("PM-122: KB hub discovers non-default insight domains and links to canonica
         body.includes("kb-domain-section"),
         "must show insight domain sections in Insights tab"
       );
-      assert.ok(body.includes('href="/insights/product/'), "must link to product domain content");
+      assert.ok(body.includes('href="/insights/trends/'), "must link to product domain content");
       assert.ok(
         body.includes('href="/insights/developer-experience/'),
         "must link to discovered custom domain content"
@@ -6382,6 +6382,118 @@ test("POST /notes with malformed JSON returns 400", async () => {
     try {
       const { statusCode } = await httpPost(port, "/notes", "{bad json");
       assert.equal(statusCode, 400);
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// ---- /product route tests ----
+
+test("/product returns 200 with three-column layout when features.md exists", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "generated: 2026-04-11",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 2",
+      "area_count: 1",
+      "tech_stack:",
+      "  - TypeScript",
+      "  - React",
+      "areas:",
+      '  - name: "Core"',
+      "    features:",
+      '      - "structured-discovery"',
+      '      - "evidence-routing"',
+      "---",
+      "",
+      "## Core",
+      "",
+      "### Structured discovery",
+      "A multi-phase grooming pipeline that takes a raw idea through strategy check.",
+      "",
+      "**Key capabilities:**",
+      "- Three groom tiers (quick, standard, full)",
+      "- Parallel review agents challenge scope",
+      "",
+      "**Integration points:** pm:research, pm:strategy",
+      "",
+      "### Evidence routing",
+      "Routes evidence findings into synthesized insight topics.",
+      "",
+      "**Key capabilities:**",
+      "- Bidirectional citation tracking",
+      "- Domain-aware routing",
+      "",
+      "**Integration points:** pm:ingest, pm:refresh",
+      "",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/product");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("product-nav"), "must have product-nav (left feature nav)");
+      assert.ok(body.includes("product-toc"), "must have product-toc (right TOC)");
+      assert.ok(body.includes("Structured discovery"), "must contain feature heading text");
+      assert.ok(body.includes("Evidence routing"), "must contain second feature heading text");
+      assert.ok(body.includes("2"), "must show feature count in metadata");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("/product returns 200 with empty state when features.md does not exist", async () => {
+  const { pmDir, cleanup } = withPmDir({});
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/product");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("empty-state"), "must show empty state");
+      assert.ok(body.includes("/pm:features"), "must suggest pm:features command");
+    } finally {
+      await close();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("/product returns 200 with zero-feature empty state", async () => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/product/features.md": [
+      "---",
+      "generated: 2026-04-11",
+      "source_project: my-app",
+      "files_scanned: 42",
+      "feature_count: 0",
+      "area_count: 0",
+      "areas: []",
+      "---",
+      "",
+      "No features detected.",
+      "",
+    ].join("\n"),
+  });
+  try {
+    const { port, close } = await startDashboardServer(pmDir);
+    try {
+      const { statusCode, body } = await httpGet(port, "/product");
+      assert.equal(statusCode, 200);
+      assert.ok(body.includes("empty-state"), "must show empty state for zero features");
+      assert.ok(
+        body.includes("No features detected") || body.includes("no features"),
+        "must show zero-feature guidance"
+      );
     } finally {
       await close();
     }
