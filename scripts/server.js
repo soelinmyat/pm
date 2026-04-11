@@ -6324,6 +6324,7 @@ function handleProductPage(res, pmDir, activeAreaParam) {
   const areas = [];
   let currentArea = null;
   let currentFeature = null;
+  const summaryLines = [];
   const lines = mdBody.split("\n");
 
   for (const line of lines) {
@@ -6340,9 +6341,17 @@ function handleProductPage(res, pmDir, activeAreaParam) {
       currentFeature = { name, slug, lines: [] };
     } else if (currentFeature) {
       currentFeature.lines.push(line);
+    } else if (!currentArea) {
+      summaryLines.push(line);
     }
   }
   if (currentFeature && currentArea) currentArea.features.push(currentFeature);
+
+  // Build product summary from lines before the first area heading
+  const productSummary = summaryLines
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"))
+    .join(" ");
 
   // Determine active area — default to first
   const activeSlug = activeAreaParam || (areas.length > 0 ? areas[0].slug : "");
@@ -6388,6 +6397,10 @@ function handleProductPage(res, pmDir, activeAreaParam) {
     '<p class="product-page-desc">' +
     escHtml(String(activeArea.features.length)) +
     " features in this area</p>";
+
+  if (productSummary) {
+    mainHtml += '<p class="product-summary">' + escHtml(productSummary) + "</p>";
+  }
 
   mainHtml += '<hr class="product-divider">';
 
@@ -6495,7 +6508,7 @@ function productPageCSS() {
 .product-nav {
   width: 240px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
   overflow-y: auto; padding: 24px 0;
-  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border, rgba(0,0,0,0.06));
 }
 .product-nav-header {
   padding: 0 16px 12px; font-size: 11px; font-weight: 600;
@@ -6522,7 +6535,7 @@ function productPageCSS() {
 }
 .product-nav-meta {
   padding: 16px; margin: 0 12px;
-  background: rgba(255,255,255,0.05); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border, rgba(0,0,0,0.06));
   border-radius: 8px; margin-top: 16px;
 }
 .product-nav-meta-row {
@@ -6555,6 +6568,10 @@ function productPageCSS() {
   font-size: 15px; color: var(--text-muted, #6b7280); line-height: 1.6;
   margin-bottom: 12px;
 }
+.product-summary {
+  font-size: 14px; color: var(--text-secondary, #555); line-height: 1.7;
+  margin-bottom: 0;
+}
 .product-badge-row { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
 .product-badge {
   display: inline-flex; padding: 3px 10px; border-radius: 12px;
@@ -6563,7 +6580,7 @@ function productPageCSS() {
 .product-badge-accent { background: rgba(94,106,210,0.1); color: var(--accent, #5e6ad2); }
 .product-badge-success { background: rgba(74,222,128,0.1); color: var(--success, #16a34a); }
 .product-badge-dim { background: rgba(128,128,128,0.1); color: var(--text-muted, #6b7280); }
-.product-divider { border: none; border-top: 1px solid var(--border-color, rgba(0,0,0,0.06)); margin: 32px 0; }
+.product-divider { border: none; border-top: 1px solid var(--border, rgba(0,0,0,0.06)); margin: 32px 0; }
 .product-area-section { margin-bottom: 48px; scroll-margin-top: 24px; }
 .product-area-title {
   font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px;
@@ -6579,7 +6596,7 @@ function productPageCSS() {
 .product-feature-body strong { color: var(--text); font-weight: 600; }
 .product-area-nav {
   display: flex; justify-content: space-between; margin-top: 32px; padding-top: 20px;
-  border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  border-top: 1px solid var(--border, rgba(0,0,0,0.06));
 }
 .product-area-nav a {
   font-size: 13px; color: var(--accent, #5e6ad2); text-decoration: none; font-weight: 500;

@@ -72,16 +72,34 @@ Batch into groups of 50–100 key files per chunk. Track files scanned vs total.
 
 Using the structure map (Pass 1) and file contents (Pass 2), translate code artifacts into user-facing features grouped by product area.
 
-**Prompt guidance for feature extraction:**
-- Describe features from the user's perspective, not the developer's
-- Use language like "team file sharing with permissions" not "upload endpoint with ACL middleware"
-- Target 5–25 features total — if you find fewer than 5 or more than 25, recalibrate granularity
-- Group features into 2–8 product areas
-- Each feature should have:
-  - A descriptive name (3–8 words)
-  - A one-paragraph description of what it does for the user
-  - Key capabilities (3–6 bullet points)
-  - Integration points with other features (if any)
+**Writing principles:**
+
+1. **Lead with the problem, then the outcome.** Not "Three-tier discovery flow (quick/standard/full) that takes a raw idea through strategy check..." but "Turn a rough idea into a buildable spec. Choose how deep to go — quick for small things, full for features that need research, design, and team sign-off."
+2. **Plain language over jargon.** Not "SHA-256 hash-based change detection" but "Only syncs files that actually changed." Not "Assertion-driven QA testing" but "Test the UI." The reader is a product person or new team member, not the developer who built it.
+3. **Name features as actions or outcomes.** Prefer "Sync your knowledge base" over "Knowledge base sync." Prefer "Turn ideas into specs" over "Feature grooming and PRD generation."
+4. **Consolidate sub-steps into their parent feature.** If a capability is only invoked as a phase of a larger workflow (e.g., TDD, debugging, code review are all phases of a dev command), it's a highlight of that feature — not a standalone feature. Reserve standalone features for things a user discovers and uses independently.
+5. **Merge infrastructure into user-facing outcomes.** If the product has multiple auth methods, that's one "Sign in" feature with highlights, not two features. Same for storage mechanisms, sync protocols, etc.
+
+**Grouping:**
+
+Group by user journey — how someone progresses through the product — not by technical architecture (plugin vs. server, frontend vs. backend).
+
+Suggested journey stages (adapt to the actual product):
+- **Think & Research** — ideation, market analysis, competitor intel
+- **Plan** — strategy, scoping, proposals
+- **Build** — implementation, testing, review, debugging
+- **Ship** — PR, CI, merge, deploy
+- **Learn** — notes, evidence, knowledge base maintenance
+- **Collaborate** — sharing, teams, access control
+
+Not every product maps to these stages. Use what fits. The key constraint: a reader should be able to say "I'm at stage X, what can I do?" and find their answer in one area.
+
+Do not split by internal architecture boundaries (plugin/server, frontend/backend, client/API). If the user experiences "team sharing" as one thing, it's one area — even if it spans three microservices.
+
+**Calibration:**
+- Target 8–20 features total. Fewer than 8 means you're too coarse. More than 20 means you're promoting sub-steps to features.
+- Target 3–6 areas. Fewer than 3 means you're grouping unrelated things. More than 6 means you're slicing too thin.
+- Each area should have 2–5 features. A single-feature area should be merged into an adjacent one.
 
 **Output:** Structured feature list grouped by product area.
 
@@ -91,20 +109,22 @@ After Pass 3 completes, present the extracted features for user review before wr
 
 ### Presentation Format
 
-Format features as a numbered list grouped by area:
+Present a concise summary — the full descriptions live in the file, not in the review prompt:
 
 ```
 Feature inventory for {project name} ({N} features, {M} areas):
 
-## {Area 1}
-  1. {Feature name} — {one-line description}
-  2. {Feature name} — {one-line description}
+{Product summary sentence}
 
-## {Area 2}
-  3. {Feature name} — {one-line description}
-  4. {Feature name} — {one-line description}
+  {Area 1}
+    1. {Feature name} — {one-line what it does}
+    2. {Feature name} — {one-line what it does}
 
-Accept all, or tell me what to change (merge, rename, split, remove).
+  {Area 2}
+    3. {Feature name} — {one-line what it does}
+    4. {Feature name} — {one-line what it does}
+
+Accept all, or tell me what to change (merge, rename, split, remove, regroup).
 ```
 
 ### Accept Path
@@ -150,21 +170,29 @@ areas:
 The markdown body follows this structure:
 
 ```markdown
+{Product name} is {one sentence — what it is and who it's for}.
+
+{One sentence — the core workflow or value loop, e.g., "You think through ideas, research the market, build with guardrails, and ship with confidence."}
+
 ## {Area Name}
 
 ### {Feature name}
-{One-paragraph description of what this feature does for the user.}
+{What problem this solves and what the user gets. 2-3 sentences, plain language. Lead with the situation ("You have a rough idea..."), then the outcome ("...this turns it into a clear spec ready to build"). Never describe internal mechanics.}
 
-**Key capabilities:**
-- {Capability 1}
-- {Capability 2}
-- {Capability 3}
-
-**Integration points:** {other features or systems this connects to}
+**Highlights:**
+- {What you can do — framed as user action or outcome, not implementation}
+- {Another highlight}
+- {Another highlight}
 
 ### {Feature name}
 ...
 ```
+
+**Body rules:**
+- The product summary (first two lines before any `##`) is required. It orients the reader before they hit the feature list.
+- Use `**Highlights:**` not "Key capabilities." Cap at 2–4 items per feature. Each highlight should pass the test: "Would a non-technical PM understand this and care?"
+- Do **not** include an "Integration points" line. If a feature connects to another, mention it naturally in the description ("After research, your strategy doc updates automatically") — but only when the connection is something the user experiences, not internal wiring.
+- Do **not** add section headers like "Part 1: Plugin" or "Part 2: Server". The split should be invisible.
 
 ## Completion
 
