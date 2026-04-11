@@ -153,6 +153,21 @@ Before starting work, check for user instructions:
 
 ## Phase 1: Audit
 
+### Load Hot Index (pre-step)
+
+Before scanning individual files, load the hot index for a quick overview of insight health.
+
+```bash
+# Check for hot index
+if [ -f "{pm_dir}/insights/.hot.md" ]; then
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"
+fi
+```
+
+- If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"` and parse the output table. Use the hot index to display an insight health overview at the top of the audit report — confidence levels, source counts, and last updated dates across all insight domains. This gives a fast summary before the detailed per-file staleness check. Log: "Hot index loaded ({N} insights)".
+- If `{pm_dir}/insights/.hot.md` does not exist, fall back to scanning individual insight files directly (current behavior). Log: "Hot index not found, falling back to direct file scan".
+- The hot index overview does not replace the detailed per-file staleness check below — it supplements it with a quick insight-level summary.
+
 ### Missing File Detection
 
 Before checking staleness, verify that each competitor directory has all 5 expected files:

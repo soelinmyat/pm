@@ -354,6 +354,20 @@ Synthesis is required after normalization. Do NOT skip because the record count 
 Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches {pm_dir}/evidence/research/ — invisible to downstream skills.
 </HARD-GATE>
 
+**Load Hot Index** (pre-step).
+Before clustering, load the hot index to identify existing insight topics for dedup and cluster naming.
+
+```bash
+# Check for hot index
+if [ -f "{pm_dir}/insights/.hot.md" ]; then
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"
+fi
+```
+
+- If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"` and parse the output table. Use existing insight topics to inform cluster naming (align new clusters with existing topic names where they overlap) and dedup (skip creating a new cluster when an existing insight already covers the same topic). Log: "Hot index loaded ({N} insights)".
+- If a match is found in the hot index, read the full insight `.md` file to confirm the overlap before merging or deduplicating.
+- If `{pm_dir}/insights/.hot.md` does not exist, fall back to reading insight files directly (current behavior). Log: "Hot index not found, falling back to direct file scan".
+
 Cluster records into **problem clusters**, not just filenames or raw keywords.
 
 Granularity rule:
