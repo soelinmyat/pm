@@ -5331,10 +5331,7 @@ function handleProductPage(res, pmDir) {
     } else if (line.startsWith("### ")) {
       if (currentFeature && currentArea) currentArea.features.push(currentFeature);
       const name = line.slice(4).trim();
-      const slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+      const slug = slugifySessionTopic(name);
       currentFeature = { name, slug, lines: [] };
     } else if (currentFeature) {
       currentFeature.lines.push(line);
@@ -5414,10 +5411,7 @@ function handleProductPage(res, pmDir) {
   const allFeatures = areas.flatMap((a) => a.features);
   for (let aIdx = 0; aIdx < areas.length; aIdx++) {
     const area = areas[aIdx];
-    const areaSlug = area.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+    const areaSlug = slugifySessionTopic(area.name);
     mainHtml += '<div class="product-area-section" id="' + escHtml(areaSlug) + '-section">';
     mainHtml += '<h2 class="product-area-title">' + escHtml(area.name) + "</h2>";
 
