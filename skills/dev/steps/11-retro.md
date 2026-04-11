@@ -9,17 +9,22 @@ description: Compound learning — review session, write learnings, update check
 Runs after EVERY task regardless of size.
 
 1. Review session: what was smooth, what was hard, any pitfalls or wasted cycles
-2. Write to the learnings file (`learnings.md`) — flat table, each entry max 3 lines (one-liner preferred)
+2. Write to `{pm_dir}/memory.md` — append YAML entries to the `entries:` list in the frontmatter. Each entry uses this schema:
 
-```markdown
-| Date | Category | Learning |
-|------|----------|----------|
-| 2026-02-15 | Testing | Mock handlers for sideloaded resources must include related data |
+```yaml
+entries:
+  - date: 2026-04-04
+    source: retro
+    category: process
+    learning: "one-line summary"
+    detail: "expanded context (optional)"
 ```
+
+   Valid categories: `scope`, `research`, `review`, `process`, `quality`. Keep learnings to one line; use `detail` only when expanded context would help a future session.
 
 3. If learnings suggest AGENTS.md or CLAUDE.md updates — flag to user, don't auto-modify
 4. If a learning is a "review should catch this" anti-pattern, and a review checklist exists (e.g., `.claude/references/review-checklist.md`), append it under the appropriate section
-5. Cap: 50 entries. Archive >3 months old to `docs/archive/learnings-archive.md`
+5. Cap: 50 entries. Archive >3 months old to `{pm_dir}/memory-archive.md` (type: `project-memory-archive`, add `archived_at` date per entry)
 
 ### Linear retro comment (M/L/XL)
 

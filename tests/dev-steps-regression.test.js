@@ -98,7 +98,7 @@ const CRITICAL_KEYWORDS = [
 
   // Stage 1: Intake
   "Load learnings",
-  "learnings.md",
+  "memory.md",
   "Classify size",
   "Confirm size with user",
 
@@ -150,7 +150,7 @@ const CRITICAL_KEYWORDS = [
 
   // Stage 7: Retro
   "Compound Learning",
-  "learnings.md",
+  "memory.md",
   "50 entries",
 
   // Status Updates
