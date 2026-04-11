@@ -66,12 +66,20 @@ If you already have support tickets, interview notes, or sales call notes, inges
 /pm:ingest ~/path/to/customer-evidence
 ```
 
+If you are collaborating across machines or a shared PM server, check sync status before you continue work:
+
+```text
+/pm:sync status
+```
+
 ## What You Will Get
 
 After onboarding, PM gives you:
 
 - a committed `pm/` knowledge base for strategy, research, competitors, proposals, and backlog context
-- a private `.pm/` runtime folder for config, evidence, sessions, and local state
+- a private `.pm/` runtime folder for config, evidence, sessions, local state, and sync status
+- automatic metadata validation on PM artifacts so malformed files are caught early
+- knowledge base sync workflows for shared PM state across machines
 - a dashboard view so non-engineering teammates can see the current state without digging through files
 - workflows that reuse the same context for both product thinking and implementation
 
@@ -138,6 +146,7 @@ In practice:
 | `/pm:strategy` | Create or update the product strategy document |
 | `/pm:groom [idea]` | Turn an idea into scoped, reviewable work |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
+| `/pm:sync [push\|pull\|status]` | Manually inspect or move PM knowledge base changes |
 | `/merge` | Run the merge loop for an existing PR |
 
 ### Codex
