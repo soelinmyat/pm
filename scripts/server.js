@@ -1717,6 +1717,7 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       label: "Home",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6l6-4 6 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1V6z"/></svg>',
     },
+    { divider: true },
     {
       href: "/proposals",
       label: "Proposals",
@@ -1732,11 +1733,13 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       label: "Product",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1L2 4.5v7L8 15l6-3.5v-7L8 1z"/><path d="M8 8v7"/><path d="M2 4.5L8 8l6-3.5"/></svg>',
     },
+    { divider: true },
     {
       href: "/roadmap",
       label: "Roadmap",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>',
     },
+    { divider: true },
     {
       href: "/workflows",
       label: "Workflows",
@@ -1749,9 +1752,10 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
     icon: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
   };
   const navHtml = navLinks
-    .map(
-      (l) =>
-        `<a href="${l.href}" class="nav-item${activeNav === l.href ? " active" : ""}">${l.icon}${l.label}</a>`
+    .map((l) =>
+      l.divider
+        ? '<div class="nav-divider"></div>'
+        : `<a href="${l.href}" class="nav-item${activeNav === l.href ? " active" : ""}">${l.icon}${l.label}</a>`
     )
     .join("\n      ");
 
