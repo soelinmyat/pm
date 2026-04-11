@@ -102,8 +102,12 @@ pm/
 | `/pm:ingest <path>` | Import customer evidence from files or folders |
 | `/pm:note` | Quick-capture product observations and customer signals |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
-| `/pm:sync [push\|pull\|status]` | Sync knowledge base changes across machines |
+| `/pm:sync [push\|pull\|status]` | Sync knowledge base changes across machines ([Publisher](#pricing)) |
 | `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
+
+## Pricing
+
+PM is free to use locally. Syncing and sharing via [productmemory.io](https://productmemory.io) requires a Publisher account.
 
 ## How PM Fits a Team
 
