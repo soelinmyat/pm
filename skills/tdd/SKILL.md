@@ -1,6 +1,11 @@
 ---
 name: tdd
 description: Use when implementing any feature or bugfix, before writing implementation code
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "red-green-refactor cycle per requirement"
+  degradation: none
 ---
 
 # Test-Driven Development (TDD)

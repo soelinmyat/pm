@@ -1,6 +1,11 @@
 ---
 name: sync
 description: "Manually pull or push knowledge base changes. Triggers on 'sync', 'pull kb', 'push kb', 'sync knowledge base', 'kb sync', 'sync pm'."
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "knowledge base changes pulled or pushed"
+  degradation: none
 ---
 
 # pm:sync

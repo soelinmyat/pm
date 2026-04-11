@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const yaml = require("js-yaml");
 
 const repoRoot = path.join(__dirname, "..");
 const configPath = path.join(repoRoot, "plugin.config.json");
@@ -319,6 +320,85 @@ If you are installing on Windows, enable Developer Mode or use PowerShell as Adm
 `;
 }
 
+function extractFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  return yaml.load(match[1]);
+}
+
+const REQUIRES_ALLOWLIST = ["delegation"];
+const DEGRADATION_VALUES = ["inline", "none"];
+
+function assertSkillFrontmatter(skillDirs) {
+  const skillsRoot = path.join(repoRoot, "skills");
+  const errors = [];
+
+  for (const name of skillDirs) {
+    const skillPath = path.join(skillsRoot, name, "SKILL.md");
+    const content = fs.readFileSync(skillPath, "utf8");
+    const fm = extractFrontmatter(content);
+
+    if (!fm || !fm.runtime) {
+      errors.push(`${name}/SKILL.md: missing runtime block`);
+      continue;
+    }
+
+    const rt = fm.runtime;
+
+    if (!Array.isArray(rt.requires)) {
+      errors.push(`${name}/SKILL.md: runtime.requires must be an array`);
+    } else {
+      for (const cap of rt.requires) {
+        if (typeof cap !== "string") {
+          errors.push(`${name}/SKILL.md: runtime.requires values must be strings`);
+        } else if (!REQUIRES_ALLOWLIST.includes(cap)) {
+          errors.push(`${name}/SKILL.md: runtime.requires contains unknown value "${cap}"`);
+        }
+      }
+    }
+
+    if (typeof rt.agents !== "number" || !Number.isInteger(rt.agents) || rt.agents < 0) {
+      errors.push(`${name}/SKILL.md: runtime.agents must be a non-negative integer`);
+    }
+
+    if (typeof rt.guarantee !== "string" || rt.guarantee.trim() === "") {
+      errors.push(`${name}/SKILL.md: runtime.guarantee must be a non-empty string`);
+    }
+
+    if (!DEGRADATION_VALUES.includes(rt.degradation)) {
+      errors.push(
+        `${name}/SKILL.md: runtime.degradation must be one of: ${DEGRADATION_VALUES.join(", ")}`
+      );
+    }
+  }
+
+  // Forbidden-syntax guard: scan all files under skills/ for hardcoded dispatch syntax
+  const forbiddenPatterns = [/Agent tool:/, /Agent\(\{/];
+  const forbiddenNames = ["Agent tool:", "Agent({"];
+
+  function scanDir(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDir(fullPath);
+      } else if (entry.name.endsWith(".md")) {
+        const fileContent = fs.readFileSync(fullPath, "utf8");
+        for (let i = 0; i < forbiddenPatterns.length; i++) {
+          if (forbiddenPatterns[i].test(fileContent)) {
+            const relPath = path.relative(repoRoot, fullPath);
+            errors.push(`${relPath}: contains forbidden syntax "${forbiddenNames[i]}"`);
+          }
+        }
+      }
+    }
+  }
+  scanDir(skillsRoot);
+
+  if (errors.length > 0) {
+    throw new Error(`Skill frontmatter validation failed:\n  ${errors.join("\n  ")}`);
+  }
+}
+
 function checkOrWriteFile(filePath, content, format) {
   if (checkMode) {
     if (!fs.existsSync(filePath)) {
@@ -346,6 +426,7 @@ function main() {
   const commandFiles = listCommandFiles();
 
   assertCanonicalInventory(config, skillDirs, commandFiles);
+  assertSkillFrontmatter(skillDirs);
 
   const generatedFiles = [
     [
@@ -373,9 +454,15 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error.message);
-  process.exit(1);
+// When required as a module, export internals for testing.
+// When run directly, execute main().
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
 }
+
+module.exports = { extractFrontmatter, REQUIRES_ALLOWLIST, DEGRADATION_VALUES };

@@ -1,6 +1,11 @@
 ---
 name: think
 description: "Use when the user is thinking through a product idea, exploring a concept, brainstorming approaches, or reasoning about a decision before committing to build. Lighter than groom — no ceremony, no issues, just structured thinking. Triggers on 'let's think about,' 'I'm thinking about,' 'what if we,' 'how might we,' 'let's explore,' 'I want to find a way to,' 'how should we approach,' 'what do you think about,' 'shall we think through,' 'brainstorm,' 'thinking through,' 'let's reason about,' 'help me think,' 'I'm wondering,' 'explore this idea,' 'what are our options,' 'tradeoffs,' 'pros and cons.'"
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "structured thinking with tradeoff analysis"
+  degradation: none
 ---
 
 # pm:think

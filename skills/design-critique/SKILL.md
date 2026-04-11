@@ -1,6 +1,11 @@
 ---
 name: design-critique
 description: "Design review against real running app with seed data. Single focused reviewer + Fresh Eyes examine actual pages via Playwright CLI (web) or Maestro MCP (mobile)."
+runtime:
+  requires: [delegation]
+  agents: 2
+  guarantee: "primary design review + fresh-eyes review"
+  degradation: inline
 ---
 
 # Design Critique Skill

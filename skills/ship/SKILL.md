@@ -1,6 +1,11 @@
 ---
 name: ship
 description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. IMPORTANT: Always use this skill when you need to get committed changes merged — never manually create branches, push, or open PRs without invoking /ship. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
+runtime:
+  requires: []
+  agents: 0
+  guarantee: "PR created, CI passing, and merged"
+  degradation: inline
 ---
 
 # /ship

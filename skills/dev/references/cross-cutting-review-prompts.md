@@ -2,7 +2,7 @@
 
 Agent prompts for multi-task RFC review. Dispatched when the RFC contains >1 task.
 
-**These agents run as sub-agents.** Their output returns directly to the orchestrator's context. Each agent should produce its JSON verdict as its final output.
+Dispatch these agents using `agent-runtime.md`. The prompts below are runtime-neutral — the dispatch mechanic (Agent, spawn_agent, or inline) depends on the current runtime.
 
 **Scaling:** If only 1-2 tasks have code work, combine all 3 review perspectives into a single agent prompt. Use 3 parallel agents only when 3+ tasks have substantial code changes.
 
@@ -10,10 +10,10 @@ Agent prompts for multi-task RFC review. Dispatched when the RFC contains >1 tas
 
 ## Agent 1: Cross-Cutting Architect
 
+**Dispatch intent:** `pm:system-architect`
+**Prompt:**
 ```
-Agent({
-  subagent_type: "pm:system-architect",
-  prompt: `Review these implementation plans AS A SET for cross-cutting architectural concerns.
+Review these implementation plans AS A SET for cross-cutting architectural concerns.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
@@ -25,18 +25,16 @@ Agent({
 {ALL_SUB_ISSUE_IDS_TITLES_AND_DESCRIPTIONS}
 
 Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": [...] }
-`
-})
 ```
 
 ---
 
 ## Agent 2: Integration Tester
 
+**Dispatch intent:** `pm:integration-engineer`
+**Prompt:**
 ```
-Agent({
-  subagent_type: "pm:integration-engineer",
-  prompt: `Review these implementation RFCs AS A SET for integration gaps and cross-sub-issue testing.
+Review these implementation RFCs AS A SET for integration gaps and cross-sub-issue testing.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
@@ -45,18 +43,16 @@ Agent({
 {LIST_OF_RFC_FILE_PATHS}
 
 Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": [...] }
-`
-})
 ```
 
 ---
 
 ## Agent 3: Scope Validator
 
+**Dispatch intent:** `pm:product-manager`
+**Prompt:**
 ```
-Agent({
-  subagent_type: "pm:product-manager",
-  prompt: `Validate scope coverage for this epic's implementation plans.
+Validate scope coverage for this epic's implementation plans.
 
 **Parent issue:** {PARENT_ISSUE_ID} - {PARENT_TITLE}
 **Parent description:** {PARENT_DESCRIPTION}
@@ -74,6 +70,4 @@ Check: outcome coverage, AC coverage, scope creep, out-of-scope respect.
 Check: gap detection, completeness — would a user consider the parent issue "done"?
 
 Output compact JSON verdict: { "verdict": "...", "blocking": [...], "advisory": [...] }
-`
-})
 ```

@@ -1,6 +1,11 @@
 ---
 name: groom
 description: "Use when doing product discovery or feature grooming. Orchestrates strategy check, research, scoping, design, and proposal creation. Outputs a product proposal (PRD) — not engineering issues. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'write a PRD.'"
+runtime:
+  requires: [delegation]
+  agents: 3
+  guarantee: "scope review + team review + bar raiser via independent agents (typically 3)"
+  degradation: inline
 ---
 
 # pm:groom
