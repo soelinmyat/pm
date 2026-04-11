@@ -6,6 +6,7 @@ const path = require("path");
 const { normalizeKbPath, parseFrontmatter } = require("./kb-frontmatter.js");
 const { buildStatus } = require("./start-status.js");
 const { writeNote, parseNotesFile } = require("./note-helpers.js");
+const { classifyAge } = require("./kb-health-thresholds.js");
 
 // ========== WebSocket Protocol (RFC 6455) ==========
 
@@ -1149,7 +1150,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 }
 
 /* KB health grid */
-.kb-health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.kb-health-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
 .kb-health-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--space-2); padding: var(--space-4) var(--space-5);
@@ -1166,6 +1167,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   display: flex; align-items: center; gap: 6px;
   font-size: var(--text-xs); color: var(--text-faint, var(--text-muted)); margin-top: var(--space-2);
 }
+.kb-health-sublabel { font-size: var(--text-xs); color: var(--text-dim, var(--text-muted)); margin-top: 2px; }
 
 /* ===== PROPOSALS PAGE ===== */
 .proposal-grid { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -3541,20 +3543,6 @@ function handleDashboardHome(res, pmDir) {
   };
 
   const backlogDir = path.join(pmDir, "backlog");
-  const compDir = getCompetitorsDir(pmDir);
-
-  // Collect updated dates for staleness
-  const updatedDates = {
-    strategy: getUpdatedDate(path.join(pmDir, "strategy.md")),
-    backlog: getNewestUpdated(path.join(pmDir, "backlog")),
-  };
-  const researchDates = [
-    getUpdatedDate(getLandscapePath(pmDir)),
-    getNewestUpdated(getCompetitorsDir(pmDir)),
-    ...listResearchTopicFiles(pmDir).map((topic) => getUpdatedDate(topic.filePath)),
-  ].filter(Boolean);
-  updatedDates.research = researchDates.length > 0 ? researchDates.sort().pop() : null;
-
   const projectName = getProjectName(pmDir);
 
   // ===== 1. Strategy snapshot =====
@@ -3711,31 +3699,106 @@ function handleDashboardHome(res, pmDir) {
   ${renderEmptyState("Nothing shipped yet", "Ship your first feature to see it here.", "/pm:dev")}
 </section>`;
 
-  // ===== 4. KB health =====
-  const researchFreshness = stalenessInfo(updatedDates.research) || {
-    level: "stale",
-    label: "No data",
-  };
-  const competitorFreshness = stalenessInfo(getNewestUpdated(compDir)) || {
-    level: "stale",
-    label: "No data",
-  };
+  // ===== 4. KB health (2-card layout: Insights + Research) =====
+  // Compute insight health: aggregate product + competitors + business domains
+  const insightDomains = ["product", "competitors", "business"];
+  let insightCount = 0;
+  let insightWorst = "fresh"; // track worst: fresh < aging < stale
+  const levelRank = { fresh: 0, aging: 1, stale: 2 };
+  const levelCounts = { fresh: 0, aging: 0, stale: 0 };
 
-  // Customer evidence count from research topics with source_origin internal/mixed
-  let evidenceCount = 0;
-  for (const topic of listResearchTopicFiles(pmDir)) {
-    if (fs.existsSync(topic.filePath)) {
-      const { data } = parseFrontmatter(fs.readFileSync(topic.filePath, "utf-8"));
-      const origin = (data.source_origin || "").toLowerCase();
-      if ((origin === "internal" || origin === "mixed") && data.evidence_count) {
-        evidenceCount += parseInt(data.evidence_count, 10) || 0;
+  for (const domain of insightDomains) {
+    const domainDir = path.join(pmDir, "insights", domain);
+    if (!fs.existsSync(domainDir)) continue;
+
+    if (domain === "competitors") {
+      // Competitors have subdirectories with profile.md
+      const entries = fs.readdirSync(domainDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const profilePath = path.join(domainDir, entry.name, "profile.md");
+          if (fs.existsSync(profilePath)) {
+            insightCount++;
+            const dateStr = getUpdatedDate(profilePath);
+            const days = dateStr
+              ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+              : 999;
+            const level = classifyAge(days);
+            levelCounts[level]++;
+            if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+          }
+        } else if (
+          entry.isFile() &&
+          entry.name.endsWith(".md") &&
+          entry.name !== "index.md" &&
+          entry.name !== "log.md"
+        ) {
+          insightCount++;
+          const dateStr = getUpdatedDate(path.join(domainDir, entry.name));
+          const days = dateStr
+            ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+            : 999;
+          const level = classifyAge(days);
+          levelCounts[level]++;
+          if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
+        }
+      }
+    } else {
+      // product, business: flat .md files
+      const entries = fs
+        .readdirSync(domainDir, { withFileTypes: true })
+        .filter(
+          (e) =>
+            e.isFile() && e.name.endsWith(".md") && e.name !== "index.md" && e.name !== "log.md"
+        );
+      for (const entry of entries) {
+        insightCount++;
+        const dateStr = getUpdatedDate(path.join(domainDir, entry.name));
+        const days = dateStr
+          ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+          : 999;
+        const level = classifyAge(days);
+        levelCounts[level]++;
+        if (levelRank[level] > levelRank[insightWorst]) insightWorst = level;
       }
     }
   }
-  const evidenceFreshness =
-    evidenceCount > 0
-      ? { level: "fresh", label: `${evidenceCount} records` }
-      : { level: "stale", label: "No evidence" };
+
+  let insightStatusText = "No data";
+  if (insightCount > 0) {
+    if (insightWorst === "stale") {
+      insightStatusText = `${levelCounts.stale} stale`;
+    } else if (insightWorst === "aging") {
+      insightStatusText = `${levelCounts.aging} aging`;
+    } else {
+      insightStatusText = "All fresh";
+    }
+  }
+
+  // Compute research health: evidence/research topic files
+  const researchTopics = listResearchTopicFiles(pmDir);
+  const researchCount = researchTopics.length;
+  let researchWorst = "fresh";
+  const researchLevelCounts = { fresh: 0, aging: 0, stale: 0 };
+
+  for (const topic of researchTopics) {
+    const dateStr = getUpdatedDate(topic.filePath);
+    const days = dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000) : 999;
+    const level = classifyAge(days);
+    researchLevelCounts[level]++;
+    if (levelRank[level] > levelRank[researchWorst]) researchWorst = level;
+  }
+
+  let researchStatusText = "No data";
+  if (researchCount > 0) {
+    if (researchWorst === "stale") {
+      researchStatusText = `${researchLevelCounts.stale} stale`;
+    } else if (researchWorst === "aging") {
+      researchStatusText = `${researchLevelCounts.aging} aging`;
+    } else {
+      researchStatusText = "All fresh";
+    }
+  }
 
   const kbSection = `
 <section class="home-section">
@@ -3744,30 +3807,24 @@ function handleDashboardHome(res, pmDir) {
     <a href="/kb" class="home-section-link">Browse</a>
   </div>
   <div class="kb-health-grid">
-    <a href="/kb?tab=research" class="kb-health-card">
-      <div class="kb-health-value">${stats.research}</div>
-      <div class="kb-health-label">Research topics</div>
+    <div class="kb-health-card" data-card-type="insights">
+      <div class="kb-health-value">${insightCount}</div>
+      <div class="kb-health-label">Insights</div>
+      <div class="kb-health-sublabel">product &middot; competitors &middot; business</div>
       <div class="kb-health-freshness">
-        <span class="staleness-dot ${researchFreshness.level}"></span>
-        ${escHtml(researchFreshness.label)}
+        <span class="staleness-dot ${insightCount > 0 ? insightWorst : ""}"></span>
+        ${escHtml(insightStatusText)}
       </div>
-    </a>
-    <a href="/kb?tab=competitors" class="kb-health-card">
-      <div class="kb-health-value">${stats.competitors}</div>
-      <div class="kb-health-label">Competitors profiled</div>
+    </div>
+    <div class="kb-health-card" data-card-type="research">
+      <div class="kb-health-value">${researchCount}</div>
+      <div class="kb-health-label">Research</div>
+      <div class="kb-health-sublabel">evidence topics</div>
       <div class="kb-health-freshness">
-        <span class="staleness-dot ${competitorFreshness.level}"></span>
-        ${escHtml(competitorFreshness.label)}
+        <span class="staleness-dot ${researchCount > 0 ? researchWorst : ""}"></span>
+        ${escHtml(researchStatusText)}
       </div>
-    </a>
-    <a href="/kb" class="kb-health-card">
-      <div class="kb-health-value">${evidenceCount}</div>
-      <div class="kb-health-label">Customer evidence</div>
-      <div class="kb-health-freshness">
-        <span class="staleness-dot ${evidenceFreshness.level}"></span>
-        ${escHtml(evidenceFreshness.label)}
-      </div>
-    </a>
+    </div>
   </div>
 </section>`;
 
@@ -6983,4 +7040,5 @@ module.exports = {
   renderTemplate,
   renderListTemplate,
   renderKanbanTemplate,
+  stalenessInfo,
 };

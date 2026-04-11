@@ -2086,7 +2086,7 @@ test("PM-120: recently shipped shows done items", async () => {
   }
 });
 
-test("PM-120: KB health shows 3 metric cards", async () => {
+test("PM-120: KB health shows 2 metric cards (Insights + Research)", async () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/evidence/research/topic-a.md":
       "---\ntopic: Topic A\nsource_origin: internal\nevidence_count: 10\nupdated: 2026-03-20\n---\n# A\n",
@@ -2103,13 +2103,13 @@ test("PM-120: KB health shows 3 metric cards", async () => {
       const { body } = await httpGet(port, "/");
       assert.ok(body.includes("kb-health-grid"), "must have KB health grid");
       assert.ok(body.includes("kb-health-card"), "must have KB health cards");
-      assert.ok(body.includes("Research topics"), "must show research topics label");
-      assert.ok(body.includes("Competitors profiled"), "must show competitors label");
-      assert.ok(body.includes("Customer evidence"), "must show evidence label");
-      // Check values
-      assert.ok(body.includes(">2<"), "must show 2 research topics");
-      assert.ok(body.includes(">2<"), "must show 2 competitors");
-      assert.ok(body.includes(">10<"), "must show 10 evidence records");
+      // New 2-card layout: Insights + Research
+      assert.ok(body.includes('data-card-type="insights"'), "must have insights card");
+      assert.ok(body.includes('data-card-type="research"'), "must have research card");
+      assert.ok(body.includes("Insights"), "must show Insights label");
+      assert.ok(body.includes("Research"), "must show Research label");
+      // Check values: 2 competitors in insights, 2 research topics
+      assert.ok(body.includes(">2<"), "must show 2 competitors in insights or 2 research topics");
     } finally {
       await close();
     }
