@@ -1,11 +1,6 @@
 ---
 name: using-pm
 description: Use at session start — establishes how to find and use all plugin skills, requiring Skill tool invocation before implementation
-runtime:
-  requires: []
-  agents: 0
-  guarantee: "plugin skill discovery and session initialization"
-  degradation: none
 ---
 
 <SUBAGENT-STOP>

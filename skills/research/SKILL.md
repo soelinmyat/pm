@@ -1,11 +1,6 @@
 ---
 name: research
 description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, or building the product knowledge base. Three modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview.'"
-runtime:
-  requires: [delegation]
-  agents: 3
-  guarantee: "competitor profiles with 5 files each (typical 3 competitors)"
-  degradation: inline
 ---
 
 # pm:research
@@ -209,26 +204,33 @@ Determine dispatch strategy based on candidate count and environment:
 
 Verify all 5 files exist before proceeding to Phase 3.
 
-**2+ competitors, delegation available:**
-Dispatch one researcher agent per competitor in parallel.
-Use `agent-runtime.md` for runtime-specific dispatch mechanics.
+**2+ competitors, subagents available (Claude Code, Codex):**
+Dispatch one researcher agent per competitor in parallel. Use this syntax for each:
 
-Dispatch intent: `pm:researcher`
-Each agent prompt:
 ```
-Profile {Company Name} in the {space} space.
-Slug: {slug}. Follow the methodology in
-skills/research/competitor-profiling.md exactly.
+Agent tool: name="researcher-{slug}", prompt="Profile {Company Name} in the {space} space.
+Slug: {slug}. Follow the methodology in skills/research/competitor-profiling.md exactly.
 Write all output files to pm/insights/competitors/{slug}/.
-Do NOT write to pm/insights/competitors/index.md.
+Do NOT write to pm/insights/competitors/index.md — that is owned by the parent skill."
 ```
 
-Wait for all agents to complete, then validate output
-(5 files per competitor).
+Wait for all agents to complete, then validate output for each competitor:
 
-**2+ competitors, no delegation:**
-Profile sequentially inline, one at a time. After each:
-"Finished {name}. Profile {next name} now?"
+```
+For each {slug}, verify these 5 files exist:
+- pm/insights/competitors/{slug}/profile.md
+- pm/insights/competitors/{slug}/features.md
+- pm/insights/competitors/{slug}/api.md
+- pm/insights/competitors/{slug}/seo.md
+- pm/insights/competitors/{slug}/sentiment.md
+
+If any file is missing, re-run that section of research before proceeding to Phase 3.
+```
+
+**2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
+Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
+
+**Subagent detection:** Attempt the Agent tool dispatch. If the environment returns an error or the tool is unavailable, fall back to sequential inline profiling automatically.
 
 **Index ownership:** Researcher agents write only to `pm/insights/competitors/{slug}/`. The parent skill owns `pm/insights/competitors/index.md`. Never delegate index writes to subagents.
 

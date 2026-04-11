@@ -1,11 +1,6 @@
 ---
 name: simplify
 description: "Post-implementation code simplification gate. Routes by runtime: delegates to Anthropic's official simplify in Claude Code, runs built-in 3-agent review in other runtimes. Returns structured findings for the caller to fix."
-runtime:
-  requires: [delegation]
-  agents: 3
-  guarantee: "3 parallel review agents for reuse, quality, and efficiency"
-  degradation: inline
 ---
 
 # /simplify

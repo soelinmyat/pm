@@ -1314,8 +1314,14 @@ test("KB nav item is highlighted on /kb routes", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 28. readProposalMeta — removed (PM-155: .meta.json sidecars deleted)
+// 28. readProposalMeta is deprecated (returns null for any input)
 // ---------------------------------------------------------------------------
+
+test("readProposalMeta always returns null (deprecated)", () => {
+  const mod = loadServer();
+  assert.equal(mod.readProposalMeta("any-slug", "/tmp"), null);
+  assert.equal(mod.readProposalMeta(null, "/tmp"), null);
+});
 
 // ---------------------------------------------------------------------------
 // 29. readGroomState reads .pm/.groom-state.md from project root
@@ -2928,7 +2934,7 @@ test("PM-124: shipped page does not show strategy alignment tag (deprecated)", a
     const { port, close } = await startDashboardServer(pmDir);
     try {
       const { body } = await httpGet(port, "/roadmap/shipped");
-      // resolveStrategyAlignment deleted (PM-155: meta.json removed)
+      // resolveStrategyAlignment now returns null (meta.json removed)
       // Check the HTML content after </style>, not the CSS definitions
       const mainContent = body.substring(body.lastIndexOf("</style>"));
       assert.ok(
@@ -3049,7 +3055,11 @@ test("PM-124: resolveResearchRefs supports both legacy and layered KB paths", ()
   }
 });
 
-// PM-155: resolveStrategyAlignment removed (read from .meta.json which no longer exists)
+test("PM-124: resolveStrategyAlignment always returns null (deprecated)", () => {
+  const { resolveStrategyAlignment } = loadServer();
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: null }, {}, "/tmp"), null);
+  assert.equal(resolveStrategyAlignment({ slug: "test", parent: "some-parent" }, {}, "/tmp"), null);
+});
 
 test("PM-124: resolveCompetitiveContext returns empty array without competitors", () => {
   const { resolveCompetitiveContext } = loadServer();

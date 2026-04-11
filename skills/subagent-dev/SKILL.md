@@ -1,11 +1,6 @@
 ---
 name: subagent-dev
 description: Use when executing implementation plans with independent tasks in the current session
-runtime:
-  requires: [delegation]
-  agents: 3
-  guarantee: "one agent per plan task with spec + code review (typical 3 tasks)"
-  degradation: inline
 ---
 
 # Subagent-Driven Development

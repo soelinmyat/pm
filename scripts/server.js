@@ -621,10 +621,20 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-text); }
 .nav-icon { width: 16px; height: 16px; opacity: 0.5; flex-shrink: 0; }
 .nav-item.active .nav-icon { opacity: 0.8; }
-.sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
-.sidebar-theme-toggle { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; font-weight: 500;
-  color: var(--sidebar-text-muted); border-radius: 6px; background: none; border: none; cursor: pointer; width: 100%; }
-.sidebar-theme-toggle:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text); }
+.nav-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+.sidebar-footer { margin-top: auto; padding: 8px; border-top: 1px solid var(--border); }
+.sidebar-footer-row { display: flex; align-items: center; justify-content: space-between; }
+.sidebar-footer-item { font-size: 12px; flex: 1; }
+.theme-toggle-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: none; cursor: pointer;
+  background: none; color: var(--sidebar-text-muted); display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; transition: background 150ms, color 150ms;
+}
+.theme-toggle-btn:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text); }
+.theme-icon-dark { display: none; }
+[data-theme="dark"] .theme-icon-light { display: none; }
+[data-theme="dark"] .theme-icon-dark { display: inline; }
+/* Theme toggle is in sidebar footer — see .theme-toggle-btn */
 
 /* Layout */
 main.main-content { display: block; margin-left: var(--sidebar-width); }
@@ -1259,21 +1269,22 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .kb-search-input::placeholder { color: var(--text-dim, var(--text-muted)); }
 
 /* ===== SETTINGS PAGE ===== */
-.settings-header { margin-bottom: var(--space-6); }
+.settings-header { margin-bottom: var(--space-8); }
 .settings-header h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); }
-.settings-header .settings-subtitle { font-size: var(--text-sm); color: var(--text-secondary); margin: 0 0 var(--space-2); }
-.settings-header .config-path { font-family: var(--mono, monospace); font-size: var(--text-xs); color: var(--text-muted); background: var(--surface-raised); padding: 2px 8px; border-radius: var(--radius-sm); display: inline-block; }
+.settings-header .settings-subtitle { font-size: var(--text-sm); color: var(--text-muted); margin: 0; }
 .settings-section { margin-bottom: var(--space-8); }
-.settings-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle, var(--border)); }
-.settings-section-header h2 { font-size: var(--text-base); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0; }
+.settings-section-header { display: flex; align-items: baseline; margin-bottom: var(--space-4); }
+.settings-section-header h2 { font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 0; }
 .section-count { font-size: var(--text-xs); color: var(--text-muted); font-weight: 500; }
-.setting-row { display: flex; gap: var(--space-4); align-items: flex-start; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-subtle, var(--border)); border-radius: var(--radius-sm); margin-bottom: var(--space-2); }
-.setting-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface-raised); }
-.setting-icon svg { width: 18px; height: 18px; color: var(--text-secondary); }
+.setting-row { display: flex; gap: var(--space-4); align-items: flex-start; padding: var(--space-4) var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: var(--space-3); transition: border-color var(--transition); }
+.setting-row:hover { border-color: var(--border-strong); }
+.setting-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--accent-subtle); }
+.setting-icon svg { width: 18px; height: 18px; color: var(--accent); }
 .setting-body { flex: 1; min-width: 0; }
 .setting-body h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary, var(--text)); margin: 0 0 var(--space-1); display: flex; align-items: center; gap: var(--space-2); }
-.setting-body p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 var(--space-2); line-height: 1.5; }
-.setting-details { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.setting-body p { font-size: var(--text-xs); color: var(--text-muted); margin: 0; line-height: 1.5; }
+.setting-body .click-to-copy { margin-top: var(--space-2); }
+.setting-details { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); margin-bottom: 0; }
 .detail-item { font-size: var(--text-xs); color: var(--text-secondary); }
 .detail-label { font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.04em; margin-right: var(--space-1); }
 .detail-divider { color: var(--border-subtle, var(--border)); margin: 0 var(--space-1); }
@@ -1283,8 +1294,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .badge-disconnected::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge-on { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-success-bg); color: var(--badge-success-text); }
 .badge-off { display: inline-flex; font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }
-.settings-help { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.6; padding: var(--space-4); background: var(--surface-raised); border-radius: var(--radius-sm); margin-top: var(--space-6); }
-.settings-help strong { color: var(--text-secondary); }
+.settings-help { font-size: var(--text-xs); color: var(--text-faint); line-height: 1.6; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); margin-top: var(--space-6); }
+.settings-help code { background: var(--surface-raised); padding: 0.15em 0.4em; border-radius: 3px; font-size: var(--text-xs); }
 
 /* ===== KB HUB PAGE ===== */
 .kb-domain-section { margin-bottom: var(--space-8); }
@@ -1489,28 +1500,75 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
 /* Theme toggle is in sidebar footer — see .sidebar-theme-toggle */
 
+/* Buttons */
+.btn-primary {
+  padding: var(--space-2) var(--space-5); font-size: var(--text-sm); font-weight: 600;
+  border-radius: var(--radius-sm); border: none; cursor: pointer; font-family: inherit;
+  background: var(--accent); color: var(--text-on-accent);
+  transition: background var(--transition), box-shadow var(--transition);
+  white-space: nowrap;
+}
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-sm); }
+.btn-primary:active { transform: scale(0.97); }
+
 /* Notes page */
-.notes-capture-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6); }
-.form-row { margin-bottom: var(--space-3); }
-.form-row-inline { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.note-input { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); font-family: inherit; font-size: var(--text-base); background: var(--bg); color: var(--text); resize: vertical; }
-.note-select, .note-tags-input { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); font-size: var(--text-sm); background: var(--bg); color: var(--text); }
-.note-tags-input { flex: 1; min-width: 140px; }
-.note-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius); font-size: var(--text-sm); margin-top: var(--space-2); }
+.page-desc { color: var(--text-muted); font-size: var(--text-base); margin-top: 2px; line-height: 1.5; }
+.notes-capture-form {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-5) var(--space-6); margin-bottom: var(--space-8);
+  box-shadow: var(--shadow-sm);
+}
+.form-row { margin-bottom: var(--space-4); }
+.form-row-inline { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.note-input {
+  width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-family: inherit; font-size: var(--text-base);
+  background: var(--bg); color: var(--text); resize: vertical; line-height: 1.6;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.note-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--selection-bg); outline: none; }
+.note-input::placeholder { color: var(--text-faint); }
+.note-select, .note-tags-input {
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: var(--text-sm);
+  background: var(--bg); color: var(--text);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.note-select:focus, .note-tags-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--selection-bg); outline: none; }
+.note-tags-input { flex: 1; min-width: 160px; }
+.note-tags-input::placeholder { color: var(--text-faint); }
+.note-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-sm); margin-top: var(--space-3); }
 .note-status-hidden { display: none; }
 .note-success { background: var(--badge-success-bg); color: var(--badge-success-text); }
 .note-error { background: var(--badge-error-bg); color: var(--badge-error-text); }
-.notes-list { display: flex; flex-direction: column; gap: var(--space-2); }
-.note-entry { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
-.note-header { display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-1); }
+.notes-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.note-entry {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5); transition: border-color var(--transition);
+}
+.note-entry:hover { border-color: var(--border-strong); }
+.note-header { display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-2); }
 .note-timestamp { font-size: var(--text-xs); color: var(--text-faint); font-family: var(--font-mono, monospace); }
-.note-source { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); background: var(--surface-raised); padding: 1px var(--space-2); border-radius: var(--radius-sm); }
-.note-body { font-size: var(--text-base); color: var(--text); line-height: 1.55; }
-.note-tags { font-size: var(--text-xs); color: var(--text-faint); margin-top: var(--space-1); }
+.note-source {
+  font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--accent); background: var(--accent-subtle);
+  padding: 2px var(--space-2); border-radius: var(--radius-sm);
+}
+.note-body { font-size: var(--text-base); color: var(--text); line-height: 1.6; }
+.note-tags { font-size: var(--text-xs); color: var(--text-faint); margin-top: var(--space-2); }
 .digest-status { margin-bottom: var(--space-4); display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .digest-badge { font-size: var(--text-xs); font-weight: 600; padding: 2px var(--space-2); border-radius: 999px; }
 .badge-warning { background: var(--badge-warning-bg); color: var(--badge-warning-text); }
 .badge-success { background: var(--badge-success-bg); color: var(--badge-success-text); }
+
+/* Empty state card (inline) */
+.empty-state-card {
+  text-align: center; padding: var(--space-10) var(--space-6); color: var(--text-muted);
+  border: 2px dashed var(--border); border-radius: var(--radius); margin: var(--space-4) 0;
+}
+.empty-title { font-size: var(--text-md); font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
+.empty-desc { font-size: var(--text-sm); color: var(--text-muted); line-height: 1.6; max-width: 420px; margin: 0 auto; }
+.empty-desc code { background: var(--accent-subtle); padding: 0.15em 0.45em; border-radius: 4px; font-size: var(--text-xs); color: var(--accent); }
 
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1544,17 +1602,12 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       label: "Roadmap",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>',
     },
-    {
-      href: "/notes",
-      label: "Notes",
-      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"/><line x1="6" y1="5.5" x2="10" y2="5.5"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.5" x2="8.5" y2="10.5"/></svg>',
-    },
-    {
-      href: "/settings",
-      label: "Settings",
-      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
-    },
   ];
+  const settingsLink = {
+    href: "/settings",
+    label: "Settings",
+    icon: '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  };
   const navHtml = navLinks
     .map(
       (l) =>
@@ -1584,10 +1637,13 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       ${navHtml}
   </nav>
   <div class="sidebar-footer">
-    <button class="sidebar-theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7"/></svg>
-      <span id="theme-label">Light mode</span>
-    </button>
+    <div class="sidebar-footer-row">
+      <a href="${settingsLink.href}" class="nav-item sidebar-footer-item${activeNav === settingsLink.href ? " active" : ""}">${settingsLink.icon}${settingsLink.label}</a>
+      <button class="theme-toggle-btn" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle dark/light mode">
+        <svg class="theme-icon-light" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>
+        <svg class="theme-icon-dark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.2 9.8A5.5 5.5 0 016.2 2.8 6 6 0 1013.2 9.8z"/></svg>
+      </button>
+    </div>
   </div>
 </aside>
 <main class="main-content" role="main" id="main-content">
@@ -1641,8 +1697,7 @@ function showCopyToast(msg) {
     localStorage.setItem('pm-theme', t);
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', t === 'dark' ? '#0d0f12' : '#f7f8fb');
-    var label = document.getElementById('theme-label');
-    if (label) label.textContent = t === 'dark' ? 'Light mode' : 'Dark mode';
+    btn.setAttribute('title', t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
   }
   setTheme(getTheme());
   btn.addEventListener('click', function() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); });
@@ -2190,16 +2245,12 @@ function handleSettingsPage(res, pmDir) {
   const bodyHtml =
     '<div class="settings-header">' +
     "<h1>Settings</h1>" +
-    '<p class="settings-subtitle">Plugin configuration for this project</p>' +
-    '<span class="config-path">.pm/config.json</span>' +
+    '<p class="settings-subtitle">Integrations and preferences for this project.</p>' +
     "</div>" +
     // Integrations section
     '<div class="settings-section">' +
     '<div class="settings-section-header">' +
     "<h2>Integrations</h2>" +
-    '<span class="section-count">' +
-    connectedCount +
-    " of 2 connected</span>" +
     "</div>" +
     // Linear card
     '<div class="setting-row">' +
@@ -2248,8 +2299,7 @@ function handleSettingsPage(res, pmDir) {
     "</div>" +
     // Help footer
     '<div class="settings-help">' +
-    "<strong>How to change settings:</strong> Copy a command above and paste it to your AI agent, " +
-    "or edit <code>.pm/config.json</code> directly." +
+    "Copy a command above to toggle settings, or edit <code>.pm/config.json</code> directly." +
     "</div>";
 
   const html = dashboardPage("Settings", "/settings", bodyHtml, projectName);
@@ -2257,9 +2307,9 @@ function handleSettingsPage(res, pmDir) {
   res.end(html);
 }
 
-// ========== Notes Page ==========
+// ========== Notes (shared builder) ==========
 
-function handleNotesPage(res, pmDir) {
+function buildNotesContent(pmDir) {
   const notesDir = path.join(pmDir, "evidence", "notes");
   const allEntries = [];
   const monthDigestStatus = [];
@@ -2276,7 +2326,6 @@ function handleNotesPage(res, pmDir) {
       const parsed = parseNotesFile(filePath);
       const fm = parsed.frontmatter;
 
-      // Compute digest status
       let digestLabel = "Pending digest";
       let digestClass = "badge-warning";
       if (fm.digested_through && fm.digested_through !== "null") {
@@ -2297,14 +2346,12 @@ function handleNotesPage(res, pmDir) {
     }
   }
 
-  // Sort newest first
   allEntries.sort((a, b) => (b.timestamp > a.timestamp ? 1 : b.timestamp < a.timestamp ? -1 : 0));
 
-  // Build the notes list HTML
   let notesListHtml = "";
   if (allEntries.length === 0) {
     notesListHtml =
-      '<div class="empty-state-card"><p class="empty-title">No notes yet</p><p class="empty-desc">Use the form above or type <code>pm:note</code> in the CLI to capture your first observation.</p></div>';
+      '<div class="empty-state-card"><p class="empty-title">No notes yet</p><p class="empty-desc">Type <code>pm:note</code> in the CLI to capture your first observation.</p></div>';
   } else {
     notesListHtml = '<div class="notes-list">';
     for (const entry of allEntries) {
@@ -2317,7 +2364,6 @@ function handleNotesPage(res, pmDir) {
     notesListHtml += "</div>";
   }
 
-  // Digest status badges
   let digestHtml = "";
   if (monthDigestStatus.length > 0) {
     digestHtml = '<div class="digest-status">';
@@ -2327,59 +2373,15 @@ function handleNotesPage(res, pmDir) {
     digestHtml += "</div>";
   }
 
-  const sourceOptions = ["observation", "sales call", "support thread", "user interview", "other"]
-    .map((s) => `<option value="${escHtml(s)}">${escHtml(s)}</option>`)
-    .join("");
-
-  const body = `
-<div class="page-header">
-  <h1>Notes</h1>
-  <p class="page-desc">Quick-capture observations for the product brain.</p>
-</div>
-<div class="notes-capture-form" id="note-form">
-  <div class="form-row">
-    <textarea id="note-text" placeholder="What did you observe?" rows="2" class="note-input"></textarea>
-  </div>
-  <div class="form-row form-row-inline">
-    <select id="note-source" class="note-select">${sourceOptions}</select>
-    <input id="note-tags" type="text" placeholder="Tags (optional, comma-separated)" class="note-tags-input" />
-    <button id="note-submit" class="btn-primary" onclick="submitNote()">Save Note</button>
-  </div>
-  <div id="note-status" class="note-status note-status-hidden"></div>
-</div>
+  return `
 ${digestHtml}
-<h2 class="section-title">Recent Notes</h2>
-${notesListHtml}
-<script>
-async function submitNote() {
-  const text = document.getElementById('note-text').value.trim();
-  const source = document.getElementById('note-source').value;
-  const tags = document.getElementById('note-tags').value.trim();
-  const status = document.getElementById('note-status');
-  if (!text) { status.textContent = 'Please enter a note.'; status.className = 'note-status note-error'; return; }
-  try {
-    const res = await fetch('/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, source, tags }) });
-    const data = await res.json();
-    if (data.ok) {
-      status.textContent = 'Note saved!';
-      status.className = 'note-status note-success';
-      document.getElementById('note-text').value = '';
-      document.getElementById('note-tags').value = '';
-      setTimeout(() => location.reload(), 800);
-    } else {
-      status.textContent = data.error || 'Failed to save note.';
-      status.className = 'note-status note-error';
-    }
-  } catch (e) {
-    status.textContent = 'Network error.';
-    status.className = 'note-status note-error';
-  }
+${notesListHtml}`;
 }
-</script>`;
 
-  const html = dashboardPage("Notes", "/notes", body);
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(html);
+function handleNotesPage(res, pmDir) {
+  // Redirect to KB notes tab
+  res.writeHead(302, { Location: "/kb#notes" });
+  res.end();
 }
 
 async function handleNoteCreate(req, res, pmDir) {
@@ -2915,6 +2917,17 @@ function resolveResearchRefs(refs, pmDir) {
 }
 
 /**
+ * Determine strategy alignment for a shipped item.
+ * Check the item's parent proposal for strategy_check field,
+ * or look at the item's own labels/scope for priority references.
+ */
+function resolveStrategyAlignment(_item, _allItems, _pmDir) {
+  // Deprecated: strategy_check lived in .meta.json sidecars which have been removed.
+  // This function is retained as a no-op for backwards compatibility of the export.
+  return null;
+}
+
+/**
  * Find competitive context for a shipped item.
  * If the item or parent proposal references competitor research,
  * extract the competitor name.
@@ -2969,6 +2982,12 @@ function proposalGradient(slug) {
     hash = ((hash << 5) + hash + slug.charCodeAt(i)) >>> 0;
   }
   return PROPOSAL_GRADIENTS[hash % PROPOSAL_GRADIENTS.length];
+}
+
+function readProposalMeta(_slug, _pmDir) {
+  // Deprecated: .meta.json sidecars have been removed. All proposal data now
+  // lives in backlog .md frontmatter. Retained as a no-op for export compat.
+  return null;
 }
 
 function buildProposalRows(pmDir) {
@@ -4800,6 +4819,9 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
     .map((subdir) => buildKbEvidenceSection(pmDir, subdir))
     .join("");
 
+  // Build Notes tab content
+  const notesHtml = buildNotesContent(pmDir);
+
   const prefix = "kb" + _tabCounter++;
 
   const body = `
@@ -4811,9 +4833,11 @@ function handleKnowledgeBasePage(res, pmDir, tab) {
   <div class="tabs" role="tablist">
     <div class="tab active" role="tab" tabindex="0" aria-selected="true" data-tab="${prefix}-insights" onclick="${prefix}Switch(this,'${prefix}-insights')" onkeydown="${prefix}Key(event,this,'${prefix}-insights')">Insights</div>
     <div class="tab" role="tab" tabindex="0" aria-selected="false" data-tab="${prefix}-evidence" onclick="${prefix}Switch(this,'${prefix}-evidence')" onkeydown="${prefix}Key(event,this,'${prefix}-evidence')">Evidence</div>
+    <div class="tab" role="tab" tabindex="0" aria-selected="false" data-tab="notes" onclick="${prefix}Switch(this,'notes')" onkeydown="${prefix}Key(event,this,'notes')">Notes</div>
   </div>
   <div id="${prefix}-insights" class="tab-panel active" role="tabpanel">${insightsHtml}</div>
   <div id="${prefix}-evidence" class="tab-panel" role="tabpanel">${evidenceHtml}</div>
+  <div id="notes" class="tab-panel" role="tabpanel">${notesHtml}</div>
 </div>
 <script>
 function ${prefix}Switch(el, panelId) {
@@ -5724,6 +5748,7 @@ function handleShipped(res, pmDir) {
   const cardItems = roots.map((item) => {
     const subCount = childCount[item.slug] || 0;
     const researchTopics = resolveResearchRefs(item.research_refs, pmDir);
+    const strategyNote = resolveStrategyAlignment(item, allItems, pmDir);
     const competitorGaps = resolveCompetitiveContext(item, allItems, pmDir);
 
     // Build tag HTML
@@ -5732,6 +5757,9 @@ function handleShipped(res, pmDir) {
       tags.push(
         `<span class="shipped-tag shipped-tag-research shipped-item-research">${escHtml(topic.label)}</span>`
       );
+    }
+    if (strategyNote) {
+      tags.push(`<span class="shipped-tag shipped-tag-strategy">${escHtml(strategyNote)}</span>`);
     }
     for (const comp of competitorGaps) {
       tags.push(
@@ -6558,12 +6586,14 @@ module.exports = {
   readConfig,
   createDashboardServer,
   dashboardPage,
+  readProposalMeta,
   readGroomState,
   proposalGradient,
   buildProposalRows,
   formatRelativeDate,
   parseStrategySnapshot,
   resolveResearchRefs,
+  resolveStrategyAlignment,
   resolveCompetitiveContext,
   hashProjectPort,
   isPortAvailable,

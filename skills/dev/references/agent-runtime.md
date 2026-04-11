@@ -105,21 +105,6 @@ Dispatch a fresh developer agent to write the RFC. After approval, dispatch a fr
 Use the current runtime's instructions from agent-runtime.md.
 ```
 
-## Codex-First Authoring Rule
-
-Every skill MUST produce complete output when run inline
-with no delegation. This is the baseline for both runtimes.
-
-Delegation on either runtime is additive. It improves speed
-or independence but must not change output structure.
-
-When writing a new skill:
-1. Write the inline path first (sequential, single-context)
-2. Verify it produces complete output
-3. Add delegation as an optimization (parallel agents)
-4. Add the `runtime:` block to frontmatter per
-   references/skill-frontmatter-schema.md
-
 ## Minimal Examples
 
 ### Claude agent dispatch

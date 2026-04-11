@@ -3,7 +3,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const yaml = require("js-yaml");
 
 const repoRoot = path.join(__dirname, "..");
 const configPath = path.join(repoRoot, "plugin.config.json");
@@ -231,12 +230,6 @@ mkdir -p ~/.agents/vendor ~/.agents/skills
 git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 \`\`\`
 
-If you already cloned PM there, update the existing checkout instead of cloning again:
-
-\`\`\`bash
-git -C ~/.agents/vendor/pm pull --ff-only
-\`\`\`
-
 ### 2. Expose the skills to Codex
 
 #### Product management skills (${pmSkills.length})
@@ -253,25 +246,9 @@ ${devLinkLines}
 
 ### 3. Restart Codex
 
-Restart Codex so it reloads the newly installed skills. Existing sessions do not hot-reload skills, so open a fresh session after restarting.
+Restart Codex so it reloads the newly installed skills.
 
 ## Verification
-
-### Quick filesystem check
-
-\`\`\`bash
-ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list ${pmSkills.length} pm-* and ${devSkills.length} dev-* directories
-\`\`\`
-
-You can also verify that one alias resolves to the vendor clone:
-
-\`\`\`bash
-readlink ~/.agents/skills/pm-groom
-readlink ~/.agents/skills/dev-dev
-\`\`\`
-
-### Quick Codex check
 
 Start a new Codex session and verify that Codex exposes one PM skill and one dev workflow skill:
 
@@ -283,9 +260,15 @@ pm:dev
 If Codex does not find a skill:
 
 1. Check that the fallback alias directories exist, for example \`~/.agents/skills/pm-groom/SKILL.md\` and \`~/.agents/skills/dev-dev/SKILL.md\`.
-2. Confirm the symlink points at your PM clone with \`readlink ~/.agents/skills/pm-groom\`.
-3. Restart Codex and open a fresh session again.
-4. If the problem persists, remove the broken alias and recreate it from step 2.
+2. Confirm the symlink points at your PM clone.
+3. Restart Codex again.
+
+### Quick check: all ${pmSkills.length + devSkills.length} skills
+
+\`\`\`bash
+ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
+# Should list ${pmSkills.length} pm-* and ${devSkills.length} dev-* directories
+\`\`\`
 
 ## Updating
 
@@ -320,85 +303,6 @@ If you are installing on Windows, enable Developer Mode or use PowerShell as Adm
 `;
 }
 
-function extractFrontmatter(content) {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return null;
-  return yaml.load(match[1]);
-}
-
-const REQUIRES_ALLOWLIST = ["delegation"];
-const DEGRADATION_VALUES = ["inline", "none"];
-
-function assertSkillFrontmatter(skillDirs) {
-  const skillsRoot = path.join(repoRoot, "skills");
-  const errors = [];
-
-  for (const name of skillDirs) {
-    const skillPath = path.join(skillsRoot, name, "SKILL.md");
-    const content = fs.readFileSync(skillPath, "utf8");
-    const fm = extractFrontmatter(content);
-
-    if (!fm || !fm.runtime) {
-      errors.push(`${name}/SKILL.md: missing runtime block`);
-      continue;
-    }
-
-    const rt = fm.runtime;
-
-    if (!Array.isArray(rt.requires)) {
-      errors.push(`${name}/SKILL.md: runtime.requires must be an array`);
-    } else {
-      for (const cap of rt.requires) {
-        if (typeof cap !== "string") {
-          errors.push(`${name}/SKILL.md: runtime.requires values must be strings`);
-        } else if (!REQUIRES_ALLOWLIST.includes(cap)) {
-          errors.push(`${name}/SKILL.md: runtime.requires contains unknown value "${cap}"`);
-        }
-      }
-    }
-
-    if (typeof rt.agents !== "number" || !Number.isInteger(rt.agents) || rt.agents < 0) {
-      errors.push(`${name}/SKILL.md: runtime.agents must be a non-negative integer`);
-    }
-
-    if (typeof rt.guarantee !== "string" || rt.guarantee.trim() === "") {
-      errors.push(`${name}/SKILL.md: runtime.guarantee must be a non-empty string`);
-    }
-
-    if (!DEGRADATION_VALUES.includes(rt.degradation)) {
-      errors.push(
-        `${name}/SKILL.md: runtime.degradation must be one of: ${DEGRADATION_VALUES.join(", ")}`
-      );
-    }
-  }
-
-  // Forbidden-syntax guard: scan all files under skills/ for hardcoded dispatch syntax
-  const forbiddenPatterns = [/Agent tool:/, /Agent\(\{/];
-  const forbiddenNames = ["Agent tool:", "Agent({"];
-
-  function scanDir(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        scanDir(fullPath);
-      } else if (entry.name.endsWith(".md")) {
-        const fileContent = fs.readFileSync(fullPath, "utf8");
-        for (let i = 0; i < forbiddenPatterns.length; i++) {
-          if (forbiddenPatterns[i].test(fileContent)) {
-            const relPath = path.relative(repoRoot, fullPath);
-            errors.push(`${relPath}: contains forbidden syntax "${forbiddenNames[i]}"`);
-          }
-        }
-      }
-    }
-  }
-  scanDir(skillsRoot);
-
-  if (errors.length > 0) {
-    throw new Error(`Skill frontmatter validation failed:\n  ${errors.join("\n  ")}`);
-  }
-}
-
 function checkOrWriteFile(filePath, content, format) {
   if (checkMode) {
     if (!fs.existsSync(filePath)) {
@@ -426,7 +330,6 @@ function main() {
   const commandFiles = listCommandFiles();
 
   assertCanonicalInventory(config, skillDirs, commandFiles);
-  assertSkillFrontmatter(skillDirs);
 
   const generatedFiles = [
     [
@@ -454,15 +357,9 @@ function main() {
   }
 }
 
-// When required as a module, export internals for testing.
-// When run directly, execute main().
-if (require.main === module) {
-  try {
-    main();
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
-  }
+try {
+  main();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
 }
-
-module.exports = { extractFrontmatter, REQUIRES_ALLOWLIST, DEGRADATION_VALUES };

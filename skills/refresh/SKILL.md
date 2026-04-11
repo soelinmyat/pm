@@ -1,11 +1,6 @@
 ---
 name: refresh
 description: "Use when updating existing research to backfill gaps from newly added tools or refresh stale data. Audits pm/ files for staleness and missing sections, patches without losing existing content. Triggers on 'refresh,' 'update research,' 'what's stale,' 'backfill.'"
-runtime:
-  requires: [delegation]
-  agents: 3
-  guarantee: "refreshed competitor profiles preserving existing content (typical 3 competitors)"
-  degradation: inline
 ---
 
 # pm:refresh
@@ -333,13 +328,11 @@ Read `.pm/config.json` for the `seo.provider` value.
 
 ### Parallel Execution
 
-When refreshing multiple competitors, dispatch one refresh agent per competitor in parallel.
-Use `agent-runtime.md` for runtime-specific dispatch mechanics.
+When refreshing multiple competitors, dispatch one refresh agent per competitor:
 
-Dispatch intent: `pm:researcher`
-Each agent prompt:
 ```
-Refresh {Company Name} in the {space} space.
+Agent tool: name="refresh-{slug}",
+prompt="Refresh {Company Name} in the {space} space.
 Slug: {slug}.
 Trust level: {interactive|auto-accept}.
 Files to update: {list of files with their status: stale or incomplete with missing sections}.
@@ -352,11 +345,8 @@ RULES:
 - Preserve all user-added custom sections (sections not in the methodology template).
 - Write only to pm/insights/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
 - Follow methodology in skills/research/competitor-profiling.md for section content.
-- If an Ahrefs call fails, log the error and continue.
+- If an Ahrefs call fails, log the error and continue."
 ```
-
-**No delegation:** Refresh sequentially inline, one at a time. After each:
-"Finished {name}. Refresh {next name} now?"
 
 Parent skill handles: audit report, trust level selection, synthesis files, and the final summary.
 
