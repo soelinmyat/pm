@@ -174,8 +174,6 @@ completed_at: null | YYYY-MM-DDTHH:MM:SSZ
 effective_verdict: ready | ready-if | send-back | pause | null
 linear_id: "{Linear ID}" | null
 codebase_available: true | false
-product_features_available: true | false
-product_feature_count: 0
 kb_maturity: fresh | developing | mature
 kb_maturity_tier: quick | standard | full
 kb_signals:

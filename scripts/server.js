@@ -845,7 +845,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
 /* Thread table */
 .thread-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 1rem 0; }
-.thread-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.thread-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin: 0; }
 .thread-table thead { background: var(--bg); }
 .thread-table th { text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); }
 .thread-table td { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border-subtle, var(--border)); vertical-align: middle; color: var(--text-secondary); }
@@ -1481,6 +1481,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
   transition: background 150ms;
 }
 .detail-proposal-link:hover { background: var(--surface-raised); }
+.detail-artifacts-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.detail-artifacts-row .detail-proposal-link { flex: 1; min-width: 140px; text-decoration: none; }
+.detail-collapsible { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: var(--space-2); }
+.detail-collapsible summary { padding: var(--space-3) var(--space-4); font-weight: 600; font-size: var(--text-sm); cursor: pointer; color: var(--text); background: var(--surface); border-radius: var(--radius-sm); user-select: none; }
+.detail-collapsible summary:hover { background: var(--surface-hover); }
+.detail-collapsible[open] summary { border-bottom: 1px solid var(--border); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.detail-collapsible .markdown-body { padding: var(--space-3) var(--space-4); }
 
 /* Template wrappers (PM-140) */
 .list-template { }
@@ -1596,11 +1603,6 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       href: "/kb",
       label: "Knowledge Base",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>',
-    },
-    {
-      href: "/product",
-      label: "Product",
-      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1L2 4.5v7L8 15l6-3.5v-7L8 1z"/><path d="M8 8v7"/><path d="M2 4.5L8 8l6-3.5"/></svg>',
     },
     {
       href: "/roadmap",
@@ -2604,8 +2606,6 @@ function routeDashboard(req, res, pmDir) {
       res.writeHead(404);
       res.end("Not found");
     }
-  } else if (urlPath === "/product") {
-    handleProductPage(res, pmDir);
   } else if (urlPath === "/notes") {
     handleNotesPage(res, pmDir);
   } else if (urlPath === "/roadmap") {
@@ -3259,7 +3259,7 @@ function renderListTemplate(opts) {
 }
 
 function renderKanbanTemplate(opts) {
-  const { title, subtitle, legend, columns = [], emptyState } = opts;
+  const { title, subtitle, legend, columns = [], emptyState, headerExtra } = opts;
 
   const parts = [];
 
@@ -3269,6 +3269,9 @@ function renderKanbanTemplate(opts) {
   parts.push(`<h1>${escHtml(title)}</h1>`);
   if (subtitle) parts.push(`<p class="subtitle">${escHtml(subtitle)}</p>`);
   parts.push("</div>");
+
+  // Optional extra content after header (e.g. view toggle)
+  if (headerExtra) parts.push(headerExtra);
 
   // Optional legend
   if (legend) parts.push(legend);
@@ -5062,8 +5065,10 @@ function handleCompetitorDetail(res, pmDir, slug) {
     const html = dashboardPage(
       "Not Found",
       "/kb",
-      renderEmptyState("Competitor not found", "This competitor profile does not exist.") +
-        '<p><a href="/insights/competitors">&larr; Back to competitors</a></p>'
+      renderEmptyState(
+        "Competitor not found",
+        'This competitor profile does not exist.<br><br><a href="/insights/competitors" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+      )
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -5139,8 +5144,10 @@ function handleResearchTopic(res, pmDir, topic) {
     const html = dashboardPage(
       "Not Found",
       "/kb",
-      renderEmptyState("Research topic not found", "This research topic does not exist.") +
-        '<p><a href="/evidence/research">&larr; Back to research</a></p>'
+      renderEmptyState(
+        "Research topic not found",
+        'This research topic does not exist.<br><br><a href="/evidence/research" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+      )
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -5198,9 +5205,10 @@ function handleResearchTopic(res, pmDir, topic) {
 function handleInsightDomainDetail(res, pmDir, domain) {
   const indexPath = getInsightIndexPath(pmDir, domain);
   if (!fs.existsSync(indexPath)) {
-    const body =
-      renderEmptyState("Insight domain not found", "This insight domain does not exist.") +
-      '<p><a href="/kb">&larr; Back to knowledge base</a></p>';
+    const body = renderEmptyState(
+      "Insight domain not found",
+      'This insight domain does not exist.<br><br><a href="/kb" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+    );
     const html = dashboardPage("Not Found", "/kb", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -5243,9 +5251,10 @@ function handleInsightDomainDetail(res, pmDir, domain) {
 function handleInsightDocumentDetail(res, pmDir, domain, slug) {
   const filePath = path.join(pmDir, "insights", domain, slug + ".md");
   if (!fs.existsSync(filePath)) {
-    const body =
-      renderEmptyState("Insight document not found", "This insight document does not exist.") +
-      `<p><a href="/insights/${escHtml(encodeURIComponent(domain))}">&larr; Back to ${escHtml(humanizeSlug(domain))}</a></p>`;
+    const body = renderEmptyState(
+      "Insight document not found",
+      `This insight document does not exist.<br><br><a href="/insights/${escHtml(encodeURIComponent(domain))}" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>`
+    );
     const html = dashboardPage("Not Found", "/kb", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -5282,339 +5291,6 @@ function handleInsightDocumentDetail(res, pmDir, domain, slug) {
   res.end(html);
 }
 
-function handleProductPage(res, pmDir) {
-  const featuresPath = path.join(pmDir, "product", "features.md");
-
-  // Empty state: file does not exist
-  if (!fs.existsSync(featuresPath)) {
-    const body = renderEmptyState(
-      "No feature inventory yet",
-      "Run the features skill to scan your codebase and generate a structured feature inventory.",
-      "/pm:features",
-      "Scan codebase for features"
-    );
-    const html = dashboardPage("Product", "/product", body);
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(html);
-    return;
-  }
-
-  const raw = fs.readFileSync(featuresPath, "utf-8");
-  const { data, body: mdBody } = parseFrontmatter(raw);
-
-  // Empty state: file exists but zero features
-  if (Number(data.feature_count) === 0 || !Array.isArray(data.areas) || data.areas.length === 0) {
-    const body = renderEmptyState(
-      "No features detected",
-      "Your feature inventory is empty. Ensure your project has 10+ source files with recognizable entry points (routes, components, API handlers).",
-      "/pm:features",
-      "Re-scan codebase"
-    );
-    const html = dashboardPage("Product", "/product", body);
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(html);
-    return;
-  }
-
-  // Parse markdown body into areas and features
-  const areas = [];
-  let currentArea = null;
-  let currentFeature = null;
-  const lines = mdBody.split("\n");
-
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (currentFeature && currentArea) currentArea.features.push(currentFeature);
-      currentFeature = null;
-      currentArea = { name: line.slice(3).trim(), features: [] };
-      areas.push(currentArea);
-    } else if (line.startsWith("### ")) {
-      if (currentFeature && currentArea) currentArea.features.push(currentFeature);
-      const name = line.slice(4).trim();
-      const slug = slugifySessionTopic(name);
-      currentFeature = { name, slug, lines: [] };
-    } else if (currentFeature) {
-      currentFeature.lines.push(line);
-    }
-  }
-  if (currentFeature && currentArea) currentArea.features.push(currentFeature);
-
-  // Build feature nav (left column)
-  let featureNavHtml = '<div class="product-nav">';
-  featureNavHtml += '<div class="product-nav-header">Features</div>';
-  for (const area of areas) {
-    featureNavHtml += '<div class="product-nav-section">';
-    featureNavHtml += '<div class="product-nav-section-title">' + escHtml(area.name) + "</div>";
-    for (const f of area.features) {
-      featureNavHtml +=
-        '<a href="#' + escHtml(f.slug) + '" class="product-nav-link">' + escHtml(f.name) + "</a>";
-    }
-    featureNavHtml += "</div>";
-  }
-  // Metadata card
-  featureNavHtml += '<div class="product-nav-meta">';
-  featureNavHtml +=
-    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Features</span><span class="product-nav-meta-value">' +
-    escHtml(String(data.feature_count || "0")) +
-    "</span></div>";
-  featureNavHtml +=
-    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Areas</span><span class="product-nav-meta-value">' +
-    escHtml(String(data.area_count || "0")) +
-    "</span></div>";
-  featureNavHtml +=
-    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Files scanned</span><span class="product-nav-meta-value">' +
-    escHtml(String(data.files_scanned || "0")) +
-    "</span></div>";
-  featureNavHtml +=
-    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Generated</span><span class="product-nav-meta-value">' +
-    escHtml(String(data.generated || "-")) +
-    "</span></div>";
-  featureNavHtml += "</div>";
-  featureNavHtml += "</div>";
-
-  // Build main content (center column)
-  let mainHtml = '<div class="product-main">';
-  mainHtml += '<h1 class="product-page-title">Product Features</h1>';
-  mainHtml +=
-    '<p class="product-page-desc">Auto-generated inventory of what this product does, extracted from the codebase by ' +
-    renderClickToCopy("/pm:features") +
-    ".</p>";
-
-  // Tech stack badges
-  const techStack = Array.isArray(data.tech_stack) ? data.tech_stack : [];
-  if (techStack.length > 0 || data.feature_count) {
-    mainHtml += '<div class="product-badge-row">';
-    if (techStack.length > 0) {
-      mainHtml +=
-        '<span class="product-badge product-badge-accent">' +
-        escHtml(techStack.join(" + ")) +
-        "</span>";
-    }
-    mainHtml +=
-      '<span class="product-badge product-badge-success">' +
-      escHtml(String(data.feature_count)) +
-      " features</span>";
-    mainHtml +=
-      '<span class="product-badge product-badge-dim">Generated ' +
-      escHtml(String(data.generated || "")) +
-      "</span>";
-    mainHtml += "</div>";
-  }
-
-  mainHtml += '<hr class="product-divider">';
-
-  // Build right TOC anchors
-  let tocHtml = '<div class="product-toc">';
-  tocHtml += '<div class="product-toc-title">On this page</div>';
-
-  // Render feature sections
-  const allFeatures = areas.flatMap((a) => a.features);
-  for (let aIdx = 0; aIdx < areas.length; aIdx++) {
-    const area = areas[aIdx];
-    const areaSlug = slugifySessionTopic(area.name);
-    mainHtml += '<div class="product-area-section" id="' + escHtml(areaSlug) + '-section">';
-    mainHtml += '<h2 class="product-area-title">' + escHtml(area.name) + "</h2>";
-
-    tocHtml +=
-      '<a href="#' +
-      escHtml(areaSlug) +
-      '-section" class="product-toc-link product-toc-area">' +
-      escHtml(area.name) +
-      "</a>";
-
-    for (let fIdx = 0; fIdx < area.features.length; fIdx++) {
-      const f = area.features[fIdx];
-      mainHtml += '<div class="product-feature-item" id="' + escHtml(f.slug) + '">';
-      mainHtml += '<h3 class="product-feature-title">' + escHtml(f.name) + "</h3>";
-
-      // Parse feature content
-      let featureBodyHtml = '<div class="product-feature-body">';
-      let inList = false;
-      for (const fLine of f.lines) {
-        const trimmed = fLine.trim();
-        if (trimmed.startsWith("- ")) {
-          if (!inList) {
-            featureBodyHtml += "<ul>";
-            inList = true;
-          }
-          let li = escHtml(trimmed.slice(2));
-          li = li.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-          featureBodyHtml += "<li>" + li + "</li>";
-        } else {
-          if (inList) {
-            featureBodyHtml += "</ul>";
-            inList = false;
-          }
-          if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-            featureBodyHtml += "<p><strong>" + escHtml(trimmed.slice(2, -2)) + "</strong></p>";
-          } else if (trimmed.startsWith("**")) {
-            let p = escHtml(trimmed);
-            p = p.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-            featureBodyHtml += "<p>" + p + "</p>";
-          } else if (trimmed !== "") {
-            featureBodyHtml += "<p>" + escHtml(trimmed) + "</p>";
-          }
-        }
-      }
-      if (inList) featureBodyHtml += "</ul>";
-      featureBodyHtml += "</div>";
-      mainHtml += featureBodyHtml;
-
-      // Prev/next navigation
-      const globalIdx = allFeatures.indexOf(f);
-      const prev = globalIdx > 0 ? allFeatures[globalIdx - 1] : null;
-      const next = globalIdx < allFeatures.length - 1 ? allFeatures[globalIdx + 1] : null;
-      if (prev || next) {
-        mainHtml += '<div class="product-feature-nav">';
-        if (prev) {
-          mainHtml +=
-            '<a href="#' +
-            escHtml(prev.slug) +
-            '" class="product-feature-nav-prev">&larr; ' +
-            escHtml(prev.name) +
-            "</a>";
-        }
-        if (next) {
-          mainHtml +=
-            '<a href="#' +
-            escHtml(next.slug) +
-            '" class="product-feature-nav-next">' +
-            escHtml(next.name) +
-            " &rarr;</a>";
-        }
-        mainHtml += "</div>";
-      }
-
-      mainHtml += "</div>"; // product-feature-item
-
-      tocHtml +=
-        '<a href="#' + escHtml(f.slug) + '" class="product-toc-link">' + escHtml(f.name) + "</a>";
-    }
-
-    mainHtml += "</div>"; // product-area-section
-    if (aIdx < areas.length - 1) {
-      mainHtml += '<hr class="product-divider">';
-    }
-  }
-  mainHtml += "</div>"; // product-main
-  tocHtml += "</div>"; // product-toc
-
-  // Combine three columns
-  const bodyContent =
-    '<div class="product-layout">' +
-    featureNavHtml +
-    mainHtml +
-    tocHtml +
-    "</div>" +
-    "<style>" +
-    productPageCSS() +
-    "</style>";
-
-  const html = dashboardPage("Product", "/product", bodyContent);
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(html);
-}
-
-function productPageCSS() {
-  return `
-.product-layout { display: flex; position: relative; min-height: calc(100vh - 60px); }
-.product-nav {
-  width: 220px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
-  overflow-y: auto; padding: 24px 0;
-  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border-color, rgba(0,0,0,0.06));
-}
-.product-nav-header {
-  padding: 0 16px 16px; font-size: 11px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-muted, #6b7280);
-}
-.product-nav-section { margin-bottom: 20px; }
-.product-nav-section-title {
-  padding: 4px 16px; font-size: 12px; font-weight: 600;
-  color: var(--text-secondary, #6b7280); margin-bottom: 2px;
-}
-.product-nav-link {
-  display: block; padding: 5px 16px 5px 28px;
-  font-size: 13px; color: var(--text-muted, #6b7280);
-  text-decoration: none; border-left: 2px solid transparent;
-  transition: color 150ms, border-color 150ms, background 150ms;
-}
-.product-nav-link:hover { color: var(--text-color, #1a1d23); background: rgba(0,0,0,0.03); }
-.product-nav-meta {
-  padding: 16px; margin: 0 12px;
-  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
-  border-radius: 8px; margin-top: 16px;
-}
-.product-nav-meta-row {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 12px; padding: 3px 0;
-}
-.product-nav-meta-label { color: var(--text-muted, #6b7280); }
-.product-nav-meta-value { color: var(--text-secondary, #4a4e56); font-weight: 500; }
-.product-main {
-  margin-left: 220px; margin-right: 230px;
-  padding: 32px 48px; max-width: 720px; flex: 1;
-}
-.product-toc {
-  position: fixed; top: 32px; right: 32px; width: 200px;
-}
-.product-toc-title {
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-muted, #6b7280); margin-bottom: 12px;
-}
-.product-toc-link {
-  display: block; padding: 4px 0; font-size: 12px;
-  color: var(--text-muted, #6b7280); text-decoration: none;
-  transition: color 150ms;
-}
-.product-toc-link:hover { color: var(--text-color, #1a1d23); }
-.product-toc-area { font-weight: 600; margin-top: 8px; }
-.product-page-title {
-  font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px;
-}
-.product-page-desc {
-  font-size: 15px; color: var(--text-muted, #6b7280); line-height: 1.6;
-  margin-bottom: 12px; max-width: 560px;
-}
-.product-badge-row { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
-.product-badge {
-  display: inline-flex; padding: 3px 10px; border-radius: 12px;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
-}
-.product-badge-accent { background: rgba(94,106,210,0.1); color: var(--accent, #5e6ad2); }
-.product-badge-success { background: rgba(74,222,128,0.1); color: var(--success, #16a34a); }
-.product-badge-dim { background: rgba(128,128,128,0.1); color: var(--text-muted, #6b7280); }
-.product-divider { border: none; border-top: 1px solid var(--border-color, rgba(0,0,0,0.06)); margin: 32px 0; }
-.product-area-section { margin-bottom: 48px; scroll-margin-top: 24px; }
-.product-area-title {
-  font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px;
-}
-.product-feature-item { margin-bottom: 28px; scroll-margin-top: 24px; }
-.product-feature-title {
-  font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px;
-}
-.product-feature-body { font-size: 14px; color: var(--text-muted, #6b7280); line-height: 1.7; }
-.product-feature-body p { margin-bottom: 8px; }
-.product-feature-body ul { margin-top: 8px; padding-left: 20px; margin-bottom: 8px; }
-.product-feature-body li { margin-bottom: 4px; font-size: 13px; }
-.product-feature-body strong { color: var(--text-color, #1a1d23); font-weight: 500; }
-.product-feature-nav {
-  display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px;
-  border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
-}
-.product-feature-nav a {
-  font-size: 13px; color: var(--accent, #5e6ad2); text-decoration: none; font-weight: 500;
-}
-.product-feature-nav a:hover { text-decoration: underline; }
-.product-feature-nav-next { margin-left: auto; }
-@media (max-width: 1024px) {
-  .product-nav { display: none; }
-  .product-toc { display: none; }
-  .product-main { margin-left: 0; margin-right: 0; max-width: 100%; }
-}
-`;
-}
-
 function handleTranscriptPage(res, pmDir, slug) {
   // Try committed transcript first (pm/evidence/transcripts/), then private (.pm/evidence/transcripts/)
   const committedPath = path.join(pmDir, "evidence", "transcripts", slug + ".md");
@@ -5634,8 +5310,10 @@ function handleTranscriptPage(res, pmDir, slug) {
     const html = dashboardPage(
       "Not Found",
       "/kb",
-      renderEmptyState("Transcript not found", "This transcript does not exist.") +
-        '<p><a href="/kb">&larr; Back to Knowledge Base</a></p>'
+      renderEmptyState(
+        "Transcript not found",
+        'This transcript does not exist.<br><br><a href="/kb" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+      )
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -5843,10 +5521,10 @@ function handleBacklog(res, pmDir) {
   };
 
   const COL_EMPTY_HINTS = {
-    ideas: "Capture ideas during research or grooming",
-    proposed: "Groom an idea to create proposals",
-    "in-progress": "Start building with /pm:dev",
-    shipped: "Ship features to see them here",
+    ideas: "",
+    proposed: "",
+    "in-progress": "",
+    shipped: "",
   };
 
   const templateColumns = STATUS_ORDER.map((status) => {
@@ -5890,10 +5568,10 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
   const viewToggle = renderViewToggle("kanban");
 
   const body =
-    viewToggle +
     renderKanbanTemplate({
       title: "Roadmap",
       subtitle: "What's coming, what's in progress, and what just shipped",
+      headerExtra: viewToggle,
       legend: filterBar,
       columns: templateColumns,
       emptyState: renderEmptyState(
@@ -5902,8 +5580,7 @@ document.getElementById('roadmap-filter').addEventListener('input', function(e) 
         "/pm:groom",
         "Start grooming"
       ),
-    }) +
-    filterScript;
+    }) + filterScript;
 
   const html = dashboardPage("Roadmap", "/roadmap", body);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -6153,9 +5830,10 @@ function handleProposalDetail(res, pmDir, slug) {
     }
   }
   if (!meta) {
-    const body =
-      renderEmptyState("Proposal not found", "This proposal does not exist.") +
-      '<p><a href="/proposals">&larr; Back to proposals</a></p>';
+    const body = renderEmptyState(
+      "Proposal not found",
+      'This proposal does not exist.<br><br><a href="/proposals" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+    );
     const html = dashboardPage("Not Found", "/proposals", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -6165,9 +5843,10 @@ function handleProposalDetail(res, pmDir, slug) {
   // Serve the proposal HTML directly with a sticky header bar
   const htmlPath = path.resolve(pmDir, "backlog", "proposals", slug + ".html");
   if (!fs.existsSync(htmlPath)) {
-    const body =
-      renderEmptyState("Proposal not found", "This proposal does not exist.") +
-      '<p><a href="/proposals">&larr; Back to proposals</a></p>';
+    const body = renderEmptyState(
+      "Proposal not found",
+      'This proposal does not exist.<br><br><a href="/proposals" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+    );
     const html = dashboardPage("Not Found", "/proposals", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -6195,8 +5874,10 @@ function handleBacklogItem(res, pmDir, slug) {
     const html = dashboardPage(
       "Not Found",
       "/roadmap",
-      renderEmptyState("Backlog item not found", "This backlog item does not exist.") +
-        '<p><a href="/roadmap">&larr; Back to roadmap</a></p>'
+      renderEmptyState(
+        "Backlog item not found",
+        'This backlog item does not exist.<br><br><a href="/roadmap" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+      )
     );
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -6325,8 +6006,9 @@ function handleBacklogItem(res, pmDir, slug) {
     });
   }
 
-  // Proposal link section — check for matching proposal (own slug first, then parent)
+  // Artifacts section — proposal, RFC, and PR links in one compact row
   const proposalsBase = path.join(pmDir, "backlog", "proposals");
+  const rfcsBase = path.join(pmDir, "backlog", "rfcs");
   let proposalSlug = null;
   let proposalLabel = "";
   if (fs.existsSync(path.join(proposalsBase, slug + ".html"))) {
@@ -6336,10 +6018,36 @@ function handleBacklogItem(res, pmDir, slug) {
     proposalSlug = parentSlug;
     proposalLabel = "View Parent Proposal";
   }
+  let rfcSlug = null;
+  if (data.rfc) {
+    rfcSlug = data.rfc.replace(/^rfcs\//, "").replace(/\.html$/, "");
+  }
+  if (!rfcSlug && parentSlug && fs.existsSync(path.join(rfcsBase, parentSlug + ".html"))) {
+    rfcSlug = parentSlug;
+  }
+  const artifactLinks = [];
   if (proposalSlug) {
+    artifactLinks.push(
+      `<a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="detail-proposal-link">${proposalLabel} &nearr;</a>`
+    );
+  }
+  if (rfcSlug) {
+    artifactLinks.push(
+      `<a href="/rfc/${escHtml(encodeURIComponent(rfcSlug))}" class="detail-proposal-link">View RFC &nearr;</a>`
+    );
+  }
+  const prs = Array.isArray(data.prs) ? data.prs.filter(Boolean) : [];
+  if (prs.length > 0) {
+    for (const pr of prs) {
+      artifactLinks.push(
+        `<a href="${escHtml(pr)}" target="_blank" class="detail-proposal-link">PR: ${escHtml(pr.replace(/.*\/pull\//, "#"))} &nearr;</a>`
+      );
+    }
+  }
+  if (artifactLinks.length > 0) {
     templateSections.push({
-      title: "Proposal",
-      html: `<a href="/proposals/${escHtml(encodeURIComponent(proposalSlug))}" class="proposal-link-btn">${proposalLabel} &nearr;</a>`,
+      title: "Artifacts",
+      html: `<div class="detail-artifacts-row">${artifactLinks.join("")}</div>`,
     });
   }
 
@@ -6357,18 +6065,51 @@ function handleBacklogItem(res, pmDir, slug) {
     /* no wireframe for this item */
   }
 
-  // Remaining markdown body section (strip AC section to avoid duplication)
-  let remainingBody = body;
-  if (acItems.length > 0) {
-    remainingBody = remainingBody
-      .replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, "")
-      .trim();
-  }
-  if (remainingBody.trim()) {
-    templateSections.push({
-      title: null,
-      html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(remainingBody))}</div>`,
-    });
+  // Remaining markdown body — only show if no proposal exists (avoids duplication)
+  if (!proposalSlug) {
+    let remainingBody = body;
+    if (acItems.length > 0) {
+      remainingBody = remainingBody
+        .replace(/## Acceptance Criteria\s*\n[\s\S]*?(?=\n## |\n# |$)/i, "")
+        .trim();
+    }
+    if (data.outcome) {
+      remainingBody = remainingBody.replace(/## Outcome\s*\n[\s\S]*?(?=\n## |\n# |$)/i, "").trim();
+    }
+    if (remainingBody.trim()) {
+      const bodySections = remainingBody.split(/(?=^## )/m).filter((s) => s.trim());
+      const collapsibleParts = [];
+      for (const section of bodySections) {
+        const headingMatch = section.match(/^## (.+)\n([\s\S]*)$/);
+        if (headingMatch) {
+          const sectionTitle = headingMatch[1].trim();
+          const sectionContent = headingMatch[2].trim();
+          if (sectionContent) {
+            collapsibleParts.push({ title: sectionTitle, content: sectionContent });
+          }
+        } else {
+          templateSections.push({
+            title: null,
+            html: `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(section))}</div>`,
+          });
+        }
+      }
+      if (collapsibleParts.length > 0) {
+        const detailsHtml = collapsibleParts
+          .map(
+            (p, i) =>
+              `<details class="detail-collapsible"${i === 0 ? " open" : ""}>` +
+              `<summary>${escHtml(p.title)}</summary>` +
+              `<div class="markdown-body">${renderMarkdown(rewriteKnowledgeBaseLinks(p.content))}</div>` +
+              `</details>`
+          )
+          .join("\n");
+        templateSections.push({
+          title: "Details",
+          html: detailsHtml,
+        });
+      }
+    }
   }
 
   // Action hint: ideas need grooming, groomed items need dev
@@ -6398,14 +6139,42 @@ function handleBacklogItem(res, pmDir, slug) {
 
 function handleRfcDetail(res, pmDir, fileName) {
   if (!fileName || fileName.includes("..") || fileName.includes("/")) {
-    const body =
-      renderEmptyState("Implementation plan not found", "This RFC does not exist.") +
-      '<p><a href="/roadmap">&larr; Back to roadmap</a></p>';
+    const body = renderEmptyState(
+      "Implementation plan not found",
+      'This RFC does not exist.<br><br><a href="/roadmap" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+    );
     const html = dashboardPage("Not Found", "/roadmap", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
   }
+
+  // Check for HTML RFC in pm/backlog/rfcs/ first (generated by groom)
+  const rfcSlug = fileName.replace(/\.html$/, "").replace(/\.md$/, "");
+  const htmlRfcPath = path.join(pmDir, "backlog", "rfcs", rfcSlug + ".html");
+  if (fs.existsSync(htmlRfcPath)) {
+    const backlogPath = path.join(pmDir, "backlog", rfcSlug + ".md");
+    let title = humanizeSlug(rfcSlug);
+    let actionCommand = "";
+    if (fs.existsSync(backlogPath)) {
+      const { data } = parseFrontmatter(fs.readFileSync(backlogPath, "utf-8"));
+      title = data.title || title;
+      const status = (data.status || "").toLowerCase();
+      actionCommand = ["proposed", "planned", "in-progress"].includes(status)
+        ? `/pm:dev ${rfcSlug}`
+        : `/pm:groom ${rfcSlug}`;
+    }
+    const header = injectableHeaderBar("Back", title, actionCommand);
+    const rfcHtml = fs.readFileSync(htmlRfcPath, "utf-8");
+    const injected = rfcHtml
+      .replace(/(<\/head>)/i, header.style + "$1")
+      .replace(/(<body[^>]*>)/i, "$1" + header.html);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(injected);
+    return;
+  }
+
+  // Fall back to .md implementation plans in docs/plans/
   const projectRoot = path.dirname(pmDir);
   const candidates = [
     path.join(projectRoot, "pm_plugin", "docs", "plans", fileName),
@@ -6414,9 +6183,10 @@ function handleRfcDetail(res, pmDir, fileName) {
   ];
   const filePath = candidates.find((p) => fs.existsSync(p));
   if (!filePath) {
-    const body =
-      renderEmptyState("Implementation plan not found", "This RFC does not exist.") +
-      '<p><a href="/roadmap">&larr; Back to roadmap</a></p>';
+    const body = renderEmptyState(
+      "Implementation plan not found",
+      'This RFC does not exist.<br><br><a href="/roadmap" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a>'
+    );
     const html = dashboardPage("Not Found", "/roadmap", body);
     res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
@@ -6424,8 +6194,8 @@ function handleRfcDetail(res, pmDir, fileName) {
   }
   const raw = fs.readFileSync(filePath, "utf-8");
   const { data, body } = parseFrontmatter(raw);
-  const slug = fileName.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
-  const title = extractMarkdownTitle(body, humanizeSlug(slug));
+  const mdSlug = fileName.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  const title = extractMarkdownTitle(body, humanizeSlug(mdSlug));
   const dateMatch = fileName.match(/^(\d{4}-\d{2}-\d{2})/);
   const date = dateMatch ? dateMatch[1] : "";
 
@@ -6433,14 +6203,13 @@ function handleRfcDetail(res, pmDir, fileName) {
   metaBadges.push({ html: '<span class="badge badge-ready">RFC</span>' });
   if (date) metaBadges.push({ html: `<span class="meta-item">${escHtml(date)}</span>` });
 
-  // Try to link back to the backlog item
-  const backlogPath = path.join(pmDir, "backlog", slug + ".md");
+  const backlogPath = path.join(pmDir, "backlog", mdSlug + ".md");
   const backlogExists = fs.existsSync(backlogPath);
 
   const breadcrumbItems = backlogExists
     ? [
         { label: "Roadmap", href: "/roadmap" },
-        { label: humanizeSlug(slug), href: "/roadmap/" + slug },
+        { label: humanizeSlug(mdSlug), href: "/roadmap/" + mdSlug },
         { label: "RFC" },
       ]
     : [{ label: "Roadmap", href: "/roadmap" }, { label: "RFC" }];
@@ -6807,7 +6576,8 @@ function handleSessionPage(res, pmDir, slug) {
         renderEmptyState(
           "Session not found",
           "No session found for <code>" + escHtml(slug) + "</code>."
-        ) + '<p><a href="/">&larr; Back to Home</a></p>',
+        ) +
+          '<p><a href="/" onclick="if(history.length>1){history.back();return false}">&larr; Go back</a></p>',
         projectName
       )
     );

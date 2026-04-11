@@ -40,7 +40,7 @@ For each domain, count files with `type: insight` in their frontmatter. Files li
 If a domain has zero insight files and `pm/strategy.md` exists:
 
 1. Read `pm/strategy.md`. Extract up to **6** specific, falsifiable product/business claims that map to this domain:
-   - For `trends/`: extract from "Core Value Prop" and "Differentiation" sections.
+   - For `product/`: extract from "Core Value Prop" and "Differentiation" sections.
    - For `business/`: extract from "Competitive Positioning" and "Go-to-Market" sections.
    - For other domains: extract up to 6 relevant topics from strategy.md for that domain.
    - Each topic must be a specific claim, not a vague priority. "Full-lifecycle context reduces tool switching" is good. "Better UX" is too vague.
@@ -90,7 +90,7 @@ Scan all `insights/*/index.md` files. For each insight file listed, read its fro
 {domain}/{slug}: {
   topic: "Full-lifecycle context",
   sources: ["evidence/research/bulk-editing.md"],
-  filePath: "insights/trends/full-lifecycle-context.md"
+  filePath: "insights/product/full-lifecycle-context.md"
 }
 ```
 

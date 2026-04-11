@@ -28,7 +28,7 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### Product management skills (10)
+#### Product management skills (9)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/start ~/.agents/skills/pm-start
@@ -40,7 +40,6 @@ ln -sfn ~/.agents/vendor/pm/skills/think ~/.agents/skills/pm-think
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
 ln -sfn ~/.agents/vendor/pm/skills/note ~/.agents/skills/pm-note
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
-ln -sfn ~/.agents/vendor/pm/skills/features ~/.agents/skills/pm-features
 ```
 
 #### Development skills (10)
@@ -77,11 +76,11 @@ If Codex does not find a skill:
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all 20 skills
+### Quick check: all 19 skills
 
 ```bash
 ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 10 pm-* and 10 dev-* directories
+# Should list 9 pm-* and 10 dev-* directories
 ```
 
 ## Updating
