@@ -52,7 +52,7 @@ See `references/templates/detail.md` for `breadcrumb`, `title`, `titlePrefix`, `
 The handler reads a 5-file directory for each competitor:
 
 ```
-pm/competitors/{slug}/
+{pm_dir}/competitors/{slug}/
   profile.md      -> tab: Profile
   features.md     -> tab: Features
   api.md          -> tab: API

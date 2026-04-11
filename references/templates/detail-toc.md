@@ -60,7 +60,7 @@ The template renders the TOC as a horizontal navigation bar (`<nav class="tabs">
 
 Route: `/kb?tab=landscape`
 
-Source file: `pm/landscape.md`
+Source file: `{pm_dir}/landscape.md`
 
 ### Frontmatter
 
@@ -140,7 +140,7 @@ Segment color keys: `enterprise`, `mid-market`, `smb`, `horizontal`, `self`.
 
 Route: `/research/{topic}`
 
-Source file: `pm/research/{topic}/findings.md`
+Source file: `{pm_dir}/research/{topic}/findings.md`
 
 ### Frontmatter
 

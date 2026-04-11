@@ -37,9 +37,9 @@ For each domain, count files with `type: insight` in their frontmatter. Files li
 
 ### 1.3 Seed empty domains (if strategy.md exists)
 
-If a domain has zero insight files and `pm/strategy.md` exists:
+If a domain has zero insight files and `{pm_dir}/strategy.md` exists:
 
-1. Read `pm/strategy.md`. Extract up to **6** specific, falsifiable product/business claims that map to this domain:
+1. Read `{pm_dir}/strategy.md`. Extract up to **6** specific, falsifiable product/business claims that map to this domain:
    - For `trends/`: extract from "Core Value Prop" and "Differentiation" sections.
    - For `business/`: extract from "Competitive Positioning" and "Go-to-Market" sections.
    - For other domains: extract up to 6 relevant topics from strategy.md for that domain.
@@ -78,7 +78,7 @@ If a domain has zero insight files and `pm/strategy.md` exists:
 
 If user rejects all topics, seeding is skipped. Routing proceeds with zero topics (goes to the skip/log path in Step 4).
 
-If no `pm/strategy.md` exists and the domain is empty, skip seeding for that domain silently.
+If no `{pm_dir}/strategy.md` exists and the domain is empty, skip seeding for that domain silently.
 
 ---
 
@@ -184,7 +184,7 @@ After all writes complete:
 
 ### For the evidence pool:
 
-- Append cite entries to `pm/evidence/log.md` and `pm/evidence/research/log.md` (or the appropriate evidence type log):
+- Append cite entries to `{pm_dir}/evidence/log.md` and `{pm_dir}/evidence/research/log.md` (or the appropriate evidence type log):
   ```
   {today} cite insights/{domain}/{slug}.md -> {evidence path}
   ```
