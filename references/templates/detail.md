@@ -51,7 +51,7 @@ The `detail` template renders a single-item detail page with breadcrumb navigati
 
 ## Backlog Issue Frontmatter
 
-When a skill writes a backlog issue file (`pm/backlog/{slug}.md`), the dashboard handler parses this frontmatter:
+When a skill writes a backlog issue file (`{pm_dir}/backlog/{slug}.md`), the dashboard handler parses this frontmatter:
 
 ```yaml
 ---
@@ -121,7 +121,7 @@ an AC item.
 
 Link to wireframe HTML if one exists:
 
-[Wireframe preview](pm/backlog/wireframes/bulk-edit-support.html)
+[Wireframe preview]({pm_dir}/backlog/wireframes/bulk-edit-support.html)
 ```
 
 ## CSS Classes in Output

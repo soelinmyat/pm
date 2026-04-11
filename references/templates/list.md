@@ -52,7 +52,7 @@ The `list` template renders a page with a header, optional content-before block,
 
 Route: `/kb?tab=competitors`
 
-Source: Each subdirectory under `pm/competitors/` with a `profile.md` file.
+Source: Each subdirectory under `{pm_dir}/competitors/` with a `profile.md` file.
 
 The handler reads `profile.md` from each competitor directory, extracts the `company` or `name` field from frontmatter, detects the category from the body, and counts how many of the 5 expected files are present. Each competitor becomes a card.
 
@@ -69,7 +69,7 @@ The handler reads `profile.md` from each competitor directory, extracts the `com
 ### Expected File Structure
 
 ```
-pm/competitors/
+{pm_dir}/competitors/
   acme/
     profile.md      <- required for the card to appear
     features.md     <- counted in badge
@@ -82,7 +82,7 @@ pm/competitors/
 
 Route: `/kb?tab=research`
 
-Source: Each subdirectory under `pm/research/` with a `findings.md` file.
+Source: Each subdirectory under `{pm_dir}/research/` with a `findings.md` file.
 
 The handler reads `findings.md`, calls `buildTopicMeta()` to extract the topic name, origin badge, evidence count, and staleness. Each topic becomes a card.
 
@@ -104,7 +104,7 @@ The handler reads `findings.md`, calls `buildTopicMeta()` to extract the topic n
 ### Expected File Structure
 
 ```
-pm/research/
+{pm_dir}/research/
   checkout-optimization/
     findings.md     <- required for the card to appear
   pricing-models/

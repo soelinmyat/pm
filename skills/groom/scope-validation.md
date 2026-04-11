@@ -6,7 +6,7 @@ Used by `pm:groom` during Phase 4. Follow this guide to define scope precisely, 
 
 ## 1. Strategy Alignment (re-check at scope time)
 
-Strategy check happened in Phase 2, but scope is where it bites. Before defining any boundary, re-read the relevant sections of `pm/strategy.md`:
+Strategy check happened in Phase 2, but scope is where it bites. Before defining any boundary, re-read the relevant sections of `{pm_dir}/strategy.md`:
 
 **Current priorities (Section 6):** Which of the top 3 priorities does this scope serve?
 Write it down explicitly. If you cannot name the priority, the scope is suspect.

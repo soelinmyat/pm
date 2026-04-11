@@ -35,6 +35,7 @@
     "ship",
     "start",
     "strategy",
+    "sync",
     "think"
   ],
   "codex": {
@@ -49,7 +50,8 @@
         "ingest",
         "note",
         "refresh",
-        "features"
+        "features",
+        "sync"
       ],
       "dev": [
         "debugging",

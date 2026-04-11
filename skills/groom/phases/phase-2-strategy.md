@@ -18,7 +18,7 @@
 
 ---
 
-1. Check if `pm/strategy.md` exists.
+1. Check if `{pm_dir}/strategy.md` exists.
 
    **Standard tier — file missing:**
    > "No strategy doc yet — skipping alignment check."
@@ -44,7 +44,7 @@
 
    **File exists (any tier):** Continue to step 2.
 
-2. Read `pm/strategy.md`. Check the idea against:
+2. Read `{pm_dir}/strategy.md`. Check the idea against:
 
    **Current priorities** (Section 6): Does this advance the stated top 3 priorities? Or does it pull focus away from them?
 
@@ -68,7 +68,7 @@
 ```yaml
 strategy_check:
   status: passed | failed | override | skipped
-  checked_against: pm/strategy.md | null
+  checked_against: {pm_dir}/strategy.md | null
   conflicts: [] | ["{non-goal text}"]
   supporting_priority: "{priority text}" | null
 ```

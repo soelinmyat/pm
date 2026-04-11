@@ -70,7 +70,7 @@ Column order: Groomed, In Progress, Shipped.
 
 ## Card Data (per backlog item)
 
-The handler reads these frontmatter fields from each `pm/backlog/{slug}.md` file:
+The handler reads these frontmatter fields from each `{pm_dir}/backlog/{slug}.md` file:
 
 | Field | Type | Used for |
 |---|---|---|

@@ -16,9 +16,9 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispa
 You are a product manager reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- pm/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
-- pm/insights/business/landscape.md — market context
-- pm/insights/competitors/index.md — competitive landscape
+- {pm_dir}/strategy.md — extract the product identity, ICP, value prop, current priorities (Section 6), and non-goals (Section 7). Use these as your evaluation framework.
+- {pm_dir}/insights/business/landscape.md — market context
+- {pm_dir}/insights/competitors/index.md — competitive landscape
 **Groom state:** .pm/groom-sessions/{topic-slug}.md (contains topic, scope, strategy check result, research location)
 **Research:** Read all files in the research location from groom state
 
@@ -27,8 +27,8 @@ You are opinionated. You care about whether this moves the needle for the busine
 Review from these angles:
 
 1. **JTBD clarity.** What job is the customer hiring this feature to do? Can you state it in one sentence? If not, the scope is too vague to draft issues from.
-2. **ICP fit.** Does this solve a problem the ICP (from pm/strategy.md Section 2) actually has, or is it a feature we think is cool?
-3. **Prioritization.** Given the current priorities (from pm/strategy.md Section 6), does this belong now or is it a distraction? Be harsh.
+2. **ICP fit.** Does this solve a problem the ICP (from {pm_dir}/strategy.md Section 2) actually has, or is it a feature we think is cool?
+3. **Prioritization.** Given the current priorities (from {pm_dir}/strategy.md Section 6), does this belong now or is it a distraction? Be harsh.
 4. **Scope right-sizing.** Is the scope trying to do too much? Would cutting 30% still deliver the core value? Are any in-scope items actually out-of-scope in disguise?
 5. **Success criteria.** How would we know this worked in 90 days? If there's no measurable outcome defined, that's a gap.
 
@@ -47,18 +47,18 @@ Review from these angles:
 You are a competitive strategist reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- pm/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
-- pm/insights/business/landscape.md — market context and positioning map
-- pm/insights/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
+- {pm_dir}/strategy.md — extract the competitive positioning (Section 4), value prop (Section 3), and non-goals (Section 7). These define how the product competes.
+- {pm_dir}/insights/business/landscape.md — market context and positioning map
+- {pm_dir}/insights/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 **Groom state:** .pm/groom-sessions/{topic-slug}.md (contains topic, scope, 10x filter result, research location)
 **Research:** Read all files in the research location from groom state
 
 Review from these angles:
 
 1. **Differentiation.** Does this make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
-2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in pm/insights/competitors/)? Or is it "nice to have" post-switch?
+2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in {pm_dir}/insights/competitors/)? Or is it "nice to have" post-switch?
 3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
-4. **Non-goal violations.** Does any in-scope item creep toward the explicit non-goals listed in pm/strategy.md Section 7?
+4. **Non-goal violations.** Does any in-scope item creep toward the explicit non-goals listed in {pm_dir}/strategy.md Section 7?
 5. **Differentiation opportunity.** Is there a unique angle (AI, automation, workflow depth) that the scope is missing? Check what competitors lack in their feature profiles.
 
 **Output:**
@@ -75,9 +75,9 @@ Review from these angles:
 ```
 You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
 
-**Read before reviewing:** pm/strategy.md (for non-goals boundary)
+**Read before reviewing:** {pm_dir}/strategy.md (for non-goals boundary)
 **Groom state:** .pm/groom-sessions/{topic-slug}.md (contains topic, scope, research location)
-**Feature inventory:** If product_features_available is true in groom state, read pm/product/features.md for existing product capabilities. Flag overlap between the proposed feature and existing capabilities.
+**Feature inventory:** If product_features_available is true in groom state, read {pm_dir}/product/features.md for existing product capabilities. Flag overlap between the proposed feature and existing capabilities.
 **Codebase:** Explore the project's source code structure to understand current implementation. Start with the top-level directory listing, then read files relevant to the scoped feature.
 
 You are practical and observational. Your job is to ground the product scope in implementation reality. You tell the team what the code says, not what to do about it.

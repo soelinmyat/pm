@@ -22,7 +22,7 @@ For UI features: high-fidelity mockups MUST be reviewed before proceeding.
 
 Before asking generic discovery questions, load existing product context:
 
-1. If `pm/strategy.md` exists, read it for ICP, value prop, positioning, priorities, and non-goals. Skip questions it already answers.
+1. If `{pm_dir}/strategy.md` exists, read it for ICP, value prop, positioning, priorities, and non-goals. Skip questions it already answers.
 2. If CLAUDE.md exists, check for design principles, brand guidelines, user personas, and voice/tone.
 3. If `DESIGN.md` exists, check for design system, colors, typography, aesthetic direction.
 
@@ -184,7 +184,7 @@ When a design system was discovered, generate mockups using the real design toke
 - Show all relevant states (empty, populated, error) as separate mockups or tabs
 - Keep mockups focused — one screen/component per file, not the entire app
 - **No app shell chrome** — never include navigation bars, headers with back buttons, sidebars, or other app-level navigation in wireframe HTML. These wireframes are embedded in dashboard preview iframes which already provide their own frame. Only render the page/component content itself.
-- **Save all mockups to `pm/backlog/wireframes/`** (create the directory if needed). Use `{topic-slug}.html` for single mockups or `mockup-{screen-name}.html` for multi-screen features. Never save mockups to `/tmp/` — they must persist in the knowledge base for the proposal to link to them in the dashboard.
+- **Save all mockups to `{pm_dir}/backlog/wireframes/`** (create the directory if needed). Use `{topic-slug}.html` for single mockups or `mockup-{screen-name}.html` for multi-screen features. Never save mockups to `/tmp/` — they must persist in the knowledge base for the proposal to link to them in the dashboard.
 
 **When no design system is found:** Fall back to generic wireframe classes. Note to the user: "No design system detected — showing wireframe mockups. These will be refined during implementation."
 

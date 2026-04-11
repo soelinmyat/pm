@@ -9,6 +9,10 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 Import customer evidence into PM.
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
 `$pm-ingest` is the internal-evidence lane:
 - support tickets
 - interview notes
@@ -18,8 +22,8 @@ Import customer evidence into PM.
 - churn reasons
 
 It does two things in one workflow:
-1. Normalize raw evidence into `.pm/`
-2. Update durable evidence artifacts in `pm/evidence/`
+1. Normalize raw evidence into `.pm/` (runtime state)
+2. Update durable evidence artifacts in `{pm_dir}/evidence/`
 
 The user should think: "I have customer evidence. Ingest it."
 
@@ -48,9 +52,9 @@ Ask ONE question at a time. Wait for the user's answer before asking the next. D
 If the folders do not exist yet, bootstrap the minimum structure automatically:
 
 ```bash
-mkdir -p pm/evidence/research
-mkdir -p pm/evidence/transcripts
-mkdir -p pm/evidence/user-feedback
+mkdir -p {pm_dir}/evidence/research
+mkdir -p {pm_dir}/evidence/transcripts
+mkdir -p {pm_dir}/evidence/user-feedback
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
@@ -127,11 +131,11 @@ If a folder is provided:
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 
@@ -199,7 +203,7 @@ Structure:
     source-0002.json
     transcripts/
       prospect-interview-20260402.txt   # raw diarized transcript (gitignored)
-pm/
+{pm_dir}/
   evidence/
     transcripts/
       prospect-interview-20260402.md    # redacted transcript (committed)
@@ -227,7 +231,7 @@ For each transcribed audio file, after the raw transcript is available in `.pm/e
    - Replace emails, phone numbers, addresses with `[redacted]`
    - Do NOT promise perfect redaction — warn the user (see PII rule below).
 
-3. **Save redacted transcript** to `pm/evidence/transcripts/{slug}.md` (safe to commit):
+3. **Save redacted transcript** to `{pm_dir}/evidence/transcripts/{slug}.md` (safe to commit):
    ```markdown
    ---
    type: transcript
@@ -274,7 +278,7 @@ Every normalized record must include:
 ```json
 {
   "speaker_role": "customer|interviewer|unknown",
-  "transcript_ref": "pm/evidence/transcripts/prospect-interview-20260402.md",
+  "transcript_ref": "{pm_dir}/evidence/transcripts/prospect-interview-20260402.md",
   "timestamp": "00:01:45"
 }
 ```
@@ -326,7 +330,7 @@ Maintain `.pm/imports/manifest.json`:
       "imported_at": "2026-04-02T10:00:00Z",
       "record_count": 8,
       "format_hint": "audio-interview",
-      "transcript_path": "pm/evidence/transcripts/prospect-interview.md"
+      "transcript_path": "{pm_dir}/evidence/transcripts/prospect-interview.md"
     }
   ]
 }
@@ -347,7 +351,7 @@ Use full rebuild as the fallback when incremental state is ambiguous.
 
 <HARD-GATE>
 Synthesis is required after normalization. Do NOT skip because the record count is small.
-Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches pm/evidence/research/ — invisible to downstream skills.
+Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches {pm_dir}/evidence/research/ — invisible to downstream skills.
 </HARD-GATE>
 
 Cluster records into **problem clusters**, not just filenames or raw keywords.
@@ -368,19 +372,19 @@ Score clusters by:
 - severity
 - recency
 - segment concentration
-- strategic relevance to `pm/strategy.md` if it exists
+- strategic relevance to `{pm_dir}/strategy.md` if it exists
 
 For audio-sourced records, use `speaker_role` to weight quote selection:
 - Prefer `customer` quotes for pain points and representative quotes
 - Use `interviewer` quotes only for context (what prompted the response)
-- Link audio-sourced quotes to their transcript: `[View transcript](pm/evidence/transcripts/{slug}.md)`
+- Link audio-sourced quotes to their transcript: `[View transcript]({pm_dir}/evidence/transcripts/{slug}.md)`
 
 ### Shared research knowledge base
 
 Write durable outputs into the existing shared knowledge base:
 
 ```text
-pm/
+{pm_dir}/
   evidence/
     index.md
     log.md
@@ -397,13 +401,13 @@ pm/
 `$pm-ingest` and `$pm-research` share the `evidence/research/` pool. `$pm-ingest` also owns evidence-side pool bookkeeping.
 
 After every successful write, update the relevant indexes and append touched paths to the matching logs:
-- `pm/evidence/index.md`
-- `pm/evidence/log.md`
-- `pm/evidence/research/index.md` and `pm/evidence/research/log.md` when a research topic changes
-- `pm/evidence/transcripts/log.md` when a transcript file changes
-- `pm/evidence/user-feedback/log.md` when normalized feedback artifacts are emitted there
+- `{pm_dir}/evidence/index.md`
+- `{pm_dir}/evidence/log.md`
+- `{pm_dir}/evidence/research/index.md` and `{pm_dir}/evidence/research/log.md` when a research topic changes
+- `{pm_dir}/evidence/transcripts/log.md` when a transcript file changes
+- `{pm_dir}/evidence/user-feedback/log.md` when normalized feedback artifacts are emitted there
 
-### `pm/evidence/index.md`
+### `{pm_dir}/evidence/index.md`
 
 Keep the top-level evidence index current. It is the shared entry point for all evidence pools.
 
@@ -413,7 +417,7 @@ Rules:
 - Preserve unrelated bullets and pool descriptions.
 - Never remove another skill's entry unless the underlying file was intentionally deleted.
 
-### `pm/evidence/research/index.md`
+### `{pm_dir}/evidence/research/index.md`
 
 Keep the research pool index current:
 
@@ -433,7 +437,7 @@ Rules:
 - update only the row for the topic you touched
 - never delete another skill's row content
 
-### `pm/evidence/research/{slug}.md`
+### `{pm_dir}/evidence/research/{slug}.md`
 
 Use this unified schema:
 
@@ -513,7 +517,7 @@ Committed research must use **portable source labels**, not machine-specific abs
 Good committed reference:
 - `support-export.csv (rows 12, 14, 31)`
 - `interview-ops-lead.md (section: Pain points)`
-- `prospect-interview-20260402.m4a (transcript: pm/evidence/transcripts/prospect-interview-20260402.md, 00:01:45)`
+- `prospect-interview-20260402.m4a (transcript: {pm_dir}/evidence/transcripts/prospect-interview-20260402.md, 00:01:45)`
 
 Absolute local paths belong only in:
 - `.pm/imports/manifest.json`
@@ -531,7 +535,7 @@ Instead:
 
 ### Post-write Validation
 
-After writing or updating any `pm/` artifacts, run:
+After writing or updating any `{pm_dir}/` artifacts, run:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
@@ -546,7 +550,7 @@ Pass all evidence file paths written or updated during Phase 3 and
 their key findings as input. Batch all evidence together for one
 routing pass (not one per file).
 
-If no insight domains exist and no `pm/strategy.md` exists, skip.
+If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip.
 
 ### Phase 4: Report Back
 
@@ -568,7 +572,7 @@ Then recommend the next best step:
 
 ## Guardrails
 
-1. Do not commit raw customer evidence into `pm/`.
+1. Do not commit raw customer evidence into `{pm_dir}/`.
 2. Do not invent structure for sparse or messy evidence.
 3. Do not overwrite external research sections in mixed topic files.
 4. Use portable labels in committed source references.

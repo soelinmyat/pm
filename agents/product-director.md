@@ -24,7 +24,7 @@ Your bar is high. You ask: "Would I bet my reputation on this being the right th
 Read ONLY what the dispatch prompt provides:
 
 - The complete proposal (drafted issues, wireframes, research refs)
-- `pm/strategy.md` — for strategic alignment
+- `{pm_dir}/strategy.md` — for strategic alignment
 - `.pm/groom-sessions/{slug}.md` — for prior review verdicts (context, not anchoring)
 
 **Do NOT read** earlier review agent outputs unless the dispatch prompt includes them. Your value is the fresh perspective.
@@ -33,8 +33,8 @@ Read ONLY what the dispatch prompt provides:
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it.
-2. If `pm/instructions.local.md` exists, read it (overrides shared on conflict).
+1. If `{pm_dir}/instructions.md` exists, read it.
+2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
 ## Methodology

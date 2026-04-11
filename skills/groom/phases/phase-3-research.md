@@ -10,7 +10,7 @@ Read the current `groom_tier` from the session state. Route accordingly:
 
 Perform a lightweight inline research pass. Do NOT invoke `pm:research`.
 
-1. Check `pm/evidence/research/` for existing research that covers this topic.
+1. Check `{pm_dir}/evidence/research/` for existing research that covers this topic.
 2. Write a 2-3 sentence competitive assessment inline in the groom output:
    - How do competitors handle this? (or "no prior art found")
    - Is this table stakes, differentiator, or net-new?
@@ -43,7 +43,7 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 2. Key questions to answer:
    - How do competitors handle this? (UI patterns, feature depth, limitations)
    - What do users expect based on reviews and community signals?
-   - What does internal customer evidence in `pm/evidence/research/` say, if `$pm-ingest` has been used?
+   - What does internal customer evidence in `{pm_dir}/evidence/research/` say, if `$pm-ingest` has been used?
    - Is there a market signal validating this is a real problem?
 
 3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
@@ -52,5 +52,5 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 
 ```yaml
 phase: research
-research_location: pm/evidence/research/{topic-slug}.md
+research_location: {pm_dir}/evidence/research/{topic-slug}.md
 ```

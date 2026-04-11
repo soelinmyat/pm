@@ -15,6 +15,12 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
+If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
+
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `groom`, `team-review`, `bar-raiser`, `present`, `link`.
@@ -91,7 +97,7 @@ When `quick` performs an inline assessment without writing new files, `research_
 
 ## Resume Check
 
-Before doing anything else, glob `.pm/groom-sessions/*.md`.
+Before doing anything else, glob `{pm_state_dir}/groom-sessions/*.md`.
 
 If exactly one session exists, read it and say:
 
@@ -113,11 +119,11 @@ Wait for the user's answer. If resuming: skip completed phases. If starting fres
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 
@@ -127,7 +133,7 @@ At the start of a grooming session (before Phase 1), determine whether the proje
 
 1. List the top-level project directory. Look for source code indicators: `src/`, `lib/`, `app/`, `packages/`, `*.py`, `*.ts`, `*.go`, `*.rs`, `*.java`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, or similar.
 2. If source code exists, set `codebase_available: true` in groom state. Note the primary language and entry points.
-3. If the project is purely a product knowledge base (only `pm/`, `.pm/`, docs), set `codebase_available: false`.
+3. If the project is purely a product knowledge base (only `{pm_dir}/`, `.pm/`, docs), set `codebase_available: false`.
 
 When `codebase_available: true`, multiple phases will incorporate codebase analysis — checking existing implementation, UI patterns, and overlapping code. Each phase file specifies what to check and when.
 
@@ -155,9 +161,11 @@ When entering a phase, read its detailed instructions from the phase file. Each 
 
 ---
 
-## State File Schema (.pm/groom-sessions/{topic-slug}.md)
+## State File Schema ({pm_state_dir}/groom-sessions/{topic-slug}.md)
 
-Each grooming session has its own state file under `.pm/groom-sessions/`.
+Each grooming session has its own state file under `{pm_state_dir}/groom-sessions/`.
+
+**Repo location:** In separate-repo mode, `pm_state_dir` resolves to the PM repo's `.pm/` directory, so groom sessions are always stored in the PM repo — never in the source repo. This keeps product discovery artifacts co-located with the knowledge base. In same-repo mode, both groom and dev sessions live in the same `.pm/` directory (no change).
 
 ```yaml
 ---
@@ -185,12 +193,12 @@ kb_signals:
 
 strategy_check:
   status: passed | failed | override | skipped
-  checked_against: pm/strategy.md | null
+  checked_against: {pm_dir}/strategy.md | null
   conflicts:
     - "{conflicting non-goal text}"
   supporting_priority: "{priority text}" | null
 
-research_location: pm/evidence/research/{topic-slug}.md | null
+research_location: {pm_dir}/evidence/research/{topic-slug}.md | null
 research_note: "{1-line summary of inline finding}" | null  # quick tier only
 
 scope:
@@ -222,8 +230,8 @@ bar_raiser:
 
 proposal:
   slug: "{topic-slug}"
-  backlog_path: pm/backlog/{topic-slug}.md
-  prd_path: pm/backlog/proposals/{topic-slug}.html
+  backlog_path: {pm_dir}/backlog/{topic-slug}.md
+  prd_path: {pm_dir}/backlog/proposals/{topic-slug}.html
   linear_id: "{Linear ID}" | null
 ---
 ```
@@ -233,16 +241,16 @@ proposal:
 ## Error Handling
 
 **Corrupted state file** (unparseable YAML, missing required fields):
-> "The selected groom state file under .pm/groom-sessions/ appears corrupted. Options:
+> "The selected groom state file under {pm_state_dir}/groom-sessions/ appears corrupted. Options:
 > (a) Show me the file so I can fix it manually
 > (b) Start fresh (deletes the state file)"
 
 **Missing research refs** (phase advances but research files not found):
 Warn the user. Offer to re-run Phase 3 before continuing. Do not silently proceed with empty research context.
 
-**Strategy drift** (pm/strategy.md modified since strategy_check was recorded):
+**Strategy drift** ({pm_dir}/strategy.md modified since strategy_check was recorded):
 On every phase after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
-> "pm/strategy.md was updated after the strategy check. Re-run the check before scoping?"
+> "{pm_dir}/strategy.md was updated after the strategy check. Re-run the check before scoping?"
 
 **Parallel sessions** (state file already exists when starting):
 Never silently overwrite an existing state file. Always ask resume vs. fresh. Starting fresh requires explicit user confirmation before deleting.
@@ -251,9 +259,9 @@ Never silently overwrite an existing state file. Always ask resume vs. fresh. St
 
 ## Proposal Format (Backlog Entry)
 
-Write the proposal entry to `pm/backlog/{topic-slug}.md`. This is the parent backlog item — it links to the HTML PRD and (later) the RFC.
+Write the proposal entry to `{pm_dir}/backlog/{topic-slug}.md`. This is the parent backlog item — it links to the HTML PRD and (later) the RFC.
 
-**ID assignment:** When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
+**ID assignment:** When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
 
 ```markdown
 ---
@@ -269,7 +277,7 @@ priority: critical | high | medium | low
 labels:
   - "{label}"
 research_refs:
-  - pm/evidence/research/{topic-slug}.md
+  - {pm_dir}/evidence/research/{topic-slug}.md
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---
@@ -290,7 +298,7 @@ Out-of-scope:
 ## Competitor Context
 
 {How do competitors handle this? Where do they fall short?
-Reference specific profiles from pm/insights/competitors/ if applicable.}
+Reference specific profiles from {pm_dir}/insights/competitors/ if applicable.}
 
 ## Technical Feasibility
 
@@ -299,7 +307,7 @@ Verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
 
 ## Research Links
 
-- [{Finding title}](pm/evidence/research/{topic-slug}.md)
+- [{Finding title}]({pm_dir}/evidence/research/{topic-slug}.md)
 
 ## Notes
 

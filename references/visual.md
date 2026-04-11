@@ -10,7 +10,7 @@ Standard for how skills invoke browser-based UI. The dashboard is the single hub
 
 ```
 # Wrong — raw file open, no navigation, no context
-open pm/backlog/proposals/{slug}.html
+open {pm_dir}/backlog/proposals/{slug}.html
 
 # Right — dashboard shows the artifact with full navigation
 1. Ensure dashboard is running
@@ -112,7 +112,7 @@ Every skill that shows visual content should follow this pattern:
 
 **Example — groom proposal:**
 ```
-1. Write pm/backlog/proposals/{slug}.html (PRD) + pm/backlog/{slug}.md (proposal entry)
+1. Write {pm_dir}/backlog/proposals/{slug}.html (PRD) + {pm_dir}/backlog/{slug}.md (proposal entry)
 2. Ensure dashboard running
 3. open http://localhost:{port}/proposals/{slug}
 4. > "Proposal for '{topic}' ready — opening in dashboard."
@@ -120,7 +120,7 @@ Every skill that shows visual content should follow this pattern:
 
 **Example — strategy deck:**
 ```
-1. Write pm/strategy-deck.html
+1. Write {pm_dir}/strategy-deck.html
 2. Ensure dashboard running
 3. open http://localhost:{port}/strategy-deck
 4. > "Strategy deck ready — opening in dashboard."
@@ -128,7 +128,7 @@ Every skill that shows visual content should follow this pattern:
 
 **Example — wireframe:**
 ```
-1. Write pm/backlog/wireframes/{slug}.html
+1. Write {pm_dir}/backlog/wireframes/{slug}.html
 2. Ensure dashboard running
 3. open http://localhost:{port}/backlog/wireframes/{slug}
 4. > "Wireframe ready — opening in dashboard."

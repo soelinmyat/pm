@@ -51,17 +51,17 @@ For sentiment research, also consult `skills/research/review-mining.md`.
 
 Before starting work, check for user instructions:
 
-1. If `pm/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `pm/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
+1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
+2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `pm/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 
 ## Output: Five Files
 
-Write all output to `pm/insights/competitors/{slug}/`:
+Write all output to `{pm_dir}/insights/competitors/{slug}/`:
 
 1. **`profile.md`** — Company overview, positioning, pricing table, stated strengths/weaknesses
 2. **`features.md`** — Product capabilities by domain, changelog highlights, gaps
@@ -78,9 +78,9 @@ Each file must include frontmatter with:
 
 ## Scope Boundary
 
-**Do NOT write to `pm/insights/competitors/index.md`.** The parent research skill owns the index and will aggregate all competitor profiles after you finish.
+**Do NOT write to `{pm_dir}/insights/competitors/index.md`.** The parent research skill owns the index and will aggregate all competitor profiles after you finish.
 
-Write only to your assigned `pm/insights/competitors/{slug}/` directory.
+Write only to your assigned `{pm_dir}/insights/competitors/{slug}/` directory.
 
 ## Quality Standards
 
@@ -91,7 +91,7 @@ Write only to your assigned `pm/insights/competitors/{slug}/` directory.
 
 ## SEO Data Collection
 
-If SEO data provider is configured in `.pm/config.json`:
+If SEO data provider is configured in `{pm_state_dir}/config.json`:
 
 Invoke the SEO provider script for traffic and keyword data:
 
@@ -118,8 +118,8 @@ Network errors, rate limits, and provider errors are expected; they do not preve
 
 - **WebSearch** — Broad searches for competitors, market position, recent news
 - **WebFetch** — Fetch marketing sites, support docs, API docs, help centers, review site content
-- **Read** — Read methodology files and existing research in `pm/`
-- **Write** — Write the five output files to `pm/insights/competitors/{slug}/`
+- **Read** — Read methodology files and existing research in `{pm_dir}/`
+- **Write** — Write the five output files to `{pm_dir}/insights/competitors/{slug}/`
 - **Bash** — Invoke `scripts/seo-provider.js` for SEO data; may fail gracefully
 
 You do NOT need Edit, Glob, or Grep.
@@ -130,11 +130,11 @@ After writing all five files, list them with a brief summary:
 
 ```
 Profiling complete. Written files:
-- pm/insights/competitors/{slug}/profile.md — {summary}
-- pm/insights/competitors/{slug}/features.md — {summary}
-- pm/insights/competitors/{slug}/api.md — {summary}
-- pm/insights/competitors/{slug}/seo.md — {summary}
-- pm/insights/competitors/{slug}/sentiment.md — {summary}
+- {pm_dir}/insights/competitors/{slug}/profile.md — {summary}
+- {pm_dir}/insights/competitors/{slug}/features.md — {summary}
+- {pm_dir}/insights/competitors/{slug}/api.md — {summary}
+- {pm_dir}/insights/competitors/{slug}/seo.md — {summary}
+- {pm_dir}/insights/competitors/{slug}/sentiment.md — {summary}
 ```
 
 ## Dispatch Threshold

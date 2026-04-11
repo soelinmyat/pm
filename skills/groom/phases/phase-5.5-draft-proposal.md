@@ -29,8 +29,8 @@ If the feature type is UI or workflow and no flow was generated during the Desig
 
 2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
    ```
-   %% Source: pm/evidence/research/{topic}.md — Finding N: {description}
-   %% Source: pm/insights/competitors/{slug}/features.md — {gap or pattern}
+   %% Source: {pm_dir}/evidence/research/{topic}.md — Finding N: {description}
+   %% Source: {pm_dir}/insights/competitors/{slug}/features.md — {gap or pattern}
    ```
 
 3. Keep diagrams readable — max ~15 nodes. If the flow is more complex, split into sub-flows.
@@ -39,9 +39,9 @@ If the feature type is UI or workflow and no flow was generated during the Desig
 
 If the feature type is UI and no wireframe was generated during the Design phase:
 
-1. **Create the wireframes directory** if it doesn't exist: `pm/backlog/wireframes/`
+1. **Create the wireframes directory** if it doesn't exist: `{pm_dir}/backlog/wireframes/`
 
-2. **Write a self-contained HTML file** to `pm/backlog/wireframes/{topic-slug}.html` with:
+2. **Write a self-contained HTML file** to `{pm_dir}/backlog/wireframes/{topic-slug}.html` with:
    - A `<style>` block — no external dependencies. Use lo-fi wireframe CSS: gray boxes, borders, labels, placeholder areas.
    - Component vocabulary: `.wireframe-screen`, `.wireframe-header`, `.wireframe-nav`, `.wireframe-sidebar`, `.wireframe-content`, `.wireframe-form`, `.wireframe-button`, `.wireframe-input`, `.wireframe-table`, `.wireframe-card`, `.wireframe-placeholder`
    - Layout using CSS flexbox/grid
@@ -49,14 +49,14 @@ If the feature type is UI and no wireframe was generated during the Design phase
 3. **Ground the wireframe in scope, research, and existing UI** (if `codebase_available: true`):
    - Component labels should match the terminology from the scope definition
    - Screen layout should reflect the user flow from Step 2a
-   - Add HTML comments citing sources: `<!-- Source: pm/evidence/research/{topic}.md -->`
+   - Add HTML comments citing sources: `<!-- Source: {pm_dir}/evidence/research/{topic}.md -->`
    - If the project has existing UI, scan for current layout patterns and make the wireframe a natural extension
 
 4. **Keep it lo-fi.** Gray backgrounds, black borders, system fonts. No colors, icons, or images. Max 2-3 screens per wireframe file.
 
 5. **Open the wireframe in the browser** immediately after writing it:
    ```bash
-   open pm/backlog/wireframes/{topic-slug}.html
+   open {pm_dir}/backlog/wireframes/{topic-slug}.html
    ```
 
 #### Step 3: Assemble proposal content
@@ -76,9 +76,9 @@ This content feeds into the HTML PRD (Phase 7) and the proposal backlog entry (P
 
 #### Step 4: Write proposal backlog entry
 
-Write the draft proposal to `pm/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed` and generate the HTML PRD.
+Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed` and generate the HTML PRD.
 
-Create the `pm/backlog/` directory if needed (`mkdir -p pm/backlog`).
+Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
 
 #### Step 5: Show draft and update state
 
@@ -86,7 +86,7 @@ Behavior depends on the current `groom_tier` from session state.
 
 **If `groom_tier` is `quick` or `standard`:**
 
-1. Present the full draft proposal to the user. Show the outcome statement, scope (in-scope and out-of-scope), competitive context summary, and research links from the draft at `pm/backlog/{topic-slug}.md`.
+1. Present the full draft proposal to the user. Show the outcome statement, scope (in-scope and out-of-scope), competitive context summary, and research links from the draft at `{pm_dir}/backlog/{topic-slug}.md`.
 
 2. Ask:
    > "Here's the draft proposal for '{topic}'. Review the outcome, scope, and competitive context above.
@@ -96,13 +96,13 @@ Behavior depends on the current `groom_tier` from session state.
    - Minor edits (wording, AC tweaks): revise the draft and re-show. No need to re-run earlier phases.
    - Scope changes: for `standard`, re-run from Phase 4.5 (Scope Review). For `quick` (which has no scope review), revise scope inline.
 
-4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-7-present.md` to write the proposal presentation to `pm/backlog/proposals/{topic-slug}.html` and open it in the browser.
+4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-7-present.md` to write the proposal presentation to `{pm_dir}/backlog/proposals/{topic-slug}.html` and open it in the browser.
 
 5. Update state and proceed directly to Phase 8 (Link):
 
 ```yaml
 phase: draft-proposal
-proposal_path: pm/backlog/{topic-slug}.md
+proposal_path: {pm_dir}/backlog/{topic-slug}.md
 ```
 
 **If `groom_tier` is `full`:**
@@ -119,5 +119,5 @@ proposal_path: pm/backlog/{topic-slug}.md
 
 ```yaml
 phase: draft-proposal
-proposal_path: pm/backlog/{topic-slug}.md
+proposal_path: {pm_dir}/backlog/{topic-slug}.md
 ```

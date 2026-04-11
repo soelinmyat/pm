@@ -30,19 +30,88 @@ Minimum coverage for `pm:start`:
 
 Ask ONE question at a time. Wait for the user's answer before asking the next.
 
+## Detect Repo Mode
+
+Before detecting the situation, resolve the three path variables that all downstream skills depend on. PM can run in two modes:
+
+- **Same-repo mode:** The `pm/` knowledge base lives in the same repo as the source code.
+- **Separate-repo mode:** The `pm/` knowledge base lives in a different repo, linked via config.
+
+### Variable Definitions
+
+- `pm_dir` — absolute path to the `pm/` knowledge base directory
+- `pm_state_dir` — absolute path to the `.pm/` runtime state directory (always in the same repo as `pm_dir`)
+- `source_dir` — absolute path to the source repo root
+
+### Resolution Logic
+
+1. Read `.pm/config.json` at the current working directory (cwd).
+
+2. **If config contains `pm_repo.path`** (running from a source repo pointing to a separate PM repo):
+   - Resolve `pm_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
+   - Set `pm_dir` = `{resolved_pm_repo_path}/pm`
+   - Set `pm_state_dir` = `{resolved_pm_repo_path}/.pm`
+   - Set `source_dir` = `{cwd}`
+   - Validate the resolved PM repo path exists (`test -d {resolved_pm_repo_path}/pm`). If it does not exist, warn: "PM repo at {resolved_pm_repo_path} not found. Run `pm:setup` to update." Do not crash — fall through to bootstrap offer.
+
+3. **If config contains `source_repo.path`** (running from the PM repo pointing to a separate source repo):
+   - Resolve `source_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
+   - Set `pm_dir` = `{cwd}/pm`
+   - Set `pm_state_dir` = `{cwd}/.pm`
+   - Set `source_dir` = `{resolved_source_repo_path}`
+   - Validate the resolved source repo path exists (`test -d {resolved_source_repo_path}`). If it does not exist, warn: "Source repo at {resolved_source_repo_path} not found. Run `pm:setup` to update." Continue normally — PM can still function without the source repo.
+
+4. **If neither field exists** (same-repo mode — the default):
+   - Set `pm_dir` = `{cwd}/pm`
+   - Set `pm_state_dir` = `{cwd}/.pm`
+   - Set `source_dir` = `{cwd}`
+
+5. **If `.pm/config.json` does not exist and `pm/` does not exist at cwd:**
+   - Leave all three variables unset. The Detect The Situation step will route to Bootstrap Mode.
+
+### Output Resolved Paths
+
+After resolution, output all three paths into the conversation so downstream skills can reference them:
+
+```
+PM directory: {pm_dir}
+PM state: {pm_state_dir}
+Source directory: {source_dir}
+```
+
+This output is required in ALL modes, including same-repo mode. It ensures every downstream skill has explicit paths and never needs to guess.
+
+### Canonical Fallback Paragraphs
+
+These two paragraphs are the single source of truth for path fallback logic. They are included verbatim in every skill that reads or writes PM files (added during Issues #7 and #8):
+
+**pm_dir fallback:** "If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path."
+
+**pm_state_dir fallback:** "If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory."
+
+### Structural Enforcement
+
+Skills that write files to `pm_dir` (groom, ingest, research, strategy) must verify the target directory exists (`test -d {pm_dir}`) before writing. If the directory does not exist, the skill emits an error: "PM directory at {pm_dir} does not exist. Run `pm:start` to configure paths."
+
+This is a structural guard — `mkdir -p` is never used to create `pm_dir` itself (only subdirectories within a confirmed `pm_dir`). This prevents silent file creation in the wrong repo.
+
 ## Detect The Situation
 
-Check these signals in the current project root and the current user request:
+Check these signals using the resolved paths and the current user request:
 
-- Does `pm/` exist?
-- Does `.pm/config.json` exist?
+- Does `pm_dir` exist? (i.e., was `pm_dir` resolved above, and does the directory exist on disk?)
+- Does `.pm/config.json` exist at cwd?
 - Is the user explicitly asking only to open the dashboard or view PM?
 - Did the user pass a path argument after `/pm:start`?
-- Is there active work in `.pm/groom-sessions/*.md` or `.pm/dev-sessions/*.md`?
+- Is there active work? Check for session files in BOTH locations:
+  - Groom sessions: `{pm_state_dir}/groom-sessions/*.md` (always in the PM repo's `.pm/`)
+  - Dev sessions: depends on repo mode:
+    - **Same-repo mode** (`pm_state_dir` == `{source_dir}/.pm`): `{pm_state_dir}/dev-sessions/*.md`
+    - **Separate-repo mode** (`pm_state_dir` != `{source_dir}/.pm`): check BOTH `{pm_state_dir}/dev-sessions/*.md` AND `{source_dir}/.pm/dev-sessions/*.md` — dev sessions are written to the source repo, but a stale session from before the split may exist in the PM repo
 
 Routing:
 
-- If `pm/` or `.pm/config.json` is missing, use **Bootstrap Mode**
+- If `pm_dir` does not exist or `.pm/config.json` is missing, use **Bootstrap Mode**
 - If the project is initialized and the user explicitly asked only to open or view PM, use **Open Mode**
 - If the project is initialized and active work exists, use **Resume Mode**
 - Otherwise use **Pulse Mode**
@@ -93,14 +162,15 @@ Get the user to value quickly. Do not front-load integration questions.
 Create the layered KB folders and seed each index/log file with a minimal header so the KB is self-explanatory.
 
 ```bash
-mkdir -p pm/insights/{product,competitors,business}
-mkdir -p pm/evidence/{research,transcripts,user-feedback}
-mkdir -p pm/backlog
-mkdir -p pm/thinking
-mkdir -p pm/product
+mkdir -p {pm_dir}/insights/{trends,competitors,business}
+mkdir -p {pm_dir}/evidence/{research,transcripts,user-feedback}
+mkdir -p {pm_dir}/backlog
+mkdir -p {pm_dir}/thinking
+mkdir -p {pm_dir}/product
 mkdir -p .pm/imports
 mkdir -p .pm/evidence
 mkdir -p .pm/sessions
+mkdir -p .pm/groom-sessions
 mkdir -p .pm/dev-sessions
 ```
 
@@ -108,23 +178,25 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 
 | File | Content |
 |------|---------|
-| `pm/insights/product/index.md` | `# Product Insights` |
-| `pm/insights/product/log.md` | `# Product Insights Log` |
-| `pm/insights/competitors/index.md` | `# Competitor Insights` |
-| `pm/insights/competitors/log.md` | `# Competitor Insights Log` |
-| `pm/insights/business/index.md` | `# Business Insights` |
-| `pm/insights/business/log.md` | `# Business Insights Log` |
-| `pm/evidence/index.md` | `# Evidence` |
-| `pm/evidence/log.md` | `# Evidence Log` |
-| `pm/evidence/research/index.md` | `# Research` |
-| `pm/evidence/research/log.md` | `# Research Log` |
-| `pm/evidence/transcripts/index.md` | `# Transcripts` |
-| `pm/evidence/transcripts/log.md` | `# Transcripts Log` |
-| `pm/evidence/user-feedback/index.md` | `# User Feedback` |
-| `pm/evidence/user-feedback/log.md` | `# User Feedback Log` |
-| `pm/product/index.md` | `# Product` |
+| `{pm_dir}/insights/trends/index.md` | `# Trends` |
+| `{pm_dir}/insights/trends/log.md` | `# Trends Log` |
+| `{pm_dir}/insights/competitors/index.md` | `# Competitor Insights` |
+| `{pm_dir}/insights/competitors/log.md` | `# Competitor Insights Log` |
+| `{pm_dir}/insights/business/index.md` | `# Business Insights` |
+| `{pm_dir}/insights/business/log.md` | `# Business Insights Log` |
+| `{pm_dir}/evidence/index.md` | `# Evidence` |
+| `{pm_dir}/evidence/log.md` | `# Evidence Log` |
+| `{pm_dir}/evidence/research/index.md` | `# Research` |
+| `{pm_dir}/evidence/research/log.md` | `# Research Log` |
+| `{pm_dir}/evidence/transcripts/index.md` | `# Transcripts` |
+| `{pm_dir}/evidence/transcripts/log.md` | `# Transcripts Log` |
+| `{pm_dir}/evidence/user-feedback/index.md` | `# User Feedback` |
+| `{pm_dir}/evidence/user-feedback/log.md` | `# User Feedback Log` |
+| `{pm_dir}/product/index.md` | `# Product` |
 
-Default insight domains are `product`, `competitors`, and `business`. Users can add custom domains later by creating `pm/insights/<domain>/` with an `index.md`.
+Default insight domains are `trends`, `competitors`, and `business`. Users can add custom domains later by creating `{pm_dir}/insights/<domain>/` with an `index.md`.
+
+**Migration:** If `{pm_dir}/insights/product/` exists and `{pm_dir}/insights/trends/` does not, rename the directory (`mv {pm_dir}/insights/product {pm_dir}/insights/trends`). This preserves existing user data from the pre-1.0.52 naming convention.
 
 ### Step 2: Gitignore
 
@@ -141,7 +213,7 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
 
 ```json
 {
-  "config_schema": 1,
+  "config_schema": 2,
   "project_name": "My Product",
   "integrations": {
     "linear": { "enabled": false },
@@ -186,18 +258,18 @@ If `CLAUDE.md` already contains a `## PM Knowledge Base` section, skip this step
 
 Do **not** create these files during bootstrap. Just mention they exist so the user knows how to customize later:
 
-- `pm/instructions.md` — shared team instructions (terminology, writing style, output format, competitors to track). Read by groom, research, think, ingest, strategy, and refresh skills.
-- `pm/instructions.local.md` — personal overrides (gitignored via `pm/*.local.md`). Takes precedence over shared instructions on conflict.
+- `{pm_dir}/instructions.md` — shared team instructions (terminology, writing style, output format, competitors to track). Read by groom, research, think, ingest, strategy, and refresh skills.
+- `{pm_dir}/instructions.local.md` — personal overrides (gitignored via `pm/*.local.md`). Takes precedence over shared instructions on conflict.
 - `learnings.md` — auto-generated by dev retro. No need to create manually.
 
-Include this as a single line in the bootstrap summary (Step 4): "Create `pm/instructions.md` to customize how PM writes and what it tracks."
+Include this as a single line in the bootstrap summary (Step 4): "Create `{pm_dir}/instructions.md` to customize how PM writes and what it tracks."
 
 ### Step 4: Summarize What Was Created
 
 Before asking the user to choose a workflow, give a brief orientation so they understand the workspace:
 
 > "PM is set up. Here's what was created:
-> - `pm/` — your knowledge base (insights, evidence, backlog, thinking)
+> - `{pm_dir}/` — your knowledge base (insights, evidence, backlog, thinking)
 > - `.pm/` — internal state (gitignored, you won't see this in commits)
 > - Dashboard: {url}"
 
@@ -268,11 +340,22 @@ This script is the shared source of truth used by the runtime hook and should de
 
 - whether PM is initialized
 - whether an update is available
-- whether active delivery or grooming work exists
+- whether active delivery or grooming work exists (see session locations below)
 - the focus summary
 - the backlog summary
 - the recommended next move
 - up to two concrete alternative moves
+
+### Session file locations
+
+When detecting active work, check the correct locations based on repo mode:
+
+| Session type | Same-repo mode | Separate-repo mode |
+|---|---|---|
+| Groom sessions | `{pm_state_dir}/groom-sessions/*.md` | `{pm_state_dir}/groom-sessions/*.md` (PM repo) |
+| Dev sessions | `{pm_state_dir}/dev-sessions/*.md` | `{source_dir}/.pm/dev-sessions/*.md` (source repo) |
+
+In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
 
 4. Pick the recommended next move using this priority:
 

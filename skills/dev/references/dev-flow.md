@@ -18,6 +18,33 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 
 ---
 
+## Stage 0.7: Source Repo Access Check
+
+**Runs AFTER resume detection and AFTER the `pm_dir` / `pm_state_dir` fallback checks.**
+
+Dev requires a source code repository to operate — it creates branches, worktrees, and runs tests. This step ensures a source repo is accessible before proceeding.
+
+1. **If `source_dir` is in conversation context** (set by `pm:start`), use it. Proceed.
+2. **If `source_dir` is NOT in conversation context**, check if cwd contains source code indicators:
+
+   ```bash
+   # Source code indicators — presence of any one means cwd is a source repo
+   ls package.json Cargo.toml go.mod pyproject.toml Gemfile pom.xml \
+      build.gradle settings.gradle CMakeLists.txt Makefile mix.exs \
+      *.sln *.csproj composer.json 2>/dev/null | head -1
+   ```
+
+   - **If any indicator is found:** cwd is a source repo. Set `source_dir` to cwd (same-repo mode). Proceed.
+   - **If NO indicator is found:** Block with this message and stop:
+
+     > Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo.
+
+     Do NOT proceed to Stage 1. The user must either configure `source_repo` in `.pm/config.json` (via `pm:setup separate-repo`) or invoke `pm:dev` from within the source repo.
+
+**Dev session files** (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. When `source_dir` differs from the PM repo root, use `{source_dir}/.pm/dev-sessions/` for all session file operations. In same-repo mode, this is the same location as `{pm_state_dir}/dev-sessions/`.
+
+---
+
 ## Stage 1: Intake
 
 1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
@@ -35,7 +62,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
    - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
    - Invoke `pm:groom` within the same conversation. Pass the Linear context as conversation text: title, description, labels, ID, and the slug to use. Groom picks up this context from the preceding messages — no CLI flags needed.
    - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment. Linear ID: {ID}. Title: {title}. Description: {description}."
-   - After groom completes, re-read `pm/backlog/{slug}.md`. If the file does not exist or `status` is not `proposed`, `planned`, or `in-progress`:
+   - After groom completes, re-read `{pm_dir}/backlog/{slug}.md`. If the file does not exist or `status` is not `proposed`, `planned`, or `in-progress`:
      - Log: `Groom did not produce a valid proposal. Falling back to conversational scoping.`
      - Set `groom_attempted: true` in the session state.
      - Handle inline — confirm scope + ACs with the user conversationally (same as XS/S path). Do not re-invoke groom.
@@ -61,7 +88,7 @@ All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn t
 8. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create `.pm/dev-sessions/{slug}.md` (run `mkdir -p .pm/dev-sessions` first) with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
+9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -108,17 +135,17 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
 7. **Update local backlog status to in-progress:**
 
    <HARD-RULE>
-   If `pm/backlog/{slug}.md` exists, you MUST update it now. Do not defer this to later.
+   If `{pm_dir}/backlog/{slug}.md` exists, you MUST update it now. Do not defer this to later.
    </HARD-RULE>
 
-   a. Read `pm/backlog/{slug}.md`. If it exists and `status` is not already `in-progress` or `done`:
+   a. Read `{pm_dir}/backlog/{slug}.md`. If it exists and `status` is not already `in-progress` or `done`:
       - Set `status: in-progress` in frontmatter
       - Set `updated: {today's date}` in frontmatter
       - If `linear_id` is available in session state and not already in frontmatter, add it
 
-   b. If the backlog item has a `parent` field, find `pm/backlog/{parent-slug}.md` and set its `status: in-progress` too (if not already `in-progress` or `done`).
+   b. If the backlog item has a `parent` field, find `{pm_dir}/backlog/{parent-slug}.md` and set its `status: in-progress` too (if not already `in-progress` or `done`).
 
-   Log: `Backlog: pm/backlog/{slug}.md → in-progress`
+   Log: `Backlog: {pm_dir}/backlog/{slug}.md → in-progress`
 
 ### Worktree environment prep
 
@@ -170,7 +197,7 @@ Read `.pm/dev-sessions/{slug}.md`. If `Stage` is `rfc-approved`:
 
 ### Step 0.5: Linear-sourced dev-ready shortcut
 
-If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{slug}.md` exists:
+If `linear_readiness` is `dev-ready` in the session state AND no `{pm_dir}/backlog/{slug}.md` exists:
 - This is a Linear issue that passed the readiness check. No local proposal needed.
 - **RFC needed.** Proceed to Stage 3 (RFC Generation).
 - Pass the Linear issue data (title, description, labels, ID) as product context to the RFC generation prompt, in place of the proposal/PRD context block:
@@ -195,7 +222,7 @@ If `linear_readiness` is `dev-ready` in the session state AND no `pm/backlog/{sl
 
 ### Step 1: Check for existing proposal + RFC
 
-Look for `pm/backlog/{slug}.md`. If found, read frontmatter:
+Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`. Note: for `planned` items resumed after a prior session, no old session file exists (it was deleted on stop). This is the expected fresh-session path.
@@ -212,9 +239,9 @@ If no proposal exists, decide whether grooming is needed:
 
 | Signal | Check |
 |--------|-------|
-| Strategy | `pm/strategy.md` exists |
-| Research | Any file in `pm/evidence/research/` |
-| Competitors | Any `pm/insights/competitors/*/profile.md` |
+| Strategy | `{pm_dir}/strategy.md` exists |
+| Research | Any file in `{pm_dir}/evidence/research/` |
+| Competitors | Any `{pm_dir}/insights/competitors/*/profile.md` |
 
 Classify:
 - **Fresh** (none of the three signals) → max tier: `quick`
@@ -252,7 +279,7 @@ Log the decision in `.pm/dev-sessions/{slug}.md`:
 
 ## Stage 3: RFC Generation (M/L/XL)
 
-Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `pm/backlog/rfcs/{slug}.html` using the reference template.
+Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` using the reference template.
 
 Dispatch a fresh developer agent that writes the RFC. A separate fresh agent handles implementation — the approved RFC is the handoff contract.
 
@@ -273,6 +300,9 @@ Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 {PROJECT_CONTEXT}
 
 **CWD:** {REPO_ROOT}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 **Sub-issue description:**
 {ISSUE_DESCRIPTION}
 
@@ -305,9 +335,12 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-**Session file:** .pm/dev-sessions/{slug}.md
-**Proposal:** pm/backlog/{slug}.md
-**PRD:** pm/backlog/proposals/{slug}.html
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
+**Session file:** {source_dir}/.pm/dev-sessions/{slug}.md
+**Proposal:** {pm_dir}/backlog/{slug}.md
+**PRD:** {pm_dir}/backlog/proposals/{slug}.html
 
 Read the proposal and PRD for full product context.
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
@@ -333,12 +366,12 @@ The RFC may produce multiple Issues if the work naturally splits. Use splitting-
 A single Issue is fine if the work is genuinely one concern.
 {END IF}
 
-Write the RFC as a self-contained HTML file to pm/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
+Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
 Commit the RFC, then end your response with:
 
 RFC_COMPLETE
 - slug: {slug}
-- path: pm/backlog/rfcs/{slug}.html
+- path: {pm_dir}/backlog/rfcs/{slug}.html
 - summary: {3-line summary}
 - issues: {N}
 
@@ -352,7 +385,7 @@ Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RF
 After receiving `RFC_COMPLETE`:
 1. Record `task_count: {N}` in the session state (from `issues: {N}`).
 2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
-3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `pm/backlog/{slug}.md`
+3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
 4. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 5. Proceed to Stage 4.
 
@@ -369,8 +402,8 @@ Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-wit
 ```text
 Review this engineering RFC for architecture soundness and risk.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.html
-**Proposal for reference:** pm/backlog/{slug}.md
+**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
+**Proposal for reference:** {pm_dir}/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -381,8 +414,8 @@ Review this engineering RFC for architecture soundness and risk.
 ```text
 Review this engineering RFC for testing strategy and coverage.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.html
-**Proposal for reference:** pm/backlog/{slug}.md
+**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
+**Proposal for reference:** {pm_dir}/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -393,8 +426,8 @@ Review this engineering RFC for testing strategy and coverage.
 ```text
 Review this engineering RFC for complexity and long-term maintainability.
 
-**RFC to review:** pm/backlog/rfcs/{slug}.html
-**Proposal for reference:** pm/backlog/{slug}.md
+**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
+**Proposal for reference:** {pm_dir}/backlog/{slug}.md
 
 ## Project Context
 {PROJECT_CONTEXT}
@@ -419,9 +452,9 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 3. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
 4. Commit RFC updates.
 5. Update RFC frontmatter to `status: approved`.
-6. Update the proposal status to `planned` in `pm/backlog/{slug}.md`.
+6. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
 7. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
-   - **Answer it** using the proposal (`pm/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
+   - **Answer it** using the proposal (`{pm_dir}/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
    - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
    - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
    - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
@@ -431,7 +464,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    The RFC is already HTML (written in Stage 3). After resolving questions and updating the Change Log, open it directly:
 
    ```bash
-   open pm/backlog/rfcs/{slug}.html
+   open {pm_dir}/backlog/rfcs/{slug}.html
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
@@ -441,15 +474,15 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Stage 5.
     - **(b) Stop and resume later** → Do these in order:
-      1. Update `pm/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
+      1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
       2. Delete the session file: `rm .pm/dev-sessions/{slug}.md`
          (No need to set `completed_at` first — the file is being deleted.
          The backlog status and RFC are the durable artifacts.)
       3. Print:
          ```
          Session complete. RFC approved, ready to build.
-         - RFC: pm/backlog/rfcs/{slug}.html
-         - Backlog: pm/backlog/{slug}.md (status: planned)
+         - RFC: {pm_dir}/backlog/rfcs/{slug}.html
+         - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
          - Resume: run /dev {slug} to start implementation.
          ```
       **Stop here. Do not proceed to Stage 5.**
@@ -469,9 +502,12 @@ Implement the approved RFC.
 
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
-**RFC:** pm/backlog/rfcs/{slug}.html
+**RFC:** {pm_dir}/backlog/rfcs/{slug}.html
 **Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -536,9 +572,12 @@ Implement the approved RFC.
 
 **CWD:** {TASK_WORKTREE_PATH}
 **Branch:** feat/{task-slug}
-**RFC:** pm/backlog/rfcs/{slug}.html
+**RFC:** {pm_dir}/backlog/rfcs/{slug}.html
 **Your issue:** Issue {N} — {ISSUE_TITLE}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -674,7 +713,7 @@ After merge, you MUST complete ALL status updates below — both local backlog A
 
 These happen during Stage 2 (Workspace), not after merge. Listed here for completeness.
 
-**Local backlog:** Handled in Stage 2 step 7 — sets `pm/backlog/{slug}.md` status to `in-progress`.
+**Local backlog:** Handled in Stage 2 step 7 — sets `{pm_dir}/backlog/{slug}.md` status to `in-progress`.
 
 **Linear** (if available, ticket-originated):
 ```
@@ -705,10 +744,10 @@ You MUST complete ALL steps below in order. Every step applies whether or not an
 
 **Step 1: Create local backlog entry if missing.**
 
-If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `pm/backlog/{slug}.md` does NOT exist:
-- Create `pm/backlog/` if needed: `mkdir -p pm/backlog`
+If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `{pm_dir}/backlog/{slug}.md` does NOT exist:
+- Create `{pm_dir}/backlog/` if needed: `mkdir -p {pm_dir}/backlog`
 - **ID rule:** When Linear is available, use the Linear identifier as the local `id`. Only fall back to local `PM-{NNN}` sequence when no tracker is configured.
-- Write `pm/backlog/{slug}.md`:
+- Write `{pm_dir}/backlog/{slug}.md`:
   ```yaml
   ---
   type: backlog-issue
@@ -734,27 +773,27 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `pm/
   Originated from Linear issue {linear_id}. Product memory created at ship.
   ```
 - Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify. Fix errors before proceeding.
-- Log: `Backlog created: pm/backlog/{slug}.md (id: {linear_id})`
+- Log: `Backlog created: {pm_dir}/backlog/{slug}.md (id: {linear_id})`
 
 **Step 2: Update local backlog item(s) to done.**
 
-Read `pm/backlog/{slug}.md`. Update frontmatter:
+Read `{pm_dir}/backlog/{slug}.md`. Update frontmatter:
 - Set `status: done`
 - Set `updated: {today's date}`
 - If `linear_id` is available in session state and not already in frontmatter, add it
 - If `prs` field exists, append `"#{pr_number}"` if not already listed
 
-**Multi-task:** Also update each sub-issue's backlog entry (`pm/backlog/{sub-issue-slug}.md`) to `status: done`.
+**Multi-task:** Also update each sub-issue's backlog entry (`{pm_dir}/backlog/{sub-issue-slug}.md`) to `status: done`.
 
 Verify the file was written: read it back and confirm `status: done`.
 
-Log: `Backlog: pm/backlog/{slug}.md → done`
+Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
 **Step 3: Update parent/proposal status.**
 
 a. If the backlog item has a `parent` field pointing to a proposal slug:
    - Read all sibling backlog items (same `parent` value)
-   - If ALL siblings are now `done`, update `pm/backlog/{parent}.md` — set `status: done`
+   - If ALL siblings are now `done`, update `{pm_dir}/backlog/{parent}.md` — set `status: done`
    - Log: `Proposal: {parent} → done`
 
 b. If this is a standalone proposal (has `prd:` field, no `parent`), its status was already set to `done` in Step 2.
@@ -782,7 +821,7 @@ Log: `Linear: {ISSUE_ID} → Done (+ {N} children closed)`
 
 **Step 6: Verify.**
 
-- Read `pm/backlog/{slug}.md` — confirm `status: done`
+- Read `{pm_dir}/backlog/{slug}.md` — confirm `status: done`
 - If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{ISSUE_ID}" })` — confirm state is "Done"
 - If either check fails, retry the update. Do NOT proceed until confirmed.
 
@@ -806,9 +845,11 @@ When task_count > 1, announce progress at every stage transition and after each 
 In autonomous mode (after Stage 4 approval), do NOT pause for confirmation. Announce and proceed.
 </HARD-RULE>
 
-## State File (.pm/dev-sessions/{slug}.md)
+## State File ({source_dir}/.pm/dev-sessions/{slug}.md)
 
 The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
+
+**Repo location:** Dev sessions always live in the source repo's `.pm/dev-sessions/` directory — even in separate-repo mode. This keeps dev state co-located with the code being modified. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before.
 
 After compaction or if context feels stale, read this file to recover full session state.
 
@@ -824,7 +865,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 | Ticket | PROJ-456 |
 | Repo root | /path/to/project |
 | Active cwd | /path/to/project/.worktrees/feature-name |
-| RFC | pm/backlog/rfcs/feature-name.html |
+| RFC | {pm_dir}/backlog/rfcs/feature-name.html |
 | Branch | feat/feature-name |
 | Worktree | .worktrees/feature-name |
 | Started at | 2026-04-04T01:00:00Z |

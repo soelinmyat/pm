@@ -64,7 +64,7 @@ Optional size signals:
 
 ```bash
 --input-file "$STATE_FILE"
---output-file "pm/research/topic/findings.md"
+--output-file "{pm_dir}/research/topic/findings.md"
 ```
 
 or:
@@ -139,5 +139,5 @@ After telemetry exists, generate a maintainer summary with:
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js \
   --project-dir "$PWD" \
-  --output pm/research/tracking-dogfooding/baseline.md
+  --output {pm_dir}/research/tracking-dogfooding/baseline.md
 ```

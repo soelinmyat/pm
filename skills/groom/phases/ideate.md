@@ -2,7 +2,7 @@
 
 Surface what to build next. Mines the entire knowledge base — strategy, landscape, competitor gaps, customer evidence, and existing backlog — to generate ranked feature ideas grounded in evidence.
 
-Ideas are early-stage backlog items. They live in `pm/backlog/` with `status: idea` and get promoted to `drafted` when groomed via the normal lifecycle.
+Ideas are early-stage backlog items. They live in `{pm_dir}/backlog/` with `status: idea` and get promoted to `drafted` when groomed via the normal lifecycle.
 
 **Output formatting:** Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating output.
 
@@ -10,13 +10,13 @@ Ideas are early-stage backlog items. They live in `pm/backlog/` with `status: id
 
 ## Prerequisite Check
 
-1. Check if `pm/strategy.md` exists. If not:
+1. Check if `{pm_dir}/strategy.md` exists. If not:
    > "No strategy doc found. Ideation without strategy is just brainstorming. Run /pm:strategy first?"
    Wait for response. Do not block — proceed if the user insists.
 
-2. Check if `pm/insights/business/landscape.md` exists. Note its presence for signal mining. Not required.
+2. Check if `{pm_dir}/insights/business/landscape.md` exists. Note its presence for signal mining. Not required.
 
-3. Check if `pm/insights/competitors/index.md` exists. Note profiled competitors. Not required.
+3. Check if `{pm_dir}/insights/competitors/index.md` exists. Note profiled competitors. Not required.
 
 ---
 
@@ -26,16 +26,16 @@ Read all available sources before generating ideas. Each idea must trace back to
 
 | Source | Path | What to extract |
 |---|---|---|
-| Strategy priorities | `pm/strategy.md` § 6 | Top 3 priorities — ideas should advance these |
-| Strategy non-goals | `pm/strategy.md` § 7 | Filter out ideas that conflict |
-| Market gaps | `pm/insights/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
-| Feature matrix | `pm/insights/competitors/index.md` | Cells where the product shows "No" or "Planned" |
-| Competitor weaknesses | `pm/insights/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
-| Landscape observations | `pm/insights/business/landscape.md` § Initial Observations | Whitespace and macro trends |
-| Keyword opportunities | `pm/insights/business/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
-| Customer evidence | `pm/evidence/research/index.md` | Internal/mixed topics with high evidence counts |
-| Topic research | `pm/evidence/research/*.md` | Open questions and implications |
-| Existing backlog | `pm/backlog/*.md` | Avoid duplicating what's already there |
+| Strategy priorities | `{pm_dir}/strategy.md` § 6 | Top 3 priorities — ideas should advance these |
+| Strategy non-goals | `{pm_dir}/strategy.md` § 7 | Filter out ideas that conflict |
+| Market gaps | `{pm_dir}/insights/competitors/index.md` § Market Gaps | Capabilities absent across competitors |
+| Feature matrix | `{pm_dir}/insights/competitors/index.md` | Cells where the product shows "No" or "Planned" |
+| Competitor weaknesses | `{pm_dir}/insights/competitors/*/profile.md` § Weaknesses | Problems competitors have that we could solve better |
+| Landscape observations | `{pm_dir}/insights/business/landscape.md` § Initial Observations | Whitespace and macro trends |
+| Keyword opportunities | `{pm_dir}/insights/business/landscape.md` § Keyword Landscape | Low-competition, high-intent keywords |
+| Customer evidence | `{pm_dir}/evidence/research/index.md` | Internal/mixed topics with high evidence counts |
+| Topic research | `{pm_dir}/evidence/research/*.md` | Open questions and implications |
+| Existing backlog | `{pm_dir}/backlog/*.md` | Avoid duplicating what's already there |
 
 ---
 
@@ -48,8 +48,8 @@ Auditing existing capabilities is required before generating ideas. Do NOT skip 
 Read strategy, feature matrix, and codebase (if present). Without this step, ideation produces duplicates.
 </HARD-GATE>
 
-1. **Read strategy context** — `pm/strategy.md` describes the product identity, ICP, and what's in/out of scope.
-2. **Read the feature matrix** — `pm/insights/competitors/index.md` shows what the product already does.
+1. **Read strategy context** — `{pm_dir}/strategy.md` describes the product identity, ICP, and what's in/out of scope.
+2. **Read the feature matrix** — `{pm_dir}/insights/competitors/index.md` shows what the product already does.
 3. **Explore the project codebase (if one exists)** — scan source code to catalog existing capabilities. If no codebase exists, rely on strategy and the feature matrix.
 
 **Comprehension check:** Before proceeding, state: (a) the top 3 priorities, (b) the 3 most relevant competitive gaps, and (c) 1 customer evidence signal if available.
@@ -82,7 +82,7 @@ Flag ideas requiring unbuilt features. Deprioritize those with 2+ unbuilt depend
 Drop ideas solving hypothetical future problems or optimizing non-bottlenecks.
 
 #### Filter 5: Non-goal conflict?
-Check against `pm/strategy.md` § 7. Flag conflicts explicitly — don't silently drop.
+Check against `{pm_dir}/strategy.md` § 7. Flag conflicts explicitly — don't silently drop.
 
 ### Step 4: Shape surviving ideas
 
@@ -124,9 +124,9 @@ Then ask:
 
 ### Step 7: Write to backlog
 
-On user confirmation, write each idea to `pm/backlog/{idea-slug}.md`.
+On user confirmation, write each idea to `{pm_dir}/backlog/{idea-slug}.md`.
 
-**ID rule:** If a Linear issue is created for this idea, use the Linear identifier as `id`. Otherwise fall back to the local `PM-{NNN}` sequence (scan `pm/backlog/*.md` for highest `id`, increment by 1).
+**ID rule:** If a Linear issue is created for this idea, use the Linear identifier as `id`. Otherwise fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1).
 
 ```markdown
 ---
@@ -165,10 +165,10 @@ updated: YYYY-MM-DD
 {What to validate before building.}
 ```
 
-**ID assignment:** Scan existing `pm/backlog/*.md` for highest `id` and increment. First issue is `PM-001`.
+**ID assignment:** Scan existing `{pm_dir}/backlog/*.md` for highest `id` and increment. First issue is `PM-001`.
 
 After writing:
-> "Wrote {N} ideas to pm/backlog/. Run /pm:groom {slug} to promote any idea to a fully scoped issue."
+> "Wrote {N} ideas to {pm_dir}/backlog/. Run /pm:groom {slug} to promote any idea to a fully scoped issue."
 
 ---
 
@@ -186,6 +186,6 @@ When the user picks an idea to groom:
 1. Every idea must cite at least one signal source with a file path.
 2. Every idea must pass all 5 filters.
 3. Do not suggest features that already exist.
-4. Do not duplicate ideas already in `pm/backlog/`.
+4. Do not duplicate ideas already in `{pm_dir}/backlog/`.
 5. Show what was filtered out and why.
 6. If no knowledge base exists, say: "Not enough data. Run /pm:research and /pm:strategy first."
