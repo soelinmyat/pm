@@ -21,6 +21,7 @@ const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];
 const VALID_GAP = ["unique", "partial", "parity", "behind"];
 
+const VALID_MEMORY_CATEGORIES = ["scope", "research", "review", "process", "quality"];
 const VALID_INSIGHT_STATUSES = ["active", "stale", "draft"];
 const VALID_CONFIDENCE = ["high", "medium", "low"];
 const VALID_SOURCE_ORIGINS = ["internal", "external", "mixed"];
@@ -690,6 +691,112 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
   }
 }
 
+function validateMemoryEntry(relativeFile, entry, index, errors, requireArchivedAt) {
+  const prefix = `entries[${index}]`;
+  const requiredFields = ["date", "source", "category", "learning"];
+  for (const field of requiredFields) {
+    if (entry[field] === undefined || entry[field] === null) {
+      pushIssue(errors, relativeFile, prefix, `missing required field "${field}"`);
+    }
+  }
+
+  if (entry.date && !isIsoDate(entry.date)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      prefix,
+      `invalid date format "${entry.date}" — expected YYYY-MM-DD`
+    );
+  }
+
+  if (entry.category && !VALID_MEMORY_CATEGORIES.includes(entry.category)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      prefix,
+      `invalid category "${entry.category}" — valid: ${VALID_MEMORY_CATEGORIES.join(", ")}`
+    );
+  }
+
+  if (entry.pinned !== undefined && entry.pinned !== "true" && entry.pinned !== "false") {
+    pushIssue(errors, relativeFile, prefix, `pinned must be a boolean, got "${entry.pinned}"`);
+  }
+
+  if (requireArchivedAt) {
+    if (entry.archived_at === undefined || entry.archived_at === null) {
+      pushIssue(errors, relativeFile, prefix, `missing required field "archived_at"`);
+    } else if (!isIsoDate(entry.archived_at)) {
+      pushIssue(
+        errors,
+        relativeFile,
+        prefix,
+        `invalid archived_at format "${entry.archived_at}" — expected YYYY-MM-DD`
+      );
+    }
+  }
+}
+
+function validateMemoryFile(pmDir, errors) {
+  const filePath = path.join(pmDir, "memory.md");
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const relativeFile = "memory.md";
+  const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+  if (!parsed) {
+    return;
+  }
+
+  const data = parsed.data;
+
+  if (data.type !== "project-memory") {
+    pushIssue(errors, relativeFile, "type", `expected "project-memory", got "${data.type}"`);
+  }
+
+  if (!Array.isArray(data.entries)) {
+    pushIssue(errors, relativeFile, "entries", "entries must be a list");
+    return;
+  }
+
+  for (let i = 0; i < data.entries.length; i++) {
+    validateMemoryEntry(relativeFile, data.entries[i], i, errors, false);
+  }
+}
+
+function validateMemoryArchive(pmDir, errors) {
+  const filePath = path.join(pmDir, "memory-archive.md");
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const relativeFile = "memory-archive.md";
+  const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+  if (!parsed) {
+    return;
+  }
+
+  const data = parsed.data;
+
+  if (data.type !== "project-memory-archive") {
+    pushIssue(
+      errors,
+      relativeFile,
+      "type",
+      `expected "project-memory-archive", got "${data.type}"`
+    );
+  }
+
+  if (!Array.isArray(data.entries)) {
+    pushIssue(errors, relativeFile, "entries", "entries must be a list");
+    return;
+  }
+
+  for (let i = 0; i < data.entries.length; i++) {
+    validateMemoryEntry(relativeFile, data.entries[i], i, errors, true);
+  }
+}
+
 function validate(pmDir) {
   const errors = [];
   const warnings = [];
@@ -827,6 +934,9 @@ function validate(pmDir) {
     const content = fs.readFileSync(featuresPath, "utf8");
     validateFeaturesFile(pmDir, featuresPath, content, errors);
   }
+
+  validateMemoryFile(pmDir, errors);
+  validateMemoryArchive(pmDir, errors);
 
   return { errors, warnings, backlogCount: backlogIds.size };
 }
