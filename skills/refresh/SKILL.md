@@ -36,7 +36,7 @@ Minimum coverage for `pm:refresh`:
 | `seo` | Scoped: SEO files only (all `*/seo.md` + landscape keyword sections) |
 | `landscape` | Scoped: `{pm_dir}/insights/business/landscape.md` only |
 | `topics` | Scoped: all `{pm_dir}/evidence/research/*.md` |
-| `consolidate` | Consolidation only — skip Phases 1-2 (staleness audit + evidence patching), jump directly to Phase 2.5. Runs overlap merge, cross-domain tunnels, and orphan lint. If hot index does not exist, falls back to reading insight files directly. |
+| `consolidate` | Consolidation only — skip Phases 1-2 (staleness audit + evidence patching), jump directly to Phase 2.5. Runs overlap merge, cross-domain tunnels, orphan lint, and contradiction detection. If hot index does not exist, falls back to reading insight files directly. |
 | `{domain}` | Scoped: all refreshable files within a discovered insights domain |
 | `{domain}/{slug}` | Scoped: one discovered insight file or competitor folder |
 | `{slug}` | Backward-compatible shorthand for `competitors/{slug}` when that competitor exists |
@@ -382,7 +382,7 @@ If no evidence files were refreshed, skip routing entirely.
 
 ### Phase 2.5: Consolidation
 
-After insight routing completes (or directly when invoked via `pm:refresh consolidate`), run three deterministic consolidation checks. All actions respect the trust level — interactive mode approves each action individually; auto-accept mode applies all and reports.
+After insight routing completes (or directly when invoked via `pm:refresh consolidate`), run three deterministic consolidation checks plus one LLM-based contradiction detection step. All actions respect the trust level — interactive mode approves each action individually; auto-accept mode applies all and reports (except contradictions, which are flagged but never auto-resolved).
 
 **Single-session constraint:** Consolidation modifies evidence `cited_by` entries. Concurrent sessions running both ingest and consolidation may conflict. The `validate.js` check after each merge action detects this. If validation fails mid-consolidation, halt and report the conflict.
 
@@ -471,7 +471,75 @@ Flag insights that are stale drafts with no evidence backing.
 - In interactive mode: ask for approval before each deletion.
 - In auto-accept mode: delete the file, update domain `index.md` and `log.md`, and report.
 
-#### Step 5: Regenerate hot index
+#### Step 5: Contradiction detection
+
+Within each domain, detect insights that make contradictory claims using LLM pairwise comparison. This step runs after the deterministic checks (overlap, tunnels, orphans) because it is nondeterministic and more expensive.
+
+**Scale guard:**
+- For each domain, count the number of active insights (status is not `archived`).
+- Compute pairwise comparisons: `n * (n - 1) / 2`.
+- If pairwise comparisons exceed 50 (more than ~10 active insights), log a warning and skip that domain:
+  `"Too many insights for full contradiction scan in {domain} ({n} insights, {pairs} pairs). Run with --domain {d} to narrow scope."`
+- Maximum 50 pairwise comparisons per domain.
+
+**Detection:**
+1. For each domain that passes the scale guard, enumerate all pairs of active insight files.
+2. For each pair, read both insights' synthesis sections (the body text below the frontmatter).
+3. Dispatch an LLM pairwise comparison with the following prompt structure:
+
+```
+You are comparing two product insights for contradictions.
+
+Insight A: {path_A}
+---
+{synthesis_A}
+---
+
+Insight B: {path_B}
+---
+{synthesis_B}
+---
+
+Do these two insights make contradictory claims? A contradiction means they assert
+opposite or incompatible things about the same topic — not merely different emphasis
+or scope.
+
+Examples of contradictions:
+- Insight A says "Zero-infra is the primary differentiator" while Insight B says
+  "Zero-infra is a limitation that must be overcome."
+- Insight A says "Users prefer guided workflows" while Insight B says
+  "Users reject structured processes in favor of freeform input."
+
+Examples that are NOT contradictions:
+- Insight A covers pricing while Insight B covers onboarding (different topics).
+- Insight A says "Feature X is important" while Insight B says "Feature X needs
+  improvement" (complementary, not contradictory).
+
+If contradictory: respond with CONTRADICTORY, then quote the specific conflicting
+statement from each insight.
+If not contradictory: respond with COMPATIBLE.
+```
+
+4. Collect all pairs flagged as `CONTRADICTORY`.
+
+**Contradiction report:**
+- Present each contradiction with both insight file paths and the specific conflicting text quoted from each.
+- Format:
+
+```
+Contradiction: {insight_A_path} vs {insight_B_path}
+  A claims: "{quoted_claim_A}"
+  B claims: "{quoted_claim_B}"
+```
+
+**Resolution (trust-level aware):**
+- In **interactive mode**: for each contradiction, ask the user to choose:
+  - **(a) Keep both** — no action, the insights stand as-is.
+  - **(b) Rewrite one** — user specifies which insight to rewrite; rewrite its synthesis to resolve the contradiction using the ripple rewrite pattern from `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md` Step 5.5.
+  - **(c) Merge into one** — combine both insights into the survivor (same merge procedure as Step 2: Overlap detection). Delete the absorbed insight, update `cited_by` entries, domain index, and log.
+- In **auto-accept mode**: contradictions are flagged in the consolidation report but are **NOT auto-resolved**. Contradiction resolution requires human judgment. Log each contradiction for the final summary.
+
+#### Step 6: Regenerate hot index
 
 After all consolidation actions complete:
 
@@ -479,7 +547,7 @@ After all consolidation actions complete:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --generate
 ```
 
-#### Step 6: Final validation
+#### Step 7: Final validation
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
