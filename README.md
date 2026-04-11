@@ -102,8 +102,21 @@ pm/
 | `/pm:ingest <path>` | Import customer evidence from files or folders |
 | `/pm:note` | Quick-capture product observations and customer signals |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
-| `/pm:sync [push\|pull\|status]` | Sync knowledge base changes across machines |
+| `/pm:sync [push\|pull\|status]` | Sync knowledge base changes across machines ([Publisher](#pricing)) |
 | `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
+
+## Pricing
+
+PM is free to use locally. Syncing and sharing via [productmemory.io](https://productmemory.io) requires a Publisher account.
+
+| | Free | Publisher |
+|---|---|---|
+| **Price** | $0 | $10/month ($60/year) |
+| Full plugin + all skills | Yes | Yes |
+| Local knowledge base | Yes | Yes |
+| Read shared content | Yes | Yes |
+| Sync KB across devices | — | Yes |
+| Push and share with teammates | — | Yes |
 
 ## How PM Fits a Team
 
