@@ -362,3 +362,19 @@ test("buildStatus surfaces oldest planned item when multiple exist", () => {
     project.cleanup();
   }
 });
+
+test("buildStatus handles workspace with pm/product/ directory", () => {
+  const project = createProject();
+  try {
+    project.mkdir("pm");
+    project.write(".pm/config.json", '{"config_schema":1}');
+    project.write("pm/product/index.md", "# Product\n");
+
+    const status = buildStatus(project.root);
+    assert.equal(status.initialized, true);
+    // pm/product/ presence should not break status
+    assert.ok(status.focus);
+  } finally {
+    project.cleanup();
+  }
+});

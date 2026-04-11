@@ -1636,6 +1636,11 @@ function dashboardPage(title, activeNav, bodyContent, projectName) {
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>',
     },
     {
+      href: "/product",
+      label: "Product",
+      icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1L2 4.5v7L8 15l6-3.5v-7L8 1z"/><path d="M8 8v7"/><path d="M2 4.5L8 8l6-3.5"/></svg>',
+    },
+    {
       href: "/roadmap",
       label: "Roadmap",
       icon: '<svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="4" height="10" rx="1"/><rect x="8" y="6" width="4" height="7" rx="1"/></svg>',
@@ -2559,6 +2564,8 @@ function routeDashboard(req, res, pmDir) {
     }
   } else if (urlPath === "/kb") {
     handleKnowledgeBasePage(res, pmDir, tab || null);
+  } else if (urlPath === "/product") {
+    handleProductPage(res, pmDir);
   } else if (urlPath === "/research") {
     // Redirect old route to KB
     res.writeHead(302, { Location: "/kb?tab=research" });
@@ -5365,6 +5372,339 @@ function handleInsightDocumentDetail(res, pmDir, domain, slug) {
   const html = dashboardPage(title, "/kb", pageBody);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
+}
+
+function handleProductPage(res, pmDir) {
+  const featuresPath = path.join(pmDir, "product", "features.md");
+
+  // Empty state: file does not exist
+  if (!fs.existsSync(featuresPath)) {
+    const body = renderEmptyState(
+      "No feature inventory yet",
+      "Run the features skill to scan your codebase and generate a structured feature inventory.",
+      "/pm:features",
+      "Scan codebase for features"
+    );
+    const html = dashboardPage("Product", "/product", body);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
+  const raw = fs.readFileSync(featuresPath, "utf-8");
+  const { data, body: mdBody } = parseFrontmatter(raw);
+
+  // Empty state: file exists but zero features
+  if (Number(data.feature_count) === 0 || !Array.isArray(data.areas) || data.areas.length === 0) {
+    const body = renderEmptyState(
+      "No features detected",
+      "Your feature inventory is empty. Ensure your project has 10+ source files with recognizable entry points (routes, components, API handlers).",
+      "/pm:features",
+      "Re-scan codebase"
+    );
+    const html = dashboardPage("Product", "/product", body);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
+  // Parse markdown body into areas and features
+  const areas = [];
+  let currentArea = null;
+  let currentFeature = null;
+  const lines = mdBody.split("\n");
+
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      if (currentFeature && currentArea) currentArea.features.push(currentFeature);
+      currentFeature = null;
+      currentArea = { name: line.slice(3).trim(), features: [] };
+      areas.push(currentArea);
+    } else if (line.startsWith("### ")) {
+      if (currentFeature && currentArea) currentArea.features.push(currentFeature);
+      const name = line.slice(4).trim();
+      const slug = slugifySessionTopic(name);
+      currentFeature = { name, slug, lines: [] };
+    } else if (currentFeature) {
+      currentFeature.lines.push(line);
+    }
+  }
+  if (currentFeature && currentArea) currentArea.features.push(currentFeature);
+
+  // Build feature nav (left column)
+  let featureNavHtml = '<div class="product-nav">';
+  featureNavHtml += '<div class="product-nav-header">Features</div>';
+  for (const area of areas) {
+    featureNavHtml += '<div class="product-nav-section">';
+    featureNavHtml += '<div class="product-nav-section-title">' + escHtml(area.name) + "</div>";
+    for (const f of area.features) {
+      featureNavHtml +=
+        '<a href="#' + escHtml(f.slug) + '" class="product-nav-link">' + escHtml(f.name) + "</a>";
+    }
+    featureNavHtml += "</div>";
+  }
+  // Metadata card
+  featureNavHtml += '<div class="product-nav-meta">';
+  featureNavHtml +=
+    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Features</span><span class="product-nav-meta-value">' +
+    escHtml(String(data.feature_count || "0")) +
+    "</span></div>";
+  featureNavHtml +=
+    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Areas</span><span class="product-nav-meta-value">' +
+    escHtml(String(data.area_count || "0")) +
+    "</span></div>";
+  featureNavHtml +=
+    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Files scanned</span><span class="product-nav-meta-value">' +
+    escHtml(String(data.files_scanned || "0")) +
+    "</span></div>";
+  featureNavHtml +=
+    '<div class="product-nav-meta-row"><span class="product-nav-meta-label">Generated</span><span class="product-nav-meta-value">' +
+    escHtml(String(data.generated || "-")) +
+    "</span></div>";
+  featureNavHtml += "</div>";
+  featureNavHtml += "</div>";
+
+  // Build main content (center column)
+  let mainHtml = '<div class="product-main">';
+  mainHtml += '<h1 class="product-page-title">Product Features</h1>';
+  mainHtml +=
+    '<p class="product-page-desc">Auto-generated inventory of what this product does, extracted from the codebase by ' +
+    renderClickToCopy("/pm:features") +
+    ".</p>";
+
+  // Tech stack badges
+  const techStack = Array.isArray(data.tech_stack) ? data.tech_stack : [];
+  if (techStack.length > 0 || data.feature_count) {
+    mainHtml += '<div class="product-badge-row">';
+    if (techStack.length > 0) {
+      mainHtml +=
+        '<span class="product-badge product-badge-accent">' +
+        escHtml(techStack.join(" + ")) +
+        "</span>";
+    }
+    mainHtml +=
+      '<span class="product-badge product-badge-success">' +
+      escHtml(String(data.feature_count)) +
+      " features</span>";
+    mainHtml +=
+      '<span class="product-badge product-badge-dim">Generated ' +
+      escHtml(String(data.generated || "")) +
+      "</span>";
+    mainHtml += "</div>";
+  }
+
+  mainHtml += '<hr class="product-divider">';
+
+  // Build right TOC anchors
+  let tocHtml = '<div class="product-toc">';
+  tocHtml += '<div class="product-toc-title">On this page</div>';
+
+  // Render feature sections
+  const allFeatures = areas.flatMap((a) => a.features);
+  for (let aIdx = 0; aIdx < areas.length; aIdx++) {
+    const area = areas[aIdx];
+    const areaSlug = slugifySessionTopic(area.name);
+    mainHtml += '<div class="product-area-section" id="' + escHtml(areaSlug) + '-section">';
+    mainHtml += '<h2 class="product-area-title">' + escHtml(area.name) + "</h2>";
+
+    tocHtml +=
+      '<a href="#' +
+      escHtml(areaSlug) +
+      '-section" class="product-toc-link product-toc-area">' +
+      escHtml(area.name) +
+      "</a>";
+
+    for (let fIdx = 0; fIdx < area.features.length; fIdx++) {
+      const f = area.features[fIdx];
+      mainHtml += '<div class="product-feature-item" id="' + escHtml(f.slug) + '">';
+      mainHtml += '<h3 class="product-feature-title">' + escHtml(f.name) + "</h3>";
+
+      // Parse feature content
+      let featureBodyHtml = '<div class="product-feature-body">';
+      let inList = false;
+      for (const fLine of f.lines) {
+        const trimmed = fLine.trim();
+        if (trimmed.startsWith("- ")) {
+          if (!inList) {
+            featureBodyHtml += "<ul>";
+            inList = true;
+          }
+          let li = escHtml(trimmed.slice(2));
+          li = li.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+          featureBodyHtml += "<li>" + li + "</li>";
+        } else {
+          if (inList) {
+            featureBodyHtml += "</ul>";
+            inList = false;
+          }
+          if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
+            featureBodyHtml += "<p><strong>" + escHtml(trimmed.slice(2, -2)) + "</strong></p>";
+          } else if (trimmed.startsWith("**")) {
+            let p = escHtml(trimmed);
+            p = p.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+            featureBodyHtml += "<p>" + p + "</p>";
+          } else if (trimmed !== "") {
+            featureBodyHtml += "<p>" + escHtml(trimmed) + "</p>";
+          }
+        }
+      }
+      if (inList) featureBodyHtml += "</ul>";
+      featureBodyHtml += "</div>";
+      mainHtml += featureBodyHtml;
+
+      // Prev/next navigation
+      const globalIdx = allFeatures.indexOf(f);
+      const prev = globalIdx > 0 ? allFeatures[globalIdx - 1] : null;
+      const next = globalIdx < allFeatures.length - 1 ? allFeatures[globalIdx + 1] : null;
+      if (prev || next) {
+        mainHtml += '<div class="product-feature-nav">';
+        if (prev) {
+          mainHtml +=
+            '<a href="#' +
+            escHtml(prev.slug) +
+            '" class="product-feature-nav-prev">&larr; ' +
+            escHtml(prev.name) +
+            "</a>";
+        }
+        if (next) {
+          mainHtml +=
+            '<a href="#' +
+            escHtml(next.slug) +
+            '" class="product-feature-nav-next">' +
+            escHtml(next.name) +
+            " &rarr;</a>";
+        }
+        mainHtml += "</div>";
+      }
+
+      mainHtml += "</div>"; // product-feature-item
+
+      tocHtml +=
+        '<a href="#' + escHtml(f.slug) + '" class="product-toc-link">' + escHtml(f.name) + "</a>";
+    }
+
+    mainHtml += "</div>"; // product-area-section
+    if (aIdx < areas.length - 1) {
+      mainHtml += '<hr class="product-divider">';
+    }
+  }
+  mainHtml += "</div>"; // product-main
+  tocHtml += "</div>"; // product-toc
+
+  // Combine three columns
+  const bodyContent =
+    '<div class="product-layout">' +
+    featureNavHtml +
+    mainHtml +
+    tocHtml +
+    "</div>" +
+    "<style>" +
+    productPageCSS() +
+    "</style>";
+
+  const html = dashboardPage("Product", "/product", bodyContent);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+function productPageCSS() {
+  return `
+.product-layout { display: flex; position: relative; min-height: calc(100vh - 60px); }
+.product-nav {
+  width: 220px; position: fixed; top: 0; bottom: 0; left: var(--sidebar-width, 240px);
+  overflow-y: auto; padding: 24px 0;
+  background: var(--sidebar-bg, #111318); border-right: 1px solid var(--border-color, rgba(0,0,0,0.06));
+}
+.product-nav-header {
+  padding: 0 16px 16px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted, #6b7280);
+}
+.product-nav-section { margin-bottom: 20px; }
+.product-nav-section-title {
+  padding: 4px 16px; font-size: 12px; font-weight: 600;
+  color: var(--text-secondary, #6b7280); margin-bottom: 2px;
+}
+.product-nav-link {
+  display: block; padding: 5px 16px 5px 28px;
+  font-size: 13px; color: var(--text-muted, #6b7280);
+  text-decoration: none; border-left: 2px solid transparent;
+  transition: color 150ms, border-color 150ms, background 150ms;
+}
+.product-nav-link:hover { color: var(--text-color, #1a1d23); background: rgba(0,0,0,0.03); }
+.product-nav-meta {
+  padding: 16px; margin: 0 12px;
+  background: var(--card-bg, #fff); border: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  border-radius: 8px; margin-top: 16px;
+}
+.product-nav-meta-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; padding: 3px 0;
+}
+.product-nav-meta-label { color: var(--text-muted, #6b7280); }
+.product-nav-meta-value { color: var(--text-secondary, #4a4e56); font-weight: 500; }
+.product-main {
+  margin-left: 220px; margin-right: 230px;
+  padding: 32px 48px; max-width: 720px; flex: 1;
+}
+.product-toc {
+  position: fixed; top: 32px; right: 32px; width: 200px;
+}
+.product-toc-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted, #6b7280); margin-bottom: 12px;
+}
+.product-toc-link {
+  display: block; padding: 4px 0; font-size: 12px;
+  color: var(--text-muted, #6b7280); text-decoration: none;
+  transition: color 150ms;
+}
+.product-toc-link:hover { color: var(--text-color, #1a1d23); }
+.product-toc-area { font-weight: 600; margin-top: 8px; }
+.product-page-title {
+  font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px;
+}
+.product-page-desc {
+  font-size: 15px; color: var(--text-muted, #6b7280); line-height: 1.6;
+  margin-bottom: 12px; max-width: 560px;
+}
+.product-badge-row { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
+.product-badge {
+  display: inline-flex; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+}
+.product-badge-accent { background: rgba(94,106,210,0.1); color: var(--accent, #5e6ad2); }
+.product-badge-success { background: rgba(74,222,128,0.1); color: var(--success, #16a34a); }
+.product-badge-dim { background: rgba(128,128,128,0.1); color: var(--text-muted, #6b7280); }
+.product-divider { border: none; border-top: 1px solid var(--border-color, rgba(0,0,0,0.06)); margin: 32px 0; }
+.product-area-section { margin-bottom: 48px; scroll-margin-top: 24px; }
+.product-area-title {
+  font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px;
+}
+.product-feature-item { margin-bottom: 28px; scroll-margin-top: 24px; }
+.product-feature-title {
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px;
+}
+.product-feature-body { font-size: 14px; color: var(--text-muted, #6b7280); line-height: 1.7; }
+.product-feature-body p { margin-bottom: 8px; }
+.product-feature-body ul { margin-top: 8px; padding-left: 20px; margin-bottom: 8px; }
+.product-feature-body li { margin-bottom: 4px; font-size: 13px; }
+.product-feature-body strong { color: var(--text-color, #1a1d23); font-weight: 500; }
+.product-feature-nav {
+  display: flex; justify-content: space-between; margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid var(--border-color, rgba(0,0,0,0.06));
+}
+.product-feature-nav a {
+  font-size: 13px; color: var(--accent, #5e6ad2); text-decoration: none; font-weight: 500;
+}
+.product-feature-nav a:hover { text-decoration: underline; }
+.product-feature-nav-next { margin-left: auto; }
+@media (max-width: 1024px) {
+  .product-nav { display: none; }
+  .product-toc { display: none; }
+  .product-main { margin-left: 0; margin-right: 0; max-width: 100%; }
+}
+`;
 }
 
 function handleTranscriptPage(res, pmDir, slug) {
