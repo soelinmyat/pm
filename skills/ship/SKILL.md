@@ -9,6 +9,12 @@ description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, the
 
 Complete shipping lifecycle in one command: review, push, create PR, monitor CI, poll readiness gates, and auto-merge.
 
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+
+If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
+
 **Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
 
 ## Telemetry (opt-in)
@@ -212,7 +218,7 @@ Run: `gh pr view --json number,url,title,state 2>/dev/null`
 
 ## Step 5.5: Check Auto-Merge Setting
 
-Read `.pm/config.json` and check `preferences.ship.auto_merge`.
+Read `{pm_state_dir}/config.json` and check `preferences.ship.auto_merge`.
 
 - **If `auto_merge` is `true`:** Continue to Step 6 and Phase 2 as normal.
 - **If `auto_merge` is `false`:** Monitor CI (Step 6) but **stop after CI passes**. Do NOT enter Phase 2 (merge loop). Print the early-exit report below.
@@ -222,7 +228,7 @@ Read `.pm/config.json` and check `preferences.ship.auto_merge`.
 > 1. **Auto-merge** — ship merges when all gates pass (default for most workflows)
 > 2. **Stop at green PR** — ship creates PR and monitors CI, you merge when ready (recommended if main is your production branch)
 
-Persist their choice to `.pm/config.json` under `preferences.ship.auto_merge` so they're never asked again. Then continue based on their answer.
+Persist their choice to `{pm_state_dir}/config.json` under `preferences.ship.auto_merge` so they're never asked again. Then continue based on their answer.
 
 ```
 ## Shipped to PR
@@ -321,9 +327,9 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 
 ### Backlog prs write (after merge, before cleanup)
 
-After merge confirmation, if `pm/backlog/{slug}.md` exists, update its frontmatter to record the PR number(s):
+After merge confirmation, if `{pm_dir}/backlog/{slug}.md` exists, update its frontmatter to record the PR number(s):
 
-1. Read the existing frontmatter of `pm/backlog/{slug}.md`
+1. Read the existing frontmatter of `{pm_dir}/backlog/{slug}.md`
 2. If `prs` field already exists, append the new PR number to the list. If not, create it.
 3. Use quoted YAML format for PR values: `- "#N"` (the `#` is a YAML comment character — quoting is load-bearing)
 4. Commit and push to the default branch so the data reaches `main` before the feature branch is deleted
@@ -332,8 +338,8 @@ After merge confirmation, if `pm/backlog/{slug}.md` exists, update its frontmatt
 
 ### Linear-originated work
 
-After merge, check the session state for `linear_id`. If set and `pm/backlog/{slug}.md` does not exist, the Status Updates section in `dev-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
+After merge, check the session state for `linear_id`. If set and `{pm_dir}/backlog/{slug}.md` does not exist, the Status Updates section in `dev-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
 
 Before cleanup, verify the backlog entry was written:
-- Check: `test -f pm/backlog/{slug}.md`
+- Check: `test -f {pm_dir}/backlog/{slug}.md`
 - If missing and `linear_id` is set: warn the user that product memory was not created.
