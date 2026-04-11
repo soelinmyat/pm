@@ -4,7 +4,7 @@ PM is a free, open-source plugin that gives small squads using AI coding assista
 
 PM is built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead wants to know what is happening without asking for updates. PM keeps everyone working from the same context.
 
-Built for Claude Code. Also works with Cursor, Codex, OpenCode, and Gemini CLI.
+Built for Claude Code and Codex.
 
 > **Early release.** PM already works well for research, strategy, grooming, and disciplined shipping. The dashboard and collaboration layer are still being polished.
 
@@ -17,10 +17,6 @@ claude plugin marketplace add soelinmyat/pm
 claude plugin install pm@pm
 ```
 
-#### Cursor
-
-Copy the `.cursor-plugin/` directory into your project root, or install via Cursor's plugin marketplace once published.
-
 #### Codex
 
 PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
@@ -32,13 +28,6 @@ alias directories under `~/.agents/skills`, but fresh Codex sessions still surfa
 skills as `pm:*` names such as `pm:groom` and `pm:dev`.
 
 If your Codex install is not loading the plugin directly yet, use the fallback install steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
-
-#### OpenCode and Gemini CLI
-
-Use the platform-specific guides:
-
-- [`.opencode/INSTALL.md`](.opencode/INSTALL.md)
-- [`GEMINI.md`](GEMINI.md)
 
 ## Run Your First Workflow
 
@@ -147,7 +136,7 @@ In practice:
 | `/pm:groom [idea]` | Turn an idea into scoped, reviewable work |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
 | `/pm:sync [push\|pull\|status]` | Manually inspect or move PM knowledge base changes |
-| `/merge` | Run the merge loop for an existing PR |
+| `/pm:ship` | Review, push, create PR, monitor CI, and merge |
 
 ### Codex
 

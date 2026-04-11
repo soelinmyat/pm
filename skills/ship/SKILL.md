@@ -239,7 +239,7 @@ Persist their choice to `{pm_state_dir}/config.json` under `preferences.ship.aut
 **CI:** passed
 **Auto-merge:** disabled (preferences.ship.auto_merge = false)
 
-PR is green and ready. Merge manually or run `/merge` when ready.
+PR is green and ready. Merge manually or re-run `/pm:ship` to trigger the merge loop.
 ```
 
 Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup (Steps 5-6 of merge-loop) — the branch stays open.
