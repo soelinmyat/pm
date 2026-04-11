@@ -148,10 +148,12 @@ const CRITICAL_KEYWORDS = [
   "git worktree remove",
   "Leftover worktrees",
 
-  // Stage 7: Retro
-  "Compound Learning",
+  // Stage 7: Retro (auto-extraction)
+  "Auto-Extract Learnings",
   "memory.md",
-  "50 entries",
+  "memory-cap.md",
+  "extractable events",
+  "hard gate",
 
   // Status Updates
   "Status Updates",

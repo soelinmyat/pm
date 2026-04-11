@@ -1,39 +1,116 @@
 ---
 name: Retro
 order: 11
-description: Compound learning — review session, write learnings, update checklists
+description: Auto-extract learnings from dev session state, write to pm/memory.md
 ---
 
-## Retro — Compound Learning
+## Retro — Auto-Extract Learnings
 
-Runs after EVERY task regardless of size.
+Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
-1. Review session: what was smooth, what was hard, any pitfalls or wasted cycles
-2. Write to `{pm_dir}/memory.md` — append YAML entries to the `entries:` list in the frontmatter. Each entry uses this schema:
+If extraction fails at any point, do NOT delete the state file. Instead, write `retro_failed: true` to the state file and say:
+> "Retro extraction failed; session state preserved for retry."
+Then stop — do not proceed to deletion.
+
+---
+
+### Step 1: Scan for extractable events
+
+Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}.md`) and check for these events:
+
+| Event | Condition | Category | Learning template |
+|-------|-----------|----------|-------------------|
+| RFC review iterations > 1 | `Review` section shows multiple review passes (e.g., re-reviews, "Re-runs" > 0, multiple review gate entries) | `review` | "from RFC review: {N} review iterations required" |
+| QA verdict Fail | `QA` section has `QA verdict: fail` (any case) | `quality` | "from QA: verdict was Fail — {issues found summary if available}" |
+| Review blocking fixes | `Review` section shows blocking issues were fixed (count > 0) | `review` | "from review: {N} blocking fix(es) applied" |
+| Merge conflicts encountered | `Merge-Watch` section has `Gate 5 (Conflicts)` = anything other than `pending` or `passed`, OR state file mentions conflict resolution | `process` | "from merge: merge conflicts encountered and resolved" |
+| CI failures requiring intervention | `Merge-Watch` section has `Gate 1 (CI)` = `failed` or state mentions CI fix, OR `QA` section has `Re-runs` > 0 due to CI | `process` | "from CI: failures required manual intervention" |
+
+---
+
+### Step 2: No events — skip silently
+
+If none of the conditions above match (clean session: XS task, shipped clean, no friction), log internally "no learnings detected" and skip to **Step 7** (state file deletion). Do NOT prompt the user.
+
+---
+
+### Step 3: Events found — present auto-extracted learnings
+
+Build one learning entry per matched event using the templates above, filling in specifics from the session state. Present the list to the user:
+
+> "Retro: {N} learning(s) extracted from this dev session:
+> 1. [{category}] {learning text}
+> 2. [{category}] {learning text}
+> ...
+> Pin a learning to keep it permanently (say 'pin 2').
+> Options: (a) Accept as-is (b) Add your own learnings too (c) Accept auto-extracted only"
+
+Wait for the user's answer.
+- **(a) or (c):** Proceed with auto-extracted entries only.
+- **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Append them to the auto-extracted list.
+- **Pin:** If the user says "pin {N}", mark that entry with `pinned: true`. Multiple pins allowed. Then continue with the accept/add flow.
+
+This is a hard gate — at minimum the auto-extracted learnings must be written before state file deletion.
+
+---
+
+### Step 4: Deduplicate
+
+Read `{pm_dir}/memory.md`. For each entry to write, check existing entries: if any existing entry matches on `source` + `date` + first 50 characters of `learning`, skip that entry (already written, likely from a prior retro attempt on the same session).
+
+---
+
+### Step 5: Write entries
+
+**5a. Concurrent write guard.** Immediately before appending, re-read `{pm_dir}/memory.md` to get the latest state. Append new (non-duplicate) entries to the `entries` list from the freshly-read version, not from any earlier read.
+
+**5b. Write.** Each entry uses this format inside the `entries` list:
 
 ```yaml
-entries:
-  - date: 2026-04-04
-    source: retro
-    category: process
-    learning: "one-line summary"
-    detail: "expanded context (optional)"
+- date: {today, YYYY-MM-DD}
+  source: "{slug}"
+  category: "{mapped category}"
+  learning: "{one-liner from template or user}"
+  detail: "{optional — only if additional context is available}"
+  pinned: true  # only if user pinned this entry
 ```
 
-   Valid categories: `scope`, `research`, `review`, `process`, `quality`. Keep learnings to one line; use `detail` only when expanded context would help a future session.
+Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter structure (`type: project-memory`).
 
-3. If learnings suggest AGENTS.md or CLAUDE.md updates — flag to user, don't auto-modify
-4. If a learning is a "review should catch this" anti-pattern, and a review checklist exists (e.g., `.claude/references/review-checklist.md`), append it under the appropriate section
-5. **Cap enforcement:** After writing entries, follow the algorithm in `references/memory-cap.md` — if more than 50 entries, archive the oldest non-pinned entries to `{pm_dir}/memory-archive.md`
+**5c. Error recovery.** If the write fails, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
+
+---
+
+### Step 6: Post-write cap check and validation
+
+**6a. Cap enforcement.** After writing, count total entries in `{pm_dir}/memory.md`. If count exceeds 50, follow the algorithm in `${CLAUDE_PLUGIN_ROOT}/references/memory-cap.md`:
+- Move oldest non-pinned entries to `{pm_dir}/memory-archive.md` until count <= 50
+- If all entries are pinned, warn the user
+
+**6b. Validate.** Run:
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
+```
+If validation fails, fix the entries and re-validate before proceeding.
+
+---
+
+### Step 7: Delete state file
+
+Delete `{source_dir}/.pm/dev-sessions/{slug}.md` after successful retro extraction (or silent skip). Dev session is complete.
+
+---
 
 ### Linear retro comment (M/L/XL)
 
-**Linear** (if available):
+**Linear** (if available and task is M/L/XL):
 ```
 mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "{learnings summary}" })
 ```
 
-## State File ({source_dir}/.pm/dev-sessions/{slug}.md)
+---
+
+### State File ({source_dir}/.pm/dev-sessions/{slug}.md)
 
 The state file is the **single source of truth** for session state. Updated at every stage transition and task completion. **Deleted after retro.**
 
