@@ -1315,7 +1315,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .wf-toggle.on { background: var(--accent); border-color: var(--accent); }
 .wf-toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-on-accent); transition: transform 0.2s; }
 .wf-toggle.on .wf-toggle-knob { transform: translateX(14px); }
-.wf-step-edit-btn { font-size: var(--text-xs); font-weight: 500; padding: 4px 10px; border-radius: 6px; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; }
+.wf-step-edit-btn { font-size: var(--text-xs); font-weight: 500; padding: 4px 10px; border-radius: 6px; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }
 .wf-step-edit-btn:hover { background: var(--surface-hover); color: var(--text); }
 .wf-step-disabled { opacity: 0.5; }
 .wf-breadcrumb { font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-4); }
@@ -1324,6 +1324,22 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .wf-subtitle { color: var(--text-muted); margin-bottom: var(--space-4); }
 .wf-coming-soon { text-align: center; padding: var(--space-8) 0; color: var(--text-muted); }
 .wf-coming-soon-title { font-size: var(--text-lg); margin-bottom: var(--space-2); }
+.wf-editor-status { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+.wf-editor-diff { font-size: var(--text-xs); color: var(--text-muted); }
+.wf-editor-split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4); }
+.wf-editor-split h3 { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2); color: var(--text); }
+.wf-editor-textarea { width: 100%; min-height: 400px; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; padding: var(--space-3); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; }
+.wf-editor-textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+.wf-editor-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: var(--space-3); min-height: 400px; overflow: auto; }
+.wf-editor-preview-text { white-space: pre-wrap; word-wrap: break-word; font-family: var(--mono, 'JetBrains Mono', monospace); font-size: var(--text-xs); line-height: 1.6; color: var(--text); margin: 0; }
+.wf-editor-actions { display: flex; gap: var(--space-2); }
+.wf-editor-save-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: var(--accent); border: none; color: var(--text-on-accent); cursor: pointer; font-family: inherit; }
+.wf-editor-save-btn:hover { opacity: 0.9; }
+.wf-editor-reset-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: var(--surface-raised); border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; }
+.wf-editor-reset-btn:hover { background: var(--surface-hover); color: var(--text); }
+.wf-editor-cancel-btn { font-size: var(--text-sm); font-weight: 500; padding: 8px 16px; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; line-height: 1.4; }
+.wf-editor-cancel-btn:hover { background: var(--surface-hover); color: var(--text); }
+@media (max-width: 768px) { .wf-editor-split { grid-template-columns: 1fr; } }
 
 /* ===== KB HUB PAGE ===== */
 .kb-domain-section { margin-bottom: var(--space-8); }
@@ -2277,6 +2293,13 @@ function readConfig(pmDir) {
   }
 }
 
+function writeConfig(pmDir, config) {
+  const pmConfigDir = path.join(path.dirname(pmDir), ".pm");
+  fs.mkdirSync(pmConfigDir, { recursive: true });
+  const configPath = path.join(pmConfigDir, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
 function getProjectName(pmDir) {
   const config = readConfig(pmDir);
   return config.project_name || path.basename(path.dirname(pmDir)) || "PM";
@@ -2470,6 +2493,171 @@ function handleWorkflowsPage(res, pmDir) {
   res.end(html);
 }
 
+/**
+ * Get all valid step stems for a command (from shipped defaults).
+ */
+function getValidStepStems(command, pluginRoot) {
+  const defaultStepDir = path.join(pluginRoot, "skills", command, "steps");
+  const stems = [];
+  try {
+    const entries = fs.readdirSync(defaultStepDir);
+    for (const e of entries) {
+      if (e.endsWith(".md")) stems.push(e.replace(/\.md$/, ""));
+    }
+  } catch {
+    // No step files
+  }
+  return stems;
+}
+
+/**
+ * Read a step file's frontmatter and body. Returns { data, body } or null.
+ */
+function readStepFileContent(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    return parseFrontmatter(content);
+  } catch {
+    return null;
+  }
+}
+
+// ========== Workflow API Handlers ==========
+
+async function handleStepToggle(req, res, pmDir, command, stepStem) {
+  const pluginRoot = path.resolve(__dirname, "..");
+  const validStems = getValidStepStems(command, pluginRoot);
+  if (!validStems.includes(stepStem)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Step not found: " + stepStem }));
+    return;
+  }
+
+  try {
+    const body = await parseJsonBody(req);
+    const enabled = body.enabled !== undefined ? !!body.enabled : true;
+
+    const config = readConfig(pmDir);
+    if (!config.workflows) config.workflows = {};
+    if (!config.workflows[command]) config.workflows[command] = {};
+    if (!config.workflows[command].steps) config.workflows[command].steps = {};
+    config.workflows[command].steps[stepStem] = { enabled };
+    writeConfig(pmDir, config);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, enabled }));
+  } catch (err) {
+    const status = err.message === "Body too large" ? 413 : 400;
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: err.message }));
+  }
+}
+
+async function handleStepSave(req, res, pmDir, command, stepStem) {
+  const pluginRoot = path.resolve(__dirname, "..");
+  const validStems = getValidStepStems(command, pluginRoot);
+  if (!validStems.includes(stepStem)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Step not found: " + stepStem }));
+    return;
+  }
+
+  try {
+    const reqBody = await parseJsonBody(req);
+    if (!reqBody.body || typeof reqBody.body !== "string" || !reqBody.body.trim()) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "body field is required and must be non-empty" }));
+      return;
+    }
+
+    // Get frontmatter from existing user override or shipped default
+    const projectRoot = path.dirname(pmDir);
+    const userFilePath = path.join(projectRoot, ".pm", "workflows", command, stepStem + ".md");
+    const defaultFilePath = path.join(pluginRoot, "skills", command, "steps", stepStem + ".md");
+
+    let frontmatter = null;
+    const userParsed = readStepFileContent(userFilePath);
+    if (userParsed) {
+      frontmatter = userParsed.data;
+    } else {
+      const defaultParsed = readStepFileContent(defaultFilePath);
+      if (defaultParsed) {
+        frontmatter = defaultParsed.data;
+      }
+    }
+
+    // Build file content with preserved frontmatter
+    let fileContent = "";
+    if (frontmatter && Object.keys(frontmatter).length > 0) {
+      fileContent += "---\n";
+      if (frontmatter.name) fileContent += "name: " + frontmatter.name + "\n";
+      if (frontmatter.order !== undefined) fileContent += "order: " + frontmatter.order + "\n";
+      if (frontmatter.description) fileContent += "description: " + frontmatter.description + "\n";
+      fileContent += "---\n";
+    }
+    fileContent += reqBody.body.trim() + "\n";
+
+    // Write the file
+    const userStepDir = path.join(projectRoot, ".pm", "workflows", command);
+    fs.mkdirSync(userStepDir, { recursive: true });
+    fs.writeFileSync(userFilePath, fileContent);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, path: userFilePath }));
+  } catch (err) {
+    const status = err.message === "Body too large" ? 413 : 400;
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: err.message }));
+  }
+}
+
+async function handleStepReset(req, res, pmDir, command, stepStem) {
+  const pluginRoot = path.resolve(__dirname, "..");
+  const validStems = getValidStepStems(command, pluginRoot);
+  if (!validStems.includes(stepStem)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Step not found: " + stepStem }));
+    return;
+  }
+
+  try {
+    // Consume the request body (even if empty)
+    await parseJsonBody(req).catch(() => {});
+
+    // Delete user override file if it exists
+    const projectRoot = path.dirname(pmDir);
+    const userFilePath = path.join(projectRoot, ".pm", "workflows", command, stepStem + ".md");
+    try {
+      fs.unlinkSync(userFilePath);
+    } catch {
+      // File doesn't exist — that's fine
+    }
+
+    // Remove step entry from config
+    const config = readConfig(pmDir);
+    if (config.workflows?.[command]?.steps?.[stepStem] !== undefined) {
+      delete config.workflows[command].steps[stepStem];
+      // Clean up empty objects
+      if (Object.keys(config.workflows[command].steps).length === 0) {
+        delete config.workflows[command].steps;
+      }
+      if (Object.keys(config.workflows[command]).length === 0) {
+        delete config.workflows[command];
+      }
+      if (Object.keys(config.workflows).length === 0) {
+        delete config.workflows;
+      }
+      writeConfig(pmDir, config);
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: err.message }));
+  }
+}
+
 function handleWorkflowDetail(res, pmDir, command) {
   const projectName = getProjectName(pmDir);
   const pluginRoot = path.resolve(__dirname, "..");
@@ -2549,17 +2737,191 @@ function handleWorkflowDetail(res, pmDir, command) {
       '<div class="wf-step-actions">' +
       '<div class="wf-toggle' +
       (step.enabled ? " on" : "") +
+      '" data-step="' +
+      escHtml(step.stem) +
+      '" data-enabled="' +
+      (step.enabled ? "true" : "false") +
       '" title="' +
       (step.enabled ? "Enabled" : "Disabled") +
       '"><div class="wf-toggle-knob"></div></div>' +
-      '<button class="wf-step-edit-btn">Edit</button>' +
+      '<a href="/workflows/' +
+      escHtml(command) +
+      "/steps/" +
+      escHtml(step.stem) +
+      '/edit" class="wf-step-edit-btn">Edit</a>' +
       "</div>" +
       "</div>";
   }
 
   stepsHtml += "</div>";
 
+  // Inline JS for toggle click handler
+  stepsHtml +=
+    "<script>" +
+    "document.querySelectorAll('.wf-toggle[data-step]').forEach(function(el) {" +
+    "  el.addEventListener('click', function() {" +
+    "    var step = el.getAttribute('data-step');" +
+    "    var currentlyEnabled = el.getAttribute('data-enabled') === 'true';" +
+    "    fetch('/api/workflows/" +
+    escHtml(command) +
+    "/steps/' + step + '/toggle', {" +
+    "      method: 'POST'," +
+    "      headers: { 'Content-Type': 'application/json' }," +
+    "      body: JSON.stringify({ enabled: !currentlyEnabled })" +
+    "    }).then(function() { location.reload(); });" +
+    "  });" +
+    "});" +
+    "</script>";
+
   const html = dashboardPage("/" + command + " Workflow", "/workflows", stepsHtml, projectName);
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
+// ========== Step Editor Page ==========
+
+function handleStepEditorPage(res, pmDir, command, stepStem) {
+  const projectName = getProjectName(pmDir);
+  const pluginRoot = path.resolve(__dirname, "..");
+
+  // Only dev has step files for now
+  if (command !== "dev") {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  // Validate step exists in shipped defaults
+  const validStems = getValidStepStems(command, pluginRoot);
+  if (!validStems.includes(stepStem)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  const projectRoot = path.dirname(pmDir);
+  const defaultFilePath = path.join(pluginRoot, "skills", command, "steps", stepStem + ".md");
+  const userFilePath = path.join(projectRoot, ".pm", "workflows", command, stepStem + ".md");
+
+  // Read default step content
+  const defaultParsed = readStepFileContent(defaultFilePath);
+  if (!defaultParsed) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  // Read user override if it exists
+  const userParsed = readStepFileContent(userFilePath);
+  const isModified = userParsed !== null;
+
+  // Current body to show in editor (user override or default)
+  const currentBody = isModified ? userParsed.body : defaultParsed.body;
+  const frontmatter = isModified ? userParsed.data : defaultParsed.data;
+  const stepName = frontmatter.name || stepStem;
+
+  // Calculate diff summary if modified
+  let diffSummary = "";
+  if (isModified) {
+    const defaultLines = defaultParsed.body.trim().split("\n");
+    const userLines = userParsed.body.trim().split("\n");
+    let changed = 0;
+    const maxLen = Math.max(defaultLines.length, userLines.length);
+    for (let i = 0; i < maxLen; i++) {
+      if ((defaultLines[i] || "") !== (userLines[i] || "")) changed++;
+    }
+    diffSummary = changed + " lines changed from default";
+  }
+
+  // Highlight @persona-name references in preview
+  function renderPreview(body) {
+    let escaped = escHtml(body);
+    // Replace @persona-name with styled tags (outside code blocks is tricky in plain text,
+    // but for the preview we highlight all occurrences)
+    escaped = escaped.replace(/@([a-z][a-z0-9-]*)/g, '<span class="wf-step-tag">@$1</span>');
+    return '<pre class="wf-editor-preview-text">' + escaped + "</pre>";
+  }
+
+  const bodyHtml =
+    '<div class="wf-breadcrumb">' +
+    '<a href="/workflows">Workflows</a> / ' +
+    '<a href="/workflows/' +
+    escHtml(command) +
+    '">/' +
+    escHtml(command) +
+    "</a> / " +
+    escHtml(stepName) +
+    "</div>" +
+    "<h1>Edit: " +
+    escHtml(stepName) +
+    "</h1>" +
+    (isModified
+      ? '<div class="wf-editor-status">' +
+        '<span class="wf-badge-customized">Modified</span>' +
+        '<span class="wf-editor-diff">' +
+        escHtml(diffSummary) +
+        "</span>" +
+        "</div>"
+      : '<div class="wf-editor-status"><span class="wf-badge-default">Default</span></div>') +
+    '<div class="wf-editor-split">' +
+    '<div class="wf-editor-left">' +
+    "<h3>Markdown</h3>" +
+    '<textarea id="wf-editor-textarea" class="wf-editor-textarea" rows="20">' +
+    escHtml(currentBody.trim()) +
+    "</textarea>" +
+    "</div>" +
+    '<div class="wf-editor-right">' +
+    "<h3>Preview</h3>" +
+    '<div class="wf-editor-preview">' +
+    renderPreview(currentBody.trim()) +
+    "</div>" +
+    "</div>" +
+    "</div>" +
+    '<div class="wf-editor-actions">' +
+    '<button class="wf-editor-save-btn" onclick="saveStep()">Save</button>' +
+    '<button class="wf-editor-reset-btn" onclick="resetStep()">Reset to Default</button>' +
+    '<a href="/workflows/' +
+    escHtml(command) +
+    '" class="wf-editor-cancel-btn">Cancel</a>' +
+    "</div>" +
+    "<script>" +
+    "function saveStep() {" +
+    "  var body = document.getElementById('wf-editor-textarea').value;" +
+    "  fetch('/api/workflows/" +
+    escHtml(command) +
+    "/steps/" +
+    escHtml(stepStem) +
+    "/save', {" +
+    "    method: 'POST'," +
+    "    headers: { 'Content-Type': 'application/json' }," +
+    "    body: JSON.stringify({ body: body })" +
+    "  }).then(function(r) { return r.json(); }).then(function(data) {" +
+    "    if (data.ok) { window.location.href = '/workflows/" +
+    escHtml(command) +
+    "'; }" +
+    "    else { alert('Save failed: ' + (data.error || 'Unknown error')); }" +
+    "  });" +
+    "}" +
+    "function resetStep() {" +
+    "  if (!confirm('Reset this step to the shipped default? Your customizations will be lost.')) return;" +
+    "  fetch('/api/workflows/" +
+    escHtml(command) +
+    "/steps/" +
+    escHtml(stepStem) +
+    "/reset', {" +
+    "    method: 'POST'," +
+    "    headers: { 'Content-Type': 'application/json' }," +
+    "    body: '{}'" +
+    "  }).then(function(r) { return r.json(); }).then(function(data) {" +
+    "    if (data.ok) { window.location.href = '/workflows/" +
+    escHtml(command) +
+    "'; }" +
+    "    else { alert('Reset failed: ' + (data.error || 'Unknown error')); }" +
+    "  });" +
+    "}" +
+    "</script>";
+
+  const html = dashboardPage("Edit " + stepName, "/workflows", bodyHtml, projectName);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 }
@@ -2810,10 +3172,30 @@ function routeDashboardPost(req, res, pmDir) {
 
   if (url === "/notes") {
     handleNoteCreate(req, res, pmDir);
-  } else {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: false, error: "Not found" }));
+    return;
   }
+
+  // Workflow step API routes: /api/workflows/:command/steps/:step/:action
+  const stepApiMatch = url.match(
+    /^\/api\/workflows\/([a-z][a-z0-9-]*)\/steps\/([a-z0-9][a-z0-9-]*)\/([a-z]+)$/
+  );
+  if (stepApiMatch) {
+    const [, command, stepStem, action] = stepApiMatch;
+    if (action === "toggle") {
+      handleStepToggle(req, res, pmDir, command, stepStem);
+    } else if (action === "save") {
+      handleStepSave(req, res, pmDir, command, stepStem);
+    } else if (action === "reset") {
+      handleStepReset(req, res, pmDir, command, stepStem);
+    } else {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "Not found" }));
+    }
+    return;
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: false, error: "Not found" }));
 }
 
 // ========== Dashboard Route Handlers ==========
@@ -3043,12 +3425,19 @@ function routeDashboard(req, res, pmDir) {
   } else if (urlPath === "/workflows") {
     handleWorkflowsPage(res, pmDir);
   } else if (urlPath.startsWith("/workflows/")) {
-    const command = decodeURIComponent(urlPath.slice("/workflows/".length)).replace(/\/$/, "");
-    if (command && !command.includes("/") && !command.includes("..")) {
-      handleWorkflowDetail(res, pmDir, command);
+    const rest = urlPath.slice("/workflows/".length).replace(/\/$/, "");
+    // Match /workflows/:command/steps/:step/edit
+    const editMatch = rest.match(/^([a-z][a-z0-9-]*)\/steps\/([a-z0-9][a-z0-9-]*)\/edit$/);
+    if (editMatch) {
+      handleStepEditorPage(res, pmDir, editMatch[1], editMatch[2]);
     } else {
-      res.writeHead(404);
-      res.end("Not found");
+      const command = decodeURIComponent(rest);
+      if (command && !command.includes("/") && !command.includes("..")) {
+        handleWorkflowDetail(res, pmDir, command);
+      } else {
+        res.writeHead(404);
+        res.end("Not found");
+      }
     }
   } else if (urlPath === "/settings") {
     handleSettingsPage(res, pmDir);
