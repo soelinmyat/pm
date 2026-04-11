@@ -330,7 +330,65 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "$PWD" --mode d
 
 Capture the `url` if one is returned.
 
-3. Generate the canonical session brief:
+3. Evidence detection:
+
+Scan `{pm_dir}/evidence/user-feedback/` for unprocessed files and offer to route them to `pm:ingest`.
+
+**Detection:**
+- List all files in `{pm_dir}/evidence/user-feedback/` (non-recursive).
+- Read `{pm_dir}/evidence/user-feedback/log.md`. Each non-heading, non-blank line contains a previously processed file path.
+- Compute the difference: files present on disk but not listed in `log.md`.
+- Filter out system files (`.DS_Store`, `.gitkeep`, `Thumbs.db`) — skip them entirely, do not show them.
+- Filter out `index.md` and `log.md` themselves.
+- If no unprocessed files remain, skip this step silently — produce no output.
+
+**Name extraction (text-based files only):**
+
+For each unprocessed file, attempt to extract a human-readable name:
+
+| File type | Extraction rule |
+|---|---|
+| `.md` | First heading (`# ...`) |
+| `.txt` | First non-empty line |
+| `.html`, `.eml` | `Subject:` line if present, else `<title>` tag, else first non-empty line |
+| Binary or unreadable files | Use the filename as the display name |
+
+Read at most the first 5 lines of each file for extraction. If extraction fails or the file cannot be read, fall back to the filename.
+
+**Display:**
+
+Present a numbered list:
+
+```text
+Evidence drop zone — {N} new file(s):
+1. "Pricing confusion on enterprise tier" (support ticket, 4.8KB)
+2. "user-interview-2026-04.md" (markdown, 12.1KB)
+3. "feedback-export.csv" (csv, 89KB)
+```
+
+File type labels: use a human-friendly description based on extension (`.md` → "markdown", `.txt` → "text", `.csv` → "csv", `.eml` → "email", `.html` → "html", `.pdf` → "pdf", `.json` → "json"). For unknown extensions, use the extension itself. File size should use KB with one decimal for files under 1MB, MB with one decimal otherwise.
+
+**Dashboard link:**
+
+If the dashboard server is running (check `http://localhost:3117/` or the port from the dashboard launch in step 2), append: `Full preview: http://localhost:{port}/evidence`. If the server is not running, omit this line silently.
+
+**User choice:**
+
+Ask ONE question:
+
+> "How do you want to handle these?
+> (a) Ingest all
+> (b) Pick specific files
+> (c) Skip — leave for later"
+
+Routing:
+- **(a) Ingest all** → invoke `pm:ingest` with the full list of unprocessed file paths. After ingestion completes, append each file path with a timestamp to `{pm_dir}/evidence/user-feedback/log.md` in the format: `{relative_path_from_pm_dir} — {ISO 8601 timestamp}`.
+- **(b) Pick specific files** → show the numbered list again and let the user select by number. Invoke `pm:ingest` with the selected files. After ingestion, append only the selected file paths to `log.md`.
+- **(c) Skip** → continue with the normal flow. Files remain unprocessed for the next session.
+
+After ingestion or skip, continue to step 4 (session brief).
+
+4. Generate the canonical session brief:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "$PWD" --format json --include-update
@@ -357,7 +415,7 @@ When detecting active work, check the correct locations based on repo mode:
 
 In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
 
-4. Pick the recommended next move using this priority:
+5. Pick the recommended next move using this priority:
 
 - Any active delivery work (`dev`) → resume that work
 - Active grooming work → resume `pm:groom`
@@ -367,7 +425,7 @@ In separate-repo mode, groom and dev sessions live in different repos. Always ch
 - Idea-heavy backlog → `pm:groom`
 - Otherwise → stay in Pulse Mode and let the user choose
 
-5. Present the session brief in this format:
+6. Present the session brief in this format:
 
 ```text
 PM ready.
@@ -408,7 +466,7 @@ When the user explicitly asks to open the dashboard, show PM, or view research:
 
 Use this when the project is initialized but there is no active work to resume and the user did not ask for dashboard-only behavior.
 
-The behavior is the same as Resume Mode, except the recommendation should bias toward the next useful lane:
+The behavior is the same as Resume Mode (including evidence detection in step 3), except the recommendation should bias toward the next useful lane:
 
 - `pm:strategy` when insights or evidence exist but strategy is missing
 - `pm:refresh` when insights or evidence are stale
