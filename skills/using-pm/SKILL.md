@@ -57,10 +57,10 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 
 | Reference | What it covers |
 |-----------|---------------|
-| `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
+| `references/writing.md` | Prose quality, document structure, output format, frontmatter compliance |
 | `references/merge-loop.md` | Self-healing merge loop — used by the ship skill |
 | `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
-| `references/templates/` | Strategy deck, proposal, and RFC HTML templates |
+| `references/templates/` | RFC HTML template and wireframe references |
 
 ## Instruction Priority
 
