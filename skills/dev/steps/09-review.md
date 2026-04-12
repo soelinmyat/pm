@@ -61,4 +61,4 @@ After all review and QA gates pass:
 
 ### Review feedback handling
 
-For M/L/XL, if human reviewers leave comments on the PR after creation, use `review/references/handling-feedback.md` to process and respond to feedback.
+For M/L/XL, if human reviewers leave comments on the PR after creation, use `ship/references/handling-feedback.md` to process and respond to feedback.

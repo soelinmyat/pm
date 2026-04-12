@@ -106,7 +106,7 @@ Dev requires a source code repository to operate — it creates branches, worktr
 | Code scan | Code scan | — | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
-| Review feedback | — | — | `review/references/handling-feedback.md` | handling-feedback | handling-feedback |
+| Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |
 | Retro | Yes | Yes | Yes | Yes | Yes |
 
 ## Stage 2: Workspace (all sizes)
@@ -640,7 +640,7 @@ The rationale: by this point, the spec has been reviewed by product/design agent
 - Test failures that can't be resolved after 3 attempts
 - Merge conflicts
 - CI failures that require human intervention
-- Review feedback from human reviewers on the PR (use `review/references/handling-feedback.md`)
+- Review feedback from human reviewers on the PR (use `ship/references/handling-feedback.md`)
 </HARD-RULE>
 
 ### Agent lifecycle

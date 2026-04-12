@@ -1,7 +1,3 @@
----
-name: review
-description: "Multi-perspective code review (code + design + input edge-cases) with auto-fix. Conditionally skips Design when upstream gate passed."
----
 
 # /review [PR#]
 
@@ -261,7 +257,7 @@ Present a final summary:
 
 ## Handling Review Feedback
 
-When review feedback is received (from human reviewers, Claude review, or external reviewers on a PR), read `${CLAUDE_PLUGIN_ROOT}/skills/review/references/handling-feedback.md` for the full protocol. Key rules:
+When review feedback is received (from human reviewers, Claude review, or external reviewers on a PR), read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md` for the full protocol. Key rules:
 - Verify before implementing — check against codebase reality
 - No performative agreement ("You're absolutely right!", "Great point!")
 - If any item is unclear, stop and ask before implementing anything

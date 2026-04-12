@@ -65,5 +65,5 @@ description: Load project memory, discover project context, classify size, creat
 | Code scan | Code scan | — | `/review` (full) | `/review` (full) | `/review` (full) |
 | Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
-| Review feedback | — | — | `review/references/handling-feedback.md` | handling-feedback | handling-feedback |
+| Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |
 | Retro | Yes | Yes | Yes | Yes | Yes |
