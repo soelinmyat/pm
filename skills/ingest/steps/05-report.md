@@ -18,4 +18,4 @@ End with a concise import report:
 Then recommend the next best step:
 - `$pm-strategy` if new evidence changes ICP or priorities
 - `$pm-groom` if the evidence strengthens a feature decision
-- `pm:start` if the user wants to review the updated research on the dashboard
+- `pm:start` if the user wants to review the updated knowledge base

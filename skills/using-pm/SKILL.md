@@ -9,7 +9,7 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 ## Session Start
 
-When this skill loads at the beginning of a new session, invoke `pm:start` before responding to the user. This launches the dashboard, shows the project pulse, and handles onboarding if there is no knowledge base yet.
+When this skill loads at the beginning of a new session, invoke `pm:start` before responding to the user. This shows the project pulse and handles onboarding if there is no knowledge base yet.
 
 # Using Plugin Skills
 
@@ -50,7 +50,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 |-----------|-------|--------------|
 | "Import feedback" / "Add evidence" / "Customer data" | `pm:ingest` | Import files, transcripts, feedback into pm/ |
 | "What's outdated?" / "Update research" / "Stale data" | `pm:refresh` | Check for staleness, patch without losing content |
-| "Show dashboard" / "Open pm" / "View research" | `pm:start` | Project pulse, dashboard launch, onboarding |
+| "Open pm" / "View research" / "Show knowledge base" | `pm:start` | Project pulse, onboarding |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
 ## Shared References (consulted by skills, never invoked)
@@ -60,8 +60,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `references/writing.md` | Prose quality, document structure, HTML generation, slide rules |
 | `references/merge-loop.md` | Self-healing merge loop — used by the ship skill |
 | `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
-| `references/visual.md` | Dashboard-first UI invocation standard |
-| `references/templates/` | Strategy deck and proposal HTML templates |
+| `references/templates/` | Strategy deck, proposal, and RFC HTML templates |
 
 ## Instruction Priority
 

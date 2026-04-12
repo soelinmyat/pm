@@ -19,7 +19,7 @@ Treat these directories as the runtime surface:
 | `commands/` | User-facing command surface |
 | `skills/` | Workflow behavior and output expectations |
 | `personas/` | Role overlays used by review and critique agents |
-| `scripts/` | Runtime utilities (dashboard server, helpers) |
+| `scripts/` | Runtime utilities (helpers, validators, status) |
 | `hooks/` | Pre/post tool-use hooks |
 | `templates/` | Output templates |
 | `tests/` | Script and regression tests |
@@ -85,7 +85,7 @@ git config core.hooksPath .githooks
 
 1. **Edit** files in this repo
 2. **Sync to cache** to test immediately (see sync command below)
-3. **Verify** the change works (restart dashboard, run the skill, etc.)
+3. **Verify** the change works (run the skill, check tests, etc.)
 4. **Commit** to the source repo when satisfied
 5. **Bump version** as the last commit on the branch, then create a PR (see version bump rules below)
 
@@ -107,14 +107,6 @@ This overwrites the cache with your local source. It will be overwritten again o
 ### Editing project data
 
 PM writes to `pm/` and `.pm/` in the consuming project, not in the plugin source repository.
-
-### Dashboard testing
-
-After syncing source to cache, restart the dashboard to pick up changes:
-
-```bash
-node ~/.claude/plugins/cache/pm/pm/{version}/scripts/server.js --mode dashboard --dir "$PWD/pm"
-```
 
 ## Source Of Truth
 

@@ -1,5 +1,5 @@
 ---
-description: "Start or resume PM for this project. Bootstrap a new PM workspace, route into the best first workflow, or open the dashboard and continue active work."
+description: "Start or resume PM for this project. Bootstrap a new PM workspace, route into the best first workflow, or continue active work."
 argument-hint: "[path-or-starting-context]"
 ---
 

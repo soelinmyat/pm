@@ -4,7 +4,7 @@ PM is a free, open-source plugin for Claude Code and Codex. It keeps market rese
 
 Built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead needs context without asking for updates.
 
-> **Early release.** Research, strategy, grooming, and shipping work well. The dashboard and collaboration layer are still being polished.
+> **Early release.** Research, strategy, grooming, and shipping work well. The collaboration layer is still being polished.
 
 ## Quickstart
 
@@ -112,7 +112,7 @@ PM is free to use locally. Syncing and sharing via [productmemory.io](https://pr
 ## How PM Fits a Team
 
 - **Engineers** use it in the editor — research, groom, build, ship
-- **PMs and biz leads** use the dashboard for strategy, research, and roadmap context
+- **PMs and biz leads** use the knowledge base for strategy, research, and roadmap context
 - **Designers** review proposals and implementation against the original intent
 
 The knowledge base is the shared context. Everyone works from the same research, strategy, and decisions.

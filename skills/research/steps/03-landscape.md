@@ -35,7 +35,7 @@ First research activity in a new project. Produces the market overview that make
 4. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
-5. **Write `{pm_dir}/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
+5. **Write `{pm_dir}/insights/business/landscape.md`** (see structure below). Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row.
    After writing, append the touched file to `{pm_dir}/insights/business/log.md`. Update `{pm_dir}/insights/business/index.md` too if it needs to reflect the new state of the domain.
 
 ### Landscape Document Structure
@@ -57,7 +57,7 @@ sources:
 <!-- stat: {value}, {label} -->
 <!-- stat: {value}, {label} -->
 
-Add 3-5 headline stat comments right after the h1 title. Pick the most impactful numbers from the research (adoption rates, market size, search volume, growth metrics). The dashboard renders these as a stat card row at the top of the page.
+Add 3-5 headline stat comments right after the h1 title. Pick the most impactful numbers from the research (adoption rates, market size, search volume, growth metrics).
 
 ## Market Overview
 2-3 paragraph summary: market size, growth direction, primary buyer, key dynamics.
@@ -68,7 +68,7 @@ Add 3-5 headline stat comments right after the h1 title. Pick the most impactful
 |---|---|---|---|
 | [Company](https://domain.com) | ... | ... | ... |
 
-Use markdown links for company names so the dashboard renders them as clickable links to their websites.
+Use markdown links for company names so they render as clickable links.
 
 ## Keyword Landscape
 Top terms by volume (if SEO configured) or qualitative keyword clusters (web search only).
@@ -88,7 +88,7 @@ Named segments with a 1-sentence description each. Who buys, why, and at what pr
 
 Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise).
 Each row is an HTML comment with: company name, x position (0-100), y position (0-100), monthly organic traffic, segment label.
-The dashboard renders these as a bubble chart (bubble size = traffic, color = segment).
+These structured comments encode a positioning bubble chart (bubble size = traffic, color = segment).
 
 X-axis: {description of left to right}.
 Y-axis: {description of bottom to top}.

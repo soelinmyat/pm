@@ -193,7 +193,7 @@ The markdown body follows this structure:
 
 After writing the file:
 1. Confirm: "Feature inventory written to pm/product/features.md ({N} features, {M} areas)."
-2. Suggest: "View it on the dashboard at /product, or run /pm:groom to use it in feature discovery."
+2. Suggest: "Run /pm:groom to use it in feature discovery."
 
 ## Notes
 
