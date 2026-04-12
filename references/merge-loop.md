@@ -125,7 +125,7 @@ Tight polling wastes tokens, floods the terminal, and provides no benefit over `
 
 <HARD-GATE>
 NEVER resolve a comment thread without first reading and evaluating it.
-Every thread — human or bot — must be reviewed before resolution. Follow the handling-feedback protocol (skills/review/references/handling-feedback.md): READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT. Skipping straight to "resolve" is forbidden.
+Every thread — human or bot — must be reviewed before resolution. Follow the handling-feedback protocol (skills/ship/references/handling-feedback.md): READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT. Skipping straight to "resolve" is forbidden.
 </HARD-GATE>
 
 ```bash

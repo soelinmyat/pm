@@ -413,7 +413,7 @@ gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BR
 
 ### Handling review feedback
 
-When review comments appear on the PR, use `review/references/handling-feedback.md` before acting:
+When review comments appear on the PR, use `ship/references/handling-feedback.md` before acting:
 1. Read the complete feedback before responding
 2. Evaluate technical soundness. Push back if the suggestion is wrong or YAGNI.
 3. Implement one item at a time, running tests after each fix
