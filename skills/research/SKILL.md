@@ -5,15 +5,27 @@ description: "Use when doing industry landscape analysis, competitive intelligen
 
 # pm:research
 
+Build and maintain the product knowledge base. Research gates strategy and grooming — without it, positioning is guesswork.
+
+## Workflow Loading
+
+Load the research workflow steps using the step loader:
+
+```
+const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
+const steps = loadWorkflow('research', pmDir, '${CLAUDE_PLUGIN_ROOT}');
+const workflowPrompt = buildPrompt(steps);
+```
+
+The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` (defaults) with user overrides from `.pm/workflows/research/` (if any). Steps are sorted by order and concatenated into the workflow prompt.
+
+Execute the loaded workflow steps in order. Each step contains its own instructions. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).
+
 ## Path Resolution
 
 If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
 
 If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
-
-## Purpose
-
-Build and maintain the product knowledge base. Research gates strategy and grooming — without it, positioning is guesswork.
 
 ## Telemetry (opt-in)
 
@@ -26,13 +38,6 @@ Minimum coverage for `pm:research`:
 - Competitor mode: `discover-competitors`, `profile-competitors`, `synthesize`
 - Topic mode: `research-topic`, `write-findings`
 
-## Interaction Pacing
-
-Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
-
----
-
-
 ## Custom Instructions
 
 Before starting work, check for user instructions:
@@ -43,392 +48,20 @@ Before starting work, check for user instructions:
 
 **Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
----
+## References
 
-## Note Digest (intake pre-step)
+The following reference files provide detailed guidance for specific research phases:
 
-Before routing to a research mode, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes, so the research modes have the latest internal signals. If no un-digested notes exist, this completes silently and proceeds to mode routing.
+| Reference | Purpose |
+|-----------|---------|
+| `${CLAUDE_PLUGIN_ROOT}/skills/research/references/mode-routing.md` | Mode selection table and menu logic |
+| `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md` | 5-file competitor profiling methodology |
+| `${CLAUDE_PLUGIN_ROOT}/skills/research/references/api-analysis.md` | API surface analysis methodology |
+| `${CLAUDE_PLUGIN_ROOT}/skills/research/references/review-mining.md` | Review mining and sentiment analysis methodology |
 
----
+## Interaction Pacing
 
-## Mode Routing
-
-| Argument | Mode |
-|---|---|
-| `landscape` | Landscape Mode |
-| `competitors` | Competitor Mode |
-| _(no arg, no `{pm_dir}/insights/business/landscape.md`)_ | Landscape Mode (first-time default) |
-| _(no arg, `{pm_dir}/insights/business/landscape.md` exists)_ | Present menu |
-| anything else | Topic Mode (argument is the topic name) |
-
-When no argument is given and `{pm_dir}/insights/business/landscape.md` exists, present:
-
-> "What would you like to research?
-> (a) Update landscape overview
-> (b) Profile competitors
-> (c) Research a specific topic"
-
-Wait for user selection before proceeding.
-
----
-
-## Landscape Mode (`$pm-research landscape`)
-
-### When to Use
-
-First research activity in a new project. Produces the market overview that makes strategy interviews more specific and competitor profiling more targeted.
-
-### Flow
-
-1. **Determine the market space.**
-   - If `{pm_dir}/strategy.md` exists, read it and extract the market/product space from the positioning or product description.
-   - Otherwise, ask the user: *"What market or product space should I research?"*
-   - Use the answer as `{space}` in all search templates below.
-
-2. **SEO market intelligence** (if provider configured).
-   Read `{pm_state_dir}/config.json` for the `seo.provider` value.
-   - If `"ahrefs-mcp"`: use the Ahrefs MCP tools:
-     - `keywords-explorer-matching-terms` — get keyword ideas for the product category (limit 30). Shows search demand behind the space.
-     - `keywords-explorer-volume-by-country` — for the top 3-5 keywords, check volume distribution across target countries (especially SEA markets if relevant). Reveals geographic demand.
-     - `keywords-explorer-overview` — get volume, difficulty, CPC for core category keywords. Shows market maturity.
-     - `site-explorer-organic-competitors` — if any known competitor domains exist, discover who else competes in the same keyword space. Reveals players not found via web search.
-   - If `"none"` or returns an error: skip, log the error, continue with web search.
-
-3. **Web search for market overview.** Search for:
-   - "{space} market overview" / "{space} industry landscape {year}"
-   - Key vendors and their positioning
-   - Market segments and buyer types
-   - Analyst or press coverage
-
-4. **Present findings for validation.** Show a structured summary before writing. Ask:
-   > "Does this look like the right landscape? Anything to add or correct before I write the file?"
-
-5. **Write `{pm_dir}/insights/business/landscape.md`** (see structure below). Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the h2 heading auto-detection, stat comments, and positioning map comments the dashboard expects. Include the **Market Positioning Map** section with structured HTML comment data. Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise). Plot every key player as a comment row. The dashboard parses these comments and renders an interactive bubble chart — bubble size reflects organic traffic, color reflects segment.
-   After writing, append the touched file to `{pm_dir}/insights/business/log.md`. Update `{pm_dir}/insights/business/index.md` too if it needs to reflect the new state of the domain.
-
-### Landscape Document Structure
-
-```markdown
----
-type: landscape
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-sources:
-  - url: ...
-    accessed: YYYY-MM-DD
----
-
-# Market Landscape: {Space}
-
-<!-- stat: {value}, {label} -->
-<!-- stat: {value}, {label} -->
-<!-- stat: {value}, {label} -->
-<!-- stat: {value}, {label} -->
-
-Add 3-5 headline stat comments right after the h1 title. Pick the most impactful numbers from the research (adoption rates, market size, search volume, growth metrics). The dashboard renders these as a stat card row at the top of the page.
-
-## Market Overview
-2-3 paragraph summary: market size, growth direction, primary buyer, key dynamics.
-
-## Key Players
-
-| Company | Positioning | Primary Segment | Notable |
-|---|---|---|---|
-| [Company](https://domain.com) | ... | ... | ... |
-
-Use markdown links for company names so the dashboard renders them as clickable links to their websites.
-
-## Keyword Landscape
-Top terms by volume (if SEO configured) or qualitative keyword clusters (web search only).
-
-| Keyword | Volume | Difficulty | Notes |
-|---|---|---|---|
-
-## Market Segments
-Named segments with a 1-sentence description each. Who buys, why, and at what price sensitivity.
-
-## Market Positioning Map
-
-<!-- positioning: company, x (0-100, x-axis-low-label to x-axis-high-label), y (0-100, y-axis-low-label to y-axis-high-label), traffic, segment-color -->
-<!-- Company A, 85, 30, 311655, horizontal -->
-<!-- Company B, 20, 60, 3091, mid-market -->
-<!-- Our Product, 25, 50, 0, self -->
-
-Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise).
-Each row is an HTML comment with: company name, x position (0-100), y position (0-100), monthly organic traffic, segment label.
-The dashboard renders these as a bubble chart (bubble size = traffic, color = segment).
-
-X-axis: {description of left to right}.
-Y-axis: {description of bottom to top}.
-Dot size: Monthly organic traffic. Color: segment.
-
-{1-2 sentences explaining where your product sits and what the whitespace reveals.}
-
-## Initial Observations
-3-5 bullets. Gaps, tensions, underserved segments, or early hypotheses worth testing.
-```
-
-### Update Flow
-
-When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `updated:` in frontmatter.
-
----
-
-## Competitor Mode (`$pm-research competitors`)
-
-### Phase 1: Discover
-
-The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.
-
-1. **Start with landscape.** If `{pm_dir}/insights/business/landscape.md` exists, pull the Key Players table as a seed list.
-2. **Go deeper.** Do NOT stop at the landscape list. Run additional searches to find competitors the landscape may have missed:
-   - Search for tools on the **same platform** (e.g., other Claude Code plugins, Cursor plugins, IDE extensions that do similar work).
-   - Search for tools targeting the **same user** (e.g., "AI tools for [ICP role]", "[workflow] tool for [audience]").
-   - Search for tools solving the **same problem** differently (e.g., web apps, CLI tools, browser extensions).
-   - Search GitHub, plugin marketplaces, Product Hunt, and Indie Hackers for emerging/unlisted competitors.
-   - If `"ahrefs-mcp"` is configured: use `site-explorer-organic-competitors` on any known competitor domain to discover who else competes for the same keywords.
-3. **Filter by relevance.** Classify candidates by proximity:
-   - **Direct competitors**: Same platform, same workflow, same audience.
-   - **Adjacent competitors**: Different platform or delivery model, but overlapping use case.
-   - **Aspirational competitors**: Different segment entirely (e.g., enterprise SaaS), but set user expectations for what the product category should do.
-   Present all three tiers. Recommend profiling direct and adjacent competitors. Aspirational competitors are optional context.
-4. **Confirm with user.** Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
-5. Write or update `{pm_dir}/evidence/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier), then append touched files to `{pm_dir}/evidence/competitors/log.md`.
-
-### Phase 2: Profile
-
-Determine dispatch strategy based on candidate count and environment:
-
-**1 competitor:** Profile inline. Create all 5 files per competitor:
-1. Read methodology in `skills/research/competitor-profiling.md`
-2. Read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md` — this documents the 5-file directory structure and frontmatter the dashboard expects for competitor detail pages.
-3. Create `{pm_dir}/evidence/competitors/{slug}/profile.md`
-3. Create `{pm_dir}/evidence/competitors/{slug}/features.md`
-4. Create `{pm_dir}/evidence/competitors/{slug}/api.md`
-5. Create `{pm_dir}/evidence/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
-6. Create `{pm_dir}/evidence/competitors/{slug}/sentiment.md`
-
-Verify all 5 files exist before proceeding to Phase 3.
-
-**2+ competitors, subagents available (Claude Code, Codex):**
-Dispatch one researcher agent per competitor in parallel. Use this syntax for each:
-
-```
-Agent tool: name="researcher-{slug}", prompt="Profile {Company Name} in the {space} space.
-Slug: {slug}. Follow the methodology in skills/research/competitor-profiling.md exactly.
-Write all output files to {pm_dir}/evidence/competitors/{slug}/.
-Do NOT write to {pm_dir}/evidence/competitors/index.md — that is owned by the parent skill."
-```
-
-Wait for all agents to complete, then validate output for each competitor:
-
-```
-For each {slug}, verify these 5 files exist:
-- {pm_dir}/evidence/competitors/{slug}/profile.md
-- {pm_dir}/evidence/competitors/{slug}/features.md
-- {pm_dir}/evidence/competitors/{slug}/api.md
-- {pm_dir}/evidence/competitors/{slug}/seo.md
-- {pm_dir}/evidence/competitors/{slug}/sentiment.md
-
-If any file is missing, re-run that section of research before proceeding to Phase 3.
-```
-
-**2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
-Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
-
-**Subagent detection:** Attempt the Agent tool dispatch. If the environment returns an error or the tool is unavailable, fall back to sequential inline profiling automatically.
-
-**Index ownership:** Researcher agents write only to `{pm_dir}/evidence/competitors/{slug}/`. The parent skill owns `{pm_dir}/evidence/competitors/index.md`. Never delegate index writes to subagents.
-
-### Phase 3: Synthesize
-
-<HARD-GATE>
-Synthesis is required after profiling. Do NOT skip because "the profiles are the deliverable."
-Index updates, synthesized comparison content, market gaps, and landscape updates are what make individual profiles usable by downstream skills (strategy, ideate, groom).
-Without synthesis, profiling is raw data — not knowledge.
-</HARD-GATE>
-
-**Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
-
-For each competitor slug, check:
-- [ ] `{pm_dir}/evidence/competitors/{slug}/profile.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/features.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/api.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/seo.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/sentiment.md` exists
-
-If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?"
-
-Only proceed to synthesis after all files are present.
-
-1. Update `{pm_dir}/evidence/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
-2. Add or update a **Market Gaps** section in `{pm_dir}/evidence/competitors/index.md` — capabilities absent or weak across all competitors.
-3. **Update `{pm_dir}/insights/business/landscape.md`** — keep the landscape as the single source of truth for the market view:
-   - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
-   - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
-   - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
-   - Bump the `updated:` date in frontmatter.
-4. Append touched paths to `{pm_dir}/evidence/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
-### Cost Guardrail
-
-Before running batch SEO calls across multiple competitors, estimate the request count and show:
-
-> "This will make approximately {N} SEO API calls across {M} competitors. Estimated cost: ~${X}. Proceed?"
-
-Only continue after explicit confirmation.
-
----
-
-## Topic Mode (`$pm-research {topic}`)
-
-For targeted deep dives not covered by landscape or competitor profiling.
-
-### Flow
-
-0. **Load Hot Index** (pre-step).
-   Before scanning insight files, check if the hot index exists and use it for faster topic lookup.
-
-   ```bash
-   # Check for hot index
-   if [ -f "{pm_dir}/insights/.hot.md" ]; then
-     node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --domain {relevant_domain}
-   fi
-   ```
-
-   - If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --domain {relevant_domain}` where `{relevant_domain}` is the insight domain most relevant to the research topic (e.g., `product`, `business`). Parse the output table to identify existing insight topics related to the research topic. Log: "Hot index loaded ({N} insights)".
-   - If a match is found in the hot index, read only that specific insight `.md` file for full content instead of scanning all insight files.
-   - If `{pm_dir}/insights/.hot.md` does not exist, fall back to reading insight files directly (current behavior). Log: "Hot index not found, falling back to direct file scan".
-
-1. **Check existing knowledge.** Read `{pm_dir}/evidence/index.md` and `{pm_dir}/evidence/research/index.md` if they exist. Check `{pm_dir}/insights/business/landscape.md` and `{pm_dir}/strategy.md` for relevant context. Use hot index results from Step 0 (if available) instead of scanning all insight files to check for existing topics.
-   Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `$pm-ingest`, not just external research.
-2. **Check strategy alignment.** If `{pm_dir}/strategy.md` exists, note how the topic relates to current priorities.
-3. **Search demand check** (if ahrefs-mcp configured).
-   - `keywords-explorer-overview` — get volume, difficulty, CPC for the topic as a keyword. Quantifies how much people search for this.
-   - `serp-overview` — see who currently ranks for the topic keyword and what the SERP looks like. Reveals content competition and opportunity.
-   - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
-4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
-5. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema. Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the frontmatter fields and content structure the dashboard expects for research topic pages:
-
-```markdown
----
-type: evidence
-evidence_type: research
-topic: {Topic Name}
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-source_origin: external|mixed
-cited_by: []
-sources:
-  - url: ...
-    accessed: YYYY-MM-DD
-# Keep internal evidence fields if they already exist on a mixed topic file.
-evidence_count: 17
-segments:
-  - SMB
-confidence: high
----
-
-# {Topic Name}
-
-## Summary
-2-3 sentences. The key answer to "what did we learn?"
-
-## Findings
-Numbered findings with supporting evidence and source references.
-Prefix external findings with `[external]` when the topic is mixed.
-
-## Representative Quotes
-Present only if the topic already contains internal evidence. Do not delete it.
-
-## Strategic Relevance
-How this supports or challenges the current strategy.
-If inferred, label it clearly.
-
-## Implications
-What this means for the product. Link to strategy sections if relevant.
-
-## Open Questions
-What this research did NOT answer.
-
-## Source References
-- https://example.com/article — accessed YYYY-MM-DD
-```
-
-   Mixed-origin write rules:
-   - If the topic file already exists with `source_origin: internal`, switch it to `mixed`
-   - Append external `sources` entries and `[external]` findings without deleting internal evidence
-   - Rewrite shared sections (`Summary`, `Strategic Relevance`, `Implications`) so they reflect both internal and external evidence
-
-6. **Route findings to insight topics.**
-   Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
-   Pass the evidence file path (`{pm_dir}/evidence/research/{topic-slug}.md`)
-   and the key findings from Step 5 as input.
-   If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step.
-
-7. **Update evidence indexes**:
-   - `{pm_dir}/evidence/research/index.md` — add or update the topic row with description, updated date, and `external` or `mixed` status.
-   - `{pm_dir}/evidence/index.md` — keep the top-level Research Evidence list in sync with the topic file.
-8. **Update evidence logs**:
-   - append the topic write to `{pm_dir}/evidence/research/log.md`
-   - append the topic write to `{pm_dir}/evidence/log.md`
-
----
-
-## SEO Provider Invocation
-
-Read `{pm_state_dir}/config.json` to determine the configured SEO provider. Route calls based on the provider:
-
-### Provider: `"ahrefs-mcp"` (recommended)
-
-Use the Ahrefs MCP tools directly. These are available as MCP tool calls when the Ahrefs MCP server is connected. The tool names are prefixed with `mcp__ahrefs__` (the exact prefix depends on how the server was registered — check available tools).
-
-Always call `mcp__ahrefs__doc` with the specific tool name before first use to get the correct input schema.
-
-#### Tool inventory by use case
-
-**Keyword research:**
-- `keywords-explorer-overview` — volume, difficulty, CPC for specific keywords
-- `keywords-explorer-matching-terms` — keyword ideas matching a seed term
-- `keywords-explorer-related-terms` — "also rank for" and "also talk about" keywords
-- `keywords-explorer-search-suggestions` — autocomplete-style suggestions
-- `keywords-explorer-volume-by-country` — volume distribution by country (critical for regional products)
-- `keywords-explorer-volume-history` — search trend over time
-
-**Domain analysis:**
-- `site-explorer-metrics` — organic traffic, keywords, traffic value
-- `site-explorer-metrics-by-country` — traffic breakdown by country
-- `site-explorer-domain-rating` — domain authority score
-- `site-explorer-organic-keywords` — keywords a domain ranks for (with position, volume, traffic)
-- `site-explorer-organic-competitors` — domains competing for the same keywords
-- `site-explorer-top-pages` — highest-traffic pages on a domain
-- `site-explorer-pages-by-traffic` — page distribution by traffic bucket
-
-**Backlink analysis:**
-- `site-explorer-backlinks-stats` — backlink and referring domain counts
-- `site-explorer-referring-domains` — detailed referring domain list
-
-**SERP analysis:**
-- `serp-overview` — who ranks for a keyword, with DR, backlinks, traffic per result
-
-**Efficiency:**
-- `batch-analysis` — analyze up to 100 URLs/domains in one call (use for competitor comparison)
-
-#### When to use which
-
-| PM skill | Primary tools | Purpose |
-|---|---|---|
-| Landscape | keywords-explorer-matching-terms, volume-by-country, organic-competitors | Market demand, geographic distribution, player discovery |
-| Competitor seo.md | batch-analysis or site-explorer-metrics + organic-keywords + top-pages + metrics-by-country | Domain strength, content strategy, geographic reach |
-| Topic research | keywords-explorer-overview, serp-overview | Search demand validation, content competition |
-| Dig (quick check) | keywords-explorer-overview | Fast demand signal |
-
-If an Ahrefs MCP tool call fails or returns an error, display the error to the user, note it in the output file under Sources, and continue research with web search.
-
-### Provider: `"none"`
-
-Skip all SEO calls. Proceed with web search only. Do not error.
-
----
+Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
 ## Research Rules
 
