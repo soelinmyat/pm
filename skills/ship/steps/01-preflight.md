@@ -1,0 +1,50 @@
+---
+name: Pre-flight
+order: 1
+description: Verify branch, check uncommitted changes, detect default branch, and validate prerequisites
+---
+
+## Pre-flight
+
+<!-- telemetry step: pre-flight -->
+
+### Prerequisites
+
+Before starting, verify required tools are available:
+
+```bash
+command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required for PR creation and merging. Install: https://cli.github.com"; exit 1; }
+command -v git >/dev/null 2>&1 || { echo "git is required."; exit 1; }
+```
+
+If `gh` is missing, tell the user: "Ship requires GitHub CLI. Install it from https://cli.github.com and run `gh auth login`."
+
+If `gh auth status` fails, tell the user: "GitHub CLI is not authenticated. Run `gh auth login` first."
+
+### Default Branch
+
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')
+[ -z "$DEFAULT_BRANCH" ] && DEFAULT_BRANCH="main"  # fallback only
+```
+
+All git commands use `{DEFAULT_BRANCH}` — never hardcode `main`.
+
+### Verify branch
+
+Run `git branch --show-current`. If on `{DEFAULT_BRANCH}`:
+- STOP. Report: "You are on {DEFAULT_BRANCH}. Create a feature branch first."
+
+### Check for uncommitted changes
+
+Run `git status --porcelain`.
+
+If there are uncommitted changes:
+1. Show the user what's changed: `git diff --stat`
+2. Stage related files (NOT `git add -A` — be selective)
+3. Commit with a descriptive message based on the changes
+
+If working tree is clean, continue.
