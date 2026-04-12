@@ -802,3 +802,121 @@ test("buildStatus syncStatus for uninitialized project has syncStatus", () => {
     project.cleanup();
   }
 });
+
+// --- renderTextStatus Dashboard line tests ---
+
+test("renderTextStatus shows Dashboard nudge when sync not configured", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: { configured: false, lastSync: null, ok: null, mode: null, timeAgo: null },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status);
+  assert.match(rendered, /Dashboard: not configured/);
+  assert.match(rendered, /productmemory\.io/);
+});
+
+test("renderTextStatus shows Dashboard synced with time-ago when configured + ok", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: {
+      configured: true,
+      lastSync: "2026-04-13T10:00:00.000Z",
+      ok: true,
+      mode: "push",
+      timeAgo: "5m ago",
+    },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status);
+  assert.match(rendered, /Dashboard: synced 5m ago/);
+});
+
+test("renderTextStatus shows Dashboard last sync failed when configured + failed", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: {
+      configured: true,
+      lastSync: "2026-04-13T10:00:00.000Z",
+      ok: false,
+      mode: "push",
+      timeAgo: "5m ago",
+    },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status);
+  assert.match(rendered, /Dashboard: last sync failed/);
+});
+
+test("renderTextStatus shows Dashboard syncing when configured + missing status file", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: { configured: true, lastSync: null, ok: null, mode: null, timeAgo: null },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status);
+  assert.match(rendered, /Dashboard: syncing\.\.\./);
+});
+
+test("renderTextStatus Dashboard line appears between Update and Focus", () => {
+  const status = {
+    update: {
+      available: true,
+      message: "v1.0.0 → v2.0.0 available. Update PM in your client. On Claude Code, run /plugin.",
+    },
+    syncStatus: {
+      configured: true,
+      lastSync: "2026-04-13T10:00:00.000Z",
+      ok: true,
+      mode: "push",
+      timeAgo: "3m ago",
+    },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status, { includeUpdate: true });
+  const lines = rendered.split("\n");
+  const updateIdx = lines.findIndex((l) => l.startsWith("Update:"));
+  const dashboardIdx = lines.findIndex((l) => l.startsWith("Dashboard:"));
+  const focusIdx = lines.findIndex((l) => l.startsWith("Focus:"));
+
+  assert.ok(updateIdx >= 0, "Update line should exist");
+  assert.ok(dashboardIdx >= 0, "Dashboard line should exist");
+  assert.ok(focusIdx >= 0, "Focus line should exist");
+  assert.ok(dashboardIdx > updateIdx, "Dashboard should come after Update");
+  assert.ok(dashboardIdx < focusIdx, "Dashboard should come before Focus");
+});
+
+test("renderTextStatus Dashboard line appears before Focus when no Update line", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: { configured: false, lastSync: null, ok: null, mode: null, timeAgo: null },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think (explore a product idea)",
+    alternatives: [],
+  };
+  const rendered = renderTextStatus(status);
+  const lines = rendered.split("\n");
+  const dashboardIdx = lines.findIndex((l) => l.startsWith("Dashboard:"));
+  const focusIdx = lines.findIndex((l) => l.startsWith("Focus:"));
+
+  assert.ok(dashboardIdx >= 0, "Dashboard line should exist");
+  assert.ok(focusIdx >= 0, "Focus line should exist");
+  assert.equal(dashboardIdx, 0, "Dashboard should be first line when no Update");
+  assert.ok(dashboardIdx < focusIdx, "Dashboard should come before Focus");
+});
