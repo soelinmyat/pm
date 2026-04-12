@@ -1,3 +1,9 @@
+---
+name: Research
+order: 3
+description: Invoke pm:research for competitive and market intelligence, or inline assessment for quick tier
+---
+
 ### Phase 3: Research
 
 <!-- Tier routing: keep in sync with SKILL.md "Research by tier" -->

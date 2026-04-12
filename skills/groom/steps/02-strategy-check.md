@@ -1,3 +1,9 @@
+---
+name: Strategy Check
+order: 2
+description: Validate the idea against product priorities, non-goals, and ICP fit
+---
+
 ### Phase 2: Strategy Check
 
 **Tier routing:** Read `groom_tier` from groom session state. If the field is absent, default to `quick`.

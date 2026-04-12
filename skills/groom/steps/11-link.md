@@ -1,3 +1,9 @@
+---
+name: Link
+order: 11
+description: Create proposal entry in backlog, Linear integration, retro extraction, cleanup
+---
+
 ### Phase 8: Link
 
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):

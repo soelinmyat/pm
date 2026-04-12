@@ -1,3 +1,9 @@
+---
+name: Draft Proposal
+order: 7
+description: Detect feature type, generate flows/wireframes, draft proposal content and backlog entry
+---
+
 ### Phase 5.5: Draft Proposal
 
 Assemble the product proposal from research, scope, and design artifacts. This phase produces the proposal content that will be reviewed and presented — not engineering issues.
