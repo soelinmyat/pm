@@ -1,8 +1,3 @@
----
-name: design-critique
-description: "Design review against real running app with seed data. Single focused reviewer + Fresh Eyes examine actual pages via Playwright CLI (web) or Maestro MCP (mobile)."
----
-
 # Design Critique Skill
 
 ## Overview
@@ -34,10 +29,10 @@ Minimum coverage for `design-critique`:
 
 | File | Purpose |
 |------|---------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/reviewer-prompt.md` | Design reviewer dispatch context |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md` | Zero-context regression reviewer prompt |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md` | Platform detection, server lifecycle, screenshot capture sequences |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md` | Seed task conventions, template, edge case checklist |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer-prompt.md` | Design reviewer dispatch context |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes-prompt.md` | Zero-context regression reviewer prompt |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md` | Platform detection, server lifecycle, screenshot capture sequences |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md` | Seed task conventions, template, edge case checklist |
 
 ---
 
@@ -49,7 +44,7 @@ MODE detection:
   Otherwise                            ->  "standalone"
 
 PLATFORM detection:
-  Per ${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md
+  Per ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md
   Summary:
     {APP_PATH}/app.config.ts or app.json exists  ->  "rn" (React Native / Expo)
     package.json contains "expo" or "react-native" ->  "rn"
@@ -70,8 +65,8 @@ No engineer agent. Returns findings to the calling agent.
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
 2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
-4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/reviewer-prompt.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
-5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/fresh-eyes-prompt.md`. Run in parallel with the primary reviewer when the runtime supports delegation.
+4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer-prompt.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
+5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes-prompt.md`. Run in parallel with the primary reviewer when the runtime supports delegation.
 6. **Merge findings.** Deduplicate overlapping findings between the reviewer and Fresh Eyes. Keep the better-written version. Prioritize: P0 (blocks users) > P1 (degrades experience) > P2 (polish). If both flag the same issue, that's a strong signal — keep it.
 7. **Return** merged findings + verdict to the calling agent.
 
@@ -89,10 +84,10 @@ Same flow, with these differences:
 Full self-contained flow for when there is no implementing agent.
 
 1. **User provides:** app path, page/screen, description.
-2. **Platform detection** per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`.
+2. **Platform detection** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md`.
 3. **Engineer worker:**
-   a. Create seed task if none exists (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md`).
-   b. Start servers (per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`).
+   a. Create seed task if none exists (per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`).
+   b. Start servers (per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md`).
    c. Run seed, capture screenshots to `/tmp/design-review/{feature}/`, write manifest.
    d. Capture enriched artifacts (a11y snapshots, consistency audit) per capture-guide.md.
 4. **Design reviewer** examines screenshots + enriched data.

@@ -1,8 +1,3 @@
----
-name: simplify
-description: "Post-implementation code simplification gate. Routes by runtime: delegates to Anthropic's official simplify in Claude Code, runs built-in 3-agent review in other runtimes. Returns structured findings for the caller to fix."
----
-
 # /simplify
 
 Post-implementation code simplification gate. Runs after implementation, before design critique and QA. Reviews the current diff for reuse opportunities, code quality issues, and efficiency problems using 3 parallel review agents.

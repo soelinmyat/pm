@@ -241,8 +241,8 @@ Design Critique is the **single visual quality stage** for UI changes. A focused
 
 The implementing agent owns the full visual verification cycle:
 
-1. **Create seed task**: `design:seed:{feature_slug}` rake task per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md`. Covers all visual states: happy path, empty, edge cases (long text, high volume, boundary values).
-2. **Start servers**: Rails API + Vite (web) or Expo (mobile). Per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`.
+1. **Create seed task**: `design:seed:{feature_slug}` rake task per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`. Covers all visual states: happy path, empty, edge cases (long text, high volume, boundary values).
+2. **Start servers**: Rails API + Vite (web) or Expo (mobile). Per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md`.
 3. **Run seed**: `cd apps/api && bin/rails design:seed:{feature_slug}`
 4. **Capture screenshots**: Playwright CLI (web) or Maestro MCP (mobile). Max 10. Save to `/tmp/design-review/{feature}/`. Write manifest.
 5. **Capture enriched artifacts**: a11y snapshots, visual consistency audit per capture-guide.md.

@@ -86,7 +86,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
    - Where the new feature would logically fit
 
 3. **Screenshot the live page** — start the app and capture the current state:
-   - Use Playwright CLI (web) or Maestro MCP (mobile) per `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/capture-guide.md`
+   - Use Playwright CLI (web) or Maestro MCP (mobile) per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md`
    - Capture at desktop width (1440px) minimum
    - If the app is already running, skip server startup
    - Save to `/tmp/groom-baseline/{feature}/` for reference
