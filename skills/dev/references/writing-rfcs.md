@@ -140,5 +140,5 @@ The orchestrator then dispatches 3 RFC reviewers, handles findings, and gets use
 
 After RFC approval, the same worker is resumed with an implementation brief. The worker:
 - Reads the RFC end-to-end
-- Implements issues in dependency order using `dev:subagent-dev`
+- Implements issues in dependency order following `subagent-dev.md` (in this directory)
 - Each issue follows TDD: write failing test → implement → verify → commit
