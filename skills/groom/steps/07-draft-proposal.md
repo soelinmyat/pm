@@ -80,11 +80,11 @@ Gather all product context into a coherent proposal narrative:
 
 - **Freshness notes:** If `stale_research` in the groom session state is non-empty, include a "Freshness notes" section listing each stale research source. Format each entry as: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." If `stale_research` is empty, omit this section entirely.
 
-This content feeds into the HTML PRD (Phase 7) and the proposal backlog entry (Phase 8).
+This content feeds into the proposal backlog entry (Phase 7) and linking (Phase 8).
 
 #### Step 4: Write proposal backlog entry
 
-Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed` and generate the HTML PRD.
+Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Phase 6, Phase 6.5) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Phase 7 (Present) will upgrade this to `status: proposed` and write the full PRD content inline.
 
 Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
 
@@ -104,7 +104,7 @@ Behavior depends on the current `groom_tier` from session state.
    - Minor edits (wording, AC tweaks): revise the draft and re-show. No need to re-run earlier phases.
    - Scope changes: for `standard`, re-run from Phase 4.5 (Scope Review). For `quick` (which has no scope review), revise scope inline.
 
-4. After approval, generate the HTML PRD. Read and follow Phase 7 (Present) Steps 2-3 from `phases/phase-7-present.md` to write the proposal presentation to `{pm_dir}/backlog/proposals/{topic-slug}.html` and open it in the browser.
+4. After approval, finalize the proposal. Read and follow Phase 7 (Present) Steps 2-3 from `steps/10-present.md` to write the full PRD content into `{pm_dir}/backlog/{topic-slug}.md`.
 
 5. Update state and proceed directly to Phase 8 (Link):
 

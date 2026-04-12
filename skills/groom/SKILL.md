@@ -185,7 +185,7 @@ bar_raiser:
 proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
-  prd_path: {pm_dir}/backlog/proposals/{topic-slug}.html
+  prd_path: null
   linear_id: "{Linear ID}" | null
 ---
 ```
@@ -213,7 +213,7 @@ Never silently overwrite an existing state file. Always ask resume vs. fresh. St
 
 ## Proposal Format (Backlog Entry)
 
-Write the proposal entry to `{pm_dir}/backlog/{topic-slug}.md`. This is the parent backlog item — it links to the HTML PRD and (later) the RFC.
+Write the proposal entry to `{pm_dir}/backlog/{topic-slug}.md`. This is the parent backlog item — the PRD content is inline, and it links to the RFC when one exists.
 
 **ID assignment:** When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
 
@@ -223,7 +223,7 @@ id: "{linear_id or PM-NNN}"
 title: "{Feature Title}"
 outcome: "{One-sentence: what changes for the user when this ships}"
 status: proposed | in-progress | done
-prd: proposals/{topic-slug}.html
+prd: null
 rfc: rfcs/{topic-slug}.html | null
 linear_id: "{Linear ID}" | null
 thinking: thinking/{topic-slug}.md | null

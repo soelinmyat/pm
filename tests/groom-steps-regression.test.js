@@ -156,10 +156,10 @@ const CRITICAL_KEYWORDS = [
 
   // Step 10: Present
   "present",
-  "proposal-reference.html",
-  "HTML PRD",
+  "frontmatter-schemas.md",
+  "type: backlog",
   "Resolved Questions",
-  "Freshness notes",
+  "Freshness Notes",
 
   // Step 11: Link
   "link",
@@ -238,7 +238,7 @@ test("groom steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable",
       "agent-runtime.md",
       "writing.md",
       "spec-document-reviewer-prompt.md",
-      "proposal-reference.html",
+      "frontmatter-schemas.md",
       "validate.js",
     ];
 
