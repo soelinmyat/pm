@@ -52,7 +52,7 @@
         "features",
         "sync"
       ],
-      "dev": ["design-critique", "dev", "qa", "review", "ship", "simplify", "using-pm"]
+      "dev": ["dev", "review", "ship", "using-pm"]
     },
     "interface": {
       "shortDescription": "Shared product brain for small teams.",

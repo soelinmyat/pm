@@ -1,8 +1,3 @@
----
-name: qa
-description: "QA testing ship gate. Assertion-driven: verifies acceptance criteria via DOM queries and computed styles, not screenshot guessing. Uses Playwright MCP for browser interaction. Reports findings with health score and ship verdict. Never modifies source code."
----
-
 # QA — Assertion-Driven Testing Gate
 
 Report-only QA gate for the dev lifecycle. Tests the running app using DOM assertions as primary evidence and screenshots as supporting evidence. Never modifies source code.
@@ -86,9 +81,9 @@ pm:qa --diff
 
 | File | Purpose | When to Read |
 |------|---------|--------------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/qa/references/issue-taxonomy.md` | Severity levels + 7 category definitions | Phase 4 (scoring) |
-| `${CLAUDE_PLUGIN_ROOT}/skills/qa/references/dom-assertions.md` | Playwright MCP patterns for DOM assertions | Phase 2-3 (charter + execution) |
-| `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md` | Seed data conventions | Phase 0 (when seed data needed) |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` | Severity levels + 7 category definitions | Phase 4 (scoring) |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-dom-assertions.md` | Playwright MCP patterns for DOM assertions | Phase 2-3 (charter + execution) |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md` | Seed data conventions | Phase 0 (when seed data needed) |
 
 **Read on-demand, not upfront.** Each reference is needed in exactly one phase.
 
@@ -171,7 +166,7 @@ If login fails:
 
 For Focused/Full tiers or data-dependent flows:
 
-1. Run seed task if project has one (check `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/seed-conventions.md`)
+1. Run seed task if project has one (check `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`)
 2. Verify data exists on page:
 
 ```
@@ -259,7 +254,7 @@ QA Orient
 
 Build the charter based on tier. The charter drives Phase 3 execution.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/qa/references/dom-assertions.md` for Playwright MCP patterns.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-dom-assertions.md` for Playwright MCP patterns.
 
 ### Quick
 
@@ -573,7 +568,7 @@ Max 15 screenshots per run. Screenshots are evidence, not the primary testing me
 
 ## Phase 4: Analyze & Score
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/qa/references/issue-taxonomy.md` for full category definitions and severity criteria.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` for full category definitions and severity criteria.
 
 ### 7 Categories
 

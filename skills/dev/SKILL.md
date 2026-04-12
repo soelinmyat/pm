@@ -103,7 +103,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/tdd.md` (reference) | Implementation agent (all) |
 | `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
 | `dev/references/debugging.md` (reference) | Debug |
-| `pm:qa` | QA ship gate (all UI changes) |
+| `dev/references/qa.md` (reference) | QA ship gate (all UI changes) |
 | `review/references/handling-feedback.md` (reference) | Ship (M/L/XL) — handling PR feedback |
 
 ## Project Context Discovery
