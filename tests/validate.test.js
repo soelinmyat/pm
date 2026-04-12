@@ -1995,3 +1995,259 @@ test("PM-199/fixtures: deprecated landscape type produces warning, not error", (
     "should produce deprecation warning for landscape"
   );
 });
+
+// ---------------------------------------------------------------------------
+// PM-199 Issue 5: Forbidden-syntax guard
+// ---------------------------------------------------------------------------
+
+test("PM-199: forbidden-syntax guard rejects backlog status with parenthetical content", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-syntax.md": makeBacklogItem({ status: '"idea (needs review)"' }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "status" && d.message.includes("forbidden syntax")),
+    "should reject status with parenthetical content"
+  );
+});
+
+test("PM-199: forbidden-syntax guard rejects backlog priority with parenthetical content", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-prio-syntax.md": makeBacklogItem({ priority: '"high (needs review)"' }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "priority" && d.message.includes("forbidden syntax")),
+    "should reject priority with parenthetical content"
+  );
+});
+
+test("PM-199: forbidden-syntax guard rejects insight status with parenthetical content", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/bad-insight.md": makeInsight({ status: '"active (under review)"' }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "status" && d.message.includes("forbidden syntax")),
+    "should reject insight status with parenthetical content"
+  );
+});
+
+test("PM-199: forbidden-syntax guard rejects insight confidence with parenthetical content", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/business/bad-conf.md": makeInsight({ confidence: '"high (tentative)"' }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "confidence" && d.message.includes("forbidden syntax")),
+    "should reject confidence with parenthetical content"
+  );
+});
+
+test("PM-199: forbidden-syntax guard rejects evidence source_origin with parenthetical content", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/research/bad-origin.md": makeEvidence({
+      source_origin: '"external (mostly)"',
+      cited_by: [],
+    }),
+    "pm/evidence/research/index.md": makeIndex([
+      "| [bad-origin.md](bad-origin.md) | Bad origin | 2026-04-12 | active |",
+    ]),
+    "pm/evidence/research/log.md": makeLog(["2026-04-12 create evidence/research/bad-origin.md"]),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some(
+      (d) => d.field === "source_origin" && d.message.includes("forbidden syntax")
+    ),
+    "should reject source_origin with parenthetical content"
+  );
+});
+
+test("PM-199: clean enum values still pass validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/clean-enums.md": makeBacklogItem({
+      status: "in-progress",
+      priority: "high",
+      evidence_strength: "strong",
+      scope_signal: "medium",
+      competitor_gap: "partial",
+    }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `clean enums should pass: ${JSON.stringify(result.details)}`);
+});
+
+// ---------------------------------------------------------------------------
+// PM-199 Issue 5: Schema-validator drift detection
+// ---------------------------------------------------------------------------
+
+const {
+  VALID_STATUSES: V_STATUSES,
+  VALID_PRIORITIES: V_PRIORITIES,
+  VALID_EVIDENCE: V_EVIDENCE,
+  VALID_SCOPE: V_SCOPE,
+  VALID_GAP: V_GAP,
+  VALID_INSIGHT_STATUSES: V_INSIGHT_STATUSES,
+  VALID_CONFIDENCE: V_CONFIDENCE,
+  VALID_SOURCE_ORIGINS: V_SOURCE_ORIGINS,
+  VALID_COMPETITOR_TYPES: V_COMPETITOR_TYPES,
+  REQUIRED_BACKLOG_FIELDS: R_BACKLOG,
+  REQUIRED_STRATEGY_FIELDS: R_STRATEGY,
+  REQUIRED_INSIGHT_FIELDS: R_INSIGHT,
+  REQUIRED_EVIDENCE_FIELDS: R_EVIDENCE,
+  REQUIRED_NOTES_FIELDS: R_NOTES,
+  REQUIRED_COMPETITOR_FIELDS: R_COMPETITOR,
+} = require("../scripts/validate.js");
+
+const REFERENCE_PATH = path.join(__dirname, "..", "references", "frontmatter-schemas.md");
+
+test("PM-199: drift — reference file exists", () => {
+  assert.ok(fs.existsSync(REFERENCE_PATH), "references/frontmatter-schemas.md must exist");
+});
+
+test("PM-199: drift — every enum constant in validate.js appears backtick-wrapped in reference file", () => {
+  const refContent = fs.readFileSync(REFERENCE_PATH, "utf8");
+
+  // Only check enums documented in the reference file's schema tables.
+  // VALID_MEMORY_CATEGORIES is validated but not in the reference (memory
+  // documents are not part of the 8 documented KB schema types).
+  const enumSets = {
+    VALID_STATUSES: V_STATUSES,
+    VALID_PRIORITIES: V_PRIORITIES,
+    VALID_EVIDENCE: V_EVIDENCE,
+    VALID_SCOPE: V_SCOPE,
+    VALID_GAP: V_GAP,
+    VALID_INSIGHT_STATUSES: V_INSIGHT_STATUSES,
+    VALID_CONFIDENCE: V_CONFIDENCE,
+    VALID_SOURCE_ORIGINS: V_SOURCE_ORIGINS,
+    VALID_COMPETITOR_TYPES: V_COMPETITOR_TYPES,
+  };
+
+  const missing = [];
+  for (const [setName, values] of Object.entries(enumSets)) {
+    for (const val of values) {
+      // Must appear backtick-wrapped: `"value"` or `value`
+      const escaped = val.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const backtickPattern = new RegExp("`[^`]*" + escaped + "[^`]*`");
+      if (!backtickPattern.test(refContent)) {
+        missing.push(`${setName}: "${val}" not found backtick-wrapped in reference`);
+      }
+    }
+  }
+
+  assert.equal(
+    missing.length,
+    0,
+    `Drift detected — validator constants missing from reference:\n  ${missing.join("\n  ")}`
+  );
+});
+
+test("PM-199: drift — every backtick-wrapped enum value in reference schema tables appears in validator constants", () => {
+  const refContent = fs.readFileSync(REFERENCE_PATH, "utf8");
+
+  // Collect all validator enum values into a single set for reverse lookup.
+  // Excludes VALID_MEMORY_CATEGORIES (not documented in reference schema tables).
+  const allEnumValues = new Set([
+    ...V_STATUSES,
+    ...V_PRIORITIES,
+    ...V_EVIDENCE,
+    ...V_SCOPE,
+    ...V_GAP,
+    ...V_INSIGHT_STATUSES,
+    ...V_CONFIDENCE,
+    ...V_SOURCE_ORIGINS,
+    ...V_COMPETITOR_TYPES,
+    // Fixed type values (not enums but referenced in schema tables)
+    "backlog",
+    "strategy",
+    "evidence",
+    "insight",
+    "notes",
+    "competitor-profile",
+    "competitor-features",
+    "competitor-sentiment",
+    "competitor-api",
+    "competitor-seo",
+    "research",
+    "transcript",
+    "user-feedback",
+  ]);
+
+  // Extract enum values from "Valid Values" columns in schema tables.
+  // Schema tables have rows like: | `field` | type | req | `"value"` \| `"value"` | desc |
+  // We extract backtick-wrapped quoted strings from the Valid Values column (column 4).
+  const tableRowPattern = /^\|[^|]+\|[^|]+\|[^|]+\|([^|]+)\|/gm;
+  const backtickValuePattern = /`"([^"]+)"`/g;
+
+  const refValues = new Set();
+  let rowMatch;
+  while ((rowMatch = tableRowPattern.exec(refContent)) !== null) {
+    const validValuesCell = rowMatch[1];
+    let valMatch;
+    while ((valMatch = backtickValuePattern.exec(validValuesCell)) !== null) {
+      refValues.add(valMatch[1]);
+    }
+  }
+
+  // Filter out non-enum cell content (format patterns, descriptions)
+  const formatPatterns = /^(TEAM-NNN|YYYY-MM|YYYY-MM-DD|PM-199|XS|S|M|L|XL)$/;
+
+  const notInValidator = [];
+  for (const val of refValues) {
+    if (formatPatterns.test(val)) continue;
+    if (!allEnumValues.has(val)) {
+      notInValidator.push(`"${val}" in reference but not in validator constants`);
+    }
+  }
+
+  assert.equal(
+    notInValidator.length,
+    0,
+    `Drift detected — reference values missing from validator:\n  ${notInValidator.join("\n  ")}`
+  );
+});
+
+test("PM-199: drift — every required-field array in validate.js has a matching schema table in reference", () => {
+  const refContent = fs.readFileSync(REFERENCE_PATH, "utf8");
+
+  const requiredFieldSets = {
+    REQUIRED_BACKLOG_FIELDS: R_BACKLOG,
+    REQUIRED_STRATEGY_FIELDS: R_STRATEGY,
+    REQUIRED_INSIGHT_FIELDS: R_INSIGHT,
+    REQUIRED_EVIDENCE_FIELDS: R_EVIDENCE,
+    REQUIRED_NOTES_FIELDS: R_NOTES,
+    REQUIRED_COMPETITOR_FIELDS: R_COMPETITOR,
+  };
+
+  const missing = [];
+  for (const [setName, fields] of Object.entries(requiredFieldSets)) {
+    for (const field of fields) {
+      // Each required field should appear as a backtick-wrapped field name in a table row
+      const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const fieldPattern = new RegExp("\\|\\s*`" + escaped + "`\\s*\\|");
+      if (!fieldPattern.test(refContent)) {
+        missing.push(
+          `${setName}: field "${field}" not found as backtick-wrapped row in reference table`
+        );
+      }
+    }
+  }
+
+  assert.equal(
+    missing.length,
+    0,
+    `Drift detected — required fields missing from reference:\n  ${missing.join("\n  ")}`
+  );
+});

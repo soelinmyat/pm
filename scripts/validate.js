@@ -67,6 +67,31 @@ const REQUIRED_EVIDENCE_FIELDS = [
 ];
 const REQUIRED_NOTES_FIELDS = ["type", "month", "updated", "note_count", "digested_through"];
 
+// ========== Forbidden-syntax pattern ==========
+// Rejects enum values with trailing parenthetical free text, e.g. "high (needs review)"
+const FORBIDDEN_ENUM_PATTERN = /\(.*\)/;
+
+function validateEnum(relativeFile, field, value, validValues, errors) {
+  if (!value) return;
+  if (FORBIDDEN_ENUM_PATTERN.test(value)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      field,
+      `forbidden syntax in "${value}" — enum values must not contain parenthetical content`
+    );
+    return;
+  }
+  if (!validValues.includes(value)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      field,
+      `invalid ${field} "${value}" — valid: ${validValues.join(", ")}`
+    );
+  }
+}
+
 // ========== Helpers ==========
 
 function toPosix(value) {
@@ -180,50 +205,11 @@ function validateBacklogItem(filePath, data, errors, warnings) {
     );
   }
 
-  if (data.status && !VALID_STATUSES.includes(data.status)) {
-    pushIssue(
-      errors,
-      rel,
-      "status",
-      `invalid status "${data.status}" — valid: ${VALID_STATUSES.join(", ")}`
-    );
-  }
-
-  if (data.priority && !VALID_PRIORITIES.includes(data.priority)) {
-    pushIssue(
-      errors,
-      rel,
-      "priority",
-      `invalid priority "${data.priority}" — valid: ${VALID_PRIORITIES.join(", ")}`
-    );
-  }
-
-  if (data.evidence_strength && !VALID_EVIDENCE.includes(data.evidence_strength)) {
-    pushIssue(
-      errors,
-      rel,
-      "evidence_strength",
-      `invalid value "${data.evidence_strength}" — valid: ${VALID_EVIDENCE.join(", ")}`
-    );
-  }
-
-  if (data.scope_signal && !VALID_SCOPE.includes(data.scope_signal)) {
-    pushIssue(
-      errors,
-      rel,
-      "scope_signal",
-      `invalid value "${data.scope_signal}" — valid: ${VALID_SCOPE.join(", ")}`
-    );
-  }
-
-  if (data.competitor_gap && !VALID_GAP.includes(data.competitor_gap)) {
-    pushIssue(
-      errors,
-      rel,
-      "competitor_gap",
-      `invalid value "${data.competitor_gap}" — valid: ${VALID_GAP.join(", ")}`
-    );
-  }
+  validateEnum(rel, "status", data.status, VALID_STATUSES, errors);
+  validateEnum(rel, "priority", data.priority, VALID_PRIORITIES, errors);
+  validateEnum(rel, "evidence_strength", data.evidence_strength, VALID_EVIDENCE, errors);
+  validateEnum(rel, "scope_signal", data.scope_signal, VALID_SCOPE, errors);
+  validateEnum(rel, "competitor_gap", data.competitor_gap, VALID_GAP, errors);
 
   for (const field of ["created", "updated"]) {
     if (data[field] && !isIsoDate(data[field])) {
@@ -273,23 +259,8 @@ function validateInsightFile(pmDir, filePath, data, errors, kbState) {
     );
   }
 
-  if (data.status && !VALID_INSIGHT_STATUSES.includes(data.status)) {
-    pushIssue(
-      errors,
-      relativeFile,
-      "status",
-      `invalid status "${data.status}" — valid: ${VALID_INSIGHT_STATUSES.join(", ")}`
-    );
-  }
-
-  if (data.confidence && !VALID_CONFIDENCE.includes(data.confidence)) {
-    pushIssue(
-      errors,
-      relativeFile,
-      "confidence",
-      `invalid confidence "${data.confidence}" — valid: ${VALID_CONFIDENCE.join(", ")}`
-    );
-  }
+  validateEnum(relativeFile, "status", data.status, VALID_INSIGHT_STATUSES, errors);
+  validateEnum(relativeFile, "confidence", data.confidence, VALID_CONFIDENCE, errors);
 
   if (data.last_updated && !isIsoDate(data.last_updated)) {
     pushIssue(
@@ -354,14 +325,7 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
     );
   }
 
-  if (data.source_origin && !VALID_SOURCE_ORIGINS.includes(data.source_origin)) {
-    pushIssue(
-      errors,
-      relativeFile,
-      "source_origin",
-      `invalid source_origin "${data.source_origin}" — valid: ${VALID_SOURCE_ORIGINS.join(", ")}`
-    );
-  }
+  validateEnum(relativeFile, "source_origin", data.source_origin, VALID_SOURCE_ORIGINS, errors);
 
   if (data.created && !isIsoDate(data.created)) {
     pushIssue(
@@ -792,13 +756,22 @@ function validateMemoryEntry(relativeFile, entry, index, errors, requireArchived
     );
   }
 
-  if (entry.category && !VALID_MEMORY_CATEGORIES.includes(entry.category)) {
-    pushIssue(
-      errors,
-      relativeFile,
-      prefix,
-      `invalid category "${entry.category}" — valid: ${VALID_MEMORY_CATEGORIES.join(", ")}`
-    );
+  if (entry.category) {
+    if (FORBIDDEN_ENUM_PATTERN.test(entry.category)) {
+      pushIssue(
+        errors,
+        relativeFile,
+        prefix,
+        `forbidden syntax in "${entry.category}" — enum values must not contain parenthetical content`
+      );
+    } else if (!VALID_MEMORY_CATEGORIES.includes(entry.category)) {
+      pushIssue(
+        errors,
+        relativeFile,
+        prefix,
+        `invalid category "${entry.category}" — valid: ${VALID_MEMORY_CATEGORIES.join(", ")}`
+      );
+    }
   }
 
   if (entry.pinned !== undefined && entry.pinned !== "true" && entry.pinned !== "false") {
@@ -1052,4 +1025,23 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { validate };
+module.exports = {
+  validate,
+  // Exported for drift-detection tests
+  VALID_STATUSES,
+  VALID_PRIORITIES,
+  VALID_EVIDENCE,
+  VALID_SCOPE,
+  VALID_GAP,
+  VALID_INSIGHT_STATUSES,
+  VALID_CONFIDENCE,
+  VALID_SOURCE_ORIGINS,
+  VALID_MEMORY_CATEGORIES,
+  VALID_COMPETITOR_TYPES,
+  REQUIRED_BACKLOG_FIELDS,
+  REQUIRED_STRATEGY_FIELDS,
+  REQUIRED_INSIGHT_FIELDS,
+  REQUIRED_EVIDENCE_FIELDS,
+  REQUIRED_NOTES_FIELDS,
+  REQUIRED_COMPETITOR_FIELDS,
+};
