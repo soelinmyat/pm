@@ -2251,3 +2251,116 @@ test("PM-199: drift — every required-field array in validate.js has a matching
     `Drift detected — required fields missing from reference:\n  ${missing.join("\n  ")}`
   );
 });
+
+// ---------------------------------------------------------------------------
+// PM-201 Issue 1: Config sync preferences validation
+// ---------------------------------------------------------------------------
+
+const { validateConfig } = require(VALIDATE_SCRIPT);
+
+test("PM-201: config with sync block validates successfully", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      config_schema: 2,
+      projectId: "proj-1",
+      sync: { enabled: true, auto_pull: true, auto_push: false },
+    })
+  );
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.equal(result.errors.length, 0, `should pass: ${JSON.stringify(result.errors)}`);
+});
+
+test("PM-201: config without sync block validates successfully (defaults apply)", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ config_schema: 2, projectId: "proj-1" }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.equal(
+    result.errors.length,
+    0,
+    `should pass without sync block: ${JSON.stringify(result.errors)}`
+  );
+});
+
+test("PM-201: config with sync.enabled as non-boolean reports error", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ config_schema: 2, sync: { enabled: "yes" } }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.ok(result.errors.length > 0, "should report error for non-boolean enabled");
+  assert.ok(
+    result.errors.some((e) => e.field === "sync.enabled"),
+    "error should reference sync.enabled"
+  );
+});
+
+test("PM-201: config with sync.auto_pull as non-boolean reports error", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ config_schema: 2, sync: { auto_pull: 1 } }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.ok(result.errors.length > 0, "should report error for non-boolean auto_pull");
+  assert.ok(
+    result.errors.some((e) => e.field === "sync.auto_pull"),
+    "error should reference sync.auto_pull"
+  );
+});
+
+test("PM-201: config with sync.auto_push as non-boolean reports error", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ config_schema: 2, sync: { auto_push: "false" } }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.ok(result.errors.length > 0, "should report error for non-boolean auto_push");
+  assert.ok(
+    result.errors.some((e) => e.field === "sync.auto_push"),
+    "error should reference sync.auto_push"
+  );
+});
+
+test("PM-201: config with sync as non-object reports error", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ config_schema: 2, sync: "on" }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.ok(result.errors.length > 0, "should report error for non-object sync");
+  assert.ok(
+    result.errors.some((e) => e.field === "sync"),
+    "error should reference sync"
+  );
+});
+
+test("PM-201: config with all sync booleans false validates successfully", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
+  const configPath = path.join(root, "config.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      config_schema: 2,
+      sync: { enabled: false, auto_pull: false, auto_push: false },
+    })
+  );
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const result = validateConfig(configPath);
+  assert.equal(
+    result.errors.length,
+    0,
+    `all-false sync should pass: ${JSON.stringify(result.errors)}`
+  );
+});

@@ -819,6 +819,35 @@ function validateMemoryDocument(pmDir, fileName, expectedType, requireArchivedAt
   }
 }
 
+function validateConfig(configPath) {
+  const errors = [];
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return { errors: [{ file: configPath, field: "-", msg: "invalid or missing config.json" }] };
+  }
+
+  if (config.sync !== undefined && config.sync !== null) {
+    if (typeof config.sync !== "object" || Array.isArray(config.sync)) {
+      pushIssue(errors, "config.json", "sync", "sync must be an object");
+    } else {
+      for (const field of ["enabled", "auto_pull", "auto_push"]) {
+        if (config.sync[field] !== undefined && typeof config.sync[field] !== "boolean") {
+          pushIssue(
+            errors,
+            "config.json",
+            `sync.${field}`,
+            `sync.${field} must be a boolean, got ${typeof config.sync[field]}`
+          );
+        }
+      }
+    }
+  }
+
+  return { errors };
+}
+
 function validate(pmDir) {
   const errors = [];
   const warnings = [];
@@ -1027,6 +1056,7 @@ if (require.main === module) {
 
 module.exports = {
   validate,
+  validateConfig,
   // Exported for drift-detection tests
   VALID_STATUSES,
   VALID_PRIORITIES,
