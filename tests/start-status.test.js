@@ -6,7 +6,14 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { buildStatus, renderTextStatus, resolvePmDir } = require("../scripts/start-status.js");
+const {
+  buildStatus,
+  renderTextStatus,
+  resolvePmDir,
+  readSyncStatus,
+  resolveSyncConfigured,
+  timeAgo,
+} = require("../scripts/start-status.js");
 
 const pluginVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", ".claude-plugin", "plugin.json"), "utf8")
@@ -504,6 +511,294 @@ test("buildStatus works with pm_repo config pointing to separate PM repo", () =>
     assert.ok(status.focus);
   } finally {
     fs.rmSync(pmRepoDir, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+// --- readSyncStatus tests ---
+
+test("readSyncStatus returns null lastSync and null ok when file is missing", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-sync-"));
+  try {
+    const result = readSyncStatus(tmpDir);
+    assert.equal(result.lastSync, null);
+    assert.equal(result.ok, null);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("readSyncStatus returns null lastSync and null ok when file is zero bytes", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-sync-"));
+  try {
+    fs.writeFileSync(path.join(tmpDir, "sync-status.json"), "");
+    const result = readSyncStatus(tmpDir);
+    assert.equal(result.lastSync, null);
+    assert.equal(result.ok, null);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("readSyncStatus returns parsed status from valid JSON", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-sync-"));
+  try {
+    const statusData = {
+      lastSync: "2026-04-13T10:30:00.000Z",
+      mode: "push",
+      uploaded: 3,
+      downloaded: 0,
+      deleted: 0,
+      errors: [],
+      ok: true,
+    };
+    fs.writeFileSync(path.join(tmpDir, "sync-status.json"), JSON.stringify(statusData));
+    const result = readSyncStatus(tmpDir);
+    assert.equal(result.lastSync, "2026-04-13T10:30:00.000Z");
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, "push");
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// --- resolveSyncConfigured tests ---
+
+test("resolveSyncConfigured returns true with projectId + token + sync.enabled=true", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
+    );
+    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, true);
+
+    fs.rmSync(credsDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns true when sync key is absent (default enabled)", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", JSON.stringify({ projectId: "proj_123" }));
+    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, true);
+
+    fs.rmSync(credsDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns false with sync.enabled=false", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ projectId: "proj_123", sync: { enabled: false } })
+    );
+    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, false);
+
+    fs.rmSync(credsDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns false with empty token", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
+    );
+    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "" }));
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, false);
+
+    fs.rmSync(credsDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns false with missing credentials file", () => {
+  const project = createProject();
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
+    );
+    const credsPath = path.join(os.tmpdir(), "nonexistent-pm-creds", "credentials");
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, false);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns false with missing projectId", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", JSON.stringify({ sync: { enabled: true } }));
+    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+
+    const result = resolveSyncConfigured(project.root, credsPath);
+    assert.equal(result, false);
+
+    fs.rmSync(credsDir, { recursive: true, force: true });
+  } finally {
+    project.cleanup();
+  }
+});
+
+// --- timeAgo tests ---
+
+test("timeAgo formats seconds correctly", () => {
+  const now = new Date();
+  const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000).toISOString();
+  assert.equal(timeAgo(thirtySecondsAgo), "30s ago");
+});
+
+test("timeAgo formats minutes correctly", () => {
+  const now = new Date();
+  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(fiveMinutesAgo), "5m ago");
+});
+
+test("timeAgo formats hours correctly", () => {
+  const now = new Date();
+  const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(threeHoursAgo), "3h ago");
+});
+
+test("timeAgo formats days correctly", () => {
+  const now = new Date();
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(twoDaysAgo), "2d ago");
+});
+
+test("timeAgo boundary: 59s stays as seconds", () => {
+  const now = new Date();
+  const fiftyNineSecondsAgo = new Date(now.getTime() - 59 * 1000).toISOString();
+  assert.equal(timeAgo(fiftyNineSecondsAgo), "59s ago");
+});
+
+test("timeAgo boundary: 60s becomes 1m", () => {
+  const now = new Date();
+  const sixtySecondsAgo = new Date(now.getTime() - 60 * 1000).toISOString();
+  assert.equal(timeAgo(sixtySecondsAgo), "1m ago");
+});
+
+test("timeAgo boundary: 59m stays as minutes", () => {
+  const now = new Date();
+  const fiftyNineMinutesAgo = new Date(now.getTime() - 59 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(fiftyNineMinutesAgo), "59m ago");
+});
+
+test("timeAgo boundary: 60m becomes 1h", () => {
+  const now = new Date();
+  const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(sixtyMinutesAgo), "1h ago");
+});
+
+test("timeAgo boundary: 23h stays as hours", () => {
+  const now = new Date();
+  const twentyThreeHoursAgo = new Date(now.getTime() - 23 * 60 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(twentyThreeHoursAgo), "23h ago");
+});
+
+test("timeAgo boundary: 24h becomes 1d", () => {
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  assert.equal(timeAgo(twentyFourHoursAgo), "1d ago");
+});
+
+test("timeAgo returns null for null input", () => {
+  assert.equal(timeAgo(null), null);
+});
+
+// --- buildStatus syncStatus integration ---
+
+test("buildStatus includes syncStatus in JSON output", () => {
+  const project = createProject();
+  try {
+    project.mkdir("pm");
+    project.write(".pm/config.json", '{"config_schema":1}');
+
+    const status = buildStatus(project.root);
+    assert.ok("syncStatus" in status, "syncStatus should be present in buildStatus output");
+    assert.equal(status.syncStatus.configured, false);
+    assert.equal(status.syncStatus.lastSync, null);
+    assert.equal(status.syncStatus.ok, null);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus syncStatus reflects configured sync with valid status file", () => {
+  const project = createProject();
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+  try {
+    project.mkdir("pm");
+    project.write(".pm/config.json", JSON.stringify({ config_schema: 1, projectId: "proj_test" }));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_test" }));
+
+    const syncData = {
+      lastSync: "2026-04-13T08:00:00.000Z",
+      mode: "pull",
+      uploaded: 0,
+      downloaded: 5,
+      deleted: 0,
+      errors: [],
+      ok: true,
+    };
+    project.write(".pm/sync-status.json", JSON.stringify(syncData));
+
+    const status = buildStatus(project.root, { credentialsPath: credsPath });
+    assert.equal(status.syncStatus.configured, true);
+    assert.equal(status.syncStatus.lastSync, "2026-04-13T08:00:00.000Z");
+    assert.equal(status.syncStatus.ok, true);
+    assert.equal(status.syncStatus.mode, "pull");
+    assert.equal(typeof status.syncStatus.timeAgo, "string");
+    assert.ok(status.syncStatus.timeAgo.endsWith("ago"));
+  } finally {
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("buildStatus syncStatus for uninitialized project has syncStatus", () => {
+  const project = createProject();
+  try {
+    const status = buildStatus(project.root);
+    assert.equal(status.initialized, false);
+    assert.ok("syncStatus" in status);
+    assert.equal(status.syncStatus.configured, false);
+  } finally {
     project.cleanup();
   }
 });

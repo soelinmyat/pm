@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { classifyEpoch } = require("./kb-health-thresholds.js");
 
@@ -512,6 +513,89 @@ function readUpdateStatus(runtimeDir, installedVersion) {
   };
 }
 
+function readSyncStatus(runtimeDir) {
+  const empty = { lastSync: null, ok: null, mode: null };
+  const text = safeRead(path.join(runtimeDir, "sync-status.json"));
+  if (!text) {
+    return empty;
+  }
+
+  try {
+    const data = JSON.parse(text);
+    return {
+      lastSync: data.lastSync || null,
+      ok: typeof data.ok === "boolean" ? data.ok : null,
+      mode: data.mode || null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function resolveSyncConfigured(projectDir, credentialsPath) {
+  const configPath = path.join(projectDir, ".pm", "config.json");
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return false;
+  }
+
+  if (!config || !config.projectId) {
+    return false;
+  }
+
+  if (config.sync && config.sync.enabled === false) {
+    return false;
+  }
+
+  const credsPath = credentialsPath || path.join(os.homedir(), ".pm", "credentials");
+  let creds;
+  try {
+    creds = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+  } catch {
+    return false;
+  }
+
+  if (!creds || !creds.token) {
+    return false;
+  }
+
+  return true;
+}
+
+function timeAgo(isoString) {
+  if (!isoString) {
+    return null;
+  }
+
+  const now = Date.now();
+  const then = Date.parse(isoString);
+  if (Number.isNaN(then)) {
+    return null;
+  }
+
+  const diffSecs = Math.floor((now - then) / 1000);
+
+  if (diffSecs < 60) {
+    return `${diffSecs}s ago`;
+  }
+
+  const diffMins = Math.floor(diffSecs / 60);
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
 function detectGroomSession(runtimeDir) {
   const sessionsDir = path.join(runtimeDir, "groom-sessions");
   const candidates = [];
@@ -626,7 +710,8 @@ function detectDevSession(projectDir, runtimeDir) {
   return best;
 }
 
-function buildStatus(projectDir) {
+function buildStatus(projectDir, options) {
+  const opts = options || {};
   const runtimeDir = path.join(projectDir, ".pm");
   const pmDir = resolvePmDir(projectDir);
   // In separate-repo mode, groom sessions live in the PM repo's .pm/
@@ -647,10 +732,21 @@ function buildStatus(projectDir) {
 
   const update = readUpdateStatus(runtimeDir, installedPluginVersion);
 
+  const configured = resolveSyncConfigured(projectDir, opts.credentialsPath);
+  const syncRaw = readSyncStatus(runtimeDir);
+  const syncStatus = {
+    configured,
+    lastSync: syncRaw.lastSync,
+    ok: syncRaw.ok,
+    mode: syncRaw.mode,
+    timeAgo: timeAgo(syncRaw.lastSync),
+  };
+
   if (!initialized) {
     return {
       initialized: false,
       update,
+      syncStatus,
       focus: "PM is not initialized yet",
       backlog: "",
       next: "/pm:start to initialize PM",
@@ -810,6 +906,7 @@ function buildStatus(projectDir) {
   return {
     initialized: true,
     update,
+    syncStatus,
     focus,
     backlog: `${ideas} ideas, ${planned} planned, ${inProgress} in progress, ${shipped} shipped`,
     next,
@@ -917,4 +1014,7 @@ module.exports = {
   buildStatus,
   renderTextStatus,
   resolvePmDir,
+  readSyncStatus,
+  resolveSyncConfigured,
+  timeAgo,
 };
