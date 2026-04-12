@@ -9,7 +9,11 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 ## Session Start
 
-When this skill loads at the beginning of a new session, invoke `pm:start` before responding to the user. This shows the project pulse and handles onboarding if there is no knowledge base yet.
+When this skill loads at the beginning of a new session:
+
+1. Check whether `.pm/config.json` exists in the project root.
+2. **If it exists** — invoke `pm:start` before responding to the user (Resume/Pulse path).
+3. **If it does not exist** — print: "PM not initialized. Run /pm:start to set up." Do not invoke pm:start.
 
 # Using Plugin Skills
 
