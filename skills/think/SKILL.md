@@ -5,15 +5,29 @@ description: "Use when the user is thinking through a product idea, exploring a 
 
 # pm:think
 
-## Path Resolution
-
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
-
 ## Purpose
 
 Structured product thinking before commitment. Explore ideas, challenge assumptions, weigh tradeoffs, and reach clarity — without the ceremony of grooming.
 
 Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues.
+
+## Workflow Loading
+
+Load the think workflow steps using the step loader:
+
+```
+const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
+const steps = loadWorkflow('think', pmDir, '${CLAUDE_PLUGIN_ROOT}');
+const workflowPrompt = buildPrompt(steps);
+```
+
+The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/think/steps/` (defaults) with user overrides from `.pm/workflows/think/` (if any). Steps are sorted by order and concatenated into the workflow prompt.
+
+Execute the loaded workflow steps in order. They're conversational beats, not phases — follow the natural rhythm without announcing them or tracking state.
+
+## Path Resolution
+
+If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
 
 ## Telemetry (opt-in)
 
@@ -46,106 +60,6 @@ Before starting, check for user instructions:
 2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
 3. If neither exists, proceed normally.
 
----
-
-## The Flow
-
-Think follows 5 beats. They're conversational, not phases — you don't announce them or track state. Just follow the natural rhythm.
-
-### 1. Capture
-
-Understand what's on the user's mind.
-
-If the user already described the idea (in this message or earlier in the conversation), don't ask "what's the idea?" — you already have it. Summarize your understanding in 2-3 bullets and confirm:
-
-> "Here's what I'm hearing: [summary]. That right?"
-
-If the idea is vague, ask ONE clarifying question — the one that unlocks the most understanding. Prefer "Is this about X?" (yes/no) over open-ended questions.
-
-### 2. Reframe
-
-Challenge the framing. This is the most valuable beat — it's where Superpower's "10-star product" and GStack's forcing questions live.
-
-Ask yourself (don't dump these on the user — pick the one that matters most):
-- Is this a solution or a problem? What's the real job to be done?
-- Who specifically benefits and why would they care?
-- What's the version of this that's 10x better than what they described?
-- What would make this a "must-have" vs "nice-to-have"?
-- Is there a simpler framing that captures the same value?
-
-Share your reframe as a short, opinionated take:
-
-> "The way I'd reframe this: [reframe]. The real unlock is [insight]."
-
-Then ask if the reframe resonates or if you're off base. One question.
-
-### 3. Explore approaches
-
-Propose **2-3 distinct approaches** with clear tradeoffs. Not variations of the same idea — genuinely different directions.
-
-For each approach:
-- **One-line summary** of what it is
-- **Why it works** (1-2 bullets)
-- **The catch** (1-2 bullets)
-- **Best if** (when you'd pick this one)
-
-Format as a compact table or short sections. Ask which direction resonates — or if none do.
-
-### 4. Pressure-test
-
-Once a direction emerges, stress-test it:
-- **Assumptions:** What are we assuming that might not be true?
-- **Risks:** What could go wrong?
-- **Open questions:** What do we still not know?
-- **Dependencies:** What has to be true first?
-
-Don't list all of these — surface the 2-3 that actually matter for this idea. Have a back-and-forth. This beat can be multiple exchanges.
-
-### 5. Synthesize
-
-When the thinking reaches a natural conclusion, produce a **thinking summary**. This is the artifact.
-
-```markdown
----
-type: thinking
-topic: "{topic}"
-slug: "{kebab-case-slug}"
-created: YYYY-MM-DD
-status: active | parked | promoted
-promoted_to: "{groom-session-slug}" | null
----
-
-# {Topic}
-
-## Problem
-{1-2 sentences: what's the real problem or opportunity}
-
-## Direction
-{The approach that emerged from the conversation}
-
-## Key tradeoffs
-- {Tradeoff 1}
-- {Tradeoff 2}
-
-## Open questions
-- {Question 1}
-- {Question 2}
-
-## Next step
-{What should happen next — groom it, research more, park it, etc.}
-```
-
-Save to `{pm_dir}/thinking/{slug}.md`. Create the `{pm_dir}/thinking/` directory if it doesn't exist.
-
-After saving, ask ONE question:
-
-> "Want to groom this into a proposal? (This runs a lightweight scoping flow — typically 5-10 minutes.)"
-
-- **Yes** → Invoke `pm:groom` with `groom_tier: quick` and the thinking summary as context. The groom skill will pick up from here — it can skip or shorten intake since the thinking is already captured. Always default to quick tier when promoting from think, since the user just had a lightweight conversation and shouldn't be surprised by heavy ceremony.
-- **No** → Done. The thinking is saved and can be revisited later.
-
----
-
 ## Resuming past thinking
 
 If the user references a past topic, check `{pm_dir}/thinking/` for a matching file.
@@ -155,13 +69,9 @@ If found:
 
 If resumed, read the file and continue from the last state. The thinking might need updating — the user may have new context or the landscape may have changed.
 
----
-
 ## Multiple ideas in one session
 
 If the user wants to think through several ideas, handle them sequentially. Finish one (synthesize + save) before starting the next. Don't interleave.
-
----
 
 ## What think is NOT
 
