@@ -24,7 +24,7 @@ The goal: the backlog entry shows a **Resolved Questions** section with clear an
 
 Write or update the backlog entry at `{pm_dir}/backlog/{topic-slug}.md`. Set `status: proposed`, `prd: null`, `rfc: null`.
 
-**No `.meta.json` sidecar.** All metadata lives in the proposal `.md` frontmatter.
+**No sidecar files.** All metadata lives in the proposal `.md` frontmatter.
 
 **Sections** (all 11 must be present as markdown sections):
 

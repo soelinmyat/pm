@@ -455,4 +455,4 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 - Do not force users to memorize those lanes during onboarding. `pm:start` should do the routing.
 - The runtime hook and the explicit `pm:start` resume flow should use the same `scripts/start-status.js` output.
 - `pm:start` is the public entry point for PM.
-- PM operates entirely within the editor — no external server or dashboard process required.
+- PM operates entirely within the editor — no external server process required.
