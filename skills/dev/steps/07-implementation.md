@@ -8,7 +8,7 @@ description: Dispatch fresh developer agents to implement the approved RFC
 
 Dispatch **fresh** @developer agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from RFC Review, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
 
-**Implementation methodology:** All implementation agents use `pm:tdd` (inside-out TDD) and `pm:subagent-dev` for task execution. The implementation-flow.md reference defines the full lifecycle.
+**Implementation methodology:** All implementation agents follow `dev/references/tdd.md` (inside-out TDD) and `dev/references/subagent-dev.md` for task execution. The implementation-flow.md reference defines the full lifecycle.
 
 ### Single-task implementation (task_count == 1)
 

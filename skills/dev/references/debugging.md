@@ -1,7 +1,3 @@
----
-name: debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
----
 
 # Systematic Debugging
 
@@ -198,7 +194,7 @@ Before deep investigation, check these frequent root causes:
    - Automated test if possible
    - One-off test script if no framework
    - MUST have before fixing
-   - Use the `dev:tdd` skill for writing proper failing tests
+   - See `tdd.md` in this directory for writing proper failing tests
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -306,8 +302,8 @@ These techniques are part of systematic debugging and available in this director
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
 - **Monorepo pitfalls:** Read `pitfalls.md` at repo root for Playwright, git/worktree, ESLint, and Rails gotchas
 
-**Related skills:**
-- **dev:tdd** - For creating failing test case (Phase 4, Step 1)
+**Related references:**
+- **`tdd.md`** - For creating failing test case (Phase 4, Step 1)
 - Verification gate (run tests, read output, confirm 0 failures before claiming fix)
 
 ## Real-World Impact

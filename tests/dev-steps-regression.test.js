@@ -141,7 +141,7 @@ const CRITICAL_KEYWORDS = [
   // Stage 5: Implementation
   "implementation-flow.md",
   "pm:simplify",
-  "pm:tdd",
+  "dev/references/tdd.md",
   "merge-loop",
 
   // Stage 6: Worktree Cleanup (folded into 10-ship.md)
@@ -206,9 +206,14 @@ test("dev steps: sub-skill invocations use Invoke pm:{skill} syntax", () => {
     const prompt = buildPrompt(steps);
 
     // These sub-skill references must be preserved
-    const subSkills = ["pm:groom", "pm:simplify", "pm:tdd"];
+    const subSkills = ["pm:groom", "pm:simplify"];
     for (const skill of subSkills) {
       assert.ok(prompt.includes(skill), `Sub-skill reference "${skill}" should be in output`);
+    }
+    // tdd, debugging, subagent-dev are now references, not sub-skills
+    const demotedRefs = ["dev/references/tdd.md", "dev/references/subagent-dev.md"];
+    for (const ref of demotedRefs) {
+      assert.ok(prompt.includes(ref), `Demoted reference "${ref}" should be in output`);
     }
   } finally {
     cleanup();

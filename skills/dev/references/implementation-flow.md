@@ -173,8 +173,8 @@ Log the scan result in `.pm/dev-sessions/{slug}.md`:
 ### Write code
 
 1. Read the plan file **end-to-end before writing code**. Plans may contain a "Revised" or "Updated" section that supersedes earlier code blocks. If you find contradictory implementations, the later revision is authoritative. When in doubt, check for epic review fix annotations (e.g., "Epic review fix:").
-2. Use `dev:subagent-dev` for independent tasks
-3. Use `dev:tdd` for each feature
+2. Follow `subagent-dev.md` (in this directory) for independent tasks
+3. Follow `tdd.md` (in this directory) for each feature
 4. Commit after each logical group of changes
 
 #### Sub-agent parallelism budget
@@ -497,7 +497,7 @@ Blocked: {ISSUE_ID} — {reason}
 
 ## Debugging
 
-When tests fail or unexpected behavior occurs during implementation, invoke `dev:debugging` via the Skill tool.
+When tests fail or unexpected behavior occurs during implementation, read `debugging.md` in this directory and follow its systematic debugging process.
 
 ## Process Cleanup
 

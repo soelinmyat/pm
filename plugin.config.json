@@ -52,18 +52,7 @@
         "features",
         "sync"
       ],
-      "dev": [
-        "debugging",
-        "design-critique",
-        "dev",
-        "qa",
-        "review",
-        "ship",
-        "simplify",
-        "subagent-dev",
-        "tdd",
-        "using-pm"
-      ]
+      "dev": ["design-critique", "dev", "qa", "review", "ship", "simplify", "using-pm"]
     },
     "interface": {
       "shortDescription": "Shared product brain for small teams.",

@@ -100,9 +100,9 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/cross-cutting-review-prompts.md` (reference) | Multi-task RFC review (task_count > 1) |
 | `dev/references/spec-reviewer-prompts.md` (reference) | Raw sub-issue spec review before RFC |
 | `dev/references/implementation-flow.md` (reference) | Stage 5 implementation |
-| `pm:tdd` | Implementation agent (all) |
-| `pm:subagent-dev` | Implementation agent (all) |
-| `pm:debugging` | Debug |
+| `dev/references/tdd.md` (reference) | Implementation agent (all) |
+| `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
+| `dev/references/debugging.md` (reference) | Debug |
 | `pm:qa` | QA ship gate (all UI changes) |
 | `review/references/handling-feedback.md` (reference) | Ship (M/L/XL) — handling PR feedback |
 

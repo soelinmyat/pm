@@ -36,9 +36,9 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | Skill | Called by | Purpose |
 |-------|----------|---------|
 | `pm:simplify` | dev (pre-review/pre-design gate) | Single simplify entrypoint; routes by runtime and normalizes PM-required fields |
-| `pm:tdd` | dev (all sizes) | Test-first discipline |
-| `pm:subagent-dev` | dev (all sizes) | Dispatches parallel agents for plan execution |
-| `pm:debugging` | dev (when tests fail) | Root cause investigation before any fix |
+| `dev/references/tdd.md` | dev (all sizes) | Test-first discipline |
+| `dev/references/subagent-dev.md` | dev (all sizes) | Dispatches parallel agents for plan execution |
+| `dev/references/debugging.md` | dev (when tests fail) | Root cause investigation before any fix |
 | `pm:review` | ship | Multi-perspective code review (code + PM + design + edge-cases) |
 | `pm:review` (handling-feedback ref) | dev, ship | Verify feedback before implementing suggestions |
 | `pm:design-critique` | dev (UI changes) | Design review with screenshots, a11y snapshots, consistency audit |

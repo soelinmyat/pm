@@ -137,5 +137,5 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 | Team review | groom phase 6 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/phases/phase-6-team-review.md` |
 | Bar raiser | groom phase 6.5 | 1 (Product Director) | `skills/groom/phases/phase-6.5-bar-raiser.md` |
 | Code review | review | 5 (code, fix, PM, design, edge-case) | `skills/review/SKILL.md` |
-| Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/subagent-dev/spec-reviewer-prompt.md` |
-| Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/subagent-dev/code-quality-reviewer-prompt.md` |
+| Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer-prompt.md` |
+| Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer-prompt.md` |
