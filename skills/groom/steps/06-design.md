@@ -103,7 +103,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
    - Use the same class patterns found in the component code
    - Show the full page context, not just the new element in isolation
 
-5. **Present as before/after** — show the user both views in the dashboard session canvas:
+5. **Present as before/after** — show the user both views:
    - **Before:** the real screenshot of the current page
    - **After:** the high-fidelity mockup with the new feature integrated
 
@@ -189,8 +189,8 @@ When a design system was discovered, generate mockups using the real design toke
 - Include realistic content — real labels, plausible data, proper copy
 - Show all relevant states (empty, populated, error) as separate mockups or tabs
 - Keep mockups focused — one screen/component per file, not the entire app
-- **No app shell chrome** — never include navigation bars, headers with back buttons, sidebars, or other app-level navigation in wireframe HTML. These wireframes are embedded in dashboard preview iframes which already provide their own frame. Only render the page/component content itself.
-- **Save all mockups to `{pm_dir}/backlog/wireframes/`** (create the directory if needed). Use `{topic-slug}.html` for single mockups or `mockup-{screen-name}.html` for multi-screen features. Never save mockups to `/tmp/` — they must persist in the knowledge base for the proposal to link to them in the dashboard.
+- **No app shell chrome** — never include navigation bars, headers with back buttons, sidebars, or other app-level navigation in wireframe HTML. Only render the page/component content itself.
+- **Save all mockups to `{pm_dir}/backlog/wireframes/`** (create the directory if needed). Use `{topic-slug}.html` for single mockups or `mockup-{screen-name}.html` for multi-screen features. Never save mockups to `/tmp/` — they must persist in the knowledge base for the proposal to link to them.
 
 **When no design system is found:** Fall back to generic wireframe classes. Note to the user: "No design system detected — showing wireframe mockups. These will be refined during implementation."
 

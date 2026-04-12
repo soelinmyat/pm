@@ -32,7 +32,7 @@ For targeted deep dives not covered by landscape or competitor profiling.
    - `serp-overview` — see who currently ranks for the topic keyword and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
 4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
-5. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema. Before writing, read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-toc.md` — this documents the frontmatter fields and content structure the dashboard expects for research topic pages:
+5. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema:
 
 ```markdown
 ---

@@ -28,7 +28,7 @@ Write the PRD to `{pm_dir}/backlog/proposals/{topic-slug}.html` (create the `pro
 
 **Write the proposal backlog entry** at `{pm_dir}/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md. This is the parent backlog item. Set `status: proposed`, `prd: proposals/{topic-slug}.html`, `rfc: null`.
 
-**No `.meta.json` sidecar.** All metadata lives in the proposal `.md` frontmatter. The dashboard reads frontmatter directly.
+**No `.meta.json` sidecar.** All metadata lives in the proposal `.md` frontmatter.
 
 **Sections** (match the reference template's order and layout):
 
@@ -36,7 +36,7 @@ Write the PRD to `{pm_dir}/backlog/proposals/{topic-slug}.html` (create the `pro
 2. **Problem & context.** The user pain, market signal, or strategic driver. Use callout block for key research signals.
 3. **Scope overview.** Two-column grid: in-scope vs out-of-scope. Include the 10x filter badge.
 4. **User flows.** Mermaid diagrams in `<pre class="mermaid">` blocks. Include `%% Source:` citations.
-5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link. **Use absolute paths** in the format `/proposals/{topic-slug}/wireframes/{wireframe-name}` for both `<iframe src>` and `<a href>`. Never use relative paths (`../wireframes/...`) or temp paths (`/tmp/...`) — these break when the dashboard serves the proposal. The dashboard server routes `/proposals/{slug}/wireframes/{name}` to `{pm_dir}/backlog/wireframes/{name}.html`.
+5. **Wireframes.** Embed via `<iframe>` if generated. Include standalone link. **Use absolute paths** in the format `/proposals/{topic-slug}/wireframes/{wireframe-name}` for both `<iframe src>` and `<a href>`. Never use relative paths (`../wireframes/...`) or temp paths (`/tmp/...`). Wireframes live at `{pm_dir}/backlog/wireframes/{name}.html`.
 6. **Competitive context.** Comparison table (capability vs competitors vs our approach, green-highlighted). Callout block for key differentiator.
 7. **Technical feasibility.** Four-box color-coded grid: build-on (green), build-new (blue), risks (amber), sequencing (purple). Include verdict badge.
 8. **Review summary.** Pipeline stepper (Scope Review -> Team Review -> Bar Raiser -> Decision). Verdict cards grid. Advisory in amber card.

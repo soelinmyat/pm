@@ -31,8 +31,7 @@ Determine dispatch strategy based on candidate count and environment:
 
 **1 competitor:** Profile inline. Create all 5 files per competitor:
 1. Read methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`
-2. Read the dashboard template schema: `Read ${CLAUDE_PLUGIN_ROOT}/references/templates/detail-tabs.md` — this documents the 5-file directory structure and frontmatter the dashboard expects for competitor detail pages.
-3. Create `{pm_dir}/evidence/competitors/{slug}/profile.md`
+2. Create `{pm_dir}/evidence/competitors/{slug}/profile.md`
 3. Create `{pm_dir}/evidence/competitors/{slug}/features.md`
 4. Create `{pm_dir}/evidence/competitors/{slug}/api.md`
 5. Create `{pm_dir}/evidence/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)

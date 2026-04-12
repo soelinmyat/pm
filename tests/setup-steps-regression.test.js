@@ -99,7 +99,6 @@ const CRITICAL_KEYWORDS = [
   "Linear enable extras",
 
   // Step 3: Confirm
-  "Refresh the dashboard",
   "pm:start",
 ];
 

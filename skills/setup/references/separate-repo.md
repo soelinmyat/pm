@@ -45,7 +45,7 @@ Before writing any config:
 
 ### 4. Compute Relative Paths
 
-Compute relative paths from each config file's parent directory (`.pm/`), since `resolvePmDir()` in start-status.js and start-server.sh resolves paths relative to the `.pm/` directory:
+Compute relative paths from each config file's parent directory (`.pm/`), since `resolvePmDir()` in start-status.js resolves paths relative to the `.pm/` directory:
 
 - **Source repo config** needs `pm_repo.path`: the relative path from the source repo's `.pm/` directory to the PM repo root.
 - **PM repo config** needs `source_repo.path`: the relative path from the PM repo's `.pm/` directory to the source repo root.
@@ -70,9 +70,7 @@ For each repo, read `.pm/config.json` if it exists. If it does not exist, create
     "linear": { "enabled": false },
     "seo": { "provider": "none" }
   },
-  "preferences": {
-    "auto_launch": true
-  }
+  "preferences": {}
 }
 ```
 
@@ -102,7 +100,7 @@ Example — source repo config (`.pm/config.json` in the app repo):
   "project_name": "My App",
   "pm_repo": { "type": "local", "path": "../../my-app-pm" },
   "integrations": { "linear": { "enabled": false }, "seo": { "provider": "none" } },
-  "preferences": { "auto_launch": true }
+  "preferences": {}
 }
 ```
 
@@ -114,6 +112,6 @@ Example — PM repo config (`.pm/config.json` in the PM repo):
   "project_name": "My App",
   "source_repo": { "type": "local", "path": "../../my-app" },
   "integrations": { "linear": { "enabled": false }, "seo": { "provider": "none" } },
-  "preferences": { "auto_launch": true }
+  "preferences": {}
 }
 ```

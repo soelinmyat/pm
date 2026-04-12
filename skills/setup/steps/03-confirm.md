@@ -10,10 +10,10 @@ Print a short confirmation based on the action taken:
 
 | Action | Message |
 |---|---|
-| `enable linear` | "Linear enabled. Refresh the dashboard to see the update." |
-| `disable linear` | "Linear disabled. Refresh the dashboard to see the update." |
-| `enable ahrefs` | "Ahrefs SEO enabled. Refresh the dashboard to see the update." |
-| `disable ahrefs` | "Ahrefs SEO disabled. Refresh the dashboard to see the update." |
+| `enable linear` | "Linear enabled." |
+| `disable linear` | "Linear disabled." |
+| `enable ahrefs` | "Ahrefs SEO enabled." |
+| `disable ahrefs` | "Ahrefs SEO disabled." |
 | `separate-repo` | "Config written to both repos. Run `pm:start` to activate separate-repo mode." |
 
 ## Constraints
