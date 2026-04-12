@@ -21,6 +21,16 @@ const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];
 const VALID_GAP = ["unique", "partial", "parity", "behind"];
 
+const LEGACY_BACKLOG_TYPES = ["backlog-issue", "proposal", "idea", "notes"];
+const VALID_COMPETITOR_TYPES = [
+  "competitor-profile",
+  "competitor-features",
+  "competitor-sentiment",
+  "competitor-api",
+  "competitor-seo",
+];
+const REQUIRED_COMPETITOR_FIELDS = ["type", "company", "slug", "profiled", "sources"];
+
 const VALID_MEMORY_CATEGORIES = ["scope", "research", "review", "process", "quality"];
 const VALID_INSIGHT_STATUSES = ["active", "stale", "draft"];
 const VALID_CONFIDENCE = ["high", "medium", "low"];
@@ -28,6 +38,7 @@ const VALID_SOURCE_ORIGINS = ["internal", "external", "mixed"];
 const VALID_LOG_ACTIONS = new Set(["create", "update", "move", "delete", "cite", "uncite", "skip"]);
 
 const REQUIRED_BACKLOG_FIELDS = [
+  "type",
   "id",
   "title",
   "outcome",
@@ -132,10 +143,33 @@ function validateArrayField(relativeFile, field, value, errors) {
   return true;
 }
 
-function validateBacklogItem(filePath, data, errors) {
+function validateBacklogItem(filePath, data, errors, warnings) {
   const rel = path.basename(filePath);
 
   validateRequiredFields(rel, data, REQUIRED_BACKLOG_FIELDS, errors);
+
+  // Type validation: "backlog" is canonical, legacy values produce warnings
+  if (data.type) {
+    if (data.type === "backlog") {
+      // canonical — no action
+    } else if (LEGACY_BACKLOG_TYPES.includes(data.type)) {
+      pushIssue(warnings, rel, "type", `type "${data.type}" is deprecated, use "backlog"`);
+    } else {
+      pushIssue(
+        errors,
+        rel,
+        "type",
+        `invalid backlog type "${data.type}" — expected "backlog" (or legacy: ${LEGACY_BACKLOG_TYPES.join(", ")})`
+      );
+    }
+  }
+
+  // Labels validation: must be a non-empty array when present
+  if (data.labels !== undefined && data.labels !== null) {
+    if (!Array.isArray(data.labels) || data.labels.length === 0) {
+      pushIssue(errors, rel, "labels", "labels must be a non-empty array");
+    }
+  }
 
   if (data.id && !/^[A-Z]+-\d+$/.test(data.id)) {
     pushIssue(
@@ -416,6 +450,49 @@ function validateEvidenceFile(pmDir, filePath, data, errors, kbState) {
   }
 
   kbState.evidence.set(relativeFile, data);
+}
+
+function validateCompetitorFile(pmDir, filePath, data, errors) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+
+  validateRequiredFields(relativeFile, data, REQUIRED_COMPETITOR_FIELDS, errors);
+
+  if (data.type && !VALID_COMPETITOR_TYPES.includes(data.type)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "type",
+      `invalid competitor type "${data.type}" — valid: ${VALID_COMPETITOR_TYPES.join(", ")}`
+    );
+  }
+
+  // Validate slug matches parent directory name
+  if (data.slug) {
+    const parentDir = path.basename(path.dirname(filePath));
+    if (data.slug !== parentDir) {
+      pushIssue(
+        errors,
+        relativeFile,
+        "slug",
+        `slug "${data.slug}" does not match parent directory "${parentDir}"`
+      );
+    }
+  }
+
+  // Validate profiled as YYYY-MM-DD
+  if (data.profiled && !isIsoDate(data.profiled)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "profiled",
+      `invalid date format "${data.profiled}" — expected YYYY-MM-DD`
+    );
+  }
+
+  // Validate sources as array
+  if (data.sources !== undefined && data.sources !== null) {
+    validateArrayField(relativeFile, "sources", data.sources, errors);
+  }
 }
 
 function validateNotesFile(pmDir, filePath, data, errors) {
@@ -782,7 +859,7 @@ function validate(pmDir) {
         continue;
       }
 
-      validateBacklogItem(filePath, parsed.data, errors);
+      validateBacklogItem(filePath, parsed.data, errors, warnings);
 
       if (parsed.data.id) {
         if (backlogIds.has(parsed.data.id)) {
@@ -888,6 +965,8 @@ function validate(pmDir) {
 
     if (parsed.data.type === "notes") {
       validateNotesFile(pmDir, filePath, parsed.data, errors);
+    } else if (parsed.data.type && parsed.data.type.startsWith("competitor-")) {
+      validateCompetitorFile(pmDir, filePath, parsed.data, errors);
     } else {
       validateEvidenceFile(pmDir, filePath, parsed.data, errors, kbState);
     }
@@ -958,4 +1037,8 @@ function main() {
   process.exit(errors.length > 0 ? 1 : 0);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { validate };

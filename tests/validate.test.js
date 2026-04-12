@@ -45,6 +45,7 @@ function runValidate(pmDir) {
 
 function makeBacklogItem(overrides = {}) {
   const defaults = {
+    type: "backlog",
     id: "PM-001",
     title: "Test item",
     outcome: "Something happens",
@@ -605,23 +606,41 @@ test("PM-150: approved status is rejected by validation", () => {
   }
 });
 
-test("PM-155: item without type passes validation", () => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/no-type-item.md": makeBacklogItem({}),
-  });
+test("PM-199: item without type reports error", () => {
+  const { pmDir, cleanup } = withPmDir({});
+  // Manually create a backlog item without type field
+  const filePath = path.join(pmDir, "backlog", "no-type-item.md");
+  const content = [
+    "---",
+    "id: PM-001",
+    "title: Test item",
+    "outcome: Something happens",
+    "status: idea",
+    "priority: medium",
+    'parent: "null"',
+    "children: []",
+    "created: 2026-03-14",
+    "updated: 2026-03-14",
+    "---",
+    "",
+    "## Outcome",
+    "",
+    "Test outcome.",
+  ].join("\n");
+  fs.writeFileSync(filePath, content);
   try {
     const result = runValidate(pmDir);
-    assert.equal(
-      result.ok,
-      true,
-      `item without type should pass: ${JSON.stringify(result.details)}`
+    assert.equal(result.ok, false, "missing type should fail");
+    assert.ok(
+      result.details.some((d) => d.field === "type" && d.level === "error"),
+      "should report missing type field"
     );
   } finally {
     cleanup();
   }
 });
 
-test("PM-155: item with type still passes validation (backwards compat)", () => {
+test("PM-199: legacy type 'backlog-issue' passes with deprecation warning", () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/typed-item.md": makeBacklogItem({ type: "backlog-issue" }),
   });
@@ -630,7 +649,13 @@ test("PM-155: item with type still passes validation (backwards compat)", () => 
     assert.equal(
       result.ok,
       true,
-      `item with type should still pass: ${JSON.stringify(result.details)}`
+      `legacy type should pass (warning, not error): ${JSON.stringify(result.details)}`
+    );
+    assert.ok(
+      result.details.some(
+        (d) => d.level === "warning" && d.field === "type" && d.message.includes("deprecated")
+      ),
+      "should warn about deprecated type"
     );
   } finally {
     cleanup();
@@ -1276,4 +1301,265 @@ test("PM-149: memory-archive.md entry missing archived_at reports error", (t) =>
     result.details.some((d) => d.message.includes("archived_at")),
     "should report missing archived_at"
   );
+});
+
+// ---------------------------------------------------------------------------
+// PM-199 Issue 2: Backlog type validation, competitor sub-type, validate() export
+// ---------------------------------------------------------------------------
+
+test("PM-199: canonical type 'backlog' passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/good-type.md": makeBacklogItem({ type: "backlog" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `canonical type should pass: ${JSON.stringify(result.details)}`);
+  assert.equal(result.warnings, 0, "no warnings for canonical type");
+});
+
+test("PM-199: all legacy backlog types produce deprecation warnings", () => {
+  const legacyTypes = ["backlog-issue", "proposal", "idea", "notes"];
+  for (const legacyType of legacyTypes) {
+    const { pmDir, cleanup } = withPmDir({
+      "pm/backlog/legacy.md": makeBacklogItem({ type: legacyType }),
+    });
+    const result = runValidate(pmDir);
+    assert.equal(result.ok, true, `legacy type "${legacyType}" should not produce errors`);
+    assert.ok(
+      result.details.some(
+        (d) => d.level === "warning" && d.field === "type" && d.message.includes("deprecated")
+      ),
+      `"${legacyType}" should produce a deprecation warning`
+    );
+    cleanup();
+  }
+});
+
+test("PM-199: invalid backlog type produces error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-type.md": makeBacklogItem({ type: "unknown-type" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some(
+      (d) => d.level === "error" && d.field === "type" && d.message.includes("unknown-type")
+    ),
+    "should report invalid backlog type"
+  );
+});
+
+test("PM-199: labels as non-empty array passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/with-labels.md": makeBacklogItem({ labels: ["ux", "mvp"] }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `valid labels should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-199: empty labels array produces error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/empty-labels.md": makeBacklogItem({ labels: [] }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "labels" && d.message.includes("non-empty")),
+    "should report empty labels"
+  );
+});
+
+test("PM-199: valid competitor-profile passes validation", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/profile.md": makeFrontmatterDocument(
+      {
+        type: "competitor-profile",
+        company: "Acme Corp",
+        slug: "acme",
+        profiled: "2026-04-10",
+        sources: ["https://acme.com"],
+      },
+      "Acme Corp Profile"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, `valid competitor should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM-199: competitor missing required fields reports errors", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/profile.md": makeFrontmatterDocument(
+      {
+        type: "competitor-profile",
+      },
+      "Acme Corp Profile"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "company"),
+    "should report missing company"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "slug"),
+    "should report missing slug"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "profiled"),
+    "should report missing profiled"
+  );
+  assert.ok(
+    result.details.some((d) => d.field === "sources"),
+    "should report missing sources"
+  );
+});
+
+test("PM-199: competitor slug mismatch reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/profile.md": makeFrontmatterDocument(
+      {
+        type: "competitor-profile",
+        company: "Acme Corp",
+        slug: "wrong-slug",
+        profiled: "2026-04-10",
+        sources: ["https://acme.com"],
+      },
+      "Acme Corp Profile"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some(
+      (d) => d.field === "slug" && d.message.includes("does not match parent directory")
+    ),
+    "should report slug mismatch"
+  );
+});
+
+test("PM-199: competitor invalid profiled date reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/profile.md": makeFrontmatterDocument(
+      {
+        type: "competitor-profile",
+        company: "Acme Corp",
+        slug: "acme",
+        profiled: "April 2026",
+        sources: ["https://acme.com"],
+      },
+      "Acme Corp Profile"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "profiled" && d.message.includes("YYYY-MM-DD")),
+    "should report invalid date"
+  );
+});
+
+test("PM-199: invalid competitor type reports error", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/bad.md": makeFrontmatterDocument(
+      {
+        type: "competitor-unknown",
+        company: "Acme Corp",
+        slug: "acme",
+        profiled: "2026-04-10",
+        sources: ["https://acme.com"],
+      },
+      "Acme Corp Bad"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.details.some((d) => d.field === "type" && d.message.includes("competitor-unknown")),
+    "should report invalid competitor type"
+  );
+});
+
+test("PM-199: all valid competitor sub-types pass", () => {
+  const subTypes = [
+    "competitor-profile",
+    "competitor-features",
+    "competitor-sentiment",
+    "competitor-api",
+    "competitor-seo",
+  ];
+  for (const subType of subTypes) {
+    const { pmDir, cleanup } = withPmDir({
+      "pm/evidence/competitors/acme/artifact.md": makeFrontmatterDocument(
+        {
+          type: subType,
+          company: "Acme Corp",
+          slug: "acme",
+          profiled: "2026-04-10",
+          sources: ["https://acme.com"],
+        },
+        "Acme Corp"
+      ),
+    });
+    const result = runValidate(pmDir);
+    assert.equal(
+      result.ok,
+      true,
+      `sub-type "${subType}" should pass: ${JSON.stringify(result.details)}`
+    );
+    cleanup();
+  }
+});
+
+test("PM-199: competitor file is not rejected as invalid evidence type", (t) => {
+  // Competitor files must NOT be routed through validateEvidenceFile which would
+  // reject them with 'expected "evidence", got "competitor-profile"'
+  const { pmDir, cleanup } = withPmDir({
+    "pm/evidence/competitors/acme/profile.md": makeFrontmatterDocument(
+      {
+        type: "competitor-profile",
+        company: "Acme Corp",
+        slug: "acme",
+        profiled: "2026-04-10",
+        sources: ["https://acme.com"],
+      },
+      "Acme Corp Profile"
+    ),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(
+    result.ok,
+    true,
+    `competitor should not fail as evidence: ${JSON.stringify(result.details)}`
+  );
+  assert.ok(
+    !result.details.some((d) => d.message.includes('expected "evidence"')),
+    "should not complain about non-evidence type"
+  );
+});
+
+test("PM-199: validate() is exported for programmatic use", () => {
+  const { validate: validateFn } = require("../scripts/validate.js");
+  assert.equal(typeof validateFn, "function", "validate must be exported as a function");
+});
+
+test("PM-199: validate() export returns errors/warnings/backlogCount", (t) => {
+  const { validate: validateFn } = require("../scripts/validate.js");
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/test-item.md": makeBacklogItem(),
+  });
+  t.after(cleanup);
+  const result = validateFn(pmDir);
+  assert.ok(Array.isArray(result.errors), "errors must be an array");
+  assert.ok(Array.isArray(result.warnings), "warnings must be an array");
+  assert.equal(typeof result.backlogCount, "number", "backlogCount must be a number");
 });
