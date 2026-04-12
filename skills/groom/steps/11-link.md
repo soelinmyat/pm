@@ -8,7 +8,7 @@ description: Create proposal entry in backlog, Linear integration, retro extract
 
 1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
    - Write `{pm_dir}/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
-   - Set `status: proposed`, `prd: proposals/{topic-slug}.html`, `rfc: null`, `linear_id: "{linear_id}" | null`.
+   - Set `status: proposed`, `prd: null`, `rfc: null`, `linear_id: "{linear_id}" | null`.
    - **Thinking discovery:** Check if `{pm_dir}/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
    - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence.
    - Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
@@ -62,7 +62,7 @@ description: Create proposal entry in backlog, Linear integration, retro extract
 proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
-  prd_path: {pm_dir}/backlog/proposals/{topic-slug}.html
+  prd_path: null
   linear_id: "{Linear ID}" | null
 ```
 

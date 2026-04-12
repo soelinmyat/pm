@@ -82,7 +82,7 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `{pm
 - Write `{pm_dir}/backlog/{slug}.md`:
   ```yaml
   ---
-  type: backlog-issue
+  type: backlog
   id: "{linear_id}"
   title: "{title from Linear or RFC}"
   outcome: "{one-sentence from RFC summary or Linear description}"

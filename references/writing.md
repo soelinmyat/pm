@@ -1,6 +1,6 @@
 # Writing Reference
 
-Shared rules for all plugin output — markdown documents, HTML artifacts, dashboard content, slide decks.
+Shared rules for all plugin output — markdown documents, HTML artifacts.
 Skills read this before generating any document. Domain skills decide *what* to say; this reference decides *how* to say it.
 
 ---
@@ -77,49 +77,51 @@ List only blocking items as bullets. Advisory items come after the user acknowle
 
 ---
 
-## HTML Generation
+## Output Format
 
-### When to generate HTML
+### Markdown documents (default)
 
-HTML artifacts are for **interactive viewing** — dashboards, presentations, wireframes, proposals. If the content works as markdown, keep it as markdown.
+All plugin output is markdown by default. Strategy decks, proposals, research findings, PRDs — everything that was previously HTML is now a markdown file with frontmatter.
+
+**Rules:**
+- Every output file must include valid YAML frontmatter
+- Use sections and subsections instead of slides
+- Use blockquotes for verdicts and key callouts
+- Use tables for structured comparisons
+- Follow the prose rules above — same standards apply
+
+### HTML artifacts (wireframes and mockups only)
+
+Generate HTML only when the content needs visual layout that markdown cannot express: wireframes, mockups, and architecture diagrams.
 
 Generate HTML when:
-- The content needs visual layout (positioning maps, slide decks, wireframe previews)
-- The content will be viewed in a browser via the dashboard
-- The content needs interactive elements (tabs, expandable sections, charts)
+- The content needs spatial positioning (wireframe layouts, flow diagrams)
+- The content needs interactive preview elements (clickable prototypes)
+
+Do **not** generate HTML for: proposals, strategy decks, research output, or any document that works as markdown.
 
 ### Template system
 
 Templates live at `${CLAUDE_PLUGIN_ROOT}/references/templates/`.
 
-**Token replacement** (strategy deck pattern):
+**Token replacement** (RFC pattern):
 1. Read the template HTML file
 2. Replace `{{TOKEN_NAME}}` placeholders with generated content
 3. Strip conditional blocks for unavailable data (`<!-- BEGIN:X -->...<!-- END:X -->`)
 4. Write the final HTML to the output path
 
-**Structure reference** (proposal pattern):
-1. Read the reference HTML for its section structure
-2. Build new HTML following the same section layout with actual data
-3. Write to output path with a sidecar `.meta.json` for dashboard indexing
+RFCs remain HTML. Use the RFC template for all RFC output.
 
-### Slide content rules
+### Wireframe rules
 
-For slide-based output (strategy decks, presentations):
-- **Max 3 bullets per slide.** Distill to the most important.
-- **Each bullet: max 15 words.** One line, no wrapping.
-- **No paragraphs on slides.** Bullets only. The title carries the message.
-- **Action titles** — a complete sentence asserting a specific claim. "Our ICP" fails. "We serve product engineers who own both decisions and implementation" passes.
-- **Title slide subtitle: max 20 words.**
-- Think investor pitch, not reference doc.
-
-### Proposal and wireframe rules
-
-For proposal HTML and wireframes:
+For wireframe and mockup HTML:
 - Self-contained (inline CSS, no external dependencies)
-- Include `.meta.json` sidecar with: title, verdict, issue count, labels
-- Wireframes: clear labels, flow arrows, state annotations
-- All HTML viewable via the dashboard server
+- Clear labels, flow arrows, state annotations
+- All metadata lives in frontmatter of the parent markdown document, not in sidecar files
+
+### Frontmatter compliance
+
+Before writing any markdown document, read `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md` for the schema contract. All output files must include valid frontmatter matching the schema for their document type.
 
 ---
 

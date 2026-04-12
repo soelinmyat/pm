@@ -130,7 +130,7 @@ On user confirmation, write each idea to `{pm_dir}/backlog/{idea-slug}.md`.
 
 ```markdown
 ---
-type: backlog-issue
+type: backlog
 id: "{linear_id or PM-NNN}"
 title: "{Idea Name}"
 outcome: "{One-liner}"

@@ -38,7 +38,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `labels` | string[] | required | At least one entry | Categorization tags. Must be non-empty. |
 | `created` | date | required | `YYYY-MM-DD` | Creation date |
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
-| `prd` | string\|null | optional | — | Relative path to PRD HTML (e.g., `"proposals/foo.html"`) |
+| `prd` | string\|null | optional | — | Relative path to PRD HTML, or null when PRD content is inline in this file |
 | `rfc` | string\|null | optional | — | Relative path to RFC HTML (e.g., `"rfcs/foo.html"`) |
 | `linear_id` | string\|null | optional | — | Linear issue ID for external tracking |
 | `thinking` | string\|null | optional | — | Path to thinking artifact |

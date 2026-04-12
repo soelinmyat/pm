@@ -50,6 +50,8 @@ How we know the strategy is working.
 Leading indicators preferred over lagging.
 ```
 
+Frontmatter must conform to the `type: strategy` schema in `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md`.
+
 After writing, say:
 
 > "Strategy doc written to {pm_dir}/strategy.md. Recommended next steps:

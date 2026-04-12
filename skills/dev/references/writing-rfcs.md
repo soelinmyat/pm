@@ -8,7 +8,7 @@ Assume the implementer is a skilled developer but knows almost nothing about the
 
 **Announce at start:** "I'm generating the engineering RFC."
 
-**Context:** This should be run in a dedicated worktree. Read the proposal (`{pm_dir}/backlog/{slug}.md`) and PRD (`{pm_dir}/backlog/proposals/{slug}.html`) for product context.
+**Context:** This should be run in a dedicated worktree. Read the proposal (`{pm_dir}/backlog/{slug}.md`) for product context. The backlog entry contains full PRD content — user flows, wireframes, competitive context.
 
 **Save RFCs to:** `{pm_dir}/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
 
@@ -60,12 +60,11 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 
 ## Proposal Context
 
-Read the proposal and PRD for product context before writing the RFC:
+Read the proposal for product context before writing the RFC:
 
-1. Read `{pm_dir}/backlog/{slug}.md` — outcome, scope, competitive context, research refs
-2. Read `{pm_dir}/backlog/proposals/{slug}.html` — full PRD with design details, user flows, wireframes
-3. If `research_refs` exist, read the referenced research files for key findings
-4. Incorporate the product context into the RFC's Codebase Findings and Architecture sections
+1. Read `{pm_dir}/backlog/{slug}.md` — outcome, scope, competitive context, research refs, plus full PRD content (user flows, wireframes, design details are inline)
+2. If `research_refs` exist, read the referenced research files for key findings
+3. Incorporate the product context into the RFC's Codebase Findings and Architecture sections
 
 ## Task Structure
 

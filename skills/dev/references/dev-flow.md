@@ -339,10 +339,9 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
 **Session file:** {source_dir}/.pm/dev-sessions/{slug}.md
-**Proposal:** {pm_dir}/backlog/{slug}.md
-**PRD:** {pm_dir}/backlog/proposals/{slug}.html
+**Proposal (includes full PRD):** {pm_dir}/backlog/{slug}.md
 
-Read the proposal and PRD for full product context.
+Read the proposal for full product context (PRD content is inline — user flows, wireframes, competitive context).
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
@@ -750,7 +749,7 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `{pm
 - Write `{pm_dir}/backlog/{slug}.md`:
   ```yaml
   ---
-  type: backlog-issue
+  type: backlog
   id: "{linear_id}"
   title: "{title from Linear or RFC}"
   outcome: "{one-sentence from RFC summary or Linear description}"

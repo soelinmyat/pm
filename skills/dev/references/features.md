@@ -5,7 +5,7 @@
 `pm:features` scans the codebase and produces a structured feature inventory at `pm/product/features.md`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
 
 The output feeds two consumers:
-- **Dashboard** — renders the inventory at `/product`
+- **productmemory.io** — renders the feature inventory online
 - **Groom intake** — reads existing capabilities to inform scope review
 
 ## Interaction Pacing
