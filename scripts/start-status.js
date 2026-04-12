@@ -960,12 +960,30 @@ function renderKbHealthLine(kbHealth) {
   return `KB: ${parts.join(" | ")}`;
 }
 
+function renderDashboardLine(syncStatus) {
+  if (!syncStatus || !syncStatus.configured) {
+    return "Dashboard: not configured \u2014 set up at productmemory.io";
+  }
+
+  if (syncStatus.lastSync === null && syncStatus.ok === null) {
+    return "Dashboard: syncing...";
+  }
+
+  if (syncStatus.ok === false) {
+    return "Dashboard: last sync failed";
+  }
+
+  return `Dashboard: synced ${syncStatus.timeAgo || "just now"}`;
+}
+
 function renderTextStatus(status, options = {}) {
   const lines = [];
 
   if (options.includeUpdate && status.update.available) {
     lines.push(`Update: ${status.update.message}`);
   }
+
+  lines.push(renderDashboardLine(status.syncStatus));
 
   if (status.focus) {
     lines.push(`Focus: ${status.focus}`);
