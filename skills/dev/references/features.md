@@ -1,8 +1,3 @@
----
-name: features
-description: "Scan the codebase, extract user-facing features via a 3-pass pipeline, and write a structured feature inventory to pm/product/features.md. Triggers on 'features,' 'feature inventory,' 'scan features,' 'what does this product do,' 'product capabilities.'"
----
-
 # pm:features
 
 ## Purpose

@@ -6630,7 +6630,7 @@ function handleProductPage(res, pmDir, activeAreaParam) {
     const body = renderEmptyState(
       "No feature inventory yet",
       "Run the features skill to scan your codebase and generate a structured feature inventory.",
-      "/pm:features",
+      "/pm:dev",
       "Scan codebase for features"
     );
     const html = dashboardPage("Product", "/product", body);
@@ -6647,7 +6647,7 @@ function handleProductPage(res, pmDir, activeAreaParam) {
     const body = renderEmptyState(
       "No features detected",
       "Your feature inventory is empty. Ensure your project has 10+ source files with recognizable entry points (routes, components, API handlers).",
-      "/pm:features",
+      "/pm:dev",
       "Re-scan codebase"
     );
     const html = dashboardPage("Product", "/product", body);

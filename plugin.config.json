@@ -49,7 +49,6 @@
         "ingest",
         "note",
         "refresh",
-        "features",
         "sync"
       ],
       "dev": ["dev", "ship", "using-pm"]
