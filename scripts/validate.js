@@ -47,7 +47,7 @@ const REQUIRED_BACKLOG_FIELDS = [
   "created",
   "updated",
 ];
-const REQUIRED_STRATEGY_FIELDS = ["type"];
+const REQUIRED_STRATEGY_FIELDS = ["type", "created", "updated"];
 const REQUIRED_INSIGHT_FIELDS = [
   "type",
   "domain",
@@ -238,6 +238,12 @@ function validateStrategy(filePath, data, errors) {
 
   if (data.type && data.type !== "strategy") {
     pushIssue(errors, rel, "type", `expected "strategy", got "${data.type}"`);
+  }
+
+  for (const field of ["created", "updated"]) {
+    if (data[field] && !isIsoDate(data[field])) {
+      pushIssue(errors, rel, field, `invalid date format "${data[field]}" — expected YYYY-MM-DD`);
+    }
   }
 }
 
@@ -940,6 +946,11 @@ function validate(pmDir) {
     const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
     if (!parsed) {
       continue;
+    }
+
+    if (parsed.data.type === "landscape") {
+      pushIssue(warnings, relativeFile, "type", "type 'landscape' is deprecated, use 'insight'");
+      parsed.data.type = "insight";
     }
 
     validateInsightFile(pmDir, filePath, parsed.data, errors, kbState);
