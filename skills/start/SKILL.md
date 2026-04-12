@@ -410,14 +410,26 @@ In separate-repo mode, groom and dev sessions live in different repos. Always ch
 ```text
 PM ready.
 Update: {update line}            # only if available
+Dashboard: {dashboard line}      # always present (see variants below)
 Focus: {active-session summary OR attention summary}
 Backlog: {backlog line}          # if available
 Next: {recommended next move}
 Also: {alternative move}         # up to two lines, only if available
 ```
 
+### Dashboard line variants
+
+The `Dashboard:` line reflects the current sync status with productmemory.io. It appears in every Resume and Pulse Mode session brief but is not shown in Bootstrap Mode (first-run stays zero-config).
+
+| Variant | Format |
+|---------|--------|
+| Configured + synced | `Dashboard: productmemory.io/project (synced 2m ago)` |
+| Configured + sync failed | `Dashboard: productmemory.io/project (last sync failed)` |
+| Not configured | `Dashboard: not configured — set up at productmemory.io` |
+
 Rules:
 
+- The `Dashboard:` line always appears between `Update:` and `Focus:`.
 - If there is no update available, omit the `Update:` line.
 - Use `Focus:` for the most important thing right now. Prefer an active session over a generic freshness summary.
 - If the shared status output includes alternatives, show them as short `Also:` lines after `Next:`.
@@ -455,4 +467,4 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 - Do not force users to memorize those lanes during onboarding. `pm:start` should do the routing.
 - The runtime hook and the explicit `pm:start` resume flow should use the same `scripts/start-status.js` output.
 - `pm:start` is the public entry point for PM.
-- PM operates entirely within the editor — no external server process required.
+- Dashboard sync setup is handled by `pm:setup` or `pm:sync`. `pm:start` only reads sync status — it never configures sync itself.
