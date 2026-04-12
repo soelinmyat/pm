@@ -1,6 +1,6 @@
 ---
 name: start
-description: "Lifecycle router for PM. For new repos, bootstrap PM and route into the best first workflow. For returning sessions, open the dashboard, surface update status, detect in-progress work, and recommend the next move. Triggers on session start (auto-invoked by using-pm), 'start,' 'initialize pm,' 'get started,' 'dashboard,' 'open dashboard,' 'show research,' 'show knowledge base,' 'open pm,' 'view pm,' 'view research.'"
+description: "Lifecycle router for PM. For new repos, bootstrap PM and route into the best first workflow. For returning sessions, surface update status, detect in-progress work, and recommend the next move. Triggers on session start (auto-invoked by using-pm), 'start,' 'initialize pm,' 'get started,' 'show research,' 'show knowledge base,' 'open pm,' 'view pm,' 'view research.'"
 ---
 
 # pm:start
@@ -9,11 +9,10 @@ description: "Lifecycle router for PM. For new repos, bootstrap PM and route int
 
 `pm:start` is the main entry point for PM.
 
-Use it to do one of three things:
+Use it to do one of two things:
 
 1. **Bootstrap** PM in a repo that does not have a PM workspace yet
 2. **Resume** active work in an initialized PM repo
-3. **Open** the dashboard and get a fast session brief
 
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
@@ -101,7 +100,7 @@ Check these signals using the resolved paths and the current user request:
 
 - Does `pm_dir` exist? (i.e., was `pm_dir` resolved above, and does the directory exist on disk?)
 - Does `.pm/config.json` exist at cwd?
-- Is the user explicitly asking only to open the dashboard or view PM?
+- Is the user explicitly asking to view PM?
 - Did the user pass a path argument after `/pm:start`?
 - Is there active work? Check for session files in BOTH locations:
   - Groom sessions: `{pm_state_dir}/groom-sessions/*.md` (always in the PM repo's `.pm/`)
@@ -112,7 +111,6 @@ Check these signals using the resolved paths and the current user request:
 Routing:
 
 - If `pm_dir` does not exist or `.pm/config.json` is missing, use **Bootstrap Mode**
-- If the project is initialized and the user explicitly asked only to open or view PM, use **Open Mode**
 - If the project is initialized and active work exists, use **Resume Mode**
 - Otherwise use **Pulse Mode**
 
@@ -138,7 +136,7 @@ Interpret the argument or surrounding user message as a routing hint:
 - "research X", "look into X", "investigate X" → topic research
 - "think", "brainstorm", "what if", "how should we" → `pm:think`
 - "groom", "feature idea", "spec", "PRD", "break this down" → `pm:groom`
-- "explore", "look around", "just show me", "skip" → show dashboard brief and stop
+- "explore", "look around", "just show me", "skip" → show session brief and stop
 
 If no clear hint exists, ask the user what they want to do first.
 
@@ -219,9 +217,7 @@ Write `.pm/config.json` with defaults that do not block the first workflow:
     "linear": { "enabled": false },
     "seo": { "provider": "none" }
   },
-  "preferences": {
-    "auto_launch": true
-  }
+  "preferences": {}
 }
 ```
 
@@ -230,7 +226,6 @@ Populate:
 - `project_name` from the repo directory name by default
 - `integrations.linear.enabled` as `false`
 - `integrations.seo.provider` as `"none"`
-- `preferences.auto_launch` as `true` — controls whether the dashboard server starts automatically on session start. Set to `false` to disable.
 - `preferences.ship.auto_merge` is **not set during bootstrap** — `/ship` will ask the user on first invocation and persist their choice. This ensures every user makes a conscious decision about merge behavior.
 
 Only ask for a project name if the repo directory name is obviously generic or the user already gave you a better name.
@@ -270,12 +265,9 @@ Before asking the user to choose a workflow, give a brief orientation so they un
 
 > "PM is set up. Here's what was created:
 > - `{pm_dir}/` — your knowledge base (insights, evidence, backlog, thinking)
-> - `.pm/` — internal state (gitignored, you won't see this in commits)
-> - Dashboard: {url}"
+> - `.pm/` — internal state (gitignored, you won't see this in commits)"
 
-If the dashboard URL is not available, omit the dashboard line.
-
-Keep this brief — no more than 4 lines. The goal is orientation, not a tutorial.
+Keep this brief — no more than 3 lines. The goal is orientation, not a tutorial.
 
 ### Step 5: Choose The First Workflow
 
@@ -289,8 +281,7 @@ If not, ask ONE question:
 > (c) Research competitors — profile specific alternatives
 > (d) Research a specific topic — deep dive into any question
 > (e) Groom a feature idea — scope and spec a feature for development
-> (f) Import customer evidence — bring in transcripts, feedback, or data files
-> (g) Just explore — look around the dashboard first"
+> (f) Import customer evidence — bring in transcripts, feedback, or data files"
 
 ### Step 6: Route Immediately
 
@@ -302,7 +293,8 @@ Routing rules:
 - Specific topic research → if the topic is missing, ask for it, then invoke `pm:research <topic>`
 - Grooming / feature scoping → if the idea is missing, ask for it, then invoke `pm:groom`
 - File/folder path or evidence import request → invoke `pm:ingest`
-- Just explore → show the dashboard brief and stop. Do not route into a workflow.
+- Just explore → show the session brief and stop. Do not route into a workflow.
+- "explore", "look around", "just show me", "skip" → show session brief and stop
 
 Tell the user briefly which lane you are taking, then hand off to that skill immediately.
 
@@ -322,15 +314,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 
 This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
 
-2. If the repo is initialized, launch the dashboard artifact view:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh --project-dir "$PWD" --mode dashboard
-```
-
-Capture the `url` if one is returned.
-
-3. Evidence detection:
+2. Evidence detection:
 
 Scan `{pm_dir}/evidence/user-feedback/` for unprocessed files and offer to route them to `pm:ingest`.
 
@@ -368,10 +352,6 @@ Evidence drop zone — {N} new file(s):
 
 File type labels: use a human-friendly description based on extension (`.md` → "markdown", `.txt` → "text", `.csv` → "csv", `.eml` → "email", `.html` → "html", `.pdf` → "pdf", `.json` → "json"). For unknown extensions, use the extension itself. File size should use KB with one decimal for files under 1MB, MB with one decimal otherwise.
 
-**Dashboard link:**
-
-If the dashboard server is running (check `http://localhost:3117/` or the port from the dashboard launch in step 2), append: `Full preview: http://localhost:{port}/evidence`. If the server is not running, omit this line silently.
-
 **User choice:**
 
 Ask ONE question:
@@ -386,9 +366,9 @@ Routing:
 - **(b) Pick specific files** → show the numbered list again and let the user select by number. Invoke `pm:ingest` with the selected files. After ingestion, append only the selected file paths to `log.md`.
 - **(c) Skip** → continue with the normal flow. Files remain unprocessed for the next session.
 
-After ingestion or skip, continue to step 4 (session brief).
+After ingestion or skip, continue to step 3 (session brief).
 
-4. Generate the canonical session brief:
+3. Generate the canonical session brief:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "$PWD" --format json --include-update
@@ -415,7 +395,7 @@ When detecting active work, check the correct locations based on repo mode:
 
 In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
 
-5. Pick the recommended next move using this priority:
+4. Pick the recommended next move using this priority:
 
 - Any active delivery work (`dev`) → resume that work
 - Active grooming work → resume `pm:groom`
@@ -425,11 +405,10 @@ In separate-repo mode, groom and dev sessions live in different repos. Always ch
 - Idea-heavy backlog → `pm:groom`
 - Otherwise → stay in Pulse Mode and let the user choose
 
-6. Present the session brief in this format:
+5. Present the session brief in this format:
 
 ```text
 PM ready.
-Dashboard: {url}
 Update: {update line}            # only if available
 Focus: {active-session summary OR attention summary}
 Backlog: {backlog line}          # if available
@@ -439,8 +418,6 @@ Also: {alternative move}         # up to two lines, only if available
 
 Rules:
 
-- If the dashboard launch returns nothing, skip the dashboard line silently.
-- Treat the dashboard as a read-only artifact surface unless the project explicitly enables interactive dashboard input.
 - If there is no update available, omit the `Update:` line.
 - Use `Focus:` for the most important thing right now. Prefer an active session over a generic freshness summary.
 - If the shared status output includes alternatives, show them as short `Also:` lines after `Next:`.
@@ -449,22 +426,13 @@ Rules:
   - when active work exists, ask one question:
     - "How do you want to proceed?
       (a) Continue the recommended path
-      (b) Open the dashboard only
-      (c) Do something else"
+      (b) Do something else"
   - when no active work exists, ask one question:
-    - "Want me to continue with the recommended next move, choose one of the alternatives, or just leave you at the dashboard?"
-
-## Open Mode
-
-When the user explicitly asks to open the dashboard, show PM, or view research:
-
-- If the project is initialized, run the same update refresh + dashboard launch + shared status brief as Resume Mode.
-- Do **not** route into another workflow unless the user asks.
-- If the project is not initialized, use Bootstrap Mode instead.
+    - "Want me to continue with the recommended next move, or choose one of the alternatives?"
 
 ## Pulse Mode
 
-Use this when the project is initialized but there is no active work to resume and the user did not ask for dashboard-only behavior.
+Use this when the project is initialized but there is no active work to resume.
 
 The behavior is the same as Resume Mode (including evidence detection in step 3), except the recommendation should bias toward the next useful lane:
 
@@ -477,7 +445,6 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 
 - continue with `Next:`
 - choose one of the `Also:` options
-- or just stay on the dashboard
 
 ## Notes
 
@@ -488,3 +455,4 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 - Do not force users to memorize those lanes during onboarding. `pm:start` should do the routing.
 - The runtime hook and the explicit `pm:start` resume flow should use the same `scripts/start-status.js` output.
 - `pm:start` is the public entry point for PM.
+- PM operates entirely within the editor — no external server or dashboard process required.
