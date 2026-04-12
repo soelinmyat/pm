@@ -60,7 +60,7 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 
 ## Proposal Context
 
-Read the proposal and PRD for product context before writing the RFC:
+Read the proposal for product context before writing the RFC:
 
 1. Read `{pm_dir}/backlog/{slug}.md` — outcome, scope, competitive context, research refs, plus full PRD content (user flows, wireframes, design details are inline)
 2. If `research_refs` exist, read the referenced research files for key findings
