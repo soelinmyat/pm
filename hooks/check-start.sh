@@ -19,6 +19,22 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
+# Sync status hint
+# ---------------------------------------------------------------------------
+
+SYNC_ACTIVE=$(node -e "
+  try {
+    const c = JSON.parse(require('fs').readFileSync('$PROJECT_DIR/.pm/config.json','utf8'));
+    if (!c.projectId) process.exit();
+    const s = c.sync || {};
+    const enabled = s.enabled !== undefined ? s.enabled : true;
+    if (enabled) process.stdout.write('active');
+  } catch {}
+" 2>/dev/null || true)
+
+[ "$SYNC_ACTIVE" = "active" ] && echo "Sync: active"
+
+# ---------------------------------------------------------------------------
 # Update check (at most once per day)
 # ---------------------------------------------------------------------------
 
