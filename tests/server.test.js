@@ -6160,7 +6160,7 @@ test("/product returns 200 with empty state when features.md does not exist", as
       const { statusCode, body } = await httpGet(port, "/product");
       assert.equal(statusCode, 200);
       assert.ok(body.includes("empty-state"), "must show empty state");
-      assert.ok(body.includes("/pm:features"), "must suggest pm:features command");
+      assert.ok(body.includes("/pm:dev"), "must suggest pm:features command");
     } finally {
       await close();
     }
