@@ -1,3 +1,9 @@
+---
+name: Bar Raiser
+order: 9
+description: Product Director holistic review with fresh eyes (max 2 iterations, full tier only)
+---
+
 ### Phase 6.5: Bar Raiser Review
 
 <HARD-GATE>

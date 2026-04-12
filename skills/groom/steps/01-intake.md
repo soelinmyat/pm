@@ -1,3 +1,9 @@
+---
+name: Intake
+order: 1
+description: Capture the idea, clarify, derive slug, detect KB maturity, write initial state
+---
+
 ### Phase 1: Intake
 
 **If grooming an existing idea from backlog:** Check if `{pm_dir}/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:

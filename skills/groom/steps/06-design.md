@@ -1,3 +1,9 @@
+---
+name: Design
+order: 6
+description: Design exploration with mockups, user flows, wireframes — skip for backend/infra
+---
+
 ### Phase 5: Design Exploration
 
 Turn scope into fully formed designs through collaborative dialogue. This phase runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed, not *what* to build. Applies to UI features, new components, architectural decisions, or anything where the implementation shape isn't obvious from the scope alone.

@@ -15,6 +15,24 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
+## Workflow Loading
+
+Load the groom workflow steps using the step loader:
+
+```
+const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
+const steps = loadWorkflow('groom', pmDir, '${CLAUDE_PLUGIN_ROOT}');
+const workflowPrompt = buildPrompt(steps);
+```
+
+The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/` (defaults) with user overrides from `.pm/workflows/groom/` (if any). Steps are sorted by order and concatenated into the workflow prompt.
+
+Execute the loaded workflow steps in order. Each step contains its own instructions, HARD-GATEs, agent prompts, and state update schemas.
+
+## Tier Gating
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` for tier selection logic, step-skipping rules, and research routing by tier.
+
 ## Path Resolution
 
 If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
@@ -23,7 +41,7 @@ If `pm_state_dir` is not in conversation context, use `.pm` at the same location
 
 ## Telemetry (opt-in)
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `groom`, `team-review`, `bar-raiser`, `present`, `link`.
+If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
 
 ## Interaction Pacing
 
@@ -43,58 +61,6 @@ The workflow stays the same across runtimes. Dispatch mechanics come from the cu
 
 ---
 
-## Groom Tiers
-
-`pm:groom` supports three tiers:
-
-| Tier | Intended use | Phases |
-|------|--------------|--------|
-| `quick` | Fill in missing structure fast, usually as a handoff to implementation or backlog capture | `intake -> strategy-check -> research -> scope -> draft-proposal -> link` |
-| `standard` | Solid product proposal without the full executive review stack | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> link` |
-| `full` | Full PM ceremony with review stack and presentation | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> team-review -> bar-raiser -> present -> link` |
-
-### Tier selection
-
-Use this priority:
-
-1. Explicit tier from the caller or user request
-2. Tier requested by `pm:dev`
-3. Default to the max tier allowed by KB maturity (detected in Phase 1 intake)
-
-**KB maturity cap:** Phase 1 runs a KB maturity check and records the max available tier in the session state as `kb_maturity_tier`. The effective tier is `min(requested_or_default_tier, kb_maturity_tier)` unless the user explicitly overrides after being informed of the constraint.
-
-If no maturity check has run yet (first invocation, before Phase 1 completes), treat the default as `quick` to avoid launching full ceremony on an unknown KB.
-
-> Note: Phase 1 intake may adjust the effective tier based on KB maturity detection. The `groom_tier` in state after Phase 1 is authoritative.
-
-Write the selected tier to the state file:
-
-```yaml
-groom_tier: quick | standard | full
-```
-
-### Phase loading rules
-
-Only run phases that are active for the current tier.
-
-- `quick` skips `scope-review`, `design`, `team-review`, `bar-raiser`, and `present`
-- `standard` skips `team-review`, `bar-raiser`, and `present`
-- `full` runs every phase
-
-### Research by tier
-
-<!-- Tier routing: keep in sync with phases/phase-3-research.md -->
-
-Research depth scales with the tier. The HARD-GATE only applies to standard and full.
-
-- `quick`: inline assessment only. Check existing research, write a 2-3 sentence competitive note in the groom output. Do NOT invoke `pm:research`. If the topic is complex, prompt the user to upgrade to standard tier.
-- `standard`: full `pm:research` invocation (HARD-GATE applies)
-- `full`: full `pm:research` invocation (HARD-GATE applies)
-
-When `quick` performs an inline assessment without writing new files, `research_location` remains `null`. Log the inline finding as `research_note` in the session state.
-
----
-
 ## Resume Check
 
 Before doing anything else, glob `{pm_state_dir}/groom-sessions/*.md`.
@@ -106,14 +72,9 @@ If exactly one session exists, read it and say:
 
 If multiple sessions exist, list them with topic, phase, and updated timestamp. Ask which to resume.
 
-Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the selected state file, then begin Phase 1.
+Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the selected state file, then begin Step 1.
 
 ---
-
-## Lifecycle: intake -> strategy check -> research -> scope -> scope review -> design -> draft proposal -> team review -> bar raiser -> present -> link
-
----
-
 
 ## Custom Instructions
 
@@ -129,35 +90,27 @@ Before starting work, check for user instructions:
 
 ## Codebase Detection
 
-At the start of a grooming session (before Phase 1), determine whether the project has an accessible codebase:
+At the start of a grooming session (before Step 1), determine whether the project has an accessible codebase:
 
 1. List the top-level project directory. Look for source code indicators: `src/`, `lib/`, `app/`, `packages/`, `*.py`, `*.ts`, `*.go`, `*.rs`, `*.java`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, or similar.
 2. If source code exists, set `codebase_available: true` in groom state. Note the primary language and entry points.
 3. If the project is purely a product knowledge base (only `{pm_dir}/`, `.pm/`, docs), set `codebase_available: false`.
 
-When `codebase_available: true`, multiple phases will incorporate codebase analysis — checking existing implementation, UI patterns, and overlapping code. Each phase file specifies what to check and when.
+When `codebase_available: true`, multiple steps will incorporate codebase analysis — checking existing implementation, UI patterns, and overlapping code. Each step file specifies what to check and when.
 
 ---
 
-## Phases
+## References
 
-When entering a phase, read its detailed instructions from the phase file. Each phase file contains the full instructions, HARD-GATEs, agent prompts, and state update schemas.
+The following reference files provide detailed guidance for specific groom capabilities:
 
-| Phase | File | Summary |
-|-------|------|---------|
-| 1. Intake | `phases/phase-1-intake.md` | Capture the idea, clarify, derive slug, write initial state |
-| 2. Strategy Check | `phases/phase-2-strategy.md` | Validate against priorities, non-goals, ICP |
-| 3. Research | `phases/phase-3-research.md` | Invoke pm:research for competitive and market intelligence |
-| 4. Scope | `phases/phase-4-scope.md` | Define in-scope / out-of-scope, apply 10x filter |
-| 4.5. Scope Review | `phases/phase-4.5-scope-review.md` | 3 parallel agents (PM, Competitive, EM) challenge the scope |
-| 5. Design | `phases/phase-5-design.md` | Design exploration: mockups, user flows, wireframes. Skip for backend/infra. |
-| 5.5. Draft Proposal | `phases/phase-5.5-draft-proposal.md` | Detect feature type, generate flows/wireframes, draft proposal content |
-| 6. Team Review | `phases/phase-6-team-review.md` | 3-4 parallel agents review the proposal for quality (max 3 iterations) |
-| 6.5. Bar Raiser | `phases/phase-6.5-bar-raiser.md` | Product Director holistic review with fresh eyes (max 2 iterations) |
-| 7. Present | `phases/phase-7-present.md` | Generate HTML PRD, open in browser, get user approval |
-| 8. Link | `phases/phase-8-link.md` | Create proposal entry in backlog (+ Linear if configured), clean up |
-
-**How to use:** At the start of each phase, read the corresponding file with `Read ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/{filename}` and follow its instructions exactly.
+| Reference | Purpose |
+|-----------|---------|
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` | Tier selection, step-skipping rules, research routing |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/ideate.md` | Standalone ideation mode — surface what to build next |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` | Groom-specific formatting supplement |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-document-reviewer-prompt.md` | Spec review agent template |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/scope-validation.md` | Scope validation methodology for Step 4 |
 
 ---
 
@@ -247,10 +200,10 @@ proposal:
 > (b) Start fresh (deletes the state file)"
 
 **Missing research refs** (phase advances but research files not found):
-Warn the user. Offer to re-run Phase 3 before continuing. Do not silently proceed with empty research context.
+Warn the user. Offer to re-run Step 3 before continuing. Do not silently proceed with empty research context.
 
 **Strategy drift** ({pm_dir}/strategy.md modified since strategy_check was recorded):
-On every phase after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
+On every step after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
 > "{pm_dir}/strategy.md was updated after the strategy check. Re-run the check before scoping?"
 
 **Parallel sessions** (state file already exists when starting):

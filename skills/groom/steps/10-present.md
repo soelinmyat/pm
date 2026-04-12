@@ -1,3 +1,9 @@
+---
+name: Present
+order: 10
+description: Generate HTML PRD presentation, open in browser, get user approval
+---
+
 ### Phase 7: Present to User
 
 Present the reviewed, iterated proposal as a self-contained HTML presentation in the browser. The terminal is not the medium for an executive-ready package.
