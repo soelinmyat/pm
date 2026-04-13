@@ -52,7 +52,6 @@ function makeBacklogItem(overrides = {}) {
     status: "idea",
     priority: "medium",
     parent: "null",
-    children: [],
     created: "2026-03-14",
     updated: "2026-03-14",
   };
@@ -262,18 +261,6 @@ test("broken parent reference produces warning", (t) => {
   assert.equal(result.ok, true, "broken refs are warnings, not errors");
   const warn = result.details.find((d) => d.level === "warning" && d.field === "parent");
   assert.ok(warn, "should warn about missing parent");
-});
-
-test("broken children reference produces warning", (t) => {
-  const { pmDir, cleanup } = withPmDir({
-    "pm/backlog/parent.md": makeBacklogItem({ id: "PM-001", children: ["ghost-child"] }),
-  });
-  t.after(cleanup);
-
-  const result = runValidate(pmDir);
-  assert.equal(result.ok, true, "broken refs are warnings, not errors");
-  const warn = result.details.find((d) => d.level === "warning" && d.field === "children");
-  assert.ok(warn, "should warn about missing child");
 });
 
 test("invalid date format reports error", (t) => {
@@ -633,7 +620,6 @@ test("PM-199: item without type reports error", () => {
     "status: idea",
     "priority: medium",
     'parent: "null"',
-    "children: []",
     "created: 2026-03-14",
     "updated: 2026-03-14",
     "---",

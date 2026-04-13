@@ -163,7 +163,6 @@ title: "{Idea Name}"
 outcome: "{One-liner}"
 status: idea
 parent: null
-children: []
 labels:
   - "ideate"
 priority: {critical|high|medium|low}

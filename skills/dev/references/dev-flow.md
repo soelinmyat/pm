@@ -50,7 +50,7 @@ Dev requires a source code repository to operate — it creates branches, worktr
 1. **Load learnings** — Read `learnings.md` at repo root. If the file doesn't exist, skip (first run). Surface entries relevant to the task domain.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
-4. **Fetch sub-issues** — After fetching the issue, also check for sub-issues via `list_issues({ parentId })`. If sub-issues exist, store them in session state under `## Sub-Issues`. They become context for RFC generation. If no sub-issues, proceed normally.
+4. **Discover tasks from RFC** — After resolving the backlog item, check if it has a non-null `rfc:` field. If so, read the RFC HTML file at `{pm_dir}/backlog/{rfc_field}` (the `rfc:` value is relative to `{pm_dir}/backlog/`). Parse the RFC Issue sections by finding elements with class `.issue-detail`. For each, extract issue number, title, and size. Set `task_count` to the number of parsed issues. If the RFC exists but **zero issues are parsed**, **hard-abort**. If no RFC exists, set `task_count = 1`. Store the task list in session state under `## Tasks`.
 5. **Linear issue readiness routing** — If `linear_id` is set in the session state (set by SKILL.md routing):
 
    If `linear_readiness` is `dev-ready`:
@@ -82,13 +82,13 @@ Dev requires a source code repository to operate — it creates branches, worktr
 | **L** | New domain/module, cross-cutting refactor | New domain module, redesign auth flow |
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
-   **Multi-task:** If sub-issues exist, classify each sub-issue individually. Present a table. The parent size is the largest sub-issue size.
+   **Multi-task:** If RFC tasks exist (`task_count > 1`), each task already has a size from the RFC. Present a table. The parent size is the largest task size.
 
 7. **Confirm size with user** before proceeding.
 8. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
+9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. Include a `## Tasks` table (always present — single-task sessions have one row, multi-task sessions have N rows from the RFC). This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
@@ -311,7 +311,7 @@ Skip if no task touches mobile code. Log in the state file whether Metro was sta
 
 #### Skip fully-implemented tasks
 
-If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
+If the RFC reported 0 tasks for an issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
 
 #### Sequential execution
 
@@ -322,7 +322,7 @@ For each task (Issue section) in dependency order from the RFC:
    git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
    ```
 
-2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID):
+2. **Set task status to In Progress** (if task has a Linear tracker ID):
    ```
    mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
    ```
@@ -366,7 +366,7 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 
 4. **Wait for agent to return** "Merged" or "Blocked."
 
-5. **Checkpoint** — update state file `## Sub-Issues` table immediately. Update `## Implementation Progress`.
+5. **Checkpoint** — update state file `## Tasks` table immediately. Update `## Implementation Progress`.
 
 6. **Sync main** before the next task:
    ```bash
@@ -495,7 +495,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "PR opene
 ### After merge — set "Done" everywhere
 
 <HARD-GATE>
-You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A parent marked "Done" with open children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
+You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A Linear parent marked "Done" with open Linear children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
 </HARD-GATE>
 
 **Step 1: Create local backlog entry if missing.**
@@ -539,22 +539,13 @@ Read `{pm_dir}/backlog/{slug}.md`. Update frontmatter:
 - If `linear_id` is available in session state and not already in frontmatter, add it
 - If `prs` field exists, append `"#{pr_number}"` if not already listed
 
-**Multi-task:** Also update each sub-issue's backlog entry (`{pm_dir}/backlog/{sub-issue-slug}.md`) to `status: done`.
-
 Verify the file was written: read it back and confirm `status: done`.
 
 Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
-**Step 3: Update parent/proposal status.**
+Note: In the single-backlog model, each backlog item has its own RFC. Issue decomposition lives inside the RFC, not as separate backlog files. Ship updates only this one backlog item.
 
-a. If the backlog item has a `parent` field pointing to a proposal slug:
-   - Read all sibling backlog items (same `parent` value)
-   - If ALL siblings are now `done`, update `{pm_dir}/backlog/{parent}.md` — set `status: done`
-   - Log: `Proposal: {parent} → done`
-
-b. If this is a standalone proposal (has `prd:` field, no `parent`), its status was already set to `done` in Step 2.
-
-**Step 4: Close Linear child issues** (if tracker available).
+**Step 3: Close Linear child issues** (if tracker available).
 
 Fetch children:
 ```
@@ -567,7 +558,7 @@ mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ISSUE_ID}", state: "Done" })
 ```
 Log each: `Linear: {CHILD_ISSUE_ID} → Done`
 
-**Step 5: Close Linear parent issue** (if tracker available).
+**Step 4: Close Linear parent issue** (if tracker available).
 
 ```
 mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
@@ -575,7 +566,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "Merged: 
 ```
 Log: `Linear: {ISSUE_ID} → Done (+ {N} children closed)`
 
-**Step 6: Verify.**
+**Step 5: Verify.**
 
 - Read `{pm_dir}/backlog/{slug}.md` — confirm `status: done`
 - If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{ISSUE_ID}" })` — confirm state is "Done"
@@ -647,17 +638,14 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Design critique: required (frontend files modified)
 - E2E: yes (CRUD flow)
 
-## Sub-Issues (only present when task_count > 1)
+## Tasks (always present — sourced from RFC Issue sections)
 
-| # | ID | Title | Size | Status | PR | Retries | Started | Completed |
-|---|----|-------|------|--------|----|---------|---------|-----------|
-| 1 | ISSUE-001 | First task | S | Merged (PR #312) | #312 | 0 | ... | ... |
-| 2 | ISSUE-002 | Second task | M | Implementing | — | 0 | ... | — |
+| Issue # | Title | Size | Status | Branch | PR |
+|---------|-------|------|--------|--------|----|
+| 1 | First task | S | done | feat/first-task | #312 |
+| 2 | Second task | M | in-progress | feat/second-task | — |
 
-## Tasks
-- [x] 1. Add migration
-- [x] 2. Model + backend tests
-- [ ] 3. Frontend mock + components
+Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` cards). Single-task sessions have one row.
 
 ## Key Files
 - backend/app/controllers/api/v1/features_controller.rb

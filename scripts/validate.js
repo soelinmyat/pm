@@ -965,14 +965,7 @@ function validate(pmDir) {
         }
       }
 
-      if (Array.isArray(parsed.data.children)) {
-        for (const child of parsed.data.children) {
-          const childFile = `${child}.md`;
-          if (!fs.existsSync(path.join(backlogDir, childFile))) {
-            pushIssue(warnings, file, "children", `child "${child}" not found in backlog/`);
-          }
-        }
-      }
+      // children: field removed (PM-231) — issue decomposition lives in the RFC, not the backlog
     }
 
     const ids = Array.from(backlogIds.keys())
