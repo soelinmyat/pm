@@ -195,7 +195,7 @@ test("resolveConfig uses config.json serverUrl as second priority", (t) => {
   assert.equal(config.serverUrl, "https://config.example.com");
 });
 
-test("resolveConfig falls back to https://hub.pm.dev", (t) => {
+test("resolveConfig falls back to https://api.productmemory.io", (t) => {
   const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
   const credsFile = path.join(credsDir, "credentials");
   fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
@@ -214,7 +214,7 @@ test("resolveConfig falls back to https://hub.pm.dev", (t) => {
   const { resolveConfig } = require(KB_SYNC_PATH);
   const config = resolveConfig(root, credsFile);
 
-  assert.equal(config.serverUrl, "https://hub.pm.dev");
+  assert.equal(config.serverUrl, "https://api.productmemory.io");
 });
 
 // ---------------------------------------------------------------------------
@@ -542,4 +542,324 @@ test("preparePushPayload only includes changed files when cached manifest exists
   assert.equal(payload.manifest.length, 2, "manifest should include all files");
   assert.equal(payload.files.length, 1, "only changed file should be included");
   assert.equal(payload.files[0].path, "backlog/item.md");
+});
+
+// ---------------------------------------------------------------------------
+// Test: .md-only filter in buildManifest
+// ---------------------------------------------------------------------------
+
+test("buildManifest excludes non-.md files", (t) => {
+  const { root, cleanup } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+    "pm/data.json": '{"key": "value"}',
+    "pm/notes.txt": "some notes",
+    "pm/image.png": "binary-ish",
+    "pm/backlog/item.md": "# Item\n",
+    "pm/backlog/draft.html": "<html></html>",
+  });
+  t.after(cleanup);
+
+  const { buildManifest } = require(KB_SYNC_PATH);
+  const manifest = buildManifest(path.join(root, "pm"));
+
+  const paths = manifest.map((m) => m.path).sort();
+  assert.deepEqual(paths, ["backlog/item.md", "strategy.md"]);
+});
+
+test("buildManifest includes .MD and .Md files (case-insensitive)", (t) => {
+  const { root, cleanup } = withTempProject({
+    "pm/UPPER.MD": "# Upper\n",
+    "pm/Mixed.Md": "# Mixed\n",
+    "pm/lower.md": "# Lower\n",
+  });
+  t.after(cleanup);
+
+  const { buildManifest } = require(KB_SYNC_PATH);
+  const manifest = buildManifest(path.join(root, "pm"));
+
+  const paths = manifest.map((m) => m.path).sort();
+  assert.deepEqual(paths, ["Mixed.Md", "UPPER.MD", "lower.md"]);
+});
+
+// ---------------------------------------------------------------------------
+// Test: symlink exclusion in buildManifest
+// ---------------------------------------------------------------------------
+
+test("buildManifest excludes symlinks", (t) => {
+  const { root, cleanup } = withTempProject({
+    "pm/real-file.md": "# Real\n",
+    "pm/target.md": "# Target\n",
+  });
+
+  // Create a symlink inside pm/
+  try {
+    fs.symlinkSync(path.join(root, "pm", "target.md"), path.join(root, "pm", "link.md"));
+  } catch {
+    // Symlinks may not be supported (e.g., Windows without admin)
+    cleanup();
+    return;
+  }
+
+  t.after(cleanup);
+
+  const { buildManifest } = require(KB_SYNC_PATH);
+  const manifest = buildManifest(path.join(root, "pm"));
+
+  const paths = manifest.map((m) => m.path).sort();
+  assert.deepEqual(paths, ["real-file.md", "target.md"]);
+  assert.ok(!paths.includes("link.md"), "symlink should be excluded from manifest");
+});
+
+// ---------------------------------------------------------------------------
+// Test: X-API-Version header sent in push/pull
+// ---------------------------------------------------------------------------
+
+test("push sends X-API-Version header", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  // Use a local server that captures headers
+  const http = require("http");
+  let capturedHeaders = null;
+  const server = http.createServer((req, res) => {
+    capturedHeaders = req.headers;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ uploaded: 1, deleted: 0 }));
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  process.env.PM_HUB_URL = `http://127.0.0.1:${port}`;
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("push", root, credsFile);
+
+  server.close();
+
+  assert.ok(capturedHeaders, "should have captured request headers");
+  assert.equal(capturedHeaders["x-api-version"], "1", "should send X-API-Version: 1");
+});
+
+test("pull sends X-API-Version header", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  const http = require("http");
+  let capturedHeaders = null;
+  const server = http.createServer((req, res) => {
+    capturedHeaders = req.headers;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ download: [], delete: [], unchanged: 1 }));
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  process.env.PM_HUB_URL = `http://127.0.0.1:${port}`;
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("pull", root, credsFile);
+
+  server.close();
+
+  assert.ok(capturedHeaders, "should have captured request headers");
+  assert.equal(capturedHeaders["x-api-version"], "1", "should send X-API-Version: 1");
+});
+
+// ---------------------------------------------------------------------------
+// Test: Lock file prevents concurrent runs
+// ---------------------------------------------------------------------------
+
+test("acquireLock creates lock file and releaseLock removes it", (t) => {
+  const { root, cleanup } = withTempProject({});
+  t.after(cleanup);
+
+  const { acquireLock, releaseLock } = require(KB_SYNC_PATH);
+  const dotPm = path.join(root, ".pm");
+
+  const acquired = acquireLock(dotPm);
+  assert.ok(acquired, "should acquire lock");
+
+  const lockPath = path.join(dotPm, "sync.lock");
+  assert.ok(fs.existsSync(lockPath), "lock file should exist");
+
+  const pid = fs.readFileSync(lockPath, "utf8").trim();
+  assert.equal(pid, String(process.pid), "lock should contain current PID");
+
+  releaseLock(dotPm);
+  assert.ok(!fs.existsSync(lockPath), "lock file should be removed after release");
+});
+
+test("acquireLock returns false when lock held by running process", (t) => {
+  const { root, cleanup } = withTempProject({});
+  t.after(cleanup);
+
+  const { acquireLock, releaseLock } = require(KB_SYNC_PATH);
+  const dotPm = path.join(root, ".pm");
+
+  // Write a lock with current PID (which is definitely running)
+  fs.mkdirSync(dotPm, { recursive: true });
+  fs.writeFileSync(path.join(dotPm, "sync.lock"), String(process.pid));
+
+  const acquired = acquireLock(dotPm);
+  assert.equal(acquired, false, "should not acquire lock when held by running process");
+
+  // Cleanup
+  releaseLock(dotPm);
+});
+
+test("acquireLock recovers stale lock from dead process", (t) => {
+  const { root, cleanup } = withTempProject({});
+  t.after(cleanup);
+
+  const { acquireLock, releaseLock } = require(KB_SYNC_PATH);
+  const dotPm = path.join(root, ".pm");
+
+  // Write a lock with a PID that (almost certainly) doesn't exist
+  fs.mkdirSync(dotPm, { recursive: true });
+  fs.writeFileSync(path.join(dotPm, "sync.lock"), "9999999");
+
+  const acquired = acquireLock(dotPm);
+  assert.ok(acquired, "should acquire lock when previous holder is dead");
+
+  releaseLock(dotPm);
+});
+
+test("runSync prints message and returns when lock is held", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  // Pre-create lock with current PID
+  const dotPm = path.join(root, ".pm");
+  fs.writeFileSync(path.join(dotPm, "sync.lock"), String(process.pid));
+
+  // Point to failing server so we can tell if sync was attempted
+  process.env.PM_HUB_URL = "http://127.0.0.1:1";
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("push", root, credsFile);
+
+  // sync-status.json should NOT be written (sync was blocked, not failed)
+  const statusPath = path.join(dotPm, "sync-status.json");
+  assert.ok(
+    !fs.existsSync(statusPath),
+    "sync-status.json should not be written when lock blocks sync"
+  );
+
+  // Clean up lock
+  fs.unlinkSync(path.join(dotPm, "sync.lock"));
+});
+
+// ---------------------------------------------------------------------------
+// Test: Error always writes to sync-status.json
+// ---------------------------------------------------------------------------
+
+test("push writes failure sync-status.json on HTTP 4xx error", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  const http = require("http");
+  const server = http.createServer((req, res) => {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("Forbidden");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  process.env.PM_HUB_URL = `http://127.0.0.1:${port}`;
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("push", root, credsFile);
+
+  server.close();
+
+  const statusPath = path.join(root, ".pm", "sync-status.json");
+  assert.ok(fs.existsSync(statusPath), "sync-status.json should be written on 4xx");
+
+  const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+  assert.equal(status.ok, false);
+  assert.equal(status.mode, "push");
+  assert.ok(status.errors[0].includes("403"), "error should mention status code");
+});
+
+test("pull writes failure sync-status.json on HTTP 5xx error", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  const http = require("http");
+  const server = http.createServer((req, res) => {
+    res.writeHead(500, { "Content-Type": "text/plain" });
+    res.end("Internal Server Error");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  process.env.PM_HUB_URL = `http://127.0.0.1:${port}`;
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("pull", root, credsFile);
+
+  server.close();
+
+  const statusPath = path.join(root, ".pm", "sync-status.json");
+  assert.ok(fs.existsSync(statusPath), "sync-status.json should be written on 5xx");
+
+  const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+  assert.equal(status.ok, false);
+  assert.equal(status.mode, "pull");
+  assert.ok(status.errors[0].includes("500"), "error should mention status code");
 });
