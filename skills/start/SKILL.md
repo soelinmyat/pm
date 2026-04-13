@@ -314,7 +314,29 @@ bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 
 This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
 
-2. Evidence detection:
+2. Auto-push (non-blocking):
+
+Silently push local knowledge base changes to the server in the background. This step is fire-and-forget — it must never block the session brief or interrupt the user.
+
+**Pre-conditions (both must be true):**
+- `.pm/config.json` exists and contains a `projectId` field
+- `~/.pm/credentials` exists
+
+If either condition is missing, skip this step silently — produce no output.
+
+**Execution:**
+
+```bash
+nohup node ${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync.js push > /dev/null 2>&1 &
+```
+
+This runs in the background. Do not wait for it to complete. Proceed to the next step immediately.
+
+**Failure handling:**
+- If the lock file (`.pm/sync.lock`) is held by a concurrent process, `kb-sync.js` exits cleanly without error — no action needed.
+- Any sync errors are written to `sync-status.json` by the script's crash-safe wrapper (Issue #3). They do not surface to the user during `pm:start`.
+
+3. Evidence detection:
 
 Scan `{pm_dir}/evidence/user-feedback/` for unprocessed files and offer to route them to `pm:ingest`.
 
@@ -366,9 +388,9 @@ Routing:
 - **(b) Pick specific files** → show the numbered list again and let the user select by number. Invoke `pm:ingest` with the selected files. After ingestion, append only the selected file paths to `log.md`.
 - **(c) Skip** → continue with the normal flow. Files remain unprocessed for the next session.
 
-After ingestion or skip, continue to step 3 (session brief).
+After ingestion or skip, continue to step 4 (session brief).
 
-3. Generate the canonical session brief:
+4. Generate the canonical session brief:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "$PWD" --format json --include-update
@@ -395,7 +417,7 @@ When detecting active work, check the correct locations based on repo mode:
 
 In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
 
-4. Pick the recommended next move using this priority:
+5. Pick the recommended next move using this priority:
 
 - Any active delivery work (`dev`) → resume that work
 - Active grooming work → resume `pm:groom`
@@ -405,7 +427,7 @@ In separate-repo mode, groom and dev sessions live in different repos. Always ch
 - Idea-heavy backlog → `pm:groom`
 - Otherwise → stay in Pulse Mode and let the user choose
 
-5. Present the session brief in this format:
+6. Present the session brief in this format:
 
 ```text
 PM ready.
@@ -446,7 +468,7 @@ Rules:
 
 Use this when the project is initialized but there is no active work to resume.
 
-The behavior is the same as Resume Mode (including evidence detection in step 3), except the recommendation should bias toward the next useful lane:
+The behavior is the same as Resume Mode (including auto-push in step 2 and evidence detection in step 3), except the recommendation should bias toward the next useful lane:
 
 - `pm:strategy` when insights or evidence exist but strategy is missing
 - `pm:refresh` when insights or evidence are stale
