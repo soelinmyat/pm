@@ -191,9 +191,9 @@ test("writeKnowledgeArtifact creates a new internal evidence file plus research 
       "test-implementation-learnings.md"
     );
     const content = fs.readFileSync(artifactPath, "utf8");
-    assert.match(content, /type: evidence/);
-    assert.match(content, /evidence_type: research/);
-    assert.match(content, /source_origin: internal/);
+    assert.match(content, /type: "evidence"/);
+    assert.match(content, /evidence_type: "research"/);
+    assert.match(content, /source_origin: "internal"/);
     assert.match(content, /## Findings/);
     assert.match(content, /## Source Artifacts/);
 
@@ -316,7 +316,7 @@ test("writeKnowledgeArtifact updates an existing file while preserving created d
 
     const artifactPath = path.join(researchDir, "existing-decisions.md");
     const content = fs.readFileSync(artifactPath, "utf8");
-    assert.match(content, /created: 2026-04-01/);
+    assert.match(content, /created: "2026-04-01"/);
     assert.match(content, /cited_by:\n {2}- "insights\/product\/existing-topic\.md"/);
     assert.match(content, /The groom cycle clarified the tradeoff/);
 

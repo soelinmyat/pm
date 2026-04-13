@@ -78,7 +78,6 @@ test("rewriteInsights compiles a linked draft insight into canonical synthesis",
 type: "insight"
 domain: "product"
 topic: "Knowledge Loop"
-last_updated: "2026-04-10"
 last_updated: "2026-04-11"
 status: "draft"
 confidence: "low"

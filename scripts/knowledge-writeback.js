@@ -4,10 +4,28 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
+const {
+  quoteYaml,
+  readStdin,
+  serializeFrontmatter,
+  todayIso,
+  writeAtomic,
+} = require("./kb-utils.js");
 const { generateRouteSuggestions } = require("./insight-route-suggestions.js");
 
 const INDEX_HEADER = "| Topic/Source | Description | Updated | Status |";
 const INDEX_DIVIDER = "|---|---|---|---|";
+
+const EVIDENCE_PREFERRED_KEYS = [
+  "type",
+  "evidence_type",
+  "topic",
+  "source_origin",
+  "created",
+  "updated",
+  "sources",
+  "cited_by",
+];
 
 function parseArgs(argv) {
   const opts = {
@@ -24,10 +42,6 @@ function parseArgs(argv) {
   return opts;
 }
 
-function readStdin() {
-  return fs.readFileSync(0, "utf8");
-}
-
 function ensureSafeResearchPath(artifactPath) {
   if (typeof artifactPath !== "string" || artifactPath.trim() === "") {
     throw new Error("artifactPath is required");
@@ -42,47 +56,6 @@ function ensureSafeResearchPath(artifactPath) {
   }
 
   return normalized;
-}
-
-function quoteYaml(value) {
-  return JSON.stringify(String(value));
-}
-
-function serializeArrayField(key, values) {
-  if (!Array.isArray(values) || values.length === 0) {
-    return `${key}: []\n`;
-  }
-
-  let output = `${key}:\n`;
-  for (const value of values) {
-    if (typeof value === "string") {
-      output += `  - ${quoteYaml(value)}\n`;
-      continue;
-    }
-    if (value && typeof value === "object" && typeof value.url === "string") {
-      output += `  - url: ${quoteYaml(value.url)}\n`;
-      if (value.accessed) {
-        output += `    accessed: ${value.accessed}\n`;
-      }
-      continue;
-    }
-    throw new Error(`unsupported ${key} entry: ${JSON.stringify(value)}`);
-  }
-  return output;
-}
-
-function serializeFrontmatter(data) {
-  let output = "---\n";
-  output += "type: evidence\n";
-  output += "evidence_type: research\n";
-  output += `topic: ${quoteYaml(data.topic)}\n`;
-  output += `source_origin: ${data.sourceOrigin}\n`;
-  output += `created: ${data.created}\n`;
-  output += `updated: ${data.updated}\n`;
-  output += serializeArrayField("sources", data.sources);
-  output += serializeArrayField("cited_by", data.citedBy);
-  output += "---\n";
-  return output;
 }
 
 function renderList(items, ordered) {
@@ -125,17 +98,6 @@ function buildBody(payload) {
   }
 
   return body;
-}
-
-function writeAtomic(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, content, "utf8");
-  fs.renameSync(tmpPath, filePath);
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function normalizePayload(rawPayload) {
@@ -255,16 +217,19 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
     : [];
   const sourceOrigin = existing?.frontmatter.source_origin || payload.sourceOrigin;
 
-  const frontmatter = serializeFrontmatter({
+  const frontmatter = {
+    type: "evidence",
+    evidence_type: "research",
     topic: payload.topic,
-    sourceOrigin,
+    source_origin: sourceOrigin,
     created,
     updated,
     sources,
-    citedBy,
-  });
+    cited_by: citedBy,
+  };
   const body = buildBody(payload);
-  writeAtomic(absolutePath, `${frontmatter}\n${body}`);
+  const content = `${serializeFrontmatter(frontmatter, EVIDENCE_PREFERRED_KEYS)}\n${body}`;
+  writeAtomic(absolutePath, content);
 
   upsertIndex(indexPath, fileName, payload.description, updated, payload.status);
   appendLog(logPath, existing ? "update" : "create", payload.artifactPath, now);
@@ -308,7 +273,6 @@ if (require.main === module) {
 module.exports = {
   buildBody,
   normalizePayload,
-  serializeFrontmatter,
   upsertIndex,
   writeKnowledgeArtifact,
 };

@@ -4,7 +4,17 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
+const {
+  ensureEvidencePath,
+  ensureInsightPath,
+  loadMarkdown,
+  quoteYaml,
+  readStdin,
+  serializeFrontmatter,
+  todayIso,
+  writeAtomic,
+  writeMarkdown,
+} = require("./kb-utils.js");
 const { upsertIndex } = require("./knowledge-writeback.js");
 const { rewriteInsights } = require("./insight-rewrite.js");
 
@@ -28,125 +38,6 @@ function parseArgs(argv) {
   }
 
   return opts;
-}
-
-function readStdin() {
-  return fs.readFileSync(0, "utf8");
-}
-
-function quoteYaml(value) {
-  return JSON.stringify(String(value));
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function writeAtomic(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, content, "utf8");
-  fs.renameSync(tmpPath, filePath);
-}
-
-function ensureRelativePath(rawPath, prefix) {
-  if (typeof rawPath !== "string" || rawPath.trim() === "") {
-    throw new Error(`${prefix} path is required`);
-  }
-
-  const normalized = rawPath.replace(/\\/g, "/").replace(/^pm\//, "");
-  if (!normalized.startsWith(prefix)) {
-    throw new Error(`path must stay under ${prefix}, got "${rawPath}"`);
-  }
-  if (normalized.includes("..") || normalized.startsWith("/")) {
-    throw new Error(`path must be a safe relative KB path, got "${rawPath}"`);
-  }
-  return normalized;
-}
-
-function ensureEvidencePath(rawPath) {
-  return ensureRelativePath(rawPath, "evidence/");
-}
-
-function ensureInsightPath(rawPath) {
-  return ensureRelativePath(rawPath, "insights/");
-}
-
-function serializeArrayField(key, values) {
-  if (!Array.isArray(values) || values.length === 0) {
-    return `${key}: []\n`;
-  }
-
-  let output = `${key}:\n`;
-  for (const value of values) {
-    if (typeof value === "string") {
-      output += `  - ${quoteYaml(value)}\n`;
-      continue;
-    }
-    if (value && typeof value === "object") {
-      const entries = Object.entries(value);
-      if (entries.length === 0) {
-        throw new Error(`unsupported empty object entry in ${key}`);
-      }
-      const [firstKey, firstValue] = entries[0];
-      output += `  - ${firstKey}: ${quoteYaml(firstValue)}\n`;
-      for (const [nestedKey, nestedValue] of entries.slice(1)) {
-        output += `    ${nestedKey}: ${quoteYaml(nestedValue)}\n`;
-      }
-      continue;
-    }
-    throw new Error(`unsupported ${key} entry: ${JSON.stringify(value)}`);
-  }
-  return output;
-}
-
-function serializeFrontmatter(frontmatter, preferredKeys = []) {
-  let output = "---\n";
-  const written = new Set();
-
-  function writeField(key, value) {
-    if (value === undefined) {
-      return;
-    }
-    written.add(key);
-    if (Array.isArray(value)) {
-      output += serializeArrayField(key, value);
-      return;
-    }
-    output += `${key}: ${quoteYaml(value)}\n`;
-  }
-
-  for (const key of preferredKeys) {
-    if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-      writeField(key, frontmatter[key]);
-    }
-  }
-
-  for (const key of Object.keys(frontmatter).sort()) {
-    if (written.has(key)) {
-      continue;
-    }
-    writeField(key, frontmatter[key]);
-  }
-
-  output += "---\n";
-  return output;
-}
-
-function loadMarkdown(filePath) {
-  const content = fs.readFileSync(filePath, "utf8");
-  const parsed = parseFrontmatter(content);
-  return {
-    content,
-    frontmatter: parsed.hasFrontmatter ? parsed.data : {},
-    body: parsed.body || "",
-    hasFrontmatter: parsed.hasFrontmatter,
-  };
-}
-
-function writeMarkdown(filePath, frontmatter, body, preferredKeys) {
-  const content = `${serializeFrontmatter(frontmatter, preferredKeys)}\n${body}`;
-  writeAtomic(filePath, content);
 }
 
 function ensureUnique(list, value) {
@@ -423,5 +314,4 @@ if (require.main === module) {
 module.exports = {
   applyRoutes,
   normalizePayload,
-  serializeFrontmatter,
 };

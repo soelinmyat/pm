@@ -3,7 +3,17 @@
 
 const fs = require("fs");
 const path = require("path");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
+const {
+  ensureInsightPath,
+  firstSentence,
+  getSection,
+  loadMarkdown,
+  normalizeWhitespace,
+  readStdin,
+  stripMarkdown,
+  todayIso,
+  writeMarkdown,
+} = require("./kb-utils.js");
 
 function parseArgs(argv) {
   const opts = {
@@ -18,160 +28,6 @@ function parseArgs(argv) {
   }
 
   return opts;
-}
-
-function readStdin() {
-  return fs.readFileSync(0, "utf8");
-}
-
-function ensureInsightPath(rawPath) {
-  if (typeof rawPath !== "string" || rawPath.trim() === "") {
-    throw new Error("insight path is required");
-  }
-
-  const normalized = rawPath.replace(/\\/g, "/").replace(/^pm\//, "");
-  if (!normalized.startsWith("insights/")) {
-    throw new Error(`path must stay under insights/, got "${rawPath}"`);
-  }
-  if (normalized.includes("..") || normalized.startsWith("/")) {
-    throw new Error(`path must be a safe relative KB path, got "${rawPath}"`);
-  }
-
-  return normalized;
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function quoteYaml(value) {
-  return JSON.stringify(String(value));
-}
-
-function serializeArrayField(key, values) {
-  if (!Array.isArray(values) || values.length === 0) {
-    return `${key}: []\n`;
-  }
-
-  let output = `${key}:\n`;
-  for (const value of values) {
-    output += `  - ${quoteYaml(value)}\n`;
-  }
-  return output;
-}
-
-function serializeFrontmatter(frontmatter, preferredKeys = []) {
-  let output = "---\n";
-  const written = new Set();
-
-  function writeField(key, value) {
-    if (value === undefined) {
-      return;
-    }
-    written.add(key);
-    if (Array.isArray(value)) {
-      output += serializeArrayField(key, value);
-      return;
-    }
-    output += `${key}: ${quoteYaml(value)}\n`;
-  }
-
-  for (const key of preferredKeys) {
-    if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-      writeField(key, frontmatter[key]);
-    }
-  }
-
-  for (const key of Object.keys(frontmatter).sort()) {
-    if (written.has(key)) {
-      continue;
-    }
-    writeField(key, frontmatter[key]);
-  }
-
-  output += "---\n";
-  return output;
-}
-
-function writeAtomic(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, content, "utf8");
-  fs.renameSync(tmpPath, filePath);
-}
-
-function loadMarkdown(filePath) {
-  const content = fs.readFileSync(filePath, "utf8");
-  const parsed = parseFrontmatter(content);
-  return {
-    content,
-    frontmatter: parsed.hasFrontmatter ? parsed.data : {},
-    body: parsed.body || "",
-    hasFrontmatter: parsed.hasFrontmatter,
-  };
-}
-
-function writeMarkdown(filePath, frontmatter, body, preferredKeys) {
-  const content = `${serializeFrontmatter(frontmatter, preferredKeys)}\n${body}`;
-  writeAtomic(filePath, content);
-}
-
-function normalizeWhitespace(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function stripMarkdown(text) {
-  return normalizeWhitespace(
-    String(text || "")
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/\*([^*]+)\*/g, "$1")
-      .replace(/^#+\s+/gm, "")
-  );
-}
-
-function sentenceCase(value) {
-  const trimmed = normalizeWhitespace(value);
-  if (!trimmed) {
-    return "";
-  }
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
-
-function firstSentence(text) {
-  const plain = stripMarkdown(text);
-  if (!plain) {
-    return "";
-  }
-
-  const match = plain.match(/^(.+?[.!?])(?:\s|$)/);
-  return sentenceCase(match ? match[1] : plain);
-}
-
-function getSection(body, heading) {
-  const lines = String(body || "").split(/\r?\n/);
-  let active = false;
-  const collected = [];
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^##\s+(.+?)\s*$/);
-    if (headingMatch) {
-      if (active) {
-        break;
-      }
-      active = headingMatch[1].trim() === heading;
-      continue;
-    }
-
-    if (active) {
-      collected.push(line);
-    }
-  }
-
-  return collected.join("\n").trim();
 }
 
 function getFirstParagraph(body) {

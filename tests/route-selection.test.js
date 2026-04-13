@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
@@ -119,4 +121,102 @@ test("route-selection CLI emits insight-routing payloads from numbered selection
   assert.equal(result.routes[0].mode, "new");
   assert.equal(result.routes[0].insightPath, "insights/product/dashboard-signals.md");
   assert.equal(result.selected[0].number, 2);
+});
+
+test("route-selection piped into insight-routing creates a new insight end-to-end", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipe-integration-"));
+  const pmDir = path.join(root, "pm");
+  try {
+    fs.mkdirSync(path.join(pmDir, "evidence", "research"), { recursive: true });
+    fs.mkdirSync(path.join(pmDir, "insights", "product"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pmDir, "evidence", "research", "pipe-test.md"),
+      [
+        "---",
+        'type: "evidence"',
+        'evidence_type: "research"',
+        'topic: "Pipe Test Evidence"',
+        'source_origin: "internal"',
+        'created: "2026-04-13"',
+        'updated: "2026-04-13"',
+        "sources: []",
+        "cited_by: []",
+        "---",
+        "",
+        "# Pipe Test Evidence",
+        "",
+        "## Summary",
+        "",
+        "Evidence for the pipe integration test.",
+        "",
+        "## Findings",
+        "",
+        "1. The pipe contract should be verified end-to-end.",
+        "",
+      ].join("\n")
+    );
+
+    const selectionPayload = {
+      selection: "all",
+      routeSuggestions: {
+        items: [
+          {
+            evidencePath: "evidence/research/pipe-test.md",
+            topic: "Pipe Test Evidence",
+            suggestions: [],
+            suggestedNewRoute: {
+              mode: "new",
+              evidencePath: "evidence/research/pipe-test.md",
+              insightPath: "insights/product/pipe-test-topic.md",
+              domain: "product",
+              topic: "Pipe Test Topic",
+              description: "Seeded from pipe integration test",
+              reason: "No existing insight matched",
+            },
+          },
+        ],
+      },
+    };
+
+    const selectionStdout = execFileSync("node", [ROUTE_SELECTION_SCRIPT], {
+      input: JSON.stringify(selectionPayload),
+      encoding: "utf8",
+    });
+    const selectionResult = JSON.parse(selectionStdout);
+
+    assert.equal(selectionResult.routes.length, 1);
+    assert.equal(selectionResult.routes[0].mode, "new");
+
+    const routingScript = path.join(__dirname, "..", "scripts", "insight-routing.js");
+    const routingStdout = execFileSync(
+      "node",
+      [routingScript, "--pm-dir", pmDir, "--skip-hot-index"],
+      {
+        input: JSON.stringify({ routes: selectionResult.routes }),
+        encoding: "utf8",
+      }
+    );
+    const routingResult = JSON.parse(routingStdout);
+
+    assert.equal(routingResult.routes[0].action, "created");
+    assert.equal(routingResult.routes[0].insightPath, "insights/product/pipe-test-topic.md");
+    assert.equal(routingResult.routes[0].addedCitation, true);
+
+    const insightContent = fs.readFileSync(
+      path.join(pmDir, "insights", "product", "pipe-test-topic.md"),
+      "utf8"
+    );
+    assert.match(insightContent, /topic: "Pipe Test Topic"/);
+    assert.match(insightContent, /sources:/);
+    assert.match(insightContent, /evidence\/research\/pipe-test\.md/);
+
+    const evidenceContent = fs.readFileSync(
+      path.join(pmDir, "evidence", "research", "pipe-test.md"),
+      "utf8"
+    );
+    assert.match(evidenceContent, /cited_by:/);
+    assert.match(evidenceContent, /insights\/product\/pipe-test-topic\.md/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

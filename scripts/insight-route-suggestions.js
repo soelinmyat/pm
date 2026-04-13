@@ -3,7 +3,15 @@
 
 const fs = require("fs");
 const path = require("path");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
+const {
+  ensureRelativePath,
+  firstSentence,
+  getSection,
+  loadMarkdown,
+  normalizeWhitespace,
+  readStdin,
+  stripMarkdown,
+} = require("./kb-utils.js");
 
 const STOP_WORDS = new Set([
   "about",
@@ -50,25 +58,6 @@ function parseArgs(argv) {
   return opts;
 }
 
-function readStdin() {
-  return fs.readFileSync(0, "utf8");
-}
-
-function ensureRelativePath(rawPath, prefix) {
-  if (typeof rawPath !== "string" || rawPath.trim() === "") {
-    throw new Error(`${prefix} path is required`);
-  }
-
-  const normalized = rawPath.replace(/\\/g, "/").replace(/^pm\//, "");
-  if (!normalized.startsWith(prefix)) {
-    throw new Error(`path must stay under ${prefix}, got "${rawPath}"`);
-  }
-  if (normalized.includes("..") || normalized.startsWith("/")) {
-    throw new Error(`path must be a safe relative KB path, got "${rawPath}"`);
-  }
-  return normalized;
-}
-
 function ensureEvidencePath(rawPath) {
   return ensureRelativePath(rawPath, "evidence/");
 }
@@ -90,68 +79,6 @@ function listMarkdownFilesRecursive(dirPath) {
     }
   }
   return results;
-}
-
-function loadMarkdown(filePath) {
-  const content = fs.readFileSync(filePath, "utf8");
-  const parsed = parseFrontmatter(content);
-  return {
-    content,
-    frontmatter: parsed.hasFrontmatter ? parsed.data : {},
-    body: parsed.body || "",
-    hasFrontmatter: parsed.hasFrontmatter,
-  };
-}
-
-function normalizeWhitespace(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function stripMarkdown(text) {
-  return normalizeWhitespace(
-    String(text || "")
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/\*([^*]+)\*/g, "$1")
-      .replace(/^#+\s+/gm, "")
-  );
-}
-
-function getSection(body, heading) {
-  const lines = String(body || "").split(/\r?\n/);
-  let active = false;
-  const collected = [];
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^##\s+(.+?)\s*$/);
-    if (headingMatch) {
-      if (active) {
-        break;
-      }
-      active = headingMatch[1].trim() === heading;
-      continue;
-    }
-
-    if (active) {
-      collected.push(line);
-    }
-  }
-
-  return collected.join("\n").trim();
-}
-
-function firstSentence(text) {
-  const plain = stripMarkdown(text);
-  if (!plain) {
-    return "";
-  }
-
-  const match = plain.match(/^(.+?[.!?])(?:\s|$)/);
-  const sentence = match ? match[1] : plain;
-  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
 function extractFindings(body) {
@@ -213,12 +140,7 @@ function inferredTopicForNewRoute(topic) {
   );
 }
 
-function inferDomain(artifactMode) {
-  if (artifactMode === "decision-record") {
-    return "product";
-  }
-  return "product";
-}
+const DEFAULT_NEW_ROUTE_DOMAIN = "product";
 
 function buildDescription(evidenceDoc) {
   return firstSentence(
@@ -380,7 +302,7 @@ function generateRouteSuggestions(pmDir, rawPayload) {
     let suggestedNewRoute = null;
     if (suggestions.length === 0 && existingCitations === 0) {
       const topic = inferredTopicForNewRoute(evidenceDoc.frontmatter.topic || "New Insight");
-      const domain = inferDomain(payload.artifactMode);
+      const domain = DEFAULT_NEW_ROUTE_DOMAIN;
       const slug = slugify(topic);
       suggestedNewRoute = {
         mode: "new",

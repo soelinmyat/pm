@@ -223,8 +223,9 @@ function filterEntries(rows, opts) {
     )
       return false;
     if (opts.since && row.lastUpdated < opts.since) return false;
-    if (opts.hungry && row.status !== "draft" && row.confidence !== "low" && row.sourceCount >= 2) {
-      return false;
+    if (opts.hungry) {
+      const isHungry = row.status === "draft" || row.confidence === "low" || row.sourceCount < 2;
+      if (!isHungry) return false;
     }
     return true;
   });
