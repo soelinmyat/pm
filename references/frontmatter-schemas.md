@@ -45,7 +45,6 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `thinking` | string\|null | optional | — | Path to thinking artifact |
 | `branch` | string\|null | optional | — | Git branch name when in progress |
 | `parent` | string\|null | optional | — | Slug of parent backlog item (for child issues) |
-| `children` | string[] | optional | — | Slugs of child backlog items |
 | `prs` | string[] | optional | — | PR references (e.g., `"#188"`) |
 | `research_refs` | string[] | optional | — | KB paths to research evidence |
 | `evidence_strength` | enum\|null | optional | `"strong"` \| `"moderate"` \| `"weak"` | Strength of supporting evidence |
