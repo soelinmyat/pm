@@ -38,7 +38,7 @@ Execute the loaded workflow steps in order. They're conversational beats, not ph
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 
-## Resuming past thinking
+## Resume
 
 If the user references a past topic, check `{pm_dir}/thinking/` for a matching file.
 

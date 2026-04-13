@@ -47,7 +47,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime 
 | "I'll just start coding, RFC is overhead" | RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
 | "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
 
-## Resume Detection
+## Resume
 
 **Runs FIRST on every invocation.**
 
@@ -102,8 +102,8 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `pm:groom` | Auto-invoked when no proposal exists (M/L/XL) |
 | `dev/references/writing-rfcs.md` (reference) | RFC Generation (M/L/XL) |
 | `dev/references/splitting-patterns.md` (reference) | Issue splitting within RFC (M/L/XL) |
-| `dev/references/cross-cutting-review-prompts.md` (reference) | Multi-task RFC review (task_count > 1) |
-| `dev/references/spec-reviewer-prompts.md` (reference) | Raw sub-issue spec review before RFC |
+| `dev/references/cross-cutting-reviewers.md` (reference) | Multi-task RFC review (task_count > 1) |
+| `dev/references/spec-reviewers.md` (reference) | Raw sub-issue spec review before RFC |
 | `dev/references/implementation-flow.md` (reference) | Stage 5 implementation |
 | `dev/references/tdd.md` (reference) | Implementation agent (all) |
 | `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
@@ -120,7 +120,7 @@ Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
 See `context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
 All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
 
-## State File Naming
+## State File
 
 State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
 

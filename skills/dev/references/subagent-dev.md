@@ -38,12 +38,12 @@ Minimum coverage for `subagent-dev`:
 
 **Per task (repeat until all tasks complete):**
 
-1. **Dispatch implementer** subagent with task spec (implementer-prompt.md)
+1. **Dispatch implementer** subagent with task spec (implementer.md)
 2. If implementer asks questions → answer them, re-dispatch with context
 3. Implementer **implements, tests, commits, self-reviews**
-4. **Spec review** → dispatch spec reviewer subagent (subagent-spec-reviewer-prompt.md)
+4. **Spec review** → dispatch spec reviewer subagent (subagent-spec-reviewer.md)
    - If spec gaps found → implementer fixes → re-review (loop until pass)
-5. **Quality review** → dispatch code quality reviewer subagent (code-quality-reviewer-prompt.md)
+5. **Quality review** → dispatch code quality reviewer subagent (code-quality-reviewer.md)
    - If quality issues found → implementer fixes → re-review (loop until pass)
 6. **Mark task complete** in TodoWrite
 
@@ -105,9 +105,9 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 
 ## Prompt Templates
 
-- `implementer-prompt.md` (in this directory) - Dispatch implementer subagent
-- `subagent-spec-reviewer-prompt.md` (in this directory) - Dispatch spec compliance reviewer subagent
-- `code-quality-reviewer-prompt.md` (in this directory) - Dispatch code quality reviewer subagent
+- `implementer.md` (in this directory) - Dispatch implementer subagent
+- `subagent-spec-reviewer.md` (in this directory) - Dispatch spec compliance reviewer subagent
+- `code-quality-reviewer.md` (in this directory) - Dispatch code quality reviewer subagent
 
 ## Example Workflow
 

@@ -31,7 +31,7 @@ These give each skill access to the full plugin tree via relative paths within t
 
 | Skill | Subdirectories/Extra files | Symlink infra needed? |
 |---|---|---|
-| brainstorming | `scripts/` (real content: server.cjs, start-server.sh, stop-server.sh, helper.js, frame-template.html), spec-document-reviewer-prompt.md, visual-companion.md | Yes, EXCEPT `scripts/` — do NOT overwrite with symlink |
+| brainstorming | `scripts/` (real content: server.cjs, start-server.sh, stop-server.sh, helper.js, frame-template.html), spec-reviewer.md, visual-companion.md | Yes, EXCEPT `scripts/` — do NOT overwrite with symlink |
 | bug-fix | SKILL.md only | Yes (all 5 symlinks) |
 | debugging | condition-based-waiting.md, defense-in-depth.md, find-polluter.sh, root-cause-tracing.md | Yes (all 5 symlinks) |
 | design-critique | `references/` (capture-guide.md, designer-prompts.md, fresh-eyes-prompt.md, pm-prompts.md, seed-conventions.md) | Yes (all 5 symlinks) |
@@ -41,10 +41,10 @@ These give each skill access to the full plugin tree via relative paths within t
 | pr | SKILL.md only | Yes (all 5 symlinks) |
 | receiving-review | SKILL.md only | Yes (all 5 symlinks) |
 | review | SKILL.md only | Yes (all 5 symlinks) |
-| subagent-dev | code-quality-reviewer-prompt.md, implementer-prompt.md, spec-reviewer-prompt.md | Yes (all 5 symlinks) |
+| subagent-dev | code-quality-reviewer.md, implementer.md, subagent-spec-reviewer.md | Yes (all 5 symlinks) |
 | tdd | testing-anti-patterns.md | Yes (all 5 symlinks) |
 | using-dev | SKILL.md only | Yes (all 5 symlinks) |
-| writing-plans | plan-document-reviewer-prompt.md | Yes (all 5 symlinks) |
+| writing-plans | plan-reviewer.md | Yes (all 5 symlinks) |
 
 ## Implementation Steps
 

@@ -137,7 +137,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
    - For UI features: include the final mockup screenshots or reference the mockup HTML files
 
 6. **Spec review loop** — follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
-   - Dispatch spec-document-reviewer (see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-document-reviewer-prompt.md`)
+   - Dispatch spec-document-reviewer (see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-reviewer.md`)
    - Fix and re-dispatch until approved (max 3 iterations)
 
 7. **User reviews spec** — ask user to review the written spec before proceeding:

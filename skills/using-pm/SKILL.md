@@ -117,7 +117,7 @@ End every skill with a structured summary:
 
 Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
 
-## Red Flags
+## Common Rationalizations
 
 When the user is starting a workflow (building, shipping, grooming), these thoughts mean you're skipping discipline:
 

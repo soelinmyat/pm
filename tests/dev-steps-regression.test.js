@@ -134,7 +134,7 @@ const CRITICAL_KEYWORDS = [
   // so we check for the resolved persona names rather than the @reference syntax
   "Adversarial Engineer",
   "Staff Engineer",
-  "cross-cutting-review-prompts.md",
+  "cross-cutting-reviewers.md",
   "Handling findings",
   "Blocking issues",
 

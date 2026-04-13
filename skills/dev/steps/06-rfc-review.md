@@ -50,7 +50,7 @@ Review this engineering RFC for complexity and long-term maintainability.
 
 ### Cross-cutting reviewers (multi-task only)
 
-When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/cross-cutting-review-prompts.md` for the prompts. Scale by task count:
+When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/cross-cutting-reviewers.md` for the prompts. Scale by task count:
 
 | Tasks with code work | Cross-cutting reviewers | Standard reviewers |
 |---|---|---|

@@ -29,8 +29,8 @@ Minimum coverage for `design-critique`:
 
 | File | Purpose |
 |------|---------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer-prompt.md` | Design reviewer dispatch context |
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes-prompt.md` | Zero-context regression reviewer prompt |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer.md` | Design reviewer dispatch context |
+| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes.md` | Zero-context regression reviewer prompt |
 | `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md` | Platform detection, server lifecycle, screenshot capture sequences |
 | `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md` | Seed task conventions, template, edge case checklist |
 
@@ -65,8 +65,8 @@ No engineer agent. Returns findings to the calling agent.
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
 2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
-4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer-prompt.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
-5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes-prompt.md`. Run in parallel with the primary reviewer when the runtime supports delegation.
+4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
+5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes.md`. Run in parallel with the primary reviewer when the runtime supports delegation.
 6. **Merge findings.** Deduplicate overlapping findings between the reviewer and Fresh Eyes. Keep the better-written version. Prioritize: P0 (blocks users) > P1 (degrades experience) > P2 (polish). If both flag the same issue, that's a strong signal — keep it.
 7. **Return** merged findings + verdict to the calling agent.
 
