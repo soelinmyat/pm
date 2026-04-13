@@ -6,6 +6,8 @@ description: Run review for M/L/XL changes or code scan for XS/S before pushing
 
 ## Review
 
+<!-- telemetry step: review -->
+
 The review gate is the last quality check before code leaves your machine. Bugs caught here cost minutes to fix; bugs caught in production cost hours.
 
 ### Skip check

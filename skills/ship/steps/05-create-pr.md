@@ -6,6 +6,12 @@ description: Create PR with structured description or detect existing PR, then c
 
 ## Create or Detect PR
 
+<!-- telemetry step: create-or-detect-pr -->
+
+**Goal:** Create a PR with a meaningful description, or detect an existing one. Resolve the auto-merge preference.
+
+**Done-when:** PR exists and URL is reported to the user. Auto-merge preference is resolved and persisted. If `auto_merge` is disabled, early-exit report is printed and skill exits after Product Memory steps.
+
 ### Check for existing PR
 
 Run: `gh pr view --json number,url,title,state 2>/dev/null`

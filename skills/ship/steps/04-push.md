@@ -6,6 +6,12 @@ description: Push branch to remote, handle pre-push hook failures with diagnosis
 
 ## Push
 
+<!-- telemetry step: push -->
+
+**Goal:** Push the branch to the remote, diagnosing and fixing any hook failures along the way.
+
+**Done-when:** `git push` exits 0 and the branch has a tracking upstream on origin.
+
 ### Pre-push hook preparation
 
 Read AGENTS.md for any pre-push hook setup commands the project requires. Common patterns:

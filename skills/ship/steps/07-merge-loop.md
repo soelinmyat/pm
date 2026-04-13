@@ -6,6 +6,10 @@ description: Self-healing merge loop with gate monitoring, auto-merge, cleanup, 
 
 ## Phase 2: Merge Loop
 
+<!-- telemetry step: merge-monitor -->
+
+**Goal:** Drive the PR through all readiness gates to a confirmed merge, then clean up.
+
 After PR is created and CI passes, run the self-healing merge loop.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure.
