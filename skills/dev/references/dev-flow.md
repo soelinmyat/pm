@@ -66,7 +66,7 @@ Dev requires a source code repository to operate — it creates branches, worktr
      - Log: `Groom did not produce a valid proposal. Falling back to conversational scoping.`
      - Set `groom_attempted: true` in the session state.
      - Handle inline — confirm scope + ACs with the user conversationally (same as XS/S path). Do not re-invoke groom.
-   - If the file exists with `status: proposed` and `rfc: null`: Stage 2.5 Step 1 routes to Stage 3 (RFC generation).
+   - If the file exists with `status: proposed` and `rfc: null`: Stage 2.5 Step 1 suggests running `/rfc`.
 
    If `linear_readiness` is `needs-groom` AND size is XS/S:
    - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do not invoke groom.
@@ -96,10 +96,8 @@ Dev requires a source code repository to operate — it creates branches, worktr
 |---|---|---|---|---|---|
 | Issue tracking | — | — | Yes | Yes | Yes |
 | Worktree | Stage 2 | Stage 2 | Stage 2 | Stage 2 | Stage 2 |
-| RFC check | Stage 2.5 (skip RFC) | Stage 2.5 (skip RFC) | Stage 2.5 | Stage 2.5 | Stage 2.5 |
-| RFC generation | — | — | Stage 3 (fresh agent writes RFC) | Stage 3 | Stage 3 |
-| RFC review | — | — | Stage 4 (3+ reviewers) | Stage 4 | Stage 4 |
-| Implement | TDD | TDD | Stage 5 (fresh agent, inside-out TDD) | Stage 5 | Stage 5 |
+| RFC check | Stage 2.5 (skip RFC) | Stage 2.5 (skip RFC) | Stage 2.5 (suggest /rfc) | Stage 2.5 (suggest /rfc) | Stage 2.5 (suggest /rfc) |
+| Implement | TDD | TDD | Stage 3 (fresh agent, inside-out TDD) | Stage 3 | Stage 3 |
 | Simplify | — | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
 | QA | If UI (Quick) | If UI (Focused) | If UI (Full) | If UI (Full) | If UI (Full) |
@@ -185,48 +183,22 @@ Never proceed to implementation without a clean workspace checkpoint.
 
 Before proceeding, check whether an approved RFC exists for this work.
 
-### Step 0: Check for rfc-approved session resume
-
-Read `.pm/dev-sessions/{slug}.md`. If `Stage` is `rfc-approved`:
-
-- The RFC was already approved in a prior session. The user chose to stop and resume later.
-- Read the RFC path from the session file. Verify the RFC file exists and has `status: approved`.
-- **Skip Stages 3 and 4 entirely.** Log: `RFC: approved (resumed from prior session)`.
-- If a worktree path is recorded in the session file, verify it still exists. If not, re-create it (Stage 2).
-- Proceed directly to Stage 5 (Implementation) using the **resume path**.
-
 ### Step 0.5: Linear-sourced dev-ready shortcut
 
 If `linear_readiness` is `dev-ready` in the session state AND no `{pm_dir}/backlog/{slug}.md` exists:
 - This is a Linear issue that passed the readiness check. No local proposal needed.
-- **RFC needed.** Proceed to Stage 3 (RFC Generation).
-- Pass the Linear issue data (title, description, labels, ID) as product context to the RFC generation prompt, in place of the proposal/PRD context block:
-
-  ```
-  **Product Context (from Linear issue):**
-  - Linear ID: {linear_id}
-  - Title: {linear_title}
-  - Description: {linear_description}
-  - Labels: {linear_labels}
-  ```
-
-  If sub-issues exist, also include:
-  ```
-  - Sub-issues:
-    - {SUB_ID}: {SUB_TITLE} (size: {SIZE})
-      Description: {SUB_DESCRIPTION}
-      ACs: {SUB_ACS}
-  ```
-
-- Log: `RFC check: needs-rfc (Linear-sourced, dev-ready, no local proposal)`
+- If size is M+, suggest running `/rfc` with the Linear context.
+- If size is XS/S, proceed with inline scoping.
+- Log: `RFC check: linear-sourced-dev-ready`
 
 ### Step 1: Check for existing proposal + RFC
 
 Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
-- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 5 (Implementation). Log: `RFC: approved (path: {rfc_path})`. Note: for `planned` items resumed after a prior session, no old session file exists (it was deleted on stop). This is the expected fresh-session path.
-- **`rfc:` is null** or RFC file has `status: draft` → RFC needed. Continue to Stage 3.
+- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 3 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
+- **`rfc:` is null** AND size is M+ → No RFC exists. Suggest running `/rfc` (see RFC prompt below).
+- **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
 
 ### Step 2: Route ungroomed work
@@ -252,10 +224,10 @@ Log in `.pm/dev-sessions/{slug}.md`: `kb_maturity: {level}, tier_cap: {tier}`
 
 | Size | Action |
 |------|--------|
-| XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Stage 5 (Implementation). |
-| S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Stage 5. |
-| M | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC generation. |
-| L/XL | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC generation. |
+| XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Stage 3 (Implementation). |
+| S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Stage 3. |
+| M | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC prompt. |
+| L/XL | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC prompt. |
 
 **Before invoking groom, ask:**
 
@@ -277,218 +249,9 @@ Log the decision in `.pm/dev-sessions/{slug}.md`:
 - RFC check: approved (path: {rfc_path}) | needs-rfc | incomplete-groom (status not proposed/planned/in-progress) | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
 ```
 
-## Stage 3: RFC Generation (M/L/XL)
+## Stage 3: Implementation
 
-Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` using the reference template.
-
-Dispatch a fresh developer agent that writes the RFC. A separate fresh agent handles implementation — the approved RFC is the handoff contract.
-
-Use the current runtime instructions from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`.
-
-### Pre-planning: Raw sub-issue specs (multi-task only)
-
-If sub-issues exist and some are raw (ungroomed) M/L/XL, handle them before RFC generation:
-
-**Raw XS:** Note "direct implementation, no plan needed" in state file. Include in the RFC as an XS issue with minimal approach section.
-
-**Raw S/M/L/XL that are NOT groomed:** Dispatch a short-lived design worker per raw sub-issue to generate a spec:
-
-```
-Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
-
-## Project Context
-{PROJECT_CONTEXT}
-
-**CWD:** {REPO_ROOT}
-**PM directory:** {pm_dir}
-**PM state directory:** {pm_state_dir}
-**Source directory:** {source_dir}
-**Sub-issue description:**
-{ISSUE_DESCRIPTION}
-
-**Parent issue context:**
-{PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
-
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-5-design.md.
-Save spec to docs/specs/{DATE}-{SLUG}.md.
-Commit, then end your response with:
-SPEC_COMPLETE
-- issue: {ISSUE_ID}
-- path: docs/specs/{file}
-- summary: {2-line summary}
-```
-
-For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/spec-reviewers.md`. Fix blocking issues, commit.
-
-Groomed sub-issues skip this step — their proposal is sufficient context.
-
-### RFC generation prompt
-
-Dispatch an `Agent(...)` with the @developer persona brief (or run inline in Codex without delegation):
-
-```text
-Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
-
-## Project Context
-{PROJECT_CONTEXT}
-
-**CWD:** {WORKTREE_PATH}
-**Branch:** {BRANCH}
-**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-**PM directory:** {pm_dir}
-**PM state directory:** {pm_state_dir}
-**Source directory:** {source_dir}
-**Session file:** {source_dir}/.pm/dev-sessions/{slug}.md
-**Proposal (includes full PRD):** {pm_dir}/backlog/{slug}.md
-
-Read the proposal for full product context (PRD content is inline — user flows, wireframes, competitive context).
-Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
-Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
-
-{IF SUB-ISSUES EXIST:}
-**Sub-issues (each becomes an Issue section in the RFC):**
-{FOR_EACH_SUB_ISSUE:}
-  - {ISSUE_ID}: {ISSUE_TITLE} (size: {SIZE}, groomed: {yes/no})
-    Description: {ISSUE_DESCRIPTION}
-    ACs: {ACCEPTANCE_CRITERIA}
-    Spec: {SPEC_PATH or "from proposal ACs"}
-{END_FOR_EACH}
-
-**Dependency order:** {ORDERED_LIST}
-
-Each sub-issue becomes an Issue section within the RFC. You may also split sub-issues
-further or merge trivial ones if the technical structure warrants it.
-{ELSE:}
-The RFC may produce multiple Issues if the work naturally splits. Use splitting-patterns.md.
-A single Issue is fine if the work is genuinely one concern.
-{END IF}
-
-Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
-Commit the RFC, then end your response with:
-
-RFC_COMPLETE
-- slug: {slug}
-- path: {pm_dir}/backlog/rfcs/{slug}.html
-- summary: {3-line summary}
-- issues: {N}
-
-Stop after sending the summary. A separate agent will handle implementation after RFC review.
-```
-
-### Orchestrator waits for RFC
-
-Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
-
-After receiving `RFC_COMPLETE`:
-1. Record `task_count: {N}` in the session state (from `issues: {N}`).
-2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
-3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
-4. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
-5. Proceed to Stage 4.
-
-## Stage 4: RFC Review (M/L/XL)
-
-Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate. After this passes, agents implement.
-
-### The 3 standard RFC reviewers
-
-Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
-
-**Reviewer persona: `@adversarial-engineer`**
-
-```text
-Review this engineering RFC for architecture soundness and risk.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**Reviewer persona: `@tester`**
-
-```text
-Review this engineering RFC for testing strategy and coverage.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**Reviewer persona: `@staff-engineer`**
-
-```text
-Review this engineering RFC for complexity and long-term maintainability.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-### Cross-cutting reviewers (multi-task only)
-
-When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/cross-cutting-reviewers.md` for the prompts. Scale by task count:
-
-| Tasks with code work | Cross-cutting reviewers | Standard reviewers |
-|---|---|---|
-| 1 | None | 3 (adversarial, test, staff) |
-| 2 | 1 combined (architect + integration + scope) | 3 (adversarial, test, staff) |
-| 3+ | 3 parallel (architect, integration, scope) | 3 (adversarial, test, staff) |
-
-Cross-cutting reviewers return compact JSON verdicts. Merge their findings with the standard reviewer findings.
-
-### Handling findings
-
-1. Merge all reviewer outputs. Deduplicate.
-2. Fix all **Blocking issues** in the RFC (orchestrator edits directly). Non-blocking items are advisory.
-3. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
-4. Commit RFC updates.
-5. Update RFC frontmatter to `status: approved`.
-6. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
-7. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
-   - **Answer it** using the proposal (`{pm_dir}/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
-   - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
-   - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
-   - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
-   - Commit the updated RFC.
-9. **Open RFC in browser.**
-
-   The RFC is already HTML (written in Stage 3). After resolving questions and updating the Change Log, open it directly:
-
-   ```bash
-   open {pm_dir}/backlog/rfcs/{slug}.html
-   ```
-
-   Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-10. Wait for user approval. Then ask:
-
-    > "RFC approved. Continue implementation now, or stop and resume later?"
-
-    - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Stage 5.
-    - **(b) Stop and resume later** → Do these in order:
-      1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
-      2. Delete the session file: `rm .pm/dev-sessions/{slug}.md`
-         (No need to set `completed_at` first — the file is being deleted.
-         The backlog status and RFC are the durable artifacts.)
-      3. Print:
-         ```
-         Session complete. RFC approved, ready to build.
-         - RFC: {pm_dir}/backlog/rfcs/{slug}.html
-         - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
-         - Resume: run /dev {slug} to start implementation.
-         ```
-      **Stop here. Do not proceed to Stage 5.**
-
-## Stage 5: Implementation
-
-Dispatch **fresh** @developer agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from Stage 4, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
+Dispatch **fresh** @developer agent(s) using the runtime adapter. The RFC is the contract and contains all codebase exploration findings needed for implementation. RFC generation and review are handled by the standalone `/rfc` skill — dev assumes an approved RFC exists (or inline planning was done for smaller work).
 
 ### Single-task implementation (task_count == 1)
 
@@ -629,7 +392,7 @@ Track retry count per task in the state file.
 ### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of Stage 4, the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the RFC (via /rfc), the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
 The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
@@ -645,28 +408,22 @@ The rationale: by this point, the spec has been reviewed by product/design agent
 ### Agent lifecycle
 
 ```
-Fresh developer agent dispatched (Stage 3)
-  → explores codebase, writes RFC, commits
-  → returns RFC_COMPLETE summary (includes task_count)
+RFC generated and reviewed via /rfc (separate skill)
+  → user approves RFC
 
-Orchestrator runs RFC review (Stage 4)
-  → standard + cross-cutting reviewers (if multi-task)
-  → fixes blocking issues in RFC
-  → user approves
-
-Single-task: Fresh developer agent dispatched (Stage 5)
+Single-task: Fresh developer agent dispatched (Stage 3)
   → reads approved RFC
   → implements → simplify → design critique → QA → review → merge → cleanup
   → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
 
-Multi-task: For each task in order, fresh developer agent dispatched (Stage 5)
+Multi-task: For each task in order, fresh developer agent dispatched (Stage 3)
   → reads approved RFC, focuses on assigned Issue section
   → implements → simplify → design critique → QA → review → merge → cleanup
   → returns "Merged. {ISSUE_ID} PR #{N}" or "Blocked: {reason}"
   → orchestrator checkpoints, syncs main, dispatches next
 ```
 
-## Stage 6: Worktree Cleanup
+## Stage 4: Worktree Cleanup
 
 Clean up any worktrees created during this session:
 
@@ -685,7 +442,7 @@ Clean up any worktrees created during this session:
 
 Do NOT skip this step. Leftover worktrees consume disk and confuse subsequent sessions.
 
-## Stage 7: Retro — Compound Learning
+## Stage 5: Retro — Compound Learning
 
 Runs after EVERY task regardless of size.
 
@@ -841,7 +598,7 @@ When task_count > 1, announce progress at every stage transition and after each 
 **Format:**
 > **Stage N complete.** [M of N] tasks {planned/implemented/merged}. Next: {specific next action}. {Proceeding. | Approve to proceed?}
 
-In autonomous mode (after Stage 4 approval), do NOT pause for confirmation. Announce and proceed.
+In autonomous mode (after RFC approval), do NOT pause for confirmation. Announce and proceed.
 </HARD-RULE>
 
 ## State File ({source_dir}/.pm/dev-sessions/{slug}.md)
@@ -948,9 +705,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Blockers: [any blocking issues, or "none"]
 ```
 
-**Valid Stage values:** `intake`, `workspace`, `rfc-check`, `rfc-generation`, `rfc-review`, `rfc-approved`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
-
-The `rfc-approved` stage means: RFC was approved by the user, but they chose to stop and resume implementation in a new session. On resume, skip to Stage 5 via the resume path.
+**Valid Stage values:** `intake`, `workspace`, `rfc-check`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
 
 **Update rules:**
 - Write the full file (not append) at each stage transition

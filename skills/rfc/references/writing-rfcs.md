@@ -1,4 +1,4 @@
-# Writing RFCs (Dev Stage 3 Reference)
+# Writing RFCs
 
 ## Overview
 
@@ -125,19 +125,12 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
-## RFC Review Loop
+## RFC Writer Contract
 
-After writing the complete RFC, the orchestrator handles review (Stage 4 in dev-flow.md). The RFC writer should:
+After writing the complete RFC, the writer should:
 
 1. Commit the RFC to `{pm_dir}/backlog/rfcs/{slug}.html`
 2. Update the proposal's frontmatter to link the RFC
 3. Return the `RFC_COMPLETE` payload and stop
 
-The orchestrator then dispatches 3 RFC reviewers, handles findings, and gets user approval before resuming the same worker for implementation.
-
-## Execution Handoff
-
-After RFC approval, the same worker is resumed with an implementation brief. The worker:
-- Reads the RFC end-to-end
-- Implements issues in dependency order following `subagent-dev.md` (in this directory)
-- Each issue follows TDD: write failing test → implement → verify → commit
+The orchestrator then dispatches RFC reviewers, handles findings, and gets user approval. Implementation is a separate `/dev` invocation after RFC approval.

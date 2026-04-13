@@ -1,12 +1,12 @@
 ---
 name: RFC Review
-order: 6
+order: 3
 description: Senior engineer review of RFC — architecture, test strategy, complexity (M/L/XL)
 ---
 
 ## RFC Review (M/L/XL)
 
-Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate. After this passes, agents implement.
+Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate before implementation.
 
 ### The 3 standard RFC reviewers
 
@@ -50,7 +50,7 @@ Review this engineering RFC for complexity and long-term maintainability.
 
 ### Cross-cutting reviewers (multi-task only)
 
-When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/cross-cutting-reviewers.md` for the prompts. Scale by task count:
+When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/cross-cutting-reviewers.md` for the prompts. Scale by task count:
 
 | Tasks with code work | Cross-cutting reviewers | Standard reviewers |
 |---|---|---|
@@ -85,22 +85,21 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
 9. Wait for user approval. Then ask:
 
-    > "RFC approved. Continue implementation now, or stop and resume later?"
+    > "RFC approved. Continue to implementation, or stop and resume later?"
 
-    - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Implementation.
+    - **(a) Continue now** → Print "RFC approved. Run `/dev {slug}` to implement." Delete the rfc session file (`{pm_state_dir}/rfc-sessions/{slug}.md`). **Stop here.**
     - **(b) Stop and resume later** → Do these in order:
       1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
-      2. Update `.pm/dev-sessions/{slug}.md`:
-         - Set `Stage: rfc-approved`
-         - Set `RFC review: passed (commit {sha})`
-         - Update `Resume Instructions` → `Next action: resume at Implementation`
-         Do NOT delete the session file. The `rfc-approved` stage exists specifically to support this resume path (see Step 04, Step 0).
+      2. Update `{pm_state_dir}/rfc-sessions/{slug}.md`:
+         - Set `Stage: approved`
+         - Set `RFC path: {pm_dir}/backlog/rfcs/{slug}.html`
+         - Update `Resume Instructions` → `Next action: RFC already approved. Run /dev {slug} to implement.`
       3. Print:
          ```
          Session paused. RFC approved, ready to build.
          - RFC: {pm_dir}/backlog/rfcs/{slug}.html
          - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
-         - Session: .pm/dev-sessions/{slug}.md (stage: rfc-approved)
-         - Resume: run /dev {slug} to continue to implementation.
+         - Session: {pm_state_dir}/rfc-sessions/{slug}.md (stage: approved)
+         - Resume: run /dev {slug} to implement.
          ```
-      **Stop here. Do not proceed to Implementation.**
+      **Stop here. Do not proceed to implementation.**

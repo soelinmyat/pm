@@ -1,12 +1,12 @@
 ---
 name: Implementation
-order: 7
+order: 5
 description: Dispatch fresh developer agents to implement the approved RFC
 ---
 
 ## Goal
 
-Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 08–11).
+Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 06–09).
 
 ## Implementation
 
@@ -47,7 +47,7 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Report when done: "Implementation complete. {N} files changed, tests passing."
 ```
 
-The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. Those are handled by Steps 08–11.
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. Those are handled by Steps 06–09.
 
 ### Multi-task implementation (task_count > 1)
 
@@ -115,7 +115,7 @@ If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
 
-The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. The orchestrator runs those via Steps 08–11 after the agent returns.
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. The orchestrator runs those via Steps 06–09 after the agent returns.
 
 4. **Wait for agent to return** "Implementation complete" or "Blocked."
 
@@ -145,16 +145,16 @@ Track retry count per task in the state file.
 ### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of RFC Review, the orchestrator proceeds through ALL remaining steps (07–11) without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the plan at the end of RFC Review, the orchestrator proceeds through ALL remaining steps (05–09) without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
 The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
 **Only stop for:**
 - Test failures that can't be resolved after 3 attempts
-- QA verdict of **Blocked** (ask user for guidance, Step 09)
-- Merge conflicts (Step 10)
-- CI failures that require human intervention (Step 10)
-- Review feedback from human reviewers on the PR (Step 10, use `ship/references/handling-feedback.md`)
+- QA verdict of **Blocked** (ask user for guidance, Step 07)
+- Merge conflicts (Step 08)
+- CI failures that require human intervention (Step 08)
+- Review feedback from human reviewers on the PR (Step 08, use `ship/references/handling-feedback.md`)
 </HARD-RULE>
 
 ### Agent lifecycle
@@ -180,8 +180,8 @@ Multi-task: For each task in order, fresh developer agent dispatched (Implementa
   → returns "Implementation complete. {ISSUE_ID}" or "Blocked: {reason}"
   → orchestrator checkpoints, syncs main, dispatches next
 
-Orchestrator runs Steps 08–11:
-  → simplify (Step 08) → review (Step 09) → ship (Step 10) → retro (Step 11)
+Orchestrator runs Steps 06–09:
+  → simplify (Step 06) → review (Step 07) → ship (Step 08) → retro (Step 09)
 ```
 
 ## Done-when
@@ -189,4 +189,4 @@ Orchestrator runs Steps 08–11:
 - Code and tests for all scoped issues are committed on the feature branch
 - The project test suite passes
 - The session file records key files changed, commit SHA, and next step = `simplify`
-- Implementation agent has returned — orchestrator proceeds to Step 08
+- Implementation agent has returned — orchestrator proceeds to Step 06
