@@ -8,9 +8,7 @@ const {
   firstSentence,
   getSection,
   loadMarkdown,
-  normalizeWhitespace,
   readStdin,
-  stripMarkdown,
   todayIso,
   writeMarkdown,
 } = require("./kb-utils.js");

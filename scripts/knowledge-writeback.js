@@ -4,13 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
-const {
-  quoteYaml,
-  readStdin,
-  serializeFrontmatter,
-  todayIso,
-  writeAtomic,
-} = require("./kb-utils.js");
+const { readStdin, serializeFrontmatter, todayIso, writeAtomic } = require("./kb-utils.js");
 const { generateRouteSuggestions } = require("./insight-route-suggestions.js");
 
 const INDEX_HEADER = "| Topic/Source | Description | Updated | Status |";

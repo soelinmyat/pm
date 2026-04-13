@@ -10,7 +10,6 @@ const {
   loadMarkdown,
   normalizeWhitespace,
   readStdin,
-  stripMarkdown,
 } = require("./kb-utils.js");
 
 const STOP_WORDS = new Set([
