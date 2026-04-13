@@ -15,7 +15,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 ## Iron Law
 
-**NEVER SKIP THE REFRAME.** Every idea gets its framing challenged before approaches are explored — no exceptions. The user's first framing is almost never the best one. If you catch yourself jumping from capture straight to "here are three approaches," stop and reframe first.
+**NEVER SKIP REFRAME EVALUATION.** Every idea must be tested against at least one reframing lens before approaches are explored — no exceptions. The conclusion may be "the current framing holds," but that must be an explicit conclusion, not a shortcut. If you catch yourself jumping from capture straight to "here are three approaches," stop and evaluate the framing first.
 
 **When NOT to use:** When the user asks "what do you think about X" wanting a quick opinion, not a structured thinking session. Also skip when they've already decided and want to build — go straight to `pm:dev`.
 
@@ -36,7 +36,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 ## Interaction Pacing
 
 - **Be a thinking partner, not a note-taker.** Challenge, reframe, push back.
-- **No process ceremony.** No state files, no agents, no review gates. The thinking artifact at the end is the point — but no overhead getting there.
+- **No process ceremony.** No session state files, no agents, no review gates. The thinking artifact at the end is the only durable output — but no overhead getting there.
 - **Verdicts first.** Lead with your take, then explain.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
@@ -72,6 +72,17 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **No convergence after 4+ exchanges on one beat:** Synthesize the current state, name the sticking point explicitly, and save the artifact as `active` with the disagreement captured in open questions.
 - **Scope creep — multiple ideas emerging:** "We're branching into [second idea]. Let me save this one first, then we can think through that separately."
 
+## Resume
+
+Think does not persist mid-session state. The thinking artifact (`{pm_dir}/thinking/{slug}.md`) is the only durable output, written at the end during synthesize.
+
+If a matching thinking artifact exists (detected during the ground step), resume means:
+1. Read the saved artifact.
+2. Ask what has changed since it was written.
+3. Re-enter at reframe or pressure-test, depending on whether the new context changes the framing or only the chosen direction.
+
+Resume is "reopen the summary and continue the conversation" — not a hidden state machine.
+
 ## Status Definitions
 
 The thinking artifact's `status` field tracks where the idea stands:
@@ -95,7 +106,9 @@ Only the user's explicit signal changes status. Don't auto-park ideas that feel 
 
 ## Before Marking Done
 
-- [ ] Thinking artifact saved to `{pm_dir}/thinking/{slug}.md` with valid frontmatter
+- [ ] Thinking artifact saved to `{pm_dir}/thinking/{slug}.md` with valid frontmatter (see schema in `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md`)
+- [ ] Thinking index updated at `{pm_dir}/thinking/index.md`
 - [ ] Strategy and insights checked during ground step (or noted as absent)
-- [ ] User confirmed the synthesis captures their thinking accurately
+- [ ] User confirmed the synthesis captures their thinking accurately (explicit confirmation before saving)
 - [ ] Promotion to groom offered (if the idea has legs)
+- [ ] If promoted: artifact updated with `status: promoted` and `promoted_to: {groom-slug}`

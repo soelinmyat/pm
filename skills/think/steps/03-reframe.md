@@ -20,7 +20,7 @@ Apply one of these reframing lenses (pick the one that creates the biggest gap b
 
 **Simpler framing:** Is there a version of this idea that captures 80% of the value with 20% of the complexity? Often the first framing is overbuilt because it tries to solve every edge case.
 
-If the framing is already sharp, say so and move on — not every idea needs a reframe.
+If the framing is already sharp, say so explicitly and move on — the evaluation is mandatory, but the conclusion can be "the current framing holds."
 
 Share your reframe as a short, opinionated take:
 
