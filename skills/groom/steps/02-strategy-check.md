@@ -2,6 +2,7 @@
 name: Strategy Check
 order: 2
 description: Validate the idea against product priorities, non-goals, and ICP fit
+applies_to: [quick, standard, full]
 ---
 
 ### Step 2: Strategy Check

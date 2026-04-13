@@ -84,6 +84,7 @@ A backlog entry after grooming:
 
 ```yaml
 ---
+type: backlog
 id: "PM-042"
 title: "Dashboard Filtering System"
 outcome: "Users can narrow dashboard data to their team's metrics"

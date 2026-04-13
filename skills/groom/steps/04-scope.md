@@ -2,6 +2,7 @@
 name: Scope
 order: 4
 description: Define in-scope and out-of-scope boundaries, apply the 10x filter
+applies_to: [quick, standard, full]
 ---
 
 ### Step 4: Scope

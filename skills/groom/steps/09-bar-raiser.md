@@ -2,6 +2,7 @@
 name: Bar Raiser
 order: 9
 description: Product Director holistic review with fresh eyes (max 2 iterations, full tier only)
+applies_to: [full]
 ---
 
 ### Step 9: Bar Raiser Review

@@ -233,7 +233,7 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 If no proposal exists, decide whether grooming is needed:
 
-<!-- KB maturity criteria: keep in sync with skills/groom/phases/phase-1-intake.md -->
+<!-- KB maturity criteria: keep in sync with skills/groom/steps/01-intake.md -->
 
 **For M/L/XL: detect KB maturity first.** Check the knowledge base before choosing a groom tier:
 
@@ -309,7 +309,7 @@ Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 **Parent issue context:**
 {PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
 
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-5-design.md.
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/06-design.md.
 Save spec to docs/specs/{DATE}-{SLUG}.md.
 Commit, then end your response with:
 SPEC_COMPLETE

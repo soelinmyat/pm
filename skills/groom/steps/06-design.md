@@ -2,6 +2,7 @@
 name: Design
 order: 6
 description: Design exploration with mockups, user flows, wireframes — skip for backend/infra
+applies_to: [standard, full]
 ---
 
 ### Step 6: Design Exploration
