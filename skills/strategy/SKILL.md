@@ -16,7 +16,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, wo
 
 Execute the loaded workflow steps in order. Each step contains its own instructions.
 
-## Interaction Rules
+## Interaction Pacing
 
 - **Prefer multiple-choice** when there is a natural set of options.
 - **Accept short answers.** Do not interrogate — if the user gives a brief answer, move on.
