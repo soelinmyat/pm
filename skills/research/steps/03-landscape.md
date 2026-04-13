@@ -19,11 +19,11 @@ First research activity in a new project. Produces the market overview that make
 
 2. **SEO market intelligence** (if provider configured).
    Read `{pm_state_dir}/config.json` for the `seo.provider` value. See Step 6 (SEO Provider) for tool details.
-   - If `"ahrefs-mcp"`: use the Ahrefs MCP tools:
-     - `keywords-explorer-matching-terms` — get keyword ideas for the product category (limit 30). Shows search demand behind the space.
-     - `keywords-explorer-volume-by-country` — for the top 3-5 keywords, check volume distribution across target countries (especially SEA markets if relevant). Reveals geographic demand.
-     - `keywords-explorer-overview` — get volume, difficulty, CPC for core category keywords. Shows market maturity.
-     - `site-explorer-organic-competitors` — if any known competitor domains exist, discover who else competes in the same keyword space. Reveals players not found via web search.
+   - If `"ahrefs-mcp"`: use Ahrefs MCP tools to:
+     - Get keyword ideas for the product category (matching terms, limit 30). Shows search demand behind the space.
+     - For the top 3-5 keywords, check volume distribution across target countries (especially SEA markets if relevant). Reveals geographic demand.
+     - Get volume, difficulty, CPC for core category keywords. Shows market maturity.
+     - If any known competitor domains exist, discover organic competitors in the same keyword space. Reveals players not found via web search.
    - If `"none"` or returns an error: skip, log the error, continue with web search.
 
 3. **Web search for market overview.** Search for:

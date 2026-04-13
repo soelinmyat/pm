@@ -187,13 +187,13 @@ What the API surface reveals about their product architecture and data model mat
 
 Run the following SEO calls based on the configured provider in `{pm_state_dir}/config.json` (skip if provider is `"none"`):
 
-**If `"ahrefs-mcp"`:** Use Ahrefs MCP tools directly. Call `mcp__ahrefs__doc` for each tool before first use to get the schema.
-- `site-explorer-metrics` — organic traffic, keyword count, traffic value for `{domain}`
-- `site-explorer-organic-keywords` — top 30 keywords by traffic for `{domain}` (with position, volume, page URL)
-- `site-explorer-top-pages` — top 10 pages by traffic for `{domain}` (reveals content strategy focus)
-- `site-explorer-metrics-by-country` — traffic by country for `{domain}` (reveals geographic focus and SEA presence)
-- `site-explorer-backlinks-stats` — backlink and referring domain counts for `{domain}`
-- `site-explorer-organic-competitors` — who else competes for the same keywords (discovers adjacent competitors)
+**If `"ahrefs-mcp"`:** Use Ahrefs MCP tools to gather the following for `{domain}`. Discover available tools dynamically — see Step 6 (SEO Provider) for the full tool inventory.
+- Organic traffic, keyword count, and traffic value
+- Top 30 keywords by traffic (with position, volume, page URL)
+- Top 10 pages by traffic (reveals content strategy focus)
+- Traffic breakdown by country (reveals geographic focus and SEA presence)
+- Backlink and referring domain counts
+- Organic competitors — who else competes for the same keywords (discovers adjacent competitors)
 
 Supplement with web search for content strategy signals: blog cadence, content categories, guest post patterns, link-building plays.
 

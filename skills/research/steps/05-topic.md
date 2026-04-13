@@ -27,9 +27,9 @@ For targeted deep dives not covered by landscape or competitor profiling.
 1. **Check existing knowledge.** Read `{pm_dir}/evidence/index.md` and `{pm_dir}/evidence/research/index.md` if they exist. Check `{pm_dir}/insights/business/landscape.md` and `{pm_dir}/strategy.md` for relevant context. Use hot index results from Step 0 (if available) instead of scanning all insight files to check for existing topics.
    Treat `source_origin: internal` and `source_origin: mixed` topics as customer evidence from `$pm-ingest`, not just external research.
 2. **Check strategy alignment.** If `{pm_dir}/strategy.md` exists, note how the topic relates to current priorities.
-3. **Search demand check** (if ahrefs-mcp configured).
-   - `keywords-explorer-overview` — get volume, difficulty, CPC for the topic as a keyword. Quantifies how much people search for this.
-   - `serp-overview` — see who currently ranks for the topic keyword and what the SERP looks like. Reveals content competition and opportunity.
+3. **Search demand check** (if ahrefs-mcp configured). Use Ahrefs MCP tools to:
+   - Get volume, difficulty, CPC for the topic as a keyword. Quantifies how much people search for this.
+   - Check SERP overview — see who currently ranks and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
 4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
 5. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema:
