@@ -8,6 +8,10 @@ description: Monitor CI status, auto-fix failures, retry up to 3 rounds
 
 <!-- telemetry step: ci-monitor -->
 
+**Goal:** Monitor CI to green, auto-fixing failures up to 3 rounds.
+
+**Done-when:** CI conclusion is `success` on the latest run (proceed to merge loop), or 3 fix attempts exhausted and user has been asked for guidance.
+
 ### Watch CI run
 
 1. Get the current branch: `git branch --show-current`

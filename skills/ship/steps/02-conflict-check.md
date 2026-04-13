@@ -6,6 +6,12 @@ description: Check if branch is behind default branch and resolve merge conflict
 
 ## Check & Fix Conflicts
 
+<!-- telemetry step: conflict-check -->
+
+**Goal:** Ensure the branch is up to date with `{DEFAULT_BRANCH}` and free of merge conflicts before review.
+
+**Done-when:** `git log HEAD..origin/{DEFAULT_BRANCH} --oneline` produces no output (branch is current), or conflicts have been resolved, committed, and verified with tests.
+
 ### Check if branch is behind {DEFAULT_BRANCH}
 
 Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH} --oneline`

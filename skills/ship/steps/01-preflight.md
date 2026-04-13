@@ -8,6 +8,10 @@ description: Verify branch, check uncommitted changes, detect default branch, an
 
 <!-- telemetry step: pre-flight -->
 
+**Goal:** Verify the working tree is ready to ship: correct branch, clean state, required tools available.
+
+**Done-when:** On a feature branch (not `{DEFAULT_BRANCH}`), working tree is clean (all changes committed), `gh` is authenticated, and `{DEFAULT_BRANCH}` is detected.
+
 ### Prerequisites
 
 Before starting, verify required tools are available:
