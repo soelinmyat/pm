@@ -28,15 +28,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 6 step files exist and load
+// AC 1: All 5 step files exist and load
 // ---------------------------------------------------------------------------
 
-test("research steps: all 6 step files load with correct order", () => {
+test("research steps: all 5 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("research", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 6, `Expected 6 steps, got ${steps.length}`);
+    assert.equal(steps.length, 5, `Expected 5 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -122,13 +122,10 @@ const CRITICAL_KEYWORDS = [
   "evidence/research/log.md",
   "strategy.md",
 
-  // Step 6: SEO Provider
+  // SEO Provider (referenced from steps, detail in references/seo-provider.md)
   "ahrefs",
   "config.json",
-  "keywords-explorer-overview",
-  "site-explorer-organic-competitors",
-  "batch-analysis",
-  "serp-overview",
+  "seo-provider.md",
 ];
 
 test("research steps: concatenated output contains all critical instruction keywords", () => {
@@ -169,7 +166,6 @@ test("research steps: step names match expected structure", () => {
       "Landscape Mode",
       "Competitor Mode",
       "Topic Mode",
-      "SEO Provider Configuration",
     ];
 
     const actualNames = steps.map((s) => s.name);

@@ -187,7 +187,7 @@ What the API surface reveals about their product architecture and data model mat
 
 Run the following SEO calls based on the configured provider in `{pm_state_dir}/config.json` (skip if provider is `"none"`):
 
-**If `"ahrefs-mcp"`:** Use Ahrefs MCP tools to gather the following for `{domain}`. Discover available tools dynamically — see Step 6 (SEO Provider) for the full tool inventory.
+**If `"ahrefs-mcp"`:** Use Ahrefs MCP tools to gather the following for `{domain}`. Discover available tools dynamically — see `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md` for the full tool inventory.
 - Organic traffic, keyword count, and traffic value
 - Top 30 keywords by traffic (with position, volume, page URL)
 - Top 10 pages by traffic (reveals content strategy focus)

@@ -6,9 +6,11 @@ description: Targeted deep-dive research on a specific topic with evidence routi
 
 ## Topic Mode (`$pm-research {topic}`)
 
+**Goal:** Produce (or update) a sourced evidence file for a specific topic, route findings into insight topics, and update all indexes — so the topic's knowledge is durable and discoverable by downstream skills.
+
 For targeted deep dives not covered by landscape or competitor profiling.
 
-### Flow
+### How
 
 0. **Load Hot Index** (pre-step).
    Before scanning insight files, check if the hot index exists and use it for faster topic lookup.
@@ -96,3 +98,5 @@ What this research did NOT answer.
 8. **Update evidence logs**:
    - append the topic write to `{pm_dir}/evidence/research/log.md`
    - append the topic write to `{pm_dir}/evidence/log.md`
+
+**Done-when:** Evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with all template sections populated and sourced, insight routing completed (or explicitly skipped), and both evidence indexes and logs are updated.

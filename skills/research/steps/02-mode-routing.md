@@ -17,6 +17,6 @@ Route to the appropriate mode step based on the argument:
 - No argument and `{pm_dir}/insights/business/landscape.md` exists -> present the mode selection menu and wait for user choice
 - Any other argument -> Step 5 (Topic Mode, argument is the topic name)
 
-Only one mode executes per invocation. After the selected mode step completes, skip remaining mode steps and proceed to Step 6 (SEO Provider).
+Only one mode executes per invocation. After the selected mode step completes, skip remaining mode steps. SEO provider configuration is a shared reference consulted during each mode — see `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md`.
 
 **Done-when:** A single research mode has been selected. The agent knows which step to jump to next.
