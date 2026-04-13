@@ -48,3 +48,11 @@ Do not block on setup just because the user wants to import evidence first.
 | "Small file, skip normalization" | Small files with wrong structure corrupt the manifest. Normalize everything. |
 | "CSV columns are obvious" | Column mapping errors are the #1 cause of bad evidence records. Always confirm. |
 | "Re-import will duplicate" | The manifest deduplicates by SHA. Re-import is safe — skipping is risky. |
+
+## Before Marking Done
+
+- [ ] PII warning shown to the user (even if data looks clean)
+- [ ] Manifest updated with all imported records
+- [ ] Every record has required fields (id, source_path, source_type, topic, pain_point, summary)
+- [ ] Committed files use portable source labels (not absolute paths)
+- [ ] Raw customer evidence stays in `.pm/` (gitignored), not in `{pm_dir}/`

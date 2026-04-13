@@ -43,3 +43,11 @@ The following reference files provide detailed guidance for specific research ph
 | "One source confirms it" | One source is an anecdote. Three sources are a finding. |
 | "Market data isn't needed for this feature" | You don't know if market data is needed until you look. The absence of data is a finding. |
 | "Existing research covers this" | Check the date. Research older than 90 days is a starting point, not an answer. |
+
+## Before Marking Done
+
+- [ ] Every source has a URL and access date
+- [ ] Facts are sourced; inferences are labeled "Hypothesis:"
+- [ ] Checked existing `{pm_dir}/` knowledge first — no duplicate files created
+- [ ] Contradictions with existing knowledge noted explicitly
+- [ ] Research file saved to the correct location under `{pm_dir}/evidence/`

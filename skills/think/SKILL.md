@@ -59,3 +59,9 @@ If the user wants to think through several ideas, handle them sequentially. Fini
 - **Not a planning tool.** Think doesn't produce tasks, issues, or implementation plans. That's groom's job.
 
 Think is the whiteboard conversation. Groom is the meeting that produces action items.
+
+## Before Marking Done
+
+- [ ] Thinking artifact saved to `{pm_dir}/thinking/{slug}.md`
+- [ ] User confirmed the synthesis captures their thinking accurately
+- [ ] Promotion to groom offered (if the idea has legs)
