@@ -54,7 +54,7 @@ If the user wants to think through several ideas, handle them sequentially. Fini
 ## What think is NOT
 
 - **Not a spec writer.** Think produces a summary, not a design doc. If the user wants a spec, that's groom → design phase.
-- **Not a research tool.** If the user needs market data or competitor analysis, invoke `pm:research quick` inline — but don't turn thinking into a research session.
+- **Not a research tool.** If the user needs durable market data or competitor analysis, switch to `pm:research`. If they just need a quick factual answer, answer directly — don't turn thinking into a research session.
 - **Not a planning tool.** Think doesn't produce tasks, issues, or implementation plans. That's groom's job.
 
 Think is the whiteboard conversation. Groom is the meeting that produces action items.

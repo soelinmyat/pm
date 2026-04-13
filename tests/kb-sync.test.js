@@ -687,6 +687,60 @@ test("pull sends X-API-Version header", async (t) => {
   assert.equal(capturedHeaders["x-api-version"], "1", "should send X-API-Version: 1");
 });
 
+test("status uses kb-sync transport and writes sync-server-status.json", async (t) => {
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "creds-test-"));
+  const credsFile = path.join(credsDir, "credentials");
+  fs.writeFileSync(credsFile, JSON.stringify({ token: "tok" }));
+
+  const { root, cleanup } = withTempProject({
+    ".pm/config.json": JSON.stringify({ projectId: "proj-1" }),
+  });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    delete process.env.PM_HUB_URL;
+  });
+
+  const http = require("http");
+  let capturedHeaders = null;
+  let capturedMethod = null;
+  let capturedUrl = null;
+  const server = http.createServer((req, res) => {
+    capturedHeaders = req.headers;
+    capturedMethod = req.method;
+    capturedUrl = req.url;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({ fileCount: 12, totalBytes: 4096, lastUpdated: "2026-04-13T10:00:00Z" })
+    );
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  process.env.PM_HUB_URL = `http://127.0.0.1:${port}`;
+
+  const { runSync } = require(KB_SYNC_PATH);
+  await runSync("status", root, credsFile);
+
+  server.close();
+
+  assert.equal(capturedMethod, "GET");
+  assert.equal(capturedUrl, "/sync/status");
+  assert.equal(capturedHeaders["x-api-version"], "1", "should send X-API-Version: 1");
+  assert.equal(capturedHeaders["x-project-id"], "proj-1");
+
+  const statusPath = path.join(root, ".pm", "sync-server-status.json");
+  assert.ok(fs.existsSync(statusPath), "sync-server-status.json should be written");
+
+  const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+  assert.deepEqual(status, {
+    ok: true,
+    fileCount: 12,
+    totalBytes: 4096,
+    lastUpdated: "2026-04-13T10:00:00Z",
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Test: Lock file prevents concurrent runs
 // ---------------------------------------------------------------------------

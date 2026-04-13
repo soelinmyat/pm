@@ -24,8 +24,8 @@ Get the user to value quickly. Do not front-load integration questions.
 Create the layered KB folders and seed each index/log file with a minimal header so the KB is self-explanatory.
 
 ```bash
-mkdir -p {pm_dir}/insights/{trends,competitors,business}
-mkdir -p {pm_dir}/evidence/{research,transcripts,user-feedback}
+mkdir -p {pm_dir}/insights/{trends,business}
+mkdir -p {pm_dir}/evidence/{competitors,research,transcripts,user-feedback}
 mkdir -p {pm_dir}/backlog
 mkdir -p {pm_dir}/thinking
 mkdir -p {pm_dir}/product
@@ -56,7 +56,7 @@ Write each index and log file with a one-line heading (do not use `touch` — fi
 | `{pm_dir}/evidence/user-feedback/log.md` | `# User Feedback Log` |
 | `{pm_dir}/product/index.md` | `# Product` |
 
-Default insight domains are `trends`, `competitors`, and `business`. Users can add custom domains later by creating `{pm_dir}/insights/<domain>/` with an `index.md`.
+Default insight domains are `trends` and `business`. Competitor profiling lives under `{pm_dir}/evidence/competitors/`. Users can add custom insight domains later by creating `{pm_dir}/insights/<domain>/` with an `index.md`.
 
 **Migration:** If `{pm_dir}/insights/product/` exists and `{pm_dir}/insights/trends/` does not, rename the directory (`mv {pm_dir}/insights/product {pm_dir}/insights/trends`). This preserves existing user data from the pre-1.0.52 naming convention.
 
@@ -104,8 +104,8 @@ If `CLAUDE.md` exists at the project root, append a brief PM section so future s
 ## PM Knowledge Base
 
 This project uses PM for product management. The `pm/` directory contains the structured knowledge base:
-- `pm/insights/` — product, competitor, and business insights
-- `pm/evidence/` — research, transcripts, and user feedback
+- `pm/insights/` — trends and business insights
+- `pm/evidence/` — competitor research, transcripts, and user feedback
 - `pm/backlog/` — feature proposals and issues
 - `pm/thinking/` — exploratory product thinking
 - `pm/product/` — feature inventory and product capabilities

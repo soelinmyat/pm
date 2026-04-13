@@ -178,6 +178,11 @@ function writeSyncStatus(dotPmDir, result) {
   fs.writeFileSync(path.join(dotPmDir, "sync-status.json"), JSON.stringify(status, null, 2) + "\n");
 }
 
+function writeStatusPayload(dotPmDir, filename, payload) {
+  fs.mkdirSync(dotPmDir, { recursive: true });
+  fs.writeFileSync(path.join(dotPmDir, filename), JSON.stringify(payload, null, 2) + "\n");
+}
+
 // ---------------------------------------------------------------------------
 // Lock file — prevent concurrent sync runs
 // ---------------------------------------------------------------------------
@@ -240,6 +245,8 @@ async function runSync(mode, projectDir, credsPath) {
       await doPush(pmDir, dotPmDir, config);
     } else if (mode === "pull") {
       await doPull(pmDir, dotPmDir, config);
+    } else if (mode === "status") {
+      await doStatus(dotPmDir, config);
     }
   } finally {
     releaseLock(dotPmDir);
@@ -375,24 +382,74 @@ async function doPull(pmDir, dotPmDir, config) {
   }
 }
 
+async function doStatus(dotPmDir, config) {
+  const url = `${config.serverUrl}/sync/status`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        "X-Project-Id": config.projectId,
+        "X-API-Version": "1",
+      },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      const payload = {
+        ok: false,
+        errors: [`HTTP ${response.status}: ${body}`],
+      };
+      writeStatusPayload(dotPmDir, "sync-server-status.json", payload);
+      return payload;
+    }
+
+    const result = await response.json();
+    const payload = {
+      ok: true,
+      fileCount: result.fileCount || 0,
+      totalBytes: result.totalBytes || 0,
+      lastUpdated: result.lastUpdated || null,
+    };
+    writeStatusPayload(dotPmDir, "sync-server-status.json", payload);
+    return payload;
+  } catch (err) {
+    const payload = {
+      ok: false,
+      errors: [err.message || String(err)],
+    };
+    writeStatusPayload(dotPmDir, "sync-server-status.json", payload);
+    return payload;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CLI entry point
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
   const mode = process.argv[2];
-  if (mode !== "push" && mode !== "pull") {
-    process.stderr.write("Usage: kb-sync.js <push|pull>\n");
+  if (mode !== "push" && mode !== "pull" && mode !== "status") {
+    process.stderr.write("Usage: kb-sync.js <push|pull|status>\n");
     process.exit(1);
   }
   runSync(mode).catch((err) => {
     // crash-safe: always write sync-status.json
     try {
-      writeSyncStatus(path.join(process.cwd(), ".pm"), {
-        mode: mode || "unknown",
-        errors: [err.message || String(err)],
-        ok: false,
-      });
+      if (mode === "status") {
+        writeStatusPayload(path.join(process.cwd(), ".pm"), "sync-server-status.json", {
+          ok: false,
+          errors: [err.message || String(err)],
+        });
+      } else {
+        writeSyncStatus(path.join(process.cwd(), ".pm"), {
+          mode: mode || "unknown",
+          errors: [err.message || String(err)],
+          ok: false,
+        });
+      }
     } catch {
       // If even status write fails, exit silently
     }
@@ -410,7 +467,9 @@ module.exports = {
   preparePushPayload,
   applyPullResponse,
   writeSyncStatus,
+  writeStatusPayload,
   acquireLock,
   releaseLock,
   runSync,
+  doStatus,
 };
