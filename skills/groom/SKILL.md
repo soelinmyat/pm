@@ -149,6 +149,6 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` for the f
 
 - [ ] Proposal written to `{pm_dir}/backlog/{slug}.md` with valid frontmatter
 - [ ] All review gates passed per tier (scope review, team review, bar raiser)
-- [ ] Research refs linked in proposal frontmatter
+- [ ] Research refs linked in proposal frontmatter (for standard/full tiers; quick tier uses inline assessment — `research_refs` may be empty)
 - [ ] State file updated or cleaned up
 - [ ] User confirmed the proposal captures their intent

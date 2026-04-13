@@ -1,5 +1,5 @@
 ---
-description: "Product discovery and feature grooming. Orchestrates strategy, research, scoping, and issue creation."
+description: "Product discovery and feature grooming. Orchestrates strategy, research, scoping, and proposal creation."
 argument-hint: "<feature-idea>"
 ---
 

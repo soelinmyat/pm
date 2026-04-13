@@ -2,6 +2,7 @@
 name: Scope Review
 order: 5
 description: Three parallel reviewers (PM, Competitive, EM) challenge the scope before drafting
+applies_to: [standard, full]
 ---
 
 ### Step 5: Scope Review

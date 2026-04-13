@@ -2,6 +2,7 @@
 name: Present
 order: 10
 description: Write markdown PRD backlog entry, resolve open questions, get user approval
+applies_to: [full]
 ---
 
 ### Step 10: Present to User
@@ -28,19 +29,12 @@ Write or update the backlog entry at `{pm_dir}/backlog/{topic-slug}.md`. Set `st
 
 **No sidecar files.** All metadata lives in the proposal `.md` frontmatter.
 
-**Sections** (all 11 must be present as markdown sections):
+**Sections:** Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. All 11 sections must be present. Do not rename, reorder, or redefine sections here — `proposal-format.md` is the single authority.
 
-1. **Title & summary.** Feature name, one-sentence outcome, key metrics: priority, differentiator (10x/parity/gap-fill), expected impact (the key outcome metric), ICP segment (from strategy).
-2. **Problem & Context.** The user pain, market signal, or strategic driver. Use blockquotes for key research signals.
-3. **Scope Overview.** In-scope vs out-of-scope lists. Include the 10x filter badge.
-4. **User Flows.** Mermaid diagrams in fenced code blocks (```` ```mermaid ````). Include `%% Source:` citations.
-5. **Wireframes.** Link to wireframe HTML files: `[Wireframe]({pm_dir}/backlog/wireframes/{name}.html)`. Wireframes live at `{pm_dir}/backlog/wireframes/{name}.html`.
-6. **Competitive Context.** Markdown comparison table (capability | competitors | our approach). Blockquote for key differentiator.
-7. **Technical Feasibility.** Build-on, build-new, risks, sequencing. Include verdict.
-8. **Review Summary.** Pipeline steps (Scope Review, Team Review, Bar Raiser, Decision). Verdict summary. Advisory notes.
-9. **Resolved Questions.** Each question from reviewers with its answer and evidence. If any questions remain that require human judgment, list them under a **Decisions Needed** subsection with a recommended answer for each.
-10. **Freshness Notes** (conditional). If `stale_research` in the groom session state is non-empty, list each stale research source: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type})." End with: "Run `pm:refresh` to update stale research before starting implementation." If `stale_research` is empty, omit this section entirely — do not show an empty freshness section.
-11. **Next Steps.** "Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin implementation."
+Additional guidance for the full-tier Present step:
+- **Resolved Questions** section must include answers resolved from team review and bar raiser outputs (see Step 1 above). If any remain, list under a **Decisions Needed** subsection with a recommended answer.
+- **Freshness Notes** — only include if `stale_research` in the groom session state is non-empty. End with: "Run `pm:refresh` to update stale research before starting implementation." If empty, omit entirely.
+- **Review Summary** should cover all pipeline steps completed (Scope Review, Team Review, Bar Raiser, Decision) with verdict summary and advisory notes.
 
 #### Step 3: Notify the user
 

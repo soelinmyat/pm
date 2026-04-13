@@ -36,7 +36,7 @@ Design exploration for {ISSUE_ID} ({ISSUE_TITLE}).
 **Parent issue context:**
 {PARENT_TITLE}: {PARENT_DESCRIPTION_SUMMARY}
 
-Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/phases/phase-5-design.md.
+Follow ${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/06-design.md.
 Save spec to docs/specs/{DATE}-{SLUG}.md.
 Commit, then end your response with:
 SPEC_COMPLETE

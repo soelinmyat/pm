@@ -36,6 +36,7 @@ function parseStepFile(filePath, filename) {
     name: hasFrontmatter && data.name ? data.name : stem,
     order,
     description: data.description || "",
+    appliesTo: Array.isArray(data.applies_to) ? data.applies_to : null,
     body: body,
   };
 }
@@ -184,6 +185,7 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       name: parsed.name,
       order: parsed.order,
       description: parsed.description,
+      appliesTo: parsed.appliesTo,
       body: resolvedBody,
       enabled,
       source: isUserOverride ? "user" : "default",
@@ -198,15 +200,23 @@ function loadWorkflow(command, pmDir, pluginRoot) {
 
 /**
  * Concatenate enabled steps into a single prompt string.
+ * When a tier is provided, only steps whose `appliesTo` includes that tier
+ * (or steps with no `appliesTo` constraint) are included.
  *
- * @param {Array<{name, order, description, body, enabled}>} steps
+ * @param {Array<{name, order, description, body, enabled, appliesTo}>} steps
+ * @param {{ tier?: string }} [options]
  * @returns {string}
  */
-function buildPrompt(steps) {
-  const enabled = steps.filter((s) => s.enabled);
-  if (enabled.length === 0) return "";
+function buildPrompt(steps, options) {
+  const tier = options?.tier || null;
+  const filtered = steps.filter((s) => {
+    if (!s.enabled) return false;
+    if (tier && s.appliesTo) return s.appliesTo.includes(tier);
+    return true;
+  });
+  if (filtered.length === 0) return "";
 
-  return enabled.map((s) => `## Step ${s.order}: ${s.name}\n\n${s.body.trim()}`).join("\n\n");
+  return filtered.map((s) => `## Step ${s.order}: ${s.name}\n\n${s.body.trim()}`).join("\n\n");
 }
 
 /**

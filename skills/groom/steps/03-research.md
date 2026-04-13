@@ -2,6 +2,7 @@
 name: Research
 order: 3
 description: Invoke pm:research for competitive and market intelligence, or inline assessment for quick tier
+applies_to: [quick, standard, full]
 ---
 
 ### Step 3: Research
