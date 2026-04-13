@@ -1,6 +1,6 @@
 ---
 name: Synthesize
-order: 5
+order: 6
 description: Produce a thinking artifact and offer to promote to pm:groom
 ---
 
@@ -39,6 +39,8 @@ promoted_to: "{groom-session-slug}" | null
 ```
 
 Save to `{pm_dir}/thinking/{slug}.md`. Create the `{pm_dir}/thinking/` directory if it doesn't exist.
+
+**Update the thinking index.** After saving the artifact, update `{pm_dir}/thinking/index.md` following the index maintenance rules in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Add or update a row with the slug, topic, 2-4 tags (inferred from the thinking content), today's date, and status. Create the index if it doesn't exist.
 
 After saving, ask ONE question:
 

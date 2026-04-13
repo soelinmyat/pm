@@ -4,7 +4,9 @@ order: 10
 description: Write markdown PRD backlog entry, resolve open questions, get user approval
 ---
 
-### Phase 7: Present to User
+### Step 10: Present to User
+
+**Full tier only.** Quick and standard tiers finalize the proposal in Draft Proposal (Step 7) and skip directly to Link. This step only runs after Team Review and Bar Raiser have completed.
 
 Present the reviewed, iterated proposal as the finalized backlog entry. The PRD content lives inline in the backlog markdown file — no separate HTML artifact.
 
@@ -52,7 +54,7 @@ Tell the user:
 
 Wait for explicit approval. Accept edits inline. If the user requests changes:
 - For minor edits (wording, AC tweaks): revise issues and update the backlog entry. No need to re-run reviews.
-- For scope changes (adding/removing in-scope items): re-run from Phase 5.5 (Team Review).
+- For scope changes (adding/removing in-scope items): re-run from Step 8 (Team Review).
 
 Update state:
 

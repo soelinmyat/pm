@@ -200,6 +200,86 @@ Steps that delegate to a reference file (`"Read and follow X"`) are valid. They 
 
 Steps in conversational skills (think, strategy interview) are lighter than procedural steps — that is expected. But even a conversational beat needs a Goal ("surface the real problem"), a How ("pick the one forcing question that matters most"), and a Done-when ("user confirms the reframe resonates, or redirects").
 
+## Skill Authoring Rules
+
+Every `skills/*/SKILL.md` file is the entry point for a skill. It must give the agent enough context to execute the skill correctly and enough guardrails to stay on-skill. A SKILL.md that is too thin produces improvised, inconsistent behavior.
+
+### Required frontmatter
+
+```yaml
+---
+name: skill-name
+description: "Trigger-rich description. Include 'Use when...' phrases with specific user language that should activate this skill. Include synonyms and edge-case triggers. The description is what Claude Code matches against — keyword density matters."
+---
+```
+
+The description is not documentation — it's a matching surface. Pack it with the phrases users actually say.
+
+### Required sections
+
+Every SKILL.md must contain these sections (order may vary):
+
+| Section | Purpose | Notes |
+|---------|---------|-------|
+| **Purpose** | 1-3 sentences: what this skill does and what it produces | Not "how" — just the what and why |
+| **Iron Law** | One unbreakable rule in bold caps | Bright-line, no judgment required. The single thing that must never be violated. |
+| **When NOT to use** | Conditions where this skill is the wrong tool | Prevents false activation. Include what to use instead. |
+| **Workflow/Telemetry line** | `**Workflow:** \`name\` \| **Telemetry steps:** \`step1\`, \`step2\`, ...` | One line. Lists the workflow name and all telemetry step names. |
+| **Steps directive** | How to load and execute step files | Points to `skills/*/steps/`, mentions override path `.pm/workflows/*/` |
+| **Red Flags — Self-Check** | "If you catch yourself thinking..." list | Metacognitive guardrails. 4-6 bullets. Each names a thought pattern and why it's wrong. |
+| **Escalation Paths** | When to stop and switch to a different skill | Named exit ramps with exact phrasing to offer the user. |
+| **Common Rationalizations** | Table of excuses vs. reality | Prevents the agent from talking itself out of doing the hard parts. |
+| **Before Marking Done** | Checklist of completion criteria | Minimum 3 items. Must include: artifact saved, user confirmed, key gates passed. |
+
+### Optional sections (include when relevant)
+
+| Section | When to include |
+|---------|----------------|
+| **Status Definitions** | When the skill produces artifacts with lifecycle states |
+| **Tier Gating** | When the skill has depth tiers (quick/standard/full) |
+| **Resume** | When the skill can pick up from a previous session |
+| **Error Handling** | When the skill has known failure modes worth documenting |
+| **References table** | When the skill has 3+ reference files |
+| **Domain Knowledge** | Embedded in step files, not SKILL.md — but SKILL.md should reference frameworks used |
+
+### What NOT to put in SKILL.md
+
+- **Detailed procedures.** Those go in step files. SKILL.md is the contract, not the manual.
+- **Output templates.** Extract to `references/` or `templates/`. SKILL.md links to them.
+- **Agent prompts.** Those go in step files or `references/`. SKILL.md shouldn't contain prompt blocks.
+
+### Reference directives
+
+Every SKILL.md must include these two lines (location varies):
+
+```
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+```
+
+The `writing.md` directive can be omitted only for skills that produce no prose output (e.g., `setup`).
+
+### Iron Law guidelines
+
+A good Iron Law is:
+- **Bright-line** — no "usually" or "when possible." Always or never.
+- **One rule** — not a list. If you have multiple, pick the one whose violation would cause the most damage.
+- **Self-evident why** — the rule should be obviously correct once stated. No need for lengthy justification.
+- **Actionable** — the agent can check compliance in real time, not just in retrospect.
+
+Examples:
+- think: "NEVER SKIP THE REFRAME."
+- groom: "NEVER DRAFT A PROPOSAL WITHOUT RESEARCH." 
+- dev: "NEVER SHIP WITHOUT TESTS."
+- ship: "NEVER MERGE WITHOUT READING THE DIFF."
+
+### Red Flag guidelines
+
+Each bullet names a **thought** the agent has (in quotes), then explains why it's wrong. The format is:
+- **"The thought pattern."** Why this is a red flag and what to do instead.
+
+Good red flags catch the moment *before* the mistake, not the mistake itself. They're metacognitive — the agent monitors its own reasoning.
+
 ## When Unsure
 
 - Favor the smallest change that keeps runtime files, docs, and tests aligned.

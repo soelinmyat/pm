@@ -1,22 +1,18 @@
 # Scope Validation Methodology
 
-Used by `pm:groom` during Phase 4. Follow this guide to define scope precisely, apply the 10x filter, and produce a defensible in/out boundary before any issues are drafted.
+Used by `pm:groom` during Step 4. Follow this guide to define scope precisely, apply the 10x filter, and produce a defensible in/out boundary before proposal drafting.
 
 ---
 
-## 1. Strategy Alignment (re-check at scope time)
+## 1. Strategy Alignment (scope-level check)
 
-Strategy check happened in Phase 2, but scope is where it bites. Before defining any boundary, re-read the relevant sections of `{pm_dir}/strategy.md`:
+Read `strategy_check.context` from session state (extracted in Step 2). Do NOT re-read `strategy.md` — Step 2 already parsed it.
 
-**Current priorities (Section 6):** Which of the top 3 priorities does this scope serve?
-Write it down explicitly. If you cannot name the priority, the scope is suspect.
+**Current priorities:** Which of the top 3 priorities (from `strategy_check.context.priorities`) does this scope serve? Write it down explicitly. If you cannot name the priority, the scope is suspect.
 
-**Non-goals (Section 7):** Does any proposed in-scope item touch a stated non-goal?
-If yes: stop. The non-goal exists because that decision was already made deliberately.
-Do not reopen it silently through scope — raise it explicitly and get a decision.
+**Non-goals against new scope items:** Step 2 already cleared the idea against non-goals. Only recheck here if **scope added items not covered by the original idea**. For each new in-scope item, check against `strategy_check.context.non_goals`. If conflict: stop and raise it explicitly.
 
-**ICP (Section 2):** Is the target user of this scope the ICP, or a secondary segment?
-Building for secondary segments is allowed, but it must be a conscious choice. Name it.
+**ICP:** Is the target user of this scope the ICP (from `strategy_check.context.icp`), or a secondary segment? Building for secondary segments is allowed, but it must be a conscious choice. Name it.
 
 ---
 
@@ -45,7 +41,7 @@ Name one leading indicator (not a lagging metric like revenue). If you cannot na
 
 | Label | Meaning | Action |
 |---|---|---|
-| `10x` | Meaningfully better, clear differentiation | Proceed. Document the differentiation claim in the parent issue. |
+| `10x` | Meaningfully better, clear differentiation | Proceed. Document the differentiation claim in the proposal. |
 | `gap-fill` | Closes an expected capability gap | Proceed. Note that this is table stakes, not a moat. |
 | `table-stakes` | Basic expected capability (auth, search, dark mode) | Proceed. No differentiation claim needed — users expect this to exist. |
 | `parity` | Replicates what competitors do beyond table stakes | Flag it. Ask for explicit strategic intent before proceeding. |
@@ -77,7 +73,7 @@ OPEN QUESTIONS (scope-adjacent, not yet decided)
 - {Question}: {who needs to decide, and by when}
 ```
 
-Write this to `.pm/groom-sessions/{topic-slug}.md` under the `scope:` key. Do not proceed to Phase 5 until both lists are confirmed by the user.
+Write this to `.pm/groom-sessions/{topic-slug}.md` under the `scope:` key. Do not proceed to Step 5 until both lists are confirmed by the user.
 
 ---
 
@@ -106,7 +102,7 @@ Mark each in-scope item with its quadrant in the state file under `scope.in_scop
 
 ## 5. Scope Confirmation
 
-Before leaving Phase 4, confirm with the user:
+Before leaving Step 4, confirm with the user:
 
 > "Here's the confirmed scope for '{topic}':
 >
@@ -114,6 +110,6 @@ Before leaving Phase 4, confirm with the user:
 > OUT: {out_of_scope items with reasons}
 > 10x filter result: {label}
 >
-> Proceed to drafting issues?"
+> Proceed to scope review?"
 
-Do not advance to Phase 5 without an explicit yes. Scope changes after issue drafting are expensive.
+Do not advance to Step 5 without an explicit yes. Scope changes after proposal drafting are expensive.

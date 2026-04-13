@@ -1,6 +1,6 @@
 ---
 name: Explore Approaches
-order: 3
+order: 4
 description: Propose 2-3 distinct approaches with clear tradeoffs
 ---
 
@@ -12,11 +12,19 @@ description: Propose 2-3 distinct approaches with clear tradeoffs
 
 Propose **2-3 distinct approaches** with clear tradeoffs. Not variations of the same idea — genuinely different directions.
 
-Ways to find different directions:
+Ways to find genuinely different directions:
 - **Vary the scope:** minimal viable version vs full vision
 - **Vary the mechanism:** build vs buy vs integrate
 - **Vary the audience:** optimize for power users vs new users vs both
 - **Vary the timeline:** what ships this week vs what ships this quarter
+
+**Quick opportunity sizing** (use when relevant, skip when the idea is clearly small):
+- **Reach:** How many of our users/customers encounter this situation?
+- **Impact:** How much does it change behavior when they do? (massive / high / medium / low)
+- **Confidence:** How sure are we about reach and impact? (high = data, medium = strong signal, low = gut)
+- **Effort:** Relative to other things we could build (trivial / small / medium / large)
+
+You don't need numbers — directional sizing ("most users hit this weekly" vs "a few power users hit this monthly") is enough to separate approaches that are worth building from approaches that sound good but don't move the needle.
 
 For each approach:
 - **One-line summary** of what it is

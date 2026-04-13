@@ -4,22 +4,24 @@ order: 6
 description: Design exploration with mockups, user flows, wireframes — skip for backend/infra
 ---
 
-### Phase 5: Design Exploration
+### Step 6: Design Exploration
 
-Turn scope into fully formed designs through collaborative dialogue. This phase runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed, not *what* to build. Applies to UI features, new components, architectural decisions, or anything where the implementation shape isn't obvious from the scope alone.
+Turn scope into fully formed designs through collaborative dialogue. This step runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed, not *what* to build. Applies to UI features, new components, architectural decisions, or anything where the implementation shape isn't obvious from the scope alone.
 
 **For UI features:** Mockups use the project's real design system (colors, typography, spacing, components) rendered as static HTML+Tailwind. This produces high-fidelity visuals identical to the running app, enabling meaningful design review during grooming — before any implementation begins.
 
-**Skip this phase when:**
-- The feature is well-understood from Phase 3 research (e.g., parity feature, clear implementation path)
-- The scope is purely backend/infrastructure with no design decisions
-- The user explicitly says "I know what I want, just scope it"
+**Skip this step when:**
+- The scope is purely backend/infrastructure with no user-facing design decisions
+- The feature is a parity/table-stakes feature with a clear implementation path from research
+
+**Do NOT skip when:** The feature has any user-facing UI, configuration UX, CLI output, or developer-facing API surface. If in doubt, run it — design is fast for simple features.
 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 <HARD-GATE>
-Do NOT proceed to Draft Proposal until the design is presented and the user has approved it.
+When this step runs, do NOT proceed to Draft Proposal until the design is presented and the user has approved it.
 For UI features: high-fidelity mockups MUST be reviewed before proceeding.
+This gate only applies when the step is not skipped per the rules above.
 </HARD-GATE>
 
 ---
@@ -28,7 +30,7 @@ For UI features: high-fidelity mockups MUST be reviewed before proceeding.
 
 Before asking generic discovery questions, load existing product context:
 
-1. If `{pm_dir}/strategy.md` exists, read it for ICP, value prop, positioning, priorities, and non-goals. Skip questions it already answers.
+1. Read `strategy_check.context` from session state for ICP, positioning, priorities, and non-goals. Do NOT re-read `strategy.md` — Step 2 already extracted this.
 2. If CLAUDE.md exists, check for design principles, brand guidelines, user personas, and voice/tone.
 3. If `DESIGN.md` exists, check for design system, colors, typography, aesthetic direction.
 
@@ -132,18 +134,12 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
    Present findings to the user. Fix mockups if needed before proceeding.
 
-5. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit.
-   - Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality
-   - For UI features: include the final mockup screenshots or reference the mockup HTML files
+5. **Confirm design with user** — present the final design (mockups + flow) and ask:
+   > "Design looks ready. Approve to proceed to proposal drafting?"
 
-6. **Spec review loop** — follow the review gate pattern in `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md`:
-   - Dispatch spec-document-reviewer (see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-reviewer.md`)
-   - Fix and re-dispatch until approved (max 3 iterations)
+   Wait for explicit approval. Design outputs (mockups, flows) become part of the proposal — they are not written to a separate spec file.
 
-7. **User reviews spec** — ask user to review the written spec before proceeding:
-   > "Spec written to `<path>`. Review it and let me know of any changes before we proceed to scoping."
-
-8. **Proceed to Phase 5.5 (Groom / Issue Drafting)** — with the design doc as the shared understanding of what's being built.
+6. **Proceed to Draft Proposal** — with the approved design as the shared understanding of what's being built.
 
 ---
 

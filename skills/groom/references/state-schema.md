@@ -16,24 +16,31 @@ run_id: "{PM_RUN_ID}"
 started_at: YYYY-MM-DDTHH:MM:SSZ
 phase_started_at: YYYY-MM-DDTHH:MM:SSZ
 completed_at: null | YYYY-MM-DDTHH:MM:SSZ
-effective_verdict: ready | ready-if | send-back | pause | null
 linear_id: "{Linear ID}" | null
 codebase_available: true | false
+codebase_context: "{brief summary of related existing code, or 'greenfield'}"
 product_features_available: true | false
 product_feature_count: 0
 kb_maturity: fresh | developing | mature
 kb_maturity_tier: quick | standard | full
 kb_signals:
   strategy: true | false
-  research: true | false
+  insights: true | false
   competitors: true | false
 
 strategy_check:
   status: passed | failed | override | skipped
   checked_against: {pm_dir}/strategy.md | null
+  checked_at: YYYY-MM-DD | null  # for strategy-drift detection
+  reason: "{why skipped or overridden}" | null
   conflicts:
     - "{conflicting non-goal text}"
   supporting_priority: "{priority text}" | null
+  context:  # extracted once, referenced by all later phases
+    icp: "{ICP summary from Section 2}"
+    priorities: ["{priority 1}", "{priority 2}", "{priority 3}"]
+    non_goals: ["{non-goal 1}", "{non-goal 2}"]
+    positioning: "{competitive positioning summary from Section 4}" | null
 
 research_location: {pm_dir}/evidence/research/{topic-slug}.md | null
 research_note: "{1-line summary of inline finding}" | null  # quick tier only
@@ -69,7 +76,6 @@ bar_raiser:
 proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
-  prd_path: null
   linear_id: "{Linear ID}" | null
 ---
 ```

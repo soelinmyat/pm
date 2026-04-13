@@ -4,18 +4,19 @@ order: 2
 description: Validate the idea against product priorities, non-goals, and ICP fit
 ---
 
-### Phase 2: Strategy Check
+### Step 2: Strategy Check
 
 **Tier routing:** Read `groom_tier` from groom session state. If the field is absent, default to `quick`.
 
-**Quick tier:** Skip this phase entirely.
+**Quick tier:** Skip this step entirely.
   - Log: "Strategy check skipped (quick tier)."
-  - Update state and proceed to Phase 3:
+  - Update state and proceed to Step 3:
     ```yaml
     strategy_check:
       status: skipped
-      reason: "quick tier"
       checked_against: null
+      checked_at: null
+      reason: "quick tier"
       conflicts: []
       supporting_priority: null
     ```
@@ -28,12 +29,13 @@ description: Validate the idea against product priorities, non-goals, and ICP fi
 
    **Standard tier — file missing:**
    > "No strategy doc yet — skipping alignment check."
-   Update state and proceed to Phase 3:
+   Update state and proceed to Step 3:
    ```yaml
    strategy_check:
      status: skipped
-     reason: "no strategy doc (standard tier)"
      checked_against: null
+     checked_at: null
+     reason: "no strategy doc (standard tier)"
      conflicts: []
      supporting_priority: null
    ```
@@ -69,12 +71,21 @@ description: Validate the idea against product priorities, non-goals, and ICP fi
      > "This doesn't map to any current top-3 priority. It's not a non-goal, but it
      > competes for focus. Proceed anyway?"
 
-4. Update state:
+4. **Extract strategy context for later steps.** Store a compact summary in session state so that Step 4 (Scope), Step 6 (Design), and reviewer agents can reference strategy without re-reading the file:
 
 ```yaml
 strategy_check:
   status: passed | failed | override | skipped
   checked_against: {pm_dir}/strategy.md | null
+  checked_at: YYYY-MM-DD | null
+  reason: "{why skipped or overridden}" | null
   conflicts: [] | ["{non-goal text}"]
   supporting_priority: "{priority text}" | null
+  context:
+    icp: "{ICP summary from Section 2}"
+    priorities: ["{priority 1}", "{priority 2}", "{priority 3}"]
+    non_goals: ["{non-goal 1}", "{non-goal 2}"]
+    positioning: "{competitive positioning summary from Section 4}" | null
 ```
+
+Later phases must read `strategy_check.context` from session state — not re-read `strategy.md`.
