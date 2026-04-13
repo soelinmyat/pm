@@ -1,6 +1,6 @@
 ---
 name: start
-description: "Lifecycle router for PM. For new repos, bootstrap PM and route into the best first workflow. For returning sessions, surface update status, detect in-progress work, and recommend the next move. Triggers on session start (auto-invoked by using-pm), 'start,' 'initialize pm,' 'get started,' 'show research,' 'show knowledge base,' 'open pm,' 'view pm,' 'view research.'"
+description: "Use to bootstrap PM in a new repo or resume active work. Auto-invoked at session start by using-pm."
 ---
 
 # pm:start

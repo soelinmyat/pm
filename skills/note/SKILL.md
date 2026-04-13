@@ -1,6 +1,6 @@
 ---
 name: note
-description: "Quick-capture notes for the shared product brain. Use when the user mentions a customer signal, product observation, sales insight, support pattern, or any evidence worth remembering. Triggers on: 'note:', 'note that', 'heard from', 'noticed that', 'observation:', 'customer said', 'sales call:', 'support thread:', 'user interview:', 'jot down', 'quick note', 'capture this'."
+description: "Use when capturing a customer signal, product observation, or evidence worth remembering. Quick-capture into the shared product brain."
 ---
 
 # pm:note

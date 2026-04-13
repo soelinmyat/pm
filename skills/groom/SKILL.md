@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when doing product discovery or feature grooming. Orchestrates strategy check, research, scoping, design, and proposal creation. Outputs a product proposal (PRD) — not engineering issues. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'write a PRD.'"
+description: "Use when doing product discovery or feature grooming. Outputs a product proposal (PRD) — not engineering issues."
 ---
 
 # pm:groom
