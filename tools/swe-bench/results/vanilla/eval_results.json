@@ -1,7 +1,0 @@
-[
-  {
-    "instance_id": "astropy__astropy-12907",
-    "passed": false,
-    "output": "Processing triggers for libc-bin (2.41-12+deb13u2) ...\npatching file astropy/modeling/separable.py\npatch unexpectedly ends in middle of line\nHunk #1 succeeded at 242 with fuzz 2.\nObtaining file:///work\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\n  Checking if build backend supports build_editable: started\n  Checking if build backend supports build_editable: finished with status 'done'\n  Getting requirements to build editable: started\n  Getting requirements to build editable: finished with status 'error'\nObtaining file:///work\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\n  Checking if build backend supports build_editable: started\n  Checking if build backend supports build_editable: finished with status 'done'\n  Getting requirements to build editable: started\n  Getting requirements to build editable: finished with status 'error'\nerror: corrupt patch at line 12\n"
-  }
-]
