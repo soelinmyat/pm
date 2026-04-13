@@ -71,7 +71,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "PR opene
 ### After merge — set "Done" everywhere
 
 <HARD-GATE>
-You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A parent marked "Done" with open children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
+You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A Linear parent marked "Done" with open Linear children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
 </HARD-GATE>
 
 **Step 1: Create local backlog entry if missing.**
@@ -115,22 +115,13 @@ Read `{pm_dir}/backlog/{slug}.md`. Update frontmatter:
 - If `linear_id` is available in session state and not already in frontmatter, add it
 - If `prs` field exists, append `"#{pr_number}"` if not already listed
 
-**Multi-task:** Also update each sub-issue's backlog entry (`{pm_dir}/backlog/{sub-issue-slug}.md`) to `status: done`.
-
 Verify the file was written: read it back and confirm `status: done`.
 
 Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
-**Step 3: Update parent/proposal status.**
+Note: In the single-backlog model, each backlog item has its own RFC. Issue decomposition lives inside the RFC, not as separate backlog files. Ship updates only this one backlog item — there are no child backlog files to iterate.
 
-a. If the backlog item has a `parent` field pointing to a proposal slug:
-   - Read all sibling backlog items (same `parent` value)
-   - If ALL siblings are now `done`, update `{pm_dir}/backlog/{parent}.md` — set `status: done`
-   - Log: `Proposal: {parent} → done`
-
-b. If this is a standalone proposal (has `prd:` field, no `parent`), its status was already set to `done` in Step 2.
-
-**Step 4: Close Linear child issues** (if tracker available).
+**Step 3: Close Linear child issues** (if tracker available).
 
 Fetch children:
 ```
@@ -143,7 +134,7 @@ mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ISSUE_ID}", state: "Done" })
 ```
 Log each: `Linear: {CHILD_ISSUE_ID} → Done`
 
-**Step 5: Close Linear parent issue** (if tracker available).
+**Step 4: Close Linear parent issue** (if tracker available).
 
 ```
 mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
@@ -151,7 +142,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "Merged: 
 ```
 Log: `Linear: {ISSUE_ID} → Done (+ {N} children closed)`
 
-**Step 6: Verify.**
+**Step 5: Verify.**
 
 - Read `{pm_dir}/backlog/{slug}.md` — confirm `status: done`
 - If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{ISSUE_ID}" })` — confirm state is "Done"
