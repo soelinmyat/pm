@@ -48,7 +48,9 @@ Run `git status --porcelain`.
 
 If there are uncommitted changes:
 1. Show the user what's changed: `git diff --stat`
-2. Stage related files (NOT `git add -A` — be selective)
-3. Commit with a descriptive message based on the changes
+2. STOP and ask what they want to do next:
+   - commit the changes first
+   - keep shipping blocked until the worktree is clean
+3. Do not stage or commit on the user's behalf from this step. Ship starts from committed code.
 
 If working tree is clean, continue.

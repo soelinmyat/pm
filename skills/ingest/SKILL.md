@@ -5,15 +5,21 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 # pm:ingest
 
+## Purpose
+
 Import customer evidence into PM.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
+## Iron Law
+
+**NEVER COMMIT RAW CUSTOMER EVIDENCE INTO `{pm_dir}`.** Raw imports belong in `.pm/`; committed artifacts must be normalized, redacted where possible, and written with portable source labels.
+
 **When NOT to use:** Single quick observations (use note). Non-evidence files. Data that isn't customer feedback, interviews, support signals, or sales notes.
 
-**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`.
+**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route-insights`, `report`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ingest/steps/` in numeric filename order. If `.pm/workflows/ingest/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -43,6 +49,21 @@ Do not block on setup just because the user wants to import evidence first.
 3. Do not overwrite external research sections in mixed topic files.
 4. Use portable labels in committed source references.
 5. Prefer a full rebuild over a silent, incorrect incremental merge.
+
+## Red Flags — Self-Check
+
+If you catch yourself thinking any of these, you're drifting off-skill:
+
+- **"The raw file is small, committing it is fine."** Size is irrelevant. Raw customer evidence does not belong in committed PM artifacts.
+- **"I can infer the column mapping without asking."** CSV mapping errors poison every downstream synthesis step. Confirm ambiguous mappings.
+- **"Only a few records parsed, synthesis can wait."** Unsynthesized evidence is effectively invisible to the rest of PM.
+- **"This quote looks safe enough; no need to warn about PII."** PII detection is not reliable enough to skip the review warning.
+
+## Escalation Paths
+
+- **Input path is missing or unreadable:** "I can ingest a file or folder path of customer evidence. Want to provide one now, or stop here?"
+- **Transcription dependencies are missing for audio imports:** "I can continue with text files, but audio ingest needs the transcription dependencies installed. Want to skip audio for now or install them first?"
+- **CSV/schema mapping stays ambiguous after preview:** "The import schema is still ambiguous. Want to confirm the column mapping explicitly, or stop before I create bad evidence records?"
 
 ## Common Rationalizations
 

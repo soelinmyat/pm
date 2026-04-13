@@ -21,6 +21,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol — use it for dedup checks before writing any research artifact.
+
 **Workflow:** `research` | **Telemetry steps:** `note-digest`, `mode-routing`, `landscape`, `competitor`, `topic`
 
 **When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.

@@ -6,6 +6,8 @@ description: Search for existing strategy documents and offer to adopt or start 
 
 ## Existing Strategy Detection
 
+**Goal:** Detect reusable strategy material and decide whether to adopt, update, or ignore it before re-interviewing the user.
+
 Search for any of the following:
 - `{pm_dir}/strategy.md`
 - `STRATEGY.md`
@@ -30,3 +32,5 @@ When `{pm_dir}/strategy.md` already exists and the user invokes `$pm-strategy` a
 3. Update `{pm_dir}/strategy.md` in place. Bump `updated:` in frontmatter.
 
 Not a full re-interview. Surgical updates only.
+
+**Done-when:** Existing strategy material has been either adopted, updated in place, or explicitly bypassed so the interview can continue with the correct scope.

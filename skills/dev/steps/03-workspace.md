@@ -6,6 +6,10 @@ description: Set up isolated git worktree, install deps, verify clean baseline
 
 ## Workspace (all sizes)
 
+## Goal
+
+Prepare a clean, correctly-based branch/worktree and a verified baseline before any implementation starts.
+
 Set up an isolated git worktree for every task — including XS. Worktree isolation prevents agents from mixing up branches, committing to the wrong branch, or stepping on parallel work. The overhead is seconds; the cost of a wrong-branch commit is much higher.
 
 1. Resolve context:
@@ -77,3 +81,7 @@ fi
 If tests fail at this point, the worktree setup is broken — not your changes. Try to fix the environment issue (missing deps, stale codegen, etc.). If the baseline cannot be fixed, escalate per SKILL.md: "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
 
 Record the baseline test outcome in the session file (pass, or which tests failed).
+
+## Done-when
+
+The final repo root, branch, cwd, worktree, backlog status, and baseline test result are recorded in the session state, and implementation can begin from a verified clean baseline.

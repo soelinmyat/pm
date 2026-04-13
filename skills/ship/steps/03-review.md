@@ -8,6 +8,8 @@ description: Run review for M/L/XL changes or code scan for XS/S before pushing
 
 <!-- telemetry step: review -->
 
+**Goal:** Run the required pre-push review gate and ensure anything leaving the machine has already survived the appropriate quality check.
+
 The review gate is the last quality check before code leaves your machine. Bugs caught here cost minutes to fix; bugs caught in production cost hours.
 
 ### Skip check
@@ -62,3 +64,5 @@ Before creating the PR in the next step, the review step should ensure you have 
 - Calls out anything unusual — workarounds, known limitations, deferred improvements
 
 For handling review feedback after PR creation, see `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md`.
+
+**Done-when:** The correct review path has run for this invocation, blocking findings are fixed or the flow has stopped, and there is enough context to create a meaningful PR.

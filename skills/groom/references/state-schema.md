@@ -45,6 +45,7 @@ strategy_check:
 research_location: {pm_dir}/evidence/research/{topic-slug}.md | null
 research_note: "{1-line summary of inline finding}" | null  # quick tier only
 stale_research: []  # list of {name, age_days, threshold_days, type} for research cited above threshold
+retro_failed: true | false | null
 
 scope:
   in_scope:
@@ -77,5 +78,6 @@ proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
   linear_id: "{Linear ID}" | null
+  prd_path: {pm_dir}/backlog/{topic-slug}.md | null
 ---
 ```

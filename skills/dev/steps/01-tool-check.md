@@ -8,6 +8,10 @@ description: Verify gh CLI and source repo access before starting work
 
 ## Tool Check
 
+## Goal
+
+Verify the baseline tooling and source-repo access needed for `pm:dev` before any planning or coding starts.
+
 All sizes use the PR flow. Verify `gh` early so the user can install it before PR creation time:
 
 ```bash

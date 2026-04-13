@@ -6,6 +6,10 @@ description: Load project memory, discover project context, classify size, creat
 
 ## Intake
 
+## Goal
+
+Load the task context, classify the work correctly, and create the initial dev session state from the best available product and project inputs.
+
 1. **Load learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the dev session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
 3. **Resolve task context:**

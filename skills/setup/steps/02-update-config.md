@@ -6,6 +6,8 @@ description: Read config.json, update the relevant integration field, handle Lin
 
 ## Update Config
 
+**Goal:** Apply exactly one supported config change without disturbing unrelated config state.
+
 ### Check config exists
 
 Read `.pm/config.json` from the project root. If it does not exist, tell the user: "No config found. Run `/pm:start` first to initialize the project." and stop.
@@ -32,3 +34,5 @@ Rules:
 ### Linear enable extras
 
 When enabling Linear (`enable linear`), after setting `integrations.linear.enabled` to `true`, check if `integrations.linear.team` and `integrations.linear.project` are already set. If not, ask the user for their Linear team slug and project name, then write those to the config.
+
+**Done-when:** `.pm/config.json` has been read successfully, the requested change has been written without dropping unrelated fields, and any required Linear metadata has been collected or confirmed.

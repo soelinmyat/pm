@@ -6,6 +6,10 @@ description: Auto-extract learnings from dev session state, write to pm/memory.m
 
 ## Retro — Auto-Extract Learnings
 
+## Goal
+
+Extract durable learnings from the completed dev session, write them to the right PM artifacts, and only then remove the dev session state.
+
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
 If extraction fails at any point, do NOT delete the state file. Instead, write `retro_failed: true` to the state file and say:
@@ -218,6 +222,10 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Platform: frontend (frontend + backend files modified)
 - Spec review: passed (commit abc123)
 - Plan review: passed (commit def456)
+
+## Done-when
+
+Relevant learnings have been written (or explicitly skipped when none exist), validation passes, and the session state file has been deleted only after retro succeeds.
 - Continuous execution: authorized
 - Contract gate: passed (commit ghi789) — frontend detected, gate required
 - Design critique: required (frontend files modified)

@@ -18,11 +18,33 @@ Use it to do one of two things:
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and interaction pacing. Do not use its generic path resolution section here — `pm:start` resolves paths itself below before loading any steps.
 
-**Workflow:** `start` | **Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `open`, `pulse`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+## Iron Law
+
+**NEVER GUESS PM PATHS.** `pm:start` exists to resolve `pm_dir`, `pm_state_dir`, and `source_dir` correctly before any other skill starts reading or writing. If path resolution is uncertain, stop and resolve it here first.
+
+**Workflow:** `start` | **Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `pulse`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/start/steps/` in numeric filename order. If `.pm/workflows/start/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
 **When NOT to use:** When the user has a specific task in mind — route to the relevant skill directly. Start is for bootstrapping or resuming, not for "I want to build X" or "research Y."
+
+## Red Flags — Self-Check
+
+If you catch yourself thinking any of these, you're drifting off-skill:
+
+- **"I can infer the PM repo layout from context."** Path inference is exactly what `pm:start` is supposed to remove. Resolve it explicitly.
+- **"The project is probably initialized already, skip detection."** Start is valuable because it detects bootstrap vs resume vs pulse correctly. Skipping that means routing blind.
+- **"I'll route into a workflow before showing the current state."** The session brief is part of the value. Users need to see what start detected before the next handoff.
+- **"Separate-repo mode is rare, I can ignore it."** It changes where state and backlog files live. Ignoring it means writing to the wrong repo.
+- **"No active work found means there's nothing useful to say."** Pulse mode exists to recommend the next useful lane when there is no active session to resume.
+
+## Escalation Paths
+
+- **PM is not initialized and the user did not ask to initialize it:** "PM isn’t initialized in this repo yet. Want to run `/pm:start` to set it up, or continue without PM?"
+- **Resolved PM repo path is missing:** "The configured PM repo path doesn’t exist anymore. Want to update separate-repo config with `/pm:setup`, or fall back to bootstrap here?"
+- **Resolved source repo path is missing:** "The linked source repo path can’t be found. PM can still open the knowledge base, but code-aware flows will be degraded until `/pm:setup separate-repo` is fixed."
 
 ## Detect Repo Mode
 

@@ -6,6 +6,10 @@ description: Check for existing RFC, route ungroomed work to pm:groom or inline 
 
 ## RFC Check (all sizes)
 
+## Goal
+
+Decide whether this task can proceed directly, needs conversational scoping, should route through grooming, or must stop for RFC generation first.
+
 Before proceeding, check whether an approved RFC exists for this work.
 
 ### Step 1: Check for existing proposal + RFC

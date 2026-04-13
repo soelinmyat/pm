@@ -8,6 +8,10 @@ description: Push branch, create PR, merge via merge-loop, clean up worktrees, u
 
 ## Ship
 
+## Goal
+
+Take the implemented branch through PR creation, merge, cleanup, and status write-back so delivery actually finishes cleanly.
+
 Push the branch, create the PR, and merge via the merge-loop. Then clean up worktrees and update all status trackers.
 
 Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manages:

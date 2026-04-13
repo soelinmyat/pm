@@ -6,6 +6,8 @@ description: Scan in-scope files for staleness and missing sections, present aud
 
 ## Phase 1: Audit
 
+**Goal:** Identify exactly which in-scope artifacts are stale, incomplete, missing, or fresh, and estimate the refresh cost before any patching starts.
+
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for threshold values, frontmatter date handling, and section detection rules.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/origin-rules.md` for topic research origin handling.
@@ -34,7 +36,7 @@ For each directory under `{pm_dir}/evidence/competitors/*/`:
 - Classify missing files as **[Missing]** (distinct from Incomplete or Stale)
 - Include missing files in the audit report with: `[Missing] {slug}/{file} — never created`
 
-Missing files should be created during Phase 2 execution using the same methodology as initial profiling (`skills/research/competitor-profiling.md`). They take priority over stale file refreshes.
+Missing files should be created during Phase 2 execution using the same methodology as initial profiling (`skills/research/references/competitor-profiling.md`). They take priority over stale file refreshes.
 
 ### Staleness Check
 
@@ -111,3 +113,5 @@ Proceed?
 ```
 
 Only continue after explicit confirmation.
+
+**Done-when:** The audit report has classified all in-scope artifacts, estimated API/search cost, and either received explicit user confirmation to proceed or stopped before execution.

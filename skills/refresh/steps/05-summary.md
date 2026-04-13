@@ -6,6 +6,8 @@ description: Report refresh results — updated files, synthesis changes, unchan
 
 ## Phase 3: Summary
 
+**Goal:** Give the user a concise, trustworthy report of what changed, what was skipped, and what still needs attention after refresh.
+
 After execution, show what changed:
 
 ```
@@ -43,3 +45,5 @@ After execution, show what changed:
 12. **`{pm_state_dir}/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
+
+**Done-when:** The user has a complete refresh summary covering updated, synthesized, unchanged, and skipped items, plus any edge cases that affected the run.

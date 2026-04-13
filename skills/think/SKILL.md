@@ -17,11 +17,13 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 **NEVER SKIP REFRAME EVALUATION.** Every idea must be tested against at least one reframing lens before approaches are explored — no exceptions. The conclusion may be "the current framing holds," but that must be an explicit conclusion, not a shortcut. If you catch yourself jumping from capture straight to "here are three approaches," stop and evaluate the framing first.
 
-**When NOT to use:** When the user asks "what do you think about X" wanting a quick opinion, not a structured thinking session. Also skip when they've already decided and want to build — go straight to `pm:dev`.
-
 **Workflow:** `think` | **Telemetry steps:** `capture`, `ground`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/think/steps/` in numeric filename order. If `.pm/workflows/think/` exists, same-named files there override defaults. Execute each step in order — they're conversational beats, not phases. Follow the natural rhythm without announcing them or tracking state.
+
+## When NOT to use
+
+When the user asks "what do you think about X" wanting a quick opinion, not a structured thinking session. Also skip when they've already decided and want to build — go straight to `pm:dev`.
 
 ## When to use think vs groom
 

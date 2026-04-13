@@ -169,3 +169,7 @@ Rules:
       (b) Do something else"
   - when no active work exists, ask one question:
     - "Want me to continue with the recommended next move, or choose one of the alternatives?"
+
+### Done-when
+
+The session brief is printed with the correct dashboard, focus, and next move, and any explicit `/pm:start` follow-up question has been asked exactly once.
