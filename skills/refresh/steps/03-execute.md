@@ -6,6 +6,8 @@ description: Patch stale and incomplete files using research methodologies, resp
 
 ## Phase 2: Execute
 
+**Goal:** Patch the selected stale or incomplete artifacts safely, preserving user-authored content while refreshing only the sections that need work.
+
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/origin-rules.md` for topic research origin handling.
 
 ### Trust Levels
@@ -66,9 +68,9 @@ Read `{pm_state_dir}/config.json` for the `seo.provider` value.
 
 **Landscape keyword data:** Use keywords-explorer tools per `skills/research/SKILL.md` Landscape Mode methodology.
 
-**Profiles, features, API:** Re-run web searches per `skills/research/competitor-profiling.md`.
+**Profiles, features, API:** Re-run web searches per `skills/research/references/competitor-profiling.md`.
 
-**Sentiment:** Re-run review mining per `skills/research/review-mining.md`.
+**Sentiment:** Re-run review mining per `skills/research/references/review-mining.md`.
 
 **Topic research:** Check `source_origin` in frontmatter and follow the origin rules reference.
 - `external`: re-run web searches. If ahrefs-mcp configured, re-run demand check (keywords-explorer-overview, serp-overview).
@@ -93,7 +95,7 @@ RULES:
 - Add 'refreshed: {today}' to frontmatter. Never modify 'profiled:' or 'created:'.
 - Preserve all user-added custom sections (sections not in the methodology template).
 - Write only to {pm_dir}/evidence/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
-- Follow methodology in skills/research/competitor-profiling.md for section content.
+- Follow methodology in `skills/research/references/competitor-profiling.md` for section content.
 - If an Ahrefs call fails, log the error and continue."
 ```
 
@@ -127,3 +129,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+**Done-when:** All approved refresh patches have been applied (or safely skipped), required synthesis/index updates have run, and post-write validation passes.

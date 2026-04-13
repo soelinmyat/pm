@@ -6,6 +6,8 @@ description: Conduct the strategy interview using the interview guide reference
 
 ## Interview Process
 
+**Goal:** Collect the minimum strategy inputs needed to write a grounded strategy document without interrogating the user.
+
 Follow the interview guide in `${CLAUDE_PLUGIN_ROOT}/skills/strategy/references/interview-guide.md`.
 
 Rules:
@@ -21,3 +23,5 @@ Rules:
   evidence should influence strategy when available.
 - After Essentials are complete, ask: "Want to go deeper on any area, or is
   this enough to write the strategy doc?"
+
+**Done-when:** The essentials needed for `strategy.md` are answered or acknowledged as unknown, and the user has either gone deeper where needed or confirmed it is time to write.

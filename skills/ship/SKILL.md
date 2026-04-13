@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `ship` | **Telemetry steps:** `pre-flight`, `conflict-check`, `review`, `push`, `create-or-detect-pr`, `merge-monitor`, `cleanup`.
+**Workflow:** `ship` | **Telemetry steps:** `pre-flight`, `conflict-check`, `review`, `push`, `create-or-detect-pr`, `ci-monitor`, `merge-monitor`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/` in numeric filename order. If `.pm/workflows/ship/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -75,4 +75,3 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - [ ] Review comments evaluated and addressed (not blindly resolved)
 - [ ] Merge state verified as MERGED (not just auto-merge armed)
 - [ ] Feature branch cleaned up
-

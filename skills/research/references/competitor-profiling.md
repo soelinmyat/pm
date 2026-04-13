@@ -137,7 +137,7 @@ Features commonly expected in this category that are absent or underdeveloped.
 
 ## api.md
 
-Follow the full methodology in `skills/research/api-analysis.md`.
+Follow the full methodology in `skills/research/references/api-analysis.md`.
 
 Summary of what to produce:
 
@@ -261,7 +261,7 @@ Domains competing for the same organic keyword space. May reveal adjacent compet
 
 ## sentiment.md
 
-Follow the full methodology in `skills/research/review-mining.md`.
+Follow the full methodology in `skills/research/references/review-mining.md`.
 
 Summary of what to produce:
 

@@ -12,7 +12,11 @@ Every feature idea gets evaluated against it. Without one, grooming drifts.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
-**Workflow:** `strategy` | **Telemetry steps:** `prerequisite-detection`, `interview`, `write-strategy`.
+## Iron Law
+
+**NEVER WRITE STRATEGY FROM THIN AIR.** Strategy must be grounded in explicit answers, existing evidence, or both. If key inputs are missing, surface the gap instead of inventing certainty.
+
+**Workflow:** `strategy` | **Telemetry steps:** `prereq-check`, `detect-existing`, `interview`, `write-strategy`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/strategy/steps/` in numeric filename order. If `.pm/workflows/strategy/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -33,6 +37,21 @@ If starting fresh, confirm before overwriting.
 - **Accept short answers.** Do not interrogate — if the user gives a brief answer, move on.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+## Red Flags — Self-Check
+
+If you catch yourself thinking any of these, you're drifting off-skill:
+
+- **"I already know the positioning, I can draft the rest myself."** Strategy only works when assumptions are explicit and confirmed.
+- **"Landscape context is optional, so I don’t need to mention the gap."** Optional does not mean irrelevant. Missing market context should be surfaced, not silently ignored.
+- **"The existing strategy file is probably still fine."** Existing docs drift. Reuse them selectively, but verify what changed before carrying them forward.
+- **"Short answers mean the user doesn’t care about strategy depth."** Short answers are still inputs. Accept them and write clearly instead of trying to interrogate the user into verbosity.
+
+## Escalation Paths
+
+- **User wants feature scoping, not product direction:** "This sounds like feature discovery rather than strategy. Want to switch to `/pm:groom` instead?"
+- **User has no answers yet and wants to think first:** "We can pause strategy writing and use `/pm:think` to pressure-test the core idea before locking positioning."
+- **Landscape context is missing and the user wants evidence first:** "Want to run `/pm:research landscape` before we finish the strategy so the positioning answers are grounded in market context?"
 
 ## Common Rationalizations
 

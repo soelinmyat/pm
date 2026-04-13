@@ -6,6 +6,10 @@ description: Code review gate — full review for M/L/XL, code scan for XS, skip
 
 ## Review
 
+## Goal
+
+Apply the right review and QA depth for the task size so implementation does not ship without the required quality gates.
+
 Code review is a mandatory gate before shipping. The depth scales with task size.
 
 **Size routing:**
@@ -62,3 +66,7 @@ After all review and QA gates pass:
 ### Review feedback handling
 
 For M/L/XL, if human reviewers leave comments on the PR after creation, use `ship/references/handling-feedback.md` to process and respond to feedback.
+
+## Done-when
+
+The size-appropriate review path has passed, all required QA/design gates for UI work are complete, and final verification has run before handing off to ship.

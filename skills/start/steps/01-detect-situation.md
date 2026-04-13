@@ -6,6 +6,10 @@ description: Check signals and route to bootstrap, resume, or pulse mode
 
 ## Detect The Situation
 
+### Goal
+
+Choose the correct start path for this repo: bootstrap, resume, or pulse.
+
 Check these signals using the resolved paths and the current user request:
 
 - Does `pm_dir` exist? (i.e., was `pm_dir` resolved above, and does the directory exist on disk?)
@@ -49,3 +53,7 @@ Interpret the argument or surrounding user message as a routing hint:
 - "explore", "look around", "just show me", "skip" → show session brief and stop
 
 If no clear hint exists, ask the user what they want to do first.
+
+### Done-when
+
+A concrete route is selected (`bootstrap`, `resume`, or `pulse`), and any auto-invoked permission prompt has been handled before continuing.

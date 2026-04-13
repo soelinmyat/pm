@@ -7,6 +7,26 @@ description: Use at session start — establishes how to find and use all plugin
 If you were dispatched as a subagent to execute a specific task, skip this skill.
 </SUBAGENT-STOP>
 
+## Purpose
+
+Route session-start behavior and teach the runtime how to use PM skills without forcing PM ceremony onto direct questions or explicit user instructions.
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and interaction pacing.
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+## Iron Law
+
+**NEVER FORCE A PM WORKFLOW ON A DIRECT USER REQUEST.** `using-pm` exists to route or orient, not to hijack straightforward tasks into ceremony.
+
+**Workflow:** `using-pm` | **Telemetry steps:** `session-start`, `route`.
+
+## When NOT to use
+
+Do not lean on this skill once a concrete PM workflow is already active. If the user is already in `pm:groom`, `pm:dev`, `pm:research`, or another explicit lane, stay in that lane.
+
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/using-pm/steps/` in numeric filename order. If `.pm/workflows/using-pm/` exists, same-named files there override defaults. Execute each step in order — the first handles session-start routing, the second handles skill routing discipline.
+
 ## Session Start
 
 When this skill loads at the beginning of a new session:
@@ -81,6 +101,21 @@ User instructions always take precedence over plugin skills:
 
 If the user asks a direct question or wants a quick answer, give them one. Don't force a skill flow when the user doesn't want one.
 
+## Red Flags — Self-Check
+
+If you catch yourself thinking any of these, you're drifting off-skill:
+
+- **"PM is installed, so I should always invoke `pm:start` first."** Wrong. Direct questions and concrete tasks should be answered or routed directly.
+- **"The user probably wants ceremony even though they asked for a simple answer."** `using-pm` should reduce friction, not create it.
+- **"I can skip explaining the available lanes because I know the right one."** Part of this skill is making the routing surface legible to the user.
+- **"Default skill usage overrides explicit user instructions."** It does not. User instructions still win.
+
+## Escalation Paths
+
+- **User wants general orientation, not a specific task:** "Want to open PM with `/pm:start`, or should I route you directly to the lane that matches what you want to do?"
+- **PM is not initialized in this project:** "PM isn’t initialized here yet. Want to run `/pm:start` to set it up, or continue without PM?"
+- **A concrete PM lane is clearly a better fit:** "This looks like `{skill}` work rather than session routing. I’ll switch there directly unless you want a broader PM overview first."
+
 ## The Rule
 
 **Default to invoking relevant skills before acting.** If there's a clear skill match for what the user is doing, invoke it. If it turns out to be wrong for the situation, you don't need to follow it. But if the user's request is straightforward or they've given explicit instructions, follow those first.
@@ -134,6 +169,12 @@ When the user is starting a workflow (building, shipping, grooming), these thoug
 | "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
 
 These do NOT apply when the user is asking a direct question, requesting a quick answer, or giving explicit instructions that override the default flow.
+
+## Before Marking Done
+
+- [ ] Session-start routing respected the user's actual intent
+- [ ] `pm:start` was only invoked when the request was genuinely a kickoff/open-PM action
+- [ ] The user was either routed into the right PM skill or allowed to continue without forced PM ceremony
 
 ## Activity Analytics (opt-in)
 

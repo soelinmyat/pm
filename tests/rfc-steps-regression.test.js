@@ -101,7 +101,7 @@ const CRITICAL_KEYWORDS = [
   "cross-cutting-reviewers.md",
   "Handling findings",
   "Blocking issues",
-  "Run `/dev",
+  "Run `/pm:dev",
 ];
 
 test("rfc steps: concatenated output contains all critical instruction keywords", () => {

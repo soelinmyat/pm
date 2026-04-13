@@ -6,6 +6,10 @@ description: Post-implementation code simplification gate — review for reuse, 
 
 ## Simplify
 
+## Goal
+
+Run the mandatory post-implementation simplification gate so the delivered code is reusable, efficient, and ready for downstream review.
+
 Invoke `pm:simplify` after implementation completes. This is a mandatory quality gate for S+ sizes.
 
 **Size routing:**
@@ -26,3 +30,7 @@ After simplify completes and all findings are fixed:
 1. Run the full test suite to verify nothing broke
 2. Commit all simplification fixes
 3. Proceed to review (or design critique if UI changes exist)
+
+## Done-when
+
+Simplify has either been correctly skipped for XS or completed with all required fixes committed, the tests rerun, and the task is ready for review/critique.

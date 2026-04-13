@@ -6,6 +6,8 @@ description: Cluster normalized evidence into problem themes, score them, and wr
 
 ## Synthesize Research
 
+**Goal:** Turn normalized evidence into durable research artifacts and indexes that downstream PM skills can actually use.
+
 <HARD-GATE>
 Synthesis is required after normalization. Do NOT skip because the record count is small.
 Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches {pm_dir}/evidence/research/ — invisible to downstream skills.
@@ -170,3 +172,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+**Done-when:** Research artifacts, indexes, and logs have been updated consistently for the synthesized themes, and post-write validation passes before routing begins.

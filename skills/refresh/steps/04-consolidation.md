@@ -6,6 +6,8 @@ description: Cross-document consolidation — overlap merge, cross-domain tunnel
 
 ## Phase 2.5: Consolidation
 
+**Goal:** Reduce duplication and improve cross-insight discoverability after refresh by merging overlaps, adding tunnels, flagging orphans, and surfacing contradictions.
+
 After insight routing completes (or directly when invoked via `pm:refresh consolidate`), run three deterministic consolidation checks plus one LLM-based contradiction detection step. All actions respect the trust level — interactive mode approves each action individually; auto-accept mode applies all and reports (except contradictions, which are flagged but never auto-resolved).
 
 **Single-session constraint:** Consolidation modifies evidence `cited_by` entries. Concurrent sessions running both ingest and consolidation may conflict. The `validate.js` check after each merge action detects this. If validation fails mid-consolidation, halt and report the conflict.
@@ -178,3 +180,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, fix the frontmatter errors before proceeding.
+
+**Done-when:** Approved consolidation actions have been applied, the hot index has been regenerated, and final validation passes or the flow has stopped on a reported consolidation conflict.

@@ -101,6 +101,17 @@ Only proceed to synthesis after all files are present.
    - Bump the `last_updated:` date in frontmatter.
 4. Append touched paths to `{pm_dir}/evidence/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
 
+### Phase 4: Route Findings to Insights
+
+After synthesis, route key findings into insight topics so competitor intelligence compounds across the knowledge base.
+
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+
+- **Evidence file path:** `{pm_dir}/evidence/competitors/index.md` (contains the synthesized Market Gaps and comparison data)
+- **Key findings:** Extract from the Market Gaps section and any cross-competitor patterns that emerged during synthesis (e.g., feature gaps all competitors share, sentiment trends, positioning whitespace).
+
+If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step.
+
 ### Cost Guardrail
 
 Before running batch SEO calls across multiple competitors, estimate the request count and show:
@@ -109,4 +120,4 @@ Before running batch SEO calls across multiple competitors, estimate the request
 
 Only continue after explicit confirmation.
 
-**Done-when:** All confirmed competitors have 5 complete profile files, the competitor index is updated with links and market gaps, the landscape document is updated with new players and positioning map entries, and all logs are appended.
+**Done-when:** All confirmed competitors have 5 complete profile files, the competitor index is updated with links and market gaps, the landscape document is updated with new players and positioning map entries, insight routing completed (or explicitly skipped), and all logs are appended.

@@ -16,11 +16,13 @@ Pass a JSON payload on stdin. The helper owns citation writes, domain index upda
 
 ## When to Invoke
 
-Caller skills read and follow this document after writing evidence files. Three integration points:
+Caller skills read and follow this document after writing evidence files. Five integration points:
 
 1. **Research topic mode** — after Step 5 (write findings), before updating indexes.
-2. **Ingest** — after Phase 3 (Synthesize Research), before Phase 4 (Report Back).
-3. **Refresh** — after patching evidence files, before Synthesis File Refresh.
+2. **Research landscape mode** — after Step 5 (write landscape file), before update flow.
+3. **Research competitor mode** — after Phase 3 (Synthesize), as Phase 4.
+4. **Ingest** — after Phase 3 (Synthesize Research), before Phase 4 (Report Back).
+5. **Refresh** — after patching evidence files, before Synthesis File Refresh.
 
 ### Inputs from Caller
 
@@ -335,5 +337,7 @@ This avoids repeated user prompts for each evidence file.
 | Caller | Evidence input | When to skip routing |
 |--------|---------------|---------------------|
 | Research (topic mode) | Single evidence file + findings | No insight domains exist and no strategy.md |
+| Research (landscape mode) | Landscape file + Initial Observations / Market Segments | No other insight domains exist and no strategy.md |
+| Research (competitor mode) | Competitor index + Market Gaps / cross-competitor patterns | No insight domains exist and no strategy.md |
 | Ingest | Multiple evidence files + clustered findings | No insight domains exist and no strategy.md |
 | Refresh | Changed evidence files only | No files refreshed, or all files are `source_origin: internal` |

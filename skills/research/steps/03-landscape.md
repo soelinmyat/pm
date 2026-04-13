@@ -106,8 +106,19 @@ Dot size: Monthly organic traffic. Color: segment.
 3-5 bullets. Gaps, tensions, underserved segments, or early hypotheses worth testing.
 ```
 
+### Step 6: Route Findings to Insights
+
+After writing (or updating) the landscape file, route key findings into insight topics so they compound across the knowledge base.
+
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+
+- **Evidence file path:** `{pm_dir}/insights/business/landscape.md`
+- **Key findings:** Extract from Initial Observations and Market Segments — these are the claims that other insight topics can absorb (e.g., a market trend updating a `trends/` insight, a segment finding enriching a `product/` insight).
+
+If no other insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step.
+
 ### Update Flow
 
 When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `last_updated:` in frontmatter.
 
-**Done-when:** `{pm_dir}/insights/business/landscape.md` exists with all template sections populated, user has validated findings, and indexes/logs are updated. For updates: `updated:` date is bumped and the user confirmed the diff.
+**Done-when:** `{pm_dir}/insights/business/landscape.md` exists with all template sections populated, user has validated findings, insight routing completed (or explicitly skipped), and indexes/logs are updated. For updates: `updated:` date is bumped and the user confirmed the diff.

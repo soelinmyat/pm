@@ -112,4 +112,5 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - [ ] Simplify gate passed before review
 - [ ] State file updated to current stage
 - [ ] Code committed on feature branch
+- [ ] User confirmed the final outcome or received a clear handoff summary
 - [ ] No destructive git operations used

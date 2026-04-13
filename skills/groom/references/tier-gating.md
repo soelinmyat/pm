@@ -32,13 +32,13 @@ groom_tier: quick | standard | full
 
 ## Step Loading Rules
 
-Each step file declares `applies_to: [quick, standard, full]` in frontmatter. The step loader filters inactive steps before building the prompt when a tier is provided.
+Each step file declares `applies_to: [...]` in frontmatter. The loader uses that metadata to include or exclude steps for the selected tier, and individual step bodies may still self-skip within an included tier when they need to explain why a gate is lightweight or deferred.
 
 - `quick` runs: intake, strategy-check, research, scope, draft-proposal, link
 - `standard` runs: intake, strategy-check, research, scope, scope-review, design, draft-proposal, link
 - `full` runs every step
 
-Step bodies may still describe skip reasons for context, but the loader enforces tier filtering at the code level.
+For example, `strategy-check` is intentionally present in `quick` tier so the prompt can record the lightweight inline check and any skip rationale, even though the deeper strategy gate only applies to `standard` and `full`.
 
 ## Research by Tier
 

@@ -6,6 +6,8 @@ description: Write the strategy document to strategy.md with the standard struct
 
 ## Strategy Document
 
+**Goal:** Write or update `{pm_dir}/strategy.md` in the standard PM strategy structure using the interview outputs and any adopted prior material.
+
 Write to `{pm_dir}/strategy.md` with this structure:
 
 ```markdown
@@ -57,3 +59,5 @@ After writing, say:
 > "Strategy doc written to {pm_dir}/strategy.md. Recommended next steps:
 > $pm-research competitors -> $pm-ideate -> $pm-groom [feature idea]
 > If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
+
+**Done-when:** `{pm_dir}/strategy.md` exists in the standard structure, frontmatter is valid, and the user has been told the recommended next PM workflow.
