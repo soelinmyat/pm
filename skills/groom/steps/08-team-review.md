@@ -35,7 +35,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispa
    - Revise the proposal content to address all blocking findings
    - Re-dispatch ALL reviewers (not just the one that flagged — fixes can introduce new problems)
    - Max **3 iterations** of the team review loop
-3. If iteration 3 still has blocking issues, escalate to the bar raiser with unresolved items flagged.
+3. If iteration 3 still has blocking issues, present them to the user for a decision before proceeding to the bar raiser. The bar raiser must form an independent assessment — it cannot receive team review findings.
 4. Advisory findings are accumulated and surfaced to the user in Step 10 (Present).
 5. Update state:
 

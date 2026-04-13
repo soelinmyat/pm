@@ -25,8 +25,10 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    > Anything to add before I proceed?"
 6. Skip to step 3 (existing research check) after confirmation.
 
-**If promoted from think:** Check if `{pm_dir}/thinking/{slug}.md` exists (the synthesize step sets `promoted_to` in the thinking artifact). If found, read it and pre-fill intake from its Problem, Direction, Key tradeoffs, and Open questions. Confirm with the user:
+**If promoted from think:** Check if `{pm_dir}/thinking/{slug}.md` exists (the synthesize step sets `status: promoted` and `promoted_to` in the thinking artifact). If found, read it and pre-fill intake from its Problem, Direction, Key tradeoffs, and Open questions. Confirm with the user:
 > "Picking up from your thinking on '{topic}'. Direction: {direction}. Anything to add or change before we scope it?"
+
+When the groom session produces a backlog item, set the `thinking` field on the backlog item to the relative path of the thinking artifact (e.g., `thinking/{slug}.md`). This creates the bidirectional link between the backlog item and the thinking that originated it.
 
 Skip to step 3 after confirmation. The thinking artifact already challenged the framing — groom doesn't need to redo that work.
 
@@ -105,7 +107,7 @@ Skip to step 3 after confirmation. The thinking artifact already challenged the 
 
 9. Derive a topic slug from the idea (kebab-case, max 4 words).
 
-10. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
+10. Write initial state to `{pm_state_dir}/groom-sessions/{topic-slug}.md` (create `{pm_state_dir}/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"

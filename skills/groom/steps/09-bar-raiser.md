@@ -28,9 +28,9 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 - {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Step 7)
 - {pm_dir}/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - {pm_dir}/insights/business/landscape.md — market context
-- .pm/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
+- {pm_state_dir}/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
 - {pm_dir}/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
-- {pm_dir}/evidence/research/{topic}.md — the underlying research
+- {pm_dir}/evidence/research/{topic-slug}.md — the underlying research
 - {pm_dir}/backlog/*.md — existing backlog items (for overlap check)
 - If codebase_available is true: explore the project source code for overlapping or related implementations
 

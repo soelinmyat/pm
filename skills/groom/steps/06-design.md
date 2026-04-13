@@ -8,7 +8,7 @@ description: Design exploration with mockups, user flows, wireframes — skip fo
 
 Turn scope into fully formed designs through collaborative dialogue. This step runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed, not *what* to build. Applies to UI features, new components, architectural decisions, or anything where the implementation shape isn't obvious from the scope alone.
 
-**For UI features:** Mockups use the project's real design system (colors, typography, spacing, components) rendered as static HTML+Tailwind. This produces high-fidelity visuals identical to the running app, enabling meaningful design review during grooming — before any implementation begins.
+**For UI features:** Mockups use the project's real design system (colors, typography, spacing, components) rendered as static HTML+Tailwind. This produces high-fidelity approximations of the running app, enabling meaningful design review during grooming — before any implementation begins.
 
 **Skip this step when:**
 - The scope is purely backend/infrastructure with no user-facing design decisions
@@ -147,7 +147,7 @@ When the feature adds to or modifies an existing page — not a brand new page �
 
 When a design system was discovered, generate mockups using the real design tokens instead of generic wireframe classes.
 
-**Rendering approach:** Static HTML + Tailwind CDN with the project's custom theme values. This produces visuals identical to the running app without needing React, build tools, or a running server.
+**Rendering approach:** Static HTML + Tailwind CDN with the project's custom theme values. This produces close approximations of the running app without needing React, build tools, or a running server.
 
 **Template structure for high-fidelity mockups:**
 ```html

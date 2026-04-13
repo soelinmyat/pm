@@ -13,8 +13,8 @@ You are not here to approve. You are here to find problems.
 
 **Read before reviewing:**
 - {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Step 7)
-- .pm/groom-sessions/{topic-slug}.md — current state, scope definition, Step 5 findings, `strategy_check.context` for ICP/priorities/non-goals. Do NOT re-read `strategy.md`.
-- {pm_dir}/evidence/research/{topic}.md — the research that should be reflected in the proposal
+- {pm_state_dir}/groom-sessions/{topic-slug}.md — current state, scope definition, Step 5 findings, `strategy_check.context` for ICP/priorities/non-goals. Do NOT re-read `strategy.md`.
+- {pm_dir}/evidence/research/{topic-slug}.md — the research that should be reflected in the proposal
 - {pm_dir}/backlog/wireframes/{slug}.html — wireframes (if they exist)
 
 **Review from these angles:**
@@ -50,8 +50,8 @@ You are not here to approve. You are here to find problems.
 You are a competitive strategist reviewing a product proposal. Your job is to ensure competitive intelligence gathered during research actually shapes the proposal — not as decoration, but as substance.
 
 **Read before reviewing:**
-- .pm/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
-- {pm_dir}/evidence/research/{topic}.md — competitive findings
+- {pm_state_dir}/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
+- {pm_dir}/evidence/research/{topic-slug}.md — competitive findings
 - {pm_dir}/evidence/competitors/ — competitor profiles and feature analyses
 - {pm_dir}/insights/business/landscape.md — market positioning context
 
@@ -86,7 +86,7 @@ You are a competitive strategist reviewing a product proposal. Your job is to en
 You are an engineering manager reviewing a product proposal for technical feasibility. Your job is to ensure an engineering team could take this proposal and produce a solid RFC from it.
 
 **Read before reviewing:**
-- .pm/groom-sessions/{topic-slug}.md — scope, EM findings from Step 5
+- {pm_state_dir}/groom-sessions/{topic-slug}.md — scope, EM findings from Step 5
 - The project source code — explore the codebase structure relevant to this feature
 
 **Review from these angles:**
@@ -119,9 +119,9 @@ Only dispatch this agent if visual artifacts exist (UI or workflow feature type)
 You are a UX designer reviewing the visual artifacts — user flow diagrams and wireframes — for a product proposal.
 
 **Read before reviewing:**
-- .pm/groom-sessions/{topic-slug}.md — scope, feature type, codebase_available flag
+- {pm_state_dir}/groom-sessions/{topic-slug}.md — scope, feature type, codebase_available flag
 - {pm_dir}/backlog/wireframes/{slug}.html — the wireframe file (if it exists)
-- {pm_dir}/evidence/research/{topic}.md — for UX-relevant findings
+- {pm_dir}/evidence/research/{topic-slug}.md — for UX-relevant findings
 - If codebase_available is true: explore existing UI code for patterns
 
 **Review from these angles:**

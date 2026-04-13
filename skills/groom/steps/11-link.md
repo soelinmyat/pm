@@ -71,7 +71,7 @@ proposal:
    > "Retro extraction failed; session state preserved for retry."
    Then stop — do not proceed to deletion.
 
-   **5a. Scan for extractable events.** Read the groom session state (`.pm/groom-sessions/{topic-slug}.md`) and check for these events:
+   **5a. Scan for extractable events.** Read the groom session state (`{pm_state_dir}/groom-sessions/{topic-slug}.md`) and check for these events:
 
    | Event | Condition | Category | Learning template |
    |-------|-----------|----------|-------------------|
@@ -123,7 +123,7 @@ proposal:
 
 6. **Delete state file.**
 
-Delete `.pm/groom-sessions/{topic-slug}.md` after successful retro extraction (or silent skip) and link. Grooming is complete.
+Delete `{pm_state_dir}/groom-sessions/{topic-slug}.md` after successful retro extraction (or silent skip) and link. Grooming is complete.
 
 Say:
 > "Grooming complete for '{topic}'. Proposal saved to `{pm_dir}/backlog/{topic-slug}.md`.

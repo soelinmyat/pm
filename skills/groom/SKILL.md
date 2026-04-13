@@ -11,7 +11,7 @@ Orchestrate the full product discovery lifecycle: from raw idea to an approved p
 
 Groom produces a **proposal** — the product-level artifact with scope, design, wireframes, research, and competitive context. It does NOT split into engineering issues or write implementation plans. That happens in `pm:dev` via the RFC.
 
-Research gates grooming. Strategy gates scoping. Neither is optional.
+Research gates grooming — even quick tier requires an inline assessment. Strategy gates scoping for standard and full tiers.
 
 ## Iron Law
 
