@@ -28,8 +28,9 @@ These are the skills you invoke directly. Most other capabilities are built into
 | User says | Skill | What it does |
 |-----------|-------|--------------|
 | "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
-| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope. Checks for RFC; generates one if missing. Then implements. Auto-grooms ungroomed work. |
+| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Implements from an approved RFC. Prompts to run /rfc first for M+ work without one. Auto-grooms ungroomed work. |
 | "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 3 tiers: quick, standard, full. No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
+| "Design this" / "Write an RFC" / "Technical plan" | `pm:rfc` | Technical design (RFC) for M+ work. Generates architecture, issue breakdown, and review. Outputs an RFC. |
 | "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, or a saved topic deep dive. For quick factual questions, answer directly instead of creating research artifacts |
 | "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
@@ -47,6 +48,8 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `dev/references/debugging.md` | dev (when tests fail) | Root cause investigation before any fix |
 | `pm:review` | ship | Multi-perspective code review (code + PM + design + edge-cases) |
 | `pm:review` (handling-feedback ref) | dev, ship | Verify feedback before implementing suggestions |
+| `rfc/references/spec-reviewers.md` | rfc (review step) | Specialist reviewers for RFC technical design |
+| `rfc/references/cross-cutting-reviewers.md` | rfc (review step) | Cross-cutting concern reviewers (security, perf, ops) |
 | `dev/references/design-critique.md` | dev (UI changes) | Design review with screenshots, a11y snapshots, consistency audit |
 | `dev/references/qa.md` | dev (UI changes) | QA ship gate — assertion-driven testing via Playwright MCP, health score verdict |
 
