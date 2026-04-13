@@ -133,6 +133,20 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function buildUniqueInsightPath(pmDir, domain, topic) {
+  const baseSlug = slugify(topic) || "new-insight";
+  let suffix = 0;
+
+  while (true) {
+    const slug = suffix === 0 ? baseSlug : `${baseSlug}-${suffix + 1}`;
+    const relativePath = `insights/${domain}/${slug}.md`;
+    if (!fs.existsSync(path.join(pmDir, relativePath))) {
+      return relativePath;
+    }
+    suffix += 1;
+  }
+}
+
 function inferredTopicForNewRoute(topic) {
   return normalizeWhitespace(
     String(topic || "").replace(/\s+[—-]\s+(Implementation Learnings|Groom Decisions)$/i, "")
@@ -211,16 +225,19 @@ function scoreInsightCandidate(evidenceDoc, insightDoc, artifactMode) {
   const topicMatches = insightDoc.topicTokens.filter((token) => evidenceTokenSet.has(token));
   const bodyMatches = insightDoc.bodyTokens.filter((token) => evidenceTokenSet.has(token));
   const overlapTokens = Array.from(new Set([...topicMatches, ...bodyMatches]));
-
-  let score = topicMatches.length * 5 + bodyMatches.length * 2;
-  if (
+  const hasDirectTopicRelation =
     normalizeWhitespace(evidenceDoc.frontmatter.topic)
       .toLowerCase()
       .includes(normalizeWhitespace(insightDoc.topic).toLowerCase()) ||
     normalizeWhitespace(insightDoc.topic)
       .toLowerCase()
-      .includes(normalizeWhitespace(evidenceDoc.frontmatter.topic).toLowerCase())
-  ) {
+      .includes(normalizeWhitespace(evidenceDoc.frontmatter.topic).toLowerCase());
+
+  let score = topicMatches.length * 5 + bodyMatches.length * 2;
+  if (overlapTokens.length === 0 && !hasDirectTopicRelation) {
+    return null;
+  }
+  if (hasDirectTopicRelation) {
     score += 4;
   }
   if (artifactMode === "implementation-learnings" && insightDoc.domain === "product") {
@@ -302,11 +319,10 @@ function generateRouteSuggestions(pmDir, rawPayload) {
     if (suggestions.length === 0 && existingCitations === 0) {
       const topic = inferredTopicForNewRoute(evidenceDoc.frontmatter.topic || "New Insight");
       const domain = DEFAULT_NEW_ROUTE_DOMAIN;
-      const slug = slugify(topic);
       suggestedNewRoute = {
         mode: "new",
         evidencePath,
-        insightPath: `insights/${domain}/${slug}.md`,
+        insightPath: buildUniqueInsightPath(pmDir, domain, topic),
         domain,
         topic,
         description: buildDescription(evidenceDoc),

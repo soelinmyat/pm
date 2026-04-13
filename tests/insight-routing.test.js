@@ -335,3 +335,43 @@ test("insight-routing CLI skips duplicate links without appending duplicates", (
     cleanup();
   }
 });
+
+test("applyRoutes rejects new routes that point at an existing insight path", () => {
+  const { pmDir, cleanup } = createPmDir();
+  try {
+    writeFile(pmDir, "evidence/research/new-evidence.md", makeEvidence({ topic: "New Evidence" }));
+    writeFile(
+      pmDir,
+      "insights/business/new-signal.md",
+      makeInsight({
+        domain: "business",
+        topic: "Existing Signal",
+        status: "active",
+        confidence: "medium",
+      })
+    );
+
+    assert.throws(
+      () =>
+        applyRoutes(
+          pmDir,
+          {
+            routes: [
+              {
+                mode: "new",
+                evidencePath: "evidence/research/new-evidence.md",
+                insightPath: "insights/business/new-signal.md",
+                domain: "business",
+                topic: "New Signal",
+                description: "Fresh signal from internal decisions",
+              },
+            ],
+          },
+          { skipHotIndex: true }
+        ),
+      /already exists/
+    );
+  } finally {
+    cleanup();
+  }
+});

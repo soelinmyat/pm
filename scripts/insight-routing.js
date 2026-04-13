@@ -143,6 +143,9 @@ function applySingleRoute(pmDir, route, now) {
 
   const insightAbsolute = path.join(pmDir, route.insightPath);
   const insightExists = fs.existsSync(insightAbsolute);
+  if (route.mode === "new" && insightExists) {
+    throw new Error(`insight file "${route.insightPath}" already exists`);
+  }
   if (route.mode === "existing" && !insightExists) {
     throw new Error(`missing insight file "${route.insightPath}"`);
   }

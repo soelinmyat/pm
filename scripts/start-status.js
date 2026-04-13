@@ -454,7 +454,7 @@ function analyzeLayeredKnowledgeBase(pmDir) {
   for (const filePath of evidenceFiles) {
     const text = safeRead(filePath);
     const data = parseFrontmatterData(text);
-    const updatedEpoch = dateToEpoch(data.created || data.last_updated || data.updated || "");
+    const updatedEpoch = dateToEpoch(data.updated || data.last_updated || data.created || "");
     let level = "fresh";
     let ageDays = 0;
     if (updatedEpoch > 0) {

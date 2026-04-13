@@ -196,6 +196,40 @@ test("buildStatus surfaces hungry insights and uncited evidence in layered KB co
   }
 });
 
+test("buildStatus uses updated research timestamps before created for freshness", () => {
+  const project = createProject();
+  try {
+    project.write("pm/evidence/index.md", "");
+    project.write("pm/evidence/log.md", "");
+    project.write("pm/evidence/research/index.md", "");
+    project.write("pm/evidence/research/log.md", "");
+    project.write(
+      "pm/evidence/research/fresh-note.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "topic: Fresh Note",
+        "source_origin: internal",
+        "created: 2024-01-01",
+        "updated: 2026-04-13",
+        "sources: []",
+        "cited_by: []",
+        "---",
+        "# Fresh Note",
+        "",
+      ].join("\n")
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.kbHealth.research.total, 1);
+    assert.equal(status.kbHealth.research.fresh, 1);
+    assert.equal(status.kbHealth.research.stale, 0);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("buildStatus adds compounding action suggestions for hungry insights and uncited evidence", () => {
   const project = createProject();
   try {

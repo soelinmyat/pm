@@ -166,6 +166,44 @@ test("generateRouteSuggestions skips already-linked insights and falls back to a
   }
 });
 
+test("generateRouteSuggestions avoids colliding with an existing insight path for seeded routes", () => {
+  const { pmDir, cleanup } = createPmDir();
+  try {
+    writeFile(
+      pmDir,
+      "insights/product/knowledge-loop.md",
+      makeInsight({
+        domain: "product",
+        topic: "Retention Model",
+        body: "## Synthesis\n\nThis topic is unrelated to retention experiments.",
+      })
+    );
+    writeFile(
+      pmDir,
+      "evidence/research/loop-decisions.md",
+      makeEvidence({
+        topic: "Knowledge Loop — Groom Decisions",
+        summary: "The groom cycle clarified how the knowledge loop should behave.",
+        findings: ["The loop should surface durable targets earlier."],
+      })
+    );
+
+    const result = generateRouteSuggestions(pmDir, {
+      evidencePath: "evidence/research/loop-decisions.md",
+      artifactMode: "decision-record",
+    });
+
+    assert.equal(result.items[0].suggestions.length, 0);
+    assert.equal(result.items[0].suggestedNewRoute.mode, "new");
+    assert.equal(
+      result.items[0].suggestedNewRoute.insightPath,
+      "insights/product/knowledge-loop-2.md"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test("insight-route-suggestions CLI returns deterministic JSON", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
