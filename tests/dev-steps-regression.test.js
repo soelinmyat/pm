@@ -162,6 +162,10 @@ const CRITICAL_KEYWORDS = [
   "task_count",
   "Sequential execution",
 
+  // RFC-based task discovery (PM-231)
+  ".issue-detail",
+  "## Tasks",
+
   // State file
   "dev-sessions",
   "single source of truth",
