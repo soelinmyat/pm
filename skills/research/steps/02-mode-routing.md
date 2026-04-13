@@ -6,7 +6,9 @@ description: Select research mode (landscape, competitor, or topic) based on arg
 
 ## Mode Routing
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/research/references/mode-routing.md` for the full routing table and menu logic.
+**Goal:** Determine which research mode to execute based on the user's argument and the current state of the knowledge base.
+
+**How:** Read `${CLAUDE_PLUGIN_ROOT}/skills/research/references/mode-routing.md` for the full routing table and menu logic.
 
 Route to the appropriate mode step based on the argument:
 - `landscape` argument -> Step 3 (Landscape Mode)
@@ -16,3 +18,5 @@ Route to the appropriate mode step based on the argument:
 - Any other argument -> Step 5 (Topic Mode, argument is the topic name)
 
 Only one mode executes per invocation. After the selected mode step completes, skip remaining mode steps and proceed to Step 6 (SEO Provider).
+
+**Done-when:** A single research mode has been selected. The agent knows which step to jump to next.

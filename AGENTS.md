@@ -173,6 +173,33 @@ The pre-push hook will block pushes if the tag is missing.
 - Delete or archive stale planning notes once implemented.
 - Do not confuse `docs/` files with runtime plugin instructions.
 
+## Step Authoring Rules
+
+Every step file in `skills/*/steps/*.md` must meet a minimum thickness bar. A step that is too thin gives the agent no decision criteria — it improvises instead of executing.
+
+### Required sections
+
+Every step must contain these three elements (as explicit sections, inline annotations, or clearly embedded in the prose):
+
+1. **Goal** — one sentence stating what this step produces or decides. The agent reads this to know whether the step is relevant or already satisfied.
+2. **How** — the procedure, heuristic, or decision criteria. Not just a template — guidance on *how to do it well*. If the step delegates to a reference file, the How is "Read and follow `{path}`" plus any inline context the agent needs before opening that file.
+3. **Done-when** — exit criteria so the agent knows when to advance. Can be a checklist, a single condition, or "user confirms." Without this, the agent either lingers or skips prematurely.
+
+### Delegation steps
+
+Steps that delegate to a reference file (`"Read and follow X"`) are valid. They must still state the **Goal** and **Done-when** inline — the agent should not need to open the reference file just to know whether to enter the step.
+
+### What "thin" looks like (avoid)
+
+- A step that is only a template with no guidance on filling it in
+- A step that lists options but gives no criteria for choosing between them
+- A step that ends without telling the agent what state must be true before advancing
+- A step whose entire How section is a single sentence like "Do the thing"
+
+### Conversational steps
+
+Steps in conversational skills (think, strategy interview) are lighter than procedural steps — that is expected. But even a conversational beat needs a Goal ("surface the real problem"), a How ("pick the one forcing question that matters most"), and a Done-when ("user confirms the reframe resonates, or redirects").
+
 ## When Unsure
 
 - Favor the smallest change that keeps runtime files, docs, and tests aligned.

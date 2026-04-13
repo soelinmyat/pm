@@ -6,4 +6,8 @@ description: Digest pending quick-capture notes before research to surface inter
 
 ## Note Digest (intake pre-step)
 
-Before routing to a research mode, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes, so the research modes have the latest internal signals. If no un-digested notes exist, this completes silently and proceeds to mode routing.
+**Goal:** Ensure internal signals from quick-capture notes are synthesized into research themes before any research mode runs, so research has the latest context.
+
+**How:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes.
+
+**Done-when:** Digest completes (notes synthesized) or completes silently (no un-digested notes exist). Proceed to mode routing either way.
