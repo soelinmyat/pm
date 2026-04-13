@@ -60,7 +60,7 @@ If AGENTS.md doesn't specify workspace setup, fall back to: install dependencies
 
 ### Workspace verification (mandatory)
 
-After prep, run the project's test command (from AGENTS.md) to confirm the worktree is functional. If tests fail at this point, the worktree setup is broken. Fix before proceeding.
+After prep, run the project's test command (from AGENTS.md) to confirm the worktree is functional:
 
 ```bash
 # Example: detect and run the right test command
@@ -74,4 +74,6 @@ elif [ -f "pyproject.toml" ]; then
 fi
 ```
 
-Never proceed to implementation without a clean workspace checkpoint.
+If tests fail at this point, the worktree setup is broken — not your changes. Try to fix the environment issue (missing deps, stale codegen, etc.). If the baseline cannot be fixed, escalate per SKILL.md: "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
+
+Record the baseline test outcome in the session file (pass, or which tests failed).
