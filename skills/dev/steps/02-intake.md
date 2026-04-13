@@ -8,7 +8,30 @@ description: Load project memory, discover project context, classify size, creat
 
 1. **Load learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the dev session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
 2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
-3. **Get task context** — Issue tracker ticket ID provided? Fetch via MCP. Conversation only? Use that.
+3. **Resolve task context:**
+
+   **Local backlog resolution (runs first).** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
+   1. Check `{pm_dir}/backlog/{slug}.md` — if found, read frontmatter and use as task context.
+   2. If the argument looks like an issue identifier, scan `{pm_dir}/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
+   3. Only if no local backlog match: fall through to MCP lookup.
+
+   **MCP lookup.** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog, fetch via MCP. If MCP returns nothing, proceed with the argument as the topic. If only conversation context is available, use that.
+
+   **Linear readiness assessment.** If the MCP fetch returned a Linear issue, assess dev-readiness. Read the issue title, description, labels, and status. Check three criteria — be generous, look for testable statements anywhere, not just under "AC:" headers:
+
+   - **AC exist:** Testable acceptance criteria (specific, verifiable — not just a vague description)
+   - **Scope is clear:** What's in scope vs. out of scope is distinguishable
+   - **Size is inferrable:** Enough detail to classify as XS/S/M/L/XL
+
+   Route based on readiness:
+
+   | Readiness | Action |
+   |-----------|--------|
+   | dev-ready (all 3 pass) | Store Linear context in session state. Proceed normally. |
+   | needs-groom | Store `linear_readiness: needs-groom` and `gaps` (e.g., `[missing-ac, vague-scope]`). Step 5 routes. |
+   | fetch failed | Ask user to paste the issue description. Proceed with pasted text. |
+
+   Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps`.
 4. **Fetch sub-issues** — After fetching the issue, also check for sub-issues via `list_issues({ parentId })`. If sub-issues exist, store them in session state under `## Sub-Issues`. They become context for RFC generation. If no sub-issues, proceed normally.
 5. **Linear issue readiness routing** — If `linear_id` is set in the session state (set by SKILL.md routing):
 
@@ -67,3 +90,9 @@ description: Load project memory, discover project context, classify size, creat
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
 | Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |
 | Retro | Yes | Yes | Yes | Yes | Yes |
+
+## Done-when
+
+- Task context resolved (from backlog, MCP, or conversation)
+- Size classified and confirmed by user
+- State file created at `{source_dir}/.pm/dev-sessions/{slug}.md` with initial state

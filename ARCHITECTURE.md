@@ -70,17 +70,17 @@ The step-loader (`scripts/step-loader.js`) reads `skills/{name}/steps/`, sorts b
 - Substitutes `${CLAUDE_PLUGIN_ROOT}` with the actual plugin path
 - Supports user overrides: files in `.pm/{skill}-sessions/{session}/steps/` can replace default steps
 
-### State Files
+### State and Output Files
 
-Each workflow session writes state to `.pm/`:
+Skills persist state in `.pm/` session files. Think is different — it has no session state file; its only durable output is the thinking artifact in the KB.
 
-| Skill | State location |
-|-------|---------------|
-| dev | `.pm/dev-sessions/{slug}.md` |
-| groom | `.pm/groom-sessions/{slug}.md` |
-| think | `{pm_dir}/thinking/{slug}.md` |
+| Skill | Type | Location |
+|-------|------|----------|
+| dev | session state | `.pm/dev-sessions/{slug}.md` |
+| groom | session state | `.pm/groom-sessions/{slug}.md` |
+| think | output artifact | `{pm_dir}/thinking/{slug}.md` |
 
-State files use YAML-in-markdown. They're the single source of truth for resume — not conversation history.
+Session state files use YAML-in-markdown. They're the single source of truth for resume — not conversation history. Think resumes by reopening the saved artifact and asking what changed.
 
 ### Agent Dispatch
 

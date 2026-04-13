@@ -169,3 +169,10 @@ When task_count > 1, announce progress at every stage transition and after each 
 
 In autonomous mode (after RFC Review approval), do NOT pause for confirmation. Announce and proceed.
 </HARD-RULE>
+
+## Done-when
+
+- PR merged and merge confirmed (not just auto-merge armed — verify PR state is MERGED)
+- Worktrees cleaned up (no leftover worktrees from this session)
+- All status updates complete: local backlog → done, Linear → Done (if available)
+- State file updated with merge SHA and completion details

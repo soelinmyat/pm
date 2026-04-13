@@ -78,10 +78,15 @@ Think does not persist mid-session state. The thinking artifact (`{pm_dir}/think
 
 If a matching thinking artifact exists (detected during the ground step), resume means:
 1. Read the saved artifact.
-2. Ask what has changed since it was written.
-3. Re-enter at reframe or pressure-test, depending on whether the new context changes the framing or only the chosen direction.
+2. Complete the rest of the ground step (context may have changed).
+3. Ask what has changed since the artifact was written.
+4. Resume using the user's answer:
+   - New info changes the **core problem** → restart at **Reframe**.
+   - Problem holds but **direction is unsettled** → restart at **Explore Approaches**.
+   - Direction holds but **risks or context changed** → restart at **Pressure-Test**.
+   - Nothing material changed → restart at **Pressure-Test** (re-examine with fresh eyes).
 
-Resume is "reopen the summary and continue the conversation" — not a hidden state machine.
+Resume is "reopen the conversation informed by what changed" — not a hidden state machine. The user's answer determines the re-entry point, not artifact section completeness.
 
 ## Status Definitions
 
@@ -111,4 +116,4 @@ Only the user's explicit signal changes status. Don't auto-park ideas that feel 
 - [ ] Strategy and insights checked during ground step (or noted as absent)
 - [ ] User confirmed the synthesis captures their thinking accurately (explicit confirmation before saving)
 - [ ] Promotion to groom offered (if the idea has legs)
-- [ ] If promoted: artifact updated with `status: promoted` and `promoted_to: {groom-slug}`
+- [ ] If promoted: artifact updated with `status: promoted` and `promoted_to: {slug}` **only after** groom session file exists

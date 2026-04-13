@@ -16,14 +16,24 @@ description: Confirm the summary with the user, save the thinking artifact, and 
    > "Here's the summary. Did I capture it correctly?"
    Revise until the user confirms. This is the only question in this sub-step.
 
-3. **Save the artifact.** Write to `{pm_dir}/thinking/{slug}.md`. Create the `{pm_dir}/thinking/` directory if it doesn't exist.
+3. **Save and validate the artifact.**
+   1. Write to `{pm_dir}/thinking/{slug}.md`. Create the `{pm_dir}/thinking/` directory if it doesn't exist.
+   2. Set `updated` to today's date (`YYYY-MM-DD`).
+   3. Validate frontmatter against the thinking schema in `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md`. All required fields must be present and valid. Fix any violations before proceeding.
 
-4. **Update the thinking index.** Update `{pm_dir}/thinking/index.md` following the index maintenance rules in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Add or update a row with the slug, topic, 2-4 tags (inferred from the thinking content), today's date, and status. Create the index if it doesn't exist.
+4. **Update the thinking index.**
+   1. If `{pm_dir}/thinking/index.md` does not exist, rebuild it first using the index rebuild procedure in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` (scan all `*.md` in the directory, extract frontmatter, write the index table).
+   2. Add or update a row with the slug, topic, 2-4 tags (inferred from the thinking content), today's date, and status.
+   3. Follow the index maintenance rules in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`.
 
 5. **Offer promotion.** Ask ONE question:
    > "Want to groom this into a proposal? (This runs a lightweight scoping flow — typically 5-10 minutes.)"
 
-   - **Yes** → Update the artifact: set `status: promoted` and `promoted_to: {groom-session-slug}`. Update the index row's status to `promoted`. Then invoke `pm:groom` with `groom_tier: quick` and the thinking summary as context. Always default to quick tier when promoting from think.
+   - **Yes** → Invoke `pm:groom` with `groom_tier: quick`, the thinking summary as context, and the slug. Always default to quick tier when promoting from think. **Only after** the groom session file is confirmed created (`.pm/groom-sessions/{slug}.md` exists):
+     - Set `status: promoted` and `promoted_to: {slug}` in the thinking artifact.
+     - Set `updated` to today's date.
+     - Update the index row's status to `promoted`.
+     - If groom fails or the user abandons it, leave the thinking artifact as `status: active` — do not mark as promoted.
    - **No** → Done. The thinking is saved and can be revisited later.
 
 ### Thinking artifact format

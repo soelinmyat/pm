@@ -1,15 +1,23 @@
 ---
 name: dev
-description: "Use when building, debugging, or fixing. Checks for an RFC, generates one if missing, then implements. One flow for all sizes."
+description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. Checks for an RFC, generates one if missing, then implements. One flow for all sizes."
 ---
 
 # Dev — Development Lifecycle
 
-Unified orchestrator for all development work. One flow handles everything — whether work is 1 task or N tasks emerges from the RFC.
+## Purpose
+
+Unified orchestrator for all development work. Takes a task from intake through implementation to merged PR — whether the work is 1 task or N tasks emerges from the RFC. One flow handles everything from XS typo fixes to XL multi-domain overhauls.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output (RFCs, session files).
+
+## Iron Law
+
+**NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR. "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
+
+**When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
 **Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
@@ -17,37 +25,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any documen
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-**When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
-
-**Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See step 01 (Tool Check) for the full check.
-
-**Hard rules:**
-- **Fresh agents for each phase.** RFC generation and implementation each get a fresh Agent() — the RFC is the handoff contract. This protects the orchestrator's context window and keeps agents focused.
-- **Contract sync before frontend work** — stale types give false test confidence.
-- **Simplify before review** — `pm:simplify` normalizes code quality before reviewers see it.
-- **Design critique before PR** for any UI change (S/M/L/XL) — users see what reviewers don't.
-- **Review before push** (M/L/XL) — `/review` catches cross-cutting issues. Code scan for XS/S.
-- **PR flow for all sizes** — push branch, create PR, merge via `references/merge-loop.md`. Branch protection and CI dictate gates.
-- **Read learnings at intake** — past context prevents repeating mistakes.
-- **No destructive git recovery** — no `git reset --hard`, `git checkout --`, blind `git stash pop`. Fix forward.
-- **Checkpoint at every stage transition** — cwd, branch, worktree, next action. The state file is the source of truth.
-
-**Gate routing:**
-
-| Size | Gates before PR | After PR |
-|------|----------------|----------|
-| XS/S | Code scan | Auto-merge |
-| M/L/XL | Full review | Auto-merge after readiness gates |
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "This is XS, skip TDD" | XS tasks still break when untested. Test takes 30 seconds. |
-| "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
-| "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
-| "I'll just start coding, RFC is overhead" | RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
-| "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
+**Source repo access:** Dev requires a source code repository. Step 01 (Tool Check) validates this and blocks if no source repo is found. See step 01 for the full check.
 
 ## Resume
 
@@ -64,36 +42,6 @@ Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.d
 **Staleness guard:** If a session file is older than 48 hours and the user didn't explicitly reference it, ask whether to resume or discard.
 
 **Legacy migration:** Old `epic-{slug}.md` and `.dev-epic-state-*.md` files are treated identically to regular session files. All resume to the loaded workflow steps.
-
-## Fresh Start
-
-**Local backlog resolution (always runs first):** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
-1. First, check `{pm_dir}/backlog/{slug}.md` — if found, read frontmatter and use as task context.
-2. If the argument looks like an issue identifier (e.g., `PM-036`, `CLE-123`), scan `{pm_dir}/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
-3. Only if no local backlog match: fall through to MCP lookup below.
-
-**MCP lookup:** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog above, fetch via MCP. Also fetch sub-issues — they become context for RFC generation (not a routing decision). If MCP returns nothing, proceed with the argument as the topic.
-
-**Linear issue readiness check:** If the MCP fetch returned an issue, assess dev-readiness.
-
-Read the issue title, description, labels, and status. Check three criteria — be generous, look for testable statements anywhere, not just under "AC:" headers:
-
-- **AC exist:** Testable acceptance criteria (specific, verifiable — not just a vague description)
-- **Scope is clear:** What's in scope vs. out of scope is distinguishable
-- **Size is inferrable:** Enough detail to classify as XS/S/M/L/XL
-
-Then route based on readiness and size:
-
-| Readiness | Size | Action |
-|-----------|------|--------|
-| dev-ready (all 3 pass) | any | Store Linear context in session state. Proceed to RFC. |
-| needs-groom | XS/S | Confirm scope + ACs conversationally — don't invoke pm:groom. |
-| needs-groom | M/L/XL | Announce gaps, invoke pm:groom inline. Pass Linear context as conversation text. |
-| fetch failed | any | Ask user to paste the issue description. Proceed with pasted text. |
-
-Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps` (e.g., `[missing-ac, vague-scope]`).
-
-After intake is resolved, proceed through the remaining step files in order.
 
 ## Bundled Skills
 
@@ -124,22 +72,42 @@ All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contrac
 
 ## State File
 
-State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
-
-- **All sessions:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.pm/dev-sessions/add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
-- **`.gitignore`:** `.pm/` covers all state files (no separate pattern needed).
+State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions. See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` for the full schema, template, valid stage values, and update rules.
 
 When referencing the state file in subsequent sections, `.dev-state.md` means `.pm/dev-sessions/{slug}.md` — the slug is determined at intake.
-
-**Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.
-
-**Legacy migration:** On resume detection or any state file read, also check legacy paths (`.dev-state-{slug}.md`, `.dev-epic-state-{slug}.md` at repo root, and `epic-{slug}.md` in `.pm/dev-sessions/`). If found at legacy path but not at new path, read from legacy. New writes always go to `.pm/dev-sessions/{slug}.md`.
-
-**Context recovery:** At the start of every turn, if you're unsure which stage you're in or what decisions were made, read the state file first. The state file is the single source of truth — not conversation history.
 
 ## Execution Defaults
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for checkpoint format, path preflight, default branch detection, pre-commit validation, git state guard, subagent git context, and repeated error handling.
+
+## Red Flags — Self-Check
+
+If you catch yourself thinking any of these, you're drifting off-skill:
+
+- **"The RFC is overhead for this change."** The RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. If it feels like overhead, your RFC is too heavy — simplify it, don't skip it.
+- **"I'll skip the worktree, it's just one file."** Wrong-branch commits break everything downstream. Worktree setup takes seconds; recovering from a dirty main takes much longer.
+- **"Tests pass, so the code is correct."** Tests verify your assumptions, not the user's requirements. Passing tests with wrong assertions give false confidence.
+- **"I know what's wrong, I'll skip debugging."** Known fixes are guesses until confirmed. The debugging reference exists to prevent shipping the wrong fix to the right symptom.
+- **"I'll just start coding and figure out the plan as I go."** Coding commits you to an approach. The RFC forces you to think before you commit. Improvised architecture is how you end up rewriting.
+- **"Review is overkill for this size."** Code scan for XS, simplify for S, full review for M+. The gate scales — it's never skipped. Cross-cutting issues are invisible from inside the change.
+
+## Escalation Paths
+
+- **Tests won't pass after 3 attempts:** "Blocked on test failures after 3 attempts. Here's what I've tried: {summary}. Want to pair on this, or should I document and move on?"
+- **Scope is bigger than classified:** "This is growing beyond {size}. Re-classify to {new_size} and re-plan with a new RFC?"
+- **Needs product decisions mid-implementation:** "Hit a product question the RFC doesn't answer: {question}. Want to decide now, or pause and groom this first?"
+- **Can't get a clean test baseline:** "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
+- **Agent keeps failing (API overload, timeouts):** "Implementation agent failed {N} times on this task. Git state preserved. Resume manually, or skip to the next task?"
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "This is XS, skip TDD" | XS tasks still break when untested. Test takes 30 seconds. |
+| "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
+| "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
+| "I'll just start coding, RFC is overhead" | RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
+| "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
 
 ## Before Marking Done
 

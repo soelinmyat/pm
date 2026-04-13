@@ -99,3 +99,8 @@ Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
 - RFC check: approved (path: {rfc_path}) | needs-rfc | incomplete-groom (status not proposed/planned/in-progress) | no-proposal (invoking groom) | skipped-xs | conversational-s | skipped-by-user
 ```
+
+## Done-when
+
+- RFC status determined: `approved` (skip to implementation), `needs-rfc` (proceed to RFC generation), `skipped-xs`, `conversational-s`, or `skipped-by-user`
+- Decision logged in `.pm/dev-sessions/{slug}.md`
