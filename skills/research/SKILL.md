@@ -32,3 +32,12 @@ The following reference files provide detailed guidance for specific research ph
 4. No artificial limit on search depth — follow threads until the question is genuinely answered or the sources become circular.
 5. Distinguish facts (sourced) from inferences (labeled "Hypothesis:") in all output files.
 6. When a source contradicts existing knowledge, note the conflict explicitly. Do not silently overwrite.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Web search is enough, skip SEO tools" | Web search shows what's loud. SEO shows what users actually search for. |
+| "One source confirms it" | One source is an anecdote. Three sources are a finding. |
+| "Market data isn't needed for this feature" | You don't know if market data is needed until you look. The absence of data is a finding. |
+| "Existing research covers this" | Check the date. Research older than 90 days is a starting point, not an answer. |

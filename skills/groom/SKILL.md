@@ -158,6 +158,18 @@ proposal:
 
 ---
 
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Scope is obvious, skip strategy check" | Strategy check catches 30% of scope creep. Fast for obvious features — that's different from skipping. |
+| "Feature is small, quick tier is enough" | Tier is set by uncertainty, not size. Small features with unclear competitive context need standard tier. |
+| "Research exists, no need to check it" | Stale research is worse than no research. Always verify dates. |
+| "User seems decided, skip scope review" | Users commit to scope after review, not before. Decided users still benefit from competitive pressure-test. |
+| "Design is obvious, skip mockups" | "Obvious" means unexamined. Mockups take 5 minutes and catch layout issues every time. |
+
+---
+
 ## Error Handling
 
 **Corrupted state file** (unparseable YAML, missing required fields):

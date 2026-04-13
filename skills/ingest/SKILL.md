@@ -39,3 +39,12 @@ Do not block on setup just because the user wants to import evidence first.
 3. Do not overwrite external research sections in mixed topic files.
 4. Use portable labels in committed source references.
 5. Prefer a full rebuild over a silent, incorrect incremental merge.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Data looks clean, skip PII check" | Obvious PII is 20% of real PII. Automatic detection is not reliable — warn the user. |
+| "Small file, skip normalization" | Small files with wrong structure corrupt the manifest. Normalize everything. |
+| "CSV columns are obvious" | Column mapping errors are the #1 cause of bad evidence records. Always confirm. |
+| "Re-import will duplicate" | The manifest deduplicates by SHA. Re-import is safe — skipping is risky. |

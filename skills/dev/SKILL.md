@@ -30,6 +30,17 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime 
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "This is XS, skip TDD" | XS tasks still break when untested. Test takes 30 seconds. |
+| "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
+| "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
+| "I'll just start coding, RFC is overhead" | RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
+| "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
+
 ## Resume Detection
 
 **Runs FIRST on every invocation.**

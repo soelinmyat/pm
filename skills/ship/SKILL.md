@@ -29,3 +29,13 @@ The following reference files provide detailed guidance for specific ship phases
 | `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md` | Handling PR review feedback (M/L/XL) |
 | `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` | Shared self-healing merge loop procedure |
 
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Code looks clean, skip review" | Clean code can have wrong behavior. Review checks intent, not style. |
+| "Just push, CI will catch issues" | CI catches syntax. Review catches logic, security, and architectural drift. |
+| "Small change, PR description can be brief" | PR description is for the reviewer, not the author. Brief = reviewer misses context. |
+| "Tests pass locally, skip CI wait" | Local passes with local state. CI is the clean-room test. |
+| "Auto-merge is fine, I trust the gates" | Trust but verify. Check merge state is MERGED, not just armed. |
+
