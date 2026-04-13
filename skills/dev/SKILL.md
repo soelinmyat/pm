@@ -7,27 +7,13 @@ description: "Use when starting any development work, debugging, or bug fixing. 
 
 Unified orchestrator for all development work. One flow handles everything — whether work is 1 task or N tasks emerges from the RFC.
 
-## Workflow Loading
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, and telemetry.
 
-Load the dev workflow steps using the step loader:
-
-```
-const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
-const steps = loadWorkflow('dev', pmDir, '${CLAUDE_PLUGIN_ROOT}');
-const workflowPrompt = buildPrompt(steps);
-```
-
-The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` (defaults) with user overrides from `.pm/workflows/dev/` (if any). Steps are sorted by order and concatenated into the workflow prompt. Persona references (`@persona`) in step files are resolved from `${CLAUDE_PLUGIN_ROOT}/personas/`.
+**Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
 Execute the loaded workflow steps in order. Each step contains its own instructions.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-
-## Path Resolution
-
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
-
-If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
 
 **Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See step 01 (Tool Check) for the full check.
 
@@ -44,10 +30,6 @@ If `pm_state_dir` is not in conversation context, use `.pm` at the same location
 - Learnings file MUST be read at intake before any work begins
 - Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
 - At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
-
 ## Resume Detection
 
 **Runs FIRST on every invocation.**

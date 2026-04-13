@@ -16,18 +16,9 @@ Use it to do one of two things:
 
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
-## Telemetry (opt-in)
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and interaction pacing.
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Minimum coverage for `pm:start`:
-- run start / run end for every invocation
-- one step span for `detect-situation`
-- one step span for the selected path: `bootstrap`, `resume`, `open`, or `pulse`
-
-## Interaction Pacing
-
-Ask ONE question at a time. Wait for the user's answer before asking the next.
+**Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `open`, `pulse`.
 
 ## Detect Repo Mode
 

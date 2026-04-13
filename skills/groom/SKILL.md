@@ -15,37 +15,15 @@ Research gates grooming. Strategy gates scoping. Neither is optional.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-## Workflow Loading
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, custom instructions, and interaction pacing.
 
-Load the groom workflow steps using the step loader:
-
-```
-const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
-const steps = loadWorkflow('groom', pmDir, '${CLAUDE_PLUGIN_ROOT}');
-const workflowPrompt = buildPrompt(steps);
-```
-
-The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/` (defaults) with user overrides from `.pm/workflows/groom/` (if any). Steps are sorted by order and concatenated into the workflow prompt.
+**Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
 
 Execute the loaded workflow steps in order. Each step contains its own instructions, HARD-GATEs, agent prompts, and state update schemas.
 
 ## Tier Gating
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` for tier selection logic, step-skipping rules, and research routing by tier.
-
-## Path Resolution
-
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
-
-If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
-
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
-
-## Interaction Pacing
-
-Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
 
 ---
 
@@ -73,18 +51,6 @@ If exactly one session exists, read it and say:
 If multiple sessions exist, list them with topic, phase, and updated timestamp. Ask which to resume.
 
 Wait for the user's answer. If resuming: skip completed phases. If starting fresh: delete the selected state file, then begin Step 1.
-
----
-
-## Custom Instructions
-
-Before starting work, check for user instructions:
-
-1. If `{pm_dir}/instructions.md` exists, read it — these are shared team instructions (terminology, writing style, output format, competitors to track).
-2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
-3. If neither file exists, proceed normally.
-
-**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
 
 ---
 

@@ -5,17 +5,11 @@ description: "Quick-capture notes for the shared product brain. Use when the use
 
 # pm:note
 
-## Path Resolution
-
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and interaction pacing.
 
 ## Purpose
 
 Capture one-sentence product observations into the shared evidence pool. Notes are lightweight — no file paths, no normalization pipeline. They feed into groom and research via the digest pre-step.
-
-## Interaction Pacing
-
-Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message.
 
 ---
 
