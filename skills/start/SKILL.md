@@ -16,22 +16,15 @@ Use it to do one of two things:
 
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
-## Telemetry (opt-in)
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and interaction pacing.
 
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
-
-Minimum coverage for `pm:start`:
-- run start / run end for every invocation
-- one step span for `detect-situation`
-- one step span for the selected path: `bootstrap`, `resume`, `open`, or `pulse`
-
-## Interaction Pacing
-
-Ask ONE question at a time. Wait for the user's answer before asking the next.
+**Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `open`, `pulse`.
 
 ## Detect Repo Mode
 
-Before detecting the situation, resolve the three path variables that all downstream skills depend on. PM can run in two modes:
+Every skill in PM depends on three path variables — `pm_dir`, `pm_state_dir`, and `source_dir`. Getting these wrong means every downstream read and write lands in the wrong place. Resolve them first, before anything else.
+
+PM can run in two modes:
 
 - **Same-repo mode:** The `pm/` knowledge base lives in the same repo as the source code.
 - **Separate-repo mode:** The `pm/` knowledge base lives in a different repo, linked via config.

@@ -11,27 +11,11 @@ Structured product thinking before commitment. Explore ideas, challenge assumpti
 
 Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues.
 
-## Workflow Loading
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, and custom instructions.
 
-Load the think workflow steps using the step loader:
-
-```
-const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
-const steps = loadWorkflow('think', pmDir, '${CLAUDE_PLUGIN_ROOT}');
-const workflowPrompt = buildPrompt(steps);
-```
-
-The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/think/steps/` (defaults) with user overrides from `.pm/workflows/think/` (if any). Steps are sorted by order and concatenated into the workflow prompt.
+**Workflow:** `think` | **Telemetry steps:** `capture`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
 Execute the loaded workflow steps in order. They're conversational beats, not phases — follow the natural rhythm without announcing them or tracking state.
-
-## Path Resolution
-
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
-
-## Telemetry (opt-in)
-
-If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. Steps: `capture`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
 ## When to use think vs groom
 
@@ -52,13 +36,6 @@ If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`. 
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-## Custom Instructions
-
-Before starting, check for user instructions:
-
-1. If `{pm_dir}/instructions.md` exists, read it.
-2. If `{pm_dir}/instructions.local.md` exists, read it (overrides shared on conflict).
-3. If neither exists, proceed normally.
 
 ## Resuming past thinking
 
