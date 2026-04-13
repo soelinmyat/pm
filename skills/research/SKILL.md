@@ -13,6 +13,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, wo
 
 Execute the loaded workflow steps in order. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).
 
+**When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
+
 ## References
 
 The following reference files provide detailed guidance for specific research phases:
