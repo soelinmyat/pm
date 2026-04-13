@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Use when starting any development work, debugging, or bug fixing. Checks for an approved RFC; generates one if missing (issue split, approach, test strategy). Then implements. Whether work is 1 task or N tasks emerges from the RFC, not from routing. Triggers on 'build this,' 'implement this,' 'let's build,' 'fix this,' 'fix this bug,' 'help me debug,' 'can you debug,' 'it's not working,' 'this is broken,' 'why is this broken,' 'troubleshoot,' 'investigate,' 'let's work on,' 'work on this,' 'add a feature,' 'refactor this,' 'backfill tests.'"
+description: "Use when building, debugging, or fixing. Checks for an RFC, generates one if missing, then implements. One flow for all sizes."
 ---
 
 # Dev — Development Lifecycle
@@ -14,6 +14,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, wo
 Execute the loaded workflow steps in order. Each step contains its own instructions.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
+**When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
 **Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See step 01 (Tool Check) for the full check.
 

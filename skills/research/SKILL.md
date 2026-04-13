@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Use when doing industry landscape analysis, competitive intelligence, competitor profiling, market research, keyword analysis, or building the product knowledge base. Three modes: landscape (industry overview, pre-strategy), competitors (deep profiling, post-strategy), topic (targeted investigation). Triggers on 'research,' 'landscape,' 'competitor,' 'competitive analysis,' 'market research,' 'keyword research,' 'industry overview.'"
+description: "Use when doing market research, competitive intelligence, or building the product knowledge base. Three modes: landscape, competitors, topic."
 ---
 
 # pm:research
@@ -12,6 +12,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, wo
 **Workflow:** `research` | **Telemetry steps:** `mode-routing`, `seo-market-intelligence`, `web-market-overview`, `write-landscape`, `discover-competitors`, `profile-competitors`, `synthesize`, `research-topic`, `write-findings`.
 
 Execute the loaded workflow steps in order. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).
+
+**When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
 
 ## References
 
@@ -41,3 +43,11 @@ The following reference files provide detailed guidance for specific research ph
 | "One source confirms it" | One source is an anecdote. Three sources are a finding. |
 | "Market data isn't needed for this feature" | You don't know if market data is needed until you look. The absence of data is a finding. |
 | "Existing research covers this" | Check the date. Research older than 90 days is a starting point, not an answer. |
+
+## Before Marking Done
+
+- [ ] Every source has a URL and access date
+- [ ] Facts are sourced; inferences are labeled "Hypothesis:"
+- [ ] Checked existing `{pm_dir}/` knowledge first — no duplicate files created
+- [ ] Contradictions with existing knowledge noted explicitly
+- [ ] Research file saved to the correct location under `{pm_dir}/evidence/`

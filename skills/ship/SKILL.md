@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Ship workflow: review, push, create PR, CI monitor + auto-fix, then poll readiness gates and auto-merge. Also handles existing PRs: resolve review comments (Codex, Claude, human), fix CI failures, and keep iterating until merged. IMPORTANT: Always use this skill when you need to get committed changes merged — never manually create branches, push, or open PRs without invoking /ship. Triggers on 'ship it,' 'let's ship,' 'let's ship it,' 'ready to ship,' 'ship this,' 'push,' 'push this,' 'merge,' 'deploy,' 'land,' 'land this,' 'create PR,' 'open PR,' 'pull request,' 'ready for review,' 'submit PR,' 'PR,' 'fix PR comments,' 'resolve CI,' 'get this merged,' 'handle PR,' 'fix review feedback.' Also includes /merge for manual merge + cleanup."
+description: "Use when shipping committed changes — review, push, PR, CI monitor, and auto-merge in one flow. Also handles existing PRs to completion."
 ---
 
 # /ship
@@ -12,6 +12,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, wo
 **Workflow:** `ship` | **Telemetry steps:** `pre-flight`, `conflict-check`, `review`, `push`, `create-or-detect-pr`, `merge-monitor`, `cleanup`.
 
 Execute the loaded workflow steps in order. Each step contains its own instructions.
+
+**When NOT to use:** Checking PR status ("what's the status of my PR?"), when changes aren't committed yet, or when the user just wants to push without review. Ship runs the full review-push-PR-merge lifecycle — if they only need `git push`, they don't need this skill.
 
 **Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
 

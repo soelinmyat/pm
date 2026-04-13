@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when doing product discovery or feature grooming. Orchestrates strategy check, research, scoping, design, and proposal creation. Outputs a product proposal (PRD) — not engineering issues. Triggers on 'groom,' 'feature idea,' 'product discovery,' 'scope this,' 'write a PRD.'"
+description: "Use when doing product discovery or feature grooming. Outputs a product proposal (PRD) — not engineering issues."
 ---
 
 # pm:groom
@@ -18,6 +18,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capabilit
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, custom instructions, and interaction pacing.
 
 **Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
+
+**When NOT to use:** Quick outlines or explanations ("what would X look like?"), when the user says "spec" but means "explain," or when they want a rough sketch — use `pm:think` instead. Groom produces a full PRD with reviews; think produces a lightweight artifact.
 
 Execute the loaded workflow steps in order. Each step contains its own instructions, HARD-GATEs, agent prompts, and state update schemas.
 

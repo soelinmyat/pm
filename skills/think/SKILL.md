@@ -1,6 +1,6 @@
 ---
 name: think
-description: "Use when the user is thinking through a product idea, exploring a concept, brainstorming approaches, or reasoning about a decision before committing to build. Lighter than groom — no ceremony, no issues, just structured thinking. Triggers on 'let's think about,' 'I'm thinking about,' 'what if we,' 'how might we,' 'let's explore,' 'I want to find a way to,' 'how should we approach,' 'what do you think about,' 'shall we think through,' 'brainstorm,' 'thinking through,' 'let's reason about,' 'help me think,' 'I'm wondering,' 'explore this idea,' 'what are our options,' 'tradeoffs,' 'pros and cons.'"
+description: "Use when exploring a product idea or reasoning through a decision before committing to build. Lighter than groom — no ceremony, just structured thinking."
 ---
 
 # pm:think
@@ -12,6 +12,8 @@ Structured product thinking before commitment. Explore ideas, challenge assumpti
 Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, and custom instructions.
+
+**When NOT to use:** When the user asks "what do you think about X" wanting a quick opinion, not a structured thinking session. Also skip when they've already decided and want to build — go straight to `pm:dev`.
 
 **Workflow:** `think` | **Telemetry steps:** `capture`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
@@ -57,3 +59,9 @@ If the user wants to think through several ideas, handle them sequentially. Fini
 - **Not a planning tool.** Think doesn't produce tasks, issues, or implementation plans. That's groom's job.
 
 Think is the whiteboard conversation. Groom is the meeting that produces action items.
+
+## Before Marking Done
+
+- [ ] Thinking artifact saved to `{pm_dir}/thinking/{slug}.md`
+- [ ] User confirmed the synthesis captures their thinking accurately
+- [ ] Promotion to groom offered (if the idea has legs)
