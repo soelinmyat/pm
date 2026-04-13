@@ -50,10 +50,9 @@ function listCommandFiles() {
 }
 
 function assertCanonicalInventory(config, skillDirs, commandFiles) {
-  const configuredSkillSet = new Set([
-    ...config.codex.fallbackSkillAliases.pm,
-    ...config.codex.fallbackSkillAliases.dev,
-  ]);
+  const configuredSkillSet = new Set(
+    Object.values(config.codex.fallbackSkillAliases).flatMap((aliases) => aliases)
+  );
 
   const actualSkillSet = new Set(skillDirs);
   const missingSkills = [...configuredSkillSet].filter((name) => !actualSkillSet.has(name));
@@ -162,19 +161,11 @@ function buildCodexPluginManifest(config) {
 }
 
 function buildCodexInstallDoc(config) {
-  const pmSkills = config.codex.fallbackSkillAliases.pm;
-  const devSkills = config.codex.fallbackSkillAliases.dev;
-
-  const pmLinkLines = pmSkills
+  const fallbackSkills = [...new Set(Object.values(config.codex.fallbackSkillAliases).flat())];
+  const pmLinkLines = fallbackSkills
     .map(
       (skill) =>
         `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/pm-${skill}`
-    )
-    .join("\n");
-  const devLinkLines = devSkills
-    .map(
-      (skill) =>
-        `ln -sfn ~/.agents/vendor/${config.name}/skills/${skill} ~/.agents/skills/dev-${skill}`
     )
     .join("\n");
 
@@ -186,7 +177,7 @@ Until your Codex install loads this repository as a plugin directly, the generat
 
 When Codex loads PM as a native plugin, product skills appear under the plugin namespace as \`pm:groom\`, \`pm:research\`, \`pm:strategy\`, \`pm:ingest\`, and \`pm:refresh\`.
 
-The fallback symlink flow below creates explicit aliases across two domains on disk: product management (\`pm-*\`) and development (\`dev-*\`). Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
+The fallback symlink flow below creates explicit \`pm-*\` aliases on disk for every PM workflow, including build and ship flows. Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
 
 In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as \`pm:groom\` and \`pm:dev\`. Treat the alias directory names as an installation detail, not the public skill names.
 
@@ -208,16 +199,10 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### Product management skills (${pmSkills.length})
+#### PM skills (${fallbackSkills.length})
 
 \`\`\`bash
 ${pmLinkLines}
-\`\`\`
-
-#### Development skills (${devSkills.length})
-
-\`\`\`bash
-${devLinkLines}
 \`\`\`
 
 ### 3. Restart Codex
@@ -235,15 +220,15 @@ pm:dev
 
 If Codex does not find a skill:
 
-1. Check that the fallback alias directories exist, for example \`~/.agents/skills/pm-groom/SKILL.md\` and \`~/.agents/skills/dev-dev/SKILL.md\`.
+1. Check that the fallback alias directories exist, for example \`~/.agents/skills/pm-groom/SKILL.md\` and \`~/.agents/skills/pm-dev/SKILL.md\`.
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all ${pmSkills.length + devSkills.length} skills
+### Quick check: all ${fallbackSkills.length} skills
 
 \`\`\`bash
-ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list ${pmSkills.length} pm-* and ${devSkills.length} dev-* directories
+ls -d ~/.agents/skills/pm-*
+# Should list ${fallbackSkills.length} pm-* directories
 \`\`\`
 
 ## Updating
@@ -254,7 +239,7 @@ Pull the latest changes in the vendor clone, then restart Codex:
 git -C ~/.agents/vendor/pm pull --ff-only
 \`\`\`
 
-Your \`~/.agents/skills/pm-*\` and \`~/.agents/skills/dev-*\` symlinks do not need to be recreated unless you move the clone.
+Your \`~/.agents/skills/pm-*\` symlinks do not need to be recreated unless you move the clone.
 
 ## Dogfooding Local Source
 

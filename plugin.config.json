@@ -53,9 +53,12 @@
         "note",
         "refresh",
         "rfc",
-        "sync"
+        "sync",
+        "dev",
+        "ship",
+        "using-pm"
       ],
-      "dev": ["dev", "ship", "using-pm"]
+      "dev": []
     },
     "interface": {
       "shortDescription": "Shared product brain for small teams.",

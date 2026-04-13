@@ -6,7 +6,7 @@ Until your Codex install loads this repository as a plugin directly, the generat
 
 When Codex loads PM as a native plugin, product skills appear under the plugin namespace as `pm:groom`, `pm:research`, `pm:strategy`, `pm:ingest`, and `pm:refresh`.
 
-The fallback symlink flow below creates explicit aliases across two domains on disk: product management (`pm-*`) and development (`dev-*`). Codex discovers user-installed skills from `~/.agents/skills` and project-local skills from `<project>/.agents/skills`.
+The fallback symlink flow below creates explicit `pm-*` aliases on disk for every PM workflow, including build and ship flows. Codex discovers user-installed skills from `~/.agents/skills` and project-local skills from `<project>/.agents/skills`.
 
 In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as `pm:groom` and `pm:dev`. Treat the alias directory names as an installation detail, not the public skill names.
 
@@ -28,7 +28,7 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### Product management skills (12)
+#### PM skills (15)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/start ~/.agents/skills/pm-start
@@ -43,14 +43,9 @@ ln -sfn ~/.agents/vendor/pm/skills/note ~/.agents/skills/pm-note
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/rfc ~/.agents/skills/pm-rfc
 ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
-```
-
-#### Development skills (3)
-
-```bash
-ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/dev-dev
-ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/dev-ship
-ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/dev-using-pm
+ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/pm-dev
+ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/pm-ship
+ln -sfn ~/.agents/vendor/pm/skills/using-pm ~/.agents/skills/pm-using-pm
 ```
 
 ### 3. Restart Codex
@@ -68,15 +63,15 @@ pm:dev
 
 If Codex does not find a skill:
 
-1. Check that the fallback alias directories exist, for example `~/.agents/skills/pm-groom/SKILL.md` and `~/.agents/skills/dev-dev/SKILL.md`.
+1. Check that the fallback alias directories exist, for example `~/.agents/skills/pm-groom/SKILL.md` and `~/.agents/skills/pm-dev/SKILL.md`.
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
 ### Quick check: all 15 skills
 
 ```bash
-ls -d ~/.agents/skills/pm-* ~/.agents/skills/dev-*
-# Should list 12 pm-* and 3 dev-* directories
+ls -d ~/.agents/skills/pm-*
+# Should list 15 pm-* directories
 ```
 
 ## Updating
@@ -87,7 +82,7 @@ Pull the latest changes in the vendor clone, then restart Codex:
 git -C ~/.agents/vendor/pm pull --ff-only
 ```
 
-Your `~/.agents/skills/pm-*` and `~/.agents/skills/dev-*` symlinks do not need to be recreated unless you move the clone.
+Your `~/.agents/skills/pm-*` symlinks do not need to be recreated unless you move the clone.
 
 ## Dogfooding Local Source
 
