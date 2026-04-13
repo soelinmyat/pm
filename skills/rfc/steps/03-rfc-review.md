@@ -10,7 +10,7 @@ Senior engineers challenge the RFC — architecture decisions, test strategy, an
 
 ### The 3 standard RFC reviewers
 
-Dispatch these reviewer intents using `agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
+Dispatch these reviewer intents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
 
 **Review as @adversarial-engineer:**
 

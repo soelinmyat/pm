@@ -13,7 +13,7 @@ RFC is the bridge between product (proposal) and engineering (implementation). N
 
 ## Iron Law
 
-**NEVER GENERATE AN RFC WITHOUT A PROPOSAL.** The rfc skill takes a groomed proposal as input. No proposal = no product context = garbage RFC. If no proposal exists, stop and tell the user to run `/pm:groom` first.
+**NEVER GENERATE AN RFC WITHOUT A PROPOSAL OR EQUIVALENT LINEAR CONTEXT.** The rfc skill takes a groomed proposal (or a dev-ready Linear issue with sufficient context) as input. No product context = garbage RFC. If no proposal exists and no Linear issue qualifies, stop and tell the user to run `/pm:groom` first.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 

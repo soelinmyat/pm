@@ -197,7 +197,7 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Stage 3 (Implementation). Log: `RFC: approved (path: {rfc_path})`.
-- **`rfc:` is null** AND size is M+ → No RFC exists. Suggest running `/rfc` (see RFC prompt below).
+- **`rfc:` is null** or RFC file has `status: draft` AND size is M+ → No approved RFC exists. Suggest running `/rfc` (see step 04-groom-readiness.md for the prompt text).
 - **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
 - **No proposal `.md` found** → No product groom has run. Continue to Step 2.
 

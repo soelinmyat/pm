@@ -43,6 +43,8 @@ Look for `{pm_dir}/backlog/{slug}.md`. Three outcomes:
 
 **Stop.** Do not re-generate.
 
+- If `rfc:` is non-null but RFC file has `status: draft`: RFC was started but not completed. Log: `RFC: resuming draft`. Continue to size gate (Step 4) — the generation step will detect and resume the existing draft.
+
 - If `status:` is `proposed`, `planned`, or `in-progress`: valid proposal. Continue to size gate (Step 4).
 - If `status:` is anything else (draft, rejected, etc.): proposal isn't ready.
 

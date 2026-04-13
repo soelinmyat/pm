@@ -10,7 +10,7 @@ Complete implementation of the approved RFC and leave the branch in a verified, 
 
 ## Implementation
 
-Dispatch **fresh** @developer agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from RFC Review, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
+Dispatch **fresh** @developer agent(s) using the runtime adapter. The RFC is the contract and contains all codebase exploration findings needed for implementation. RFC generation and review are handled by the standalone `/rfc` skill — dev assumes an approved RFC exists (or inline planning was done for smaller work).
 
 **Implementation methodology:** All implementation agents follow `dev/references/tdd.md` (inside-out TDD) and `dev/references/subagent-dev.md` for task execution. The implementation-flow.md reference defines the full lifecycle.
 
@@ -145,7 +145,7 @@ Track retry count per task in the state file.
 ### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of RFC Review, the orchestrator proceeds through ALL remaining steps (05–09) without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the RFC (via /rfc), the orchestrator proceeds through ALL remaining steps without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
 The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
@@ -160,14 +160,8 @@ The rationale: by this point, the spec has been reviewed by product/design agent
 ### Agent lifecycle
 
 ```
-Fresh developer agent dispatched (RFC Generation)
-  → explores codebase, writes RFC, commits
-  → returns RFC_COMPLETE summary (includes task_count)
-
-Orchestrator runs RFC review (RFC Review)
-  → standard + cross-cutting reviewers (if multi-task)
-  → fixes blocking issues in RFC
-  → user approves
+RFC generated and reviewed via /rfc (separate skill)
+  → user approves RFC
 
 Single-task: Fresh developer agent dispatched (Implementation)
   → reads approved RFC
