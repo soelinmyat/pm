@@ -336,7 +336,7 @@ test("insight-routing CLI skips duplicate links without appending duplicates", (
   }
 });
 
-test("applyRoutes rejects new routes that point at an existing insight path", () => {
+test("applyRoutes reports an error when a new route points at an existing insight path", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
     writeFile(pmDir, "evidence/research/new-evidence.md", makeEvidence({ topic: "New Evidence" }));
@@ -351,26 +351,95 @@ test("applyRoutes rejects new routes that point at an existing insight path", ()
       })
     );
 
-    assert.throws(
-      () =>
-        applyRoutes(
-          pmDir,
+    const result = applyRoutes(
+      pmDir,
+      {
+        routes: [
           {
-            routes: [
-              {
-                mode: "new",
-                evidencePath: "evidence/research/new-evidence.md",
-                insightPath: "insights/business/new-signal.md",
-                domain: "business",
-                topic: "New Signal",
-                description: "Fresh signal from internal decisions",
-              },
-            ],
+            mode: "new",
+            evidencePath: "evidence/research/new-evidence.md",
+            insightPath: "insights/business/new-signal.md",
+            domain: "business",
+            topic: "New Signal",
+            description: "Fresh signal from internal decisions",
           },
-          { skipHotIndex: true }
-        ),
-      /already exists/
+        ],
+      },
+      { skipHotIndex: true }
     );
+
+    assert.equal(result.routes[0].action, "error");
+    assert.match(result.routes[0].reason, /already exists/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("applyRoutes reports per-route failures without aborting earlier successful writes", () => {
+  const { pmDir, cleanup } = createPmDir();
+  try {
+    writeFile(pmDir, "evidence/research/source.md", makeEvidence({ topic: "Source Evidence" }));
+    writeFile(
+      pmDir,
+      "evidence/research/index.md",
+      makeIndex("# Index", ["| [source.md](source.md) | Source evidence | 2026-04-10 | internal |"])
+    );
+    writeFile(pmDir, "evidence/research/log.md", "2026-04-10 create evidence/research/source.md\n");
+    writeFile(pmDir, "evidence/log.md", "");
+
+    writeFile(
+      pmDir,
+      "insights/product/target.md",
+      makeInsight({
+        topic: "Target Topic",
+        domain: "product",
+        status: "draft",
+        confidence: "low",
+        sources: [],
+      })
+    );
+    writeFile(
+      pmDir,
+      "insights/product/index.md",
+      makeIndex("# Product Insights", [
+        "| [target.md](target.md) | Old description | 2026-04-10 | draft |",
+      ])
+    );
+    writeFile(pmDir, "insights/product/log.md", "2026-04-10 create insights/product/target.md\n");
+
+    const result = applyRoutes(
+      pmDir,
+      {
+        routes: [
+          {
+            mode: "existing",
+            evidencePath: "evidence/research/source.md",
+            insightPath: "insights/product/target.md",
+            description: "Updated routed synthesis",
+          },
+          {
+            mode: "existing",
+            evidencePath: "evidence/research/missing.md",
+            insightPath: "insights/product/target.md",
+            description: "Broken route",
+          },
+        ],
+      },
+      { skipHotIndex: true }
+    );
+
+    assert.equal(result.routes[0].action, "updated");
+    assert.equal(result.routes[1].action, "error");
+    assert.match(result.routes[1].reason, /missing evidence file/);
+
+    const insightContent = fs.readFileSync(path.join(pmDir, "insights/product/target.md"), "utf8");
+    assert.match(insightContent, /sources:\n {2}- "evidence\/research\/source\.md"/);
+
+    const evidenceContent = fs.readFileSync(
+      path.join(pmDir, "evidence/research/source.md"),
+      "utf8"
+    );
+    assert.match(evidenceContent, /cited_by:\n {2}- "insights\/product\/target\.md"/);
   } finally {
     cleanup();
   }

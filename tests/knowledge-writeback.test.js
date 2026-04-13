@@ -333,3 +333,60 @@ test("writeKnowledgeArtifact updates an existing file while preserving created d
     cleanup();
   }
 });
+
+test("writeKnowledgeArtifact promotes internal evidence to mixed when adding external research", () => {
+  const { pmDir, cleanup } = createPmDir();
+  try {
+    const researchDir = path.join(pmDir, "evidence", "research");
+    fs.mkdirSync(researchDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(researchDir, "mixed-provenance.md"),
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        'topic: "Mixed Provenance"',
+        "source_origin: internal",
+        "created: 2026-04-01",
+        "updated: 2026-04-05",
+        "sources: []",
+        "cited_by: []",
+        "---",
+        "",
+        "# Mixed Provenance",
+        "",
+        "## Summary",
+        "Old summary.",
+      ].join("\n")
+    );
+    fs.writeFileSync(
+      path.join(researchDir, "index.md"),
+      [
+        "# Index",
+        "",
+        "| Topic/Source | Description | Updated | Status |",
+        "|---|---|---|---|",
+        "| [mixed-provenance.md](mixed-provenance.md) | Old description | 2026-04-05 | internal |",
+        "",
+      ].join("\n")
+    );
+    fs.writeFileSync(
+      path.join(researchDir, "log.md"),
+      "2026-04-05 create evidence/research/mixed-provenance.md\n"
+    );
+
+    writeKnowledgeArtifact(pmDir, {
+      artifactPath: "evidence/research/mixed-provenance.md",
+      topic: "Mixed Provenance",
+      summary: "External research extended an internal note.",
+      findings: ["The new research adds outside validation for the earlier internal call."],
+      description: "Updated provenance",
+      sourceOrigin: "external",
+    });
+
+    const content = fs.readFileSync(path.join(researchDir, "mixed-provenance.md"), "utf8");
+    assert.match(content, /source_origin: "mixed"/);
+  } finally {
+    cleanup();
+  }
+});

@@ -154,6 +154,25 @@ function loadExistingArtifact(filePath) {
   };
 }
 
+function resolveSourceOrigin(existingSourceOrigin, incomingSourceOrigin) {
+  const existing =
+    typeof existingSourceOrigin === "string" && existingSourceOrigin.trim()
+      ? existingSourceOrigin.trim()
+      : "";
+  const incoming =
+    typeof incomingSourceOrigin === "string" && incomingSourceOrigin.trim()
+      ? incomingSourceOrigin.trim()
+      : "";
+
+  if (existing === "mixed" || incoming === "mixed") {
+    return "mixed";
+  }
+  if (existing && incoming && existing !== incoming) {
+    return "mixed";
+  }
+  return existing || incoming || "internal";
+}
+
 function upsertIndex(indexPath, fileName, description, updated, status) {
   const row = `| [${fileName}](${fileName}) | ${description} | ${updated} | ${status} |`;
 
@@ -213,7 +232,10 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
   const citedBy = Array.isArray(existing?.frontmatter.cited_by)
     ? existing.frontmatter.cited_by
     : [];
-  const sourceOrigin = existing?.frontmatter.source_origin || payload.sourceOrigin;
+  const sourceOrigin = resolveSourceOrigin(
+    existing?.frontmatter.source_origin,
+    payload.sourceOrigin
+  );
 
   const frontmatter = {
     type: "evidence",
@@ -271,6 +293,7 @@ if (require.main === module) {
 module.exports = {
   buildBody,
   normalizePayload,
+  resolveSourceOrigin,
   upsertIndex,
   writeKnowledgeArtifact,
 };

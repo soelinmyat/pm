@@ -267,7 +267,18 @@ function applySingleRoute(pmDir, route, now) {
 function applyRoutes(pmDir, rawPayload, options = {}) {
   const routes = normalizePayload(rawPayload);
   const now = todayIso();
-  const results = routes.map((route) => applySingleRoute(pmDir, route, now));
+  const results = routes.map((route) => {
+    try {
+      return applySingleRoute(pmDir, route, now);
+    } catch (error) {
+      return {
+        evidencePath: route.evidencePath,
+        insightPath: route.insightPath,
+        action: "error",
+        reason: error.message,
+      };
+    }
+  });
   const rewriteTargets = Array.from(
     new Set(results.filter((result) => result.rewriteCandidate).map((result) => result.insightPath))
   );
@@ -276,7 +287,8 @@ function applyRoutes(pmDir, rawPayload, options = {}) {
       ? rewriteInsights(pmDir, { insights: rewriteTargets }, { now })
       : { insights: [] };
   const didGenerateHotIndex =
-    !options.skipHotIndex && results.some((result) => result.action !== "skipped");
+    !options.skipHotIndex &&
+    results.some((result) => result.action === "updated" || result.action === "created");
 
   if (didGenerateHotIndex) {
     execFileSync("node", [HOT_INDEX_SCRIPT, "--dir", pmDir, "--generate"], { encoding: "utf8" });
