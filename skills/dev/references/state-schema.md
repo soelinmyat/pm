@@ -64,17 +64,14 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Design critique: required (frontend files modified)
 - E2E: yes (CRUD flow)
 
-## Sub-Issues (only present when task_count > 1)
+## Tasks (always present — sourced from RFC Issue sections)
 
-| # | ID | Title | Size | Status | PR | Retries | Started | Completed |
-|---|----|-------|------|--------|----|---------|---------|-----------|
-| 1 | ISSUE-001 | First task | S | Merged (PR #312) | #312 | 0 | ... | ... |
-| 2 | ISSUE-002 | Second task | M | Implementing | — | 0 | ... | — |
+| Issue # | Title | Size | Status | Branch | PR |
+|---------|-------|------|--------|--------|----|
+| 1 | First task | S | done | feat/first-task | #312 |
+| 2 | Second task | M | in-progress | feat/second-task | — |
 
-## Tasks
-- [x] 1. Add migration
-- [x] 2. Model + backend tests
-- [ ] 3. Frontend mock + components
+Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` cards). Single-task sessions have one row. The RFC is the single source of truth for task decomposition — not Linear sub-issues or backlog `children:` fields.
 
 ## Key Files
 - backend/app/controllers/api/v1/features_controller.rb

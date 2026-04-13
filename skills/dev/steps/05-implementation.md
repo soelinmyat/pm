@@ -119,7 +119,7 @@ The implementation agent does NOT own simplify, design critique, QA, review, shi
 
 4. **Wait for agent to return** "Implementation complete" or "Blocked."
 
-5. **Checkpoint** — update state file `## Sub-Issues` table immediately. Update `## Implementation Progress`.
+5. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
 
 6. **Sync main** before the next task:
    ```bash

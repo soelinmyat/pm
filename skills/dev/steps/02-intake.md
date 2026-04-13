@@ -32,7 +32,24 @@ description: Load project memory, discover project context, classify size, creat
    | fetch failed | Ask user to paste the issue description. Proceed with pasted text. |
 
    Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps`.
-4. **Fetch sub-issues** — After fetching the issue, also check for sub-issues via `list_issues({ parentId })`. If sub-issues exist, store them in session state under `## Sub-Issues`. They become context for RFC generation. If no sub-issues, proceed normally.
+4. **Discover tasks from RFC** — After resolving the backlog item, check if it has a non-null `rfc:` field. If so, read the RFC HTML file at `{pm_dir}/backlog/{rfc_field}` (the `rfc:` value is relative to `{pm_dir}/backlog/`). Parse the RFC Issue sections by finding elements with class `.issue-detail`. For each, extract:
+   - Issue number from `.issue-detail-num`
+   - Title from `.issue-detail-title`
+   - Size from `.issue-detail-size`
+
+   Set `task_count` to the number of parsed issues. If the RFC exists but **zero issues are parsed**, **hard-abort**: "RFC found but no Issue sections parsed — check RFC HTML structure for `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
+
+   Store the task list in the session state under `## Tasks` (not `## Sub-Issues`):
+   ```
+   ## Tasks
+   | Issue # | Title | Size | Status | Branch | PR |
+   |---------|-------|------|--------|--------|----|
+   | 1 | {title} | {size} | pending | — | — |
+   ```
+
+   If no RFC exists (XS/S work, or RFC not yet generated), set `task_count = 1` and create a single-row `## Tasks` table from the proposal title.
+
+   **Linear enrichment (optional):** If Linear MCP is available and `linear_id` is set, fetch sub-issues via `list_issues({ parentId })` for **status sync only** (setting "In Progress" on sub-issues during implementation). Do NOT use Linear sub-issues for task decomposition — the RFC is the single source of truth.
 5. **Classify size:**
 
 | Size | Signal | Example |
@@ -43,7 +60,7 @@ description: Load project memory, discover project context, classify size, creat
 | **L** | New domain/module, cross-cutting refactor | New domain module, redesign auth flow |
 | **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
 
-   Classify using the best available context (Linear description, backlog, conversation). **Multi-task:** If sub-issues exist, classify each sub-issue individually. Present a table. The parent size is the largest sub-issue size.
+   Classify using the best available context (Linear description, backlog, conversation). **Multi-task:** If RFC tasks exist (`task_count > 1`), each task already has a size from the RFC. Present a table. The parent size is the largest task size.
 
 6. **Confirm size with user** before proceeding.
 
@@ -70,7 +87,7 @@ description: Load project memory, discover project context, classify size, creat
 8. **Issue tracking (M/L/XL only):**
    - From ticket: set status "In Progress"
    - From conversation: create issue in current cycle/sprint
-9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, Linear readiness routing result, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. If sub-issues exist, include a `## Sub-Issues` table. This is the single source of truth for the session.
+9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, Linear readiness routing result, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. Include a `## Tasks` table (always present — single-task sessions have one row, multi-task sessions have N rows from the RFC). This is the single source of truth for the session.
 
 ## Stage Routing by Size
 
