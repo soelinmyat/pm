@@ -8,13 +8,13 @@ description: Verify gh CLI and source repo access before starting work
 
 ## Tool Check
 
-For S+ tasks (which create branches and PRs), verify `gh` early:
+All sizes use the PR flow. Verify `gh` early so the user can install it before PR creation time:
 
 ```bash
 command -v gh >/dev/null 2>&1 || echo "WARN: GitHub CLI (gh) not found. PR creation will fail. Install: https://cli.github.com"
 ```
 
-All sizes use the PR flow, so `gh` is needed for PR creation. If missing, warn the user before starting work so they can install it rather than discovering at PR creation time.
+If missing, warn the user before starting work.
 
 ---
 

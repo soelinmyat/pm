@@ -4,6 +4,10 @@ order: 7
 description: Dispatch fresh developer agents to implement the approved RFC
 ---
 
+## Goal
+
+Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 08–11).
+
 ## Implementation
 
 Dispatch **fresh** @developer agent(s) using the runtime adapter. Whether resuming from a prior session or continuing from RFC Review, the flow is the same — the RFC is the contract and contains all codebase exploration findings needed for implementation.
@@ -22,7 +26,6 @@ Implement the approved RFC.
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 **RFC:** {pm_dir}/backlog/rfcs/{slug}.html
-**Merge strategy:** PR → merge-loop
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
@@ -35,20 +38,16 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the RFC end-to-end and implement all issues
-4. If SIZE is S+: invoke pm:simplify — fix findings, run tests, commit (skip for XS)
-5. If UI changes: invoke /design-critique if available, else skip
-6. If UI changes: dispatch QA agent per implementation-flow.md
-7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
-   If SIZE is XS: run code scan (single reviewer per implementation-flow.md)
-   If SIZE is S: skip code scan (simplify already covers it)
-8. Run full test suite as final verification
-9. Push branch, create PR, squash merge via merge-loop
-10. Cleanup worktree and branch
-11. Report: "Merged. PR #{N}, sha {abc}, {N} files changed."
+4. Run the project test suite — all tests must pass
+5. Commit implementation changes
 
 If blocked, report: "Blocked: {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
+
+Report when done: "Implementation complete. {N} files changed, tests passing."
 ```
+
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. Those are handled by Steps 08–11.
 
 ### Multi-task implementation (task_count > 1)
 
@@ -108,20 +107,17 @@ Lifecycle:
 1. cd {TASK_WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the RFC, focus on Issue {N}, implement its tasks
-4. Invoke pm:simplify — fix findings, run tests, commit
-5. If UI changes: invoke /design-critique if available, else skip
-6. If UI changes: dispatch QA agent per implementation-flow.md
-7. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
-   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
-8. Run full test suite as final verification
-9. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-10. Report: "Merged. {ISSUE_ID} PR #{N}, sha {abc}, {N} files changed."
+4. Run the project test suite — all tests must pass
+5. Commit implementation changes
+6. Report: "Implementation complete. {ISSUE_ID}, {N} files changed, tests passing."
 
 If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
 
-4. **Wait for agent to return** "Merged" or "Blocked."
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. The orchestrator runs those via Steps 08–11 after the agent returns.
+
+4. **Wait for agent to return** "Implementation complete" or "Blocked."
 
 5. **Checkpoint** — update state file `## Sub-Issues` table immediately. Update `## Implementation Progress`.
 
@@ -149,17 +145,16 @@ Track retry count per task in the state file.
 ### Continuous Execution
 
 <HARD-RULE>
-After the user approves the plan at the end of RFC Review, the developer agent proceeds through ALL remaining stages without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+After the user approves the plan at the end of RFC Review, the orchestrator proceeds through ALL remaining steps (07–11) without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
 
 The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
 **Only stop for:**
-- QA verdict of **Fail** (fix issues, re-run QA, then continue)
-- QA verdict of **Blocked** (ask user for guidance)
 - Test failures that can't be resolved after 3 attempts
-- Merge conflicts
-- CI failures that require human intervention
-- Review feedback from human reviewers on the PR (use `ship/references/handling-feedback.md`)
+- QA verdict of **Blocked** (ask user for guidance, Step 09)
+- Merge conflicts (Step 10)
+- CI failures that require human intervention (Step 10)
+- Review feedback from human reviewers on the PR (Step 10, use `ship/references/handling-feedback.md`)
 </HARD-RULE>
 
 ### Agent lifecycle
@@ -176,12 +171,22 @@ Orchestrator runs RFC review (RFC Review)
 
 Single-task: Fresh developer agent dispatched (Implementation)
   → reads approved RFC
-  → implements → simplify → design critique → QA → review → merge → cleanup
-  → returns "Merged. PR #{N}, sha {abc}, {N} files changed."
+  → implements code + tests, commits
+  → returns "Implementation complete."
 
 Multi-task: For each task in order, fresh developer agent dispatched (Implementation)
   → reads approved RFC, focuses on assigned Issue section
-  → implements → simplify → design critique → QA → review → merge → cleanup
-  → returns "Merged. {ISSUE_ID} PR #{N}" or "Blocked: {reason}"
+  → implements code + tests, commits
+  → returns "Implementation complete. {ISSUE_ID}" or "Blocked: {reason}"
   → orchestrator checkpoints, syncs main, dispatches next
+
+Orchestrator runs Steps 08–11:
+  → simplify (Step 08) → review (Step 09) → ship (Step 10) → retro (Step 11)
 ```
+
+## Done-when
+
+- Code and tests for all scoped issues are committed on the feature branch
+- The project test suite passes
+- The session file records key files changed, commit SHA, and next step = `simplify`
+- Implementation agent has returned — orchestrator proceeds to Step 08

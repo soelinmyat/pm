@@ -74,7 +74,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
    - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
    - Commit the updated RFC.
-9. **Open RFC in browser.**
+8. **Open RFC in browser.**
 
    The RFC is already HTML (written in RFC Generation). After resolving questions and updating the Change Log, open it directly:
 
@@ -83,21 +83,24 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-10. Wait for user approval. Then ask:
+9. Wait for user approval. Then ask:
 
     > "RFC approved. Continue implementation now, or stop and resume later?"
 
     - **(a) Continue now** → Update `.pm/dev-sessions/{slug}.md` with `RFC review: passed (commit <sha>)` and `Continuous execution: authorized`. Proceed to Implementation.
     - **(b) Stop and resume later** → Do these in order:
       1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
-      2. Delete the session file: `rm .pm/dev-sessions/{slug}.md`
-         (No need to set `completed_at` first — the file is being deleted.
-         The backlog status and RFC are the durable artifacts.)
+      2. Update `.pm/dev-sessions/{slug}.md`:
+         - Set `Stage: rfc-approved`
+         - Set `RFC review: passed (commit {sha})`
+         - Update `Resume Instructions` → `Next action: resume at Implementation`
+         Do NOT delete the session file. The `rfc-approved` stage exists specifically to support this resume path (see Step 04, Step 0).
       3. Print:
          ```
-         Session complete. RFC approved, ready to build.
+         Session paused. RFC approved, ready to build.
          - RFC: {pm_dir}/backlog/rfcs/{slug}.html
          - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
-         - Resume: run /dev {slug} to start implementation.
+         - Session: .pm/dev-sessions/{slug}.md (stage: rfc-approved)
+         - Resume: run /dev {slug} to continue to implementation.
          ```
       **Stop here. Do not proceed to Implementation.**
