@@ -16,7 +16,7 @@ The goal is to find **genuinely close competitors** — not just well-known play
    - Search for tools targeting the **same user** (e.g., "AI tools for [ICP role]", "[workflow] tool for [audience]").
    - Search for tools solving the **same problem** differently (e.g., web apps, CLI tools, browser extensions).
    - Search GitHub, plugin marketplaces, Product Hunt, and Indie Hackers for emerging/unlisted competitors.
-   - If `"ahrefs-mcp"` is configured: use `site-explorer-organic-competitors` on any known competitor domain to discover who else competes for the same keywords.
+   - If `"ahrefs-mcp"` is configured: use Ahrefs MCP tools to discover organic competitors for any known competitor domain — reveals who else competes for the same keywords.
 3. **Filter by relevance.** Classify candidates by proximity:
    - **Direct competitors**: Same platform, same workflow, same audience.
    - **Adjacent competitors**: Different platform or delivery model, but overlapping use case.

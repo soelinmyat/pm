@@ -29,9 +29,8 @@ Execute the loaded workflow steps in order. They're conversational beats, not ph
 | User wants sprint-ready issues | **groom** |
 | Conversation started as thinking, user says "let's do this" | **think** → promote to **groom** |
 
-## Interaction Rules
+## Interaction Pacing
 
-- **One question at a time.** Never bundle.
 - **Be a thinking partner, not a note-taker.** Challenge, reframe, push back.
 - **No ceremony.** No state files, no agents, no review gates during thinking.
 - **Verdicts first.** Lead with your take, then explain.

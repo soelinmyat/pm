@@ -46,27 +46,10 @@ Implement fresh from tests. Period.
 
 ## Red-Green-Refactor
 
-```dot
-digraph tdd_cycle {
-    rankdir=LR;
-    red [label="RED\nWrite failing test", shape=box, style=filled, fillcolor="#ffcccc"];
-    verify_red [label="Verify fails\ncorrectly", shape=diamond];
-    green [label="GREEN\nMinimal code", shape=box, style=filled, fillcolor="#ccffcc"];
-    verify_green [label="Verify passes\nAll green", shape=diamond];
-    refactor [label="REFACTOR\nClean up", shape=box, style=filled, fillcolor="#ccccff"];
-    next [label="Next", shape=ellipse];
-
-    red -> verify_red;
-    verify_red -> green [label="yes"];
-    verify_red -> red [label="wrong\nfailure"];
-    green -> verify_green;
-    verify_green -> refactor [label="yes"];
-    verify_green -> green [label="no"];
-    refactor -> verify_green [label="stay\ngreen"];
-    verify_green -> next;
-    next -> red;
-}
-```
+1. **RED** — Write one failing test. Verify it fails for the right reason (not a syntax error or wrong import). If it fails for the wrong reason, fix the test first.
+2. **GREEN** — Write the minimal code to make the test pass. Run all tests — everything must be green. If something else broke, fix it before moving on.
+3. **REFACTOR** — Clean up the implementation. Run tests after every change — stay green throughout. Never refactor red.
+4. **Repeat** — pick the next behavior and go back to RED.
 
 ### RED - Write Failing Test
 

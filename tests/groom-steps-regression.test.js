@@ -118,7 +118,7 @@ const CRITICAL_KEYWORDS = [
 
   // Step 5: Scope Review
   "scope-review",
-  "senior product manager",
+  "product manager",
   "competitive strategist",
   "engineering manager",
   "scope_review",
@@ -142,10 +142,11 @@ const CRITICAL_KEYWORDS = [
   // Step 8: Team Review
   "team-review",
   "team_review",
-  "Proposal Quality",
-  "Positioning Quality",
-  "Technical Feasibility",
-  "Visual Quality",
+  "team-review-prompts.md",
+  "Proposal quality",
+  "Competitive positioning",
+  "Technical feasibility",
+  "Flow completeness",
 
   // Step 9: Bar Raiser
   "bar-raiser",
