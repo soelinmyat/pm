@@ -121,7 +121,7 @@ Public product promise lives in:
 - platform install guides such as `.codex/INSTALL.md`
 
 Planning notes live in:
-- `.planning/`
+- `docs/plans/`
 
 `.planning/` is committed and reviewable, but it is not runtime behavior.
 
@@ -169,9 +169,9 @@ The pre-push hook will block pushes if the tag is missing.
 
 ## Planning Notes
 
-- Prefer dated filenames in `.planning/`.
+- Prefer dated filenames in `docs/plans/`.
 - Delete or archive stale planning notes once implemented.
-- Do not confuse `.planning/` files with runtime plugin instructions.
+- Do not confuse `docs/` files with runtime plugin instructions.
 
 ## When Unsure
 

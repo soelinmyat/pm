@@ -19,7 +19,7 @@ After the proposal is drafted, dispatch parallel reviewers to review the complet
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. In runtimes that support delegation, run them in parallel. Otherwise run the same briefs inline before merging findings.
 
-**Reviewer personas:** Load prompts from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-review-prompts.md`. Dispatch these reviewers:
+**Reviewer personas:** Load prompts from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md`. Dispatch these reviewers:
 
 | Persona | Angle | Always run? |
 |---------|-------|-------------|

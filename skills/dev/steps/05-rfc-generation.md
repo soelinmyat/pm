@@ -45,7 +45,7 @@ SPEC_COMPLETE
 - summary: {2-line summary}
 ```
 
-For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/spec-reviewer-prompts.md`. Fix blocking issues, commit.
+For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/spec-reviewers.md`. Fix blocking issues, commit.
 
 Groomed sub-issues skip this step — their proposal is sufficient context.
 

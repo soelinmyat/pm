@@ -16,7 +16,7 @@ Use it to do one of two things:
 
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and interaction pacing.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for workflow loading, telemetry, and interaction pacing. Do not use its generic path resolution section here — `pm:start` resolves paths itself below before loading any steps.
 
 **Workflow:** `start` | **Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `open`, `pulse`.
 

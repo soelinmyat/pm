@@ -41,7 +41,7 @@ The workflow stays the same across runtimes. Dispatch mechanics come from the cu
 
 ---
 
-## Resume Check
+## Resume
 
 Before doing anything else, glob `{pm_state_dir}/groom-sessions/*.md`.
 
@@ -77,7 +77,7 @@ The following reference files provide detailed guidance for specific groom capab
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` | Tier selection, step-skipping rules, research routing |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/ideate.md` | Standalone ideation mode — surface what to build next |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` | Groom-specific formatting supplement |
-| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-document-reviewer-prompt.md` | Spec review agent template |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-reviewer.md` | Spec review agent template |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/scope-validation.md` | Scope validation methodology for Step 4 |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md` | Session state file YAML schema |
 

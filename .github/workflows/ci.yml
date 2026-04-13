@@ -44,8 +44,8 @@ jobs:
 
       - run: npm ci
 
-      - name: Run tests
-        run: node --test tests/*.test.js
+      - name: Run tests with coverage
+        run: npx c8 --reporter=text node --test tests/*.test.js
 
   validate:
     name: Plugin Validation

@@ -11,9 +11,11 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 When this skill loads at the beginning of a new session:
 
-1. Check whether `.pm/config.json` exists in the project root.
-2. **If it exists** — invoke `pm:start` before responding to the user (Resume/Pulse path).
-3. **If it does not exist** — print: "PM not initialized. Run /pm:start to set up." Do not invoke pm:start.
+1. Check the user's first message.
+2. **If it's a direct question or a concrete task** — answer or route directly. Do **not** invoke `pm:start` just because `.pm/config.json` exists.
+3. **If it's a session-opening request** ("start PM", "open PM", "show research", "what should I do next", or similarly general session kickoff) — check whether `.pm/config.json` exists in the project root.
+4. **If `.pm/config.json` exists** — invoke `pm:start` before responding (Resume/Pulse path).
+5. **If `.pm/config.json` does not exist** — print: "PM not initialized. Run /pm:start to set up." Do not invoke `pm:start`.
 
 # Using Plugin Skills
 
@@ -28,7 +30,7 @@ These are the skills you invoke directly. Most other capabilities are built into
 | "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
 | "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Auto-detects scope. Checks for RFC; generates one if missing. Then implements. Auto-grooms ungroomed work. |
 | "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 3 tiers: quick, standard, full. No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
-| "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, topic. Use `quick` mode for fast inline questions |
+| "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, or a saved topic deep dive. For quick factual questions, answer directly instead of creating research artifacts |
 | "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
 | "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
 | "Merge this PR" / "Land this" / "Fix PR comments" / "Resolve CI" | Merge workflow | Self-healing merge loop — fix CI, resolve review comments, handle conflicts, merge |
@@ -115,7 +117,7 @@ End every skill with a structured summary:
 
 Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
 
-## Red Flags
+## Common Rationalizations
 
 When the user is starting a workflow (building, shipping, grooming), these thoughts mean you're skipping discipline:
 

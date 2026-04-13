@@ -142,7 +142,7 @@ const CRITICAL_KEYWORDS = [
   // Step 8: Team Review
   "team-review",
   "team_review",
-  "team-review-prompts.md",
+  "team-reviewers.md",
   "Proposal quality",
   "Competitive positioning",
   "Technical feasibility",
@@ -238,7 +238,7 @@ test("groom steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable",
       "scope-validation.md",
       "agent-runtime.md",
       "writing.md",
-      "spec-document-reviewer-prompt.md",
+      "spec-reviewer.md",
       "frontmatter-schemas.md",
       "validate.js",
     ];

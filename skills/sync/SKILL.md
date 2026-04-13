@@ -107,7 +107,7 @@ Before running push or pull, check for credentials:
    - {each error}
    ```
 
-4. Query server-side stats (if credentials are configured):
+4. Query server-side stats through the sync script (if credentials are configured):
 
    **Pre-conditions:**
    - `~/.pm/credentials` exists and contains a `token` field
@@ -120,10 +120,12 @@ Before running push or pull, check for credentials:
 
    Run via the Bash tool:
    ```bash
-   curl -s -H "Authorization: Bearer {token}" -H "X-Project-Id: {projectId}" -H "X-API-Version: 1" {serverUrl}/sync/status
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync.js" status
    ```
 
-   **On success** (HTTP 200, valid JSON response with `fileCount`, `totalBytes`, `lastUpdated`):
+   `kb-sync.js` owns auth, headers, API versioning, and endpoint details. Read the script output or its persisted status payload — do not duplicate transport logic in this skill.
+
+   **On success** (valid JSON response with `fileCount`, `totalBytes`, `lastUpdated`):
 
    Append server-side stats below the local summary:
 
@@ -134,7 +136,7 @@ Before running push or pull, check for credentials:
 
    Format `totalBytes` as human-readable: bytes for < 1 KB, KB with one decimal for < 1 MB, MB with one decimal otherwise.
 
-   **On failure** (non-200 status, network error, invalid JSON, or missing fields):
+   **On failure** (network error, invalid JSON, missing fields, or credentials/project config missing):
 
    Append a fallback note:
 
@@ -149,5 +151,5 @@ Before running push or pull, check for credentials:
 ## Constraints
 
 - This skill only runs the sync script and reports results. It does not modify pm/ files directly.
-- The `kb-sync.js` script handles all server communication, manifest diffing, and file writes.
+- The `kb-sync.js` script handles all server communication, manifest diffing, and file writes, including server-side status lookups.
 - Never display raw JSON to the user. Always format the output as readable text.
