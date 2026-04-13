@@ -136,7 +136,7 @@ const CRITICAL_KEYWORDS = [
   "draft-proposal",
   "Feature-type detection",
   "Mermaid",
-  "proposal_path",
+  "backlog_path",
   "backlog",
 
   // Step 8: Team Review
