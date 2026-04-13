@@ -14,14 +14,21 @@ description: Load just enough context to have an informed conversation — strat
 
 Search for existing thinking on this topic using the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` (domain: `thinking`, index: `{pm_dir}/thinking/index.md`).
 
+If `{pm_dir}/thinking/index.md` does not exist but `{pm_dir}/thinking/` contains `.md` files, rebuild the index first using the index rebuild procedure in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Then search as normal.
+
 If a match is found:
 > "Found thinking on '{topic}' from {date} (status: {status}). Pick up where we left off, or start fresh?"
 
 If the user resumes:
 1. Read the full artifact. Check its `status` field.
-2. Continue through the rest of this ground step (strategy/insights may have changed).
-3. After grounding, resume from the last incomplete beat — if all sections are filled, start from pressure-test (re-examine with fresh eyes).
-4. The user may have new context — ask before assuming the old direction still holds.
+2. Continue through the rest of this ground step (strategy/insights may have changed since the artifact was written).
+3. Ask: "What changed since this was written?"
+4. Resume using this rule:
+   - If the new information changes the **core problem** → restart at **Reframe**.
+   - If the problem still holds but the **solution/direction is unsettled** → restart at **Explore Approaches**.
+   - If a direction already exists and only the **risks or context changed** → restart at **Pressure-Test**.
+   - If nothing material changed and the user just wants to revisit → restart at **Pressure-Test** (re-examine with fresh eyes).
+5. Do not infer resume position from artifact sections — use the user's answer to step 3.
 
 If no match or the user says "start fresh" — continue grounding as normal.
 
@@ -63,7 +70,7 @@ This is "let me quickly check if [X] is true." Not a research session. If you ne
 
 ### Rules
 
-- Total grounding: < 30 seconds of processing
+- Total grounding: strategy + one index grep + at most 2 insight files + at most 2 web searches. Stop loading when you have enough to reframe.
 - Strategy is always read (cheapest, highest-value context)
 - Never read raw evidence files — use the insight layer
 - If significant gaps exist, surface them as output, don't try to fill them here

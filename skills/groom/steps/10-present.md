@@ -53,7 +53,7 @@ Tell the user:
 #### Step 4: Handle feedback
 
 Wait for explicit approval. Accept edits inline. If the user requests changes:
-- For minor edits (wording, AC tweaks): revise issues and update the backlog entry. No need to re-run reviews.
+- For minor edits (wording, AC tweaks): revise the proposal and update the backlog entry. No need to re-run reviews.
 - For scope changes (adding/removing in-scope items): re-run from Step 8 (Team Review).
 
 Update state:

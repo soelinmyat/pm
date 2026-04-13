@@ -18,4 +18,14 @@ A good summary names the *who* (who benefits), the *what* (what changes for them
 
 If the idea is vague, ask ONE clarifying question — the one that unlocks the most understanding. Prefer "Is this about X?" (yes/no) over open-ended questions. Pick the question that resolves the most ambiguity about scope or intent.
 
-**Done-when:** The user confirms the summary is accurate, or corrects it and you've incorporated the correction. You should be able to state the idea in one sentence before moving on.
+### Slug derivation
+
+After the user confirms the summary, derive the canonical slug:
+
+- Kebab-case, max 4 words, derived from the confirmed topic
+- If resuming an existing artifact (detected in the next step), reuse that artifact's slug
+- This slug is the **single identifier** used for the thinking file (`{pm_dir}/thinking/{slug}.md`), the index row, and any groom handoff
+
+Store the slug for all subsequent steps. Do not re-derive it later.
+
+**Done-when:** The user confirms the summary is accurate, or corrects it and you've incorporated the correction. You should be able to state the idea in one sentence, and you have a canonical slug.

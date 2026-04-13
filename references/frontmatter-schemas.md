@@ -310,11 +310,12 @@ Files in `pm/thinking/*.md`. Product thinking artifacts produced by the `think` 
 | `created` | date | required | `YYYY-MM-DD` | Creation date |
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
 | `status` | enum | required | `"active"` \| `"parked"` \| `"promoted"` | Lifecycle stage |
-| `promoted_to` | string\|null | optional | — | Groom session slug when `status: promoted`, otherwise `null` |
+| `promoted_to` | string\|null | optional | — | Downstream slug when `status: promoted`, otherwise `null` |
 
 ### Constraints
 
-- `promoted_to` must be non-null when `status` is `promoted`
+- `promoted_to` must be a kebab-case slug — not a file path, Linear ID, or free text
+- `promoted_to` should be non-null when `status` is `promoted`. Prefer groom session slug; backlog slug is acceptable when no groom session exists. `null` is acceptable only when the idea was implemented directly without a formal downstream artifact.
 - `promoted_to` must be null (or absent) when `status` is not `promoted`
 - `slug` must match the filename (without `.md` extension)
 

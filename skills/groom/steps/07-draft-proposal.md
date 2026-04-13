@@ -35,7 +35,7 @@ If the feature type is UI or workflow and no flow was generated during the Desig
 
 2. Include citation trails — at least one `%% Source:` comment per diagram referencing the research finding or competitor gap that informed a design decision:
    ```
-   %% Source: {pm_dir}/evidence/research/{topic}.md — Finding N: {description}
+   %% Source: {pm_dir}/evidence/research/{topic-slug}.md — Finding N: {description}
    %% Source: {pm_dir}/evidence/competitors/{slug}/features.md — {gap or pattern}
    ```
 
@@ -96,7 +96,9 @@ Behavior depends on the current `groom_tier` from session state.
 
 ```yaml
 phase: draft-proposal
-proposal_path: {pm_dir}/backlog/{topic-slug}.md
+proposal:
+  slug: "{topic-slug}"
+  backlog_path: {pm_dir}/backlog/{topic-slug}.md
 ```
 
 **If `groom_tier` is `full`:**
@@ -113,5 +115,7 @@ proposal_path: {pm_dir}/backlog/{topic-slug}.md
 
 ```yaml
 phase: draft-proposal
-proposal_path: {pm_dir}/backlog/{topic-slug}.md
+proposal:
+  slug: "{topic-slug}"
+  backlog_path: {pm_dir}/backlog/{topic-slug}.md
 ```
