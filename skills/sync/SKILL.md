@@ -111,6 +111,43 @@ Before running push or pull, check for credentials:
    - {each error}
    ```
 
+4. Query server-side stats (if credentials are configured):
+
+   **Pre-conditions:**
+   - `~/.pm/credentials` exists and contains a `token` field
+   - `.pm/config.json` contains a `projectId` field
+   - `.pm/config.json` contains a `serverUrl` field (or default to `https://api.productmemory.io`)
+
+   If either `credentials` or `projectId` is missing, skip this step — show local stats only.
+
+   **Execution:**
+
+   Run via the Bash tool:
+   ```bash
+   curl -s -H "Authorization: Bearer {token}" -H "X-Project-Id: {projectId}" -H "X-API-Version: 1" {serverUrl}/sync/status
+   ```
+
+   **On success** (HTTP 200, valid JSON response with `fileCount`, `totalBytes`, `lastUpdated`):
+
+   Append server-side stats below the local summary:
+
+   ```
+   Server: {fileCount} files, {totalBytes formatted} synced
+   Last updated: {lastUpdated formatted as readable date/time}
+   ```
+
+   Format `totalBytes` as human-readable: bytes for < 1 KB, KB with one decimal for < 1 MB, MB with one decimal otherwise.
+
+   **On failure** (non-200 status, network error, invalid JSON, or missing fields):
+
+   Append a fallback note:
+
+   ```
+   Server unreachable — showing local data only.
+   ```
+
+   Do not show raw error details to the user.
+
 ---
 
 ## Constraints
