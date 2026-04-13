@@ -28,7 +28,7 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 5 step files exist and load
+// AC 1: All 6 step files exist and load
 // ---------------------------------------------------------------------------
 
 test("think steps: all 6 step files load with correct order", () => {
@@ -108,8 +108,11 @@ const CRITICAL_KEYWORDS = [
   "Dependencies",
 
   // Step 6: Synthesize
-  "synthesize",
+  "Synthesize",
   "thinking artifact",
+  "Did I capture it correctly",
+  "status: promoted",
+  "promoted_to",
   "pm:groom",
   "groom_tier: quick",
   "{pm_dir}/thinking/",
@@ -139,7 +142,7 @@ test("think steps: concatenated output contains all critical instruction keyword
 });
 
 // ---------------------------------------------------------------------------
-// AC 4: Step names map to the 5 beats
+// AC 4: Step names map to the 6 beats
 // ---------------------------------------------------------------------------
 
 test("think steps: step names match expected beats", () => {

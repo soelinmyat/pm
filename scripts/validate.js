@@ -66,6 +66,8 @@ const REQUIRED_EVIDENCE_FIELDS = [
   "cited_by",
 ];
 const REQUIRED_NOTES_FIELDS = ["type", "month", "updated", "note_count", "digested_through"];
+const REQUIRED_THINKING_FIELDS = ["type", "topic", "slug", "created", "updated", "status"];
+const VALID_THINKING_STATUSES = ["active", "parked", "promoted"];
 
 // ========== Forbidden-syntax pattern ==========
 // Rejects enum values with trailing parenthetical free text, e.g. "high (needs review)"
@@ -521,6 +523,70 @@ function validateNotesFile(pmDir, filePath, data, errors) {
   }
 }
 
+function validateThinkingFile(pmDir, filePath, data, errors, warnings) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+
+  validateRequiredFields(relativeFile, data, REQUIRED_THINKING_FIELDS, errors);
+
+  if (data.type && data.type !== "thinking") {
+    pushIssue(errors, relativeFile, "type", `expected "thinking", got "${data.type}"`);
+  }
+
+  if (data.status) {
+    validateEnum(relativeFile, "status", data.status, VALID_THINKING_STATUSES, errors);
+  }
+
+  if (data.created && !isIsoDate(data.created)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "created",
+      `invalid date format "${data.created}" — expected YYYY-MM-DD`
+    );
+  }
+
+  if (data.updated && !isIsoDate(data.updated)) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "updated",
+      `invalid date format "${data.updated}" — expected YYYY-MM-DD`
+    );
+  }
+
+  // slug must match filename
+  if (data.slug) {
+    const expectedSlug = path.basename(filePath, ".md");
+    if (data.slug !== expectedSlug) {
+      pushIssue(
+        errors,
+        relativeFile,
+        "slug",
+        `slug "${data.slug}" does not match filename "${expectedSlug}"`
+      );
+    }
+  }
+
+  // promoted_to constraints
+  if (data.status === "promoted") {
+    if (!data.promoted_to || data.promoted_to === "null") {
+      pushIssue(
+        errors,
+        relativeFile,
+        "promoted_to",
+        "promoted_to must be set when status is promoted"
+      );
+    }
+  } else if (data.promoted_to && data.promoted_to !== "null" && data.promoted_to !== null) {
+    pushIssue(
+      warnings,
+      relativeFile,
+      "promoted_to",
+      `promoted_to is set but status is "${data.status}", not "promoted"`
+    );
+  }
+}
+
 function parseIndexRows(content) {
   const tableLines = content
     .split(/\r?\n/)
@@ -932,6 +998,23 @@ function validate(pmDir) {
     }
   }
 
+  const thinkingDir = path.join(pmDir, "thinking");
+  for (const filePath of walkMarkdownFiles(thinkingDir)) {
+    const base = path.basename(filePath);
+    if (base === "index.md") {
+      validateIndexFile(pmDir, filePath, errors);
+      continue;
+    }
+
+    const relativeFile = relativeToPm(pmDir, filePath);
+    const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+    if (!parsed) {
+      continue;
+    }
+
+    validateThinkingFile(pmDir, filePath, parsed.data, errors, warnings);
+  }
+
   const insightsDir = path.join(pmDir, "insights");
   for (const filePath of walkMarkdownFiles(insightsDir)) {
     const base = path.basename(filePath);
@@ -1068,6 +1151,7 @@ module.exports = {
   VALID_SOURCE_ORIGINS,
   VALID_MEMORY_CATEGORIES,
   VALID_COMPETITOR_TYPES,
+  VALID_THINKING_STATUSES,
   REQUIRED_BACKLOG_FIELDS,
   REQUIRED_STRATEGY_FIELDS,
   REQUIRED_INSIGHT_FIELDS,
