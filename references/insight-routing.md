@@ -4,6 +4,14 @@ Shared reference for routing evidence findings into synthesized insight topics. 
 
 **Goal:** After new evidence is written, match its findings against existing insight topics (or seed new ones), present proposed routings for user confirmation, then atomically update both sides of the bidirectional citation.
 
+Accepted routes must be applied with the helper script:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"
+```
+
+Pass a JSON payload on stdin. The helper owns citation writes, domain index updates, domain log updates, evidence log updates, deterministic rewrites of affected existing insights, and hot-index regeneration.
+
 ---
 
 ## When to Invoke
@@ -145,29 +153,57 @@ If no matches exist and no new topic is warranted, go directly to the skip path 
 
 ## Step 5: Atomic Write
 
+After the user accepts routes from Step 4, do not hand-edit insight and evidence files. Build a routing payload and apply it with `insight-routing.js`.
+
+```bash
+cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"
+{
+  "routes": [
+    {
+      "mode": "existing",
+      "evidencePath": "evidence/research/bulk-editing.md",
+      "insightPath": "insights/product/full-lifecycle-context.md",
+      "description": "Bulk editing strengthens the full-lifecycle context claim"
+    },
+    {
+      "mode": "new",
+      "evidencePath": "evidence/research/bulk-editing.md",
+      "insightPath": "insights/business/enterprise-readiness.md",
+      "domain": "business",
+      "topic": "Enterprise Readiness",
+      "description": "Bulk operations behave like an enterprise-readiness signal"
+    }
+  ]
+}
+JSON
+```
+
+The script applies only the accepted routing decisions. Matching, user confirmation, and route selection still happen in this workflow.
+
 For each accepted routing, update both files before moving to the next topic:
 
 ### 5.1 For existing topics
 
-1. Read the insight file at `insights/{domain}/{slug}.md`.
-2. **Dedup check:** If the evidence path is already in `sources`, skip this pair.
-3. Append the evidence file path to the insight's `sources` array.
-4. Update `last_updated` to today.
-5. Read the evidence file.
-6. Append the insight file path to the evidence file's `cited_by` array.
-7. **Dedup check:** If the insight path is already in `cited_by`, skip writing `cited_by`.
+1. The helper reads the insight file at `insights/{domain}/{slug}.md`.
+2. **Dedup check:** If the evidence path is already in `sources`, the route is skipped.
+3. The helper appends the evidence file path to the insight's `sources` array.
+4. The helper updates `last_updated` to today.
+5. The helper reads the evidence file.
+6. The helper appends the insight file path to the evidence file's `cited_by` array.
+7. **Dedup check:** If the insight path is already in `cited_by`, the helper skips that backlink write.
 
 ### 5.2 For new topics
 
-1. Create the insight file using the seeding template (same as Step 1.3), but with `sources: ["{evidence path}"]` and `confidence: low`.
-2. Read the evidence file.
-3. Append the insight file path to the evidence file's `cited_by` array.
+1. The helper creates the insight file using the seeding template (same as Step 1.3), but with `sources: ["{evidence path}"]` and `confidence: low`.
+2. The helper reads the evidence file.
+3. The helper appends the insight file path to the evidence file's `cited_by` array.
 
 ### Write rules
 
 - **Only write to `cited_by`** on evidence files. Never modify `source_origin`, `evidence_count`, `segments`, `confidence`, or internal `sources` entries.
 - **Never create duplicate entries** in `sources` or `cited_by`.
 - **On write failure:** skip that topic, report the error, and continue with the next topic. Do not attempt rollback.
+- Do not hand-edit `insights/{domain}/index.md`, `insights/{domain}/log.md`, `evidence/log.md`, or `insights/.hot.md` after the helper runs unless you are fixing a helper failure.
 
 ---
 
@@ -188,26 +224,18 @@ For each target insight file, check whether a rewrite is needed:
 3. If the body already has a Synthesis section: compare the current `sources` array (sorted alphabetically) against the sources present at the time of the last rewrite. If the sorted arrays are identical, **skip the rewrite** — the insight is already up to date.
 4. If the sorted arrays differ (a source was added, removed, or replaced), the rewrite proceeds even if the source count is unchanged.
 
-### 5.5.3 Dispatch rewrites
+### 5.5.3 Apply rewrites
 
-For each insight that passes the idempotency guard, dispatch a subagent with this prompt:
+Do not hand-edit the body of each rewritten insight. The routing helper invokes `scripts/insight-rewrite.js` for all affected existing insights in the same pass.
 
-> You are rewriting an insight file. You will receive:
-> 1. The full insight file content (frontmatter + body)
-> 2. The full content of every evidence file listed in the `sources` array
-> 3. The rewrite template from `references/insight-rewrite-template.md`
->
-> **Rules:**
-> - Preserve the YAML frontmatter exactly, except update `confidence`, `status`, and `last_updated`.
-> - Never modify `type`, `domain`, `topic`, or `sources` in frontmatter.
-> - Write the body following the rewrite template: Synthesis (2-4 paragraphs), Key Findings (numbered, citing source paths), Confidence Rationale (1-2 sentences, omit when confidence is low).
-> - Integrate ALL evidence sources — every source must appear in at least one Key Finding citation.
-> - Do not invent findings not present in the evidence.
-> - Update `last_updated` to today's date (YYYY-MM-DD).
+The rewrite helper:
+- reads the current insight file and all linked evidence files from `sources`
+- rebuilds the body using the template in `references/insight-rewrite-template.md`
+- updates only `last_updated`, `status`, and `confidence` in frontmatter
+- keeps `type`, `domain`, `topic`, and `sources` canonical
+- omits `Confidence Rationale` when the confidence remains `low`
 
-Each subagent reads: (a) the full insight file, (b) all evidence files from the `sources` array, (c) the rewrite template at `references/insight-rewrite-template.md`.
-
-**Concurrency:** Dispatch up to **10 rewrites in parallel**. If more than 10 insights need rewriting, batch them in groups of 10 — wait for each batch to complete before starting the next.
+The rewrite is deterministic and file-native. It compiles from the linked evidence instead of dispatching another open-ended synthesis step.
 
 ### 5.5.4 Confidence and status rules
 
@@ -247,31 +275,25 @@ If validation fails, report the failure but do not block routing. Pre-existing u
 
 ## Step 6: Update Indexes and Logs
 
-After all writes complete:
+After the helper applies all writes:
 
 ### For each affected insight domain:
 
-- Update `insights/{domain}/index.md` — add or update rows for modified/created insight files.
-- Append entries to `insights/{domain}/log.md`:
+- `insight-routing.js` updates `insights/{domain}/index.md` — add or update rows for modified/created insight files.
+- `insight-routing.js` appends entries to `insights/{domain}/log.md`:
   - For new topics: `{today} create insights/{domain}/{slug}.md`
   - For updated topics: `{today} cite insights/{domain}/{slug}.md -> {evidence path}`
 
 ### For the evidence pool:
 
-- Append cite entries to `{pm_dir}/evidence/log.md` and `{pm_dir}/evidence/research/log.md` (or the appropriate evidence type log):
+- `insight-routing.js` appends cite entries to `{pm_dir}/evidence/log.md` and `{pm_dir}/evidence/research/log.md` (or the appropriate evidence type log):
   ```
   {today} cite insights/{domain}/{slug}.md -> {evidence path}
   ```
 
 ### Regenerate hot index
 
-After all index and log updates are complete, regenerate the hot index:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}" --generate
-```
-
-This keeps `insights/.hot.md` in sync with the latest routing changes.
+After all index and log updates are complete, `insight-routing.js` regenerates the hot index automatically. This keeps `insights/.hot.md` in sync with the latest routing changes.
 
 ### Skip path
 

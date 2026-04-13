@@ -216,7 +216,7 @@ test("generate mode: creates .hot.md with 5 insights across 2 domains", (t) => {
 
   // Check table structure
   assert.ok(
-    content.includes("| Domain | Topic | Confidence | Sources | Updated |"),
+    content.includes("| Domain | Topic | Status | Confidence | Sources | Updated |"),
     "should have header"
   );
 
@@ -308,6 +308,44 @@ test("filter by since: returns only recently updated insights", (t) => {
   assert.equal(result.exitCode, 0);
   assert.ok(result.stdout.includes("New Topic"));
   assert.ok(!result.stdout.includes("Old Topic"));
+});
+
+test("filter by hungry: returns draft, low-confidence, or under-sourced insights", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/insights/product/draft.md": makeInsight({
+      topic: "Draft Topic",
+      status: "draft",
+      confidence: "medium",
+      sources: ["evidence/research/a.md", "evidence/research/b.md"],
+    }),
+    "pm/insights/product/low-confidence.md": makeInsight({
+      topic: "Low Confidence",
+      status: "active",
+      confidence: "low",
+      sources: ["evidence/research/a.md", "evidence/research/b.md"],
+    }),
+    "pm/insights/product/under-sourced.md": makeInsight({
+      topic: "Under Sourced",
+      status: "active",
+      confidence: "high",
+      sources: ["evidence/research/a.md"],
+    }),
+    "pm/insights/product/healthy.md": makeInsight({
+      topic: "Healthy Topic",
+      status: "active",
+      confidence: "high",
+      sources: ["evidence/research/a.md", "evidence/research/b.md", "evidence/research/c.md"],
+    }),
+  });
+  t.after(cleanup);
+
+  runHotIndex(pmDir, ["--generate"]);
+  const result = runHotIndex(pmDir, ["--hungry"]);
+  assert.equal(result.exitCode, 0);
+  assert.ok(result.stdout.includes("Draft Topic"));
+  assert.ok(result.stdout.includes("Low Confidence"));
+  assert.ok(result.stdout.includes("Under Sourced"));
+  assert.ok(!result.stdout.includes("Healthy Topic"));
 });
 
 test("composable filters: domain + confidence returns intersection", (t) => {

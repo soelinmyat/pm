@@ -117,6 +117,150 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
     assert.equal(status.next, "/pm:strategy");
     assert.equal(status.counts.insights, 1);
     assert.equal(status.counts.evidence, 1);
+    assert.equal(status.counts.hungryInsights, 1);
+    assert.equal(status.counts.uncitedEvidence, 0);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus surfaces hungry insights and uncited evidence in layered KB counts", () => {
+  const project = createProject();
+  try {
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
+    project.write(
+      "pm/insights/product/hungry.md",
+      [
+        "---",
+        "type: insight",
+        "domain: product",
+        "topic: Hungry Insight",
+        "last_updated: 2026-04-10",
+        "status: draft",
+        "confidence: low",
+        "sources:",
+        "  - evidence/research/hungry-source.md",
+        "---",
+        "# Hungry Insight",
+        "",
+      ].join("\n")
+    );
+    project.write("pm/evidence/index.md", "");
+    project.write("pm/evidence/log.md", "");
+    project.write("pm/evidence/research/index.md", "");
+    project.write("pm/evidence/research/log.md", "");
+    project.write(
+      "pm/evidence/research/hungry-source.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "source_origin: external",
+        "created: 2026-04-10",
+        "sources:",
+        "  - https://example.com/hungry",
+        "cited_by:",
+        "  - insights/product/hungry.md",
+        "---",
+        "# Hungry Source",
+        "",
+      ].join("\n")
+    );
+    project.write(
+      "pm/evidence/research/orphaned.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "source_origin: external",
+        "created: 2026-04-10",
+        "sources:",
+        "  - https://example.com/orphaned",
+        "cited_by: []",
+        "---",
+        "# Orphaned",
+        "",
+      ].join("\n")
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.counts.hungryInsights, 1);
+    assert.equal(status.counts.uncitedEvidence, 1);
+    assert.equal(status.kbHealth.signals.hungryInsights.total, 1);
+    assert.equal(status.kbHealth.signals.uncitedEvidence.total, 1);
+    assert.equal(status.signalTargets.hungryInsights[0].topic, "Hungry Insight");
+    assert.equal(status.signalTargets.uncitedEvidence[0].path, "evidence/research/orphaned.md");
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus adds compounding action suggestions for hungry insights and uncited evidence", () => {
+  const project = createProject();
+  try {
+    project.write("pm/strategy.md", "---\ntype: strategy\n---\n");
+    project.write("pm/insights/product/index.md", "");
+    project.write("pm/insights/product/log.md", "");
+    project.write(
+      "pm/insights/product/hungry.md",
+      [
+        "---",
+        "type: insight",
+        "domain: product",
+        "topic: Hungry Insight",
+        "last_updated: 2026-04-10",
+        "status: draft",
+        "confidence: low",
+        "sources:",
+        "  - evidence/research/hungry-source.md",
+        "---",
+        "# Hungry Insight",
+        "",
+      ].join("\n")
+    );
+    project.write("pm/evidence/index.md", "");
+    project.write("pm/evidence/log.md", "");
+    project.write("pm/evidence/research/index.md", "");
+    project.write("pm/evidence/research/log.md", "");
+    project.write(
+      "pm/evidence/research/hungry-source.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "source_origin: external",
+        "created: 2026-04-10",
+        "sources:",
+        "  - https://example.com/hungry",
+        "cited_by:",
+        "  - insights/product/hungry.md",
+        "---",
+        "# Hungry Source",
+        "",
+      ].join("\n")
+    );
+    project.write(
+      "pm/evidence/research/orphaned.md",
+      [
+        "---",
+        "type: evidence",
+        "evidence_type: research",
+        "source_origin: external",
+        "created: 2026-04-10",
+        "sources:",
+        "  - https://example.com/orphaned",
+        "cited_by: []",
+        "---",
+        "# Orphaned",
+        "",
+      ].join("\n")
+    );
+
+    const status = buildStatus(project.root);
+    const suggestions = [status.next, ...(status.alternatives || [])].join("\n");
+    assert.match(suggestions, /\/pm:refresh \(route evidence\/research\/orphaned\.md\)/);
+    assert.match(suggestions, /\/pm:research \(feed Hungry Insight\)/);
   } finally {
     project.cleanup();
   }
@@ -253,12 +397,42 @@ test("renderTextStatus includes alternative actions when available", () => {
     const rendered = renderTextStatus(status);
 
     assert.equal(status.next, "/pm:strategy");
-    assert.deepEqual(status.alternatives, ["/pm:groom ideate"]);
+    assert.deepEqual(status.alternatives, ["/pm:research (feed Checkout)", "/pm:groom ideate"]);
     assert.match(rendered, /Next: \/pm:strategy/);
+    assert.match(rendered, /Research targets: Checkout/);
+    assert.match(rendered, /Also: \/pm:research \(feed Checkout\)/);
     assert.match(rendered, /Also: \/pm:groom ideate/);
   } finally {
     project.cleanup();
   }
+});
+
+test("renderTextStatus includes compounding KB signals when freshness is green", () => {
+  const status = {
+    update: { available: false },
+    syncStatus: { configured: false, lastSync: null, ok: null, mode: null, timeAgo: null },
+    focus: "no attention needed",
+    backlog: "0 ideas, 0 planned, 0 in progress, 0 shipped",
+    kbHealth: {
+      insights: { total: 1, fresh: 1, aging: 0, stale: 0, items: [] },
+      research: { total: 2, fresh: 2, aging: 0, stale: 0, items: [] },
+      signals: {
+        hungryInsights: { total: 1, items: [] },
+        uncitedEvidence: { total: 2, items: [] },
+      },
+    },
+    next: "/pm:strategy",
+    alternatives: [],
+    signalTargets: {
+      hungryInsights: [{ topic: "Compounding Loop", path: "insights/product/compounding-loop.md" }],
+      uncitedEvidence: [{ path: "evidence/research/orphaned.md" }],
+    },
+  };
+
+  const rendered = renderTextStatus(status);
+  assert.match(rendered, /KB: All fresh \| Signals: 1 hungry insight, 2 uncited evidence files/);
+  assert.match(rendered, /Research targets: Compounding Loop/);
+  assert.match(rendered, /Refresh targets: evidence\/research\/orphaned\.md/);
 });
 
 test("buildStatus prefers layered KB counts when legacy directories still exist", () => {

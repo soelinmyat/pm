@@ -2,7 +2,7 @@
 // pm hot-index — generates and queries pm/insights/.hot.md
 // Usage:
 //   Generate: node scripts/hot-index.js --dir <pm-dir> --generate
-//   Filter:   node scripts/hot-index.js --dir <pm-dir> [--domain <d>] [--confidence <c>] [--min-sources <n>] [--since <YYYY-MM-DD>]
+//   Filter:   node scripts/hot-index.js --dir <pm-dir> [--domain <d>] [--confidence <c>] [--min-sources <n>] [--since <YYYY-MM-DD>] [--hungry]
 
 "use strict";
 
@@ -20,6 +20,7 @@ function parseArgs(argv) {
     confidence: null,
     minSources: null,
     since: null,
+    hungry: false,
     generate: false,
   };
 
@@ -39,6 +40,9 @@ function parseArgs(argv) {
         break;
       case "--since":
         opts.since = args[++i];
+        break;
+      case "--hungry":
+        opts.hungry = true;
         break;
       case "--generate":
         opts.generate = true;
@@ -118,6 +122,7 @@ function scanInsights(insightsDir) {
     entries.push({
       domain,
       topic: data.topic || path.basename(filePath, ".md"),
+      status: data.status || "draft",
       confidence: data.confidence || "low",
       sourceCount,
       lastUpdated: data.last_updated || "",
@@ -157,12 +162,12 @@ function generateHotIndex(insightsDir) {
   lines.push("");
   lines.push("# Hot Index");
   lines.push("");
-  lines.push("| Domain | Topic | Confidence | Sources | Updated |");
-  lines.push("|---|---|---|---|---|");
+  lines.push("| Domain | Topic | Status | Confidence | Sources | Updated |");
+  lines.push("|---|---|---|---|---|---|");
 
   for (const entry of entries) {
     lines.push(
-      `| ${entry.domain} | ${entry.topic} | ${entry.confidence} | ${entry.sourceCount} | ${entry.lastUpdated} |`
+      `| ${entry.domain} | ${entry.topic} | ${entry.status} | ${entry.confidence} | ${entry.sourceCount} | ${entry.lastUpdated} |`
     );
   }
 
@@ -199,9 +204,10 @@ function parseHotTable(content) {
     return {
       domain: cells[0] || "",
       topic: cells[1] || "",
-      confidence: cells[2] || "",
-      sourceCount: parseInt(cells[3], 10) || 0,
-      lastUpdated: cells[4] || "",
+      status: cells[2] || "",
+      confidence: cells[3] || "",
+      sourceCount: parseInt(cells[4], 10) || 0,
+      lastUpdated: cells[5] || "",
     };
   });
 }
@@ -217,17 +223,20 @@ function filterEntries(rows, opts) {
     )
       return false;
     if (opts.since && row.lastUpdated < opts.since) return false;
+    if (opts.hungry && row.status !== "draft" && row.confidence !== "low" && row.sourceCount >= 2) {
+      return false;
+    }
     return true;
   });
 }
 
 function formatTable(rows) {
   const lines = [];
-  lines.push("| Domain | Topic | Confidence | Sources | Updated |");
-  lines.push("|---|---|---|---|---|");
+  lines.push("| Domain | Topic | Status | Confidence | Sources | Updated |");
+  lines.push("|---|---|---|---|---|---|");
   for (const row of rows) {
     lines.push(
-      `| ${row.domain} | ${row.topic} | ${row.confidence} | ${row.sourceCount} | ${row.lastUpdated} |`
+      `| ${row.domain} | ${row.topic} | ${row.status} | ${row.confidence} | ${row.sourceCount} | ${row.lastUpdated} |`
     );
   }
   return lines.join("\n");

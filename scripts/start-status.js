@@ -5,6 +5,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { classifyEpoch } = require("./kb-health-thresholds.js");
+const { parseFrontmatter } = require("./kb-frontmatter.js");
 
 function parseArgs(argv) {
   const options = {
@@ -184,14 +185,21 @@ function isKnowledgeBaseDocument(filePath) {
   return baseName.endsWith(".md") && baseName !== "index.md" && baseName !== "log.md";
 }
 
-function frontmatterDateValue(text, keys) {
-  for (const key of keys) {
-    const value = frontmatterValue(text, key);
-    if (value) {
-      return value;
-    }
+function parseFrontmatterData(text) {
+  try {
+    const parsed = parseFrontmatter(text);
+    return parsed.hasFrontmatter ? parsed.data : {};
+  } catch {
+    return {};
   }
-  return "";
+}
+
+function formatCount(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function relativeKbPath(pmDir, filePath) {
+  return path.relative(pmDir, filePath).split(path.sep).join("/");
 }
 
 function listInsightDomains(pmDir) {
@@ -260,6 +268,63 @@ function detectKnowledgeBaseLayout(pmDir) {
   return "none";
 }
 
+function summarizeSignalTargets(pmDir, kbHealth) {
+  const signals = kbHealth?.signals || {};
+  const hungryInsights = Array.isArray(signals.hungryInsights?.items)
+    ? signals.hungryInsights.items
+        .slice()
+        .sort((left, right) => {
+          const leftDraft = left.status === "draft" ? 0 : 1;
+          const rightDraft = right.status === "draft" ? 0 : 1;
+          if (leftDraft !== rightDraft) return leftDraft - rightDraft;
+          const leftLow = left.confidence === "low" ? 0 : 1;
+          const rightLow = right.confidence === "low" ? 0 : 1;
+          if (leftLow !== rightLow) return leftLow - rightLow;
+          if ((left.sourceCount || 0) !== (right.sourceCount || 0)) {
+            return (left.sourceCount || 0) - (right.sourceCount || 0);
+          }
+          return String(left.topic || "").localeCompare(String(right.topic || ""));
+        })
+        .slice(0, 3)
+        .map((item) => ({
+          topic: item.topic || path.basename(item.path, ".md"),
+          path: relativeKbPath(pmDir, item.path),
+          sourceCount: item.sourceCount || 0,
+          status: item.status || "",
+          confidence: item.confidence || "",
+        }))
+    : [];
+
+  const uncitedEvidence = Array.isArray(signals.uncitedEvidence?.items)
+    ? signals.uncitedEvidence.items
+        .slice()
+        .sort((left, right) => {
+          if ((right.age_days || 0) !== (left.age_days || 0)) {
+            return (right.age_days || 0) - (left.age_days || 0);
+          }
+          return String(left.path || "").localeCompare(String(right.path || ""));
+        })
+        .slice(0, 3)
+        .map((item) => ({
+          path: relativeKbPath(pmDir, item.path),
+          ageDays: item.age_days || 0,
+          level: item.level || "",
+        }))
+    : [];
+
+  return { hungryInsights, uncitedEvidence };
+}
+
+function formatSignalSuggestion(command, verb, primary, total) {
+  if (!primary) {
+    return command;
+  }
+  if (total <= 1) {
+    return `${command} (${verb} ${primary})`;
+  }
+  return `${command} (${verb} ${primary} + ${total - 1} more)`;
+}
+
 function analyzeLayeredKnowledgeBase(pmDir) {
   let insightCount = 0;
   let evidenceCount = 0;
@@ -268,6 +333,10 @@ function analyzeLayeredKnowledgeBase(pmDir) {
 
   const insightsHealth = { total: 0, fresh: 0, aging: 0, stale: 0, items: [] };
   const researchHealth = { total: 0, fresh: 0, aging: 0, stale: 0, items: [] };
+  const compoundingSignals = {
+    hungryInsights: { total: 0, items: [] },
+    uncitedEvidence: { total: 0, items: [] },
+  };
 
   const nowSecs = Math.floor(Date.now() / 1000);
 
@@ -296,7 +365,8 @@ function analyzeLayeredKnowledgeBase(pmDir) {
 
     for (const filePath of insightFiles) {
       const text = safeRead(filePath);
-      const updatedEpoch = dateToEpoch(frontmatterDateValue(text, ["last_updated", "updated"]));
+      const data = parseFrontmatterData(text);
+      const updatedEpoch = dateToEpoch(data.last_updated || data.updated || "");
       let level = "fresh";
       let ageDays = 0;
       if (updatedEpoch > 0) {
@@ -306,6 +376,22 @@ function analyzeLayeredKnowledgeBase(pmDir) {
       insightsHealth.total += 1;
       insightsHealth[level] += 1;
       insightsHealth.items.push({ path: filePath, domain: domainName, age_days: ageDays, level });
+
+      const sourceCount = Array.isArray(data.sources) ? data.sources.length : 0;
+      const status = typeof data.status === "string" ? data.status : "";
+      const confidence = typeof data.confidence === "string" ? data.confidence : "";
+      const isHungry = status === "draft" || confidence === "low" || sourceCount < 2;
+      if (isHungry) {
+        compoundingSignals.hungryInsights.total += 1;
+        compoundingSignals.hungryInsights.items.push({
+          path: filePath,
+          domain: domainName,
+          topic: data.topic || path.basename(filePath, ".md"),
+          status,
+          confidence,
+          sourceCount,
+        });
+      }
     }
   }
 
@@ -333,7 +419,8 @@ function analyzeLayeredKnowledgeBase(pmDir) {
 
     for (const filePath of competitorFiles) {
       const text = safeRead(filePath);
-      const updatedEpoch = dateToEpoch(frontmatterDateValue(text, ["last_updated", "updated"]));
+      const data = parseFrontmatterData(text);
+      const updatedEpoch = dateToEpoch(data.last_updated || data.updated || "");
       let level = "fresh";
       let ageDays = 0;
       if (updatedEpoch > 0) {
@@ -366,9 +453,8 @@ function analyzeLayeredKnowledgeBase(pmDir) {
 
   for (const filePath of evidenceFiles) {
     const text = safeRead(filePath);
-    const updatedEpoch = dateToEpoch(
-      frontmatterDateValue(text, ["created", "last_updated", "updated"])
-    );
+    const data = parseFrontmatterData(text);
+    const updatedEpoch = dateToEpoch(data.created || data.last_updated || data.updated || "");
     let level = "fresh";
     let ageDays = 0;
     if (updatedEpoch > 0) {
@@ -378,6 +464,18 @@ function analyzeLayeredKnowledgeBase(pmDir) {
     researchHealth.total += 1;
     researchHealth[level] += 1;
     researchHealth.items.push({ path: filePath, age_days: ageDays, level });
+
+    if (filePath.startsWith(researchDir + path.sep)) {
+      const citedBy = Array.isArray(data.cited_by) ? data.cited_by : [];
+      if (citedBy.length === 0) {
+        compoundingSignals.uncitedEvidence.total += 1;
+        compoundingSignals.uncitedEvidence.items.push({
+          path: filePath,
+          age_days: ageDays,
+          level,
+        });
+      }
+    }
   }
 
   const staleCount = insightsHealth.stale + researchHealth.stale;
@@ -388,7 +486,11 @@ function analyzeLayeredKnowledgeBase(pmDir) {
     evidenceCount,
     competitorProfiles,
     researchEvidence,
-    kbHealth: { insights: insightsHealth, research: researchHealth },
+    kbHealth: {
+      insights: insightsHealth,
+      research: researchHealth,
+      signals: compoundingSignals,
+    },
   };
 }
 
@@ -756,12 +858,15 @@ function buildStatus(projectDir, options) {
         stale: 0,
         agingIdeas: 0,
         ideas: 0,
+        planned: 0,
         inProgress: 0,
         shipped: 0,
         insights: 0,
         evidence: 0,
         researchTopics: 0,
         competitorProfiles: 0,
+        hungryInsights: 0,
+        uncitedEvidence: 0,
       },
     };
   }
@@ -780,6 +885,9 @@ function buildStatus(projectDir, options) {
   const researchTopics =
     kbLayout === "layered" ? knowledgeBase.researchEvidence : knowledgeBase.researchTopics;
   const competitorProfiles = knowledgeBase.competitorProfiles;
+  const hungryInsights = knowledgeBase.kbHealth?.signals?.hungryInsights?.total || 0;
+  const uncitedEvidence = knowledgeBase.kbHealth?.signals?.uncitedEvidence?.total || 0;
+  const signalTargets = summarizeSignalTargets(pmDir, knowledgeBase.kbHealth);
 
   let agingIdeas = 0;
   let ideas = 0;
@@ -877,6 +985,18 @@ function buildStatus(projectDir, options) {
       pushSuggestion(`/pm:refresh (${staleCount} stale items)`);
     }
 
+    if (uncitedEvidence > 0) {
+      const primaryUncited = signalTargets.uncitedEvidence[0]?.path || "";
+      pushSuggestion(
+        formatSignalSuggestion("/pm:refresh", "route", primaryUncited, uncitedEvidence)
+      );
+    }
+
+    if (hungryInsights > 0) {
+      const primaryHungry = signalTargets.hungryInsights[0]?.topic || "";
+      pushSuggestion(formatSignalSuggestion("/pm:research", "feed", primaryHungry, hungryInsights));
+    }
+
     if (agingIdeas > 3) {
       pushSuggestion("/pm:groom (promote oldest ideas)");
     }
@@ -923,7 +1043,10 @@ function buildStatus(projectDir, options) {
       evidence: evidenceCount,
       researchTopics,
       competitorProfiles,
+      hungryInsights,
+      uncitedEvidence,
     },
+    signalTargets,
     ...(knowledgeBase.kbHealth ? { kbHealth: knowledgeBase.kbHealth } : {}),
   };
 }
@@ -933,31 +1056,50 @@ function renderKbHealthLine(kbHealth) {
     return "";
   }
   const { insights, research } = kbHealth;
+  const signals = kbHealth.signals || {
+    hungryInsights: { total: 0 },
+    uncitedEvidence: { total: 0 },
+  };
   const hasIssues =
     insights.aging > 0 || insights.stale > 0 || research.aging > 0 || research.stale > 0;
-  if (!hasIssues) {
-    if (insights.total === 0 && research.total === 0) {
-      return "";
-    }
-    return "KB: All fresh";
-  }
 
   const parts = [];
-  const insightParts = [];
-  if (insights.stale > 0) insightParts.push(`${insights.stale} stale`);
-  if (insights.aging > 0) insightParts.push(`${insights.aging} aging`);
-  if (insightParts.length > 0) {
-    parts.push(`Insights: ${insightParts.join(", ")}`);
+  if (hasIssues) {
+    const insightParts = [];
+    if (insights.stale > 0) insightParts.push(`${insights.stale} stale`);
+    if (insights.aging > 0) insightParts.push(`${insights.aging} aging`);
+    if (insightParts.length > 0) {
+      parts.push(`Insights: ${insightParts.join(", ")}`);
+    }
+
+    const researchParts = [];
+    if (research.stale > 0) researchParts.push(`${research.stale} stale`);
+    if (research.aging > 0) researchParts.push(`${research.aging} aging`);
+    if (researchParts.length > 0) {
+      parts.push(`Research: ${researchParts.join(", ")}`);
+    }
+  } else if (insights.total === 0 && research.total === 0) {
+    return "";
+  } else {
+    parts.push("All fresh");
   }
 
-  const researchParts = [];
-  if (research.stale > 0) researchParts.push(`${research.stale} stale`);
-  if (research.aging > 0) researchParts.push(`${research.aging} aging`);
-  if (researchParts.length > 0) {
-    parts.push(`Research: ${researchParts.join(", ")}`);
+  const signalParts = [];
+  if (signals.hungryInsights.total > 0) {
+    signalParts.push(
+      formatCount(signals.hungryInsights.total, "hungry insight", "hungry insights")
+    );
+  }
+  if (signals.uncitedEvidence.total > 0) {
+    signalParts.push(
+      formatCount(signals.uncitedEvidence.total, "uncited evidence file", "uncited evidence files")
+    );
+  }
+  if (signalParts.length > 0) {
+    parts.push(`Signals: ${signalParts.join(", ")}`);
   }
 
-  return `KB: ${parts.join(" | ")}`;
+  return parts.length > 0 ? `KB: ${parts.join(" | ")}` : "";
 }
 
 function renderDashboardLine(syncStatus) {
@@ -996,6 +1138,21 @@ function renderTextStatus(status, options = {}) {
   const kbLine = renderKbHealthLine(status.kbHealth);
   if (kbLine) {
     lines.push(kbLine);
+  }
+
+  const hungryTargets = Array.isArray(status.signalTargets?.hungryInsights)
+    ? status.signalTargets.hungryInsights
+    : [];
+  const uncitedTargets = Array.isArray(status.signalTargets?.uncitedEvidence)
+    ? status.signalTargets.uncitedEvidence
+    : [];
+  if (hungryTargets.length > 0) {
+    const label = hungryTargets.map((item) => item.topic).join(", ");
+    lines.push(`Research targets: ${label}`);
+  }
+  if (uncitedTargets.length > 0) {
+    const label = uncitedTargets.map((item) => item.path).join(", ");
+    lines.push(`Refresh targets: ${label}`);
   }
 
   if (status.next) {
