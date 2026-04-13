@@ -1,7 +1,7 @@
 ---
 name: Retro
 order: 9
-description: Auto-extract learnings from dev session state, write to pm/memory.md
+description: Auto-extract learnings from dev session state, write to pm/memory.md, and write durable implementation learnings when warranted
 ---
 
 ## Retro — Auto-Extract Learnings
@@ -78,6 +78,73 @@ Read `{pm_dir}/memory.md`. For each entry to write, check existing entries: if a
 Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter structure (`type: project-memory`).
 
 **5c. Error recovery.** If the write fails, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
+
+---
+
+### Step 5d: durable product-learning writeback
+
+After the `memory.md` write succeeds, decide whether this dev session produced reusable product knowledge that should survive beyond process memory.
+
+Read the dev session state again and look for **product-relevant** findings in:
+- `Decisions`
+- `QA`
+- `Review`
+- `Resume Instructions`
+- any implementation summary or notes about constraints, edge cases, handoff gaps, runtime differences, or user-visible behavior changes
+
+Good writeback candidates:
+- implementation exposed a missing product rule or acceptance-criteria gap
+- QA/review surfaced a user-visible edge case worth future grooming context
+- runtime/platform constraints changed how a feature should be proposed or implemented next time
+- implementation validated or contradicted a product / competitive claim already in the KB
+
+Do **not** create a writeback artifact for generic process friction already captured in `memory.md`.
+
+If there are no durable product learnings, skip silently.
+
+If there are 1-3 clear durable findings, create or update:
+
+```text
+{pm_dir}/evidence/research/{slug}-implementation-learnings.md
+```
+
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/knowledge-writeback.md`.
+
+Write the artifact with:
+
+```bash
+cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/knowledge-writeback.js --pm-dir "{pm_dir}"
+{
+  "artifactPath": "evidence/research/{slug}-implementation-learnings.md",
+  "artifactMode": "implementation-learnings",
+  "topic": "{slug} — Implementation Learnings",
+  "summary": "{2-3 sentence summary of what implementation changed in our understanding}",
+  "findings": ["{durable finding 1}", "{durable finding 2}"],
+  "description": "Implementation learnings from delivery and QA",
+  "strategicRelevance": "{why future grooming / research / implementation should care}",
+  "implications": ["{downstream implication}"],
+  "openQuestions": ["{remaining open question}"],
+  "sourceArtifacts": [
+    "backlog/{slug}.md",
+    ".pm/dev-sessions/{slug}.md"
+  ]
+}
+JSON
+```
+
+That writeback flow must route accepted findings through `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md` after the evidence file is written.
+Read the `routeSuggestions` returned by `knowledge-writeback.js`, confirm which numbered routes to keep, then pipe them through `${CLAUDE_PLUGIN_ROOT}/scripts/route-selection.js` into `${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js` instead of hand-editing citations, indexes, `.hot.md`, or the affected insight bodies.
+
+Pass into that flow:
+- artifact mode: `implementation-learnings`
+- artifact path: `{pm_dir}/evidence/research/{slug}-implementation-learnings.md`
+- topic name: `{slug} — Implementation Learnings`
+- state source: `{source_dir}/.pm/dev-sessions/{slug}.md`
+- the key findings you extracted from the session
+
+If the findings are ambiguous and you cannot write them without guessing, ask the user to confirm or skip. Otherwise do the writeback automatically.
+
+If this writeback fails after you decided it should happen, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
 
 ---
 

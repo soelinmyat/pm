@@ -928,6 +928,11 @@ function validate(pmDir) {
     const files = fs.readdirSync(backlogDir).filter((file) => file.endsWith(".md"));
     for (const file of files) {
       const filePath = path.join(backlogDir, file);
+      if (file === "index.md") {
+        validateIndexFile(pmDir, filePath, errors);
+        continue;
+      }
+
       const parsed = readParsedFrontmatter(filePath, file, errors);
       if (!parsed) {
         continue;

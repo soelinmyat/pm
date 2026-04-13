@@ -168,6 +168,17 @@ const CRITICAL_KEYWORDS = [
   "validate.js",
   "retro extraction",
   "memory.md",
+  "knowledge-writeback.md",
+  "knowledge-writeback.js",
+  "--pm-dir",
+  "artifactMode",
+  "decision-record",
+  "routeSuggestions",
+  "route-selection.js",
+  "durable decision writeback",
+  "evidence/research/{topic-slug}-decisions.md",
+  "insight-routing.md",
+  "insight-routing.js",
   "Grooming complete",
 ];
 
@@ -240,7 +251,14 @@ test("groom steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable",
       "writing.md",
       "frontmatter-schemas.md",
       "validate.js",
+      "knowledge-writeback.md",
     ];
+
+    const writebackReference = path.join(PLUGIN_ROOT, "references", "knowledge-writeback.md");
+    assert.ok(
+      fs.existsSync(writebackReference),
+      "knowledge-writeback.md should exist in references/"
+    );
 
     for (const ref of references) {
       assert.ok(

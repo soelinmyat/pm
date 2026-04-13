@@ -237,6 +237,21 @@ test("ID gaps produce warnings", (t) => {
   assert.ok(warn, "should warn about PM-002 gap");
 });
 
+test("backlog index is validated as an index, not a backlog item", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/item-a.md": makeBacklogItem({ id: "PM-001", title: "First item" }),
+    "pm/backlog/index.md": makeIndex([
+      "| [item-a.md](item-a.md) | First item | 2026-03-14 | proposed |",
+    ]),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true);
+  assert.equal(result.backlog_items, 1);
+  assert.equal(result.errors, 0);
+});
+
 test("broken parent reference produces warning", (t) => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/child.md": makeBacklogItem({ id: "PM-001", parent: "nonexistent-parent" }),

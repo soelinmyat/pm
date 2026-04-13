@@ -138,6 +138,17 @@ const CRITICAL_KEYWORDS = [
   "memory-cap.md",
   "extractable events",
   "hard gate",
+  "knowledge-writeback.md",
+  "knowledge-writeback.js",
+  "--pm-dir",
+  "artifactMode",
+  "implementation-learnings",
+  "routeSuggestions",
+  "route-selection.js",
+  "insight-routing.md",
+  "insight-routing.js",
+  "evidence/research/{slug}-implementation-learnings.md",
+  "durable product-learning writeback",
 
   // Status Updates
   "Status Updates",
@@ -215,8 +226,13 @@ test("dev steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", (
     const prompt = buildPrompt(steps);
 
     const references = ["implementation-flow.md"];
+    const writebackReference = path.join(PLUGIN_ROOT, "references", "knowledge-writeback.md");
+    assert.ok(
+      fs.existsSync(writebackReference),
+      "knowledge-writeback.md should exist in references/"
+    );
 
-    for (const ref of references) {
+    for (const ref of [...references, "knowledge-writeback.md"]) {
       // Find the reference and verify it uses ${CLAUDE_PLUGIN_ROOT}
       assert.ok(
         prompt.includes(`\${CLAUDE_PLUGIN_ROOT}`) && prompt.includes(ref),

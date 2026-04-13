@@ -1,7 +1,7 @@
 ---
 name: Link
 order: 11
-description: Create proposal entry in backlog, Linear integration, retro extraction, cleanup
+description: Create proposal entry in backlog, Linear integration, retro extraction, durable decision writeback, cleanup
 applies_to: [quick, standard, full]
 ---
 
@@ -121,6 +121,65 @@ proposal:
    node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
    ```
    If validation fails, fix the entries and re-validate before proceeding.
+
+   **5i. durable decision writeback.** After `memory.md` is updated, decide whether this groom session produced reusable product knowledge that should live in the KB as durable evidence.
+
+   Scan the groom session state and final proposal for 1-3 high-signal decisions such as:
+   - why this scope was chosen over a nearby alternative
+   - what tradeoff or send-back materially changed the proposal
+   - which strategy constraint or research finding most shaped the final scope
+   - what future grooming or implementation work should remember about this decision
+
+   Do **not** create a writeback artifact for generic ceremony/process learnings already captured in `memory.md`.
+
+   If there are no durable product decisions beyond what the proposal already states implicitly, skip silently.
+
+   If there are 1-3 clear durable decisions, create or update:
+
+   ```text
+   {pm_dir}/evidence/research/{topic-slug}-decisions.md
+   ```
+
+   Read and follow `${CLAUDE_PLUGIN_ROOT}/references/knowledge-writeback.md`.
+
+   Write the artifact with:
+
+   ```bash
+   cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/knowledge-writeback.js --pm-dir "{pm_dir}"
+   {
+     "artifactPath": "evidence/research/{topic-slug}-decisions.md",
+     "artifactMode": "decision-record",
+     "topic": "{topic} — Groom Decisions",
+     "summary": "{2-3 sentence summary of the decision and why it matters}",
+     "findings": ["{durable decision 1}", "{durable decision 2}"],
+     "description": "Durable decision record from grooming",
+     "strategicRelevance": "{why future grooming / implementation should remember this}",
+     "implications": ["{downstream implication}"],
+     "openQuestions": ["{remaining open question}"],
+     "sourceArtifacts": [
+       "backlog/{topic-slug}.md",
+       ".pm/groom-sessions/{topic-slug}.md"
+     ]
+   }
+   JSON
+   ```
+
+   That writeback flow must route accepted findings through `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md` after the evidence file is written.
+   Read the `routeSuggestions` returned by `knowledge-writeback.js`, confirm which numbered routes to keep, then pipe them through `${CLAUDE_PLUGIN_ROOT}/scripts/route-selection.js` into `${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js` instead of hand-editing citations, indexes, `.hot.md`, or the affected insight bodies.
+
+   Pass into that flow:
+   - artifact mode: `decision-record`
+   - artifact path: `{pm_dir}/evidence/research/{topic-slug}-decisions.md`
+   - topic name: `{topic} — Groom Decisions`
+   - source artifacts:
+     - `{pm_dir}/backlog/{topic-slug}.md`
+     - `{pm_state_dir}/groom-sessions/{topic-slug}.md`
+     - any `research_refs` already linked from the proposal frontmatter
+   - the key findings you extracted from the session
+
+   If the decisions are ambiguous and you cannot summarize them without guessing, ask the user to confirm or skip. Otherwise do the writeback automatically.
+
+   If this writeback fails after you decided it should happen, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
 
 6. **Delete state file.**
 
