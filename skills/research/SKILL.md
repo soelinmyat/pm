@@ -9,6 +9,8 @@ Build and maintain the product knowledge base. Research gates strategy and groom
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
 **Workflow:** `research` | **Telemetry steps:** `mode-routing`, `seo-market-intelligence`, `web-market-overview`, `write-landscape`, `discover-competitors`, `profile-competitors`, `synthesize`, `research-topic`, `write-findings`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults. Execute each step in order. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).

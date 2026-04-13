@@ -7,6 +7,12 @@ description: "Use when capturing a customer signal, product observation, or evid
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and interaction pacing.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+**Workflow:** `note` | **Telemetry steps:** `capture`, `enrich`.
+
+**When NOT to use:** Bulk evidence imports from files (use ingest). Research that needs web sources (use research). If the observation belongs in an existing research file, update that file directly.
+
 ## Purpose
 
 Capture one-sentence product observations into the shared evidence pool. Notes are lightweight — no file paths, no normalization pipeline. They feed into groom and research via the digest pre-step.
@@ -86,3 +92,18 @@ Tags: competitor, integration
 - Frontmatter `note_count` and `digested_through` are NOT modified by interview mode — enrichment is metadata on an existing entry.
 - Tags may be updated if interview answers reveal new categories.
 - User can say "skip" or "no" at any question to end the interview early.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "I'll add this to the research file directly" | Notes feed the evidence pool. Research files are synthesized output. Mixing raw signals with analysis corrupts both. |
+| "One note isn't worth the ceremony" | Notes compound. A single observation is noise — the 10th one on the same topic is a pattern. |
+| "I'll remember this for later" | You won't. The conversation ends, the signal is lost. Write it down now. |
+
+## Before Marking Done
+
+- [ ] Note saved to `{pm_dir}/evidence/notes/YYYY-MM.md`
+- [ ] Source type set (observation, sales call, support thread, user interview)
+- [ ] Tags inferred or provided
+- [ ] User offered interview mode for enrichment
