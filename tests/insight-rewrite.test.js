@@ -121,6 +121,69 @@ Seeded from strategy.md. No evidence routed yet.
   }
 });
 
+test("rewriteInsights returns error result for missing evidence file instead of crashing batch", () => {
+  const { pmDir, cleanup } = createPmDir();
+  try {
+    writeFile(
+      pmDir,
+      "evidence/research/exists.md",
+      makeEvidence("Real Source", "This evidence file exists.", "It should compile fine.")
+    );
+    writeFile(
+      pmDir,
+      "insights/product/good.md",
+      `---
+type: "insight"
+domain: "product"
+topic: "Good Insight"
+last_updated: "2026-04-10"
+status: "draft"
+confidence: "low"
+sources:
+  - "evidence/research/exists.md"
+---
+
+# Good Insight
+
+Seeded from routed evidence. Synthesis refresh pending.
+`
+    );
+    writeFile(
+      pmDir,
+      "insights/product/bad.md",
+      `---
+type: "insight"
+domain: "product"
+topic: "Bad Insight"
+last_updated: "2026-04-10"
+status: "draft"
+confidence: "low"
+sources:
+  - "evidence/research/gone.md"
+---
+
+# Bad Insight
+
+Seeded from routed evidence. Synthesis refresh pending.
+`
+    );
+
+    const result = rewriteInsights(
+      pmDir,
+      { insights: ["insights/product/bad.md", "insights/product/good.md"] },
+      { now: "2026-04-13" }
+    );
+
+    assert.equal(result.insights.length, 2);
+    assert.equal(result.insights[0].action, "error");
+    assert.match(result.insights[0].reason, /missing evidence file/);
+    assert.equal(result.insights[1].action, "rewritten");
+    assert.equal(result.insights[1].status, "active");
+  } finally {
+    cleanup();
+  }
+});
+
 test("rewriteInsights omits confidence rationale for low-confidence single-source insights", () => {
   const { pmDir, cleanup } = createPmDir();
   try {

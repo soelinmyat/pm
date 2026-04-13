@@ -137,7 +137,8 @@ function buildUniqueInsightPath(pmDir, domain, topic) {
   const baseSlug = slugify(topic) || "new-insight";
   let suffix = 0;
 
-  while (true) {
+  const MAX_SUFFIX = 100;
+  while (suffix <= MAX_SUFFIX) {
     const slug = suffix === 0 ? baseSlug : `${baseSlug}-${suffix + 1}`;
     const relativePath = `insights/${domain}/${slug}.md`;
     if (!fs.existsSync(path.join(pmDir, relativePath))) {
@@ -145,6 +146,9 @@ function buildUniqueInsightPath(pmDir, domain, topic) {
     }
     suffix += 1;
   }
+  throw new Error(
+    `could not generate unique insight path for "${topic}" after ${MAX_SUFFIX} attempts`
+  );
 }
 
 function inferredTopicForNewRoute(topic) {

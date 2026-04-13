@@ -6,6 +6,9 @@ const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 
 function readStdin() {
+  if (process.stdin.isTTY) {
+    return "";
+  }
   return fs.readFileSync(0, "utf8");
 }
 

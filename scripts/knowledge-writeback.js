@@ -3,8 +3,13 @@
 
 const fs = require("fs");
 const path = require("path");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
-const { readStdin, serializeFrontmatter, todayIso, writeAtomic } = require("./kb-utils.js");
+const {
+  loadMarkdown,
+  readStdin,
+  serializeFrontmatter,
+  todayIso,
+  writeAtomic,
+} = require("./kb-utils.js");
 const { generateRouteSuggestions } = require("./insight-route-suggestions.js");
 
 const INDEX_HEADER = "| Topic/Source | Description | Updated | Status |";
@@ -142,11 +147,10 @@ function loadExistingArtifact(filePath) {
   if (!fs.existsSync(filePath)) {
     return null;
   }
-  const content = fs.readFileSync(filePath, "utf8");
-  const parsed = parseFrontmatter(content);
+  const doc = loadMarkdown(filePath);
   return {
-    content,
-    frontmatter: parsed.hasFrontmatter ? parsed.data : {},
+    content: doc.content,
+    frontmatter: doc.frontmatter,
   };
 }
 

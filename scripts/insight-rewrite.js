@@ -275,7 +275,17 @@ function rewriteInsights(pmDir, rawPayload, options = {}) {
   const insights = normalizePayload(rawPayload);
   const now = options.now || todayIso();
   return {
-    insights: insights.map((insightPath) => rewriteSingleInsight(pmDir, insightPath, now)),
+    insights: insights.map((insightPath) => {
+      try {
+        return rewriteSingleInsight(pmDir, insightPath, now);
+      } catch (error) {
+        return {
+          insightPath,
+          action: "error",
+          reason: error.message,
+        };
+      }
+    }),
   };
 }
 

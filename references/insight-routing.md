@@ -180,7 +180,7 @@ JSON
 
 The script applies only the accepted routing decisions. Matching, user confirmation, and route selection still happen in this workflow.
 
-For each accepted routing, update both files before moving to the next topic:
+The helper processes each accepted routing atomically:
 
 ### 5.1 For existing topics
 

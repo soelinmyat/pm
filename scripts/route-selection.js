@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-function readStdin() {
-  return process.stdin.isTTY ? "" : require("fs").readFileSync(0, "utf8");
-}
+const { readStdin } = require("./kb-utils.js");
 
 function normalizeSelection(selection, max) {
   if (selection === undefined || selection === null || selection === "" || selection === "skip") {
