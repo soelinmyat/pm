@@ -977,13 +977,14 @@ test("real pm/ directory passes validation", (t) => {
 // PM-170 Issue 3: Plugin registration — commands, agents, stale references
 // ---------------------------------------------------------------------------
 
-test("PM-170: plugin.config.json has exactly 12 commands (no merge, no features, has note and sync)", () => {
+test("PM-170: plugin.config.json has exactly 13 commands (no merge, no features, has note, sync, and ideate)", () => {
   const configPath = path.join(__dirname, "..", "plugin.config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
   const expected = [
     "dev",
     "groom",
+    "ideate",
     "ingest",
     "note",
     "refresh",
