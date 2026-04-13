@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. Checks for an RFC, generates one if missing, then implements. One flow for all sizes."
+description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. Checks for an approved RFC (prompts to run /rfc if missing for M+), then implements. One flow for all sizes."
 ---
 
 # Dev — Development Lifecycle
@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any documen
 
 **When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
-**Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `tool-check`, `intake`, `workspace`, `groom-readiness`, `rfc-generation`, `rfc-review`, `implementation`, `simplify`, `review`, `ship`, `retro`.
+**Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `tool-check`, `intake`, `workspace`, `groom-readiness`, `implementation`, `simplify`, `review`, `ship`, `retro`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -50,11 +50,8 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | Skill / Reference | Used in |
 |-------------------|---------|
 | `pm:groom` | Auto-invoked when no proposal exists (M/L/XL) |
-| `dev/references/writing-rfcs.md` (reference) | RFC Generation (M/L/XL) |
 | `dev/references/splitting-patterns.md` (reference) | Issue splitting within RFC (M/L/XL) |
-| `dev/references/cross-cutting-reviewers.md` (reference) | Multi-task RFC review (task_count > 1) |
-| `dev/references/spec-reviewers.md` (reference) | Raw sub-issue spec review before RFC |
-| `dev/references/implementation-flow.md` (reference) | Stage 5 implementation |
+| `dev/references/implementation-flow.md` (reference) | Stage 3 implementation |
 | `dev/references/tdd.md` (reference) | Implementation agent (all) |
 | `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
 | `dev/references/debugging.md` (reference) | Debug |
@@ -63,11 +60,11 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 ## Project Context Discovery
 
-At intake, run the context discovery protocol defined in `context-discovery.md` (same directory).
+At intake, run the context discovery protocol defined in `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md`.
 This reads CLAUDE.md, AGENTS.md, package manifests, and MCP tools to build the project context.
 Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
 
-See `context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
+See `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
 All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
 
 ## State File
@@ -84,7 +81,7 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for chec
 
 If you catch yourself thinking any of these, you're drifting off-skill:
 
-- **"The RFC is overhead for this change."** The RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. If it feels like overhead, your RFC is too heavy — simplify it, don't skip it.
+- **"The RFC is overhead for this change."** The RFC is 15 minutes. Wrong direction is 2 hours. Run /rfc — it IS the shortcut. If it feels like overhead, the RFC is too heavy — simplify it, don't skip it.
 - **"I'll skip the worktree, it's just one file."** Wrong-branch commits break everything downstream. Worktree setup takes seconds; recovering from a dirty main takes much longer.
 - **"Tests pass, so the code is correct."** Tests verify your assumptions, not the user's requirements. Passing tests with wrong assertions give false confidence.
 - **"I know what's wrong, I'll skip debugging."** Known fixes are guesses until confirmed. The debugging reference exists to prevent shipping the wrong fix to the right symptom.
@@ -106,7 +103,7 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 | "This is XS, skip TDD" | XS tasks still break when untested. Test takes 30 seconds. |
 | "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
 | "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
-| "I'll just start coding, RFC is overhead" | RFC is 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
+| "I'll just start coding, RFC is overhead" | Run /rfc — 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
 | "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
 
 ## Before Marking Done

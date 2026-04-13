@@ -30,15 +30,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 11 step files exist and load
+// AC 1: All 9 step files exist and load
 // ---------------------------------------------------------------------------
 
-test("dev steps: all 11 step files load with correct order", () => {
+test("dev steps: all 9 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 11, `Expected 11 steps, got ${steps.length}`);
+    assert.equal(steps.length, 9, `Expected 9 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -117,26 +117,10 @@ const CRITICAL_KEYWORDS = [
   "AGENTS.md",
 
   // Stage 2.5: RFC Check / Groom Readiness
-  "rfc-approved",
   "backlog/{slug}.md",
   "pm:groom",
   "KB maturity",
   "kb_maturity",
-
-  // Stage 3: RFC Generation
-  "RFC_COMPLETE",
-  "writing-rfcs.md",
-  "splitting-patterns.md",
-  "rfc-reference.html",
-  "rfc-template.md",
-
-  // Stage 4: RFC Review — @persona references resolve to persona body content,
-  // so we check for the resolved persona names rather than the @reference syntax
-  "Adversarial Engineer",
-  "Staff Engineer",
-  "cross-cutting-reviewers.md",
-  "Handling findings",
-  "Blocking issues",
 
   // Stage 5: Implementation
   "implementation-flow.md",
@@ -230,7 +214,7 @@ test("dev steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", (
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps);
 
-    const references = ["writing-rfcs.md", "splitting-patterns.md", "implementation-flow.md"];
+    const references = ["implementation-flow.md"];
 
     for (const ref of references) {
       // Find the reference and verify it uses ${CLAUDE_PLUGIN_ROOT}
@@ -263,12 +247,12 @@ test("dev steps: Stage 0.7 content folded into 01-tool-check", () => {
   }
 });
 
-test("dev steps: Stage 6 (Worktree Cleanup) folded into 10-ship", () => {
+test("dev steps: Stage 6 (Worktree Cleanup) folded into 08-ship", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
-    const ship = steps.find((s) => s.order === 10);
-    assert.ok(ship, "Step with order 10 should exist");
+    const ship = steps.find((s) => s.order === 8);
+    assert.ok(ship, "Step with order 8 should exist");
     assert.ok(
       ship.body.includes("git worktree remove") || ship.body.includes("Worktree Cleanup"),
       "Ship step should contain worktree cleanup content"

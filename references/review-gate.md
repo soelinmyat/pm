@@ -131,11 +131,11 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 
 | Gate | Called by | Reviewers | Prompt locations |
 |------|----------|-----------|-----------------|
-| Spec review | groom step 5 | 1 (spec-document-reviewer) | `skills/groom/references/spec-reviewer.md` |
-| Plan review | dev (RFC review) | 1 (plan-document-reviewer) | `skills/dev/references/plan-reviewer.md` |
-| Scope review | groom step 5 | 3 (PM, Competitive, EM) | `skills/groom/steps/05-scope-review.md` |
-| Team review | groom step 8 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/steps/08-team-review.md` |
-| Bar raiser | groom step 9 | 1 (Product Director) | `skills/groom/steps/09-bar-raiser.md` |
+| Spec review | groom step 05 | 1 (spec-document-reviewer) | `skills/groom/references/spec-reviewer.md` |
+| Plan review | rfc (review step) | 1 (plan-document-reviewer) | `skills/dev/references/plan-reviewer.md` |
+| Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/steps/05-scope-review.md` |
+| Team review | groom step 08 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/steps/08-team-review.md` |
+| Bar raiser | groom step 09 | 1 (Product Director) | `skills/groom/steps/09-bar-raiser.md` |
 | Code review | review | 5 (code, fix, PM, design, edge-case) | `skills/ship/references/review.md` |
 | Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer.md` |
 | Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer.md` |

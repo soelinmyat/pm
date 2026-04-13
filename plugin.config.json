@@ -31,6 +31,7 @@
     "note",
     "refresh",
     "research",
+    "rfc",
     "setup",
     "ship",
     "start",
@@ -51,6 +52,7 @@
         "ingest",
         "note",
         "refresh",
+        "rfc",
         "sync"
       ],
       "dev": ["dev", "ship", "using-pm"]

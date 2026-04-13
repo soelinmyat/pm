@@ -22,9 +22,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 
 ## Valid Stage Values
 
-`intake`, `workspace`, `rfc-check`, `rfc-generation`, `rfc-review`, `rfc-approved`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
-
-The `rfc-approved` stage means: RFC was approved by the user, but they chose to stop and resume implementation in a new session. On resume, skip to Implementation via the resume path.
+`intake`, `workspace`, `rfc-check`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
 
 ## Template
 

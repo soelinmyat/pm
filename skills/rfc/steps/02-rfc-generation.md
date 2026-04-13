@@ -1,6 +1,6 @@
 ---
 name: RFC Generation
-order: 5
+order: 2
 description: Generate engineering RFC with issue breakdown, test strategy, and risks (M/L/XL)
 ---
 
@@ -45,7 +45,7 @@ SPEC_COMPLETE
 - summary: {2-line summary}
 ```
 
-For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/spec-reviewers.md`. Fix blocking issues, commit.
+For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/spec-reviewers.md`. Fix blocking issues, commit.
 
 Groomed sub-issues skip this step — their proposal is sufficient context.
 
@@ -59,20 +59,20 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 ## Project Context
 {PROJECT_CONTEXT}
 
-**CWD:** {WORKTREE_PATH}
+**CWD:** {CWD}
 **Branch:** {BRANCH}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
-**Session file:** {source_dir}/.pm/dev-sessions/{slug}.md
+**Session file:** {pm_state_dir}/rfc-sessions/{slug}.md
 **Proposal (includes full PRD):** {pm_dir}/backlog/{slug}.md
 
 Read the proposal for full product context (PRD content is inline — user flows, wireframes, competitive context).
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML structure and styling to replicate.
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/writing-rfcs.md for writing conventions.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md for writing conventions.
 
 {IF SUB-ISSUES EXIST:}
 **Sub-issues (each becomes an Issue section in the RFC):**
@@ -112,5 +112,5 @@ After receiving `RFC_COMPLETE`:
 1. Record `task_count: {N}` in the session state (from `issues: {N}`).
 2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
 3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
-4. Update `.pm/dev-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
+4. Update `{pm_state_dir}/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 5. Proceed to RFC Review.

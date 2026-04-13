@@ -1,6 +1,6 @@
 ---
 name: Simplify
-order: 8
+order: 6
 description: Post-implementation code simplification gate — review for reuse, quality, and efficiency
 ---
 

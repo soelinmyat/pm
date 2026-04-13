@@ -1,6 +1,6 @@
 ---
 name: Review
-order: 9
+order: 7
 description: Code review gate — full review for M/L/XL, code scan for XS, skip for S
 ---
 

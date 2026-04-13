@@ -1,6 +1,6 @@
 ---
 name: Retro
-order: 11
+order: 9
 description: Auto-extract learnings from dev session state, write to pm/memory.md
 ---
 
@@ -214,9 +214,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Blockers: [any blocking issues, or "none"]
 ```
 
-**Valid Stage values:** `intake`, `workspace`, `rfc-check`, `rfc-generation`, `rfc-review`, `rfc-approved`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
-
-The `rfc-approved` stage means: RFC was approved by the user, but they chose to stop and resume implementation in a new session. On resume, skip to Implementation via the resume path.
+**Valid Stage values:** `intake`, `workspace`, `rfc-check`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
 
 **Update rules:**
 - Write the full file (not append) at each stage transition

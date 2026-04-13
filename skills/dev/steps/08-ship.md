@@ -1,6 +1,6 @@
 ---
 name: Ship
-order: 10
+order: 8
 description: Push branch, create PR, merge via merge-loop, clean up worktrees, update status
 ---
 

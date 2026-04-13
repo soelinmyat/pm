@@ -253,10 +253,9 @@ Done!
 ## Integration
 
 **Required references (all bundled in dev plugin):**
-- **writing-rfcs.md** (in this directory) - Creates the plan this skill executes
 - **tdd.md** (in this directory) - Subagents follow TDD for each task
 
 **Handled by dev orchestrator (not invoked separately):**
 - Workspace setup (dev Stage 2)
 - Code review (dev `/review` skill)
-- Branch finishing / merge / PR (dev Stage 7+)
+- Branch finishing / merge / PR (dev Stage 4+)

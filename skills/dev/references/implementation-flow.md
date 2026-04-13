@@ -472,7 +472,7 @@ Both local backlog and issue tracker must be updated. Do not skip either. A merg
 
 ### Single-issue context
 
-Proceed to retro (Stage 7 in dev-flow.md).
+Proceed to retro (Stage 5 in dev-flow.md).
 
 ### Multi-task context
 
