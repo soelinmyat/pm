@@ -7,11 +7,11 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 Import customer evidence into PM.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, custom instructions, and interaction pacing.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
 **Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`.
 
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ingest/steps/` in numeric filename order. If `.pm/workflows/ingest/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
 ## Setup Expectations
 

@@ -11,13 +11,13 @@ Structured product thinking before commitment. Explore ideas, challenge assumpti
 
 Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 
 **When NOT to use:** When the user asks "what do you think about X" wanting a quick opinion, not a structured thinking session. Also skip when they've already decided and want to build — go straight to `pm:dev`.
 
 **Workflow:** `think` | **Telemetry steps:** `capture`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
 
-Execute the loaded workflow steps in order. They're conversational beats, not phases — follow the natural rhythm without announcing them or tracking state.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/think/steps/` in numeric filename order. If `.pm/workflows/think/` exists, same-named files there override defaults. Execute each step in order — they're conversational beats, not phases. Follow the natural rhythm without announcing them or tracking state.
 
 ## When to use think vs groom
 
