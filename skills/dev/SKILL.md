@@ -51,7 +51,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 |-------------------|---------|
 | `pm:groom` | Auto-invoked when no proposal exists (M/L/XL) |
 | `dev/references/splitting-patterns.md` (reference) | Issue splitting within RFC (M/L/XL) |
-| `dev/references/implementation-flow.md` (reference) | Stage 5 implementation |
+| `dev/references/implementation-flow.md` (reference) | Stage 3 implementation |
 | `dev/references/tdd.md` (reference) | Implementation agent (all) |
 | `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
 | `dev/references/debugging.md` (reference) | Debug |

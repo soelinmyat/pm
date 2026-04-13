@@ -30,7 +30,7 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 11 step files exist and load
+// AC 1: All 9 step files exist and load
 // ---------------------------------------------------------------------------
 
 test("dev steps: all 9 step files load with correct order", () => {

@@ -39,7 +39,7 @@ If `linear_readiness` is `dev-ready` in the session state AND no `{pm_dir}/backl
 
 If no proposal exists, decide whether grooming is needed:
 
-<!-- KB maturity criteria: keep in sync with skills/groom/phases/phase-1-intake.md -->
+<!-- KB maturity criteria: keep in sync with skills/groom/steps/01-intake.md -->
 
 **For M/L/XL: detect KB maturity first.** Check the knowledge base before choosing a groom tier:
 

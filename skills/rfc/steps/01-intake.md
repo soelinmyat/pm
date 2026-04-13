@@ -114,23 +114,7 @@ Extract and store in the session state file:
 
 ### 6. Write Session State
 
-Create `{pm_state_dir}/rfc-sessions/{slug}.md` with the initial state:
-
-```yaml
----
-slug: "{slug}"
-run_id: "{PM_RUN_ID}"
-stage: intake
-size: "{size}"
-ticket: "{linear_id or null}"
-rfc_path: null
-started_at: YYYY-MM-DDTHH:MM:SSZ
-stage_started_at: YYYY-MM-DDTHH:MM:SSZ
-completed_at: null
----
-```
-
-Include the `## Project Context` and `## Decisions` sections per the state schema.
+Create `{pm_state_dir}/rfc-sessions/{slug}.md` following the template in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`. Use the markdown table format (not YAML frontmatter).
 
 Update `Stage` to `rfc-generation` when intake completes.
 
