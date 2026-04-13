@@ -8,7 +8,7 @@ const crypto = require("crypto");
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_SERVER_URL = "https://hub.pm.dev";
+const DEFAULT_SERVER_URL = "https://api.productmemory.io";
 const CREDENTIALS_PATH = process.env.HOME
   ? path.join(process.env.HOME, ".pm", "credentials")
   : path.join(require("os").homedir(), ".pm", "credentials");
@@ -65,11 +65,16 @@ function buildManifest(pmDir) {
       return;
     }
     for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full, rel);
-      } else if (entry.isFile() && !entry.name.endsWith(".local-conflict")) {
+      } else if (
+        entry.isFile() &&
+        !entry.name.endsWith(".local-conflict") &&
+        entry.name.toLowerCase().endsWith(".md")
+      ) {
         const buffer = fs.readFileSync(full);
         const hash = crypto.createHash("sha256").update(buffer).digest("hex");
         manifest.push({ path: rel, hash });
@@ -174,6 +179,43 @@ function writeSyncStatus(dotPmDir, result) {
 }
 
 // ---------------------------------------------------------------------------
+// Lock file — prevent concurrent sync runs
+// ---------------------------------------------------------------------------
+
+function acquireLock(dotPmDir) {
+  const lockPath = path.join(dotPmDir, "sync.lock");
+  fs.mkdirSync(dotPmDir, { recursive: true });
+
+  // Check for existing lock
+  try {
+    const existingPid = parseInt(fs.readFileSync(lockPath, "utf8").trim(), 10);
+    if (existingPid && !isNaN(existingPid)) {
+      // Check if the process is still running
+      try {
+        process.kill(existingPid, 0); // signal 0 = check existence
+        return false; // Process is still alive — lock is held
+      } catch {
+        // Process is gone — stale lock, we can take it
+      }
+    }
+  } catch {
+    // No lock file — proceed to acquire
+  }
+
+  fs.writeFileSync(lockPath, String(process.pid));
+  return true;
+}
+
+function releaseLock(dotPmDir) {
+  const lockPath = path.join(dotPmDir, "sync.lock");
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // Already removed — no-op
+  }
+}
+
+// ---------------------------------------------------------------------------
 // runSync — main entry point: push or pull
 // ---------------------------------------------------------------------------
 
@@ -188,10 +230,19 @@ async function runSync(mode, projectDir, credsPath) {
   const pmDir = path.join(projectDir, "pm");
   const dotPmDir = path.join(projectDir, ".pm");
 
-  if (mode === "push") {
-    await doPush(pmDir, dotPmDir, config);
-  } else if (mode === "pull") {
-    await doPull(pmDir, dotPmDir, config);
+  if (!acquireLock(dotPmDir)) {
+    process.stderr.write("sync already in progress\n");
+    return;
+  }
+
+  try {
+    if (mode === "push") {
+      await doPush(pmDir, dotPmDir, config);
+    } else if (mode === "pull") {
+      await doPull(pmDir, dotPmDir, config);
+    }
+  } finally {
+    releaseLock(dotPmDir);
   }
 }
 
@@ -217,6 +268,7 @@ async function doPush(pmDir, dotPmDir, config) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.token}`,
         "X-Project-Id": config.projectId,
+        "X-API-Version": "1",
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30000),
@@ -268,6 +320,7 @@ async function doPull(pmDir, dotPmDir, config) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.token}`,
         "X-Project-Id": config.projectId,
+        "X-API-Version": "1",
       },
       body: JSON.stringify({ manifest }),
       signal: AbortSignal.timeout(30000),
@@ -332,7 +385,19 @@ if (require.main === module) {
     process.stderr.write("Usage: kb-sync.js <push|pull>\n");
     process.exit(1);
   }
-  runSync(mode).catch(() => process.exit(0));
+  runSync(mode).catch((err) => {
+    // crash-safe: always write sync-status.json
+    try {
+      writeSyncStatus(path.join(process.cwd(), ".pm"), {
+        mode: mode || "unknown",
+        errors: [err.message || String(err)],
+        ok: false,
+      });
+    } catch {
+      // If even status write fails, exit silently
+    }
+    process.exit(0); // exit clean so background invocations don't leave zombie errors
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -345,5 +410,7 @@ module.exports = {
   preparePushPayload,
   applyPullResponse,
   writeSyncStatus,
+  acquireLock,
+  releaseLock,
   runSync,
 };
