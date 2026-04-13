@@ -7,8 +7,8 @@ description: "Toggle integrations on or off for this project, or configure separ
 
 Toggle integrations on or off for this project, or configure separate-repo mode.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, and telemetry.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
 
 **Workflow:** `setup`
 
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/setup/steps/` in numeric filename order. If `.pm/workflows/setup/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.

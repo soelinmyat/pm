@@ -14,17 +14,14 @@ If `pm_state_dir` is not in conversation context, use `.pm` at the same location
 
 ## Workflow Loading
 
-Load the workflow steps using the step loader:
+Each skill's workflow is defined by `.md` files in its `steps/` directory:
 
-```
-const { loadWorkflow, buildPrompt } = require('${CLAUDE_PLUGIN_ROOT}/scripts/step-loader');
-const steps = loadWorkflow('{SKILL_NAME}', pmDir, '${CLAUDE_PLUGIN_ROOT}');
-const workflowPrompt = buildPrompt(steps);
-```
+1. Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/{SKILL_NAME}/steps/`.
+2. If `.pm/workflows/{SKILL_NAME}/` exists, same-named files there override defaults.
+3. Sort by numeric filename prefix (e.g., `01-intake.md` before `02-normalize.md`).
+4. Execute each step in order. Each step contains its own instructions.
 
-The step loader reads step files from `${CLAUDE_PLUGIN_ROOT}/skills/{SKILL_NAME}/steps/` (defaults) with user overrides from `.pm/workflows/{SKILL_NAME}/` (if any). Steps are sorted by order and concatenated into the workflow prompt. Persona references (`@persona`) in step files are resolved from `${CLAUDE_PLUGIN_ROOT}/personas/`.
-
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+Persona references (`@persona`) in step files resolve from `.pm/personas/` (user overrides) then `${CLAUDE_PLUGIN_ROOT}/personas/` (defaults).
 
 ---
 

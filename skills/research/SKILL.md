@@ -7,11 +7,11 @@ description: "Use when doing market research, competitive intelligence, or build
 
 Build and maintain the product knowledge base. Research gates strategy and grooming — without it, positioning is guesswork.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, custom instructions, and interaction pacing.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
 **Workflow:** `research` | **Telemetry steps:** `mode-routing`, `seo-market-intelligence`, `web-market-overview`, `write-landscape`, `discover-competitors`, `profile-competitors`, `synthesize`, `research-topic`, `write-findings`.
 
-Execute the loaded workflow steps in order. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults. Execute each step in order. Only one research mode (landscape, competitor, or topic) runs per invocation — see Step 2 (Mode Routing).
 
 **When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
 

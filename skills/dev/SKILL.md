@@ -7,11 +7,11 @@ description: "Use when building, debugging, or fixing. Checks for an RFC, genera
 
 Unified orchestrator for all development work. One flow handles everything — whether work is 1 task or N tasks emerges from the RFC.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, and telemetry.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
 
 **Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
@@ -91,7 +91,7 @@ Then route based on readiness and size:
 
 Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps` (e.g., `[missing-ac, vague-scope]`).
 
-After intake is resolved, execute the loaded workflow steps in order.
+After intake is resolved, proceed through the remaining step files in order.
 
 ## Bundled Skills
 

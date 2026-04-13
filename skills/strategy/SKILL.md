@@ -10,11 +10,11 @@ description: "Use when creating or maintaining a product strategy document. Cove
 The strategy doc is the alignment filter for all grooming decisions.
 Every feature idea gets evaluated against it. Without one, grooming drifts.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, workflow loading, telemetry, custom instructions, and interaction pacing.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
 **Workflow:** `strategy` | **Telemetry steps:** `prerequisite-detection`, `interview`, `write-strategy`.
 
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/strategy/steps/` in numeric filename order. If `.pm/workflows/strategy/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
 ## Interaction Pacing
 

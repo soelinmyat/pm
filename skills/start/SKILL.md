@@ -16,11 +16,11 @@ Use it to do one of two things:
 
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for workflow loading, telemetry, and interaction pacing. Do not use its generic path resolution section here — `pm:start` resolves paths itself below before loading any steps.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and interaction pacing. Do not use its generic path resolution section here — `pm:start` resolves paths itself below before loading any steps.
 
 **Workflow:** `start` | **Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `open`, `pulse`.
 
-Execute the loaded workflow steps in order. Each step contains its own instructions.
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/start/steps/` in numeric filename order. If `.pm/workflows/start/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
 ## Detect Repo Mode
 
