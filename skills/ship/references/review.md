@@ -54,7 +54,7 @@ Before reviewing, ensure the branch is up to date with {DEFAULT_BRANCH}:
 
 ### Build project context
 
-Run context discovery per `${CLAUDE_PLUGIN_ROOT}/skills/dev/context-discovery.md` if not already in `.pm/dev-sessions/{slug}.md`. Build the `{PROJECT_CONTEXT}` block for agent prompts.
+Run context discovery per `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md` if not already in `.pm/dev-sessions/{slug}.md`. Build the `{PROJECT_CONTEXT}` block for agent prompts.
 
 ### Determine review target
 
@@ -210,7 +210,7 @@ For each finding (P0 first, then P1, then P2):
 
 1. Read the target file
 2. Apply the fix as described in the finding
-3. Run tests using the test command from the context injection contract (`.pm/dev-sessions/{slug}.md` `## Project Context` or context-discovery.md fallback)
+3. Run tests using the test command from the context injection contract (`.pm/dev-sessions/{slug}.md` `## Project Context` or `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md` fallback)
 4. If tests fail: fix the regression before moving to the next finding
 5. Continue until all findings are fixed
 

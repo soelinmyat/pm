@@ -63,11 +63,11 @@ All workflow skills are self-contained within this plugin. No external skill dep
 
 ## Project Context Discovery
 
-At intake, run the context discovery protocol defined in `context-discovery.md` (same directory).
+At intake, run the context discovery protocol defined in `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md`.
 This reads CLAUDE.md, AGENTS.md, package manifests, and MCP tools to build the project context.
 Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
 
-See `context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
+See `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
 All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
 
 ## State File
