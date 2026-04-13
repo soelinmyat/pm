@@ -2,6 +2,7 @@
 name: Team Review
 order: 8
 description: 3-4 parallel agents review the proposal for quality (max 3 iterations, full tier only)
+applies_to: [full]
 ---
 
 ### Step 8: Team Review

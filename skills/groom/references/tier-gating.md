@@ -32,11 +32,13 @@ groom_tier: quick | standard | full
 
 ## Step Loading Rules
 
-Only run steps that are active for the current tier.
+Each step file declares `applies_to: [quick, standard, full]` in frontmatter. The step loader filters inactive steps before building the prompt when a tier is provided.
 
-- `quick` skips `scope-review`, `design`, `team-review`, `bar-raiser`, and `present`
-- `standard` skips `team-review`, `bar-raiser`, and `present`
+- `quick` runs: intake, strategy-check, research, scope, draft-proposal, link
+- `standard` runs: intake, strategy-check, research, scope, scope-review, design, draft-proposal, link
 - `full` runs every step
+
+Step bodies may still describe skip reasons for context, but the loader enforces tier filtering at the code level.
 
 ## Research by Tier
 

@@ -2,6 +2,7 @@
 name: Draft Proposal
 order: 7
 description: Detect feature type, generate flows/wireframes, draft proposal content and backlog entry
+applies_to: [quick, standard, full]
 ---
 
 ### Step 7: Draft Proposal
@@ -50,24 +51,25 @@ If the feature type is UI, link to wireframes from Design (Step 6). Design owns 
 
 #### Step 3: Assemble proposal content
 
-Gather all product context into a coherent proposal narrative:
+Gather all product context into a coherent proposal narrative. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. Source content for each section from:
 
-- **Outcome statement:** What changes for the user when this ships (from scope)
-- **Problem & context:** The user pain, market signal, or strategic driver (from research)
-- **Scope:** In-scope and out-of-scope items with 10x filter result
-- **User flows:** Mermaid diagrams (from Step 2a or Design step)
-- **Wireframes:** HTML wireframe links (from Step 2b or Design step)
-- **Competitive context:** How competitors handle this, with specific references from research
-- **Technical feasibility:** EM assessment from Scope Review (Step 5)
-- **Research links:** Paths to relevant findings
-
-- **Freshness notes:** If `stale_research` in the groom session state is non-empty, include a "Freshness notes" section listing each stale research source. Format each entry as: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." If `stale_research` is empty, omit this section entirely.
+- **Outcome** — from scope definition (what changes for the user)
+- **Problem & Context** — from research (user pain, market signal, strategic driver)
+- **Scope** — in-scope and out-of-scope items with 10x filter result
+- **User Flows** — Mermaid diagrams (from Step 2a or Design step)
+- **Wireframes** — HTML wireframe links (from Step 2b or Design step)
+- **Competitive Context** — from research (how competitors handle this)
+- **Technical Feasibility** — EM assessment from Scope Review (Step 5)
+- **Review Summary** — pipeline steps completed so far
+- **Resolved Questions** — any questions resolved during scoping/research
+- **Freshness Notes** — only if `stale_research` in groom session state is non-empty. Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." Omit entirely if empty.
+- **Next Steps** — standard dev handoff prompt
 
 This content feeds into the proposal backlog entry (Step 10) and linking (Step 11).
 
 #### Step 4: Write proposal backlog entry
 
-Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Step 8, Step 9) can read the assembled proposal. Use the Proposal Format from the main SKILL.md. Set `status: drafted`, `prd: null`, `rfc: null`. Step 10 (Present) will upgrade this to `status: proposed` and write the full PRD content inline.
+Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Step 8, Step 9) can read the assembled proposal. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. Set `status: drafted`, `prd: null`, `rfc: null`. For full tier, Step 10 (Present) will resolve open questions, apply final edits, and upgrade `status: drafted` to `status: proposed`.
 
 Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
 
@@ -89,7 +91,7 @@ Behavior depends on the current `groom_tier` from session state.
 
 4. After approval, finalize the proposal:
    - Update `status: proposed` in the backlog entry frontmatter
-   - Ensure all 11 proposal sections are present per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`
+   - Verify all sections match `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` (names, order, completeness)
    - Notify the user: "Proposal finalized at `{pm_dir}/backlog/{topic-slug}.md`."
 
 5. Update state and proceed directly to Step 11 (Link):

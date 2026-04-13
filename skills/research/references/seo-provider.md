@@ -1,20 +1,16 @@
----
-name: SEO Provider Configuration
-order: 6
-description: SEO provider routing (ahrefs-mcp or none) and tool inventory shared across all research modes
----
+# SEO Provider Configuration
 
-## SEO Provider Invocation
+Reference for SEO provider routing and tool inventory. Consulted by landscape, competitor, and topic steps whenever SEO data is needed.
 
 Read `{pm_state_dir}/config.json` to determine the configured SEO provider. Route calls based on the provider:
 
-### Provider: `"ahrefs-mcp"` (recommended)
+## Provider: `"ahrefs-mcp"` (recommended)
 
 Use the Ahrefs MCP tools directly. These are available as MCP tool calls when the Ahrefs MCP server is connected. The tool names are prefixed with `mcp__ahrefs__` (the exact prefix depends on how the server was registered — check available tools).
 
 Always call `mcp__ahrefs__doc` with the specific tool name before first use to get the correct input schema.
 
-#### Tool inventory by use case
+### Tool inventory by use case
 
 **Keyword research:**
 - `keywords-explorer-overview` — volume, difficulty, CPC for specific keywords
@@ -43,7 +39,7 @@ Always call `mcp__ahrefs__doc` with the specific tool name before first use to g
 **Efficiency:**
 - `batch-analysis` — analyze up to 100 URLs/domains in one call (use for competitor comparison)
 
-#### When to use which
+### When to use which
 
 | PM skill | Primary tools | Purpose |
 |---|---|---|
@@ -54,6 +50,6 @@ Always call `mcp__ahrefs__doc` with the specific tool name before first use to g
 
 If an Ahrefs MCP tool call fails or returns an error, display the error to the user, note it in the output file under Sources, and continue research with web search.
 
-### Provider: `"none"`
+## Provider: `"none"`
 
 Skip all SEO calls. Proceed with web search only. Do not error.

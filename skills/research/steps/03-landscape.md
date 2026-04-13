@@ -6,11 +6,13 @@ description: Industry landscape research — market overview, key players, keywo
 
 ## Landscape Mode (`$pm-research landscape`)
 
+**Goal:** Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
+
 ### When to Use
 
 First research activity in a new project. Produces the market overview that makes strategy interviews more specific and competitor profiling more targeted.
 
-### Flow
+### How
 
 1. **Determine the market space.**
    - If `{pm_dir}/strategy.md` exists, read it and extract the market/product space from the positioning or product description.
@@ -18,7 +20,7 @@ First research activity in a new project. Produces the market overview that make
    - Use the answer as `{space}` in all search templates below.
 
 2. **SEO market intelligence** (if provider configured).
-   Read `{pm_state_dir}/config.json` for the `seo.provider` value. See Step 6 (SEO Provider) for tool details.
+   Read `{pm_state_dir}/config.json` for the `seo.provider` value. See `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md` for tool details.
    - If `"ahrefs-mcp"`: use Ahrefs MCP tools to:
      - Get keyword ideas for the product category (matching terms, limit 30). Shows search demand behind the space.
      - For the top 3-5 keywords, check volume distribution across target countries (especially SEA markets if relevant). Reveals geographic demand.
@@ -42,9 +44,13 @@ First research activity in a new project. Produces the market overview that make
 
 ```markdown
 ---
-type: landscape
+type: insight
+domain: business
+topic: "Market Landscape: {Space}"
 created: YYYY-MM-DD
-updated: YYYY-MM-DD
+last_updated: YYYY-MM-DD
+status: active
+confidence: medium
 sources:
   - url: ...
     accessed: YYYY-MM-DD
@@ -102,4 +108,6 @@ Dot size: Monthly organic traffic. Color: segment.
 
 ### Update Flow
 
-When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `updated:` in frontmatter.
+When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `last_updated:` in frontmatter.
+
+**Done-when:** `{pm_dir}/insights/business/landscape.md` exists with all template sections populated, user has validated findings, and indexes/logs are updated. For updates: `updated:` date is bumped and the user confirmed the diff.

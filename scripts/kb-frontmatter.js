@@ -34,6 +34,12 @@ function parseFrontmatter(content) {
     if (inlineValue !== "") {
       if (inlineValue === "[]") {
         data[key] = [];
+      } else if (inlineValue.startsWith("[") && inlineValue.endsWith("]")) {
+        // Inline YAML array: [item1, item2, item3]
+        const inner = inlineValue.slice(1, -1).trim();
+        data[key] = inner
+          ? inner.split(",").map((item) => item.trim().replace(/^["'](.*)["']$/, "$1"))
+          : [];
       } else {
         data[key] = inlineValue.replace(/^["'](.*)["']$/, "$1");
       }

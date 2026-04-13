@@ -2,16 +2,25 @@
 name: Intake
 order: 1
 description: Capture the idea, clarify, derive slug, detect KB maturity, write initial state
+applies_to: [quick, standard, full]
 ---
 
 ### Step 1: Intake
 
-**If grooming an existing idea from backlog:** Check if `{pm_dir}/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
+This step has two phases: **context gathering** (varies by entry path) and **shared initialization** (always runs). Every entry path must complete both phases before advancing.
+
+---
+
+#### Phase A: Context Gathering
+
+Determine the entry path and pre-fill context. Only ONE of these paths runs.
+
+**Path 1 — From backlog:** Check if `{pm_dir}/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
 > "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
 
-Skip to step 3 after confirmation.
+Wait for confirmation.
 
-**If invoked from dev with Linear issue context** (dev passes title, description, labels, ID, and slug in the preceding conversation messages):
+**Path 2 — From dev with Linear issue context** (dev passes title, description, labels, ID, and slug in the preceding conversation messages):
 
 This is a Linear issue that failed the dev-readiness check. Dev has already fetched the issue and identified the gaps. No CLI flags — groom reads the Linear context from the conversation.
 
@@ -23,23 +32,24 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    > "Grooming Linear issue {ID}: '{title}'. Dev flagged gaps: {gaps from dev session}.
    > Here's the current description: {first 200 chars}...
    > Anything to add before I proceed?"
-6. Skip to step 3 (existing research check) after confirmation.
 
-**If promoted from think:** Check if `{pm_dir}/thinking/{slug}.md` exists (the synthesize step sets `status: promoted` and `promoted_to` in the thinking artifact). If found, read it and pre-fill intake from its Problem, Direction, Key tradeoffs, and Open questions. Confirm with the user:
+Wait for confirmation.
+
+**Path 3 — Promoted from think:** Check if `{pm_dir}/thinking/{slug}.md` exists (the synthesize step sets `status: promoted` and `promoted_to` in the thinking artifact). If found, read it and pre-fill intake from its Problem, Direction, Key tradeoffs, and Open questions. Confirm with the user:
 > "Picking up from your thinking on '{topic}'. Direction: {direction}. Anything to add or change before we scope it?"
 
 When the groom session produces a backlog item, set the `thinking` field on the backlog item to the relative path of the thinking artifact (e.g., `thinking/{slug}.md`). This creates the bidirectional link between the backlog item and the thinking that originated it.
 
-Skip to step 3 after confirmation. The thinking artifact already challenged the framing — groom doesn't need to redo that work.
+Wait for confirmation. The thinking artifact already challenged the framing — groom doesn't need to redo that work.
 
-**Otherwise (from scratch):**
+**Path 4 — From scratch:**
 
 1. Ask: "What's the idea?"
    One question. Wait for the full answer.
 
 2. Derive 2-4 search terms from the user's answer. Search `{pm_dir}/thinking/` for related artifacts (use the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`, domain: `thinking`, index: `{pm_dir}/thinking/index.md`). If a match is found:
    > "Found existing thinking on '{topic}'. Use that as the starting point?"
-   If yes, treat as "promoted from think" above.
+   If yes, treat as Path 3 above.
 
 3. If no thinking artifact exists, recommend think first:
    > "This idea hasn't been through `/pm:think` yet. Think challenges the framing before committing to a full proposal. Run think first, or proceed straight to grooming?"
@@ -53,7 +63,15 @@ Skip to step 3 after confirmation. The thinking artifact already challenged the 
 
 5. **Surface past learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `${CLAUDE_PLUGIN_ROOT}/references/memory-recall.md`. Display them to the user so past context informs the grooming session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
 
-6. **Feature inventory check.** Check if `{pm_dir}/product/features.md` exists.
+---
+
+#### Phase B: Shared Initialization (all entry paths)
+
+Every entry path — backlog, Linear, think, or scratch — MUST complete all of the following before advancing to Step 2. Do not skip any sub-step based on entry path.
+
+1. **Derive topic slug** (if not already set by the entry path). Kebab-case, max 4 words.
+
+2. **Feature inventory check.** Check if `{pm_dir}/product/features.md` exists.
 
    If it exists, parse frontmatter for `feature_count` and `area_count`. Read the body for the feature list. Report to user:
    > "Found feature inventory with {feature_count} features across {area_count} areas. Existing capabilities will be referenced during scope review."
@@ -64,7 +82,7 @@ Skip to step 3 after confirmation. The thinking artifact already challenged the 
 
    If it does not exist, skip silently. Set `product_features_available: false` in session state.
 
-7. **Codebase scan** (if `codebase_available: true` in groom state):
+3. **Codebase scan** (if `codebase_available: true` in groom state):
    Explore the project source code for existing implementation related to this idea. Look for:
    - Existing files, modules, or components that touch this feature area
    - Partial implementations or related functionality already built
@@ -80,7 +98,7 @@ Skip to step 3 after confirmation. The thinking artifact already challenged the 
 
    This scan is lightweight — save deep analysis for the EM review in Step 5.
 
-8. **KB maturity detection.** Check the knowledge base to determine the max available groom tier:
+4. **KB maturity detection.** Check the knowledge base to determine the max available groom tier:
 
    | Signal | Check | Present? |
    |---|---|---|
@@ -105,9 +123,7 @@ Skip to step 3 after confirmation. The thinking artifact already challenged the 
    > (b) Build the missing prerequisites first (I can help with /pm:strategy or /pm:research)"
    Wait for the user's choice.
 
-9. Derive a topic slug from the idea (kebab-case, max 4 words).
-
-10. Write initial state to `{pm_state_dir}/groom-sessions/{topic-slug}.md` (create `{pm_state_dir}/groom-sessions/` first if needed):
+5. **Write initial state** to `{pm_state_dir}/groom-sessions/{topic-slug}.md` (create `{pm_state_dir}/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"
@@ -129,3 +145,5 @@ kb_signals:
   insights: true | false
   competitors: true | false
 ```
+
+Only after state is written may the workflow advance to Step 2.

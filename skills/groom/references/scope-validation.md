@@ -6,13 +6,22 @@ Used by `pm:groom` during Step 4. Follow this guide to define scope precisely, a
 
 ## 1. Strategy Alignment (scope-level check)
 
-Read `strategy_check.context` from session state (extracted in Step 2). Do NOT re-read `strategy.md` — Step 2 already parsed it.
+Read `strategy_check` from session state (extracted in Step 2).
+
+**If `strategy_check.context` is available** (standard/full tier where `strategy.md` existed):
+
+Read `strategy_check.context` from session state. Do NOT re-read `strategy.md` — Step 2 already parsed it.
 
 **Current priorities:** Which of the top 3 priorities (from `strategy_check.context.priorities`) does this scope serve? Write it down explicitly. If you cannot name the priority, the scope is suspect.
 
 **Non-goals against new scope items:** Step 2 already cleared the idea against non-goals. Only recheck here if **scope added items not covered by the original idea**. For each new in-scope item, check against `strategy_check.context.non_goals`. If conflict: stop and raise it explicitly.
 
 **ICP:** Is the target user of this scope the ICP (from `strategy_check.context.icp`), or a secondary segment? Building for secondary segments is allowed, but it must be a conscious choice. Name it.
+
+**If `strategy_check.context` is NOT available** (quick tier, or standard tier where `strategy.md` was missing):
+
+Skip priority alignment, non-goal validation, and ICP checks. Still run the 10x filter (Section 2) and scope definition (Section 3). Write `strategy_context_available: false` in the session state under `scope:`. Tell the user:
+> "Strategy alignment was not evaluated in this run (strategy context unavailable). Scope decisions are based on the 10x filter and direct user input only."
 
 ---
 
