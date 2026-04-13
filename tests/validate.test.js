@@ -977,13 +977,14 @@ test("real pm/ directory passes validation", (t) => {
 // PM-170 Issue 3: Plugin registration — commands, agents, stale references
 // ---------------------------------------------------------------------------
 
-test("PM-170: plugin.config.json has exactly 12 commands (no merge, no features, has note and sync)", () => {
+test("PM-170: plugin.config.json has exactly 13 commands (no merge, no features, has note, sync, and ideate)", () => {
   const configPath = path.join(__dirname, "..", "plugin.config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
   const expected = [
     "dev",
     "groom",
+    "ideate",
     "ingest",
     "note",
     "refresh",
@@ -2103,6 +2104,7 @@ const {
   VALID_CONFIDENCE: V_CONFIDENCE,
   VALID_SOURCE_ORIGINS: V_SOURCE_ORIGINS,
   VALID_COMPETITOR_TYPES: V_COMPETITOR_TYPES,
+  VALID_THINKING_STATUSES: V_THINKING_STATUSES,
   REQUIRED_BACKLOG_FIELDS: R_BACKLOG,
   REQUIRED_STRATEGY_FIELDS: R_STRATEGY,
   REQUIRED_INSIGHT_FIELDS: R_INSIGHT,
@@ -2169,12 +2171,14 @@ test("PM-199: drift — every backtick-wrapped enum value in reference schema ta
     ...V_CONFIDENCE,
     ...V_SOURCE_ORIGINS,
     ...V_COMPETITOR_TYPES,
+    ...V_THINKING_STATUSES,
     // Fixed type values (not enums but referenced in schema tables)
     "backlog",
     "strategy",
     "evidence",
     "insight",
     "notes",
+    "thinking",
     "competitor-profile",
     "competitor-features",
     "competitor-sentiment",

@@ -16,6 +16,7 @@ Type-dispatch table mapping `type` value to file location and schema section.
 | `evidence` (`user-feedback`) | `pm/evidence/user-feedback/*.md` | 6 required | [6. Evidence — User Feedback](#6-evidence--user-feedback) |
 | `insight` | `pm/insights/{domain}/*.md` | 7 required | [7. Insight](#7-insight) |
 | `notes` | `pm/evidence/**/*.md` | 5 required | [8. Notes](#8-notes) |
+| `thinking` | `pm/thinking/*.md` | 6 required + 1 optional | [9. Thinking](#9-thinking) |
 | ~~`backlog-issue`~~ | — | — | [Deprecated Types](#deprecated-types) |
 | ~~`proposal`~~ | — | — | [Deprecated Types](#deprecated-types) |
 | ~~`idea`~~ | — | — | [Deprecated Types](#deprecated-types) |
@@ -292,6 +293,42 @@ month: 2026-04
 updated: 2026-04-12
 note_count: 7
 digested_through: 2026-04-10
+---
+```
+
+---
+
+## 9. Thinking
+
+Files in `pm/thinking/*.md`. Product thinking artifacts produced by the `think` skill.
+
+| Field | Type | Req? | Valid Values | Description |
+|---|---|---|---|---|
+| `type` | string | required | `"thinking"` | Document type discriminator |
+| `topic` | string | required | — | Human-readable topic name |
+| `slug` | string | required | — | Kebab-case identifier, must match filename |
+| `created` | date | required | `YYYY-MM-DD` | Creation date |
+| `updated` | date | required | `YYYY-MM-DD` | Last modification date |
+| `status` | enum | required | `"active"` \| `"parked"` \| `"promoted"` | Lifecycle stage |
+| `promoted_to` | string\|null | optional | — | Groom session slug when `status: promoted`, otherwise `null` |
+
+### Constraints
+
+- `promoted_to` must be non-null when `status` is `promoted`
+- `promoted_to` must be null (or absent) when `status` is not `promoted`
+- `slug` must match the filename (without `.md` extension)
+
+### Example
+
+```yaml
+---
+type: thinking
+topic: Plugin marketplace search UX
+slug: marketplace-search-ux
+created: 2026-04-10
+updated: 2026-04-13
+status: active
+promoted_to: null
 ---
 ```
 

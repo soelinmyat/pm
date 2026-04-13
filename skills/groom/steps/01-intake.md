@@ -4,7 +4,7 @@ order: 1
 description: Capture the idea, clarify, derive slug, detect KB maturity, write initial state
 ---
 
-### Phase 1: Intake
+### Step 1: Intake
 
 **If grooming an existing idea from backlog:** Check if `{pm_dir}/backlog/{slug}.md` exists with `status: idea`. If so, read it and pre-fill intake from its outcome, signal sources, and competitor context. Confirm with the user:
 > "Grooming idea '{title}' from backlog. Here's what we know: {one-liner}. Anything to add or change before we proceed?"
@@ -25,23 +25,33 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    > Anything to add before I proceed?"
 6. Skip to step 3 (existing research check) after confirmation.
 
-**Otherwise:**
+**If promoted from think:** Check if `{pm_dir}/thinking/{slug}.md` exists (the synthesize step sets `promoted_to` in the thinking artifact). If found, read it and pre-fill intake from its Problem, Direction, Key tradeoffs, and Open questions. Confirm with the user:
+> "Picking up from your thinking on '{topic}'. Direction: {direction}. Anything to add or change before we scope it?"
+
+Skip to step 3 after confirmation. The thinking artifact already challenged the framing — groom doesn't need to redo that work.
+
+**Otherwise (from scratch):**
 
 1. Ask: "What's the idea?"
    One question. Wait for the full answer.
 
-2. Clarify if needed — ask ONE follow-up at a time, only if the answer didn't already cover it:
+2. Derive 2-4 search terms from the user's answer. Search `{pm_dir}/thinking/` for related artifacts (use the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`, domain: `thinking`, index: `{pm_dir}/thinking/index.md`). If a match is found:
+   > "Found existing thinking on '{topic}'. Use that as the starting point?"
+   If yes, treat as "promoted from think" above.
+
+3. If no thinking artifact exists, recommend think first:
+   > "This idea hasn't been through `/pm:think` yet. Think challenges the framing before committing to a full proposal. Run think first, or proceed straight to grooming?"
+   If the user says proceed, continue. This is a recommendation, not a gate.
+
+4. Clarify if needed — ask ONE follow-up at a time, only if the answer didn't already cover it:
    - "Is this a user pain you've observed, or a proposed solution?" (problem vs. solution)
    - "Is this a small UX improvement or a new capability area?" (scope signal)
    - "What triggered this — a competitor move, user request, or something else?" (why now)
    Skip any question the user's initial answer already addressed.
 
-2.5. **Surface past learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the grooming session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
+5. **Surface past learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `${CLAUDE_PLUGIN_ROOT}/references/memory-recall.md`. Display them to the user so past context informs the grooming session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
 
-3. Check `{pm_dir}/evidence/research/` for existing context on this topic. If relevant findings exist, note them:
-   > "Found related research at {path}. I'll use it in Phase 3."
-
-3.5. **Feature inventory check.** Check if `{pm_dir}/product/features.md` exists.
+6. **Feature inventory check.** Check if `{pm_dir}/product/features.md` exists.
 
    If it exists, parse frontmatter for `feature_count` and `area_count`. Read the body for the feature list. Report to user:
    > "Found feature inventory with {feature_count} features across {area_count} areas. Existing capabilities will be referenced during scope review."
@@ -52,7 +62,7 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
 
    If it does not exist, skip silently. Set `product_features_available: false` in session state.
 
-4. **Codebase scan** (if `codebase_available: true` in groom state):
+7. **Codebase scan** (if `codebase_available: true` in groom state):
    Explore the project source code for existing implementation related to this idea. Look for:
    - Existing files, modules, or components that touch this feature area
    - Partial implementations or related functionality already built
@@ -66,23 +76,23 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    If no related code exists, note:
    > "No existing implementation found for this feature area — this is greenfield."
 
-   This scan is lightweight — save deep analysis for the EM review in Phase 4.5.
+   This scan is lightweight — save deep analysis for the EM review in Step 5.
 
-5. **KB maturity detection.** Check the knowledge base to determine the max available groom tier:
+8. **KB maturity detection.** Check the knowledge base to determine the max available groom tier:
 
    | Signal | Check | Present? |
    |---|---|---|
    | Strategy | `{pm_dir}/strategy.md` exists | yes / no |
-   | Research | Any file exists in `{pm_dir}/evidence/research/` (excluding index.md) | yes / no |
+   | Insights | `{pm_dir}/insights/.hot.md` exists and has entries | yes / no |
    | Competitors | Any `{pm_dir}/evidence/competitors/*/profile.md` exists | yes / no |
 
    Classify maturity:
    - **Fresh** (none of the three signals) — max tier: `quick`
-   - **Developing** (strategy OR research present — either one is enough) — max tier: `standard`
-   - **Mature** (strategy AND research AND competitors) — max tier: `full`
+   - **Developing** (strategy OR insights present — either one is enough) — max tier: `standard`
+   - **Mature** (strategy AND insights AND competitors) — max tier: `full`
 
    Report to the user:
-   > "KB maturity: **{level}** (strategy: {yes/no}, research: {yes/no}, competitors: {yes/no}).
+   > "KB maturity: **{level}** (strategy: {yes/no}, insights: {yes/no}, competitors: {yes/no}).
    > Max available tier: **{tier}**."
 
    If the user explicitly requested a tier higher than the max:
@@ -93,12 +103,13 @@ This is a Linear issue that failed the dev-readiness check. Dev has already fetc
    > (b) Build the missing prerequisites first (I can help with /pm:strategy or /pm:research)"
    Wait for the user's choice.
 
-6. Derive a topic slug from the idea (kebab-case, max 4 words).
+9. Derive a topic slug from the idea (kebab-case, max 4 words).
 
-7. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
+10. Write initial state to `.pm/groom-sessions/{topic-slug}.md` (create `.pm/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"
+runtime: claude | codex
 phase: intake
 groom_tier: "{effective tier after maturity cap}"
 started: YYYY-MM-DD
@@ -113,6 +124,6 @@ kb_maturity: fresh | developing | mature
 kb_maturity_tier: quick | standard | full
 kb_signals:
   strategy: true | false
-  research: true | false
+  insights: true | false
   competitors: true | false
 ```

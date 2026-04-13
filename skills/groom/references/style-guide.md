@@ -6,12 +6,13 @@ Groom-specific formatting supplement. For shared prose rules, jargon ban list, a
 
 ## Interaction Rules
 
-**Yes/no questions only.** Every confirmation question must be answerable with a simple "yes" or "no." Do not ask compound either/or questions — answering "yes" is ambiguous. Ask one thing and let the user volunteer alternatives.
+**One question at a time.** Prefer yes/no questions for confirmations. When there are genuinely multiple options (resume/fresh, tier selection, escalation choices), a short labeled menu is fine — but never more than 3-4 options, and never compound questions where "yes" is ambiguous.
 
 Bad: "Keep the CLE-1374 implementation and proceed to CLE-1373? Or revert?"
 Good: "Keep the CLE-1374 implementation and proceed to CLE-1373?"
+Also good (when options are needed): "(a) Proceed with quick tier (b) Build prerequisites first"
 
-**Verify before claiming.** During codebase scans (Phase 1, Phase 4), search using multiple terms, check both API and frontend code, and verify with the user before claiming a feature doesn't exist. Hallucinating gaps leads to wasted grooming effort. When in doubt, ask: "I couldn't find X — can you confirm it's not built?"
+**Verify before claiming.** During codebase scans (Step 1, Step 4), search using multiple terms, check both API and frontend code, and verify with the user before claiming a feature doesn't exist. Hallucinating gaps leads to wasted grooming effort. When in doubt, ask: "I couldn't find X — can you confirm it's not built?"
 
 ---
 
@@ -31,7 +32,7 @@ Then list only blocking items as bullets. Advisory items after user acknowledges
 
 ## Before / After Examples
 
-### Strategy check (Phase 2)
+### Strategy check (Step 2)
 
 **Before:** "After conducting a thorough review of the product strategy document, I've determined that this feature idea aligns well with the current priorities outlined in Section 6..."
 
@@ -40,7 +41,7 @@ Then list only blocking items as bullets. Advisory items after user acknowledges
 > - No non-goal conflicts
 > - ICP fit: strong (solo developer match)
 
-### Scope review (Phase 4.5 — parallel agents)
+### Scope review (Step 5 — parallel agents)
 
 **Before:** Three paragraphs per reviewer, 40+ lines each.
 **After:**
@@ -52,7 +53,7 @@ Then list only blocking items as bullets. Advisory items after user acknowledges
 >
 > No blocking issues. 2 advisory notes — want to see them?
 
-### Team review (Phase 6 — parallel agents)
+### Team review (Step 8 — parallel agents)
 
 **Before:** Dense per-reviewer sections, 60+ lines. Verdict buried after preamble.
 **After:**

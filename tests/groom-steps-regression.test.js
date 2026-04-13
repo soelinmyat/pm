@@ -238,7 +238,6 @@ test("groom steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable",
       "scope-validation.md",
       "agent-runtime.md",
       "writing.md",
-      "spec-reviewer.md",
       "frontmatter-schemas.md",
       "validate.js",
     ];
@@ -258,18 +257,20 @@ test("groom steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable",
 // AC 6: Orphan files moved to references
 // ---------------------------------------------------------------------------
 
-test("groom steps: ideate.md exists in references, not in steps", () => {
-  const referencesDir = path.join(PLUGIN_ROOT, "skills", "groom", "references");
-  const stepsDir = path.join(PLUGIN_ROOT, "skills", "groom", "steps");
+test("groom steps: ideate extracted to standalone skill", () => {
+  const ideateSkill = path.join(PLUGIN_ROOT, "skills", "ideate", "SKILL.md");
+  const groomRefsDir = path.join(PLUGIN_ROOT, "skills", "groom", "references");
 
   assert.ok(
-    fs.existsSync(path.join(referencesDir, "ideate.md")),
-    "ideate.md should exist in references/"
+    fs.existsSync(ideateSkill),
+    "ideate should exist as a standalone skill at skills/ideate/SKILL.md"
   );
 
-  // Verify ideate.md is NOT in steps/
-  const stepFiles = fs.readdirSync(stepsDir);
-  assert.ok(!stepFiles.includes("ideate.md"), "ideate.md should NOT be in steps/");
+  // Verify ideate.md is no longer in groom/references/
+  assert.ok(
+    !fs.existsSync(path.join(groomRefsDir, "ideate.md")),
+    "ideate.md should NOT be in groom/references/ (extracted to standalone skill)"
+  );
 });
 
 // ---------------------------------------------------------------------------

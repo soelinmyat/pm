@@ -4,14 +4,12 @@ order: 11
 description: Create proposal entry in backlog, Linear integration, retro extraction, cleanup
 ---
 
-### Phase 8: Link
+### Step 11: Link
 
-1. **Update the proposal backlog entry** (if not already finalized in Phase 7):
-   - Write `{pm_dir}/backlog/{topic-slug}.md` using the Proposal Format from the main SKILL.md.
-   - Set `status: proposed`, `prd: null`, `rfc: null`, `linear_id: "{linear_id}" | null`.
+1. **Enrich backlog entry metadata.** The proposal file already exists at `{pm_dir}/backlog/{topic-slug}.md` (written in Draft Proposal / Present). Do NOT rewrite it. Only add linking metadata:
    - **Thinking discovery:** Check if `{pm_dir}/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
-   - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence.
-   - Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
+   - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1).
+   - Set `linear_id` in frontmatter if known from session state.
 
 2. **Linear integration:**
 
@@ -24,21 +22,22 @@ description: Create proposal entry in backlog, Linear integration, retro extract
 
      **Scope:** {in-scope items}
      **Out of scope:** {out-of-scope items}
-     **Acceptance Criteria:**
-     {numbered AC list}
      **Feasibility:** {verdict}
      **Research:** {1-line summary}
+     **Proposal:** See local file at {pm_dir}/backlog/{topic-slug}.md
      ```
-   - Update the issue description via `save_issue`: append below a separator. **Idempotency rule:** If the description already contains `## Enriched AC (auto-groom)`, replace content from that heading up to (but not including) the next `## ` heading or end of description, whichever comes first. This preserves any human-added sections below the enriched block.
+   - Update the issue description via `save_issue`: append below a separator. **Idempotency rule:** If the description already contains `## Enriched Scope (auto-groom)`, replace content from that heading up to (but not including) the next `## ` heading or end of description, whichever comes first. This preserves any human-added sections below the enriched block.
      ```
      {existing description, up to but not including any prior enrichment}
 
      ---
-     ## Enriched AC (auto-groom)
-     {numbered AC list}
+     ## Enriched Scope (auto-groom)
+     **In scope:** {in-scope items}
+     **Out of scope:** {out-of-scope items}
+     **10x filter:** {filter_result}
      ```
    - Set `linear_id` in the backlog entry frontmatter to `linear_id`.
-   - Say: "Groom output written back to Linear issue {ID}. AC enriched."
+   - Say: "Groom output written back to Linear issue {ID}. Scope enriched."
 
    **If `linear_id` is NOT set** (existing flow, unchanged):
    - If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available):

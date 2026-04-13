@@ -28,15 +28,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 5 step files exist and load
+// AC 1: All 6 step files exist and load
 // ---------------------------------------------------------------------------
 
-test("think steps: all 5 step files load with correct order", () => {
+test("think steps: all 6 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("think", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 5, `Expected 5 steps, got ${steps.length}`);
+    assert.equal(steps.length, 6, `Expected 6 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -86,26 +86,33 @@ const CRITICAL_KEYWORDS = [
   "capture",
   "clarifying question",
 
-  // Step 2: Reframe
-  "reframe",
-  "job to be done",
-  "10x better",
+  // Step 2: Ground
+  "Ground",
+  "context check",
+  "kb-search.md",
 
-  // Step 3: Explore Approaches
+  // Step 3: Reframe
+  "reframe",
+  "Jobs to Be Done",
+  "Must-have test",
+
+  // Step 4: Explore Approaches
   "explore",
   "tradeoffs",
   "distinct approaches",
 
-  // Step 4: Pressure-Test
+  // Step 5: Pressure-Test
   "pressure-test",
-  "Assumptions",
-  "Risks",
-  "Open questions",
+  "Demand risk",
+  "Feasibility risk",
   "Dependencies",
 
-  // Step 5: Synthesize
-  "synthesize",
+  // Step 6: Synthesize
+  "Synthesize",
   "thinking artifact",
+  "Did I capture it correctly",
+  "status: promoted",
+  "promoted_to",
   "pm:groom",
   "groom_tier: quick",
   "{pm_dir}/thinking/",
@@ -135,7 +142,7 @@ test("think steps: concatenated output contains all critical instruction keyword
 });
 
 // ---------------------------------------------------------------------------
-// AC 4: Step names map to the 5 beats
+// AC 4: Step names map to the 6 beats
 // ---------------------------------------------------------------------------
 
 test("think steps: step names match expected beats", () => {
@@ -146,6 +153,7 @@ test("think steps: step names match expected beats", () => {
 
     assert.deepEqual(names, [
       "Capture",
+      "Ground",
       "Reframe",
       "Explore Approaches",
       "Pressure-Test",

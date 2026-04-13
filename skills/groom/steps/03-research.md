@@ -4,7 +4,7 @@ order: 3
 description: Invoke pm:research for competitive and market intelligence, or inline assessment for quick tier
 ---
 
-### Phase 3: Research
+### Step 3: Research
 
 <!-- Tier routing: keep in sync with SKILL.md "Research by tier" -->
 
@@ -38,7 +38,7 @@ research_note: "{1-line summary of inline finding}"
 
 #### Standard / Full tier
 
-**Note digest pre-step:** Before proceeding to research, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes, so the research phase has the latest internal signals. If no un-digested notes exist, the pre-step completes silently.
+**Note digest pre-step:** Before proceeding to research, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes, so the research step has the latest internal signals. If no un-digested notes exist, the pre-step completes silently.
 
 <HARD-GATE>
 Research is required before scoping. Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).
@@ -54,7 +54,7 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
    - What does internal customer evidence in `{pm_dir}/evidence/research/` say, if `$pm-ingest` has been used?
    - Is there a market signal validating this is a real problem?
 
-3. Wait for research to complete. Do not proceed to Phase 4 until findings are written.
+3. Wait for research to complete. Do not proceed to Step 4 until findings are written.
 
 4. **Research freshness check.** After research completes, check the age of all cited research files. This is annotation-only — groom always proceeds regardless of staleness.
 

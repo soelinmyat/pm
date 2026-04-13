@@ -26,6 +26,7 @@
   "commands": [
     "dev",
     "groom",
+    "ideate",
     "ingest",
     "note",
     "refresh",
@@ -45,6 +46,7 @@
         "research",
         "strategy",
         "groom",
+        "ideate",
         "think",
         "ingest",
         "note",

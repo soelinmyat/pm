@@ -4,7 +4,7 @@ order: 9
 description: Product Director holistic review with fresh eyes (max 2 iterations, full tier only)
 ---
 
-### Phase 6.5: Bar Raiser Review
+### Step 9: Bar Raiser Review
 
 <HARD-GATE>
 The bar raiser review is required before presenting to the user. Do NOT skip based on team review results, time pressure, or perceived quality.
@@ -25,7 +25,7 @@ You have fresh eyes. You have NOT been involved in the iterative drafting or tea
 CRITICAL: Do NOT read team review findings or groom state review sections. Form your own independent assessment. If you arrive at the same conclusion as the team, that is validation. If you disagree, that is the value you add.
 
 **Read before reviewing:**
-- {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Phase 5.5)
+- {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Step 7)
 - {pm_dir}/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - {pm_dir}/insights/business/landscape.md — market context
 - .pm/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
@@ -72,10 +72,10 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 
 **Handling bar raiser findings:**
 
-1. If verdict is **"Ready to present"**: proceed to Phase 7.
+1. If verdict is **"Ready to present"**: proceed to Step 10.
 2. If verdict is **"Send back to team"**:
    - Address the bar raiser's blocking issues by revising the proposal
-   - Re-run Phase 6 (Team Review) with the revised proposal
+   - Re-run Step 8 (Team Review) with the revised proposal
    - After team review converges, re-run the bar raiser
    - Max **2 bar raiser iterations**. If iteration 2 still returns "Send back," present to the user with unresolved concerns flagged.
 3. If verdict is **"Pause initiative"**: present the bar raiser's assessment to the user immediately.
