@@ -18,18 +18,22 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime 
 **Source repo access check:** Dev requires a source code repository. If `source_dir` is not in conversation context, check if cwd contains source code indicators (package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile, pom.xml, build.gradle, CMakeLists.txt, etc.). If found, use cwd as `source_dir`. If not found, block with: "Dev requires a source repo. Run pm:setup to configure, or invoke pm:dev from the source repo." Dev session files (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. See step 01 (Tool Check) for the full check.
 
 **Hard rules:**
-- **Protect the orchestrator's context window for multi-task work.** Each task's planning and implementation MUST run as a **fresh Agent() with isolated context**. Dispatch one fresh agent for RFC generation, and a separate fresh agent for implementation — the approved RFC is the handoff contract. Review/code-scan agents return compact results directly.
-- No frontend work without passing the contract sync gate (when project uses API contract tooling)
-- Before design critique or review, always run `pm:simplify` (it routes to Anthropic official simplify in Claude Code and normalizes output to PM-required fields)
-- No PR or auto-merge without design critique for UI changes (S/M/L/XL with frontend work)
-- No PR without passing the review gate (M/L/XL) — `/review` MUST run before push
-- No auto-merge without passing the code scan gate (XS/S) — lightweight bug scan before merge
-- All sizes use the PR flow — push branch, create PR, merge via `references/merge-loop.md`. The project's branch protection and CI dictate what's required.
-- XS/S: code scan gate → PR → auto-merge
-- M/L/XL: full review gate → PR → auto-merge after readiness gates pass
-- Learnings file MUST be read at intake before any work begins
-- Never use destructive git recovery in `/dev` flows (`git reset --hard`, `git checkout --`, blind `git stash pop`)
-- At every stage transition, emit a workspace checkpoint (cwd, branch, worktree, next action)
+- **Fresh agents for each phase.** RFC generation and implementation each get a fresh Agent() — the RFC is the handoff contract. This protects the orchestrator's context window and keeps agents focused.
+- **Contract sync before frontend work** — stale types give false test confidence.
+- **Simplify before review** — `pm:simplify` normalizes code quality before reviewers see it.
+- **Design critique before PR** for any UI change (S/M/L/XL) — users see what reviewers don't.
+- **Review before push** (M/L/XL) — `/review` catches cross-cutting issues. Code scan for XS/S.
+- **PR flow for all sizes** — push branch, create PR, merge via `references/merge-loop.md`. Branch protection and CI dictate gates.
+- **Read learnings at intake** — past context prevents repeating mistakes.
+- **No destructive git recovery** — no `git reset --hard`, `git checkout --`, blind `git stash pop`. Fix forward.
+- **Checkpoint at every stage transition** — cwd, branch, worktree, next action. The state file is the source of truth.
+
+**Gate routing:**
+
+| Size | Gates before PR | After PR |
+|------|----------------|----------|
+| XS/S | Code scan | Auto-merge |
+| M/L/XL | Full review | Auto-merge after readiness gates |
 
 ## Common Rationalizations
 
@@ -66,18 +70,24 @@ Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.d
 
 **MCP lookup:** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog above, fetch via MCP. Also fetch sub-issues — they become context for RFC generation (not a routing decision). If MCP returns nothing, proceed with the argument as the topic.
 
-**Linear issue readiness check:** If the MCP fetch returned an issue, assess dev-readiness:
+**Linear issue readiness check:** If the MCP fetch returned an issue, assess dev-readiness.
 
-1. **Fetch context:** Read the issue title, description, labels, and status from the `get_issue` response.
-2. **Dev-readiness assessment:** Check three criteria:
-   - **AC exist:** The description contains testable acceptance criteria (specific, verifiable statements — not just a vague description). Be generous: look for testable statements anywhere, not just under "AC:" headers.
-   - **Scope is clear:** The description distinguishes what's in scope. It should be possible to determine what the issue does and doesn't cover.
-   - **Size is inferrable:** Enough detail exists to classify as XS/S/M/L/XL.
-3. **If all three pass:** Store `linear_id`, `linear_readiness: dev-ready`, `linear_title`, `linear_description`, and `linear_labels` in the session state file. Log: `Linear issue {ID}: dev-ready. Proceeding to RFC.`
-4. **If any fail:** Also classify size (XS/S/M/L/XL) from the available context. Store `linear_id`, `linear_readiness: needs-groom`, `size`, and the specific gaps (e.g., `gaps: [missing-ac, vague-scope]`) in the session state.
-   - **XS/S:** Handle inline — confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in Stage 2.5 Step 2). Do NOT invoke pm:groom.
-   - **M/L/XL:** Announce gaps and invoke pm:groom within the same conversation. Pass Linear context as conversation text (not CLI flags). Specify the slug for groom: "Use slug: {slug}". Log: `Linear issue {ID}: needs grooming ({gaps}). Invoking pm:groom.`
-5. **If MCP fetch fails:** Log `linear_fetch: failed` and `linear_error: {error message}`. Ask the user: "Could not fetch Linear issue {ID}. Can you paste the issue description?" Proceed with the pasted text as conversation-sourced task context.
+Read the issue title, description, labels, and status. Check three criteria — be generous, look for testable statements anywhere, not just under "AC:" headers:
+
+- **AC exist:** Testable acceptance criteria (specific, verifiable — not just a vague description)
+- **Scope is clear:** What's in scope vs. out of scope is distinguishable
+- **Size is inferrable:** Enough detail to classify as XS/S/M/L/XL
+
+Then route based on readiness and size:
+
+| Readiness | Size | Action |
+|-----------|------|--------|
+| dev-ready (all 3 pass) | any | Store Linear context in session state. Proceed to RFC. |
+| needs-groom | XS/S | Confirm scope + ACs conversationally — don't invoke pm:groom. |
+| needs-groom | M/L/XL | Announce gaps, invoke pm:groom inline. Pass Linear context as conversation text. |
+| fetch failed | any | Ask user to paste the issue description. Proceed with pasted text. |
+
+Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps` (e.g., `[missing-ac, vague-scope]`).
 
 After intake is resolved, execute the loaded workflow steps in order.
 

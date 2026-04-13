@@ -37,7 +37,7 @@ For audio-sourced evidence, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ingest
 
 ### Required record fields
 
-Every normalized record must include:
+Every evidence item becomes one JSON record. These fields are the minimum needed to trace a finding back to its source and cluster it by topic — without them, synthesis has nothing to work with.
 
 ```json
 {

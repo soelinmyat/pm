@@ -172,20 +172,15 @@ proposal:
 
 ## Error Handling
 
-**Corrupted state file** (unparseable YAML, missing required fields):
-> "The selected groom state file under {pm_state_dir}/groom-sessions/ appears corrupted. Options:
-> (a) Show me the file so I can fix it manually
-> (b) Start fresh (deletes the state file)"
+Things go wrong. Here's how to recover without making it worse.
 
-**Missing research refs** (phase advances but research files not found):
-Warn the user. Offer to re-run Step 3 before continuing. Do not silently proceed with empty research context.
+**Corrupted state file.** If the YAML won't parse or required fields are missing, ask the user: "Show me the file so I can fix it, or start fresh?" Don't guess at repairs — corrupted state produces corrupted output.
 
-**Strategy drift** ({pm_dir}/strategy.md modified since strategy_check was recorded):
-On every step after strategy-check, compare the file's `updated:` date against the state's `strategy_check.checked_against`. If newer, flag:
-> "{pm_dir}/strategy.md was updated after the strategy check. Re-run the check before scoping?"
+**Missing research refs.** If a phase needs research files that don't exist, stop and offer to re-run Step 3. Proceeding with empty research context means every downstream decision is ungrounded.
 
-**Parallel sessions** (state file already exists when starting):
-Never silently overwrite an existing state file. Always ask resume vs. fresh. Starting fresh requires explicit user confirmation before deleting.
+**Strategy drift.** After strategy-check, compare `{pm_dir}/strategy.md`'s `updated:` date against the recorded check. If strategy changed since you checked it, flag it — scope decisions built on stale strategy are scope decisions built on nothing.
+
+**Parallel sessions.** If a state file already exists when starting, never overwrite it silently. Ask resume vs. fresh. Starting fresh requires explicit confirmation — the existing file might be someone else's in-progress work.
 
 ---
 

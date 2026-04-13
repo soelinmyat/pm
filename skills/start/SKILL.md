@@ -22,7 +22,9 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and inter
 
 ## Detect Repo Mode
 
-Before detecting the situation, resolve the three path variables that all downstream skills depend on. PM can run in two modes:
+Every skill in PM depends on three path variables — `pm_dir`, `pm_state_dir`, and `source_dir`. Getting these wrong means every downstream read and write lands in the wrong place. Resolve them first, before anything else.
+
+PM can run in two modes:
 
 - **Same-repo mode:** The `pm/` knowledge base lives in the same repo as the source code.
 - **Separate-repo mode:** The `pm/` knowledge base lives in a different repo, linked via config.
