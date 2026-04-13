@@ -6,6 +6,8 @@ description: Competitor discovery, profiling (5 files per competitor), and synth
 
 ## Competitor Mode (`$pm-research competitors`)
 
+**Goal:** Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
+
 ### Phase 1: Discover
 
 The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.
@@ -65,7 +67,7 @@ If any file is missing, re-run that section of research before proceeding to Pha
 **2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
 Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
 
-**Subagent detection:** Attempt the Agent tool dispatch. If the environment returns an error or the tool is unavailable, fall back to sequential inline profiling automatically.
+**Subagent detection:** Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for runtime capability classification. If the current runtime supports subagents, dispatch in parallel. If not, fall back to sequential inline profiling automatically.
 
 **Index ownership:** Researcher agents write only to `{pm_dir}/evidence/competitors/{slug}/`. The parent skill owns `{pm_dir}/evidence/competitors/index.md`. Never delegate index writes to subagents.
 
@@ -96,7 +98,7 @@ Only proceed to synthesis after all files are present.
    - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
    - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
-   - Bump the `updated:` date in frontmatter.
+   - Bump the `last_updated:` date in frontmatter.
 4. Append touched paths to `{pm_dir}/evidence/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
 
 ### Cost Guardrail
@@ -106,3 +108,5 @@ Before running batch SEO calls across multiple competitors, estimate the request
 > "This will make approximately {N} SEO API calls across {M} competitors. Estimated cost: ~${X}. Proceed?"
 
 Only continue after explicit confirmation.
+
+**Done-when:** All confirmed competitors have 5 complete profile files, the competitor index is updated with links and market gaps, the landscape document is updated with new players and positioning map entries, and all logs are appended.
