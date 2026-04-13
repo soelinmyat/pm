@@ -22,6 +22,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for telemetry and inter
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/start/steps/` in numeric filename order. If `.pm/workflows/start/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
+**When NOT to use:** When the user has a specific task in mind — route to the relevant skill directly. Start is for bootstrapping or resuming, not for "I want to build X" or "research Y."
+
 ## Detect Repo Mode
 
 Every skill in PM depends on three path variables — `pm_dir`, `pm_state_dir`, and `source_dir`. Getting these wrong means every downstream read and write lands in the wrong place. Resolve them first, before anything else.
@@ -88,3 +90,17 @@ These two paragraphs are the single source of truth for path fallback logic. The
 Skills that write files to `pm_dir` (groom, ingest, research, strategy) must verify the target directory exists (`test -d {pm_dir}`) before writing. If the directory does not exist, the skill emits an error: "PM directory at {pm_dir} does not exist. Run `pm:start` to configure paths."
 
 This is a structural guard — `mkdir -p` is never used to create `pm_dir` itself (only subdirectories within a confirmed `pm_dir`). This prevents silent file creation in the wrong repo.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "PM is already set up, skip start" | Start's resume mode catches stale state and surfaces active work. Skipping means flying blind. |
+| "I'll just read the config myself" | Path resolution has 4 modes. Start handles all of them. DIY resolution drifts. |
+| "User knows where they left off" | Users forget. Pulse surfaces what changed since last session. |
+
+## Before Marking Done
+
+- [ ] All three paths resolved and output to conversation (pm_dir, pm_state_dir, source_dir)
+- [ ] Correct mode detected (bootstrap, resume, or separate-repo)
+- [ ] User routed to next action (bootstrap wizard, active work, or pulse)

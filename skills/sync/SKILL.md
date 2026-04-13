@@ -20,6 +20,10 @@ Manually push, pull, or check sync status for the project knowledge base.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution.
 
+**Workflow:** `sync` | **Telemetry steps:** `auth-check`, `push`, `pull`, `status`.
+
+**When NOT to use:** When `pm/` doesn't exist yet (use start). Git operations on source code. When the user just wants to commit changes locally.
+
 ---
 
 ## Subcommand Routing
@@ -153,3 +157,17 @@ Before running push or pull, check for credentials:
 - This skill only runs the sync script and reports results. It does not modify pm/ files directly.
 - The `kb-sync.js` script handles all server communication, manifest diffing, and file writes, including server-side status lookups.
 - Never display raw JSON to the user. Always format the output as readable text.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "I'll just copy files manually" | Sync tracks manifests, handles conflicts, and updates status. Manual copy loses state. |
+| "Nothing changed, skip sync" | The server might have changes from another session. Pull checks both directions. |
+| "Push failed, I'll try again later" | Sync failures have a cause. Diagnose before retrying — repeated failures corrupt manifests. |
+
+## Before Marking Done
+
+- [ ] Sync completed successfully (ok: true in status)
+- [ ] Results displayed to user (files uploaded/downloaded/deleted)
+- [ ] Errors surfaced if any occurred

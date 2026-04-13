@@ -17,6 +17,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capabilit
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
 **Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
 
 **When NOT to use:** Quick outlines or explanations ("what would X look like?"), when the user says "spec" but means "explain," or when they want a rough sketch — use `pm:think` instead. Groom produces a full PRD with reviews; think produces a lightweight artifact.
@@ -80,6 +82,7 @@ The following reference files provide detailed guidance for specific groom capab
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-reviewer.md` | Spec review agent template |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/scope-validation.md` | Scope validation methodology for Step 4 |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md` | Session state file YAML schema |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` | Proposal template, frontmatter schema, ID assignment, status lifecycle |
 
 ---
 
@@ -117,65 +120,12 @@ Things go wrong. Here's how to recover without making it worse.
 
 ## Proposal Format (Backlog Entry)
 
-Write the proposal entry to `{pm_dir}/backlog/{topic-slug}.md`. This is the parent backlog item — the PRD content is inline, and it links to the RFC when one exists.
+See `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` for the full proposal template, frontmatter schema, ID assignment rules, and status lifecycle.
 
-**ID assignment:** When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
+## Before Marking Done
 
-```markdown
----
-id: "{linear_id or PM-NNN}"
-title: "{Feature Title}"
-outcome: "{One-sentence: what changes for the user when this ships}"
-status: proposed | in-progress | done
-prd: null
-rfc: rfcs/{topic-slug}.html | null
-linear_id: "{Linear ID}" | null
-thinking: thinking/{topic-slug}.md | null
-priority: critical | high | medium | low
-labels:
-  - "{label}"
-research_refs:
-  - {pm_dir}/evidence/research/{topic-slug}.md
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
----
-
-## Outcome
-
-{Expand on the outcome statement. What does the user experience after this ships?
-What were they unable to do before?}
-
-## Scope
-
-In-scope:
-- {item}
-
-Out-of-scope:
-- {item}: {reason}
-
-## Competitor Context
-
-{How do competitors handle this? Where do they fall short?
-Reference specific profiles from {pm_dir}/evidence/competitors/ if applicable.}
-
-## Technical Feasibility
-
-{Engineering Manager assessment from scope review.
-Verdict: feasible | feasible-with-caveats | needs-rearchitecting.}
-
-## Research Links
-
-- [{Finding title}]({pm_dir}/evidence/research/{topic-slug}.md)
-
-## Notes
-
-{Deferred scope items. Resolved questions from review (if any remain as decisions needed, list them here with recommended answers).}
-```
-
-**Status lifecycle:**
-- `proposed` — PRD exists, no RFC yet. Product-approved, awaiting engineering planning.
-- `planned` — RFC exists and approved. Ready to build.
-- `in-progress` — Dev is implementing from the RFC.
-- `done` — All RFC issues shipped.
-
-**Verdict** is set by groom and never changed by dev. **Status** is updated by dev as implementation progresses.
+- [ ] Proposal written to `{pm_dir}/backlog/{slug}.md` with valid frontmatter
+- [ ] All review gates passed per tier (scope review, team review, bar raiser)
+- [ ] Research refs linked in proposal frontmatter
+- [ ] State file updated or cleaned up
+- [ ] User confirmed the proposal captures their intent

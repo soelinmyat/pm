@@ -41,3 +41,11 @@ The following reference files provide detailed guidance for specific ship phases
 | "Tests pass locally, skip CI wait" | Local passes with local state. CI is the clean-room test. |
 | "Auto-merge is fine, I trust the gates" | Trust but verify. Check merge state is MERGED, not just armed. |
 
+## Before Marking Done
+
+- [ ] PR created with meaningful title and description
+- [ ] CI passed (not just "running")
+- [ ] Review comments evaluated and addressed (not blindly resolved)
+- [ ] Merge state verified as MERGED (not just auto-merge armed)
+- [ ] Feature branch cleaned up
+

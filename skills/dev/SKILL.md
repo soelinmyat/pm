@@ -9,6 +9,8 @@ Unified orchestrator for all development work. One flow handles everything — w
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output (RFCs, session files).
+
 **Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `intake`, `workspace`, `groom-readiness`, `plan`, `implementation`, `qa`, `review`, `ship`, `retro`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
@@ -138,3 +140,11 @@ When referencing the state file in subsequent sections, `.dev-state.md` means `.
 ## Execution Defaults
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for checkpoint format, path preflight, default branch detection, pre-commit validation, git state guard, subagent git context, and repeated error handling.
+
+## Before Marking Done
+
+- [ ] All tests pass (TDD — tests written before implementation)
+- [ ] Simplify gate passed before review
+- [ ] State file updated to current stage
+- [ ] Code committed on feature branch
+- [ ] No destructive git operations used
