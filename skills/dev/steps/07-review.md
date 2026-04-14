@@ -6,6 +6,8 @@ description: Code review gate — full review for M/L/XL, code scan for XS, skip
 
 ## Review
 
+**Multi-task skip:** If `task_count > 1` in the session state, skip this step. Per-task agents in Step 05 handled review as part of their own lifecycle. This applies regardless of individual task outcomes (merged, blocked, or failed).
+
 ## Goal
 
 Apply the right review and QA depth for the task size so implementation does not ship without the required quality gates.

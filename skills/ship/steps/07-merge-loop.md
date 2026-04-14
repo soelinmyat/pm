@@ -69,7 +69,7 @@ After merge confirmation, if `{pm_dir}/backlog/{slug}.md` exists, update its fro
 
 ### Linear-originated work
 
-After merge, check the session state for `linear_id`. If set and `{pm_dir}/backlog/{slug}.md` does not exist, the Status Updates section in `dev-flow.md` handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
+After merge, check the session state for `linear_id`. If set and `{pm_dir}/backlog/{slug}.md` does not exist, the Status Updates section in Step 08 (ship) handles backlog creation. Ship ensures the PR number is available in the session state for the backlog entry's `prs` field.
 
 Before cleanup, verify the backlog entry was written:
 - Check: `test -f {pm_dir}/backlog/{slug}.md`

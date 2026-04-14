@@ -4,10 +4,20 @@ Shared implementation lifecycle for all dev work. Everything from "plan approved
 
 **Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how persona intents map to Claude and Codex.
 
-**Context:** This flow is invoked by fresh agents or inline execution:
-- **Single-task (M/L/XL):** A fresh @developer agent follows this after receiving the approved RFC.
-- **Single-task (XS/S):** The orchestrator follows this inline after intake (no planning phase).
-- **Multi-task:** A fresh agent follows this for each task after the orchestrator dispatches it with the RFC and its assigned Issue section. All tasks run sequentially.
+**Context:** This flow is invoked by fresh agents dispatched from Step 05 (Implementation):
+- **Single-task:** A fresh @developer agent reads Steps 1–2 for setup and implementation. Steps 3+ (simplify, review, ship) are handled by the orchestrator via dev steps 06–09.
+- **Multi-task:** A fresh agent follows the full lifecycle (Steps 1–8) for each task. The agent owns implement through merge and returns "Merged" or "Blocked."
+
+## Agent Scope
+
+The dispatching brief in Step 05 always specifies scope. This note is a cross-check:
+
+| Mode | Steps to execute | Who handles the rest |
+|------|-----------------|---------------------|
+| Single-task | Steps 1–2 only | Orchestrator (dev steps 06–09) |
+| Multi-task | Steps 1–8 (full lifecycle) | Agent is self-contained |
+
+If you're a single-task agent and you've reached Step 3, **stop** — return "Implementation complete" and let the orchestrator proceed.
 
 ---
 
@@ -204,6 +214,12 @@ See `test-layers.md` (same directory) for test layer routing principles.
 Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ---
+
+<!-- DUAL MAINTENANCE WARNING: Steps 3-8 below overlap with dev steps 06-09
+     (skills/dev/steps/06-simplify.md through 09-retro.md). Multi-task agents
+     follow THIS file; single-task orchestrator follows the step files.
+     Changes to quality gates, review process, or ship logic must be mirrored
+     in both places to keep multi-task and single-task behavior consistent. -->
 
 ## Step 3: Simplify — `pm:simplify`
 
@@ -472,7 +488,7 @@ Both local backlog and issue tracker must be updated. Do not skip either. A merg
 
 ### Single-issue context
 
-Proceed to retro (Stage 5 in dev-flow.md).
+Proceed to retro (Step 09).
 
 ### Multi-task context
 

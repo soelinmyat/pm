@@ -1,4 +1,9 @@
-# Dev Flow
+# Dev Flow (LEGACY — DO NOT USE)
+
+> **This file is deprecated.** Its content has been extracted into modular step files
+> at `skills/dev/steps/01-*.md` through `09-*.md`. The step files are the authoritative
+> source. This file is retained only as a historical reference for the extraction
+> regression test. Do not follow instructions in this file.
 
 Unified development lifecycle for all work — single issues, multi-task features, and issues with sub-issues. Whether work is 1 task or N tasks emerges from the RFC, not from routing.
 

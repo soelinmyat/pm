@@ -33,6 +33,8 @@ Session-specific context (counts, slugs, specific failures) belongs in the `deta
 
 Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}.md`) and check for these events:
 
+**Single-task events** (check `Review`, `QA`, `Merge-Watch` sections directly):
+
 | Event | Condition | Category | Learning guidance |
 |-------|-----------|----------|-------------------|
 | RFC review iterations > 1 | `Review` section shows multiple review passes (e.g., re-reviews, "Re-runs" > 0, multiple review gate entries) | `review` | Read the review feedback to identify the root cause. Write a generalizable lesson: what practice or check would prevent this class of review rework in any future session? |
@@ -40,6 +42,23 @@ Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}.md`) and 
 | Review blocking fixes | `Review` section shows blocking issues were fixed (count > 0) | `review` | Read the blocking issues to identify the common pattern. Write a generalizable lesson: what should be checked or structured differently before submitting for review? |
 | Merge conflicts encountered | `Merge-Watch` section has `Gate 5 (Conflicts)` = anything other than `pending` or `passed`, OR state file mentions conflict resolution | `process` | Identify what area/files conflicted and why. Write a generalizable lesson: what coordination or branching practice would reduce conflicts in similar work? |
 | CI failures requiring intervention | `Merge-Watch` section has `Gate 1 (CI)` = `failed` or state mentions CI fix, OR `QA` section has `Re-runs` > 0 due to CI | `process` | Identify the failure class and why it wasn't caught locally. Write a generalizable lesson: what local check or practice would catch this type of CI failure before push? |
+
+**Multi-task events** (check `## Per-Task Events` section, written by Step 05 checkpoint):
+
+For multi-task sessions, per-task agents handle QA/review/ship internally and the main `Review`/`QA`/`Merge-Watch` sections remain at `pending`. Instead, scan the `## Per-Task Events` section for aggregated per-task data:
+
+| Event | Condition | Category | Learning guidance |
+|-------|-----------|----------|-------------------|
+| Multiple review iterations | Any task has `reviews > 1` | `review` | Query the PR for review comments to understand what needed revision. Write a generalizable lesson. |
+| CI failures | Any task has `CI runs > 1` (multiple runs = failures fixed) | `process` | Query the PR for CI logs to identify failure class. Write a generalizable lesson. |
+| Merge conflicts | Any task has `conflict commits > 0` | `process` | Identify which tasks conflicted. Write a generalizable lesson about task ordering or scope. |
+| Tasks blocked/failed | Any task has `verdict=Blocked` or `verdict=Failed` | `process` | Identify what blocked the task. Write a generalizable lesson about scoping or prerequisites. |
+
+If no `## Per-Task Events` section exists in a multi-task session (legacy or checkpoint failure), fall back to checking PR history directly:
+```bash
+# For each task PR in the ## Tasks table:
+gh pr view {PR_NUMBER} --json reviews,statusCheckRollup,commits
+```
 
 ---
 
@@ -233,10 +252,6 @@ After compaction or if context feels stale, read this file to recover full sessi
 - Platform: frontend (frontend + backend files modified)
 - Spec review: passed (commit abc123)
 - Plan review: passed (commit def456)
-
-## Done-when
-
-Relevant learnings have been written (or explicitly skipped when none exist), validation passes, and the session state file has been deleted only after retro succeeds.
 - Continuous execution: authorized
 - Contract gate: passed (commit ghi789) — frontend detected, gate required
 - Design critique: required (frontend files modified)
@@ -306,3 +321,7 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 - After design critique, add the report path
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
 - After retro, delete the file
+
+## Done-when
+
+Relevant learnings have been written (or explicitly skipped when none exist), validation passes, and the session state file has been deleted only after retro succeeds.

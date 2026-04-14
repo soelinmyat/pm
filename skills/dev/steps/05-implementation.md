@@ -31,8 +31,9 @@ Implement the approved RFC.
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
 
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
-implementation lifecycle, then execute it.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md Steps 1–2
+for setup and implementation methodology. Steps 3+ (simplify, review, ship) are
+handled by the orchestrator after you return.
 
 Lifecycle:
 1. cd {WORKTREE_PATH}
@@ -86,7 +87,7 @@ For each task (Issue section) in dependency order from the RFC:
 3. **Dispatch fresh @developer agent:**
 
 ```text
-Implement the approved RFC.
+Implement and ship the approved RFC task.
 
 **CWD:** {TASK_WORKTREE_PATH}
 **Branch:** feat/{task-slug}
@@ -103,23 +104,49 @@ implementation lifecycle, then execute it.
 Read the RFC. Focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also
 contains shared architecture and data model sections that apply to your issue.
 
+Lifecycle tracking: before each step, write your current stage to a tracking file:
+  echo "{stage}" > .dev-lifecycle-stage
+Valid stages: setup, implement, simplify, design-critique, qa, review, ship, cleanup.
+This file is NOT committed — it's for recovery if you fail mid-lifecycle.
+
 Lifecycle:
 1. cd {TASK_WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the RFC, focus on Issue {N}, implement its tasks
 4. Run the project test suite — all tests must pass
 5. Commit implementation changes
-6. Report: "Implementation complete. {ISSUE_ID}, {N} files changed, tests passing."
+6. Invoke pm:simplify — fix findings, run tests, commit
+7. If UI changes: invoke /design-critique if available, else skip
+8. If UI changes: dispatch QA agent per implementation-flow.md
+9. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
+   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
+10. Run full test suite as final verification
+11. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+12. Report: "Merged. {ISSUE_ID} PR #{N}, sha {abc}, {N} files changed."
 
 If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 ```
 
-The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. The orchestrator runs those via Steps 06–09 after the agent returns.
+Each per-task agent owns the full lifecycle for its task — implement through merge. The orchestrator coordinates task sequencing and state updates; Steps 06–08 are handled within the agent.
 
-4. **Wait for agent to return** "Implementation complete" or "Blocked."
+4. **Wait for agent to return** "Merged" or "Blocked."
 
 5. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
+
+   **Event extraction (for retro):** Per-task agents handle QA/review/ship internally and don't write event data to the shared state file. After each agent returns "Merged", extract key events from the PR so retro can learn from them:
+   ```bash
+   # Get review iteration count
+   gh pr view {PR_NUMBER} --json reviews --jq '.reviews | length'
+   # Get CI run count (multiple runs = CI failures fixed)
+   gh pr view {PR_NUMBER} --json statusCheckRollup --jq '.statusCheckRollup | length'
+   # Check if merge had conflicts (commits with "merge" or "conflict" in message)
+   gh pr view {PR_NUMBER} --json commits --jq '[.commits[].messageHeadline | select(test("merge|conflict"; "i"))] | length'
+   ```
+   Append to the session state under `## Per-Task Events`:
+   ```
+   - Task {N}: reviews={count}, CI runs={count}, conflict commits={count}, verdict={Merged|Blocked}
+   ```
 
 6. **Sync main** before the next task:
    ```bash
@@ -131,16 +158,28 @@ The implementation agent does NOT own simplify, design critique, QA, review, shi
 
 8. Proceed to next task.
 
+#### Per-task lifecycle tracking
+
+Each per-task agent must track its lifecycle progress so recovery agents know where to resume. Before starting each lifecycle step, the agent writes its current stage to a tracking file in the worktree:
+
+```bash
+echo "{stage}" > {TASK_WORKTREE_PATH}/.dev-lifecycle-stage
+# Valid values: setup, implement, simplify, design-critique, qa, review, ship, cleanup
+```
+
+This file is NOT committed — it's a transient marker for recovery. It lives in the worktree and is removed during cleanup.
+
 #### Agent failure recovery
 
 If an implementation agent fails (API overload, timeout, 529 errors):
 
 1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
-2. Update state file with failure
-3. Dispatch a fresh recovery agent with the RFC path, git state, and instruction to continue from where the previous agent left off
-4. Max 3 total attempts per task. After 3 failures, mark as "Failed" and continue to next.
+2. **Read lifecycle stage:** `cat {TASK_WORKTREE_PATH}/.dev-lifecycle-stage 2>/dev/null || echo "unknown"`. This tells you which lifecycle step the previous agent was executing when it failed.
+3. Update state file with failure and last known lifecycle stage
+4. Dispatch a fresh recovery agent with the RFC path, git state, last lifecycle stage, and instruction to resume from that stage (not from the beginning). Include: "Previous agent reached stage: {stage}. Resume from there. Do not re-run earlier stages."
+5. Max 3 total attempts per task. After 3 failures, mark as "Failed" and continue to next.
 
-Track retry count per task in the state file.
+Track retry count and last lifecycle stage per task in the state file.
 
 ### Continuous Execution
 
@@ -155,6 +194,7 @@ The rationale: by this point, the spec has been reviewed by product/design agent
 - Merge conflicts (Step 08)
 - CI failures that require human intervention (Step 08)
 - Review feedback from human reviewers on the PR (Step 08, use `ship/references/handling-feedback.md`)
+- Per-task agent returned **Blocked** (multi-task: ask user whether to skip or investigate)
 </HARD-RULE>
 
 ### Agent lifecycle
@@ -168,19 +208,17 @@ Single-task: Fresh developer agent dispatched (Implementation)
   → implements code + tests, commits
   → returns "Implementation complete."
 
-Multi-task: For each task in order, fresh developer agent dispatched (Implementation)
+Multi-task: For each task in order, fresh developer agent dispatched
   → reads approved RFC, focuses on assigned Issue section
-  → implements code + tests, commits
-  → returns "Implementation complete. {ISSUE_ID}" or "Blocked: {reason}"
+  → implements → simplify → design critique → QA → review → merge → cleanup
+  → returns "Merged. {ISSUE_ID} PR #{N}" or "Blocked: {reason}"
   → orchestrator checkpoints, syncs main, dispatches next
 
-Orchestrator runs Steps 06–09:
-  → simplify (Step 06) → review (Step 07) → ship (Step 08) → retro (Step 09)
+Orchestrator runs Step 09 (retro) once after all tasks complete.
 ```
 
 ## Done-when
 
-- Code and tests for all scoped issues are committed on the feature branch
-- The project test suite passes
-- The session file records key files changed, commit SHA, and next step = `simplify`
-- Implementation agent has returned — orchestrator proceeds to Step 06
+**Single-task:** Code and tests committed on the feature branch, test suite passes, session file updated. Implementation agent has returned — orchestrator proceeds to Step 06.
+
+**Multi-task:** All per-task agents have returned "Merged" or "Blocked." Each task's branch is merged (or marked failed) and its worktree cleaned up. Session file `## Tasks` table reflects final status. Orchestrator proceeds to Step 09 (retro) — Steps 06–08 are skipped since per-task agents handled them.

@@ -8,6 +8,8 @@ description: Push branch, create PR, merge via merge-loop, clean up worktrees, u
 
 ## Ship
 
+**Multi-task skip:** If `task_count > 1` in the session state, per-task agents in Step 05 handled push/PR/merge for each task. Skip the PR creation and merge-loop sections below. **However**, the parent-level status updates MUST still run — jump directly to "Status Updates" to mark the parent backlog item and parent Linear issue as done. Verify all Linear children are actually done before closing the parent (see Step 3 below).
+
 ## Goal
 
 Take the implemented branch through PR creation, merge, cleanup, and status write-back so delivery actually finishes cleanly.
@@ -138,7 +140,17 @@ mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ISSUE_ID}", state: "Done" })
 ```
 Log each: `Linear: {CHILD_ISSUE_ID} → Done`
 
-**Step 4: Close Linear parent issue** (if tracker available).
+**Step 3b: Verify all children are done before closing parent.**
+
+<HARD-GATE>
+Do NOT close the parent issue until ALL children are confirmed Done. Re-fetch children after the updates above and verify every child's state:
+```
+mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
+```
+Check that each returned child has `state: "Done"`. If any child is still open (e.g., a per-task agent was blocked and didn't close it), log: `WARN: Child {CHILD_ID} is still {state} — not closing parent.` Ask the user whether to close the parent anyway or leave it open.
+</HARD-GATE>
+
+**Step 4: Close Linear parent issue** (if tracker available, and Step 3b passed).
 
 ```
 mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
