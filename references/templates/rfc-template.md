@@ -96,6 +96,20 @@ Detailed enough that a developer with zero codebase context can execute.}
 
 {Repeat for each issue}
 
+## Advisory Notes
+
+{Non-blocking guidance from RFC reviewers — performance tips, edge-case warnings,
+implementation suggestions, and long-term considerations that didn't rise to blocking
+but are worth keeping visible during implementation.
+
+Populated during RFC review — leave empty in the initial draft.
+Each note includes the reviewer role and the specific advice.
+
+- **[@reviewer-role]** {Specific advisory note with context}
+- **[@reviewer-role]** {Specific advisory note with context}
+
+Omit this section if reviewers raised no advisory items.}
+
 ## Resolved Questions
 
 {Questions raised by RFC reviewers, with answers and evidence.

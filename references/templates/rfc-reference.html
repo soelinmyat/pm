@@ -356,6 +356,20 @@ details .details-body p { font-size: 0.85rem; color: var(--ink-secondary); line-
 .table-wrap tr:last-child td { border-bottom: none; }
 .table-wrap td strong { color: var(--ink); font-weight: 600; }
 
+/* ═══════════ ADVISORY NOTES ═══════════ */
+.advisory-item {
+  display: flex; gap: 0.75rem; padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule-subtle);
+}
+.advisory-item:last-child { border-bottom: none; }
+.advisory-role {
+  font-size: 0.68rem; font-family: var(--mono); font-weight: 600;
+  color: var(--warning); background: var(--warning-soft);
+  padding: 0.15rem 0.5rem; border-radius: var(--r-pill);
+  white-space: nowrap; flex-shrink: 0; height: fit-content; margin-top: 0.15rem;
+}
+.advisory-text { font-size: 0.86rem; color: var(--ink); line-height: 1.5; }
+
 /* ═══════════ QUESTIONS ═══════════ */
 .question-item {
   display: flex; gap: 0.75rem; padding: 0.75rem 0;
@@ -411,6 +425,7 @@ details .details-body p { font-size: 0.85rem; color: var(--ink-secondary); line-
 .icon-api      { background: #E0F2F1; color: #00796B; }
 .icon-risk     { background: var(--negative-soft); color: var(--negative); }
 .icon-issues   { background: var(--accent-soft); color: var(--accent-text); }
+.icon-advisory { background: var(--warning-soft); color: var(--warning); }
 .icon-question { background: var(--info-soft); color: var(--info); }
 .icon-log      { background: var(--bg-muted); color: var(--ink-tertiary); }
 
@@ -471,6 +486,7 @@ details .details-body p { font-size: 0.85rem; color: var(--ink-secondary); line-
     <a href="#api">API</a>
     <a href="#risks">Risks</a>
     <a href="#issues">Issues</a>
+    <a href="#advisory">Advisory</a>
     <a href="#questions">Resolved</a>
     <a href="#log">Log</a>
   </div>
@@ -744,6 +760,29 @@ graph LR
       <div class="phase-label">Phase 3 &mdash; Resilience (Week 7-9)</div>
       <div class="issue-row"><span class="issue-id">PM-098</span><span class="issue-title-text">Offline editing + IndexedDB + version history</span><span class="issue-size">L</span><span class="issue-dep">&rarr; PM-094</span></div>
       <div class="issue-row"><span class="issue-id">PM-100</span><span class="issue-title-text">Load testing + CRDT GC + monitoring</span><span class="issue-size">M</span><span class="issue-dep">&rarr; all</span></div>
+    </div>
+  </section>
+
+  <!-- ADVISORY NOTES -->
+  <section class="section" id="advisory">
+    <div class="section-header">
+      <div class="section-icon icon-advisory">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2.5l5.5 10H2.5z"/><line x1="8" y1="7" x2="8" y2="9"/><circle cx="8" cy="11" r="0.5" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h2>Advisory Notes</h2>
+    </div>
+
+    <div class="advisory-item">
+      <div class="advisory-role">@adversarial-engineer</div>
+      <div class="advisory-text">WebSocket reconnection should use exponential backoff with jitter to avoid thundering-herd on server restart. The default Hocuspocus retry is fixed-interval.</div>
+    </div>
+    <div class="advisory-item">
+      <div class="advisory-role">@tester</div>
+      <div class="advisory-text">CRDT merge tests should include a scenario where two users edit the same paragraph simultaneously from different starting states — this is the most common source of unexpected merge artifacts.</div>
+    </div>
+    <div class="advisory-item">
+      <div class="advisory-role">@staff-engineer</div>
+      <div class="advisory-text">Consider adding a document size metric early (PM-093). If Y.Doc state exceeds ~5 MB, GC strategy in PM-100 becomes critical-path rather than nice-to-have.</div>
     </div>
   </section>
 
