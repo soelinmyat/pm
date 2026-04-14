@@ -84,7 +84,44 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-10. Wait for user approval. Then ask:
+10. Wait for user approval.
+
+11. **Linear issue creation (after approval).**
+
+    If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is NOT already set in the RFC session state or proposal frontmatter:
+
+    > "Linear is configured. Create Linear issue(s) for this RFC? (y/n)"
+
+    Wait for the user's answer.
+
+    - **If yes:**
+
+      **Single-issue RFC** (`task_count == 1`):
+      - Create a single Linear issue with the RFC title and summary as description.
+      - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
+      - Capture the Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the Linear identifier.
+      - Say: "Linear issue created. ID: {ID}."
+
+      **Multi-issue RFC** (`task_count > 1`):
+      - **Create a parent issue** in Linear with the RFC title and a summary description linking to the backlog entry.
+      - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
+      - Capture the parent Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the parent Linear identifier.
+      - **Create child issues** for each RFC Issue section (from the `## Tasks` table in the session state or parsed from `.issue-detail` cards in the RFC HTML). For each child:
+        - Title: the issue title from the RFC
+        - Description: a brief summary from the RFC issue section
+        - Parent: the parent issue ID created above
+        - Create via `save_issue` with `parentId` set to the parent issue ID
+      - Say: "Linear parent + {N} child issues created. Parent ID: {ID}."
+
+      Update the RFC session state with `linear_id`.
+
+    - **If no:**
+      - Skip Linear issue creation. Use local `PM-{NNN}` sequence for the `id` field if not already set.
+      - Say: "Skipping Linear."
+
+    If `linear_id` is ALREADY set (issue originated from Linear or was created during groom), skip this step silently.
+
+12. Then ask:
 
     > "RFC approved. Continue to implementation, or stop and resume later?"
 

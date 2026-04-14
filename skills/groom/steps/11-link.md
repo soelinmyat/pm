@@ -40,15 +40,24 @@ applies_to: [quick, standard, full]
    - Set `linear_id` in the backlog entry frontmatter to `linear_id`.
    - Say: "Groom output written back to Linear issue {ID}. Scope enriched."
 
-   **If `linear_id` is NOT set** (existing flow, unchanged):
+   **If `linear_id` is NOT set** (new proposal):
    - If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available):
-     - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
-       - Convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)` — plain text with path in backticks
-       - Leave absolute URLs (starting with `http://` or `https://`) unchanged
-     - Create a single parent issue in Linear. Capture the Linear ID.
-     - **Update the local backlog entry's `id` to match the Linear identifier.** The Linear ID is the single source of truth when a tracker is available — do not maintain a separate local PM-{NNN} sequence.
-     - Do NOT create child issues — issue splitting happens later during RFC generation in `pm:dev`.
-     - Say: "Proposal linked in Linear. ID: {ID}."
+     - **Ask the user before creating a Linear issue:**
+
+       > "Linear is configured. Create a Linear issue for this proposal? (y/n)"
+
+       Wait for the user's answer.
+       - **If yes:**
+         - **Sanitize local file links before sending to Linear.** Linear's markdown renderer treats relative links as relative to the Linear issue URL. Before constructing the description:
+           - Convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)` — plain text with path in backticks
+           - Leave absolute URLs (starting with `http://` or `https://`) unchanged
+         - Create a single parent issue in Linear. Capture the Linear ID.
+         - **Update the local backlog entry's `id` to match the Linear identifier.** The Linear ID is the single source of truth when a tracker is available — do not maintain a separate local PM-{NNN} sequence.
+         - Do NOT create child issues — issue splitting happens later during RFC generation in `pm:dev`.
+         - Say: "Proposal linked in Linear. ID: {ID}."
+       - **If no:**
+         - Use the local `PM-{NNN}` sequence for the `id` field (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1).
+         - Say: "Skipping Linear. Local ID assigned."
 
 3. **Validate written artifacts.** Run:
    ```bash
