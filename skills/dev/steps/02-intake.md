@@ -6,6 +6,8 @@ description: Load project memory, discover project context, classify size, creat
 
 ## Intake
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+
 ## Goal
 
 Load the task context, classify the work correctly, and create the initial dev session state from the best available product and project inputs.

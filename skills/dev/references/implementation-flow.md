@@ -215,194 +215,26 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ---
 
-<!-- DUAL MAINTENANCE WARNING: Steps 3-8 below overlap with dev steps 06-09
-     (skills/dev/steps/06-simplify.md through 09-retro.md). Multi-task agents
-     follow THIS file; single-task orchestrator follows the step files.
-     Changes to quality gates, review process, or ship logic must be mirrored
-     in both places to keep multi-task and single-task behavior consistent. -->
+<!-- Steps 3-8: Quality gates and ship lifecycle.
+     The authoritative source for quality gate logic is skills/dev/steps/07-review.md.
+     The authoritative source for ship/status logic is skills/dev/steps/08-ship.md.
+     This file only adds multi-task-specific orchestration on top. -->
 
 ## Step 3: Simplify — `pm:simplify`
 
-Runs after implement for S+ sizes. **Skip for XS** — the code scan gate is sufficient for one-line fixes.
-
-1. Invoke `pm:simplify`
-2. Fix all real findings, skip false positives
-3. Run tests after fixes
-4. Commit simplification changes before proceeding
-
-**Why here (after implement, before design critique/QA):**
-- Implementation is complete, so there's real code to simplify
-- Cleaning up code before design critique and QA means those stages see cleaner code with fewer noise findings
-- For S, this is the only code review gate (no separate code scan needed — simplify already catches what code scan catches)
-- For M/L/XL, reduces review churn
-
-**Skip conditions:**
-- **XS size** — code scan gate handles it
-- No code changes in the diff (config-only, docs-only)
-- All agents find nothing to simplify (proceed immediately)
+Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/06-simplify.md`. Same logic applies to multi-task agents.
 
 ---
 
-## Step 4: Design Critique — `/design-critique`
+## Step 4: Design Critique + Step 5: QA + Step 6: Review + Verification
 
-**Conditional availability:** `/design-critique` is a skill in the dev plugin. Before invoking, verify the skill exists via the Skill tool. If not available, log "Design critique: skipped (skill not available)" in `.pm/dev-sessions/{slug}.md` and proceed to QA.
+Follow the quality gate sections in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`. That file is the single source of truth for:
+- Design critique process (10-step closed-loop, skip conditions, size routing)
+- QA gate behavior (dispatch, verdict table, re-verify loop, state file update)
+- Code review (M/L/XL HARD GATE, conditional Design Review skip, code scan for XS)
+- Verification gate (mandatory for all sizes)
 
-**When compulsory:** Any task that changes UI files (tsx/jsx/css in diff). Skipped for XS, backend-only, config-only, pure refactor.
-
-Check: `git diff {DEFAULT_BRANCH}...HEAD --name-only | grep -E '\.(tsx|jsx|css)$'`
-
-Design Critique is the **single visual quality stage** for UI changes. A focused reviewer evaluates UX quality, accessibility, design system compliance, and interaction resilience against real app screenshots with enriched data (a11y snapshots, visual consistency audit).
-
-### Closed-loop visual verification
-
-The implementing agent owns the full visual verification cycle:
-
-1. **Create seed task**: `design:seed:{feature_slug}` rake task per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`. Covers all visual states: happy path, empty, edge cases (long text, high volume, boundary values).
-2. **Start servers**: Rails API + Vite (web) or Expo (mobile). Per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md`.
-3. **Run seed**: `cd apps/api && bin/rails design:seed:{feature_slug}`
-4. **Capture screenshots**: Playwright CLI (web) or Maestro MCP (mobile). Max 10. Save to `/tmp/design-review/{feature}/`. Write manifest.
-5. **Capture enriched artifacts**: a11y snapshots, visual consistency audit per capture-guide.md.
-6. **Visual self-check**: Review own screenshots. Fix obvious issues before invoking critique.
-7. **Invoke `/design-critique`** (embedded mode): Returns prioritized findings (P0/P1/P2) with confidence tiers + verdict (Ship/Fix/Rethink).
-8. **Fix findings**: Implement P0 and P1 fixes from the findings list.
-9. **Re-seed, re-capture, re-invoke**: If P0s were found. Max 2 rounds total.
-10. **Commit**: All design critique changes committed before proceeding to QA.
-
-The seed task is committed alongside feature code. It becomes a reusable artifact for future QA and demos.
-
-### Skip conditions
-- XS tasks
-- Backend-only, config-only, pure refactor (no tsx/jsx/css in diff)
-- Skill not available
-
----
-
-## Step 5: QA
-
-Runs after simplify and design critique for any task that changes UI. The QA skill (`pm:qa`) handles all internal details — tiers, assertion strategies, re-verify cycles, and agent dispatch. This section covers only what the **orchestrator** needs to know.
-
-### Skip conditions
-
-- **Backend-only, config-only, docs-only:** skip
-- **Dev servers can't start** (e.g. DB not running): skip, log reason in `.pm/dev-sessions/{slug}.md`
-
-### Dispatch
-
-Dispatch reviewer persona `@tester` using `agent-runtime.md`.
-
-**QA brief:**
-
-```text
-You are the QA agent for this dev session. Follow the pm:qa skill.
-
-**Session file:** .pm/dev-sessions/{slug}.md
-**Feature:** {feature description from ticket/spec}
-**Acceptance criteria:**
-{acceptance criteria list}
-**Affected routes:** {routes from plan or git diff}
-**Platform:** {web | mobile}
-**Tier:** {Quick | Focused | Full}
-**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
-
-Run full QA (Phase 0-6). Report your verdict.
-```
-
-### Gate behavior
-
-| QA Verdict | Action |
-|------------|--------|
-| **Pass** | Proceed to Review / Code Scan |
-| **Pass with concerns** | Proceed. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
-| **Fail** | Fix issues, then send re-verify to the same worker (see below). |
-| **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
-
-**Shipping does not continue after QA Fail.** Fix issues and re-verify. No silent downgrades.
-
-### Re-verify
-
-When QA returns **Fail**, fix the issues, run tests, then re-run QA:
-
-```text
-Fixed the following issues:
-1. {finding-id}: {what was fixed}
-2. {finding-id}: {what was fixed}
-
-Re-verify these specific findings. Also smoke-check adjacent routes for regressions.
-Do NOT re-run Phase 0 when the environment is still ready. Jump to Phase 3 re-verify.
-```
-
-### Handling issues found
-
-- **Critical/High:** Fix immediately, re-verify.
-- **Medium in core flow:** Fix before proceeding.
-- **Medium in edge flows:** Note in state file, create backlog items after merge.
-- **Low:** Note in state file, do not fix this session.
-
-### State file update
-
-After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
-```
-## QA
-- QA verdict: Pass | Pass with concerns | Fail | Blocked
-- Ship recommendation: Ship | Ship with caution | Do not ship | Blocked
-- Issues found: none | Critical: N, High: N, Medium: N, Low: N
-- Issues fixed: [list]
-- Issues deferred: [list]
-- Iterations: N
-```
-
----
-
-## Step 6: Review + Verification
-
-### Review Gate (M/L/XL — HARD GATE)
-
-<HARD-GATE>
-BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
-This runs up to 3 review agents (conditionally skipping Design when upstream gate passed). This gate is NOT optional. Do NOT skip it.
-If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
-STOP and run the review first.
-</HARD-GATE>
-
-**Fix ALL findings from ALL active agents.** `/review` runs up to 3 agents:
-1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime (Anthropic official in Claude Code, built-in @staff-engineer elsewhere). No confidence threshold filtering.
-2. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
-3. **Input Edge-Case Review** — untested edge cases
-
-Agent 2 is skipped when upstream gate already covered its concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
-
-**Checklist (all must be true before PR):**
-- [ ] `/review` invoked on the branch
-- [ ] All real issues fixed from all active agents
-- [ ] Tests still pass after fixes
-- [ ] Verification gate passed (fresh test run, output read, 0 failures confirmed)
-- [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
-
-### Code Scan Gate (XS only — HARD GATE)
-
-<HARD-GATE>
-BEFORE merging XS tasks, you MUST run a lightweight code scan.
-This catches bugs that tests alone miss: silent no-ops, swallowed errors, race conditions, missing error feedback.
-S tasks skip this — `pm:simplify` (which runs for S+) already covers the same ground.
-</HARD-GATE>
-
-Dispatch reviewer persona `@staff-engineer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.
-
-```text
-Scan for genuine bugs in this diff. Max 5 findings.
-
-**Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
-**Changed files:** {list}
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**If findings exist:** fix them, run tests, commit fixes.
-
-### Verification gate (mandatory for ALL sizes before merge)
-
-Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely on recalled test results from earlier in the session. Evidence before claims, always. No "should pass" or "looks correct" — run it, read it, then merge.
+Multi-task agents execute these gates **per task** within their own worktree. The orchestrator does not re-run them.
 
 ---
 
@@ -411,84 +243,39 @@ Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely 
 ### Push and create PR
 
 ```bash
-# Merge latest {DEFAULT_BRANCH}
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
-
-# Push
 git push origin {BRANCH}
-
-# Create PR
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```
 
-### PR flow (all sizes)
-
-**Single-issue:** Invoke `/ship` — it handles push, PR creation, CI monitor, gate monitoring, and auto-merge via the merge loop. See `/ship` for the full lifecycle.
+### PR flow
 
 **Multi-task (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
 
+**Single-issue:** Invoke `/ship` — see `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-ship.md`.
+
 ### Handling review feedback
 
-When review comments appear on the PR, use `ship/references/handling-feedback.md` before acting:
-1. Read the complete feedback before responding
-2. Evaluate technical soundness. Push back if the suggestion is wrong or YAGNI.
-3. Implement one item at a time, running tests after each fix
-4. Do not performatively agree. If a suggestion conflicts with AGENTS.md or design decisions, explain why.
+When review comments appear on the PR, use `ship/references/handling-feedback.md` before acting.
 
 **CI verification:** `gh run watch` can exit with failure due to transient GitHub API 502s. Always verify actual CI status with `gh pr view --json statusCheckRollup` before treating a failure as real.
 
 ---
 
-## Step 8: Cleanup
+## Step 8: Cleanup + Status Updates
 
-```bash
-cd {REPO_ROOT}
-git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
-git worktree remove {CWD} 2>/dev/null || \
-  git worktree remove {CWD} --force 2>/dev/null || \
-  echo "WARN: Could not remove worktree. Manual cleanup needed."
-git branch -D {BRANCH} 2>/dev/null || true
-git fetch --prune
+Follow the cleanup and status update logic in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-ship.md`. That file is the authoritative source for:
+- Worktree cleanup (removal, branch deletion)
+- Process cleanup (kill orphaned test runners)
+- Local backlog updates (create if missing, set done)
+- Linear issue closure (children first, verify, then parent)
+- User confirmation gate before Linear updates
 
-# Kill orphaned test runners
-pkill -f 'node.*vitest' 2>/dev/null || true
-pkill -f 'node.*jest' 2>/dev/null || true
-pkill -f 'node.*storybook' 2>/dev/null || true
-pkill -f 'node.*playwright' 2>/dev/null || true
-pkill -f 'pytest' 2>/dev/null || true
-```
-
-**Update ALL statuses** (local backlog + issue tracker):
-
-<HARD-RULE>
-Both local backlog and issue tracker must be updated. Do not skip either. A merged PR with a backlog item still showing "in-progress" is a bug.
-</HARD-RULE>
-
-**Local backlog:**
-- If `{pm_dir}/backlog/{slug}.md` exists: set `status: done`, `updated: {today's date}` in frontmatter
-- If `linear_id` is available and not in frontmatter, add it
-- Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
-
-**Issue tracker** (if available):
-- If this issue has child/sub-issues, close them ALL first:
-  ```
-  mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
-  # For EACH child:
-  mcp__plugin_linear_linear__save_issue({ id: "{CHILD_ID}", state: "Done" })
-  ```
-- Then close the parent:
-  ```
-  mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
-  ```
-- Log: `Linear: {ISSUE_ID} → Done`
+Multi-task agents complete cleanup per task. After ALL tasks finish, the orchestrator runs parent-level status updates per 08-ship.md's multi-task skip section.
 
 ---
 
 ## Step 9: Report
-
-### Single-issue context
-
-Proceed to retro (Step 09).
 
 ### Multi-task context
 
@@ -509,20 +296,12 @@ Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.
 Blocked: {ISSUE_ID} — {reason}
 ```
 
+### Single-issue context
+
+Proceed to retro (`${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-retro.md`).
+
 ---
 
 ## Debugging
 
 When tests fail or unexpected behavior occurs during implementation, read `debugging.md` in this directory and follow its systematic debugging process.
-
-## Process Cleanup
-
-**Run after every implement stage and before retro.** Subagent test runs can orphan test runner processes when agents are terminated mid-run.
-
-```bash
-pkill -f 'node.*vitest' 2>/dev/null || true
-pkill -f 'node.*jest' 2>/dev/null || true
-pkill -f 'pytest' 2>/dev/null || true
-```
-
-This is a hard rule — always run cleanup, even if you think tests exited cleanly.

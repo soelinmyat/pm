@@ -6,6 +6,9 @@ description: Targeted deep-dive research on a specific topic with evidence routi
 
 ## Topic Mode (`$pm-research {topic}`)
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol — use it for dedup checks.
+
 **Goal:** Produce (or update) a sourced evidence file for a specific topic, route findings into insight topics, and update all indexes — so the topic's knowledge is durable and discoverable by downstream skills.
 
 For targeted deep dives not covered by landscape or competitor profiling.

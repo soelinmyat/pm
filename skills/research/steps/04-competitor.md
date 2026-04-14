@@ -6,6 +6,9 @@ description: Competitor discovery, profiling (5 files per competitor), and synth
 
 ## Competitor Mode (`$pm-research competitors`)
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+
 **Goal:** Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
 
 ### Phase 1: Discover

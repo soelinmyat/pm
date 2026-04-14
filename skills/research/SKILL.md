@@ -15,13 +15,9 @@ Three modes: **landscape** (market overview and positioning map), **competitors*
 
 **NEVER WRITE FINDINGS WITHOUT CHECKING EXISTING KNOWLEDGE FIRST.** Every research mode must read the current KB state before running searches. Duplicating what is already documented wastes time and creates conflicting sources of truth. If existing knowledge is stale, update in place — do not create parallel files.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol — use it for dedup checks before writing any research artifact.
+References `capability-gates.md`, `writing.md`, and `kb-search.md` are loaded by the steps that need them — not here. Do not read them at skill load.
 
 **Workflow:** `research` | **Telemetry steps:** `note-digest`, `mode-routing`, `landscape`, `competitor`, `topic`
 

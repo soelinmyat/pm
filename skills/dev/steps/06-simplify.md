@@ -6,10 +6,6 @@ description: Post-implementation code simplification gate — review for reuse, 
 
 ## Simplify
 
-<!-- DUAL MAINTENANCE: Steps 06-08 overlap with implementation-flow.md Steps 3-8.
-     Multi-task agents follow implementation-flow.md; single-task orchestrator follows
-     these step files. Keep changes in sync. -->
-
 **Multi-task skip:** If `task_count > 1` in the session state, skip this step. Per-task agents in Step 05 handled simplify as part of their own lifecycle. This applies regardless of individual task outcomes (merged, blocked, or failed).
 
 ## Goal

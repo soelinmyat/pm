@@ -79,7 +79,8 @@ For each task (Issue section) in dependency order from the RFC:
    git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
    ```
 
-2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID):
+2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID).
+   Follow retry pattern in `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md`. If the call fails after retries, log the failure and proceed — do not block implementation on Linear:
    ```
    mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
    ```

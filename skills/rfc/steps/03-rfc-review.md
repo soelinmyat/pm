@@ -88,6 +88,8 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
 11. **Linear issue creation (after approval).**
 
+    Read `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md` for retry, verification, and rollback patterns. Follow the "Multi-Issue Creation" section for parent + child issue creation. All Linear calls below must follow the retry pattern (3 attempts, log failures, never block workflow).
+
     If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is NOT already set in the RFC session state or proposal frontmatter:
 
     > "Linear is configured. Create Linear issue(s) for this RFC? (y/n)"

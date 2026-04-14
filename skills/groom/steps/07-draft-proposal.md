@@ -7,6 +7,8 @@ applies_to: [quick, standard, full]
 
 ### Step 7: Draft Proposal
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+
 Assemble the product proposal from research, scope, and design artifacts. This step produces the proposal content that will be reviewed and presented — not engineering issues.
 
 #### Step 1: Feature-type detection

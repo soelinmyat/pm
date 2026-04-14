@@ -6,6 +6,8 @@ description: Check for existing RFC, route ungroomed work to pm:groom or inline 
 
 ## RFC Check (all sizes)
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 ## Goal
 
 Decide whether this task can proceed directly, needs conversational scoping, should route through grooming, or must stop for RFC generation first.
