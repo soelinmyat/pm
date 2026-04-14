@@ -9,7 +9,7 @@ description: "Use when doing product discovery, feature grooming, or scoping a f
 
 Orchestrate the full product discovery lifecycle: from raw idea to an approved product proposal (PRD) ready for engineering.
 
-Groom produces a **proposal** — the product-level artifact with scope, design, wireframes, research, and competitive context. It does NOT split into engineering issues or write implementation plans. That happens in `pm:dev` via the RFC.
+Groom produces a **proposal** — the product-level artifact with scope, design, wireframes, research, and competitive context. It does NOT split into engineering issues or write implementation plans. That happens in `pm:rfc` (technical RFC) followed by `pm:dev` (implementation).
 
 Research gates grooming — even quick tier requires an inline assessment. Strategy gates scoping for standard and full tiers.
 
@@ -113,7 +113,7 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **KB too thin for requested tier:** "The KB only supports {max_tier} right now. Missing: {gaps}. Want to build prerequisites first with `/pm:strategy` or `/pm:research`?"
 - **Research reveals the idea is already solved:** "Research shows {competitor} already handles this well. This might be parity, not differentiation. Want to rethink the angle or proceed as gap-fill?"
 - **Scope keeps expanding across iterations:** "Scope has grown through {N} iterations. Consider splitting into two proposals — a focused first phase and a follow-on."
-- **User wants engineering issues, not a PRD:** "Groom produces the product proposal. To get engineering issues and an RFC, run `/pm:dev {slug}` after the proposal is approved."
+- **User wants engineering issues, not a PRD:** "Groom produces the product proposal. To get the technical RFC, run `/pm:rfc {slug}`. To implement, run `/pm:dev {slug}` after the RFC is approved."
 
 ## Common Rationalizations
 

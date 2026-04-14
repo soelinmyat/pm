@@ -88,7 +88,7 @@ If any remain, list under **Decisions Needed** with a recommended answer.}
 Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type})."}
 
 ## Next Steps
-Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin implementation.
+Ready for engineering? Run `pm:rfc {slug}` to generate the technical RFC, then `pm:dev {slug}` to implement.
 ```
 
 ## Status Lifecycle
@@ -98,6 +98,6 @@ Ready for engineering? Run `pm:dev {slug}` to generate the RFC and begin impleme
 | `idea` | `pm:ideate` | Early-stage idea from KB mining, not yet groomed |
 | `drafted` | `pm:groom` (draft-proposal) | Proposal assembled, under review |
 | `proposed` | `pm:groom` (present/finalize) | Product-approved, awaiting engineering |
-| `planned` | `pm:dev` | RFC exists and approved, ready to build |
+| `planned` | `pm:rfc` | RFC exists and approved, ready to build |
 | `in-progress` | `pm:dev` | Implementation underway |
 | `done` | `pm:dev` / `pm:ship` | All work shipped |

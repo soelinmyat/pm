@@ -187,4 +187,4 @@ Delete `{pm_state_dir}/groom-sessions/{topic-slug}.md` after successful retro ex
 
 Say:
 > "Grooming complete for '{topic}'. Proposal saved to `{pm_dir}/backlog/{topic-slug}.md`.
-> Next: run `pm:dev {topic-slug}` to generate the engineering RFC and begin implementation."
+> Next: run `pm:rfc {topic-slug}` to generate the technical RFC, then `pm:dev {topic-slug}` to implement."
