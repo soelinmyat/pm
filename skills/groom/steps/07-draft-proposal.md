@@ -63,6 +63,7 @@ Gather all product context into a coherent proposal narrative. Use the exact sec
 - **Review Summary** — pipeline steps completed so far
 - **Resolved Questions** — any questions resolved during scoping/research
 - **Freshness Notes** — only if `stale_research` in groom session state is non-empty. Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." Omit entirely if empty.
+- **Success Metrics** — leading indicators from scope validation (Q4: "What does success look like in 90 days?"). Table format: metric | baseline | target | timeframe. Use leading indicators, not lagging metrics like revenue.
 - **Next Steps** — standard dev handoff prompt
 
 This content feeds into the proposal backlog entry (Step 10) and linking (Step 11).
@@ -92,15 +93,37 @@ Behavior depends on the current `groom_tier` from session state.
 4. After approval, finalize the proposal:
    - Update `status: proposed` in the backlog entry frontmatter
    - Verify all sections match `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` (names, order, completeness)
-   - Notify the user: "Proposal finalized at `{pm_dir}/backlog/{topic-slug}.md`."
 
-5. Update state and proceed directly to Step 11 (Link):
+5. **Generate HTML proposal artifact and open in browser.**
+
+   Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`. Use the reference template at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` for structure and styling. The HTML must include:
+
+   - Hero with proposal ID, status pill ("Proposed"), priority pill, title, and outcome summary
+   - Sticky TOC linking to each section
+   - All 12 proposal sections rendered with the section-card pattern from the reference template
+   - Mermaid diagrams rendered via the mermaid.js CDN script (same as RFC)
+   - Scope presented as in-scope / out-of-scope cards with 10x filter pill
+   - Technical Feasibility as a verdict card
+   - Review Summary as a pipeline visualization
+   - Resolved Questions with numbered Q&A items
+   - Footer with proposal ID, date, and "Product Proposal" label
+
+   After writing the HTML, open it in the browser:
+
+   ```bash
+   open {pm_dir}/backlog/proposals/{topic-slug}.html
+   ```
+
+   Notify the user: "Proposal finalized. Opening in browser."
+
+6. Update state and proceed directly to Step 11 (Link):
 
 ```yaml
 phase: draft-proposal
 proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
+  proposal_html_path: {pm_dir}/backlog/proposals/{topic-slug}.html
 ```
 
 **If `groom_tier` is `full`:**
