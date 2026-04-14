@@ -183,7 +183,7 @@ Every step must contain these three elements (as explicit sections, inline annot
 
 1. **Goal** — one sentence stating what this step produces or decides. The agent reads this to know whether the step is relevant or already satisfied.
 2. **How** — the procedure, heuristic, or decision criteria. Not just a template — guidance on *how to do it well*. If the step delegates to a reference file, the How is "Read and follow `{path}`" plus any inline context the agent needs before opening that file.
-3. **Done-when** — exit criteria so the agent knows when to advance. Can be a checklist, a single condition, or "user confirms." Without this, the agent either lingers or skips prematurely.
+3. **Done-when** — exit criteria so the agent knows when to advance, followed by an explicit advancement directive. Mid-steps end with `**Advance:** proceed to Step N ({name}).` Final steps (highest `order:` in the skill) summarize what was done and offer the next action. See `skill-runtime.md` § Step Transitions for the full pattern. Without this, the agent either lingers or waits for manual prompting.
 
 ### Delegation steps
 
