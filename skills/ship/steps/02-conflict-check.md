@@ -37,3 +37,5 @@ Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH}
    - Commit the merge: `git commit -m "merge: resolve conflicts with {DEFAULT_BRANCH}"`
    - Run relevant verification commands for the resolved files (see AGENTS.md)
    - If tests fail after resolution, fix and amend the merge commit
+
+**Advance:** proceed to Step 3 (Review Gate).

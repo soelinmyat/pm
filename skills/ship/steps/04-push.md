@@ -61,3 +61,5 @@ After 3 failed push attempts: stop, report the error details with actionable dia
 NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 **If push fails for other reasons** (auth, network, etc.): Report the error and stop.
+
+**Advance:** proceed to Step 5 (Create or Detect PR).

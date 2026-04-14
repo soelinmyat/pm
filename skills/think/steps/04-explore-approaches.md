@@ -37,3 +37,5 @@ Format as a compact table or short sections. Lead with your recommendation if yo
 Ask which direction resonates — or if none do.
 
 **Done-when:** The user picks a direction, combines elements from multiple approaches, or rejects all and offers their own. A direction is chosen (even loosely) before moving to pressure-testing.
+
+**Advance:** proceed to Step 5 (Pressure-Test).

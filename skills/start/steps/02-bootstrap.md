@@ -165,3 +165,5 @@ Tell the user briefly which lane you are taking, then hand off to that skill imm
 ### Done-when
 
 The PM workspace and minimal config exist, the user has been oriented to what was created, and start has either routed into the first workflow or intentionally stopped after the session brief.
+
+**Advance:** proceed to Step 3 (Resume).

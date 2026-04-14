@@ -79,3 +79,5 @@ PR is green and ready. Merge manually or re-run `/pm:ship` to trigger the merge 
 ```
 
 Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup — the branch stays open.
+
+**Advance:** proceed to Step 6 (CI Monitor).

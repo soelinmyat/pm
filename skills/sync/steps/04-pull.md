@@ -33,3 +33,5 @@ Never display raw JSON to the user.
 ## Done-when
 
 The pull result has been read from `sync-status.json` and shown clearly, including the refresh follow-up when relevant, or the step has stopped on a surfaced pull failure.
+
+**Advance:** proceed to Step 5 (Status).

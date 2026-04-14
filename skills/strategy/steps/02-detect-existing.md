@@ -34,3 +34,5 @@ When `{pm_dir}/strategy.md` already exists and the user invokes `$pm-strategy` a
 Not a full re-interview. Surgical updates only.
 
 **Done-when:** Existing strategy material has been either adopted, updated in place, or explicitly bypassed so the interview can continue with the correct scope.
+
+**Advance:** proceed to Step 3 (Interview).

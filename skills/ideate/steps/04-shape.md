@@ -26,3 +26,5 @@ Target 5-10 ideas. If more than 10 survive, cut the weakest until the set is man
 ## Done-when
 
 Each surviving idea has a complete, comparable idea card, and the final set is narrowed to a defensible 5-10 ideas.
+
+**Advance:** proceed to Step 5 (Rank).

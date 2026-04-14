@@ -30,3 +30,5 @@ Discover available insight domains by scanning `{pm_dir}/insights/*/index.md`. T
 If the argument does not resolve to a known mode or domain, show the discovered domains and any valid competitor slugs.
 
 **Done-when:** The refresh scope is resolved to a concrete set of in-scope files or a consolidation-only path. The agent knows which step to enter next.
+
+**Advance:** if consolidation-only, skip to Step 4 (Consolidation); otherwise proceed to Step 2 (Audit).

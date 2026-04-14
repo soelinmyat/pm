@@ -35,3 +35,5 @@ Then ask:
 ## Done-when
 
 The ranked ideas and filtered-out list have been presented, and the user has been asked how they want to proceed.
+
+**Advance:** proceed to Step 7 (Write).

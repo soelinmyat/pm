@@ -182,3 +182,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 If validation fails, fix the frontmatter errors before proceeding.
 
 **Done-when:** Approved consolidation actions have been applied, the hot index has been regenerated, and final validation passes or the flow has stopped on a reported consolidation conflict.
+
+**Advance:** proceed to Step 5 (Summary).

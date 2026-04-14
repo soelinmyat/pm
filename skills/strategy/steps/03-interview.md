@@ -25,3 +25,5 @@ Rules:
   this enough to write the strategy doc?"
 
 **Done-when:** The essentials needed for `strategy.md` are answered or acknowledged as unknown, and the user has either gone deeper where needed or confirmed it is time to write.
+
+**Advance:** proceed to Step 4 (Write Strategy).

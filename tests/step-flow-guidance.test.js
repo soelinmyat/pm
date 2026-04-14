@@ -65,7 +65,7 @@ const FINAL_STEP_PATTERNS = [
   /next:?\s+run/i,
   /run [`']?\/pm:/i,
   /run [`']?pm:/i,
-  /what would you like/i,
+  /w(?:hat|hich) would you like/i,
   /want to/i,
   /options?:/i,
   /\(a\)/i,

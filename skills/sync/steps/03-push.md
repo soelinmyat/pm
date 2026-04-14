@@ -31,3 +31,5 @@ Never display raw JSON to the user.
 ## Done-when
 
 The push result has been read from `sync-status.json` and shown clearly, or the step has stopped on a surfaced push failure.
+
+**Advance:** proceed to Step 4 (Pull).

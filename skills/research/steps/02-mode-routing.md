@@ -20,3 +20,5 @@ Route to the appropriate mode step based on the argument:
 Only one mode executes per invocation. After the selected mode step completes, skip remaining mode steps. SEO provider configuration is a shared reference consulted during each mode — see `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md`.
 
 **Done-when:** A single research mode has been selected. The agent knows which step to jump to next.
+
+**Advance:** if landscape selected, proceed to Step 3 (Landscape Mode); if competitors selected, proceed to Step 4 (Competitor Mode); if topic selected, proceed to Step 5 (Topic Mode).

@@ -20,3 +20,5 @@ Then ask: "Continue with strategy now, or run landscape research first?"
 Respect the user's answer. Do not block.
 
 **Done-when:** The user has been told whether landscape context exists, and strategy can proceed with either confirmed context or an explicit decision to continue without it.
+
+**Advance:** proceed to Step 2 (Detect Existing Strategy).

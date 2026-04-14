@@ -115,3 +115,5 @@ Proceed?
 Only continue after explicit confirmation.
 
 **Done-when:** The audit report has classified all in-scope artifacts, estimated API/search cost, and either received explicit user confirmation to proceed or stopped before execution.
+
+**Advance:** proceed to Step 3 (Execute).

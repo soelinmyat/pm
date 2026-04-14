@@ -23,3 +23,5 @@ If two ideas are close, prefer the one with fewer dependencies and stronger evid
 ## Done-when
 
 The shaped idea set is ordered from strongest to weakest with a clear rationale for the ranking.
+
+**Advance:** proceed to Step 6 (Present).

@@ -21,3 +21,5 @@ When this skill loads at the beginning of a new session:
 ## Done-when
 
 Session-start handling has either invoked `pm:start`, routed directly into a concrete task, or explicitly stayed out of the way because PM is not initialized or not needed.
+
+**Advance:** proceed to Step 2 (Route).
