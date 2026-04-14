@@ -61,3 +61,5 @@ After writing, say:
 > If you have un-ingested customer evidence, run $pm-ingest <path> before making bigger prioritization calls."
 
 **Done-when:** `{pm_dir}/strategy.md` exists in the standard structure, frontmatter is valid, and the user has been told the recommended next PM workflow.
+
+Say: "Strategy complete. Document saved to `{pm_dir}/strategy.md`. Next: run `/pm:research competitors` to profile competitors, then `/pm:ideate` to surface feature ideas. What would you like to do next?"

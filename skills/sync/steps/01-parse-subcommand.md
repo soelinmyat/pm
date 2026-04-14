@@ -24,3 +24,5 @@ Persist the selected route in the working context so later steps can skip cleanl
 ## Done-when
 
 One concrete route (`push`, `pull`, or `status`) has been selected, or the skill has stopped after showing usage.
+
+**Advance:** proceed to Step 2 (Auth Check).

@@ -26,3 +26,5 @@ Present your sharpest concern first as a direct question:
 This beat can be multiple exchanges. Push back if the user hand-waves a real risk, but accept "we'll figure it out" for manageable unknowns. The goal is informed confidence, not certainty.
 
 **Done-when:** The user has addressed or acknowledged the top risks. You can summarize the direction as "we're going with X, despite Y, because Z" — if you can't fill in all three slots, keep pushing.
+
+**Advance:** proceed to Step 6 (Synthesize).

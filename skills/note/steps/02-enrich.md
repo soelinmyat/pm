@@ -54,3 +54,5 @@ Rules:
 ## Done-when
 
 The requested enrichment has been appended to the saved note entry, or the step has been skipped cleanly because the user declined or ended the follow-up early.
+
+Say: "Note captured. Run `/pm:note` to capture another, or `/pm:refresh` to digest recent notes into the knowledge base. What would you like to do next?"

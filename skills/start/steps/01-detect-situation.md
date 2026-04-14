@@ -57,3 +57,5 @@ If no clear hint exists, ask the user what they want to do first.
 ### Done-when
 
 A concrete route is selected (`bootstrap`, `resume`, or `pulse`), and any auto-invoked permission prompt has been handled before continuing.
+
+**Advance:** proceed to Step 2 (Bootstrap).

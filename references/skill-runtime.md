@@ -48,3 +48,62 @@ Before starting work, check for user instructions:
 ## Interaction Pacing
 
 Ask ONE question at a time. Wait for the user's answer before asking the next. Do not bundle multiple questions in a single message. When you have follow-ups, ask the most important one first — the answer often makes the others unnecessary.
+
+---
+
+## Step Transitions
+
+Every step must guide the agent forward after completion. Without explicit advancement, the agent stalls and the user must manually prompt "continue."
+
+**Final step** = the step with the highest `order:` value in a skill's `steps/` directory.
+
+### Mid-step advancement
+
+Every non-final step's Done-when section must end with an explicit advancement directive using the `**Advance:**` prefix:
+
+```
+## Done-when
+- {exit criteria}
+- {exit criteria}
+
+**Advance:** proceed to Step {N} ({step-name}).
+```
+
+For steps with conditional paths (tier-dependent skips, user choices), each path must name its destination:
+
+```
+**Advance:** if quick tier, proceed to Step 4 (Scope). If standard/full, proceed to Step 3 (Research).
+```
+
+### Final-step completion
+
+The last step of every skill must:
+
+1. **Summarize** what was accomplished (1-2 sentences naming the artifact and its path)
+2. **Offer the next action** using one of these patterns:
+
+**Single clear next step:**
+```
+Say: "{Skill} complete for '{topic}'. {Artifact} saved to `{path}`.
+Next: run `/pm:{skill} {slug}` to {what it does}."
+```
+
+**Branching paths (ask one question):**
+```
+Ask: "Want to {next workflow}?"
+- **Yes** → invoke pm:{skill}, update state
+- **No** → "Done. {Artifact} saved for later."
+```
+
+**No clear next step:**
+```
+Say: "{Skill} complete. {Summary of what was done}.
+What would you like to do next?"
+```
+
+### Canonical examples
+
+These skills already follow the pattern — use them as templates:
+- `groom/steps/11-link.md` — summary + exact next command
+- `rfc/steps/03-rfc-review.md` — binary choice with branching
+- `think/steps/06-synthesize.md` — promotion offer with state change

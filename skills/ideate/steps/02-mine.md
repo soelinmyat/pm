@@ -34,3 +34,5 @@ For each available source, extract:
 ## Done-when
 
 You have a working set of evidence-backed opportunity signals from the knowledge base and can cite the file paths they came from.
+
+**Advance:** proceed to Step 3 (Filter Ideas).

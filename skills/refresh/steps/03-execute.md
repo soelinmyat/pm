@@ -131,3 +131,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
 **Done-when:** All approved refresh patches have been applied (or safely skipped), required synthesis/index updates have run, and post-write validation passes.
+
+**Advance:** proceed to Step 4 (Consolidation).

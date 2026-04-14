@@ -29,3 +29,5 @@ After the user confirms the summary, derive the canonical slug:
 Store the slug for all subsequent steps. Do not re-derive it later.
 
 **Done-when:** The user confirms the summary is accurate, or corrects it and you've incorporated the correction. You should be able to state the idea in one sentence, and you have a canonical slug.
+
+**Advance:** proceed to Step 2 (Ground).

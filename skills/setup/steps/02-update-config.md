@@ -36,3 +36,5 @@ Rules:
 When enabling Linear (`enable linear`), after setting `integrations.linear.enabled` to `true`, check if `integrations.linear.team` and `integrations.linear.project` are already set. If not, ask the user for their Linear team slug and project name, then write those to the config.
 
 **Done-when:** `.pm/config.json` has been read successfully, the requested change has been written without dropping unrelated fields, and any required Linear metadata has been collected or confirmed.
+
+**Advance:** proceed to Step 3 (Confirm).

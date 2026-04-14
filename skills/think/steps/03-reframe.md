@@ -29,3 +29,5 @@ Share your reframe as a short, opinionated take:
 Then ask if the reframe resonates or if you're off base. One question.
 
 **Done-when:** The user either confirms the reframe resonates, offers their own reframe, or says the original framing is correct. You now have a shared problem statement to explore approaches against.
+
+**Advance:** proceed to Step 4 (Explore Approaches).

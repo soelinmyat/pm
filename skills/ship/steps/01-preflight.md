@@ -12,6 +12,8 @@ description: Verify branch, check uncommitted changes, detect default branch, an
 
 **Done-when:** On a feature branch (not `{DEFAULT_BRANCH}`), working tree is clean (all changes committed), `gh` is authenticated, and `{DEFAULT_BRANCH}` is detected.
 
+**Advance:** proceed to Step 2 (Conflict Check).
+
 ### Prerequisites
 
 Before starting, verify required tools are available:

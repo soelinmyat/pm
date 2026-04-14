@@ -122,3 +122,5 @@ If no other insight domains exist and no `{pm_dir}/strategy.md` exists, skip thi
 When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `last_updated:` in frontmatter.
 
 **Done-when:** `{pm_dir}/insights/business/landscape.md` exists with all template sections populated, user has validated findings, insight routing completed (or explicitly skipped), and indexes/logs are updated. For updates: `updated:` date is bumped and the user confirmed the diff.
+
+**Advance:** proceed to Step 4 (Competitor Mode).

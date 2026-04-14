@@ -78,3 +78,5 @@ phase: present
 proposal:
   proposal_html_path: {pm_dir}/backlog/proposals/{topic-slug}.html
 ```
+
+**Advance:** proceed to Step 11 (Link).
