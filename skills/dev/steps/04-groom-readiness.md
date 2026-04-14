@@ -17,7 +17,7 @@ Before proceeding, check whether an approved RFC exists for this work.
 Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
-- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. Create a new session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`. Read the RFC and skip to Implementation. Log: `RFC: approved (path: {rfc_path})`.
+- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. **Re-discover tasks from the RFC** (the session file may have stale `task_count` from a prior intake that ran before the RFC existed): read the RFC HTML, parse `.issue-detail` elements (extract `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size` for each), set `task_count`, and rebuild the `## Tasks` table. If zero `.issue-detail` elements are found, hard-abort: "RFC found but no Issue sections parsed — check RFC HTML structure for `.issue-detail` cards." Then update the session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`, the refreshed `task_count`, and the rebuilt `## Tasks` table. Skip to Implementation. Log: `RFC: approved (path: {rfc_path}, tasks: {task_count})`.
 - **`rfc:` is non-null** but RFC file has `status: draft` AND size is M+ → RFC started but not approved. Treat same as null — continue to the RFC prompt below. Log: `RFC: draft (needs /rfc to complete)`.
 - **`rfc:` is null** AND size is M+ → No RFC exists for M-sized work. Continue to the RFC prompt below.
 - **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
