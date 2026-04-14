@@ -77,7 +77,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "PR opene
 ### After merge — set "Done" everywhere
 
 <HARD-GATE>
-You MUST complete ALL steps below in order. Every step applies whether or not an issue tracker is configured. A Linear parent marked "Done" with open Linear children is a bug. A merged PR with a backlog item still showing "in-progress" is a bug.
+You MUST complete ALL steps below in order. Local backlog updates are always required. Linear updates require user confirmation first (see Step 2b below). A merged PR with a backlog item still showing "in-progress" is a bug.
 </HARD-GATE>
 
 **Step 1: Create local backlog entry if missing.**
@@ -127,7 +127,17 @@ Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
 Note: In the single-backlog model, each backlog item has its own RFC. Issue decomposition lives inside the RFC, not as separate backlog files. Ship updates only this one backlog item — there are no child backlog files to iterate.
 
-**Step 3: Close Linear child issues** (if tracker available).
+**Step 2b: Ask user before updating Linear issues.**
+
+If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is set in the session state:
+
+> "Update Linear issues to Done? (y/n)"
+
+Wait for the user's answer.
+- **If yes:** Proceed to Steps 3, 3b, 4, and 5 (Linear updates).
+- **If no:** Skip Steps 3, 3b, and 4. Jump to Step 5 (verify local backlog only — skip the Linear verification check). Say: "Skipping Linear updates. Local backlog marked done."
+
+**Step 3: Close Linear child issues** (if tracker available, and user approved in Step 2b).
 
 Fetch children:
 ```
@@ -150,7 +160,7 @@ mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
 Check that each returned child has `state: "Done"`. If any child is still open (e.g., a per-task agent was blocked and didn't close it), log: `WARN: Child {CHILD_ID} is still {state} — not closing parent.` Ask the user whether to close the parent anyway or leave it open.
 </HARD-GATE>
 
-**Step 4: Close Linear parent issue** (if tracker available, and Step 3b passed).
+**Step 4: Close Linear parent issue** (if tracker available, user approved in Step 2b, and Step 3b passed).
 
 ```
 mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
