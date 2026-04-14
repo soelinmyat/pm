@@ -6,22 +6,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-setup.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-setup",
             "async": false
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start",
             "async": false
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reconcile-merged.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reconcile-merged",
             "async": true
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-pull.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-pull",
             "async": true
           }
         ]
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agent-pre.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agent-pre",
             "async": true
           }
         ]
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-pre.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-pre",
             "async": false
           }
         ]
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/analytics-log.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/analytics-log",
             "async": true
           }
         ]
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agent-step.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agent-step",
             "async": true
           }
         ]
@@ -75,12 +75,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-step.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/state-step",
             "async": false
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-mark-dirty.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-mark-dirty",
             "async": true
           }
         ]
@@ -92,12 +92,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-end.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-end",
             "async": true
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-push.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/kb-push",
             "async": true
           }
         ]

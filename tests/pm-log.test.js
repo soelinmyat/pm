@@ -10,9 +10,9 @@ const childProcess = require("node:child_process");
 const ROOT = path.join(__dirname, "..");
 const PM_LOG = path.join(ROOT, "scripts", "pm-log.sh");
 const PM_BASELINE = path.join(ROOT, "scripts", "pm-baseline.js");
-const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log.sh");
-const STATE_PRE = path.join(ROOT, "hooks", "state-pre.sh");
-const STATE_STEP = path.join(ROOT, "hooks", "state-step.sh");
+const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log");
+const STATE_PRE = path.join(ROOT, "hooks", "state-pre");
+const STATE_STEP = path.join(ROOT, "hooks", "state-step");
 
 // Clean env strips GIT_DIR/GIT_WORK_TREE that git hooks inject, so child
 // processes in temp repos resolve their own git root instead of the parent's.
@@ -152,12 +152,12 @@ test("run-start, step, and run-end write structured telemetry", () => {
   }
 });
 
-test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
+test("agent-pre + agent-step produce step with real duration", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
-    const agentPre = path.join(pluginRoot, "hooks", "agent-pre.sh");
-    const agentStep = path.join(pluginRoot, "hooks", "agent-step.sh");
+    const agentPre = path.join(pluginRoot, "hooks", "agent-pre");
+    const agentStep = path.join(pluginRoot, "hooks", "agent-step");
 
     // Start a run so agent-step can correlate
     const runId = childProcess
@@ -236,11 +236,11 @@ test("agent-pre.sh + agent-step.sh produce step with real duration", () => {
   }
 });
 
-test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
+test("agent-step without agent-pre falls back to duration 0", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
-    const agentStep = path.join(pluginRoot, "hooks", "agent-step.sh");
+    const agentStep = path.join(pluginRoot, "hooks", "agent-step");
 
     const runId = childProcess
       .execFileSync(PM_LOG, ["run-start", "--skill", "review"], {
@@ -279,7 +279,7 @@ test("agent-step.sh without agent-pre.sh falls back to duration 0", () => {
   }
 });
 
-test("analytics-log.sh preserves quoted args and writes current skill", () => {
+test("analytics-log preserves quoted args and writes current skill", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const input = JSON.stringify({
@@ -395,7 +395,7 @@ test("state hooks log groom phase transitions and keep the next phase active", (
   }
 });
 
-test("session-end.sh closes the last active stateful step", () => {
+test("session-end closes the last active stateful step", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const runId = childProcess
@@ -448,7 +448,7 @@ test("session-end.sh closes the last active stateful step", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const sessionEnd = path.join(ROOT, "hooks", "session-end.sh");
+    const sessionEnd = path.join(ROOT, "hooks", "session-end");
     childProcess.execFileSync(sessionEnd, {
       cwd: root,
       input: JSON.stringify({ hook_event_name: "SessionEnd" }),
@@ -477,11 +477,11 @@ test("session-end.sh closes the last active stateful step", () => {
   }
 });
 
-test("session-end.sh closes open run and cleans up", () => {
+test("session-end closes open run and cleans up", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
-    const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
+    const sessionEnd = path.join(pluginRoot, "hooks", "session-end");
 
     // Start a run
     const runId = childProcess
@@ -530,11 +530,11 @@ test("session-end.sh closes open run and cleans up", () => {
   }
 });
 
-test("session-end.sh preserves hyphenated skill names", () => {
+test("session-end preserves hyphenated skill names", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
-    const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
+    const sessionEnd = path.join(pluginRoot, "hooks", "session-end");
 
     const runId = childProcess
       .execFileSync(PM_LOG, ["run-start", "--skill", "design-critique"], {
@@ -564,11 +564,11 @@ test("session-end.sh preserves hyphenated skill names", () => {
   }
 });
 
-test("session-end.sh is a no-op when no run is active", () => {
+test("session-end is a no-op when no run is active", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const pluginRoot = ROOT;
-    const sessionEnd = path.join(pluginRoot, "hooks", "session-end.sh");
+    const sessionEnd = path.join(pluginRoot, "hooks", "session-end");
 
     // Ensure analytics dir exists but no .current-run
     fs.mkdirSync(path.join(root, ".pm", "analytics"), { recursive: true });

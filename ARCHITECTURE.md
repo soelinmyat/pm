@@ -129,10 +129,10 @@ Shell scripts in `hooks/` run at lifecycle events. Configured in `hooks/hooks.js
 
 | Event | Hooks | Purpose |
 |-------|-------|---------|
-| SessionStart | check-setup.sh, session-start.sh, reconcile-merged.sh, kb-pull.sh | Init check, skill loading, stale PR detection, KB sync |
-| PreToolUse | agent-pre.sh, state-pre.sh | Timestamp capture, state snapshot |
-| PostToolUse | analytics-log.sh, agent-step.sh, state-step.sh, kb-mark-dirty.sh | Telemetry, workflow transition detection, sync marking |
-| SessionEnd | session-end.sh, kb-push.sh | Close analytics run, push KB changes |
+| SessionStart | check-setup, session-start, reconcile-merged, kb-pull | Init check, skill loading, stale PR detection, KB sync |
+| PreToolUse | agent-pre, state-pre | Timestamp capture, state snapshot |
+| PostToolUse | analytics-log, agent-step, state-step, kb-mark-dirty | Telemetry, workflow transition detection, sync marking |
+| SessionEnd | session-end, kb-push | Close analytics run, push KB changes |
 
 All hooks exit 0 — they never block user operations.
 
