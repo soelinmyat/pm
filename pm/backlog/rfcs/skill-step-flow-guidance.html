@@ -10,7 +10,7 @@
 {
   "type": "rfc",
   "parent": "skill-step-flow-guidance",
-  "status": "draft",
+  "status": "approved",
   "created": "2026-04-14",
   "updated": "2026-04-14"
 }
@@ -86,7 +86,7 @@ td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); color
     <div class="hero-breadcrumb">PM-44 <span class="sep">/</span> RFC</div>
     <div class="hero-meta-row">
       <span class="badge badge-size">M</span>
-      <span class="badge badge-status">Draft</span>
+      <span class="badge badge-status" style="background: var(--positive);">Approved</span>
       <span class="badge badge-tasks">3 Issues</span>
     </div>
     <h1>Skill Step Flow Guidance</h1>
@@ -123,7 +123,7 @@ td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); color
   </div>
 
   <div class="finding">
-    <div class="finding-path">skills/*/steps/*.md — 65 step files across 15 skills</div>
+    <div class="finding-path">skills/*/steps/*.md — 78 step files across 15 skills</div>
     <p>Analysis of all 65 step files reveals three patterns:</p>
     <ul>
       <li><strong>Good (6 skills):</strong> groom, rfc, dev, think, ideate, strategy — final steps offer explicit next actions with exact commands</li>
@@ -165,7 +165,7 @@ td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); color
   <h3>Layer 3: Step Files (skills/*/steps/*.md)</h3>
   <p>Update step files that lack explicit advancement language. This is the bulk of the work. The existing good patterns (groom, rfc, think) are the template — not inventing something new.</p>
 
-  <p><strong>Apps/services affected:</strong> references/skill-runtime.md, AGENTS.md, 65 step files across 15 skills</p>
+  <p><strong>Apps/services affected:</strong> references/skill-runtime.md, AGENTS.md, 78 step files across 15 skills</p>
   <p><strong>Cross-boundary sync required:</strong> No</p>
 </section>
 
@@ -239,8 +239,11 @@ td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); color
     <ol>
       <li><code>references/skill-runtime.md</code> has a new "Step Transitions" section with mid-step and final-step patterns</li>
       <li><code>AGENTS.md</code> Step Authoring Rules updated to require advancement language in Done-when</li>
-      <li>Both files committed on the feature branch</li>
-      <li>Existing tests still pass</li>
+      <li>Regression test added that scans every step file and validates advancement directives exist (mid-steps: "Advance to Step"; final steps: next-action pattern)</li>
+      <li>Convention doc defines "final step" as the step with the highest order value in a skill's steps/ directory</li>
+      <li>Canonical format example provided as copy-paste template (citing groom step 11, rfc step 3, think step 6)</li>
+      <li>All files committed on the feature branch</li>
+      <li>Existing tests still pass, new enforcement test passes</li>
     </ol>
 
     <h4>Approach</h4>
@@ -274,6 +277,21 @@ The last step of every skill must:
    mid-steps say "Advance to Step N ({name})";
    final steps summarize + offer next action.
    Without this, the agent either lingers or waits for manual prompting.</pre>
+
+    <p><strong>File: <code>tests/step-flow-guidance.test.js</code></strong> — Add a regression test that scans every step file and validates:</p>
+    <ul>
+      <li>Non-final steps: Done-when section contains "Advance to Step" or equivalent advancement language</li>
+      <li>Final steps (highest order in each skill): Done-when section contains next-action language ("Next:", "What would you like", "Run <code>/pm:</code>", or "Complete.")</li>
+      <li>Use the existing <code>loadWorkflow</code>/<code>buildPrompt</code> infrastructure from <code>scripts/step-loader.js</code></li>
+    </ul>
+    <p>This test makes the convention self-enforcing. Future skill additions that omit advancement language will fail CI.</p>
+
+    <p><strong>Convention doc must also define:</strong></p>
+    <ul>
+      <li>"Final step" = the step with the highest <code>order:</code> value in a skill's <code>steps/</code> directory</li>
+      <li>Advancement directive format: bold <code>**Advance:**</code> prefix after Done-when checklist, on its own line</li>
+      <li>Canonical examples from groom step 11, rfc step 3, think step 6 as copy-paste templates</li>
+    </ul>
 
     <h4>Dependencies</h4>
     <p>None</p>
@@ -326,7 +344,7 @@ The last step of every skill must:
     <div class="issue-header">
       <span class="issue-detail-num">3</span>
       <span class="issue-detail-title">Add mid-step advancement directives</span>
-      <span class="issue-detail-size">S</span>
+      <span class="issue-detail-size">M</span>
     </div>
 
     <h4>Outcome</h4>
@@ -380,13 +398,26 @@ If {condition A}: advance to Step {N}. If {condition B}: advance to Step {M}.</p
 <!-- ═══════════ RESOLVED QUESTIONS ═══════════ -->
 <section id="resolved-questions">
   <h2>Resolved Questions</h2>
-  <p><em>Populated during RFC review.</em></p>
+
+  <p><strong>Q:</strong> Step file count is 65 or 78?</p>
+  <p><strong>A:</strong> 78. Corrected throughout the RFC. The original 65 count only included files with existing Done-when sections.</p>
+
+  <p><strong>Q:</strong> How is the convention enforced after landing?</p>
+  <p><strong>A:</strong> Issue 1 includes a regression test (<code>tests/step-flow-guidance.test.js</code>) that scans every step file for advancement directives. Future skills that omit the pattern fail CI.</p>
+
+  <p><strong>Q:</strong> What counts as a "final step"?</p>
+  <p><strong>A:</strong> The step with the highest <code>order:</code> value in a skill's <code>steps/</code> directory. Defined explicitly in the convention doc (Issue 1).</p>
+
+  <p><strong>Q:</strong> What delimiter separates Done-when criteria from the advancement directive?</p>
+  <p><strong>A:</strong> A bold <code>**Advance:**</code> prefix on its own line after the checklist. Canonical examples cited from groom step 11, rfc step 3, think step 6.</p>
 </section>
 
 <!-- ═══════════ CHANGE LOG ═══════════ -->
 <section id="changelog">
   <h2>Change Log</h2>
-  <p><em>Populated during RFC review.</em></p>
+  <p>Apr 14 — RFC drafted. 3 issues: convention doc (S), final-step completions (S), mid-step directives (M).</p>
+  <p>Apr 14 — RFC reviewed by 3 engineers (adversarial, tester, staff). All APPROVE-WITH-NOTES. No blocking issues. Advisory fixes applied: corrected step file count (65 → 78), added enforcement test to Issue 1, bumped Issue 3 from S to M, defined "final step" and advancement delimiter format, added canonical examples as copy-paste template.</p>
+  <p>Apr 14 — RFC approved. All reviewers signed off.</p>
 </section>
 
 </div>
