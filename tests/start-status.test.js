@@ -1054,10 +1054,7 @@ Tags: general
     // Most recent first
     assert.equal(status.opportunityNotes[0].timestamp, "2026-04-14 09:05");
     assert.equal(status.opportunityNotes[1].timestamp, "2026-04-14 09:00");
-    assert.ok(
-      status.opportunityNotes[0].body.includes("Cross-pillar"),
-      "body must be present"
-    );
+    assert.ok(status.opportunityNotes[0].body.includes("Cross-pillar"), "body must be present");
   } finally {
     project.cleanup();
   }

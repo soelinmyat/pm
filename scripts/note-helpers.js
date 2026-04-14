@@ -190,9 +190,7 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
   }
 
   if (entry.promoted_to) {
-    throw new Error(
-      `Note entry "${entryTimestamp}" is already promoted to "${entry.promoted_to}"`
-    );
+    throw new Error(`Note entry "${entryTimestamp}" is already promoted to "${entry.promoted_to}"`);
   }
 
   const slug = slugify(entry.body, 4);
@@ -212,11 +210,12 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
   }
 
   const tags = entry.tags
-    ? entry.tags.split(",").map((t) => t.trim()).filter(Boolean)
+    ? entry.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
     : [];
-  const labelsYaml = tags.length > 0
-    ? tags.map((t) => `  - ${t}`).join("\n")
-    : "  - uncategorized";
+  const labelsYaml = tags.length > 0 ? tags.map((t) => `  - ${t}`).join("\n") : "  - uncategorized";
 
   const backlogContent = `---
 type: backlog

@@ -393,10 +393,7 @@ Promoted-to: already-promoted
 `
   );
 
-  assert.throws(
-    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"),
-    /already promoted/
-  );
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /already promoted/);
 });
 
 test("promoteNoteToIdea throws on slug collision with existing backlog file", (t) => {
@@ -430,10 +427,7 @@ Tags: strategy
 `
   );
 
-  assert.throws(
-    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"),
-    /slug collision/
-  );
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /slug collision/);
 });
 
 test("promoteNoteToIdea handles middle entry in multi-entry file", (t) => {
@@ -510,10 +504,7 @@ Tags: test
 `
   );
 
-  assert.throws(
-    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"),
-    /Cannot derive slug/
-  );
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /Cannot derive slug/);
 });
 
 test("promoteNoteToIdea throws if entry timestamp not found", (t) => {
@@ -538,8 +529,5 @@ Some note.
 `
   );
 
-  assert.throws(
-    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 99:99"),
-    /not found/
-  );
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 99:99"), /not found/);
 });
