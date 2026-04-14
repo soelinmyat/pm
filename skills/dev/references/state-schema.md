@@ -24,6 +24,25 @@ After compaction or if context feels stale, read this file to recover full sessi
 
 `intake`, `workspace`, `rfc-check`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
 
+## Valid Task Status Values
+
+These are the only valid values for the `Status` column in the `## Tasks` table:
+
+| Value | Meaning |
+|-------|---------|
+| `pending` | Task has not started |
+| `in-progress` | Agent has been dispatched and is working |
+| `implementing` | Agent is in the implementation phase (multi-task lifecycle tracking) |
+| `simplifying` | Agent is in the simplify phase |
+| `reviewing` | Agent is in the review phase |
+| `shipping` | Agent is in the push/PR/merge phase |
+| `done` | Task completed successfully (single-task) or merged (multi-task) |
+| `failed` | Task failed after max retry attempts |
+| `blocked` | Task blocked by an issue requiring user input |
+| `skipped` | Task was already implemented or intentionally skipped |
+
+Multi-task per-task agents should update the Tasks table status at each lifecycle transition (via the orchestrator's checkpoint). This enables accurate resume and retro.
+
 ## Template
 
 ```markdown
@@ -71,7 +90,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 | 1 | First task | S | done | feat/first-task | #312 |
 | 2 | Second task | M | in-progress | feat/second-task | — |
 
-Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` cards). Single-task sessions have one row. The RFC is the single source of truth for task decomposition — not Linear sub-issues or backlog `children:` fields.
+Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` cards). Single-task sessions have one row. The RFC is the single source of truth for task decomposition — not Linear sub-issues or backlog `children:` fields. See "Valid Task Status Values" above for allowed Status values.
 
 ## Key Files
 - backend/app/controllers/api/v1/features_controller.rb
@@ -102,6 +121,13 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 - Gate 3 (Codex review): pending
 - Gate 4 (Comments): pending
 - Gate 5 (Conflicts): pending
+
+## Per-Task Events (multi-task only — written by Step 05 checkpoint)
+- Task 1: reviews=0, CI runs=1, conflict commits=0, verdict=Merged
+- Task 2: reviews=2, CI runs=3, conflict commits=1, verdict=Merged
+- Task 3: verdict=Blocked (reason: missing API endpoint)
+
+Per-task agents handle QA/review/ship internally. This section aggregates key events extracted from each task's PR after the agent returns, so retro (Step 09) can learn from them. See Step 05 checkpoint for extraction logic.
 
 ## Linear Context (if sourced from Linear)
 | Field | Value |
