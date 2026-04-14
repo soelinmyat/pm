@@ -6,6 +6,8 @@ description: Industry landscape research — market overview, key players, keywo
 
 ## Landscape Mode (`$pm-research landscape`)
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+
 **Goal:** Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
 
 ### When to Use

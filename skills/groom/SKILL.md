@@ -17,11 +17,9 @@ Research gates grooming — even quick tier requires an inline assessment. Strat
 
 **NEVER DRAFT A PROPOSAL WITHOUT RESEARCH.** Even for quick tier, the inline assessment counts — but skipping research entirely produces proposals built on assumptions instead of evidence. If research yields "nothing relevant," that's a valid finding. Never looking is not.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+References `capability-gates.md` and `writing.md` are loaded by the steps that need them — not here. Do not read them at skill load.
 
 **Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
 

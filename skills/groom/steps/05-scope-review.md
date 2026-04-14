@@ -7,6 +7,8 @@ applies_to: [standard, full]
 
 ### Step 5: Scope Review
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+
 <HARD-GATE>
 All three reviews (PM, Competitive, EM) are required before drafting the proposal.
 Do NOT skip based on feature type (infrastructure, internal tooling, developer features, etc.).

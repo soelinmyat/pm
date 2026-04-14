@@ -6,6 +6,8 @@ description: Digest pending quick-capture notes before research to surface inter
 
 ## Note Digest (intake pre-step)
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol — use it for dedup checks before writing any research artifact.
+
 **Goal:** Ensure internal signals from quick-capture notes are synthesized into research themes before any research mode runs, so research has the latest context.
 
 **How:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes.

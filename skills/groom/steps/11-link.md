@@ -14,6 +14,8 @@ applies_to: [quick, standard, full]
 
 2. **Linear integration:**
 
+   Read `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md` for retry, verification, and rollback patterns. All Linear calls below must follow the retry pattern (3 attempts, log failures, never block the groom workflow on Linear outage).
+
    **If `linear_id` is set in the groom session state** (issue already exists in Linear):
    - Do NOT create a new Linear issue.
    - Fetch the current issue description via `get_issue` (to get the latest version).

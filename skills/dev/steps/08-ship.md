@@ -8,6 +8,8 @@ description: Push branch, create PR, merge via merge-loop, clean up worktrees, u
 
 ## Ship
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+
 **Multi-task skip:** If `task_count > 1` in the session state, per-task agents in Step 05 handled push/PR/merge for each task. Skip the PR creation and merge-loop sections below. **However**, the parent-level status updates MUST still run — jump directly to "Status Updates" to mark the parent backlog item and parent Linear issue as done. Verify all Linear children are actually done before closing the parent (see Step 3 below).
 
 ## Goal
@@ -42,6 +44,8 @@ Clean up any worktrees created during this session:
 Do NOT skip this step. Leftover worktrees consume disk and confuse subsequent sessions.
 
 ## Status Updates (ALL sizes)
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md` for retry, verification, and rollback patterns for all Linear API calls below. Every Linear call in this section must follow the retry pattern (3 attempts, log failures, never block workflow on Linear outage).
 
 <HARD-GATE>
 After merge, you MUST complete ALL status updates below — both local backlog AND issue tracker (if available). Do NOT proceed to retro until every step is done. Do NOT consider the task complete without this. This applies to ALL sizes (XS/S/M/L/XL).
@@ -172,7 +176,7 @@ Log: `Linear: {ISSUE_ID} → Done (+ {N} children closed)`
 
 - Read `{pm_dir}/backlog/{slug}.md` — confirm `status: done`
 - If tracker available: `mcp__plugin_linear_linear__get_issue({ id: "{ISSUE_ID}" })` — confirm state is "Done"
-- If either check fails, retry the update. Do NOT proceed until confirmed.
+- If either check fails, retry per the retry pattern in `linear-operations.md`. If Linear verification fails after 3 attempts, log the failure and proceed — local backlog is the source of truth.
 
 Log summary: `Status updates complete: backlog → done, Linear → Done`
 

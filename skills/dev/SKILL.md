@@ -11,8 +11,6 @@ Unified orchestrator for all development work. Takes a task from intake through 
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output (RFCs, session files).
-
 ## Iron Law
 
 **NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR. "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
@@ -23,9 +21,34 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any documen
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime execution rules and `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+References `agent-runtime.md` and `capability-gates.md` are loaded by the steps that need them — not here. Do not read them at skill load.
 
 **Source repo access:** Dev requires a source code repository. Step 01 (Tool Check) validates this and blocks if no source repo is found. See step 01 for the full check.
+
+## XS Express Path
+
+When the task is classified XS (one-line fix, typo, config tweak) and the user confirms, bypass the full step-file flow. The Iron Law still applies — every change gets a test and a code scan. What changes is the machinery around it.
+
+**XS Express replaces Steps 01-09 with this inline sequence:**
+
+1. **Branch** — `git checkout -b fix/{slug} origin/{DEFAULT_BRANCH}`. No worktree. No state file.
+2. **Implement + test** — Write the fix. Write or update a test (TDD: test first). Run the project test suite. All tests must pass.
+3. **Code scan** — Run a single-pass inline code scan (same brief as Step 07's XS code scan section). Fix any findings, re-run tests.
+4. **Ship** — `git push -u origin fix/{slug}`, create PR via `gh pr create`, squash-merge via `gh pr merge --squash --auto` or the merge loop. Wait for merge confirmation.
+5. **Status** — Update `{pm_dir}/backlog/{slug}.md` to `status: done` if it exists. Update Linear issue to Done if configured (ask user first).
+6. **Cleanup** — `git checkout {DEFAULT_BRANCH} && git pull && git branch -d fix/{slug}`.
+
+**No worktree, no session state file, no context discovery, no formal retro, no agent dispatch.** The orchestrator does all work inline.
+
+**When to use:** Only when ALL of these are true:
+- Size is XS (confirmed by user)
+- No active session file exists for this slug
+- No RFC exists or is needed
+- Single file or tightly-scoped change
+
+**When to fall back to full flow:** If the fix touches multiple files, requires debugging, or fails code scan with structural issues — escalate to the full step flow by creating a session state file and resuming from Step 03 (Workspace).
+
+---
 
 ## Resume
 
@@ -82,7 +105,7 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for chec
 If you catch yourself thinking any of these, you're drifting off-skill:
 
 - **"The RFC is overhead for this change."** The RFC is 15 minutes. Wrong direction is 2 hours. Run /rfc — it IS the shortcut. If it feels like overhead, the RFC is too heavy — simplify it, don't skip it.
-- **"I'll skip the worktree, it's just one file."** Wrong-branch commits break everything downstream. Worktree setup takes seconds; recovering from a dirty main takes much longer.
+- **"I'll skip the worktree, it's just one file."** For S+, wrong-branch commits break everything downstream. Worktree setup takes seconds; recovering from a dirty main takes much longer. XS Express is the only valid worktree-free path — and it branches explicitly.
 - **"Tests pass, so the code is correct."** Tests verify your assumptions, not the user's requirements. Passing tests with wrong assertions give false confidence.
 - **"I know what's wrong, I'll skip debugging."** Known fixes are guesses until confirmed. The debugging reference exists to prevent shipping the wrong fix to the right symptom.
 - **"I'll just start coding and figure out the plan as I go."** Coding commits you to an approach. The RFC forces you to think before you commit. Improvised architecture is how you end up rewriting.
@@ -104,7 +127,7 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 | "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
 | "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
 | "I'll just start coding, RFC is overhead" | Run /rfc — 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
-| "Worktree is overhead for one file" | Dirty main blocks all future work. Worktree is insurance, not overhead. |
+| "Worktree is overhead for one file" | For S+, dirty main blocks all future work. XS Express is the only worktree-free path. |
 
 ## Before Marking Done
 
