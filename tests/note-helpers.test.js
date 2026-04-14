@@ -399,6 +399,123 @@ Promoted-to: already-promoted
   );
 });
 
+test("promoteNoteToIdea throws on slug collision with existing backlog file", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  // Pre-create a backlog file that would collide
+  const backlogDir = path.join(pmDir, "backlog");
+  fs.mkdirSync(backlogDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(backlogDir, "immediate-startability-as-a.md"),
+    "---\ntype: backlog\nid: PM-001\n---\n"
+  );
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Immediate startability as a differentiator.
+Tags: strategy
+`
+  );
+
+  assert.throws(
+    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"),
+    /slug collision/
+  );
+});
+
+test("promoteNoteToIdea handles middle entry in multi-entry file", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 3
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+First opportunity note.
+Tags: first
+
+### 2026-04-14 09:05 — groom-opportunity
+Second opportunity to promote.
+Tags: second
+
+### 2026-04-14 09:10 — groom-opportunity
+Third opportunity note.
+Tags: third
+`
+  );
+
+  // Promote the middle entry
+  const result = promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:05");
+  assert.ok(result.slug, "must return a slug");
+
+  // Verify only the middle entry is marked
+  const updated = fs.readFileSync(noteFile, "utf8");
+  const lines = updated.split("\n");
+
+  // Find the Promoted-to line and verify it's between entry 2 and entry 3
+  const promotedIdx = lines.findIndex((l) => l.startsWith("Promoted-to:"));
+  assert.ok(promotedIdx > -1, "Promoted-to line must exist");
+
+  // Entry 1 and 3 should not have Promoted-to
+  const parsed = require("../scripts/note-helpers.js").parseNotesFile(noteFile);
+  assert.equal(parsed.entries[0].promoted_to, undefined, "first entry must not be promoted");
+  assert.ok(parsed.entries[1].promoted_to, "second entry must be promoted");
+  assert.equal(parsed.entries[2].promoted_to, undefined, "third entry must not be promoted");
+});
+
+test("promoteNoteToIdea throws on empty note body", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  // Note with punctuation-only body that slugifies to empty
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+...
+Tags: test
+`
+  );
+
+  assert.throws(
+    () => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"),
+    /Cannot derive slug/
+  );
+});
+
 test("promoteNoteToIdea throws if entry timestamp not found", (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);

@@ -207,6 +207,10 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
   fs.mkdirSync(backlogDir, { recursive: true });
   const backlogPath = path.join(backlogDir, `${slug}.md`);
 
+  if (fs.existsSync(backlogPath)) {
+    throw new Error(`Backlog item already exists at ${backlogPath} — slug collision`);
+  }
+
   const tags = entry.tags
     ? entry.tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
