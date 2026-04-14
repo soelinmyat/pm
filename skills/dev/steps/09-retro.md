@@ -18,17 +18,28 @@ Then stop — do not proceed to deletion.
 
 ---
 
+### Generalization Rule
+
+The `learning` field in each memory entry must be **generalizable to future sessions**, not a description of what happened in this session. A reader encountering this learning in a different context should be able to apply it without knowing anything about the source session.
+
+- **Bad:** "from RFC review: 3 review iterations required" (session-specific fact — tells future sessions nothing actionable)
+- **Good:** "Check edge-case handling and error states before review — most re-reviews stem from missing unhappy paths" (actionable pattern any session can apply)
+
+Session-specific context (counts, slugs, specific failures) belongs in the `detail` field, not in `learning`.
+
+---
+
 ### Step 1: Scan for extractable events
 
 Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}.md`) and check for these events:
 
-| Event | Condition | Category | Learning template |
+| Event | Condition | Category | Learning guidance |
 |-------|-----------|----------|-------------------|
-| RFC review iterations > 1 | `Review` section shows multiple review passes (e.g., re-reviews, "Re-runs" > 0, multiple review gate entries) | `review` | "from RFC review: {N} review iterations required" |
-| QA verdict Fail | `QA` section has `QA verdict: fail` (any case) | `quality` | "from QA: verdict was Fail — {issues found summary if available}" |
-| Review blocking fixes | `Review` section shows blocking issues were fixed (count > 0) | `review` | "from review: {N} blocking fix(es) applied" |
-| Merge conflicts encountered | `Merge-Watch` section has `Gate 5 (Conflicts)` = anything other than `pending` or `passed`, OR state file mentions conflict resolution | `process` | "from merge: merge conflicts encountered and resolved" |
-| CI failures requiring intervention | `Merge-Watch` section has `Gate 1 (CI)` = `failed` or state mentions CI fix, OR `QA` section has `Re-runs` > 0 due to CI | `process` | "from CI: failures required manual intervention" |
+| RFC review iterations > 1 | `Review` section shows multiple review passes (e.g., re-reviews, "Re-runs" > 0, multiple review gate entries) | `review` | Read the review feedback to identify the root cause. Write a generalizable lesson: what practice or check would prevent this class of review rework in any future session? |
+| QA verdict Fail | `QA` section has `QA verdict: fail` (any case) | `quality` | Read the QA findings to identify the class of issue missed. Write a generalizable lesson: what should be validated earlier (and how) to catch this type of issue before QA? |
+| Review blocking fixes | `Review` section shows blocking issues were fixed (count > 0) | `review` | Read the blocking issues to identify the common pattern. Write a generalizable lesson: what should be checked or structured differently before submitting for review? |
+| Merge conflicts encountered | `Merge-Watch` section has `Gate 5 (Conflicts)` = anything other than `pending` or `passed`, OR state file mentions conflict resolution | `process` | Identify what area/files conflicted and why. Write a generalizable lesson: what coordination or branching practice would reduce conflicts in similar work? |
+| CI failures requiring intervention | `Merge-Watch` section has `Gate 1 (CI)` = `failed` or state mentions CI fix, OR `QA` section has `Re-runs` > 0 due to CI | `process` | Identify the failure class and why it wasn't caught locally. Write a generalizable lesson: what local check or practice would catch this type of CI failure before push? |
 
 ---
 
@@ -40,7 +51,7 @@ If none of the conditions above match (clean session: XS task, shipped clean, no
 
 ### Step 3: Events found — present auto-extracted learnings
 
-Build one learning entry per matched event using the templates above, filling in specifics from the session state. Present the list to the user:
+For each matched event, follow the learning guidance in the table above: read the relevant session state section, identify the root cause or pattern, and write a **generalizable, actionable** one-liner that any future session could benefit from. Put session-specific details (counts, file names, specific error messages) into the `detail` field, not the `learning` field. Present the list to the user:
 
 > "Retro: {N} learning(s) extracted from this dev session:
 > 1. [{category}] {learning text}
@@ -51,7 +62,7 @@ Build one learning entry per matched event using the templates above, filling in
 
 Wait for the user's answer.
 - **(a) or (c):** Proceed with auto-extracted entries only.
-- **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Append them to the auto-extracted list.
+- **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Nudge the user toward generalizable phrasing if their learning is session-specific (e.g., "what's the broader lesson here?"). Append them to the auto-extracted list.
 - **Pin:** If the user says "pin {N}", mark that entry with `pinned: true`. Multiple pins allowed. Then continue with the accept/add flow.
 
 This is a hard gate — at minimum the auto-extracted learnings must be written before state file deletion.
@@ -74,8 +85,8 @@ Read `{pm_dir}/memory.md`. For each entry to write, check existing entries: if a
 - date: {today, YYYY-MM-DD}
   source: "{slug}"
   category: "{mapped category}"
-  learning: "{one-liner from template or user}"
-  detail: "{optional — only if additional context is available}"
+  learning: "{generalizable, actionable one-liner — no session-specific details}"
+  detail: "{session-specific context: what happened, counts, files involved}"
   pinned: true  # only if user pinned this entry
 ```
 
