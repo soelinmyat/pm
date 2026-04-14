@@ -1,0 +1,186 @@
+---
+name: Implementation
+order: 5
+description: Dispatch fresh developer agents to implement the approved RFC
+---
+
+## Goal
+
+Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 06–09).
+
+## Implementation
+
+Dispatch **fresh** @developer agent(s) using the runtime adapter. The RFC is the contract and contains all codebase exploration findings needed for implementation. RFC generation and review are handled by the standalone `/rfc` skill — dev assumes an approved RFC exists (or inline planning was done for smaller work).
+
+**Implementation methodology:** All implementation agents follow `dev/references/tdd.md` (inside-out TDD) and `dev/references/subagent-dev.md` for task execution. The implementation-flow.md reference defines the full lifecycle.
+
+### Single-task implementation (task_count == 1)
+
+One fresh agent in the existing worktree.
+
+**Implementation brief:**
+
+```text
+Implement the approved RFC.
+
+**CWD:** {WORKTREE_PATH}
+**Branch:** {BRANCH}
+**RFC:** {pm_dir}/backlog/rfcs/{slug}.html
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
+
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
+implementation lifecycle, then execute it.
+
+Lifecycle:
+1. cd {WORKTREE_PATH}
+2. Install deps (read AGENTS.md), verify clean test baseline
+3. Read the RFC end-to-end and implement all issues
+4. Run the project test suite — all tests must pass
+5. Commit implementation changes
+
+If blocked, report: "Blocked: {reason}"
+Do NOT pause for confirmation — the RFC is the contract. Execute it.
+
+Report when done: "Implementation complete. {N} files changed, tests passing."
+```
+
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. Those are handled by Steps 06–09.
+
+### Multi-task implementation (task_count > 1)
+
+Sequential implementation, one task at a time. Each task gets a fresh agent with its own worktree.
+
+#### Environment readiness check
+
+Before dispatching the first implementation agent, check whether any task touches mobile code (React Native/Expo). If so, ensure Metro is running:
+
+```bash
+# Only needed when tasks include mobile changes
+pgrep -f 'expo.*start' > /dev/null || (cd apps/mobile && npx expo start --dev-client &)
+sleep 3
+```
+
+Skip if no task touches mobile code. Log in the state file whether Metro was started.
+
+#### Skip fully-implemented tasks
+
+If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
+
+#### Sequential execution
+
+For each task (Issue section) in dependency order from the RFC:
+
+1. **Create worktree:**
+   ```bash
+   git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
+   ```
+
+2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID):
+   ```
+   mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
+   ```
+
+3. **Dispatch fresh @developer agent:**
+
+```text
+Implement the approved RFC.
+
+**CWD:** {TASK_WORKTREE_PATH}
+**Branch:** feat/{task-slug}
+**RFC:** {pm_dir}/backlog/rfcs/{slug}.html
+**Your issue:** Issue {N} — {ISSUE_TITLE}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
+
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
+implementation lifecycle, then execute it.
+
+Read the RFC. Focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also
+contains shared architecture and data model sections that apply to your issue.
+
+Lifecycle:
+1. cd {TASK_WORKTREE_PATH}
+2. Install deps (read AGENTS.md), verify clean test baseline
+3. Read the RFC, focus on Issue {N}, implement its tasks
+4. Run the project test suite — all tests must pass
+5. Commit implementation changes
+6. Report: "Implementation complete. {ISSUE_ID}, {N} files changed, tests passing."
+
+If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
+Do NOT pause for confirmation — the RFC is the contract. Execute it.
+```
+
+The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. The orchestrator runs those via Steps 06–09 after the agent returns.
+
+4. **Wait for agent to return** "Implementation complete" or "Blocked."
+
+5. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
+
+6. **Sync main** before the next task:
+   ```bash
+   git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
+   ```
+
+7. **Announce progress:**
+   > **Task {N} of {TOTAL} complete.** Next: {ISSUE_TITLE}. Proceeding.
+
+8. Proceed to next task.
+
+#### Agent failure recovery
+
+If an implementation agent fails (API overload, timeout, 529 errors):
+
+1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
+2. Update state file with failure
+3. Dispatch a fresh recovery agent with the RFC path, git state, and instruction to continue from where the previous agent left off
+4. Max 3 total attempts per task. After 3 failures, mark as "Failed" and continue to next.
+
+Track retry count per task in the state file.
+
+### Continuous Execution
+
+<HARD-RULE>
+After the user approves the RFC (via /rfc), the orchestrator proceeds through ALL remaining steps without pausing for user input. No "Ready to execute?" prompts, no confirmation dialogs, no options menus.
+
+The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
+
+**Only stop for:**
+- Test failures that can't be resolved after 3 attempts
+- QA verdict of **Blocked** (ask user for guidance, Step 07)
+- Merge conflicts (Step 08)
+- CI failures that require human intervention (Step 08)
+- Review feedback from human reviewers on the PR (Step 08, use `ship/references/handling-feedback.md`)
+</HARD-RULE>
+
+### Agent lifecycle
+
+```
+RFC generated and reviewed via /rfc (separate skill)
+  → user approves RFC
+
+Single-task: Fresh developer agent dispatched (Implementation)
+  → reads approved RFC
+  → implements code + tests, commits
+  → returns "Implementation complete."
+
+Multi-task: For each task in order, fresh developer agent dispatched (Implementation)
+  → reads approved RFC, focuses on assigned Issue section
+  → implements code + tests, commits
+  → returns "Implementation complete. {ISSUE_ID}" or "Blocked: {reason}"
+  → orchestrator checkpoints, syncs main, dispatches next
+
+Orchestrator runs Steps 06–09:
+  → simplify (Step 06) → review (Step 07) → ship (Step 08) → retro (Step 09)
+```
+
+## Done-when
+
+- Code and tests for all scoped issues are committed on the feature branch
+- The project test suite passes
+- The session file records key files changed, commit SHA, and next step = `simplify`
+- Implementation agent has returned — orchestrator proceeds to Step 06

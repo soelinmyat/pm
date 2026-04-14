@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Pre-commit checks:
+# 1. Version consistency across all 3 manifests
+# 2. JSON validity for manifest files
+# 3. pm/ artifact validation (frontmatter schemas, ID collisions, broken refs)
+# 4. ESLint on staged .js files
+# 5. Prettier format check on staged .js/.json/.html files
+# 6. ShellCheck on staged .sh files
+
+set -euo pipefail
+
+# --- Collect staged files by type ---
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' | grep -v '^node_modules/' | grep -v '^1\.0\.' | grep -v '^\.worktrees/' || true)
+STAGED_SH=$(git diff --cached --name-only --diff-filter=ACM -- '*.sh' | grep -v '^node_modules/' || true)
+STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.js' '*.json' '*.html' | grep -v '^node_modules/' | grep -v '^1\.0\.' | grep -v '^\.worktrees/' || true)
+
+MANIFESTS=(
+  ".claude-plugin/plugin.json"
+  ".claude-plugin/marketplace.json"
+  ".codex-plugin/plugin.json"
+)
+
+# --- JSON validity ---
+for f in "${MANIFESTS[@]}"; do
+  if [[ -f "$f" ]]; then
+    if ! python3 -m json.tool "$f" > /dev/null 2>&1; then
+      echo "ERROR: Invalid JSON in $f"
+      exit 1
+    fi
+  fi
+done
+
+# --- Version consistency ---
+versions=()
+for f in "${MANIFESTS[@]}"; do
+  if [[ -f "$f" ]]; then
+    v=$(python3 -c "import json; d=json.load(open('$f')); print(d.get('version') or d['plugins'][0]['version'])" 2>/dev/null)
+    versions+=("$v:$f")
+  fi
+done
+
+if [[ ${#versions[@]} -lt 2 ]]; then
+  exit 0  # Not enough manifests to compare
+fi
+
+first_version="${versions[0]%%:*}"
+for entry in "${versions[@]:1}"; do
+  v="${entry%%:*}"
+  f="${entry#*:}"
+  if [[ "$v" != "$first_version" ]]; then
+    echo "ERROR: Version mismatch across manifests."
+    for e in "${versions[@]}"; do
+      echo "  ${e#*:}: ${e%%:*}"
+    done
+    echo "All 3 manifests must have the same version."
+    exit 1
+  fi
+done
+
+# --- pm/ artifact validation ---
+VALIDATE_SCRIPT="scripts/validate.js"
+if [[ -d "pm" && -f "$VALIDATE_SCRIPT" ]]; then
+  result=$(node "$VALIDATE_SCRIPT" --dir pm 2>/dev/null)
+  ok=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
+  if [[ "$ok" == "False" ]]; then
+    echo "ERROR: pm/ artifact validation failed."
+    echo "$result" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for d in data.get('details', []):
+    if d['level'] == 'error':
+        print(f\"  {d['file']}: {d['message']}\")
+" 2>/dev/null
+    exit 1
+  fi
+fi
+
+# --- ESLint on staged .js files ---
+if [[ -n "$STAGED_JS" ]]; then
+  if command -v npx > /dev/null 2>&1 && [[ -f "eslint.config.js" ]]; then
+    echo "$STAGED_JS" | xargs npx --no-install eslint
+  fi
+fi
+
+# --- Prettier format check on staged files ---
+if [[ -n "$STAGED_FMT" ]]; then
+  if command -v npx > /dev/null 2>&1 && [[ -f ".prettierrc" ]]; then
+    echo "$STAGED_FMT" | xargs npx --no-install prettier --check
+  fi
+fi
+
+# --- ShellCheck on staged .sh files ---
+if [[ -n "$STAGED_SH" ]]; then
+  if command -v shellcheck > /dev/null 2>&1; then
+    echo "$STAGED_SH" | xargs shellcheck
+  else
+    echo "WARN: shellcheck not installed — skipping shell lint (brew install shellcheck)"
+  fi
+fi
+
+exit 0

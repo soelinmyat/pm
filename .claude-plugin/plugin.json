@@ -1,0 +1,26 @@
+{
+  "name": "pm",
+  "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo",
+  "version": "1.0.0",
+  "author": {
+    "name": "Soe Lin Myat"
+  },
+  "homepage": "https://github.com/soelinmyat/pm",
+  "repository": "https://github.com/soelinmyat/pm",
+  "license": "MIT",
+  "keywords": [
+    "product-management",
+    "competitive-intelligence",
+    "grooming",
+    "research",
+    "discovery",
+    "development",
+    "lifecycle",
+    "tdd",
+    "code-review",
+    "orchestration",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

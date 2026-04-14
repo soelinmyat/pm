@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# PostToolUse hook — logs Agent tool dispatches as step spans for token tracking.
+# Fires after every Agent tool call. Extracts subagent_type, prompt/result char
+# counts, and correlates with the current skill run via .current-run.
+
+set -euo pipefail
+
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# Check analytics flag — bail fast if disabled
+ANALYTICS=$(sed -n 's/^analytics: *//p' "$PROJECT_DIR/.claude/pm.local.md" 2>/dev/null | head -1)
+[ "$ANALYTICS" != "true" ] && exit 0
+
+# Read PostToolUse JSON from stdin
+INPUT=$(cat)
+
+# Parse and log in a single node invocation
+cd "$PROJECT_DIR"
+node -e "
+'use strict';
+const { execFileSync } = require('node:child_process');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
+
+const { unlinkSync } = require('node:fs');
+const crypto = require('node:crypto');
+
+const input = JSON.parse(process.argv[1]);
+const ti = input.tool_input || {};
+const rawOutput = input.tool_output;
+const resultText = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput || '');
+
+const subagent = ti.subagent_type || 'general-purpose';
+const agentName = ti.name || ti.description || 'unnamed';
+const promptChars = (ti.prompt || '').length;
+const resultChars = resultText.length;
+
+// Skip tiny dispatches (likely empty or error)
+if (promptChars < 10) process.exit(0);
+
+// Read current run_id from .current-run
+const projectDir = process.env.CLAUDE_PROJECT_DIR || '.';
+const runFile = path.join(projectDir, '.pm', 'analytics', '.current-run');
+const skillFile = path.join(projectDir, '.pm', 'analytics', '.current-skill');
+let runId = 'untracked';
+try { runId = readFileSync(runFile, 'utf8').trim() || 'untracked'; } catch {}
+let parentSkill = '';
+try { parentSkill = readFileSync(skillFile, 'utf8').trim() || ''; } catch {}
+
+// Read start timestamp written by agent-pre.sh (PreToolUse hook)
+const hash = crypto.createHash('sha256').update(agentName).digest('hex').slice(0, 16);
+const startFile = path.join(projectDir, '.pm', 'analytics', '.agent-starts', hash);
+let startedAt = null;
+try {
+  startedAt = readFileSync(startFile, 'utf8').trim() || null;
+  unlinkSync(startFile);
+} catch {}
+
+// Keep step.skill bound to the active PM workflow skill. Subagent type already
+// lives in actor/meta and should not overwrite the parent run's skill label.
+const skill =
+  parentSkill || (subagent.startsWith('pm:') ? subagent.slice(3) : subagent);
+const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');
+
+const meta = { agent_name: agentName, subagent_type: subagent };
+// PostToolUse tool_output is a summary, not the full agent conversation
+if (resultChars < 100) meta.output_truncated = true;
+
+const args = [
+  'step',
+  '--skill', skill,
+  '--run-id', runId,
+  '--step', 'agent-dispatch',
+  '--actor', 'agent:' + subagent,
+  '--input-chars', String(promptChars),
+  '--output-chars', String(resultChars),
+  '--meta-json', JSON.stringify(meta),
+];
+
+// Add start timestamp if the PreToolUse hook captured one
+if (startedAt) args.push('--started-at', startedAt);
+
+try {
+  execFileSync(path.join(pluginRoot, 'scripts', 'pm-log.sh'), args, {
+    cwd: projectDir,
+    stdio: 'ignore',
+  });
+} catch { /* non-fatal — don't block the session */ }
+" "$INPUT" 2>/dev/null || true

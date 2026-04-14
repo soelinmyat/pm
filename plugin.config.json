@@ -1,0 +1,83 @@
+{
+  "name": "pm",
+  "displayName": "PM",
+  "description": "Shared product brain for small teams \u2014 research, strategy, grooming, and delivery in one place inside the repo",
+  "version": "1.0.0",
+  "author": {
+    "name": "Soe Lin Myat",
+    "url": "https://github.com/soelinmyat"
+  },
+  "homepage": "https://github.com/soelinmyat/pm",
+  "repository": "https://github.com/soelinmyat/pm",
+  "license": "MIT",
+  "keywords": [
+    "product-management",
+    "competitive-intelligence",
+    "grooming",
+    "research",
+    "discovery",
+    "development",
+    "lifecycle",
+    "tdd",
+    "code-review",
+    "orchestration",
+    "workflow"
+  ],
+  "commands": [
+    "dev",
+    "groom",
+    "ideate",
+    "ingest",
+    "note",
+    "refresh",
+    "research",
+    "rfc",
+    "setup",
+    "ship",
+    "start",
+    "strategy",
+    "think"
+  ],
+  "codex": {
+    "fallbackSkillAliases": {
+      "pm": [
+        "start",
+        "setup",
+        "research",
+        "strategy",
+        "groom",
+        "ideate",
+        "think",
+        "ingest",
+        "note",
+        "refresh",
+        "rfc",
+        "sync",
+        "dev",
+        "ship",
+        "using-pm"
+      ],
+      "dev": []
+    },
+    "interface": {
+      "shortDescription": "Shared product brain for small teams.",
+      "longDescription": "PM keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo. Context compounds over time \u2014 every session builds on prior research, decisions, and evidence.",
+      "developerName": "Soe Lin Myat",
+      "category": "Productivity",
+      "capabilities": ["Interactive", "Write"],
+      "websiteURL": "https://github.com/soelinmyat/pm",
+      "privacyPolicyURL": "https://github.com/soelinmyat/pm",
+      "termsOfServiceURL": "https://github.com/soelinmyat/pm",
+      "defaultPrompt": [
+        "Research our market and key competitors.",
+        "Turn this feature idea into sprint-ready issues.",
+        "Build the groomed issue end-to-end."
+      ],
+      "brandColor": "#1D4ED8"
+    }
+  },
+  "marketplace": {
+    "description": "Shared product brain for small teams \u2014 research, strategy, grooming, and delivery in one place inside the repo. Context compounds over time.",
+    "category": "productivity"
+  }
+}
