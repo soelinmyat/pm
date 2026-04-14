@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM-042 — Multi-Language Support</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>document.fonts.ready.then(() => mermaid.initialize({ startOnLoad: true, theme: 'neutral', fontFamily: 'Inter' }));</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #F6F6F4;
+  --bg-surface: #FFFFFF;
+  --bg-inset: #F0F0EE;
+  --bg-muted: #EEEEED;
+  --ink: #1A1A19;
+  --ink-secondary: #4A4A48;
+  --ink-tertiary: #8A8A87;
+  --ink-faint: #B5B5B1;
+  --rule: #E0E0DC;
+  --rule-subtle: #EBEBEA;
+  --accent: #5B5BD6;
+  --accent-soft: #E8E8FD;
+  --accent-text: #3E3EA8;
+  --positive: #2B8A3E;
+  --positive-soft: #E6F5EA;
+  --negative: #C92A2A;
+  --negative-soft: #FFF0F0;
+  --warning: #E67700;
+  --warning-soft: #FFF4E6;
+  --info: #1971C2;
+  --info-soft: #E7F5FF;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 6px 16px rgba(0,0,0,0.04);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-w: 860px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 3.75rem; }
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════ HERO ═══════════ */
+.hero {
+  background: #3b3870;
+  color: #fff;
+  padding: 2.5rem 2rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  top: -80px; right: -30px;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(91,91,214,0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-inner { max-width: var(--content-w); margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
+
+.hero-breadcrumb {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 1.25rem;
+  font-weight: 500;
+}
+.hero-breadcrumb a { color: rgba(255,255,255,0.35); text-decoration: none; }
+.hero-breadcrumb a:hover { color: rgba(255,255,255,0.65); }
+
+.hero-meta-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+.hero h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  margin-bottom: 0.5rem;
+}
+
+.hero-summary {
+  font-size: 0.92rem;
+  color: rgba(255,255,255,0.5);
+  max-width: 620px;
+  line-height: 1.55;
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1.125rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.hero-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.4);
+  font-weight: 500;
+}
+.hero-meta-sep { color: rgba(255,255,255,0.15); font-size: 0.7rem; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  font-size: 0.68rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+}
+.pill .dot { width: 5px; height: 5px; border-radius: 50%; }
+.pill-proposed-dark { background: rgba(91,91,214,0.2); color: rgba(180,180,255,0.9); border: 1px solid rgba(91,91,214,0.25); }
+.pill-proposed-dark .dot { background: #818CF8; }
+.pill-proposal-dark { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+.pill-priority { background: rgba(230,119,0,0.2); color: rgba(255,200,120,0.9); border: 1px solid rgba(230,119,0,0.25); }
+
+/* ═══════════ STICKY TOC ═══════════ */
+.toc {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(246,246,244,0.85);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid var(--rule);
+  padding: 0 2rem;
+}
+.toc-inner {
+  max-width: var(--content-w); margin: 0 auto;
+  display: flex; overflow-x: auto; scrollbar-width: none;
+}
+.toc-inner::-webkit-scrollbar { display: none; }
+.toc a {
+  display: block; padding: 0.65rem 0.75rem;
+  font-size: 0.76rem; font-weight: 500;
+  color: var(--ink-tertiary); text-decoration: none;
+  white-space: nowrap; border-bottom: 2px solid transparent;
+  transition: all 0.2s var(--ease);
+}
+.toc a:hover { color: var(--ink-secondary); }
+.toc a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ═══════════ CONTENT ═══════════ */
+.content { max-width: var(--content-w); margin: 0 auto; padding: 2rem 2rem 1rem; }
+
+/* ═══════════ SECTIONS ═══════════ */
+.section { margin-bottom: 2.5rem; }
+.section-header { display: flex; align-items: center; gap: 0.625rem; margin-bottom: 1rem; }
+.section-icon {
+  width: 30px; height: 30px; border-radius: var(--r-md);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.section-icon svg { width: 16px; height: 16px; }
+.section-header h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; }
+.section-header::after { content: ''; flex: 1; height: 1px; background: var(--rule-subtle); margin-left: 0.5rem; }
+.section p { color: var(--ink-secondary); line-height: 1.7; font-size: 0.9rem; }
+.section p + p { margin-top: 0.625rem; }
+.section-lead { font-weight: 600; color: var(--ink); font-size: 0.92rem; margin-bottom: 0.5rem; }
+
+/* ═══════════ SCOPE CARDS ═══════════ */
+.scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+.scope-card {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 1rem 1.25rem;
+}
+.scope-card h3 {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: 0.5rem;
+}
+.scope-card.in-scope h3 { color: var(--positive); }
+.scope-card.out-scope h3 { color: var(--ink-faint); }
+.scope-card ul { list-style: none; font-size: 0.84rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.scope-card.in-scope li { color: var(--ink-secondary); padding-left: 1rem; position: relative; }
+.scope-card.in-scope li::before { content: '+'; position: absolute; left: 0; color: var(--positive); font-weight: 700; }
+.scope-card.out-scope li { color: var(--ink-tertiary); padding-left: 1rem; position: relative; }
+.scope-card.out-scope li::before { content: '\2013'; position: absolute; left: 0; color: var(--ink-faint); font-weight: 700; }
+
+.filter-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em;
+  margin-top: 0.75rem;
+}
+.filter-10x { background: var(--accent-soft); color: var(--accent-text); }
+.filter-gap-fill { background: var(--info-soft); color: var(--info); }
+.filter-table-stakes { background: var(--bg-muted); color: var(--ink-tertiary); }
+.filter-parity { background: var(--warning-soft); color: var(--warning); }
+
+/* ═══════════ CALLOUT ═══════════ */
+.callout {
+  display: flex; gap: 0.75rem; padding: 0.875rem 1rem;
+  border-radius: var(--r-md); border: 1px solid;
+  margin: 1rem 0; font-size: 0.84rem; line-height: 1.55;
+}
+.callout-icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 0.9rem; }
+.callout-body { flex: 1; }
+.callout-body strong { font-weight: 600; }
+.callout-info    { background: var(--info-soft); border-color: #bfdbfe; color: var(--info); }
+.callout-warning { background: var(--warning-soft); border-color: #fed7aa; color: #9a3412; }
+.callout-positive { background: var(--positive-soft); border-color: #bbf7d0; color: var(--positive); }
+
+/* ═══════════ DIAGRAM ═══════════ */
+.diagram-card {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 1.25rem;
+  overflow-x: auto; margin: 1rem 0;
+}
+.diagram-card .mermaid { display: flex; justify-content: center; }
+.diagram-label {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 0.75rem;
+}
+
+/* ═══════════ TABLE ═══════════ */
+.table-wrap {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); overflow: hidden; margin: 1rem 0;
+}
+.table-wrap table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.table-wrap thead { background: var(--bg-inset); }
+.table-wrap th {
+  text-align: left; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+  padding: 0.6rem 1rem; border-bottom: 1px solid var(--rule);
+}
+.table-wrap td {
+  padding: 0.65rem 1rem; border-bottom: 1px solid var(--rule-subtle);
+  color: var(--ink-secondary); vertical-align: top; line-height: 1.5;
+}
+.table-wrap tr:last-child td { border-bottom: none; }
+.table-wrap td strong { color: var(--ink); font-weight: 600; }
+
+/* ═══════════ QUESTIONS ═══════════ */
+.question-item {
+  display: flex; gap: 0.75rem; padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule-subtle);
+}
+.question-item:last-child { border-bottom: none; }
+.question-num {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 0.1rem;
+}
+.question-text { font-size: 0.86rem; color: var(--ink); font-weight: 500; line-height: 1.45; }
+.question-answer { font-size: 0.84rem; color: var(--ink-secondary); line-height: 1.55; margin-top: 0.25rem; }
+
+/* ═══════════ FEASIBILITY ═══════════ */
+.verdict-card {
+  background: var(--bg-surface); border: 1px solid var(--rule);
+  border-radius: var(--r-md); padding: 1rem 1.25rem;
+  margin: 0.75rem 0;
+}
+.verdict-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.verdict-label {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px;
+}
+.verdict-feasible { background: var(--positive-soft); color: var(--positive); }
+.verdict-caveats { background: var(--warning-soft); color: var(--warning); }
+.verdict-rearch { background: var(--negative-soft); color: var(--negative); }
+.verdict-body { font-size: 0.84rem; color: var(--ink-secondary); line-height: 1.55; }
+.verdict-body strong { color: var(--ink); }
+
+/* ═══════════ REVIEW PIPELINE ═══════════ */
+.pipeline-step {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 0; border-bottom: 1px solid var(--rule-subtle);
+  font-size: 0.84rem;
+}
+.pipeline-step:last-child { border-bottom: none; }
+.pipeline-icon { width: 20px; text-align: center; font-size: 0.9rem; flex-shrink: 0; }
+.pipeline-name { font-weight: 600; color: var(--ink); min-width: 120px; }
+.pipeline-verdict { color: var(--ink-secondary); }
+
+/* ═══════════ COLLAPSIBLE ═══════════ */
+details { margin: 0.5rem 0; }
+details summary {
+  cursor: pointer; font-size: 0.84rem; font-weight: 600;
+  color: var(--ink-secondary); padding: 0.5rem 0.75rem;
+  list-style: none; display: flex; align-items: center; gap: 0.5rem;
+  border-radius: var(--r-sm); transition: background 0.15s; user-select: none;
+}
+details summary:hover { background: var(--bg-muted); }
+details summary::before {
+  content: ''; width: 0; height: 0;
+  border-left: 5px solid var(--ink-tertiary);
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform 0.2s var(--ease); flex-shrink: 0;
+}
+details[open] summary::before { transform: rotate(90deg); }
+details summary::-webkit-details-marker { display: none; }
+details .details-body { padding: 0.5rem 0.75rem 0.5rem 1.75rem; }
+details .details-body p { font-size: 0.85rem; color: var(--ink-secondary); line-height: 1.65; }
+
+/* ═══════════ NEXT STEPS ═══════════ */
+.next-steps-card {
+  background: var(--accent-soft); border: 1px solid rgba(91,91,214,0.15);
+  border-radius: var(--r-md); padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+.next-steps-card code {
+  font-family: var(--mono); font-size: 0.82rem;
+  background: rgba(91,91,214,0.1); padding: 2px 6px; border-radius: 4px;
+  color: var(--accent-text);
+}
+.next-steps-card p { font-size: 0.86rem; color: var(--accent-text); line-height: 1.55; }
+
+/* ═══════════ FOOTER ═══════════ */
+.footer {
+  max-width: var(--content-w); margin: 0 auto;
+  padding: 1.5rem 2rem 3rem; border-top: 1px solid var(--rule);
+  font-size: 0.72rem; color: var(--ink-faint);
+  display: flex; justify-content: space-between; font-family: var(--mono);
+}
+
+/* Icon colors */
+.icon-outcome    { background: var(--positive-soft); color: var(--positive); }
+.icon-problem    { background: var(--negative-soft); color: var(--negative); }
+.icon-scope      { background: var(--accent-soft); color: var(--accent-text); }
+.icon-flow       { background: #F3E8FF; color: #7C3AED; }
+.icon-wireframe  { background: #E0F2F1; color: #00796B; }
+.icon-compete    { background: var(--warning-soft); color: var(--warning); }
+.icon-feasible   { background: var(--info-soft); color: var(--info); }
+.icon-review     { background: var(--bg-muted); color: var(--ink-tertiary); }
+.icon-question   { background: var(--info-soft); color: var(--info); }
+.icon-metrics    { background: #F3E8FF; color: #7C3AED; }
+.icon-next       { background: var(--accent-soft); color: var(--accent-text); }
+
+@media (max-width: 700px) {
+  .hero { padding: 2rem 1.25rem 1.5rem; }
+  .hero h1 { font-size: 1.5rem; }
+  .content { padding: 1.5rem 1.25rem 1rem; }
+  .scope-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-breadcrumb">PM-042</div>
+    <div class="hero-meta-row">
+      <span class="pill pill-proposed-dark"><span class="dot"></span>Proposed</span>
+      <span class="pill pill-proposal-dark">Product Proposal</span>
+      <span class="pill pill-priority">High</span>
+    </div>
+    <h1>Multi-Language Support</h1>
+    <p class="hero-summary">Users can switch the interface language and manage translated content, starting with English, Spanish, and Japanese.</p>
+
+    <div class="hero-meta">
+      <span class="hero-meta-item">Size: M</span>
+      <span class="hero-meta-sep">&middot;</span>
+      <span class="hero-meta-item">Created Apr 10, 2026</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#outcome" class="active">Outcome</a>
+    <a href="#problem">Problem</a>
+    <a href="#scope">Scope</a>
+    <a href="#flows">User Flows</a>
+    <a href="#wireframes">Wireframes</a>
+    <a href="#competitive">Competitive</a>
+    <a href="#feasibility">Feasibility</a>
+    <a href="#review">Review</a>
+    <a href="#questions">Resolved</a>
+    <a href="#metrics">Metrics</a>
+    <a href="#next">Next Steps</a>
+  </div>
+</nav>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<main class="content">
+
+  <!-- OUTCOME -->
+  <section class="section" id="outcome">
+    <div class="section-header">
+      <div class="section-icon icon-outcome">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.25"/><path d="M5.5 8l2 2 3.5-4"/></svg>
+      </div>
+      <h2>Outcome</h2>
+    </div>
+    <p class="section-lead">Users can switch the app interface between English, Spanish, and Japanese &mdash; expanding reach to 3 new markets without creating separate product builds.</p>
+    <p>Non-English-speaking users currently bounce at onboarding because every label, tooltip, and help string is hardcoded in English. After this ships, the language picker in Settings lets users switch instantly. Content they create stays in whatever language they write it in; only the chrome translates.</p>
+  </section>
+
+  <!-- PROBLEM & CONTEXT -->
+  <section class="section" id="problem">
+    <div class="section-header">
+      <div class="section-icon icon-problem">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><line x1="8" y1="6.5" x2="8" y2="9.5"/><circle cx="8" cy="11.25" r="0.5" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h2>Problem &amp; Context</h2>
+    </div>
+    <p class="section-lead">28% of trial signups come from non-English markets, but only 4% convert &mdash; a 7x gap vs. English users.</p>
+    <blockquote style="border-left:3px solid var(--accent);padding:0.5rem 1rem;margin:0.75rem 0;font-size:0.86rem;color:var(--ink-secondary);background:var(--bg-surface);border-radius:0 var(--r-sm) var(--r-sm) 0;">
+      "Three enterprise prospects in Japan asked for Japanese UI before signing POC agreements." &mdash; Sales call notes, March 2026
+    </blockquote>
+    <p>The strategic driver is geographic expansion (Q2 priority). Competitors Acme and Globex already ship 5+ languages. We're losing deals to localized alternatives in LATAM and APAC.</p>
+  </section>
+
+  <!-- SCOPE -->
+  <section class="section" id="scope">
+    <div class="section-header">
+      <div class="section-icon icon-scope">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="6" y1="6" x2="6" y2="13.5"/></svg>
+      </div>
+      <h2>Scope</h2>
+    </div>
+
+    <div class="scope-grid">
+      <div class="scope-card in-scope">
+        <h3>In Scope</h3>
+        <ul>
+          <li>i18n framework (ICU MessageFormat)</li>
+          <li>Language picker in Settings</li>
+          <li>Extract all UI strings to locale files</li>
+          <li>English, Spanish, Japanese translations</li>
+          <li>RTL-aware layout foundation</li>
+        </ul>
+      </div>
+      <div class="scope-card out-scope">
+        <h3>Out of Scope</h3>
+        <ul>
+          <li>User-generated content translation</li>
+          <li>RTL languages (Arabic, Hebrew) &mdash; layout prep only</li>
+          <li>Auto-detection from browser locale</li>
+          <li>Translation management UI</li>
+        </ul>
+      </div>
+    </div>
+
+    <span class="filter-pill filter-gap-fill">Gap-fill</span>
+  </section>
+
+  <!-- USER FLOWS -->
+  <section class="section" id="flows">
+    <div class="section-header">
+      <div class="section-icon icon-flow">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 7.2L10 4.8"/><path d="M6 8.8L10 11.2"/></svg>
+      </div>
+      <h2>User Flows</h2>
+    </div>
+    <p class="section-lead">Primary flow: switching interface language from Settings.</p>
+
+    <div class="diagram-card">
+      <div class="diagram-label">Language Switch Flow</div>
+      <div class="mermaid">
+graph TD
+    A[User opens Settings] --> B[Clicks Language picker]
+    B --> C{Select language}
+    C -->|English| D[Load en.json]
+    C -->|Spanish| E[Load es.json]
+    C -->|Japanese| F[Load ja.json]
+    D --> G[UI re-renders instantly]
+    E --> G
+    F --> G
+    G --> H[Preference saved to profile]
+    H --> I[Next session loads<br/>saved preference]
+      </div>
+    </div>
+  </section>
+
+  <!-- WIREFRAMES -->
+  <section class="section" id="wireframes">
+    <div class="section-header">
+      <div class="section-icon icon-wireframe">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="2" y1="5.5" x2="14" y2="5.5"/><line x1="5.5" y1="5.5" x2="5.5" y2="14"/></svg>
+      </div>
+      <h2>Wireframes</h2>
+    </div>
+    <p>Language picker in Settings panel. Dropdown with locale name in native script (e.g., "Espa&ntilde;ol", "&#26085;&#26412;&#35486;").</p>
+    <div class="callout callout-info">
+      <div class="callout-icon">&#8505;</div>
+      <div class="callout-body"><strong>Wireframe link:</strong> <a href="#" style="color:var(--info);text-decoration:underline;">wireframes/multi-language-support.html</a></div>
+    </div>
+  </section>
+
+  <!-- COMPETITIVE CONTEXT -->
+  <section class="section" id="competitive">
+    <div class="section-header">
+      <div class="section-icon icon-compete">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V6l5-4 5 4v7H3z"/><rect x="6" y="9" width="4" height="4"/></svg>
+      </div>
+      <h2>Competitive Context</h2>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Capability</th><th>Acme</th><th>Globex</th><th>Our Approach</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Languages</strong></td><td>12 languages</td><td>5 languages</td><td>3 languages (en, es, ja)</td></tr>
+          <tr><td><strong>RTL support</strong></td><td>Full</td><td>None</td><td>Layout foundation only</td></tr>
+          <tr><td><strong>Auto-detection</strong></td><td>Yes (browser)</td><td>No</td><td>Out of scope (v2)</td></tr>
+          <tr><td><strong>Content translation</strong></td><td>Machine-assisted</td><td>Manual</td><td>Out of scope</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <blockquote style="border-left:3px solid var(--warning);padding:0.5rem 1rem;margin:0.75rem 0;font-size:0.86rem;color:var(--ink-secondary);background:var(--bg-surface);border-radius:0 var(--r-sm) var(--r-sm) 0;">
+      <strong>Handling decision: Gap-fill.</strong> We're closing the gap on basic i18n. Competitors already offer this; not shipping it is a deal-breaker in LATAM and APAC. No 10x claim &mdash; the goal is parity on language count with better UX on switching speed.
+    </blockquote>
+  </section>
+
+  <!-- TECHNICAL FEASIBILITY -->
+  <section class="section" id="feasibility">
+    <div class="section-header">
+      <div class="section-icon icon-feasible">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5.5 4.5 2.5 8 5.5 11.5"/><polyline points="10.5 4.5 13.5 8 10.5 11.5"/><line x1="9" y1="2.5" x2="7" y2="13.5"/></svg>
+      </div>
+      <h2>Technical Feasibility</h2>
+    </div>
+
+    <div class="verdict-card">
+      <div class="verdict-header">
+        <span class="verdict-label verdict-feasible">Feasible</span>
+      </div>
+      <div class="verdict-body">
+        <p><strong>Build-on:</strong> React app already uses component-based architecture. String extraction is mechanical.</p>
+        <p style="margin-top:0.4rem;"><strong>Build-new:</strong> i18n provider, locale file loading, language picker component, string extraction tooling.</p>
+        <p style="margin-top:0.4rem;"><strong>Risks:</strong> String extraction is labor-intensive but low-risk. Pluralization rules differ across locales (Japanese has no plural forms; Spanish has two). ICU MessageFormat handles this.</p>
+        <p style="margin-top:0.4rem;"><strong>Sequencing:</strong> Framework first, then extract strings, then translate. Translations can be parallelized.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- REVIEW SUMMARY -->
+  <section class="section" id="review">
+    <div class="section-header">
+      <div class="section-icon icon-review">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"/><line x1="6" y1="5.5" x2="10" y2="5.5"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.5" x2="8.5" y2="10.5"/></svg>
+      </div>
+      <h2>Review Summary</h2>
+    </div>
+
+    <div class="pipeline-step">
+      <div class="pipeline-icon">&#9989;</div>
+      <div class="pipeline-name">Scope Review</div>
+      <div class="pipeline-verdict">EM confirmed feasible. No architectural blockers.</div>
+    </div>
+    <div class="pipeline-step">
+      <div class="pipeline-icon">&#9989;</div>
+      <div class="pipeline-name">Team Review</div>
+      <div class="pipeline-verdict">PM: approved. Design: approved. 1 blocking issue fixed (RTL scope clarification).</div>
+    </div>
+    <div class="pipeline-step">
+      <div class="pipeline-icon">&#9989;</div>
+      <div class="pipeline-name">Bar Raiser</div>
+      <div class="pipeline-verdict">Passed. Advisory: consider auto-detection in v2 to reduce friction.</div>
+    </div>
+  </section>
+
+  <!-- RESOLVED QUESTIONS -->
+  <section class="section" id="questions">
+    <div class="section-header">
+      <div class="section-icon icon-question">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.25"/><path d="M6 6.25a2 2 0 013.5 1.25c0 1-1.5 1.25-1.5 2.25"/><circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h2>Resolved Questions</h2>
+    </div>
+
+    <div class="question-item">
+      <div class="question-num">1</div>
+      <div>
+        <div class="question-text">Should we ship RTL support in this phase?</div>
+        <div class="question-answer">No &mdash; layout foundation only (CSS logical properties). Full RTL (Arabic, Hebrew) deferred to a follow-up. Rationale: Japan and LATAM are the priority markets; neither requires RTL.</div>
+      </div>
+    </div>
+    <div class="question-item">
+      <div class="question-num">2</div>
+      <div>
+        <div class="question-text">ICU MessageFormat vs. simpler key-value approach?</div>
+        <div class="question-answer">ICU MessageFormat. It handles pluralization, gender, and number formatting natively. The complexity cost is upfront (framework setup) but saves rework when adding languages later.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SUCCESS METRICS -->
+  <section class="section" id="metrics">
+    <div class="section-header">
+      <div class="section-icon icon-metrics">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5h11"/><rect x="3.5" y="9" width="2" height="4.5" rx="0.5"/><rect x="7" y="5.5" width="2" height="8" rx="0.5"/><rect x="10.5" y="2.5" width="2" height="11" rx="0.5"/></svg>
+      </div>
+      <h2>Success Metrics</h2>
+    </div>
+    <p class="section-lead">Leading indicators for 90-day success.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Metric</th><th>Baseline</th><th>Target</th><th>Timeframe</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Non-English trial conversion</strong></td><td>4%</td><td>15%</td><td>90 days</td></tr>
+          <tr><td><strong>Language switch adoption</strong></td><td>0 (new feature)</td><td>30% of non-English users</td><td>60 days</td></tr>
+          <tr><td><strong>LATAM/APAC deal progression</strong></td><td>0 POCs signed</td><td>3 POCs signed</td><td>90 days</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- NEXT STEPS -->
+  <section class="section" id="next">
+    <div class="section-header">
+      <div class="section-icon icon-next">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/><polyline points="9 4 13 8 9 12"/></svg>
+      </div>
+      <h2>Next Steps</h2>
+    </div>
+    <div class="next-steps-card">
+      <p>Ready for engineering. Run <code>pm:rfc multi-language-support</code> to generate the technical RFC, then <code>pm:dev multi-language-support</code> to implement.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>PM-042 &middot; Updated Apr 10, 2026</span>
+  <span>Product Proposal &middot; pm/ knowledge base</span>
+</footer>
+
+<script>
+(function() {
+  const sections = document.querySelectorAll('.section[id]');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.getAttribute('id');
+        tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+
+</body>
+</html>

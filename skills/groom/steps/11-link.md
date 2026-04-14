@@ -62,6 +62,7 @@ applies_to: [quick, standard, full]
 proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
+  proposal_html_path: {pm_dir}/backlog/proposals/{topic-slug}.html
   prd_path: null
   linear_id: "{Linear ID}" | null
 ```
@@ -186,5 +187,7 @@ proposal:
 Delete `{pm_state_dir}/groom-sessions/{topic-slug}.md` after successful retro extraction (or silent skip) and link. Grooming is complete.
 
 Say:
-> "Grooming complete for '{topic}'. Proposal saved to `{pm_dir}/backlog/{topic-slug}.md`.
+> "Grooming complete for '{topic}'.
+> Proposal: `{pm_dir}/backlog/{topic-slug}.md`
+> HTML: `{pm_dir}/backlog/proposals/{topic-slug}.html`
 > Next: run `pm:rfc {topic-slug}` to generate the technical RFC, then `pm:dev {topic-slug}` to implement."

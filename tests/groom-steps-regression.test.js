@@ -481,6 +481,7 @@ test("groom steps: proposal-format.md section names are consistent", () => {
     "Review Summary",
     "Resolved Questions",
     "Freshness Notes",
+    "Success Metrics",
     "Next Steps",
   ];
 

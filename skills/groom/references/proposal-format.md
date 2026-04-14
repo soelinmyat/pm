@@ -87,6 +87,14 @@ If any remain, list under **Decisions Needed** with a recommended answer.}
 {Only if stale research exists. Otherwise omit this section entirely.
 Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type})."}
 
+## Success Metrics
+{Leading indicators for 90-day success. Not lagging metrics like revenue.
+
+| Metric | Baseline | Target | Timeframe |
+|--------|----------|--------|-----------|
+| {metric} | {current} | {goal} | {days} |
+}
+
 ## Next Steps
 Ready for engineering? Run `pm:rfc {slug}` to generate the technical RFC, then `pm:dev {slug}` to implement.
 ```
