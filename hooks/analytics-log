@@ -4,7 +4,7 @@
 # the skill name from stdin JSON, and delegates to pm-log.sh.
 #
 # Also emits run-start for each skill invocation and writes .current-run
-# so agent-step.sh can correlate agent dispatches to the active skill run.
+# so agent-step can correlate agent dispatches to the active skill run.
 # When a new skill starts, the previous run is automatically closed.
 
 set -euo pipefail

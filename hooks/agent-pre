@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse hook — captures Agent dispatch start timestamps for duration tracking.
 # Writes an ISO timestamp to .pm/analytics/.agent-starts/<hash> so the PostToolUse
-# hook (agent-step.sh) can compute real duration_ms.
+# hook (agent-step) can compute real duration_ms.
 
 set -euo pipefail
 

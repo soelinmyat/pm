@@ -106,7 +106,7 @@ Review-heavy flows should also store iteration counts, review verdict timestamps
 
 ## Automatic agent tracking
 
-Agent dispatches are tracked automatically via PostToolUse hook (`hooks/agent-step.sh`). When analytics is enabled, every Agent tool call logs a step span to `steps.jsonl` with:
+Agent dispatches are tracked automatically via PostToolUse hook (`hooks/agent-step`). When analytics is enabled, every Agent tool call logs a step span to `steps.jsonl` with:
 
 - **actor**: `agent:{persona}` (e.g., `agent:@staff-engineer`)
 - **input_chars / est_input_tokens**: prompt size sent to the agent

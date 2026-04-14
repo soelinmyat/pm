@@ -48,7 +48,7 @@ try { runId = readFileSync(runFile, 'utf8').trim() || 'untracked'; } catch {}
 let parentSkill = '';
 try { parentSkill = readFileSync(skillFile, 'utf8').trim() || ''; } catch {}
 
-// Read start timestamp written by agent-pre.sh (PreToolUse hook)
+// Read start timestamp written by agent-pre (PreToolUse hook)
 const hash = crypto.createHash('sha256').update(agentName).digest('hex').slice(0, 16);
 const startFile = path.join(projectDir, '.pm', 'analytics', '.agent-starts', hash);
 let startedAt = null;
