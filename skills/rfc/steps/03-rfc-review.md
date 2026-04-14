@@ -63,18 +63,19 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 ### Handling findings
 
 1. Merge all reviewer outputs. Deduplicate.
-2. Fix all **Blocking issues** in the RFC (orchestrator edits directly). Non-blocking items are advisory.
-3. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
-4. Commit RFC updates.
-5. Update RFC frontmatter to `status: approved`.
-6. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
-7. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
+2. Fix all **Blocking issues** in the RFC (orchestrator edits directly).
+3. Collect all **Advisory items** (non-blocking) from every reviewer. Write them into the RFC's **Advisory Notes** section. Each note includes the reviewer role tag (e.g., `@adversarial-engineer`) and the specific advice. Omit the section if no advisory items were raised.
+4. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
+5. Commit RFC updates.
+6. Update RFC frontmatter to `status: approved`.
+7. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
+8. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
    - **Answer it** using the proposal (`{pm_dir}/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
    - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
    - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
    - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
    - Commit the updated RFC.
-8. **Open RFC in browser.**
+9. **Open RFC in browser.**
 
    The RFC is already HTML (written in RFC Generation). After resolving questions and updating the Change Log, open it directly:
 
@@ -83,7 +84,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-9. Wait for user approval. Then ask:
+10. Wait for user approval. Then ask:
 
     > "RFC approved. Continue to implementation, or stop and resume later?"
 
