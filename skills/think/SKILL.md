@@ -13,6 +13,42 @@ Think is the conversation you have *before* deciding whether to build. It produc
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 
+## Setup Detection
+
+**Before loading steps**, check if a PM workspace exists:
+
+1. Check if `pm/` exists at cwd (or `pm_dir` is already in conversation context).
+
+**If a workspace exists:** proceed normally — all steps run as written.
+
+**If no workspace is found:** Do NOT tell the user to run `pm:start`. This is a valid entry point for new users. Ask ONE question:
+
+> "You don't have a PM workspace set up yet — no worries. Want to:
+> **A) Set up a project** — I'll kick off `/pm:start` so you get full features going forward
+> **B) Just think** — one-off session right now, no files unless you want them
+>
+> Which?"
+
+- **A**: Invoke `pm:start`, then continue into the thinking session normally once setup completes.
+- **B**: Set `one_off_mode = true` in conversation context and proceed through the steps. See [One-Off Mode](#one-off-mode) below for step overrides.
+
+## One-Off Mode
+
+Active when `one_off_mode = true` (no workspace, user chose option B above).
+
+**Step overrides:**
+
+**Ground (step 02):** Skip all KB steps — no past thinking check, no strategy read, no insights scan. Web search is still available (1-2 searches max if the topic warrants it). Proceed directly to Reframe after any optional web search.
+
+**Synthesize (step 06):** Do not write files. Instead:
+1. Show the full thinking artifact (formatted as the standard markdown template) directly in the terminal/chat.
+2. Confirm with the user as normal: *"Here's the summary — did I capture it correctly?"*
+3. After confirmation, ask ONE question:
+   > "Want to save this as a `.md` file?"
+   - **Yes**: Save to `./thinking-{slug}.md` in the current directory. Tell the user the path.
+   - **No**: Done. Thinking is complete.
+4. Skip the groom promotion offer — there's no workspace for groom to operate against.
+
 ## Iron Law
 
 **NEVER SKIP REFRAME EVALUATION.** Every idea must be tested against at least one reframing lens before approaches are explored — no exceptions. The conclusion may be "the current framing holds," but that must be an explicit conclusion, not a shortcut. If you catch yourself jumping from capture straight to "here are three approaches," stop and evaluate the framing first.

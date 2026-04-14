@@ -6,6 +6,8 @@ description: Confirm the summary with the user, save the thinking artifact, and 
 
 ## Synthesize
 
+> **One-Off Mode:** If `one_off_mode = true`, follow the one-off flow defined in `SKILL.md#one-off-mode` instead of the default flow below. Key differences: no file writes, artifact displayed in-terminal, optional `.md` save, no groom promotion.
+
 **Goal:** Turn the conversation into a reusable thinking artifact and close the loop cleanly.
 
 **How:**
