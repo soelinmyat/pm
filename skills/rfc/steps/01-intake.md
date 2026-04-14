@@ -97,11 +97,21 @@ Read the `size:` field from the proposal frontmatter (or infer from Linear label
 | S | Print: "This is S work — no RFC needed. Run `/pm:dev` directly." **Stop.** |
 | M, L, XL | RFC needed. Continue to context discovery. |
 
-If size is missing, ask the user:
+If size is missing, propose one based on the proposal content:
 
-> "No size set on this proposal. What's the size? (XS / S / M / L / XL)"
+1. Read the proposal body (scope, ACs, competitive context, technical feasibility).
+2. Apply these heuristics:
+   - **XS:** Single-line or config-only change. No new logic.
+   - **S:** One concern, a few ACs, contained to one module. Straightforward.
+   - **M:** Multiple ACs, touches 2-3 modules, some design decisions. A few days of work.
+   - **L:** Cross-cutting, multiple issues/concerns, new patterns or abstractions. A week+.
+   - **XL:** Major initiative, new subsystem, multiple parallel tracks. Multi-week.
+3. Also factor in `scope_signal` if set (`small` → XS/S, `medium` → M, `large` → L/XL).
+4. Present your recommendation:
 
-Wait for answer. Apply the gate above.
+> "No size set. Based on the scope ({one-sentence reason}), I'd call this **{SIZE}**. Sound right? (or tell me a different size)"
+
+Wait for confirmation or override. Apply the gate above.
 
 ### 5. Context Discovery
 
