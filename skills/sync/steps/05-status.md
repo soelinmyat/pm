@@ -56,3 +56,5 @@ Never show raw JSON to the user.
 ## Done-when
 
 The user has a readable sync status report from the local status payload, plus server-side stats or a clear fallback note when server data is unavailable.
+
+Say: "Sync complete. What would you like to do next?"

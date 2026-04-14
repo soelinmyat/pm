@@ -21,3 +21,5 @@ Routing rules:
 ## Done-when
 
 The user has been routed into the right PM skill, or explicitly left in a direct-answer path without unnecessary PM ceremony.
+
+When routing to a skill, say: "Running `/pm:{skill-name}`." When answering directly, complete the answer and ask: "What would you like to do next?"

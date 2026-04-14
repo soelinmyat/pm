@@ -44,4 +44,6 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 
 ### Done-when
 
-Pulse mode has produced a clear `Next:` recommendation, optional `Also:` alternatives, and any explicit `/pm:start` follow-up prompt needed to let the user choose how to proceed.
+Pulse mode has produced a clear `Next:` recommendation, optional `Also:` alternatives.
+
+Ask: "Which would you like to start with?" followed by the numbered options from the recommendation above.
