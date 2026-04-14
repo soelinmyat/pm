@@ -73,18 +73,18 @@ proposal:
    > "Retro extraction failed; session state preserved for retry."
    Then stop — do not proceed to deletion.
 
-   **5a. Scan for extractable events.** Read the groom session state (`{pm_state_dir}/groom-sessions/{topic-slug}.md`) and check for these events:
+   **5a. Scan for extractable events.** Read the groom session state (`{pm_state_dir}/groom-sessions/{topic-slug}.md`) and check for these events. **Generalization rule:** the `learning` field must be generalizable to future sessions — write an actionable pattern, not a description of what happened. Session-specific details belong in `detail`, not `learning`.
 
-   | Event | Condition | Category | Learning template |
+   | Event | Condition | Category | Learning guidance |
    |-------|-----------|----------|-------------------|
-   | Scope review send-back | `scope_review.pm_verdict` = `rethink-scope` or `wrong-priority` | `scope` | "from scope review: sent back for {pm_verdict}" |
-   | Bar raiser send-back | `bar_raiser.verdict` = `send-back` | `quality` | "from bar raiser: sent back — {detail from bar_raiser section if available}" |
-   | Team review blocking fixes | `team_review.blocking_issues_fixed` > 0 | `review` | "from team review: {N} blocking issues fixed" |
-   | Strategy check failure | `strategy_check.status` = `failed` | `process` | "from strategy check: failed against {strategy_check.checked_against}" |
+   | Scope review send-back | `scope_review.pm_verdict` = `rethink-scope` or `wrong-priority` | `scope` | Read the scope review feedback to identify why scope was rejected. Write a generalizable lesson: what scoping practice or validation step would prevent this type of send-back? |
+   | Bar raiser send-back | `bar_raiser.verdict` = `send-back` | `quality` | Read the bar raiser feedback to identify the quality gap. Write a generalizable lesson: what quality check or standard should be applied earlier in grooming? |
+   | Team review blocking fixes | `team_review.blocking_issues_fixed` > 0 | `review` | Read the blocking issues to identify the common pattern. Write a generalizable lesson: what should be verified or structured differently before team review? |
+   | Strategy check failure | `strategy_check.status` = `failed` | `process` | Read the strategy check results to identify the misalignment. Write a generalizable lesson: what strategy validation should happen earlier in the grooming flow? |
 
    **5b. No events — skip silently.** If none of the conditions above match, log internally "no learnings detected this session" and skip to step 6 (state file deletion). Do NOT prompt the user.
 
-   **5c. Events found — present auto-extracted learnings.** Build one learning entry per matched event using the templates above, filling in specifics from the session state. Present the list to the user:
+   **5c. Events found — present auto-extracted learnings.** For each matched event, follow the learning guidance in the table above: read the relevant session state, identify the root cause or pattern, and write a **generalizable, actionable** one-liner that any future grooming session could benefit from. Put session-specific details into the `detail` field, not the `learning` field. Present the list to the user:
 
    > "Retro: {N} learning(s) extracted from this groom session:
    > 1. [{category}] {learning text}
@@ -93,7 +93,7 @@ proposal:
 
    Wait for the user's answer.
    - **(a) or (c):** Proceed with auto-extracted entries only.
-   - **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Append them to the auto-extracted list.
+   - **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Nudge the user toward generalizable phrasing if their learning is session-specific (e.g., "what's the broader lesson here?"). Append them to the auto-extracted list.
 
    This is a hard gate — at minimum the auto-extracted learnings must be written before state file deletion.
 
@@ -107,8 +107,8 @@ proposal:
    - date: {today, YYYY-MM-DD}
      source: "{topic-slug}"
      category: "{mapped category}"
-     learning: "{one-liner from template or user}"
-     detail: "{optional — only if additional context is available}"
+     learning: "{generalizable, actionable one-liner — no session-specific details}"
+     detail: "{session-specific context: what happened, counts, specifics involved}"
    ```
 
    Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter structure (`type: project-memory`).
