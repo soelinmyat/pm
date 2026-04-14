@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RFC — Skill Step Flow Guidance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script type="application/json" id="rfc-meta">
+{
+  "type": "rfc",
+  "parent": "skill-step-flow-guidance",
+  "status": "draft",
+  "created": "2026-04-14",
+  "updated": "2026-04-14"
+}
+</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --bg: #F6F6F4; --bg-surface: #FFFFFF; --bg-inset: #F0F0EE; --bg-muted: #EEEEED;
+  --ink: #1A1A19; --ink-secondary: #4A4A48; --ink-tertiary: #8A8A87; --ink-faint: #B5B5B1;
+  --rule: #E0E0DC; --rule-subtle: #EBEBEA;
+  --accent: #5B5BD6; --accent-soft: #E8E8FD; --accent-text: #3E3EA8;
+  --positive: #2B8A3E; --positive-soft: #E6F5EA;
+  --negative: #C92A2A; --negative-soft: #FFF0F0;
+  --warning: #E67700; --warning-soft: #FFF4E6;
+  --info: #1971C2; --info-soft: #E7F5FF;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 6px 16px rgba(0,0,0,0.04);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --content-w: 860px;
+}
+html { scroll-behavior: smooth; scroll-padding-top: 3.75rem; }
+body { font-family: var(--font); font-size: 15px; line-height: 1.6; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+.hero { background: #1C1C1E; color: #fff; padding: 2.5rem 2rem 2rem; position: relative; overflow: hidden; }
+.hero::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px); background-size: 24px 24px; pointer-events: none; }
+.hero-inner { max-width: var(--content-w); margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
+.hero-breadcrumb { font-size: 0.78rem; color: rgba(255,255,255,0.35); margin-bottom: 1.25rem; font-weight: 500; }
+.hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.035em; line-height: 1.15; margin-bottom: 0.5rem; }
+.hero-summary { font-size: 1rem; color: rgba(255,255,255,0.7); margin-bottom: 1.25rem; max-width: 600px; }
+.hero-meta-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+.badge { display: inline-flex; align-items: center; padding: 0.2rem 0.65rem; border-radius: var(--r-pill); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.badge-size { background: var(--accent); color: #fff; }
+.badge-status { background: var(--warning); color: #fff; }
+.badge-tasks { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
+
+.sticky-toc { position: sticky; top: 0; z-index: 100; background: var(--bg-surface); border-bottom: 1px solid var(--rule); padding: 0.5rem 2rem; }
+.sticky-toc-inner { max-width: var(--content-w); margin: 0 auto; display: flex; gap: 1.5rem; overflow-x: auto; }
+.sticky-toc a { font-size: 0.78rem; font-weight: 500; color: var(--ink-tertiary); text-decoration: none; white-space: nowrap; }
+.sticky-toc a:hover { color: var(--ink); }
+
+.content { max-width: var(--content-w); margin: 0 auto; padding: 2rem; }
+section { margin-bottom: 2.5rem; }
+section h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--rule); }
+section h3 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+p { margin-bottom: 0.75rem; color: var(--ink-secondary); }
+ul, ol { margin: 0.5rem 0 1rem 1.5rem; color: var(--ink-secondary); }
+li { margin-bottom: 0.35rem; }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--bg-inset); padding: 0.15em 0.4em; border-radius: var(--r-sm); }
+pre { background: var(--bg-inset); padding: 1rem; border-radius: var(--r-md); overflow-x: auto; margin: 0.75rem 0 1rem; font-family: var(--mono); font-size: 0.85rem; line-height: 1.5; }
+
+.card { background: var(--bg-surface); border: 1px solid var(--rule-subtle); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+.finding { border-left: 3px solid var(--accent); padding-left: 1rem; margin-bottom: 1rem; }
+.finding-path { font-family: var(--mono); font-size: 0.82rem; color: var(--accent-text); margin-bottom: 0.25rem; }
+
+table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1rem; font-size: 0.9rem; }
+th { text-align: left; font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--rule); color: var(--ink); }
+td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-subtle); color: var(--ink-secondary); }
+
+.issue-detail { background: var(--bg-surface); border: 1px solid var(--rule-subtle); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 1.5rem; margin-bottom: 1.5rem; }
+.issue-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.issue-detail-num { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; color: var(--accent-text); background: var(--accent-soft); padding: 0.2rem 0.5rem; border-radius: var(--r-sm); }
+.issue-detail-title { font-size: 1.05rem; font-weight: 700; }
+.issue-detail-size { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; background: var(--bg-inset); padding: 0.15rem 0.5rem; border-radius: var(--r-pill); color: var(--ink-tertiary); }
+.issue-detail h4 { font-size: 0.88rem; font-weight: 600; margin: 0.75rem 0 0.35rem; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-breadcrumb">PM-44 <span class="sep">/</span> RFC</div>
+    <div class="hero-meta-row">
+      <span class="badge badge-size">M</span>
+      <span class="badge badge-status">Draft</span>
+      <span class="badge badge-tasks">3 Issues</span>
+    </div>
+    <h1>Skill Step Flow Guidance</h1>
+    <p class="hero-summary">Add consistent step-transition flow guidance across all 15 skills so users never need to manually prompt "continue."</p>
+  </div>
+</div>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="sticky-toc">
+  <div class="sticky-toc-inner">
+    <a href="#findings">Findings</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#decisions">Decisions</a>
+    <a href="#risks">Risks</a>
+    <a href="#issues">Issues</a>
+    <a href="#changelog">Change Log</a>
+  </div>
+</nav>
+
+<div class="content">
+
+<!-- ═══════════ CODEBASE FINDINGS ═══════════ -->
+<section id="findings">
+  <h2>Codebase Findings</h2>
+
+  <div class="finding">
+    <div class="finding-path">references/skill-runtime.md</div>
+    <p>Defines step loading and execution order but has no section on step transitions. The "Interaction Pacing" section covers question cadence but not step-to-step advancement.</p>
+  </div>
+
+  <div class="finding">
+    <div class="finding-path">AGENTS.md — Step Authoring Rules</div>
+    <p>Requires every step to have Goal, How, and Done-when sections. Done-when defines exit criteria but does not require forward guidance. This is the gap — Done-when tells the agent when a step is complete but not what to do next.</p>
+  </div>
+
+  <div class="finding">
+    <div class="finding-path">skills/*/steps/*.md — 65 step files across 15 skills</div>
+    <p>Analysis of all 65 step files reveals three patterns:</p>
+    <ul>
+      <li><strong>Good (6 skills):</strong> groom, rfc, dev, think, ideate, strategy — final steps offer explicit next actions with exact commands</li>
+      <li><strong>Weak (3 skills):</strong> ingest, start, ship — offer vague recommendations without branching</li>
+      <li><strong>Missing (6 skills):</strong> note, refresh, research, setup, sync, using-pm — final steps end with reports or confirmations, no forward guidance</li>
+    </ul>
+  </div>
+
+  <div class="finding">
+    <div class="finding-path">Good pattern: groom step 11, rfc step 3, think step 6</div>
+    <p>These follow a consistent template: summarize what was done, name the artifact path, offer the exact next command. Example from groom: <code>"Grooming complete for '{topic}'. Next: run pm:rfc {slug} to generate the RFC."</code></p>
+  </div>
+
+  <div class="finding">
+    <div class="finding-path">Mid-step transitions</div>
+    <p>Steps with HARD-GATEs (groom research, groom scope, rfc intake) never stall — the gate blocks advancement explicitly. Steps without gates (most mid-steps) rely on the agent to notice the Done-when conditions are met and advance. This is where "continue" prompting happens — the agent completes work but doesn't know to advance.</p>
+  </div>
+</section>
+
+<!-- ═══════════ ARCHITECTURE ═══════════ -->
+<section id="architecture">
+  <h2>Architecture</h2>
+
+  <p>This is a convention change, not an infrastructure change. Three layers of modification:</p>
+
+  <h3>Layer 1: Convention (skill-runtime.md)</h3>
+  <p>Add a new "Step Transitions" section to <code>references/skill-runtime.md</code> that codifies two patterns:</p>
+  <ul>
+    <li><strong>Mid-step advancement:</strong> Every Done-when section must end with an explicit "Advance to Step N" directive</li>
+    <li><strong>Final-step completion:</strong> Every skill's last step must summarize what was done and offer the next action</li>
+  </ul>
+
+  <h3>Layer 2: Authoring Rules (AGENTS.md)</h3>
+  <p>Update the Step Authoring Rules section in AGENTS.md to add a fourth required element alongside Goal/How/Done-when:</p>
+  <ul>
+    <li><strong>Advance:</strong> What happens after Done-when is satisfied. For mid-steps: "Advance to Step N ({name})." For final steps: summary + next action.</li>
+  </ul>
+
+  <h3>Layer 3: Step Files (skills/*/steps/*.md)</h3>
+  <p>Update step files that lack explicit advancement language. This is the bulk of the work. The existing good patterns (groom, rfc, think) are the template — not inventing something new.</p>
+
+  <p><strong>Apps/services affected:</strong> references/skill-runtime.md, AGENTS.md, 65 step files across 15 skills</p>
+  <p><strong>Cross-boundary sync required:</strong> No</p>
+</section>
+
+<!-- ═══════════ KEY DECISIONS ═══════════ -->
+<section id="decisions">
+  <h2>Key Decisions</h2>
+
+  <div class="card">
+    <h3>Convention over engine change</h3>
+    <p><strong>Chosen:</strong> Add advancement language to step file content (markdown text the agent reads).</p>
+    <p><strong>Rejected:</strong> Add a step-loader mechanism that auto-injects "advance to next step" between steps.</p>
+    <p><strong>Rationale:</strong> Step files are markdown instructions read by the agent. The agent doesn't have a "step engine" — it reads each file and follows instructions. Adding advancement language to the content is the only mechanism available. An engine change would require modifying the Claude Code plugin framework itself, which is out of scope.</p>
+  </div>
+
+  <div class="card">
+    <h3>Append to Done-when vs. separate Advance section</h3>
+    <p><strong>Chosen:</strong> Append advancement directive to the end of each Done-when section rather than adding a separate "Advance" section.</p>
+    <p><strong>Rejected:</strong> A new ## Advance section after Done-when.</p>
+    <p><strong>Rationale:</strong> The agent reads Done-when to know when to stop. Placing the advancement directive there ensures it reads "you're done, now go here" in one place. A separate section risks the agent stopping at Done-when and never reaching the Advance section — the exact problem we're fixing.</p>
+  </div>
+
+  <div class="card">
+    <h3>Final-step template: summary + choice</h3>
+    <p><strong>Chosen:</strong> Final steps show a brief summary of what was accomplished, then offer the logical next action (or ask "what's next?" if no clear single path).</p>
+    <p><strong>Rejected:</strong> Always offering a menu of options. Also rejected: never asking, always auto-routing.</p>
+    <p><strong>Rationale:</strong> Some skills have one clear next step (groom -> rfc -> dev). Others have branching paths (ideate -> groom one or explore more). The template adapts: single next step uses "Next: run X", branching uses "Want to Y?".</p>
+  </div>
+</section>
+
+<!-- ═══════════ RISKS ═══════════ -->
+<section id="risks">
+  <h2>Risks</h2>
+  <table>
+    <thead><tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Advancement directives make steps too prescriptive, reducing agent flexibility</td>
+        <td>Low</td>
+        <td>Directives say "advance to Step N" not "you must do X" — they guide flow, not content</td>
+      </tr>
+      <tr>
+        <td>Large number of files to edit (65 step files) increases risk of inconsistency</td>
+        <td>Medium</td>
+        <td>Issue 1 establishes the pattern template first. Issues 2-3 apply it systematically. Review catches drift.</td>
+      </tr>
+      <tr>
+        <td>Some step files have complex conditional advancement (e.g., tier-dependent skips)</td>
+        <td>Low</td>
+        <td>Steps with existing HARD-GATEs already handle this. Only add advancement to steps that currently lack it.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ═══════════ ISSUES ═══════════ -->
+<section id="issues">
+  <h2>Issues</h2>
+
+  <!-- Issue 1 -->
+  <div class="issue-detail">
+    <div class="issue-header">
+      <span class="issue-detail-num">1</span>
+      <span class="issue-detail-title">Codify step-transition convention</span>
+      <span class="issue-detail-size">S</span>
+    </div>
+
+    <h4>Outcome</h4>
+    <p>The step-transition convention is documented in skill-runtime.md and AGENTS.md, giving all future step files a clear template for advancement language.</p>
+
+    <h4>Acceptance Criteria</h4>
+    <ol>
+      <li><code>references/skill-runtime.md</code> has a new "Step Transitions" section with mid-step and final-step patterns</li>
+      <li><code>AGENTS.md</code> Step Authoring Rules updated to require advancement language in Done-when</li>
+      <li>Both files committed on the feature branch</li>
+      <li>Existing tests still pass</li>
+    </ol>
+
+    <h4>Approach</h4>
+    <p><strong>File: <code>references/skill-runtime.md</code></strong> — Add a "Step Transitions" section after "Interaction Pacing" with two subsections:</p>
+    <pre>## Step Transitions
+
+### Mid-step advancement
+
+Every Done-when section must end with an explicit advancement directive:
+
+&gt; Advance to Step {N} ({step-name}).
+
+If the step has conditional paths (tier-dependent skips, user choices),
+each path must name its destination:
+
+&gt; If quick tier: advance to Step 4 (Scope). If standard/full: advance to Step 3 (Research).
+
+### Final-step completion
+
+The last step of every skill must:
+
+1. **Summarize** what was accomplished (1-2 sentences naming the artifact)
+2. **Offer the next action:**
+   - Single clear path: "Next: run `pm:{skill} {slug}` to {what it does}."
+   - Branching paths: Ask one question with named options.
+   - Everything done: "Complete. What would you like to do next?"</pre>
+
+    <p><strong>File: <code>AGENTS.md</code></strong> — In "Step Authoring Rules > Required sections", add advancement language to Done-when description:</p>
+    <pre>3. **Done-when** — exit criteria so the agent knows when to advance.
+   Must end with an explicit advancement directive:
+   mid-steps say "Advance to Step N ({name})";
+   final steps summarize + offer next action.
+   Without this, the agent either lingers or waits for manual prompting.</pre>
+
+    <h4>Dependencies</h4>
+    <p>None</p>
+  </div>
+
+  <!-- Issue 2 -->
+  <div class="issue-detail">
+    <div class="issue-header">
+      <span class="issue-detail-num">2</span>
+      <span class="issue-detail-title">Add completion guidance to all final steps</span>
+      <span class="issue-detail-size">S</span>
+    </div>
+
+    <h4>Outcome</h4>
+    <p>Every skill's final step shows what was accomplished and offers the next action. No skill ends in dead air.</p>
+
+    <h4>Acceptance Criteria</h4>
+    <ol>
+      <li>All 15 skills' final steps include a summary + next-action pattern in their Done-when section</li>
+      <li>Skills that already have good patterns (groom, rfc, dev, think, ideate, strategy) are left unchanged</li>
+      <li>Skills with missing guidance updated: note, refresh, research, setup, sync, using-pm</li>
+      <li>Skills with weak guidance strengthened: ingest, start, ship</li>
+      <li>Existing tests still pass</li>
+    </ol>
+
+    <h4>Approach</h4>
+    <p>Update the Done-when section of each skill's final step file. Files to modify:</p>
+
+    <table>
+      <thead><tr><th>Skill</th><th>Final Step</th><th>Next Action to Add</th></tr></thead>
+      <tbody>
+        <tr><td>note</td><td>steps/02-enrich.md</td><td>"Note captured. Run <code>/pm:refresh</code> to digest recent notes, or capture another with <code>/pm:note</code>."</td></tr>
+        <tr><td>refresh</td><td>steps/05-summary.md</td><td>"Refresh complete. {N} files updated. Run <code>/pm:groom</code> or <code>/pm:ideate</code> to use the refreshed evidence."</td></tr>
+        <tr><td>research</td><td>steps/05-topic.md</td><td>"Research written to {path}. Run <code>/pm:groom {slug}</code> to scope a feature from these findings, or <code>/pm:ideate</code> to mine for ideas."</td></tr>
+        <tr><td>setup</td><td>steps/03-confirm.md</td><td>"{Integration} {enabled/disabled}. Run <code>/pm:start</code> to begin work."</td></tr>
+        <tr><td>sync</td><td>steps/05-status.md</td><td>"Sync {status}. Last sync: {date}. What would you like to do next?"</td></tr>
+        <tr><td>using-pm</td><td>steps/02-route.md</td><td>Ensure routing always names the destination skill explicitly.</td></tr>
+        <tr><td>ingest</td><td>steps/05-report.md</td><td>Change from table recommendation to explicit branching: "Ready to act on this evidence? (a) Groom a feature, (b) Update strategy, (c) Done for now."</td></tr>
+        <tr><td>start</td><td>steps/04-pulse.md</td><td>Change from vague "bias toward" to explicit: "Which would you like to start with?" followed by numbered options.</td></tr>
+        <tr><td>ship</td><td>steps/07-merge-loop.md</td><td>Add "What would you like to work on next?" after the merge report.</td></tr>
+      </tbody>
+    </table>
+
+    <h4>Dependencies</h4>
+    <p>Issue 1 (convention doc defines the pattern these steps follow)</p>
+  </div>
+
+  <!-- Issue 3 -->
+  <div class="issue-detail">
+    <div class="issue-header">
+      <span class="issue-detail-num">3</span>
+      <span class="issue-detail-title">Add mid-step advancement directives</span>
+      <span class="issue-detail-size">S</span>
+    </div>
+
+    <h4>Outcome</h4>
+    <p>Every non-final step across all 15 skills ends with an explicit "Advance to Step N" directive. No step leaves the agent wondering what comes next.</p>
+
+    <h4>Acceptance Criteria</h4>
+    <ol>
+      <li>Every non-final step's Done-when section ends with "Advance to Step N ({name})" or conditional equivalent</li>
+      <li>Steps with existing HARD-GATEs or explicit advancement are left unchanged</li>
+      <li>Steps with tier-dependent skips include conditional advancement for each path</li>
+      <li>Existing tests still pass</li>
+    </ol>
+
+    <h4>Approach</h4>
+    <p>Systematically scan every non-final step file. For each, check if Done-when already includes advancement language. If not, append the appropriate directive.</p>
+
+    <p><strong>Pattern for simple advancement:</strong></p>
+    <pre>## Done-when
+- {existing criteria}
+
+Advance to Step {N} ({step-name}).</pre>
+
+    <p><strong>Pattern for conditional advancement:</strong></p>
+    <pre>## Done-when
+- {existing criteria}
+
+If {condition A}: advance to Step {N}. If {condition B}: advance to Step {M}.</pre>
+
+    <p><strong>Skip list</strong> (already have explicit advancement or HARD-GATEs):</p>
+    <ul>
+      <li>groom steps 1-10: most have explicit gates or advancement</li>
+      <li>rfc step 1: has explicit routing to step 2</li>
+      <li>dev steps 1-4: have explicit stage routing</li>
+      <li>think steps 1-5: have sequential advancement</li>
+    </ul>
+
+    <p><strong>Priority targets</strong> (steps known to cause stalling):</p>
+    <ul>
+      <li>refresh steps 1-4: audit/execute steps with no forward guidance</li>
+      <li>research steps 1-4: mode routing and topic steps with weak advancement</li>
+      <li>sync steps 1-4: implementation steps with no gates</li>
+      <li>note step 1: capture step offers enrichment but doesn't advance</li>
+      <li>setup steps 1-2: parsing/config steps with no advancement</li>
+    </ul>
+
+    <h4>Dependencies</h4>
+    <p>Issue 1 (convention doc defines the advancement directive format)</p>
+  </div>
+</section>
+
+<!-- ═══════════ RESOLVED QUESTIONS ═══════════ -->
+<section id="resolved-questions">
+  <h2>Resolved Questions</h2>
+  <p><em>Populated during RFC review.</em></p>
+</section>
+
+<!-- ═══════════ CHANGE LOG ═══════════ -->
+<section id="changelog">
+  <h2>Change Log</h2>
+  <p><em>Populated during RFC review.</em></p>
+</section>
+
+</div>
+</body>
+</html>
