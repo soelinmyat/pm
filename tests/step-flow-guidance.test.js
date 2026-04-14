@@ -11,9 +11,7 @@ const { loadWorkflow } = require("../scripts/step-loader");
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
 
 function makeFakePmDir() {
-  const tmp = fs.mkdtempSync(
-    path.join(os.tmpdir(), "step-flow-guidance-regression-")
-  );
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "step-flow-guidance-regression-"));
   const pmDir = path.join(tmp, "pm");
   fs.mkdirSync(pmDir, { recursive: true });
   return {
@@ -142,10 +140,7 @@ test("every final step has next-action language", () => {
 });
 
 test("skill-runtime.md contains Step Transitions section", () => {
-  const text = fs.readFileSync(
-    path.join(PLUGIN_ROOT, "references", "skill-runtime.md"),
-    "utf8"
-  );
+  const text = fs.readFileSync(path.join(PLUGIN_ROOT, "references", "skill-runtime.md"), "utf8");
 
   assert.match(text, /## Step Transitions/);
   assert.match(text, /### Mid-step advancement/);
