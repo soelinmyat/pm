@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
-const { writeAtomic } = require("./kb-utils.js");
+const { writeAtomic, todayIso } = require("./kb-utils.js");
 
 // ---------------------------------------------------------------------------
 // writeNote — append a note to the monthly log file
@@ -151,12 +151,16 @@ function slugify(text, maxWords) {
 
 function nextBacklogId(pmDir) {
   const backlogDir = path.join(pmDir, "backlog");
-  if (!fs.existsSync(backlogDir)) {
+
+  let names;
+  try {
+    names = fs.readdirSync(backlogDir);
+  } catch {
     return "PM-001";
   }
 
   let max = 0;
-  for (const name of fs.readdirSync(backlogDir)) {
+  for (const name of names) {
     if (!name.endsWith(".md")) continue;
     const content = fs.readFileSync(path.join(backlogDir, name), "utf8");
     const match = content.match(/^id:\s*"?PM-(\d+)"?\s*$/m);
@@ -197,7 +201,7 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
   }
 
   const id = nextBacklogId(pmDir);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
 
   const backlogDir = path.join(pmDir, "backlog");
   fs.mkdirSync(backlogDir, { recursive: true });
@@ -252,7 +256,6 @@ ${entry.body}
   const after = raw.slice(insertPos);
   const promotedLine = `Promoted-to: ${slug}\n`;
 
-  // Check if there's already a trailing newline
   const updated = before.endsWith("\n")
     ? before + promotedLine + after
     : before + "\n" + promotedLine + after;
