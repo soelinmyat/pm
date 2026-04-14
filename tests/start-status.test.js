@@ -1010,3 +1010,121 @@ test("buildStatus syncStatus for uninitialized project has syncStatus", () => {
     project.cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Opportunity notes in buildStatus
+// ---------------------------------------------------------------------------
+
+test("buildStatus surfaces un-promoted opportunity notes from current month", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", '{"config_schema":1}');
+    project.mkdir("pm");
+
+    const testNow = new Date("2026-04-14T12:00:00Z");
+
+    project.write(
+      "pm/evidence/notes/2026-04.md",
+      `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 3
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Immediate startability as a differentiator.
+Tags: strategy
+
+### 2026-04-14 09:05 — groom-opportunity
+Cross-pillar integration opportunities.
+Tags: integration
+
+### 2026-04-14 09:10 — observation
+Regular observation, not an opportunity.
+Tags: general
+`
+    );
+
+    const status = buildStatus(project.root, { now: testNow });
+
+    assert.equal(status.counts.opportunityNotes, 2);
+    assert.equal(status.opportunityNotes.length, 2);
+    // Most recent first
+    assert.equal(status.opportunityNotes[0].timestamp, "2026-04-14 09:05");
+    assert.equal(status.opportunityNotes[1].timestamp, "2026-04-14 09:00");
+    assert.ok(status.opportunityNotes[0].body.includes("Cross-pillar"), "body must be present");
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus excludes promoted opportunity notes", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", '{"config_schema":1}');
+    project.mkdir("pm");
+
+    const testNow = new Date("2026-04-14T12:00:00Z");
+
+    project.write(
+      "pm/evidence/notes/2026-04.md",
+      `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 2
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Already promoted note.
+Tags: strategy
+Promoted-to: already-promoted
+
+### 2026-04-14 09:05 — groom-opportunity
+Still pending review.
+Tags: integration
+`
+    );
+
+    const status = buildStatus(project.root, { now: testNow });
+
+    assert.equal(status.counts.opportunityNotes, 1);
+    assert.equal(status.opportunityNotes.length, 1);
+    assert.equal(status.opportunityNotes[0].timestamp, "2026-04-14 09:05");
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("buildStatus returns empty opportunityNotes when no notes directory exists", () => {
+  const project = createProject();
+  try {
+    project.write(".pm/config.json", '{"config_schema":1}');
+    project.mkdir("pm");
+
+    const testNow = new Date("2026-04-14T12:00:00Z");
+    const status = buildStatus(project.root, { now: testNow });
+
+    assert.equal(status.counts.opportunityNotes, 0);
+    assert.deepEqual(status.opportunityNotes, []);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("renderTextStatus includes opportunity line when count > 0", () => {
+  const status = {
+    focus: "test",
+    backlog: "1 ideas, 0 planned, 0 in progress, 0 shipped",
+    next: "/pm:think",
+    alternatives: [],
+    counts: { opportunityNotes: 3 },
+    signalTargets: {},
+  };
+
+  const text = renderTextStatus(status);
+  assert.ok(text.includes("Opportunities: 3 notes awaiting review"));
+});

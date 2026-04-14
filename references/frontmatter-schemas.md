@@ -52,6 +52,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `competitor_gap` | enum\|null | optional | `"unique"` \| `"partial"` \| `"parity"` \| `"behind"` | Competitive positioning |
 | `size` | enum\|null | optional | `"XS"` \| `"S"` \| `"M"` \| `"L"` \| `"XL"` | T-shirt sizing estimate |
 | `ac_count` | integer\|null | optional | Non-negative integer | Number of acceptance criteria |
+| `source_note` | string\|null | optional | `"{relative-path}#{timestamp}"` | Origin note reference when promoted via `promoteNoteToIdea()` |
 
 ### Example
 

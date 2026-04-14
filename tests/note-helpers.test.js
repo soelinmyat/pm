@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { writeNote, parseNotesFile } = require("../scripts/note-helpers.js");
+const { writeNote, parseNotesFile, promoteNoteToIdea } = require("../scripts/note-helpers.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -204,4 +204,330 @@ digested_through: null
 
   const result = parseNotesFile(filePath);
   assert.equal(result.entries.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// parseNotesFile — Promoted-to parsing
+// ---------------------------------------------------------------------------
+
+test("parseNotesFile parses Promoted-to field when present", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const filePath = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    filePath,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 2
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Immediate startability as a differentiator.
+Tags: strategy
+Promoted-to: immediate-startability
+
+### 2026-04-14 09:05 — groom-opportunity
+Cross-pillar integration opportunities.
+Tags: integration
+`
+  );
+
+  const result = parseNotesFile(filePath);
+  assert.equal(result.entries.length, 2);
+  assert.equal(result.entries[0].promoted_to, "immediate-startability");
+  assert.equal(result.entries[1].promoted_to, undefined);
+});
+
+test("parseNotesFile returns undefined promoted_to for notes without Promoted-to", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const filePath = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    filePath,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 10:00 — observation
+Regular observation note.
+Tags: general
+`
+  );
+
+  const result = parseNotesFile(filePath);
+  assert.equal(result.entries.length, 1);
+  assert.equal(result.entries[0].promoted_to, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// promoteNoteToIdea tests
+// ---------------------------------------------------------------------------
+
+test("promoteNoteToIdea creates a backlog idea and marks note as promoted", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Immediate startability as a differentiator.
+Tags: strategy, onboarding
+`
+  );
+
+  const result = promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00");
+
+  // Check return value
+  assert.equal(result.slug, "immediate-startability-as-a");
+  assert.equal(result.id, "PM-001");
+  assert.ok(result.backlogPath.endsWith("immediate-startability-as-a.md"));
+
+  // Check backlog file was created
+  assert.ok(fs.existsSync(result.backlogPath), "backlog file must exist");
+  const backlogContent = fs.readFileSync(result.backlogPath, "utf8");
+  assert.ok(backlogContent.includes("type: backlog"), "must have type: backlog");
+  assert.ok(backlogContent.includes("id: PM-001"), "must have correct ID");
+  assert.ok(backlogContent.includes("status: idea"), "must have status: idea");
+  assert.ok(backlogContent.includes("source_note:"), "must have source_note");
+
+  // Check note was updated with Promoted-to
+  const updatedNote = fs.readFileSync(noteFile, "utf8");
+  assert.ok(
+    updatedNote.includes("Promoted-to: immediate-startability-as-a"),
+    "note must be marked as promoted"
+  );
+});
+
+test("promoteNoteToIdea assigns next sequential ID", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  // Pre-create a backlog item with PM-005
+  const backlogDir = path.join(pmDir, "backlog");
+  fs.mkdirSync(backlogDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(backlogDir, "existing-feature.md"),
+    `---
+type: backlog
+id: PM-005
+title: Existing feature
+outcome: null
+status: idea
+priority: medium
+labels:
+  - test
+created: 2026-04-10
+updated: 2026-04-10
+---
+`
+  );
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 11:00 — groom-opportunity
+Better onboarding flow for new users.
+Tags: onboarding
+`
+  );
+
+  const result = promoteNoteToIdea(pmDir, noteFile, "2026-04-14 11:00");
+  assert.equal(result.id, "PM-006", "ID must be next in sequence");
+});
+
+test("promoteNoteToIdea throws if entry is already promoted", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Already promoted note.
+Tags: test
+Promoted-to: already-promoted
+`
+  );
+
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /already promoted/);
+});
+
+test("promoteNoteToIdea throws on slug collision with existing backlog file", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  // Pre-create a backlog file that would collide
+  const backlogDir = path.join(pmDir, "backlog");
+  fs.mkdirSync(backlogDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(backlogDir, "immediate-startability-as-a.md"),
+    "---\ntype: backlog\nid: PM-001\n---\n"
+  );
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+Immediate startability as a differentiator.
+Tags: strategy
+`
+  );
+
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /slug collision/);
+});
+
+test("promoteNoteToIdea handles middle entry in multi-entry file", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 3
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+First opportunity note.
+Tags: first
+
+### 2026-04-14 09:05 — groom-opportunity
+Second opportunity to promote.
+Tags: second
+
+### 2026-04-14 09:10 — groom-opportunity
+Third opportunity note.
+Tags: third
+`
+  );
+
+  // Promote the middle entry
+  const result = promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:05");
+  assert.ok(result.slug, "must return a slug");
+
+  // Verify only the middle entry is marked
+  const updated = fs.readFileSync(noteFile, "utf8");
+  const lines = updated.split("\n");
+
+  // Find the Promoted-to line and verify it's between entry 2 and entry 3
+  const promotedIdx = lines.findIndex((l) => l.startsWith("Promoted-to:"));
+  assert.ok(promotedIdx > -1, "Promoted-to line must exist");
+
+  // Entry 1 and 3 should not have Promoted-to
+  const parsed = require("../scripts/note-helpers.js").parseNotesFile(noteFile);
+  assert.equal(parsed.entries[0].promoted_to, undefined, "first entry must not be promoted");
+  assert.ok(parsed.entries[1].promoted_to, "second entry must be promoted");
+  assert.equal(parsed.entries[2].promoted_to, undefined, "third entry must not be promoted");
+});
+
+test("promoteNoteToIdea throws on empty note body", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  // Note with punctuation-only body that slugifies to empty
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — groom-opportunity
+...
+Tags: test
+`
+  );
+
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 09:00"), /Cannot derive slug/);
+});
+
+test("promoteNoteToIdea throws if entry timestamp not found", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — observation
+Some note.
+`
+  );
+
+  assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 99:99"), /not found/);
 });

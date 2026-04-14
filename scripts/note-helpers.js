@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
+const { writeAtomic, todayIso } = require("./kb-utils.js");
 
 // ---------------------------------------------------------------------------
 // writeNote — append a note to the monthly log file
@@ -103,11 +104,14 @@ function parseNotesFile(filePath) {
 
     let bodyText = "";
     let tagsStr = "";
+    let promotedTo;
     const enrichment = [];
 
     for (const line of lines) {
       if (line.startsWith("Tags:")) {
         tagsStr = line.replace("Tags:", "").trim();
+      } else if (line.startsWith("Promoted-to:")) {
+        promotedTo = line.replace("Promoted-to:", "").trim();
       } else if (line.startsWith("- **")) {
         enrichment.push(line);
       } else {
@@ -120,6 +124,7 @@ function parseNotesFile(filePath) {
       source: source.trim(),
       body: bodyText.trim(),
       tags: tagsStr,
+      promoted_to: promotedTo,
       enrichment,
     });
   }
@@ -130,7 +135,141 @@ function parseNotesFile(filePath) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// promoteNoteToIdea — create a backlog idea from a note entry
+// ---------------------------------------------------------------------------
+
+function slugify(text, maxWords) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, maxWords)
+    .join("-");
+}
+
+function nextBacklogId(pmDir) {
+  const backlogDir = path.join(pmDir, "backlog");
+
+  let names;
+  try {
+    names = fs.readdirSync(backlogDir);
+  } catch {
+    return "PM-001";
+  }
+
+  let max = 0;
+  for (const name of names) {
+    if (!name.endsWith(".md")) continue;
+    const content = fs.readFileSync(path.join(backlogDir, name), "utf8");
+    const match = content.match(/^id:\s*"?PM-(\d+)"?\s*$/m);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > max) max = num;
+    }
+  }
+
+  return `PM-${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * Promote a note entry to a backlog idea.
+ *
+ * @param {string} pmDir — path to the pm/ directory
+ * @param {string} noteFilePath — absolute path to the monthly notes file
+ * @param {string} entryTimestamp — timestamp of the entry to promote (e.g. "2026-04-09 14:32")
+ * @returns {{ slug: string, backlogPath: string, id: string }}
+ */
+function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
+  const parsed = parseNotesFile(noteFilePath);
+  const entry = parsed.entries.find((e) => e.timestamp === entryTimestamp);
+
+  if (!entry) {
+    throw new Error(`Note entry with timestamp "${entryTimestamp}" not found in ${noteFilePath}`);
+  }
+
+  if (entry.promoted_to) {
+    throw new Error(`Note entry "${entryTimestamp}" is already promoted to "${entry.promoted_to}"`);
+  }
+
+  const slug = slugify(entry.body, 4);
+  if (!slug) {
+    throw new Error("Cannot derive slug from empty note body");
+  }
+
+  const id = nextBacklogId(pmDir);
+  const today = todayIso();
+
+  const backlogDir = path.join(pmDir, "backlog");
+  fs.mkdirSync(backlogDir, { recursive: true });
+  const backlogPath = path.join(backlogDir, `${slug}.md`);
+
+  if (fs.existsSync(backlogPath)) {
+    throw new Error(`Backlog item already exists at ${backlogPath} — slug collision`);
+  }
+
+  const tags = entry.tags
+    ? entry.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
+  const labelsYaml = tags.length > 0 ? tags.map((t) => `  - ${t}`).join("\n") : "  - uncategorized";
+
+  const backlogContent = `---
+type: backlog
+id: ${id}
+title: ${entry.body.split(/[.!?]/)[0].trim()}
+outcome: null
+status: idea
+priority: medium
+labels:
+${labelsYaml}
+source_note: ${path.relative(pmDir, noteFilePath)}#${entryTimestamp}
+created: ${today}
+updated: ${today}
+---
+
+## Origin
+
+Promoted from note: ${entryTimestamp} — ${entry.source}
+
+${entry.body}
+`;
+
+  writeAtomic(backlogPath, backlogContent);
+
+  // Rewrite the note file to add Promoted-to line to the matching entry
+  const raw = fs.readFileSync(noteFilePath, "utf8");
+  const heading = `### ${entryTimestamp} — ${entry.source}`;
+  const headingIdx = raw.indexOf(heading);
+
+  if (headingIdx === -1) {
+    throw new Error(`Could not find heading "${heading}" in ${noteFilePath}`);
+  }
+
+  // Find the end of this entry (next ### or end of file)
+  const afterHeading = raw.indexOf("\n", headingIdx);
+  const nextHeading = raw.indexOf("\n### ", afterHeading);
+  const insertPos = nextHeading === -1 ? raw.length : nextHeading;
+
+  // Insert Promoted-to line before the next entry
+  const before = raw.slice(0, insertPos);
+  const after = raw.slice(insertPos);
+  const promotedLine = `Promoted-to: ${slug}\n`;
+
+  const updated = before.endsWith("\n")
+    ? before + promotedLine + after
+    : before + "\n" + promotedLine + after;
+
+  writeAtomic(noteFilePath, updated);
+
+  return { slug, backlogPath, id };
+}
+
 module.exports = {
   writeNote,
   parseNotesFile,
+  promoteNoteToIdea,
 };

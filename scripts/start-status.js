@@ -6,6 +6,7 @@ const os = require("os");
 const path = require("path");
 const { classifyEpoch } = require("./kb-health-thresholds.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
+const { parseNotesFile } = require("./note-helpers.js");
 
 function parseArgs(argv) {
   const options = {
@@ -867,11 +868,14 @@ function buildStatus(projectDir, options) {
         competitorProfiles: 0,
         hungryInsights: 0,
         uncitedEvidence: 0,
+        opportunityNotes: 0,
       },
+      opportunityNotes: [],
     };
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const nowDate = opts.now || new Date();
+  const now = Math.floor(nowDate.getTime() / 1000);
   const staleThreshold = now - 30 * 86400;
   const agingThreshold = now - 14 * 86400;
 
@@ -953,6 +957,25 @@ function buildStatus(projectDir, options) {
     inProgress === 0 &&
     shipped === 0;
 
+  // Scan for un-promoted opportunity notes in the current month
+  const opportunityNotes = [];
+  const noteMonth = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, "0")}`;
+  const noteFilePath = path.join(pmDir, "evidence", "notes", `${noteMonth}.md`);
+  if (fileExists(noteFilePath)) {
+    try {
+      const parsed = parseNotesFile(noteFilePath);
+      const unpromoted = parsed.entries
+        .filter((e) => e.source === "groom-opportunity" && !e.promoted_to)
+        .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+        .slice(0, 5);
+      for (const e of unpromoted) {
+        opportunityNotes.push({ body: e.body, timestamp: e.timestamp });
+      }
+    } catch {
+      // Notes file unreadable — skip silently
+    }
+  }
+
   const groomSession = detectGroomSession(pmStateDir);
   const devSession = detectDevSession(projectDir, runtimeDir);
   const active = (() => {
@@ -972,6 +995,10 @@ function buildStatus(projectDir, options) {
 
   if (active) {
     pushSuggestion(active.next);
+  }
+
+  if (opportunityNotes.length > 0) {
+    pushSuggestion(`${opportunityNotes.length} opportunity notes to promote or dismiss`);
   }
 
   if (emptyWorkspace) {
@@ -1045,7 +1072,9 @@ function buildStatus(projectDir, options) {
       competitorProfiles,
       hungryInsights,
       uncitedEvidence,
+      opportunityNotes: opportunityNotes.length,
     },
+    opportunityNotes,
     signalTargets,
     ...(knowledgeBase.kbHealth ? { kbHealth: knowledgeBase.kbHealth } : {}),
   };
@@ -1135,6 +1164,10 @@ function renderTextStatus(status, options = {}) {
   if (uncitedTargets.length > 0) {
     const label = uncitedTargets.map((item) => item.path).join(", ");
     lines.push(`Refresh targets: ${label}`);
+  }
+
+  if (status.counts && status.counts.opportunityNotes > 0) {
+    lines.push(`Opportunities: ${status.counts.opportunityNotes} notes awaiting review`);
   }
 
   if (status.next) {
