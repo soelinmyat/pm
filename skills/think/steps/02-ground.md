@@ -6,6 +6,8 @@ description: Load just enough context to have an informed conversation — strat
 
 ## Ground
 
+> **One-Off Mode:** If `one_off_mode = true`, skip all KB steps in this step (past thinking, strategy, insights, deep-read). Jump straight to **Light web research** (optional, 1-2 searches max), then proceed to Reframe.
+
 **Goal:** Before reframing, load the context that makes thinking informed rather than speculative. This is not research — it's a 30-second context check.
 
 **Progressive loading — stop as soon as you have enough:**
