@@ -121,9 +121,10 @@ Wait for user confirmation. Capture the EM's key findings for inclusion in the `
 
 1. Merge all three agent outputs. Deduplicate.
 2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
-3. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
-4. If iteration 3 still has blocking issues, present to user for decision.
-5. Update state:
+3. **Capture non-blocking opportunities as notes.** For each **Opportunity** bullet from the Competitive Review (and any non-blocking opportunity from PM Review), call `writeNote(pmDir, body, 'groom-opportunity', inferredTags)` via `scripts/note-helpers.js`. Skip if a backlog item with a matching slug already exists in `{pm_dir}/backlog/`. Log: "Captured N opportunities as notes." If zero opportunities were surfaced, skip silently.
+4. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
+5. If iteration 3 still has blocking issues, present to user for decision.
+6. Update state:
 
 ```yaml
 phase: scope-review
