@@ -7,10 +7,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const {
-  resolvePmDir,
-  tryConfigBased,
-} = require("../scripts/resolve-pm-dir.js");
+const { resolvePmDir, tryConfigBased } = require("../scripts/resolve-pm-dir.js");
 
 const HELPER_PATH = path.join(__dirname, "..", "scripts", "resolve-pm-dir.js");
 

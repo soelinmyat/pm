@@ -109,9 +109,7 @@ module.exports = {
 };
 
 if (require.main === module) {
-  const projectDir = process.argv[2]
-    ? path.resolve(process.argv[2])
-    : process.cwd();
+  const projectDir = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
   try {
     process.stdout.write(resolvePmDir(projectDir) + "\n");
   } catch (err) {
