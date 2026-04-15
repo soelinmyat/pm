@@ -40,6 +40,8 @@ function withTempProject(files) {
 function withBareRemote() {
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-remote-"));
   execSync("git init --bare", { cwd: remote, stdio: "pipe" });
+  // Ensure HEAD points to main so clones check out the right branch
+  execSync("git symbolic-ref HEAD refs/heads/main", { cwd: remote, stdio: "pipe" });
   return {
     path: remote,
     url: remote, // local path works as a git remote URL
