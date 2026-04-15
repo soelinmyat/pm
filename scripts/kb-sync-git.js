@@ -243,7 +243,11 @@ function pull(pmDir) {
   if (didStash) {
     const popResult = runSafe("git stash pop", { cwd: pmDir });
     if (!popResult.ok && popResult.error.includes("CONFLICT")) {
-      return { ok: true, updated, error: "Pull succeeded but stash pop had conflicts. Resolve manually." };
+      return {
+        ok: true,
+        updated,
+        error: "Pull succeeded but stash pop had conflicts. Resolve manually.",
+      };
     }
   }
 
@@ -271,13 +275,14 @@ function status(pmDir) {
 
   // Uncommitted changes
   const statusResult = runSafe("git status --porcelain", { cwd: pmDir });
-  const uncommitted = statusResult.ok && statusResult.output
-    ? statusResult.output.split("\n").length
-    : 0;
+  const uncommitted =
+    statusResult.ok && statusResult.output ? statusResult.output.split("\n").length : 0;
 
   // Ahead/behind — requires fetch first
   runSafe("git fetch origin --quiet", { cwd: pmDir });
-  const abResult = runSafe(`git rev-list --left-right --count origin/${branch}...HEAD`, { cwd: pmDir });
+  const abResult = runSafe(`git rev-list --left-right --count origin/${branch}...HEAD`, {
+    cwd: pmDir,
+  });
   let ahead = 0;
   let behind = 0;
   if (abResult.ok && abResult.output) {
@@ -305,10 +310,7 @@ function writeSyncStatus(dotPmDir, result) {
   };
 
   fs.mkdirSync(dotPmDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dotPmDir, "sync-status.json"),
-    JSON.stringify(status, null, 2) + "\n"
-  );
+  fs.writeFileSync(path.join(dotPmDir, "sync-status.json"), JSON.stringify(status, null, 2) + "\n");
 }
 
 // ---------------------------------------------------------------------------

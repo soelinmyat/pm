@@ -49,6 +49,12 @@ function withBareRemote() {
 
 const KB_SYNC_GIT_PATH = path.join(__dirname, "..", "scripts", "kb-sync-git.js");
 
+// Ensure git identity is available for CI environments
+process.env.GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || "Test";
+process.env.GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || "test@test.local";
+process.env.GIT_COMMITTER_NAME = process.env.GIT_COMMITTER_NAME || "Test";
+process.env.GIT_COMMITTER_EMAIL = process.env.GIT_COMMITTER_EMAIL || "test@test.local";
+
 // ---------------------------------------------------------------------------
 // Test: isGitRepo detection
 // ---------------------------------------------------------------------------
