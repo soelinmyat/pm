@@ -1,12 +1,12 @@
 ---
 name: Parse Subcommand
 order: 1
-description: Resolve whether the user wants setup, push, pull, status, or usage help
+description: Resolve the sync action — auto-sync by default, explicit subcommands as overrides
 ---
 
 ## Goal
 
-Determine which sync action should run. If no backend is configured and the user didn't ask for setup, route them to setup automatically.
+Determine which sync action should run. Bare `/pm:sync` should just work — set up if needed, sync if ready.
 
 ## How
 
@@ -15,24 +15,17 @@ Parse the user's argument after `/pm:sync`. Extract the first word as the subcom
 | Argument | Action |
 |---|---|
 | `setup` | Run setup flow |
-| `push` | Run push flow |
-| `pull` | Run pull flow |
+| `push` | Run push flow only |
+| `pull` | Run pull flow only |
 | `status` | Run status flow |
-| _(empty or unrecognized)_ | Check backend config, then route |
+| _(empty or unrecognized)_ | Auto-detect (see below) |
 
-### When no subcommand is given
+### When no subcommand is given (default)
 
 Read `.pm/config.json` and check `sync.backend`:
 
-- **If `sync.backend` is not set or is `"none"`:** Tell the user no sync is configured and route directly to the setup step (Step 2).
-- **If `sync.backend` is `"git"`:** Show usage:
-
-  ```
-  /pm:sync push    — push KB changes to remote
-  /pm:sync pull    — pull KB changes from remote
-  /pm:sync status  — show sync state
-  /pm:sync setup   — reconfigure sync
-  ```
+- **If `sync.backend` is not set or is `"none"`:** Route to the setup step (Step 2). No message needed — setup will handle onboarding.
+- **If `sync.backend` is `"git"`:** Route to `auto`. This will pull then push in one pass.
 
 ### When push/pull/status is requested but no backend is configured
 
@@ -42,10 +35,10 @@ If the user asked for `push`, `pull`, or `status` but `sync.backend` is not set 
 
 Then route to Step 2 (Setup).
 
-Persist the selected route in the working context so later steps can skip cleanly when they are not the active action.
+Persist the selected route (`auto`, `setup`, `push`, `pull`, or `status`) in the working context so later steps can skip cleanly.
 
 ## Done-when
 
-One concrete route (`setup`, `push`, `pull`, or `status`) has been selected, or the skill has stopped after showing usage.
+One concrete route has been selected, or the skill has routed to setup for onboarding.
 
 **Advance:** proceed to Step 2 (Setup).
