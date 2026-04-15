@@ -7,6 +7,7 @@ const path = require("path");
 const { classifyEpoch } = require("./kb-health-thresholds.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseNotesFile } = require("./note-helpers.js");
+const { resolvePmDir } = require("./resolve-pm-dir.js");
 
 function parseArgs(argv) {
   const options = {
@@ -29,50 +30,6 @@ function parseArgs(argv) {
   }
 
   return options;
-}
-
-function resolvePmDir(projectDir) {
-  const fallback = path.join(projectDir, "pm");
-  const configPath = path.join(projectDir, ".pm", "config.json");
-
-  let config;
-  try {
-    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  } catch {
-    return fallback;
-  }
-
-  if (!config || typeof config !== "object" || !config.pm_repo) {
-    return fallback;
-  }
-
-  const pmRepo = config.pm_repo;
-
-  if (pmRepo.type && pmRepo.type !== "local") {
-    throw new Error(`Remote repos not yet supported (pm_repo.type: "${pmRepo.type}")`);
-  }
-
-  if (!pmRepo.path) {
-    return fallback;
-  }
-
-  const configDir = path.dirname(configPath);
-  const resolvedRoot = path.resolve(configDir, pmRepo.path);
-
-  // Self-referential config: resolved path equals project dir — use same-repo mode
-  if (resolvedRoot === path.resolve(projectDir)) {
-    return fallback;
-  }
-
-  const resolvedPmDir = path.join(resolvedRoot, "pm");
-
-  try {
-    fs.accessSync(resolvedRoot, fs.constants.F_OK);
-  } catch {
-    return fallback;
-  }
-
-  return resolvedPmDir;
 }
 
 function safeRead(filePath) {

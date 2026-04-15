@@ -6,7 +6,19 @@ Shared runtime contract for all PM skills. Each skill references the sections it
 
 ## Path Resolution
 
-If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path.
+If `pm_dir` is not in conversation context, run:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js
+```
+
+The helper prints the resolved `pm/` directory to stdout. It handles:
+
+1. **Separate-repo mode** — reads `.pm/config.json` at cwd and follows `pm_repo.path` to the PM knowledge base (e.g. a sibling `app-pm/` repo).
+2. **Worktree walk** — if cwd is inside a git worktree whose main repo lives elsewhere, it reads the **main repo's** `.pm/config.json`. This matters because `.pm/` is gitignored, so worktrees never carry the config themselves.
+3. **Same-repo fallback** — returns `{cwd}/pm` when no separate-repo config is found.
+
+If the helper exits non-zero (e.g. an unsupported `pm_repo.type`), surface the error and tell the user: 'Run `/pm:setup separate-repo` to configure paths.' Do not proceed without a valid path.
 
 If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
 
