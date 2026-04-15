@@ -156,6 +156,27 @@ Read the current version from `plugin.config.json` before bumping — do not ass
 
 The pre-push hook will block pushes if the tag is missing.
 
+### Tag placement rule
+
+**Tags must only exist on commits that are on `main`.** Never tag a commit on a feature branch. The Claude Desktop app resolves plugin versions from git tags — a tag on a dangling branch commit causes the app to install a stale version.
+
+After a squash-merge PR, create the tag on the merge commit on `main`, not on the original branch commit:
+
+```bash
+git checkout main && git pull
+git tag v{version}
+git push origin v{version}
+```
+
+If a tag was accidentally placed on a non-main commit, fix it:
+
+```bash
+git tag -d v{version}
+git push origin :refs/tags/v{version}
+git tag v{version}    # on the correct main commit
+git push origin v{version}
+```
+
 ## Data Rules
 
 - Never commit real credentials.
