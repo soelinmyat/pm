@@ -40,6 +40,8 @@ function withTempProject(files) {
 function withBareRemote() {
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-remote-"));
   execSync("git init --bare", { cwd: remote, stdio: "pipe" });
+  // Ensure HEAD points to main so clones check out the right branch
+  execSync("git symbolic-ref HEAD refs/heads/main", { cwd: remote, stdio: "pipe" });
   return {
     path: remote,
     url: remote, // local path works as a git remote URL
@@ -48,6 +50,12 @@ function withBareRemote() {
 }
 
 const KB_SYNC_GIT_PATH = path.join(__dirname, "..", "scripts", "kb-sync-git.js");
+
+// Ensure git identity is available for CI environments
+process.env.GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || "Test";
+process.env.GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || "test@test.local";
+process.env.GIT_COMMITTER_NAME = process.env.GIT_COMMITTER_NAME || "Test";
+process.env.GIT_COMMITTER_EMAIL = process.env.GIT_COMMITTER_EMAIL || "test@test.local";
 
 // ---------------------------------------------------------------------------
 // Test: isGitRepo detection

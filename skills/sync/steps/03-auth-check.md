@@ -10,7 +10,7 @@ Block sync actions from running without the backend they require.
 
 ## How
 
-Only run this step for `push`, `pull`, and `status`. If the selected route is `setup`, skip this step.
+Only run this step for `push`, `pull`, `status`, and `auto`. If the selected route is `setup`, skip this step.
 
 ### Check sync backend
 
