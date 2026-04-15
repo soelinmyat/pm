@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SessionEnd hook — pushes modified pm/ files to server if dirty marker exists.
-# Always exits 0 — push failure must never block the session.
+# SessionEnd hook — pushes modified pm/ files to remote if dirty marker exists.
+# Supports git and server backends. Always exits 0 — push failure must never block the session.
 
 set -euo pipefail
 
@@ -12,24 +12,30 @@ DIRTY_MARKER="$PROJECT_DIR/.pm/sync-dirty"
 # No dirty marker — nothing was written to pm/ this session
 [ -f "$DIRTY_MARKER" ] || exit 0
 
-# Check sync preferences — skip if sync.enabled or sync.auto_push is false
-SYNC_SKIP=$(node -e "
+# Read sync preferences and backend
+SYNC_INFO=$(node -e "
   try {
     const c = JSON.parse(require('fs').readFileSync('$PROJECT_DIR/.pm/config.json','utf8'));
     const s = c.sync || {};
-    const enabled = s.enabled !== undefined ? s.enabled : (c.projectId ? true : false);
+    const backend = s.backend || 'none';
+    const enabled = s.enabled !== undefined ? s.enabled : (backend !== 'none');
     const autoPush = s.auto_push !== undefined ? s.auto_push : true;
     if (!enabled || !autoPush) process.stdout.write('skip');
-  } catch {}
+    else process.stdout.write(backend);
+  } catch { process.stdout.write('skip'); }
 " 2>/dev/null || true)
 
-if [ "$SYNC_SKIP" = "skip" ]; then
+if [ "$SYNC_INFO" = "skip" ] || [ "$SYNC_INFO" = "none" ]; then
   rm -f "$DIRTY_MARKER"
   exit 0
 fi
 
-# Push changes to server
-node "$PLUGIN_ROOT/scripts/kb-sync.js" push 2>/dev/null || true
+# Push based on backend
+if [ "$SYNC_INFO" = "git" ]; then
+  node "$PLUGIN_ROOT/scripts/kb-sync-git.js" push 2>/dev/null || true
+else
+  node "$PLUGIN_ROOT/scripts/kb-sync.js" push 2>/dev/null || true
+fi
 
 # Remove dirty marker regardless of push result
 rm -f "$DIRTY_MARKER"

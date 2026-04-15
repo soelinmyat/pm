@@ -1,25 +1,32 @@
 #!/usr/bin/env bash
-# SessionStart hook — pulls latest pm/ files from server.
-# Always exits 0 — pull failure must never block the session.
+# SessionStart hook — pulls latest pm/ files from remote.
+# Supports git and server backends. Always exits 0 — pull failure must never block the session.
 
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-# Check sync preferences — skip if sync.enabled or sync.auto_pull is false
-SYNC_SKIP=$(node -e "
+# Read sync preferences and backend
+SYNC_INFO=$(node -e "
   try {
     const c = JSON.parse(require('fs').readFileSync('$PROJECT_DIR/.pm/config.json','utf8'));
     const s = c.sync || {};
-    const enabled = s.enabled !== undefined ? s.enabled : (c.projectId ? true : false);
+    const backend = s.backend || 'none';
+    const enabled = s.enabled !== undefined ? s.enabled : (backend !== 'none');
     const autoPull = s.auto_pull !== undefined ? s.auto_pull : true;
     if (!enabled || !autoPull) process.stdout.write('skip');
-  } catch {}
+    else process.stdout.write(backend);
+  } catch { process.stdout.write('skip'); }
 " 2>/dev/null || true)
 
-[ "$SYNC_SKIP" = "skip" ] && exit 0
+[ "$SYNC_INFO" = "skip" ] || [ "$SYNC_INFO" = "none" ] && exit 0
 
-node "$PLUGIN_ROOT/scripts/kb-sync.js" pull 2>/dev/null || true
+# Pull based on backend
+if [ "$SYNC_INFO" = "git" ]; then
+  node "$PLUGIN_ROOT/scripts/kb-sync-git.js" pull 2>/dev/null || true
+else
+  node "$PLUGIN_ROOT/scripts/kb-sync.js" pull 2>/dev/null || true
+fi
 
 exit 0

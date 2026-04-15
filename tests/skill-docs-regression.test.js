@@ -47,9 +47,9 @@ test("bootstrap uses evidence/competitors as the canonical competitor location",
   assert.match(text, /Competitor profiling lives under `\{pm_dir\}\/evidence\/competitors\/`/);
 });
 
-test("sync skill routes server-side status through kb-sync.js", () => {
+test("sync skill references kb-sync-git.js and does not use raw curl", () => {
   const text = read("skills/sync/SKILL.md");
 
-  assert.match(text, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/kb-sync\.js" status/);
+  assert.match(text, /kb-sync-git\.js/);
   assert.doesNotMatch(text, /curl -s -H "Authorization: Bearer \{token\}"/);
 });

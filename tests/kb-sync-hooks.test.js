@@ -26,16 +26,29 @@ function withProject(config, opts = {}) {
     fs.writeFileSync(path.join(dotPm, "config.json"), JSON.stringify(config));
   }
 
-  // Create a fake kb-sync.js that writes a marker file instead of doing real sync
+  // Create fake sync scripts that write marker files instead of doing real sync
   const fakeScripts = path.join(root, "fake-plugin", "scripts");
   fs.mkdirSync(fakeScripts, { recursive: true });
+
+  // Server backend script
   fs.writeFileSync(
     path.join(fakeScripts, "kb-sync.js"),
     `const fs = require("fs");
 const path = require("path");
 const mode = process.argv[2];
 const marker = path.join(process.env.CLAUDE_PROJECT_DIR || ".", ".pm", "sync-called-" + mode);
-fs.writeFileSync(marker, "called");
+fs.writeFileSync(marker, "server");
+`
+  );
+
+  // Git backend script
+  fs.writeFileSync(
+    path.join(fakeScripts, "kb-sync-git.js"),
+    `const fs = require("fs");
+const path = require("path");
+const mode = process.argv[2];
+const marker = path.join(process.env.CLAUDE_PROJECT_DIR || ".", ".pm", "sync-called-" + mode);
+fs.writeFileSync(marker, "git");
 `
   );
 
@@ -77,99 +90,121 @@ function runHook(hookPath, projectDir, pluginRoot) {
 // kb-pull tests
 // ---------------------------------------------------------------------------
 
-test("PM-201: kb-pull calls kb-sync.js when sync not configured (defaults)", (t) => {
-  const p = withProject({ config_schema: 2, projectId: "proj-1" });
+test("PM-201: kb-pull skips when no sync backend configured", (t) => {
+  const p = withProject({ config_schema: 2 });
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(fs.existsSync(p.pullMarker), "kb-sync.js pull should have been called");
+  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run when backend is not set");
 });
 
 test("PM-201: kb-pull skips when sync.enabled is false", (t) => {
   const p = withProject({
     config_schema: 2,
-    projectId: "proj-1",
-    sync: { enabled: false },
+    sync: { backend: "git", enabled: false },
   });
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(!fs.existsSync(p.pullMarker), "kb-sync.js pull should NOT have been called");
+  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run when enabled is false");
 });
 
 test("PM-201: kb-pull skips when sync.auto_pull is false", (t) => {
   const p = withProject({
     config_schema: 2,
-    projectId: "proj-1",
-    sync: { enabled: true, auto_pull: false },
+    sync: { backend: "git", enabled: true, auto_pull: false },
   });
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(!fs.existsSync(p.pullMarker), "kb-sync.js pull should NOT have been called");
+  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run when auto_pull is false");
 });
 
-test("PM-201: kb-pull runs when sync.enabled is true and auto_pull is true", (t) => {
+test("PM-201: kb-pull calls kb-sync-git.js when backend is git", (t) => {
   const p = withProject({
     config_schema: 2,
-    projectId: "proj-1",
-    sync: { enabled: true, auto_pull: true },
+    sync: { backend: "git", enabled: true, auto_pull: true },
   });
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(fs.existsSync(p.pullMarker), "kb-sync.js pull should have been called");
+  assert.ok(fs.existsSync(p.pullMarker), "pull should run for git backend");
+  assert.equal(fs.readFileSync(p.pullMarker, "utf8"), "git", "should use git script");
 });
 
-test("PM-201: kb-pull runs when no projectId (enabled defaults to false but no sync block)", (t) => {
-  // No projectId means enabled defaults to false, so pull should skip
+test("PM-201: kb-pull calls kb-sync.js when backend is server", (t) => {
+  const p = withProject({
+    config_schema: 2,
+    sync: { backend: "server", enabled: true, auto_pull: true },
+  });
+  t.after(p.cleanup);
+
+  runHook(KB_PULL, p.root, p.pluginRoot);
+  assert.ok(fs.existsSync(p.pullMarker), "pull should run for server backend");
+  assert.equal(fs.readFileSync(p.pullMarker, "utf8"), "server", "should use server script");
+});
+
+test("PM-201: kb-pull skips when no projectId and no sync block (legacy config)", (t) => {
   const p = withProject({ config_schema: 2 });
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(
-    !fs.existsSync(p.pullMarker),
-    "kb-sync.js pull should NOT have been called (no projectId)"
-  );
+  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run with no sync config");
 });
 
 // ---------------------------------------------------------------------------
 // kb-push tests
 // ---------------------------------------------------------------------------
 
-test("PM-201: kb-push calls kb-sync.js when sync defaults apply and dirty marker exists", (t) => {
-  const p = withProject({ config_schema: 2, projectId: "proj-1" }, { dirty: true });
+test("PM-201: kb-push calls kb-sync-git.js when backend is git and dirty", (t) => {
+  const p = withProject(
+    { config_schema: 2, sync: { backend: "git", enabled: true } },
+    { dirty: true }
+  );
   t.after(p.cleanup);
 
   runHook(KB_PUSH, p.root, p.pluginRoot);
-  assert.ok(fs.existsSync(p.pushMarker), "kb-sync.js push should have been called");
+  assert.ok(fs.existsSync(p.pushMarker), "push should run for git backend");
+  assert.equal(fs.readFileSync(p.pushMarker, "utf8"), "git", "should use git script");
+});
+
+test("PM-201: kb-push calls kb-sync.js when backend is server and dirty", (t) => {
+  const p = withProject(
+    { config_schema: 2, sync: { backend: "server", enabled: true } },
+    { dirty: true }
+  );
+  t.after(p.cleanup);
+
+  runHook(KB_PUSH, p.root, p.pluginRoot);
+  assert.ok(fs.existsSync(p.pushMarker), "push should run for server backend");
+  assert.equal(fs.readFileSync(p.pushMarker, "utf8"), "server", "should use server script");
 });
 
 test("PM-201: kb-push skips when sync.enabled is false", (t) => {
   const p = withProject(
-    { config_schema: 2, projectId: "proj-1", sync: { enabled: false } },
+    { config_schema: 2, sync: { backend: "git", enabled: false } },
     { dirty: true }
   );
   t.after(p.cleanup);
 
   runHook(KB_PUSH, p.root, p.pluginRoot);
-  assert.ok(!fs.existsSync(p.pushMarker), "kb-sync.js push should NOT have been called");
+  assert.ok(!fs.existsSync(p.pushMarker), "push should NOT run when enabled is false");
 });
 
 test("PM-201: kb-push skips when sync.auto_push is false", (t) => {
   const p = withProject(
-    { config_schema: 2, projectId: "proj-1", sync: { enabled: true, auto_push: false } },
+    { config_schema: 2, sync: { backend: "git", enabled: true, auto_push: false } },
     { dirty: true }
   );
   t.after(p.cleanup);
 
   runHook(KB_PUSH, p.root, p.pluginRoot);
-  assert.ok(!fs.existsSync(p.pushMarker), "kb-sync.js push should NOT have been called");
+  assert.ok(!fs.existsSync(p.pushMarker), "push should NOT run when auto_push is false");
 });
 
 test("PM-201: kb-push removes dirty marker even when sync is disabled", (t) => {
   const p = withProject(
-    { config_schema: 2, projectId: "proj-1", sync: { enabled: false } },
+    { config_schema: 2, sync: { backend: "git", enabled: false } },
     { dirty: true }
   );
   t.after(p.cleanup);
@@ -182,12 +217,17 @@ test("PM-201: kb-push removes dirty marker even when sync is disabled", (t) => {
 });
 
 test("PM-201: kb-push skips entirely when no dirty marker exists", (t) => {
-  const p = withProject({ config_schema: 2, projectId: "proj-1" });
+  const p = withProject({ config_schema: 2, sync: { backend: "git", enabled: true } });
   t.after(p.cleanup);
 
   runHook(KB_PUSH, p.root, p.pluginRoot);
-  assert.ok(
-    !fs.existsSync(p.pushMarker),
-    "kb-sync.js push should NOT have been called (no dirty marker)"
-  );
+  assert.ok(!fs.existsSync(p.pushMarker), "push should NOT run without dirty marker");
+});
+
+test("PM-201: kb-push skips when no sync backend configured", (t) => {
+  const p = withProject({ config_schema: 2 }, { dirty: true });
+  t.after(p.cleanup);
+
+  runHook(KB_PUSH, p.root, p.pluginRoot);
+  assert.ok(!fs.existsSync(p.pushMarker), "push should NOT run when backend is not set");
 });

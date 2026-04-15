@@ -144,13 +144,15 @@ When the user says **"bump version"** or **"bump patch"**: increment the **patch
 | "bump minor" | Minor | 1.0.5 → 1.1.0 |
 | "bump major" | Major | 1.0.5 → 2.0.0 |
 
-All version bumps must update **all 3 manifests** and **create a git tag**:
+All version bumps must update **all 5 version locations** and **create a git tag**:
+- `plugin.config.json` — source of truth
 - `.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json`
 - `.codex-plugin/plugin.json`
+- `README.md` — version badge
 - Run `git tag v{new_version}` after committing the bump
 
-Read the current version from `.claude-plugin/plugin.json` before bumping — do not assume the version number.
+Read the current version from `plugin.config.json` before bumping — do not assume the version number.
 
 The pre-push hook will block pushes if the tag is missing.
 
