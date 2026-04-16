@@ -12,13 +12,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
-const REVIEW_PATH = path.join(
-  PLUGIN_ROOT,
-  "skills",
-  "rfc",
-  "steps",
-  "03-rfc-review.md"
-);
+const REVIEW_PATH = path.join(PLUGIN_ROOT, "skills", "rfc", "steps", "03-rfc-review.md");
 
 // ---------------------------------------------------------------------------
 // Helper: extract the @tester prompt block from 03-rfc-review.md
@@ -42,10 +36,7 @@ function getTesterBlock() {
 
 test("03-rfc-review.md @tester: prompt contains 'Test Strategy'", () => {
   const block = getTesterBlock();
-  assert.ok(
-    block.includes("Test Strategy"),
-    "@tester prompt must contain 'Test Strategy'"
-  );
+  assert.ok(block.includes("Test Strategy"), "@tester prompt must contain 'Test Strategy'");
 });
 
 // ---------------------------------------------------------------------------
@@ -54,10 +45,7 @@ test("03-rfc-review.md @tester: prompt contains 'Test Strategy'", () => {
 
 test("03-rfc-review.md @tester: prompt contains 'test-layers.md'", () => {
   const block = getTesterBlock();
-  assert.ok(
-    block.includes("test-layers.md"),
-    "@tester prompt must contain 'test-layers.md'"
-  );
+  assert.ok(block.includes("test-layers.md"), "@tester prompt must contain 'test-layers.md'");
 });
 
 // ---------------------------------------------------------------------------
@@ -66,10 +54,7 @@ test("03-rfc-review.md @tester: prompt contains 'test-layers.md'", () => {
 
 test("03-rfc-review.md @tester: prompt contains 'Test hooks'", () => {
   const block = getTesterBlock();
-  assert.ok(
-    block.includes("Test hooks"),
-    "@tester prompt must contain 'Test hooks'"
-  );
+  assert.ok(block.includes("Test hooks"), "@tester prompt must contain 'Test hooks'");
 });
 
 // ---------------------------------------------------------------------------
@@ -113,10 +98,7 @@ test("03-rfc-review.md: dispatch shape has exactly 3 standard reviewers", () => 
 
 test("03-rfc-review.md @tester: documented as BLOCKING reviewer", () => {
   const block = getTesterBlock();
-  assert.ok(
-    block.includes("BLOCKING"),
-    "@tester reviewer must be documented as BLOCKING"
-  );
+  assert.ok(block.includes("BLOCKING"), "@tester reviewer must be documented as BLOCKING");
 });
 
 // ---------------------------------------------------------------------------

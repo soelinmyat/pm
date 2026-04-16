@@ -12,18 +12,8 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
-const TEMPLATE_PATH = path.join(
-  PLUGIN_ROOT,
-  "references",
-  "templates",
-  "rfc-template.md"
-);
-const REFERENCE_PATH = path.join(
-  PLUGIN_ROOT,
-  "references",
-  "templates",
-  "rfc-reference.html"
-);
+const TEMPLATE_PATH = path.join(PLUGIN_ROOT, "references", "templates", "rfc-template.md");
+const REFERENCE_PATH = path.join(PLUGIN_ROOT, "references", "templates", "rfc-reference.html");
 
 // The five canonical subsection names from D1
 const SUBSECTIONS = [
@@ -55,32 +45,21 @@ test("rfc-template.md: Test Strategy is between Risks and Issues", () => {
   assert.ok(risksIdx > -1, "## Risks must exist");
   assert.ok(testStratIdx > -1, "## Test Strategy must exist");
   assert.ok(issuesIdx > -1, "## Issues must exist");
-  assert.ok(
-    testStratIdx > risksIdx,
-    "Test Strategy must come after Risks"
-  );
-  assert.ok(
-    testStratIdx < issuesIdx,
-    "Test Strategy must come before Issues"
-  );
+  assert.ok(testStratIdx > risksIdx, "Test Strategy must come after Risks");
+  assert.ok(testStratIdx < issuesIdx, "Test Strategy must come before Issues");
 });
 
 test("rfc-template.md: has all five D1 subsections", () => {
   const content = fs.readFileSync(TEMPLATE_PATH, "utf8");
   for (const sub of SUBSECTIONS) {
-    assert.ok(
-      content.includes(`### ${sub}`),
-      `Template must contain subsection: ### ${sub}`
-    );
+    assert.ok(content.includes(`### ${sub}`), `Template must contain subsection: ### ${sub}`);
   }
 });
 
 test("rfc-template.md: has canonical schema v2 HTML comment (D7)", () => {
   const content = fs.readFileSync(TEMPLATE_PATH, "utf8");
   assert.ok(
-    content.includes(
-      "<!-- canonical: schema v2"
-    ),
+    content.includes("<!-- canonical: schema v2"),
     "Template must contain the canonical schema v2 HTML comment"
   );
 });
@@ -114,25 +93,15 @@ test("rfc-reference.html: test-strategy section is between risks and issues", ()
   assert.ok(risksIdx > -1, 'id="risks" must exist');
   assert.ok(testStratIdx > -1, 'id="test-strategy" must exist');
   assert.ok(issuesIdx > -1, 'id="issues" must exist');
-  assert.ok(
-    testStratIdx > risksIdx,
-    "test-strategy must come after risks"
-  );
-  assert.ok(
-    testStratIdx < issuesIdx,
-    "test-strategy must come before issues"
-  );
+  assert.ok(testStratIdx > risksIdx, "test-strategy must come after risks");
+  assert.ok(testStratIdx < issuesIdx, "test-strategy must come before issues");
 });
 
 test("rfc-reference.html: has five .test-strategy-block elements", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
   const matches = content.match(/class="test-strategy-block"/g);
   assert.ok(matches, "Must have .test-strategy-block elements");
-  assert.equal(
-    matches.length,
-    5,
-    `Expected 5 test-strategy-block elements, got ${matches.length}`
-  );
+  assert.equal(matches.length, 5, `Expected 5 test-strategy-block elements, got ${matches.length}`);
 });
 
 test("rfc-reference.html: has data-schema-version=2 on root element", () => {
@@ -145,18 +114,12 @@ test("rfc-reference.html: has data-schema-version=2 on root element", () => {
 
 test("rfc-reference.html: has script#rfc-meta JSON block", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(
-    content.includes('id="rfc-meta"'),
-    "HTML reference must have script#rfc-meta"
-  );
+  assert.ok(content.includes('id="rfc-meta"'), "HTML reference must have script#rfc-meta");
 });
 
 test("rfc-reference.html: TOC has #test-strategy link", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(
-    content.includes('href="#test-strategy"'),
-    "TOC must include a #test-strategy link"
-  );
+  assert.ok(content.includes('href="#test-strategy"'), "TOC must include a #test-strategy link");
 });
 
 test("rfc-reference.html: issue-detail cards have .hooks-badge", () => {
@@ -171,24 +134,15 @@ test("rfc-reference.html: issue-detail cards have .hooks-badge", () => {
 
 test("rfc-reference.html: has .hooks-badge CSS class defined", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(
-    content.includes(".hooks-badge"),
-    "CSS must define .hooks-badge class"
-  );
+  assert.ok(content.includes(".hooks-badge"), "CSS must define .hooks-badge class");
 });
 
 test("rfc-reference.html: has .test-strategy-block CSS class defined", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(
-    content.includes(".test-strategy-block"),
-    "CSS must define .test-strategy-block class"
-  );
+  assert.ok(content.includes(".test-strategy-block"), "CSS must define .test-strategy-block class");
 });
 
 test("rfc-reference.html: has .icon-test CSS class defined", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(
-    content.includes(".icon-test"),
-    "CSS must define .icon-test class"
-  );
+  assert.ok(content.includes(".icon-test"), "CSS must define .icon-test class");
 });

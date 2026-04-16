@@ -11,13 +11,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
-const GENERATION_PATH = path.join(
-  PLUGIN_ROOT,
-  "skills",
-  "rfc",
-  "steps",
-  "02-rfc-generation.md"
-);
+const GENERATION_PATH = path.join(PLUGIN_ROOT, "skills", "rfc", "steps", "02-rfc-generation.md");
 
 // ---------------------------------------------------------------------------
 // AC1: Phase 1 prompt references test-layers.md at the correct path
@@ -167,10 +161,7 @@ test("02-rfc-generation.md: Phase 1 prompt has Test Strategy requirements block"
   const promptEnd = content.indexOf("```", promptStart + 7);
   const promptBlock = content.slice(promptStart, promptEnd);
 
-  assert.ok(
-    promptBlock.includes("Test Strategy"),
-    "Phase 1 prompt must mention Test Strategy"
-  );
+  assert.ok(promptBlock.includes("Test Strategy"), "Phase 1 prompt must mention Test Strategy");
   assert.ok(
     promptBlock.includes("Test hooks"),
     "Phase 1 prompt must instruct worker to include per-issue Test hooks"

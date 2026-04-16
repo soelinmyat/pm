@@ -17,13 +17,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
-const INTAKE_PATH = path.join(
-  PLUGIN_ROOT,
-  "skills",
-  "dev",
-  "steps",
-  "02-intake.md"
-);
+const INTAKE_PATH = path.join(PLUGIN_ROOT, "skills", "dev", "steps", "02-intake.md");
 const IMPL_FLOW_PATH = path.join(
   PLUGIN_ROOT,
   "skills",
@@ -49,7 +43,7 @@ const FIXTURES_DIR = path.join(__dirname, "fixtures");
 //      - Has section with all subsections filled → pass
 // ---------------------------------------------------------------------------
 
-const REQUIRED_SUBSECTIONS = [
+const _REQUIRED_SUBSECTIONS = [
   "Test levels in scope",
   "New test infrastructure",
   "Regression surface",
@@ -64,9 +58,15 @@ function parseTestStrategyGate(html) {
   // No section at all
   if (!hasTestStrategySection) {
     if (!hasSchemaV2) {
-      return { outcome: "warn-only", reason: "Pre-rollout RFC: no Test Strategy section and no schema-v2 marker" };
+      return {
+        outcome: "warn-only",
+        reason: "Pre-rollout RFC: no Test Strategy section and no schema-v2 marker",
+      };
     }
-    return { outcome: "halt", reason: "Schema-v2 RFC missing Test Strategy section. Run /pm:rfc to regenerate." };
+    return {
+      outcome: "halt",
+      reason: "Schema-v2 RFC missing Test Strategy section. Run /pm:rfc to regenerate.",
+    };
   }
 
   // Section exists — extract it
@@ -79,7 +79,10 @@ function parseTestStrategyGate(html) {
   // Check for .test-strategy-block elements
   const blocks = sectionHtml.match(/class="test-strategy-block"/g);
   if (!blocks || blocks.length === 0) {
-    return { outcome: "halt", reason: "Test Strategy section has no subsection blocks (.test-strategy-block)" };
+    return {
+      outcome: "halt",
+      reason: "Test Strategy section has no subsection blocks (.test-strategy-block)",
+    };
   }
 
   // Check each subsection has non-empty body text
@@ -99,13 +102,16 @@ function parseTestStrategyGate(html) {
     // Extract body text (everything after h4, stripping HTML tags)
     const afterHeading = blockContent.slice(blockContent.indexOf("</h4>") + 5);
     const bodyText = afterHeading
-      .replace(/<[^>]*>/g, "")  // strip HTML tags
-      .replace(/&[^;]+;/g, "")  // strip HTML entities
+      .replace(/<[^>]*>/g, "") // strip HTML tags
+      .replace(/&[^;]+;/g, "") // strip HTML entities
       .replace(/[\u200B\u00A0\u2000-\u200F\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "") // strip unicode whitespace
       .trim();
 
     if (bodyText.length === 0) {
-      return { outcome: "halt", reason: `Test Strategy subsection "${heading}" is empty or contains only whitespace` };
+      return {
+        outcome: "halt",
+        reason: `Test Strategy subsection "${heading}" is empty or contains only whitespace`,
+      };
     }
   }
 
@@ -119,13 +125,7 @@ function parseTestStrategyGate(html) {
 
 test("02-intake.md: contains Test Strategy gate instructions", () => {
   const content = fs.readFileSync(INTAKE_PATH, "utf8");
-  const expectedStrings = [
-    "test-strategy",
-    "schema-version",
-    "warn-only",
-    "halt",
-    "Test Strategy",
-  ];
+  const expectedStrings = ["test-strategy", "schema-version", "warn-only", "halt", "Test Strategy"];
   const missing = expectedStrings.filter((s) => !content.toLowerCase().includes(s.toLowerCase()));
   assert.equal(
     missing.length,
@@ -137,7 +137,8 @@ test("02-intake.md: contains Test Strategy gate instructions", () => {
 test("02-intake.md: gate references M/L/XL size enforcement", () => {
   const content = fs.readFileSync(INTAKE_PATH, "utf8");
   assert.ok(
-    content.includes("M/L/XL") || (content.includes("M") && content.includes("L") && content.includes("XL")),
+    content.includes("M/L/XL") ||
+      (content.includes("M") && content.includes("L") && content.includes("XL")),
     "02-intake.md gate must reference M/L/XL size enforcement"
   );
 });
@@ -203,28 +204,23 @@ test("implementation-flow.md: reframes test-layers.md reference", () => {
 // ---------------------------------------------------------------------------
 
 test("fixture: legacy RFC (no Test Strategy, no schema-v2) → warn-only", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-legacy-no-test-strategy.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-legacy-no-test-strategy.html"), "utf8");
   const result = parseTestStrategyGate(html);
-  assert.equal(result.outcome, "warn-only", `Expected warn-only, got ${result.outcome}: ${result.reason}`);
+  assert.equal(
+    result.outcome,
+    "warn-only",
+    `Expected warn-only, got ${result.outcome}: ${result.reason}`
+  );
 });
 
 test("fixture: schema-v2 RFC with full Test Strategy → pass", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-full-test-strategy.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-full-test-strategy.html"), "utf8");
   const result = parseTestStrategyGate(html);
   assert.equal(result.outcome, "pass", `Expected pass, got ${result.outcome}: ${result.reason}`);
 });
 
 test("fixture: schema-v2 RFC with empty subsection → halt", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-empty-subsection.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-empty-subsection.html"), "utf8");
   const result = parseTestStrategyGate(html);
   assert.equal(result.outcome, "halt", `Expected halt, got ${result.outcome}: ${result.reason}`);
   assert.ok(
@@ -238,10 +234,7 @@ test("fixture: schema-v2 RFC with empty subsection → halt", () => {
 // ---------------------------------------------------------------------------
 
 test("fixture: schema-v2 RFC with no Test Strategy section → halt", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-no-test-strategy.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-no-test-strategy.html"), "utf8");
   const result = parseTestStrategyGate(html);
   assert.equal(result.outcome, "halt", `Expected halt, got ${result.outcome}: ${result.reason}`);
 });
@@ -256,10 +249,7 @@ test("fixture: schema-v2 RFC with heading-only Test Strategy → halt", () => {
 });
 
 test("fixture: schema-v2 RFC with unicode whitespace in subsection body → halt", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-unicode-whitespace.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-unicode-whitespace.html"), "utf8");
   const result = parseTestStrategyGate(html);
   assert.equal(result.outcome, "halt", `Expected halt, got ${result.outcome}: ${result.reason}`);
   assert.ok(
@@ -279,18 +269,12 @@ test("fixture files: all three primary fixtures exist", () => {
     "rfc-v2-empty-subsection.html",
   ];
   for (const f of fixtures) {
-    assert.ok(
-      fs.existsSync(path.join(FIXTURES_DIR, f)),
-      `Fixture file ${f} must exist`
-    );
+    assert.ok(fs.existsSync(path.join(FIXTURES_DIR, f)), `Fixture file ${f} must exist`);
   }
 });
 
 test("fixture files: legacy fixture has rfc-meta but no data-schema-version", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-legacy-no-test-strategy.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-legacy-no-test-strategy.html"), "utf8");
   assert.ok(html.includes("rfc-meta"), "Legacy fixture must have rfc-meta");
   assert.ok(
     !html.includes("data-schema-version"),
@@ -303,10 +287,7 @@ test("fixture files: legacy fixture has rfc-meta but no data-schema-version", ()
 });
 
 test("fixture files: v2-full fixture has data-schema-version and all five subsections", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-full-test-strategy.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-full-test-strategy.html"), "utf8");
   assert.ok(html.includes('data-schema-version="2"'), "v2-full must have data-schema-version=2");
   assert.ok(html.includes('id="test-strategy"'), "v2-full must have test-strategy section");
   const blocks = html.match(/class="test-strategy-block"/g);
@@ -314,10 +295,7 @@ test("fixture files: v2-full fixture has data-schema-version and all five subsec
 });
 
 test("fixture files: v2-empty fixture has data-schema-version and an empty subsection", () => {
-  const html = fs.readFileSync(
-    path.join(FIXTURES_DIR, "rfc-v2-empty-subsection.html"),
-    "utf8"
-  );
+  const html = fs.readFileSync(path.join(FIXTURES_DIR, "rfc-v2-empty-subsection.html"), "utf8");
   assert.ok(html.includes('data-schema-version="2"'), "v2-empty must have data-schema-version=2");
   assert.ok(html.includes('id="test-strategy"'), "v2-empty must have test-strategy section");
   // Verify at least one <p></p> (empty paragraph)
@@ -355,10 +333,7 @@ test("regression sweep: all legacy RFCs in pm-kb produce pass or warn-only", () 
   }
 
   const htmlFiles = fs.readdirSync(rfcDir).filter((f) => f.endsWith(".html"));
-  assert.ok(
-    htmlFiles.length > 0,
-    `Expected at least 1 HTML file in ${rfcDir}`
-  );
+  assert.ok(htmlFiles.length > 0, `Expected at least 1 HTML file in ${rfcDir}`);
 
   const halted = [];
   for (const file of htmlFiles) {
