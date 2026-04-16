@@ -95,6 +95,40 @@ Load the task context, classify the work correctly, and create the initial dev s
    - From conversation: create issue in current cycle/sprint
 9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, Linear readiness routing result, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. Include a `## Tasks` table (always present — single-task sessions have one row, multi-task sessions have N rows from the RFC). This is the single source of truth for the session.
 
+## Test Strategy Gate
+
+After RFC issue discovery (step 4), validate that the RFC contains a well-formed Test Strategy section. This gate ensures implementation agents have a testing contract before starting work.
+
+**Size enforcement:** This gate applies only to M/L/XL work. XS/S sizes pass through silently — they use lightweight TDD without a formal Test Strategy contract.
+
+### Gate logic
+
+1. **Check for `id="test-strategy"` section** in the RFC HTML.
+2. **Check for `data-schema-version="2"`** on any element in the RFC.
+3. **Apply grandfather clause (pre-rollout):**
+
+| Condition | Outcome | Action |
+|-----------|---------|--------|
+| No test-strategy section AND no `data-schema-version="2"` | **warn-only** | Pre-rollout RFC — warn that Test Strategy is missing but continue. Legacy RFCs are grandfathered. |
+| Has `data-schema-version="2"` but no test-strategy section | **halt** | Schema-v2 RFC is missing the Test Strategy section. Route to `/pm:rfc` for regeneration. |
+| Has test-strategy section but empty or whitespace-only subsection blocks | **halt** | Test Strategy section is malformed. Route to `/pm:rfc` for regeneration. |
+| Has test-strategy section with all `.test-strategy-block` subsections filled | **pass** | Test Strategy contract is valid. Proceed to implementation. |
+
+### Required subsections
+
+Each `<div class="test-strategy-block">` must contain a heading and non-empty body text:
+- Test levels in scope
+- New test infrastructure
+- Regression surface
+- Verification commands
+- Open test questions
+
+### On halt
+
+If the gate halts, do NOT proceed to implementation. Instead:
+- Report: "Test Strategy gate failed: {reason}"
+- Route the user back to `pm:rfc` to regenerate the RFC with a complete Test Strategy section.
+
 ## Stage Routing by Size
 
 |  | XS | S | M | L | XL |

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RFC — Schema v2 Feature (unicode whitespace in subsection body)</title>
+<script type="application/json" id="rfc-meta">
+{
+  "type": "rfc",
+  "parent": "v2-unicode-ws",
+  "status": "approved",
+  "created": "2026-04-20",
+  "updated": "2026-04-20"
+}
+</script>
+</head>
+<body>
+<main class="content" data-schema-version="2">
+
+  <section class="section" id="test-strategy">
+    <h2>Test Strategy</h2>
+    <div class="test-strategy-block">
+      <h4>Test levels in scope</h4>
+      <p>Layer 1 unit tests.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>New test infrastructure</h4>
+      <p>None.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Regression surface</h4>
+      <p>&#x200B;&#x00A0; &#x2003;</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Verification commands</h4>
+      <p>npm test</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Open test questions</h4>
+      <p>None.</p>
+    </div>
+  </section>
+
+  <section class="section" id="issues">
+    <h2>Issues</h2>
+    <div class="issue-detail">
+      <div class="issue-detail-header">
+        <span class="issue-detail-num">1</span>
+        <span class="issue-detail-title">Feature with unicode ws</span>
+        <span class="issue-detail-size">M</span>
+      </div>
+      <span class="dep-badge">Dependencies: None</span>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

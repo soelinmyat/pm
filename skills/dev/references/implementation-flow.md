@@ -199,7 +199,7 @@ Dispatch one agent per independent problem domain. Let them work concurrently.
 - **Don't use** when failures are related (fix one might fix others), need full system state, or agents would interfere
 - After agents return: review summaries, check for conflicts, run full suite, spot check for systematic errors
 
-See `test-layers.md` (same directory) for test layer routing principles.
+See `test-layers.md` (same directory) for general test layer routing principles. Note that `test-layers.md` provides universal testing principles, while the RFC's **Test Strategy** section provides the feature-specific testing plan — which layers to exercise, what infrastructure is needed, and the verification commands. Implementation agents should read the Test Strategy contract from the RFC (validated by the gate in `02-intake.md`) as the authoritative testing plan for the current feature.
 
 ### E2E Decision
 

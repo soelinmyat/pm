@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RFC — Schema v2 Feature (full Test Strategy)</title>
+<script type="application/json" id="rfc-meta">
+{
+  "type": "rfc",
+  "parent": "v2-feature",
+  "status": "approved",
+  "created": "2026-04-20",
+  "updated": "2026-04-20"
+}
+</script>
+</head>
+<body>
+<main class="content" data-schema-version="2">
+
+  <section class="section" id="codebase">
+    <h2>Codebase Findings</h2>
+    <p>Some findings about the codebase.</p>
+  </section>
+
+  <section class="section" id="architecture">
+    <h2>Architecture</h2>
+    <p>Architecture description.</p>
+  </section>
+
+  <section class="section" id="risks">
+    <h2>Risks</h2>
+    <p>Risk analysis.</p>
+  </section>
+
+  <section class="section" id="test-strategy">
+    <h2>Test Strategy</h2>
+    <div class="test-strategy-block">
+      <h4>Test levels in scope</h4>
+      <p>Layer 1 unit tests under tests/. Backend-only change, no E2E.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>New test infrastructure</h4>
+      <p>None beyond the existing test harness.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Regression surface</h4>
+      <p>Existing parser tests must continue to pass.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Verification commands</h4>
+      <p>npm test runs the full suite.</p>
+    </div>
+    <div class="test-strategy-block">
+      <h4>Open test questions</h4>
+      <p>None at this time.</p>
+    </div>
+  </section>
+
+  <section class="section" id="issues">
+    <h2>Issues</h2>
+    <div class="issue-detail">
+      <div class="issue-detail-header">
+        <span class="issue-detail-num">1</span>
+        <span class="issue-detail-title">Implement v2 feature</span>
+        <span class="issue-detail-size">M</span>
+      </div>
+      <p><strong>Outcome:</strong> The feature works.</p>
+      <h4>Acceptance Criteria</h4>
+      <ul>
+        <li>Feature is implemented</li>
+      </ul>
+      <span class="dep-badge">Dependencies: None</span>
+      <span class="hooks-badge">Test hooks: Test levels in scope &rarr; Layer 1; Regression surface &rarr; parser tests</span>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>
