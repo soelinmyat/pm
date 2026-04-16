@@ -64,6 +64,31 @@ Omit this section if no API changes.}
 - Dependencies on external systems or teams
 Format as a table: Risk | Impact | Mitigation}
 
+<!-- canonical: schema v2 — do not rename subsections without bumping schema_version -->
+## Test Strategy
+
+{Grounded in `skills/dev/test-layers.md` principles. Every M/L/XL RFC must fill all five subsections below. If a subsection does not apply, state "Not applicable" with a one-sentence rationale.}
+
+### Test levels in scope
+
+{Which test layers apply to this feature, drawn from the platform x layer matrix in test-layers.md. Name each layer (unit, integration, contract, E2E) that will have new or modified tests, and state what each layer covers for this feature.}
+
+### New test infrastructure
+
+{Any new test tooling, fixtures, helpers, mocks, or harness changes required. If the project's existing test setup is sufficient, state "None beyond the existing test harness" and name the harness.}
+
+### Regression surface
+
+{What existing tests or behaviors must not break. Name specific files, test suites, or user flows that exercise code paths this feature touches. This is the "do no harm" contract.}
+
+### Verification commands
+
+{The exact commands a developer runs to verify the feature works. Copy from AGENTS.md or the project's test conventions. Include both the primary suite command and any ad-hoc checks specific to this feature.}
+
+### Open test questions
+
+{Unresolved testing concerns — gaps the team accepts for v1, deferred automation, or questions about test strategy that need answers during implementation. Each item should state what is unknown and what the interim mitigation is.}
+
 ## Issues
 
 Each issue is an independently implementable unit. Issues are ordered by dependency —
@@ -85,6 +110,8 @@ Detailed enough that a developer with zero codebase context can execute.}
 **Dependencies:** None | Issue {N}
 
 **Size estimate:** XS | S | M
+
+**Test hooks:** {Which Test Strategy subsections this issue exercises, traced to specific ACs. E.g., "Test levels in scope -> Layer 1 unit; Regression surface -> existing parser tests". Omit subsections the issue does not touch.}
 
 ---
 
