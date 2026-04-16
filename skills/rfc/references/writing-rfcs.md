@@ -61,7 +61,7 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 11. **Resolved Questions** — populated during review, empty in draft
 12. **Change Log** — review iterations, populated during review
 
-## Test Strategy Section {#test-strategy-section}
+## Test Strategy Section
 
 Every M/L/XL RFC must include a **Test Strategy** section between Risks and Issues. This section is the testing contract — it scopes what gets tested, what infrastructure is needed, and what existing behavior must not break. It is grounded in `skills/dev/test-layers.md` principles.
 
