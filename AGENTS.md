@@ -53,12 +53,12 @@ The **cache** is what Claude Code actually loads at runtime. The **marketplace**
 **Never push directly to main.** All changes go through a PR.
 
 ```
-feature branch: commit → commit → bump version (last commit) → PR → merge to main
+feature branch: commit → commit → npm run bump patch (last commit) → PR → merge to main
 ```
 
 - Create a feature branch for all work
 - Commit freely on the branch — no version bumps until ready
-- **Bump version as the last commit** on the branch before creating the PR
+- **Run `npm run bump patch` as the last step** on the branch before creating the PR
 - Create a PR, merge to main
 - After merge, delete the remote branch (`gh pr merge` does this by default) and clean up locally:
   ```bash
@@ -87,7 +87,7 @@ git config core.hooksPath .githooks
 2. **Sync to cache** to test immediately (see sync command below)
 3. **Verify** the change works (run the skill, check tests, etc.)
 4. **Commit** to the source repo when satisfied
-5. **Bump version** as the last commit on the branch, then create a PR (see version bump rules below)
+5. **Run `npm run bump patch`** as the last step on the branch, then create a PR (see version bump rules below)
 
 ### Sync command (dev only)
 
@@ -136,23 +136,22 @@ Planning notes live in:
 
 ## Version Bump Rules
 
-When the user says **"bump version"** or **"bump patch"**: increment the **patch** number (e.g., 1.0.5 → 1.0.6). This is the default and most common bump.
+**Always use the bump script.** Do not manually edit version files.
 
-| User says | Semver meaning | Example |
-|---|---|---|
-| "bump version" / "bump patch" | Patch | 1.0.5 → 1.0.6 |
-| "bump minor" | Minor | 1.0.5 → 1.1.0 |
-| "bump major" | Major | 1.0.5 → 2.0.0 |
+```bash
+npm run bump patch    # 1.0.5 → 1.0.6 (default, most common)
+npm run bump minor    # 1.0.5 → 1.1.0
+npm run bump major    # 1.0.5 → 2.0.0
+npm run bump 2.0.0    # explicit version
+```
 
-All version bumps must update **all 5 version locations** and **create a git tag**:
-- `plugin.config.json` — source of truth
-- `.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json`
-- `.codex-plugin/plugin.json`
-- `README.md` — version badge
-- Run `git tag v{new_version}` after committing the bump
+The script handles everything: updates `plugin.config.json` (source of truth), syncs all 3 platform manifests via `generate-platform-files.js`, verifies consistency, commits, and creates the git tag. No manual file edits needed.
 
-Read the current version from `plugin.config.json` before bumping — do not assume the version number.
+| User says | Command |
+|---|---|
+| "bump version" / "bump patch" | `npm run bump patch` |
+| "bump minor" | `npm run bump minor` |
+| "bump major" | `npm run bump major` |
 
 The pre-push hook will block pushes if the tag is missing.
 
@@ -160,12 +159,19 @@ The pre-push hook will block pushes if the tag is missing.
 
 **Tags must only exist on commits that are on `main`.** Never tag a commit on a feature branch. The Claude Desktop app resolves plugin versions from git tags — a tag on a dangling branch commit causes the app to install a stale version.
 
-After a squash-merge PR, create the tag on the merge commit on `main`, not on the original branch commit:
+After the bump script creates the commit + tag on a feature branch, ship via PR then re-tag on main:
 
 ```bash
+# Ship the bump commit
+git checkout -b release/v{version}
+git push -u origin release/v{version}
+gh pr create && gh pr merge --squash --auto
+
+# Re-tag on the main merge commit
 git checkout main && git pull
+git tag -d v{version}
 git tag v{version}
-git push origin v{version}
+git push origin --force v{version}
 ```
 
 If a tag was accidentally placed on a non-main commit, fix it:
@@ -173,7 +179,8 @@ If a tag was accidentally placed on a non-main commit, fix it:
 ```bash
 git tag -d v{version}
 git push origin :refs/tags/v{version}
-git tag v{version}    # on the correct main commit
+git checkout main && git pull
+git tag v{version}
 git push origin v{version}
 ```
 
