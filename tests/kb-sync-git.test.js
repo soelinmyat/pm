@@ -407,6 +407,84 @@ test("status returns error for non-git directory", (t) => {
 // Test: writeSyncStatus
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Test: resolveCliPaths — CLI path resolution for same-repo and separate-repo
+// ---------------------------------------------------------------------------
+
+test("resolveCliPaths: same-repo mode resolves to {projectDir}/pm", (t) => {
+  const { root, pmDir, cleanup } = withTempProject({});
+  t.after(cleanup);
+
+  execSync("git init", { cwd: pmDir, stdio: "pipe" });
+
+  const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
+  const paths = resolveCliPaths(root);
+
+  assert.equal(paths.pmDir, pmDir);
+  assert.equal(paths.dotPmDir, path.join(root, ".pm"));
+});
+
+test("resolveCliPaths: separate-repo with content at pm-repo-root (natural layout)", (t) => {
+  // Source repo with pm_repo config pointing to a separate KB repo.
+  // The KB repo itself is the git repo (no pm/ subdir inside it).
+  const { root: sourceRoot, cleanup: sourceCleanup } = withTempProject({});
+  const kbRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "kb-root-")));
+  t.after(() => {
+    sourceCleanup();
+    fs.rmSync(kbRoot, { recursive: true, force: true });
+  });
+
+  fs.mkdirSync(path.join(sourceRoot, ".pm"), { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, ".pm", "config.json"),
+    JSON.stringify({
+      config_schema: 2,
+      pm_repo: { type: "local", path: kbRoot },
+    })
+  );
+
+  // KB root is a git repo; no pm/ subdir inside
+  execSync("git init", { cwd: kbRoot, stdio: "pipe" });
+
+  const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
+  const paths = resolveCliPaths(sourceRoot);
+
+  // resolvePmDir returns {kbRoot}/pm; since that isn't a git repo, we fall
+  // back to kbRoot (which is a git repo).
+  assert.equal(paths.pmDir, kbRoot);
+  assert.equal(paths.dotPmDir, path.join(kbRoot, ".pm"));
+});
+
+test("resolveCliPaths: separate-repo with pm/ subdir (doc convention)", (t) => {
+  const { root: sourceRoot, cleanup: sourceCleanup } = withTempProject({});
+  const kbRootReal = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "kb-docconv-")));
+  t.after(() => {
+    sourceCleanup();
+    fs.rmSync(kbRootReal, { recursive: true, force: true });
+  });
+
+  fs.mkdirSync(path.join(sourceRoot, ".pm"), { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, ".pm", "config.json"),
+    JSON.stringify({
+      config_schema: 2,
+      pm_repo: { type: "local", path: kbRootReal },
+    })
+  );
+
+  // Create pm/ subdir inside KB root and init git there
+  const pmSubdir = path.join(kbRootReal, "pm");
+  fs.mkdirSync(pmSubdir, { recursive: true });
+  execSync("git init", { cwd: pmSubdir, stdio: "pipe" });
+
+  const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
+  const paths = resolveCliPaths(sourceRoot);
+
+  // pm/ is itself a git repo, so we sync pm/ directly
+  assert.equal(paths.pmDir, pmSubdir);
+  assert.equal(paths.dotPmDir, path.join(kbRootReal, ".pm"));
+});
+
 test("writeSyncStatus writes correctly shaped JSON with git backend", (t) => {
   const { root, cleanup } = withTempProject({});
   t.after(cleanup);

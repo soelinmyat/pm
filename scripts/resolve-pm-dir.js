@@ -78,7 +78,39 @@ function tryConfigBased(configRoot) {
     return null;
   }
 
-  return path.join(resolvedRoot, "pm");
+  // Prefer the nested `{root}/pm/` convention when that subdir exists.
+  // Otherwise, if the root itself has KB content markers (flat layout),
+  // treat the root as the content dir. Fall back to the nested path so
+  // fresh/empty separate-repo setups still match the documented convention.
+  const nested = path.join(resolvedRoot, "pm");
+  if (fs.existsSync(nested)) return nested;
+
+  const flatMarkers = ["backlog", "evidence", "insights", "thinking", "memory.md", "strategy.md"];
+  const isFlatLayout = flatMarkers.some((name) => fs.existsSync(path.join(resolvedRoot, name)));
+  if (isFlatLayout) return resolvedRoot;
+
+  return nested;
+}
+
+// Resolve both the content dir and the .pm state dir, accounting for flat vs
+// nested layouts. In the nested convention, `.pm/` lives alongside `pm/` at
+// the PM repo root; in the flat layout, `.pm/` lives inside the content dir.
+function resolvePmPaths(projectDir, options = {}) {
+  const pmDir = resolvePmDir(projectDir, options);
+  const innerDotPm = path.join(pmDir, ".pm");
+  const parentDotPm = path.join(path.dirname(pmDir), ".pm");
+
+  let pmStateDir;
+  if (fs.existsSync(innerDotPm)) {
+    pmStateDir = innerDotPm;
+  } else if (fs.existsSync(parentDotPm)) {
+    pmStateDir = parentDotPm;
+  } else {
+    // Neither exists yet (fresh setup) — default to the nested convention.
+    pmStateDir = parentDotPm;
+  }
+
+  return { pmDir, pmStateDir };
 }
 
 function resolvePmDir(projectDir, options = {}) {
@@ -104,14 +136,24 @@ function resolvePmDir(projectDir, options = {}) {
 
 module.exports = {
   resolvePmDir,
+  resolvePmPaths,
   tryConfigBased,
   defaultGitCommonDir,
 };
 
 if (require.main === module) {
-  const projectDir = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
+  const args = process.argv.slice(2);
+  const jsonFlagIdx = args.indexOf("--json");
+  const wantJson = jsonFlagIdx !== -1;
+  if (wantJson) args.splice(jsonFlagIdx, 1);
+
+  const projectDir = args[0] ? path.resolve(args[0]) : process.cwd();
   try {
-    process.stdout.write(resolvePmDir(projectDir) + "\n");
+    if (wantJson) {
+      process.stdout.write(JSON.stringify(resolvePmPaths(projectDir)) + "\n");
+    } else {
+      process.stdout.write(resolvePmDir(projectDir) + "\n");
+    }
   } catch (err) {
     process.stderr.write(`Error: ${err.message}\n`);
     process.exit(1);

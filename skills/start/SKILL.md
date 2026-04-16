@@ -67,10 +67,11 @@ PM can run in two modes:
 
 2. **If config contains `pm_repo.path`** (running from a source repo pointing to a separate PM repo):
    - Resolve `pm_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
-   - Set `pm_dir` = `{resolved_pm_repo_path}/pm`
+   - Prefer the nested layout: if `{resolved_pm_repo_path}/pm/` exists, set `pm_dir` = `{resolved_pm_repo_path}/pm`. Otherwise, if the PM repo root itself holds KB content (`backlog/`, `evidence/`, `memory.md`, `insights/`, `thinking/`, or `strategy.md` at the root), use the flat layout and set `pm_dir` = `{resolved_pm_repo_path}`. If neither is true (empty/fresh separate-repo setup), default to the nested path.
    - Set `pm_state_dir` = `{resolved_pm_repo_path}/.pm`
    - Set `source_dir` = `{cwd}`
-   - Validate the resolved PM repo path exists (`test -d {resolved_pm_repo_path}/pm`). If it does not exist, warn: "PM repo at {resolved_pm_repo_path} not found. Run `pm:setup` to update." Do not crash — fall through to bootstrap offer.
+   - Validate the resolved PM repo path exists (`test -d {resolved_pm_repo_path}`). If it does not exist, warn: "PM repo at {resolved_pm_repo_path} not found. Run `pm:setup` to update." Do not crash — fall through to bootstrap offer.
+   - Prefer running `node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json {cwd}` to get both paths from a single source of truth.
 
 3. **If config contains `source_repo.path`** (running from the PM repo pointing to a separate source repo):
    - Resolve `source_repo.path` relative to the directory containing `.pm/config.json` (i.e., relative to `.pm/`)
@@ -105,7 +106,7 @@ These two paragraphs are the single source of truth for path fallback logic. The
 
 **pm_dir fallback:** "If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path."
 
-**pm_state_dir fallback:** "If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory."
+**pm_state_dir fallback:** "If `pm_state_dir` is not in conversation context, locate `.pm/` relative to `pm_dir`: if `{pm_dir}/.pm/` exists, use it (flat layout); otherwise use `.pm` at `pm_dir`'s parent (nested layout — e.g., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). Equivalently, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json` to get both paths in one call. This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory."
 
 ### Structural Enforcement
 

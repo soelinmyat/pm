@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -317,10 +318,33 @@ function writeSyncStatus(dotPmDir, result) {
 // CLI entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the git repo to sync and the .pm state dir for CLI invocation.
+ *
+ * Supports both same-repo and separate-repo layouts:
+ * - Same-repo: `{projectDir}/pm/` is its own git repo → sync that dir.
+ * - Separate-repo nested: `{pm-repo-root}/pm/` holds content; `.git` lives at
+ *   the pm-repo-root → sync the pm-repo-root.
+ * - Separate-repo flat: content sits directly at `{pm-repo-root}/`; `.git` also
+ *   at the root → sync the pm-repo-root.
+ */
+function resolveCliPaths(projectDir) {
+  const { pmDir: pmContentDir, pmStateDir } = resolvePmPaths(projectDir);
+
+  // Prefer the pm-content dir if it is itself a git repo. Otherwise fall back
+  // to its parent (separate-repo layouts where the PM repo root holds `.git`).
+  let pmDir = pmContentDir;
+  if (!isGitRepo(pmContentDir) && isGitRepo(path.dirname(pmContentDir))) {
+    pmDir = path.dirname(pmContentDir);
+  }
+
+  return { pmDir, dotPmDir: pmStateDir };
+}
+
 if (require.main === module) {
   const mode = process.argv[2];
-  const pmDir = path.join(process.env.CLAUDE_PROJECT_DIR || ".", "pm");
-  const dotPmDir = path.join(process.env.CLAUDE_PROJECT_DIR || ".", ".pm");
+  const projectDir = path.resolve(process.env.CLAUDE_PROJECT_DIR || ".");
+  const { pmDir, dotPmDir } = resolveCliPaths(projectDir);
 
   if (mode === "push") {
     const result = push(pmDir);
@@ -369,4 +393,5 @@ module.exports = {
   pull,
   status,
   writeSyncStatus,
+  resolveCliPaths,
 };
