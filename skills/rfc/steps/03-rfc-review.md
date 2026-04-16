@@ -24,13 +24,50 @@ Review this engineering RFC for architecture soundness and risk.
 {PROJECT_CONTEXT}
 ```
 
-**Review as @tester:**
+**Review as @tester (BLOCKING — scoped to Test Strategy + Test hooks only):**
 
 ```text
-Review this engineering RFC for testing strategy and coverage.
+Review this engineering RFC **only** for Test Strategy completeness and per-issue Test hooks validity. Do NOT review architecture, code quality, or complexity — those belong to the other reviewers.
 
 **RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
 **Proposal for reference:** {pm_dir}/backlog/{slug}.md
+**Test principles reference:** Read `skills/dev/test-layers.md` before reviewing. This file defines the inside-out TDD order, platform × layer matrix, contract sync gate, and per-layer principles that the Test Strategy section must ground in.
+
+## Your review checklist
+
+### 1. Test Strategy section completeness
+
+The RFC must have a Test Strategy section with five subsections. Check each:
+
+| Subsection | What to verify |
+|---|---|
+| **Test levels in scope** | Names specific layers from the platform × layer matrix in `test-layers.md`. Not vague ("we'll add tests") — names concrete layers (e.g., "unit", "integration", "E2E"). |
+| **New test infrastructure** | Lists any new fixtures, mocks, helpers, or contract sync setup this RFC requires. "None" is valid if justified. |
+| **Regression surface** | Names existing tests or test areas that must not break. Empty is a blocking finding for any M/L/XL RFC. |
+| **Verification commands** | Lists the project's test commands (from AGENTS.md). Must not be empty. |
+| **Open test questions** | Lists unresolved testing questions or explicitly states there are none. |
+
+**Blocking finding** if: any subsection is missing, empty, or contains only vague placeholder text that does not ground in `test-layers.md` principles.
+
+### 2. Per-issue Test hooks
+
+Each issue card in the RFC should have a Test hooks field that traces to specific Test Strategy subsections. Check each issue:
+
+- The Test hooks field exists and is not empty.
+- Each hook references a real subsection from the Test Strategy section (not invented subsection names).
+- Hooks trace to the issue's own Acceptance Criteria — a hook that doesn't connect to any AC in that issue is a blocking finding.
+- Reject hook lists that just copy every subsection name verbatim without specificity (checkbox theater).
+
+**Blocking finding** if: an issue has no Test hooks field, hooks reference nonexistent subsections, or hooks don't trace to the issue's ACs.
+
+### 3. Scope limit
+
+Do NOT raise findings about:
+- Architecture decisions (that's @adversarial-engineer's scope)
+- Code complexity or maintainability (that's @staff-engineer's scope)
+- Implementation approach (unless it directly contradicts test-layers.md principles)
+
+Return your findings as **Blocking** (not Advisory) when Test Strategy subsections are incomplete/vague or when hooks don't trace to real subsections. Advisory items are appropriate only for minor suggestions that don't affect test coverage completeness.
 
 ## Project Context
 {PROJECT_CONTEXT}
