@@ -12,15 +12,23 @@ If `pm_dir` is not in conversation context, run:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js
 ```
 
-The helper prints the resolved `pm/` directory to stdout. It handles:
+The helper prints the resolved content directory to stdout. Pass `--json` to get both `pm_dir` and `pm_state_dir` in one call:
 
-1. **Separate-repo mode** — reads `.pm/config.json` at cwd and follows `pm_repo.path` to the PM knowledge base (e.g. a sibling `app-pm/` repo).
-2. **Worktree walk** — if cwd is inside a git worktree whose main repo lives elsewhere, it reads the **main repo's** `.pm/config.json`. This matters because `.pm/` is gitignored, so worktrees never carry the config themselves.
-3. **Same-repo fallback** — returns `{cwd}/pm` when no separate-repo config is found.
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json
+# → {"pmDir":"...","pmStateDir":"..."}
+```
+
+It handles:
+
+1. **Separate-repo mode — nested layout** — reads `.pm/config.json` at cwd, follows `pm_repo.path` to the PM repo, and returns `{pm-repo-root}/pm` when that subdir exists.
+2. **Separate-repo mode — flat layout** — if the PM repo root has KB content markers at its root (`backlog/`, `evidence/`, `memory.md`, `insights/`, `thinking/`, or `strategy.md`) and no `pm/` subdir, the PM repo root itself is the content dir.
+3. **Worktree walk** — if cwd is inside a git worktree whose main repo lives elsewhere, it reads the **main repo's** `.pm/config.json`. This matters because `.pm/` is gitignored, so worktrees never carry the config themselves.
+4. **Same-repo fallback** — returns `{cwd}/pm` when no separate-repo config is found.
 
 If the helper exits non-zero (e.g. an unsupported `pm_repo.type`), surface the error and tell the user: 'Run `/pm:setup separate-repo` to configure paths.' Do not proceed without a valid path.
 
-If `pm_state_dir` is not in conversation context, use `.pm` at the same location as `pm_dir`'s parent (i.e., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory.
+If `pm_state_dir` is not in conversation context, locate `.pm/` relative to `pm_dir`: prefer `{pm_dir}/.pm/` if it exists (flat layout), otherwise use `.pm` at `pm_dir`'s parent (nested layout — if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). The `--json` invocation above returns the correct path directly.
 
 ---
 
