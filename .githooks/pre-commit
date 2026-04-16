@@ -82,10 +82,11 @@ if [[ -n "$STAGED_JS" ]]; then
   fi
 fi
 
-# --- Prettier format check on staged files ---
+# --- Prettier auto-fix on staged files ---
 if [[ -n "$STAGED_FMT" ]]; then
   if command -v npx > /dev/null 2>&1 && [[ -f ".prettierrc" ]]; then
-    echo "$STAGED_FMT" | xargs npx --no-install prettier --check
+    echo "$STAGED_FMT" | xargs npx --no-install prettier --write
+    echo "$STAGED_FMT" | xargs git add
   fi
 fi
 
