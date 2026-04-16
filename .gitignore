@@ -8,6 +8,9 @@ pm/
 # Versioned release snapshots (build artifacts)
 1.0.*/
 
+# Claude Code workspace files
+.claude/
+
 # Git worktrees created inside repo
 .worktrees/
 
