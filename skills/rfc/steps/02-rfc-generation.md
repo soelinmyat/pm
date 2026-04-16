@@ -47,6 +47,8 @@ SPEC_COMPLETE
 
 For raw M/L/XL specs, dispatch spec reviewers (UX, Product, Competitive) from `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/spec-reviewers.md`. Fix blocking issues, commit.
 
+<!-- Test Strategy is owned by the parent RFC generator (Phase 1 prompt below); design workers do not emit Test hooks. -->
+
 Groomed sub-issues skip this step — their proposal is sufficient context.
 
 ### RFC generation prompt
@@ -73,6 +75,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html for the HTML 
 Read ${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md for section content guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/splitting-patterns.md for issue splitting guidance.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md for writing conventions.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/test-layers.md for test layer routing principles (inside-out TDD order, platform × layer matrix, per-layer guidance).
 
 {IF SUB-ISSUES EXIST:}
 **Sub-issues (each becomes an Issue section in the RFC):**
@@ -91,6 +94,9 @@ further or merge trivial ones if the technical structure warrants it.
 The RFC may produce multiple Issues if the work naturally splits. Use splitting-patterns.md.
 A single Issue is fine if the work is genuinely one concern.
 {END IF}
+
+**Test Strategy requirements:**
+The RFC must include a complete Test Strategy section between Risks and Issues. Read `rfc-template.md` (already in your reading list above) for the canonical subsection schema — fill every subsection. Ground the strategy in the test-layers.md principles you read above. Each Issue must include a `Test hooks:` field that names which Test Strategy subsections the issue exercises and traces them to specific ACs. Do not list hooks that the issue does not actually exercise.
 
 Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
 Commit the RFC, then end your response with:
