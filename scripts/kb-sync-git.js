@@ -9,12 +9,34 @@ const { resolvePmPaths } = require("./resolve-pm-dir.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
+const GIT_ENV_KEYS_TO_CLEAR = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_PREFIX",
+  "GIT_SUPER_PREFIX",
+];
+
+function buildGitEnv(extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+  // Git hooks export repo-scoped env vars that can hijack child git commands.
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+    delete env[key];
+  }
+  return env;
+}
+
 function run(cmd, opts = {}) {
+  const { env, ...rest } = opts;
   return execSync(cmd, {
     encoding: "utf8",
     timeout: 30000,
     stdio: ["pipe", "pipe", "pipe"],
-    ...opts,
+    env: buildGitEnv(env),
+    ...rest,
   }).trim();
 }
 
