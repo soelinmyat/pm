@@ -85,6 +85,14 @@ Auto-merge: {armed / unavailable (manual merge required)}
 
 Iterate until all gates are green or the agent is stuck. Check all gates each iteration.
 
+### Guiding principle: work first, wait last
+
+Always drain actionable work before blocking on CI. Bot review comments (CodeRabbit, Codex, dependabot, etc.) typically land within 5–10 minutes of push — well before most CI runs finish. If the agent waits for CI first, those comments sit idle and the total wall time doubles.
+
+**First iteration runs immediately after push.** No initial wait. Fetch PR state + thread list + review decision in one pass, act on anything actionable, *then* consider CI.
+
+**CI `--watch` is a last resort.** Only drop into blocking CI watch when gates 1–4 below are all clean. If a comment arrives mid-watch, the next iteration handles it.
+
 ### Gate checks (in priority order)
 
 **1. Merge conflicts**
@@ -99,29 +107,7 @@ If `DIRTY`:
 - Run tests to verify resolution
 - Commit and push
 
-**2. CI status**
-
-```bash
-gh pr checks --json name,state,conclusion
-```
-
-If any check failed:
-- Get failure logs: `gh run view [run-id] --log-failed`
-- Investigate root cause before fixing (don't guess)
-- Fix, commit, push
-- Wait for new CI run to complete
-
-If checks are pending:
-- Use `gh pr checks --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
-- Continue checking other gates (threads, reviews) while CI runs in the background.
-
-<HARD-GATE>
-NEVER poll CI status in a loop. Do NOT repeatedly call `gh pr checks` with sleep between calls.
-Use `gh pr checks --watch` (background) or `gh run watch [run-id] --exit-status` (background) instead.
-Tight polling wastes tokens, floods the terminal, and provides no benefit over `--watch`.
-</HARD-GATE>
-
-**3. Review comments**
+**2. Review comments**
 
 <HARD-GATE>
 NEVER resolve a comment thread without first reading and evaluating it.
@@ -175,11 +161,11 @@ mutation {
 
 **IMPORTANT:** Use the `/replies` sub-endpoint on the comment ID. Do NOT use `-F in_reply_to_id=` on the top-level comments endpoint — it returns 422.
 
-**4. Unresolved conversations (branch protection blocker)**
+**3. Unresolved conversations (branch protection blocker)**
 
 Many repos require all PR conversations to be resolved before merging. Unresolved threads block merge even when CI passes and reviews are approved.
 
-After resolving threads in Gate 3, verify the count:
+After resolving threads in Gate 2, verify the count:
 
 ```bash
 # Count remaining unresolved threads
@@ -195,17 +181,81 @@ query {
 }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
 ```
 
-If count > 0: these are blocking merge. Loop back to Gate 3 to address remaining threads. Do NOT report "needs approval" when the actual blocker is unresolved conversations.
+<HARD-GATE>
+If unresolved thread count > 0, the blocker is **unresolved conversations**, NOT missing review approval. Do NOT interpret this state as "needs user review" or ask the user to approve — loop back to Gate 2 and resolve the remaining threads. Only escalate to the user when a specific thread falls into the design/taste category (Gate 2 table).
 
-**5. Review approval**
+The single most common misdiagnosis in this loop: seeing `mergeStateStatus: BLOCKED` and reporting "waiting on reviewer" when the actual cause is N unresolved threads.
+</HARD-GATE>
+
+**4. Review approval**
 
 ```bash
 gh pr view --json reviewDecision --jq .reviewDecision
 ```
 
-If `CHANGES_REQUESTED` and all comment threads are resolved: the reviewer may need to re-approve. If threads are resolved and code is fixed, the fixes often satisfy the reviewer — wait for CI to pass, then check again.
+If `CHANGES_REQUESTED` and all comment threads are resolved: the reviewer may need to re-approve. If threads are resolved and code is fixed, the fixes often satisfy the reviewer — proceed to the CI gate, then re-check approval on the next iteration.
 
-If `REVIEW_REQUIRED` and no reviewers assigned: ask the user who should review.
+If `REVIEW_REQUIRED` and no reviewers assigned, fall back in this order before asking the user:
+
+1. **CODEOWNERS lookup** — check `CODEOWNERS` at repo root (or `.github/CODEOWNERS`, `docs/CODEOWNERS`). Find the first pattern matching any changed file. Request those owners:
+   ```bash
+   gh pr edit {PR_NUMBER} --add-reviewer {handle-or-team}
+   ```
+2. **Branch-protection check** — query whether review is actually required:
+   ```bash
+   gh api repos/{owner}/{repo}/branches/{DEFAULT_BRANCH}/protection 2>/dev/null \
+     | jq '.required_pull_request_reviews.required_approving_review_count // 0'
+   ```
+   If the count is `0` or the call returns 404 (no protection), review is not gating merge — log "Review gate: not required by branch protection" and treat this gate as green.
+3. **Ask user** — only if CODEOWNERS is absent/empty AND branch protection requires review. Format: `"No reviewers assigned and no CODEOWNERS match. Who should review PR #{N}?"`
+
+**5. CI status (last gate — only block here when 1–4 are clean)**
+
+```bash
+gh pr checks --json name,state,conclusion
+```
+
+If any check failed:
+
+*Flake guard (first failure only):* Before investigating, check the retry table in `.pm/dev-sessions/{slug}.md` for this signature. If Attempts == 0 (brand new failure), run one automatic rerun of the failed jobs and wait for the result before treating the failure as real:
+
+```bash
+gh run rerun {run-id} --failed
+```
+
+This costs one CI cycle but catches flakes cheaply. Record the rerun in the retry table as Attempts=1 with Last action `flake-guard rerun`. If the rerun passes, clear the row and proceed. If it fails again, treat as a real failure and move to diagnosis.
+
+*On real failure:*
+- Get failure logs: `gh run view [run-id] --log-failed`
+- Investigate root cause before fixing (don't guess)
+- Fix, commit, push
+- Return to Gate 1 on the next iteration (the push may produce new comments)
+
+If checks are pending **and** gates 1–4 are clean:
+- Use `gh pr checks --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
+
+If checks are pending **and** any of gates 1–4 is not clean:
+- Do NOT drop into `--watch`. Return to whichever earlier gate is actionable — CI will keep running on its own, and the next iteration picks it up.
+
+<HARD-GATE>
+NEVER poll CI status in a loop. Do NOT repeatedly call `gh pr checks` with sleep between calls.
+Use `gh pr checks --watch` (background) or `gh run watch [run-id] --exit-status` (background) instead.
+Tight polling wastes tokens, floods the terminal, and provides no benefit over `--watch`.
+</HARD-GATE>
+
+#### Wake-up cadence (when no tool provides blocking watch)
+
+Some runtimes can't background `gh pr checks --watch`. Use diminishing wake-ups instead of guessing one interval:
+
+| Iteration | Wait before next check |
+|-----------|-----------------------|
+| 1 (right after push) | 0 — check immediately |
+| 2 | 2 min |
+| 3 | 5 min |
+| 4 | 10 min |
+| 5+ | 20 min |
+
+Resets if new work happened (push, new comment). This adapts to both fast (2-min) and slow (20-min) CI without hardcoding either. Stop waiting entirely if the agent detects actionable work between wake-ups.
 
 ### Gate status report
 
@@ -214,23 +264,66 @@ After each iteration, print:
 ```
 Gate Check #{N}
   Conflicts:   ✓ clean
-  CI:          ✗ failing (attempt 2 — fixing lint error)
-  Threads:     ✓ 0 unresolved (3 resolved this cycle)
+  Comments:    ✓ 0 unresolved (3 resolved this cycle)
   Conversations: ✓ all resolved
-  Review:      ✓ approved
+  Review:      ✓ approved (or: not required by branch protection)
+  CI:          ⋯ pending (backgrounded --watch) | ✓ passing | ✗ failing (attempt 2 — fixing lint error)
   Auto-merge:  armed (will merge when CI passes)
 ```
 
 ### Stop conditions
 
-The agent stops fixing and asks the user when:
+The agent stops fixing and escalates to the user when:
 
 - **Same CI failure recurs after a fix** — the fix didn't work, human judgment needed
 - **Review comment requires a design decision** — can't be resolved by code alone
 - **Merge conflict can't be resolved** — complex conflict needs human understanding
 - **Reviewer explicitly blocks** — "do not merge until X" type comments
+- **Reviewer assignment failed** — CODEOWNERS empty AND branch protection requires review AND no default reviewer configured
 
-The agent does NOT stop after an arbitrary number of attempts. It keeps going as long as each fix addresses a different problem. For the same problem recurring: the agent gets two fix attempts before asking the user (the first fix might just be slightly wrong). Three total tries at the same problem (initial + 2 fixes), then escalate.
+The agent does NOT stop after an arbitrary number of attempts. It keeps going as long as each fix addresses a different problem. For the same problem recurring: the agent gets two fix attempts before escalating (the first fix might just be slightly wrong). Three total tries at the same problem (initial + 2 fixes), then escalate.
+
+#### Checkpointed retry budget
+
+Attempt counts are persisted to `.pm/dev-sessions/{slug}.md` under the **Merge Loop Retries** section (schema: `skills/dev/references/state-schema.md`). Each entry is keyed by `{gate}:{signature}` where signature is stable across iterations (e.g. failing test name, thread id, conflicted file path).
+
+Before each fix attempt:
+
+1. Compute the signature for the current problem.
+2. Read the retry table from the state file.
+3. If Attempts >= 3 on this signature: skip the fix, emit the structured Blocked line, and exit.
+4. Otherwise: increment Attempts, record Last action, continue.
+
+This survives agent restarts. A recovered agent reads the table and resumes counting from the persisted value rather than starting over.
+
+### Escalation format
+
+When the agent stops, it emits a single structured line — not freeform prose, not a question:
+
+```
+Blocked: {gate} — {reason} — tried: {what-was-attempted} — next: {specific-action-for-user}
+```
+
+Examples:
+
+```
+Blocked: ci — same lint failure recurred after 3 fix attempts — tried: removed unused import, renamed var, added eslint-disable — next: inspect src/auth/session.ts:42 and decide the right fix
+```
+
+```
+Blocked: review-comment — design call on modal vs drawer — tried: read comment + checked existing patterns — next: reply to thread {thread-id} with your preference
+```
+
+```
+Blocked: reviewer-assignment — no CODEOWNERS match for changed files AND branch protection requires 1 approval — tried: CODEOWNERS lookup returned 0 matches — next: assign reviewer manually: gh pr edit {N} --add-reviewer {handle}
+```
+
+Rules for the format:
+- `{gate}` is one of: `ci`, `review-comment`, `merge-conflict`, `reviewer-block`, `reviewer-assignment`.
+- `{reason}` is one short clause, no period.
+- `{tried}` enumerates concrete attempts (commits, lookups, fix descriptions) separated by commas.
+- `{next}` is a single action the user can take — ideally a command to paste — not "let me know what to do."
+- No follow-up question. The user responds by acting on `{next}` and re-invoking the loop.
 
 ---
 

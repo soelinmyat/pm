@@ -72,6 +72,10 @@ If none of the conditions above match (clean session: XS task, shipped clean, no
 
 For each matched event, follow the learning guidance in the table above: read the relevant session state section, identify the root cause or pattern, and write a **generalizable, actionable** one-liner that any future session could benefit from. Put session-specific details (counts, file names, specific error messages) into the `detail` field, not the `learning` field. Present the list to the user:
 
+**Autonomous default:** If `retro.auto_accept: true` in `{pm_state_dir}/config.json` (or the key is absent — auto-accept is the default), write the auto-extracted learnings directly without prompting. Log `retro: auto-accepted {N} learnings` and proceed. No user turn.
+
+**Interactive mode:** Only when `retro.auto_accept: false` is explicitly set, present the review prompt:
+
 > "Retro: {N} learning(s) extracted from this dev session:
 > 1. [{category}] {learning text}
 > 2. [{category}] {learning text}
@@ -176,7 +180,7 @@ Pass into that flow:
 - state source: `{source_dir}/.pm/dev-sessions/{slug}.md`
 - the key findings you extracted from the session
 
-If the findings are ambiguous and you cannot write them without guessing, ask the user to confirm or skip. Otherwise do the writeback automatically.
+If a specific finding is ambiguous and you cannot write it without guessing: skip that finding and log `retro: skipped ambiguous finding "{short label}"` in the state file. Do NOT ask the user mid-retro. Unambiguous findings still get written automatically. Retro never halts the flow — skipping one finding is better than pausing.
 
 If this writeback fails after you decided it should happen, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
 

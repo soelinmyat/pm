@@ -12,6 +12,15 @@ description: Quality gates — design critique, QA, code review, and verificatio
 
 Apply the right review, QA, and design critique depth for the task size so implementation does not ship without the required quality gates.
 
+<HARD-RULE>
+After the user approves the RFC (via /rfc), the orchestrator proceeds through all quality gates in this step — design critique, QA, code review, verification — without pausing. Do NOT ask "Ready for design critique?", "Proceed to QA?", "Continue with review?", or present options between gates.
+
+Only stop for:
+- QA verdict of **Blocked** (ask user for guidance)
+- Review findings that require a human design/product call
+- Test failures that can't be resolved after 3 attempts
+</HARD-RULE>
+
 ---
 
 ### Design critique (UI changes only)
