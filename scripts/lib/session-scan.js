@@ -106,8 +106,8 @@ function buildDevDescriptor(filePath, stat, text) {
   const currentSubIssue = bulletValue(text, "Current sub-issue");
 
   const cleanName = baseName.replace(/^(epic|bugfix)-/, "");
-  let label = ticket || cleanName;
-  if (parentTitle) label = `${ticket || cleanName}: ${parentTitle}`;
+  const topic = parentTitle || cleanName;
+  const label = ticket ? `${ticket}: ${topic}` : topic;
 
   let summary = `delivery in progress: ${label} (${stage})`;
   if (currentSubIssue) {
@@ -117,7 +117,7 @@ function buildDevDescriptor(filePath, stat, text) {
   return {
     kind: "dev",
     filePath,
-    topic: label,
+    topic,
     stage,
     updated: "",
     updatedEpoch: Math.floor(stat.mtimeMs / 1000),

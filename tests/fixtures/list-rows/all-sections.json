@@ -2,7 +2,7 @@
   "active": [
     {
       "shortId": "ENG-99",
-      "topic": "ENG-99",
+      "topic": "ship-widget",
       "kind": "dev",
       "phase": "implement",
       "phaseLabel": "Implementation",
