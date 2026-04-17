@@ -416,6 +416,41 @@ test("buildStatus detects groom session from source-side .pm/ in separate-repo m
   }
 });
 
+test("buildStatus detects groom session from source-side .pm/ in FLAT-layout separate-repo mode", () => {
+  // Flat-layout: the PM repo's root *is* the KB dir (no nested pm/ subdir).
+  // This previously mis-resolved pmStateDir because start-status.js hand-rolled
+  // `path.dirname(pmDir) + "/.pm"` instead of going through resolvePmPaths().
+  // With sessions-source-side + lib/session-scan.js, it should just work.
+  const project = createProject();
+  const pmRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-flat-"));
+  try {
+    // Flat layout marker: backlog/ at the root, no nested pm/ dir.
+    fs.mkdirSync(path.join(pmRepoDir, "backlog"), { recursive: true });
+    fs.mkdirSync(path.join(pmRepoDir, ".pm"), { recursive: true });
+
+    const configDir = path.join(project.root, ".pm");
+    const relPath = path.relative(configDir, pmRepoDir);
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: relPath } })
+    );
+
+    project.write(
+      ".pm/groom-sessions/active.md",
+      ["---", "topic: Flat-layout topic", "phase: scope", "updated: 2026-04-11", "---", ""].join(
+        "\n"
+      )
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.active && status.active.kind, "groom");
+    assert.equal(status.focus, "groom in progress: Flat-layout topic (scope)");
+  } finally {
+    fs.rmSync(pmRepoDir, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
 test("renderTextStatus includes cached update guidance when requested", () => {
   const project = createProject();
   try {

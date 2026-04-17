@@ -8,6 +8,17 @@ const { classifyEpoch } = require("./kb-health-thresholds.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseNotesFile } = require("./note-helpers.js");
 const { resolvePmDir } = require("./resolve-pm-dir.js");
+const { emitListRows } = require("./lib/list-rows.js");
+const {
+  listGroomSessions,
+  listDevSessions,
+  pickMostRecent,
+  safeRead,
+  fileExists,
+  frontmatterValue,
+  dateToEpoch,
+  listMarkdownFiles,
+} = require("./lib/session-scan.js");
 
 function parseArgs(argv) {
   const options = {
@@ -30,82 +41,6 @@ function parseArgs(argv) {
   }
 
   return options;
-}
-
-function safeRead(filePath) {
-  try {
-    return fs.readFileSync(filePath, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-function safeStat(filePath) {
-  try {
-    return fs.statSync(filePath);
-  } catch {
-    return null;
-  }
-}
-
-function fileExists(filePath) {
-  try {
-    fs.accessSync(filePath, fs.constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function extractFrontmatter(text) {
-  const match = text.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
-  return match ? match[1] : "";
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function frontmatterValue(text, key) {
-  const frontmatter = extractFrontmatter(text);
-  if (!frontmatter) {
-    return "";
-  }
-
-  const match = frontmatter.match(new RegExp(`^${escapeRegExp(key)}:\\s*"?([^"\\n]+)"?$`, "m"));
-  return match ? match[1].trim() : "";
-}
-
-function markdownTableValue(text, field) {
-  const match = text.match(
-    new RegExp(`^\\|\\s*${escapeRegExp(field)}\\s*\\|\\s*(.*?)\\s*\\|$`, "m")
-  );
-  return match ? match[1].trim() : "";
-}
-
-function bulletValue(text, label) {
-  const match = text.match(new RegExp(`^-\\s*${escapeRegExp(label)}:\\s*(.+)$`, "m"));
-  return match ? match[1].trim() : "";
-}
-
-function dateToEpoch(dateStr) {
-  if (!dateStr) {
-    return 0;
-  }
-
-  const parsed = Date.parse(dateStr);
-  return Number.isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
-}
-
-function listMarkdownFiles(dirPath) {
-  if (!fileExists(dirPath)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(dirPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => path.join(dirPath, entry.name));
 }
 
 function listMarkdownFilesRecursive(dirPath) {
@@ -656,118 +591,12 @@ function timeAgo(isoString) {
   return `${diffDays}d ago`;
 }
 
-function detectGroomSession(runtimeDir) {
-  const sessionsDir = path.join(runtimeDir, "groom-sessions");
-  const candidates = [];
-
-  if (fileExists(sessionsDir)) {
-    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md")) {
-        candidates.push(path.join(sessionsDir, entry.name));
-      }
-    }
-  }
-
-  const legacyPath = path.join(runtimeDir, ".groom-state.md");
-  if (fileExists(legacyPath)) {
-    candidates.push(legacyPath);
-  }
-
-  let best = null;
-  for (const filePath of candidates) {
-    const stat = safeStat(filePath);
-    if (!stat) {
-      continue;
-    }
-    const text = safeRead(filePath);
-    const topic = frontmatterValue(text, "topic") || path.basename(filePath, ".md");
-    const phase = frontmatterValue(text, "phase") || "active";
-    const updated = frontmatterValue(text, "updated");
-    const updatedEpoch = dateToEpoch(updated) || Math.floor(stat.mtimeMs / 1000);
-    const session = {
-      kind: "groom",
-      filePath,
-      topic,
-      stage: phase,
-      updated,
-      updatedEpoch,
-      summary: `groom in progress: ${topic} (${phase})`,
-      next: `resume grooming (${topic})`,
-    };
-    if (!best || session.updatedEpoch > best.updatedEpoch) {
-      best = session;
-    }
-  }
-
-  return best;
+function detectGroomSession(sourceDir) {
+  return pickMostRecent(listGroomSessions({ sourceDir }));
 }
 
-function describeDevSession(filePath, text, stat) {
-  const baseName = path.basename(filePath, ".md");
-  const stage = markdownTableValue(text, "Stage") || bulletValue(text, "Stage") || "active";
-  const nextAction = bulletValue(text, "Next action");
-  const ticket = markdownTableValue(text, "Ticket") || markdownTableValue(text, "Parent Issue");
-  const parentTitle = markdownTableValue(text, "Parent Title");
-  const currentSubIssue = bulletValue(text, "Current sub-issue");
-
-  const cleanName = baseName.replace(/^(epic|bugfix)-/, "");
-  let label = ticket || cleanName;
-  if (parentTitle) {
-    label = `${ticket || cleanName}: ${parentTitle}`;
-  }
-
-  let summary = `delivery in progress: ${label} (${stage})`;
-  if (currentSubIssue) {
-    summary = `delivery in progress: ${label} — ${currentSubIssue} (${stage})`;
-  }
-
-  return {
-    kind: "dev",
-    filePath,
-    stage,
-    updated: "",
-    updatedEpoch: Math.floor(stat.mtimeMs / 1000),
-    summary,
-    next: nextAction || "resume active delivery work",
-  };
-}
-
-function detectDevSession(projectDir, runtimeDir) {
-  const sessionsDir = path.join(runtimeDir, "dev-sessions");
-  const candidates = [];
-
-  if (fileExists(sessionsDir)) {
-    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) {
-        continue;
-      }
-      candidates.push(path.join(sessionsDir, entry.name));
-    }
-  }
-
-  const legacyFiles = listMarkdownFiles(projectDir).filter((filePath) => {
-    const name = path.basename(filePath);
-    return name.startsWith(".dev-state-") || name.startsWith(".dev-epic-state-");
-  });
-  candidates.push(...legacyFiles);
-
-  let best = null;
-
-  for (const filePath of candidates) {
-    const stat = safeStat(filePath);
-    if (!stat) {
-      continue;
-    }
-
-    const text = safeRead(filePath);
-
-    const session = describeDevSession(filePath, text, stat);
-    if (!best || session.updatedEpoch > best.updatedEpoch) {
-      best = session;
-    }
-  }
-
-  return best;
+function detectDevSession(sourceDir) {
+  return pickMostRecent(listDevSessions({ sourceDir }));
 }
 
 function buildStatus(projectDir, options) {
@@ -931,8 +760,8 @@ function buildStatus(projectDir, options) {
     }
   }
 
-  const groomSession = detectGroomSession(runtimeDir);
-  const devSession = detectDevSession(projectDir, runtimeDir);
+  const groomSession = detectGroomSession(projectDir);
+  const devSession = detectDevSession(projectDir);
   const active = (() => {
     if (devSession && groomSession) {
       return devSession.updatedEpoch >= groomSession.updatedEpoch ? devSession : groomSession;
@@ -1141,6 +970,12 @@ function renderTextStatus(status, options = {}) {
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const projectDir = path.resolve(options.projectDir);
+
+  if (options.format === "list-rows") {
+    process.stdout.write(`${JSON.stringify(emitListRows(projectDir))}\n`);
+    return;
+  }
+
   const status = buildStatus(projectDir);
 
   if (options.format === "text") {

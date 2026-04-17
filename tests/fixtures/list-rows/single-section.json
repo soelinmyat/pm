@@ -1,0 +1,26 @@
+{
+  "active": [
+    {
+      "shortId": "PM-45",
+      "topic": "list-active-work",
+      "kind": "groom",
+      "phase": "scope",
+      "phaseLabel": "Scoping",
+      "updatedEpoch": 1776340800,
+      "ageRelative": "12h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:groom resume PM-45",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/groom-sessions/list-active-work.md"
+    }
+  ],
+  "proposals": [],
+  "rfcs": [],
+  "shipped": [],
+  "meta": {
+    "pmDir": "<pmDir>",
+    "pmStateDir": "<pmStateDir>",
+    "sourceDir": "<sourceDir>",
+    "generatedAt": "2026-04-17T00:00:00.000Z"
+  }
+}

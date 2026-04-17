@@ -1,0 +1,109 @@
+{
+  "active": [
+    {
+      "shortId": "ENG-99",
+      "topic": "ship-widget",
+      "kind": "dev",
+      "phase": "implement",
+      "phaseLabel": "Implementation",
+      "updatedEpoch": 1776380400,
+      "ageRelative": "1h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:dev resume ENG-99",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/dev-sessions/epic-ship-widget.md"
+    },
+    {
+      "shortId": "g/add-auth",
+      "topic": "add-auth",
+      "kind": "groom",
+      "phase": "active",
+      "phaseLabel": "In progress",
+      "updatedEpoch": 1776376800,
+      "ageRelative": "2h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:groom resume g/add-auth",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/groom-sessions/add-auth.md"
+    },
+    {
+      "shortId": "r/search-v2",
+      "topic": "search-v2",
+      "kind": "rfc",
+      "phase": "rfc-generation",
+      "phaseLabel": "RFC generation",
+      "updatedEpoch": 1776362400,
+      "ageRelative": "6h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:rfc resume r/search-v2",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/rfc-sessions/search-v2.md"
+    },
+    {
+      "shortId": "t/taxonomy",
+      "topic": "taxonomy",
+      "kind": "think",
+      "phase": "active",
+      "phaseLabel": "Thinking",
+      "updatedEpoch": 1776297600,
+      "ageRelative": "yesterday",
+      "staleness": "default",
+      "resumeHint": "/pm:think resume t/taxonomy",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/think-sessions/taxonomy.md"
+    }
+  ],
+  "proposals": [
+    {
+      "shortId": "p/new-feature",
+      "topic": "New feature",
+      "kind": "proposal",
+      "phase": "planned",
+      "phaseLabel": "Planned",
+      "updatedEpoch": 1775779200,
+      "ageRelative": "7d ago",
+      "staleness": "stale",
+      "resumeHint": "/pm:rfc p/new-feature",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/new-feature.md"
+    }
+  ],
+  "rfcs": [
+    {
+      "shortId": "PM-30",
+      "topic": "Rewrite API",
+      "kind": "rfc",
+      "phase": "planned",
+      "phaseLabel": "Planned",
+      "updatedEpoch": 1776124800,
+      "ageRelative": "3d ago",
+      "staleness": "default",
+      "resumeHint": "/pm:dev PM-30",
+      "linkage": {
+        "rfc": "rfcs/rewrite-api.html"
+      },
+      "sourcePath": "<pmDir>/backlog/rewrite-api.md"
+    }
+  ],
+  "shipped": [
+    {
+      "shortId": "s/older-win",
+      "topic": "Older win",
+      "kind": "shipped",
+      "phase": "shipped",
+      "phaseLabel": "Shipped",
+      "updatedEpoch": 1775001600,
+      "ageRelative": "16d ago",
+      "staleness": "stale",
+      "resumeHint": "view s/older-win",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/older-win.md"
+    }
+  ],
+  "meta": {
+    "pmDir": "<pmDir>",
+    "pmStateDir": "<pmStateDir>",
+    "sourceDir": "<sourceDir>",
+    "generatedAt": "2026-04-17T00:00:00.000Z"
+  }
+}
