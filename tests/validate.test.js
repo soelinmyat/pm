@@ -978,12 +978,13 @@ test("real pm/ directory passes validation", (t) => {
 // PM-170 Issue 3: Plugin registration — commands, agents, stale references
 // ---------------------------------------------------------------------------
 
-test("PM-170: plugin.config.json has exactly 17 commands (no merge, no features, has sync, note, ideate, rfc, simplify, list, and review)", () => {
+test("PM-170: plugin.config.json has exactly 18 commands (no merge, has features, sync, note, ideate, rfc, simplify, list, and review)", () => {
   const configPath = path.join(__dirname, "..", "plugin.config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
   const expected = [
     "dev",
+    "features",
     "groom",
     "ideate",
     "ingest",
@@ -1009,7 +1010,7 @@ test("PM-170: plugin.config.json has exactly 17 commands (no merge, no features,
   );
 
   assert.ok(!config.commands.includes("merge"), "merge command must be removed");
-  assert.ok(!config.commands.includes("features"), "features command must be removed");
+  assert.ok(config.commands.includes("features"), "features command must be present");
   assert.ok(config.commands.includes("sync"), "sync command must be present");
   assert.ok(config.commands.includes("note"), "note command must be present");
   assert.ok(config.commands.includes("list"), "list command must be present");

@@ -25,6 +25,7 @@
   ],
   "commands": [
     "dev",
+    "features",
     "groom",
     "ideate",
     "ingest",
@@ -56,6 +57,7 @@
         "list",
         "note",
         "refresh",
+        "features",
         "rfc",
         "sync",
         "dev",

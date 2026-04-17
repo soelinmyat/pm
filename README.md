@@ -165,6 +165,7 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 
 | Command | What it does |
 |---|---|
+| `/pm:features` | Scan the codebase and write `pm/product/features.md` so PM knows what the product already does |
 | `/pm:ingest <path>` | Import customer evidence from files or folders |
 | `/pm:note` | Quick-capture product observations and customer signals |
 | `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
