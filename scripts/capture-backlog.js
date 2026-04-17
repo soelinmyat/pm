@@ -8,8 +8,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { writeMarkdown, todayIso } = require("./kb-utils.js");
+const { nextBacklogId } = require("./note-helpers.js");
 
 const PREFERRED_KEYS = [
   "type",
@@ -30,26 +30,6 @@ function slugify(title) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-}
-
-function nextBacklogId(pmDir, prefix = "PM") {
-  const backlogDir = path.join(pmDir, "backlog");
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
-  let maxN = 0;
-  if (fs.existsSync(backlogDir)) {
-    for (const entry of fs.readdirSync(backlogDir)) {
-      if (!entry.endsWith(".md")) continue;
-      const full = path.join(backlogDir, entry);
-      if (!fs.statSync(full).isFile()) continue;
-      const parsed = parseFrontmatter(fs.readFileSync(full, "utf8"));
-      const id = parsed.data && parsed.data.id;
-      if (id && pattern.test(String(id))) {
-        const n = parseInt(String(id).match(pattern)[1], 10);
-        if (n > maxN) maxN = n;
-      }
-    }
-  }
-  return `${prefix}-${String(maxN + 1).padStart(3, "0")}`;
 }
 
 function captureBacklogItem(pmDir, opts) {

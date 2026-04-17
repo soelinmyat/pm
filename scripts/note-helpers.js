@@ -272,4 +272,5 @@ module.exports = {
   writeNote,
   parseNotesFile,
   promoteNoteToIdea,
+  nextBacklogId,
 };
