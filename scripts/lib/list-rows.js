@@ -3,6 +3,7 @@
 const path = require("path");
 
 const { resolvePmPaths } = require("../resolve-pm-dir.js");
+const { parseFrontmatter } = require("../kb-frontmatter.js");
 const {
   listGroomSessions,
   listRfcSessions,
@@ -12,7 +13,6 @@ const {
   safeRead,
   safeStat,
   dateToEpoch,
-  frontmatterValue,
 } = require("./session-scan.js");
 const { classifyListAge } = require("../list-thresholds.js");
 const { phaseLabel } = require("../phase-labels.js");
@@ -32,9 +32,7 @@ function formatAgeRelative(ageSecs) {
   return `${days}d ago`;
 }
 
-function resumeHintForSession(descriptor) {
-  const { kind } = descriptor;
-  const id = descriptor.shortId;
+function resumeHintForSession(kind, id) {
   if (kind === "groom") return `/pm:groom resume ${id}`;
   if (kind === "rfc") return `/pm:rfc resume ${id}`;
   if (kind === "dev") return `/pm:dev resume ${id}`;
@@ -49,15 +47,14 @@ function resumeHintForBacklog(kind, id) {
 }
 
 function readBacklogFrontmatter(filePath) {
-  const text = safeRead(filePath);
+  const { data } = parseFrontmatter(safeRead(filePath));
   return {
-    text,
-    status: frontmatterValue(text, "status"),
-    title: frontmatterValue(text, "title"),
-    updated: frontmatterValue(text, "updated"),
-    rfc: frontmatterValue(text, "rfc"),
-    branch: frontmatterValue(text, "branch"),
-    linear_id: frontmatterValue(text, "linear_id") || frontmatterValue(text, "id"),
+    status: data.status || "",
+    title: data.title || "",
+    updated: data.updated || "",
+    rfc: data.rfc || "",
+    branch: data.branch || "",
+    linear_id: data.linear_id || data.id || "",
   };
 }
 
@@ -69,53 +66,51 @@ function linkageForBacklog(fm) {
 }
 
 function buildSessionRow(descriptor, nowSecs) {
-  const frontmatter = {
-    linear_id: descriptor.linearId || "",
-    slug: descriptor.slug || "",
-  };
-  const shortId = deriveShortId(descriptor.kind, frontmatter, descriptor.filePath);
+  const { kind, filePath, updatedEpoch } = descriptor;
+  const shortId = deriveShortId(
+    kind,
+    { linear_id: descriptor.linearId || "", slug: descriptor.slug || "" },
+    filePath
+  );
   const phase = descriptor.stage || "active";
-  const ageSecs = nowSecs - descriptor.updatedEpoch;
-  const row = {
+  return {
     shortId,
     topic: descriptor.topic,
-    kind: descriptor.kind,
-    phase,
-    phaseLabel: phaseLabel(descriptor.kind, phase),
-    updatedEpoch: descriptor.updatedEpoch,
-    ageRelative: formatAgeRelative(ageSecs),
-    staleness: classifyListAge(descriptor.updatedEpoch, nowSecs),
-    resumeHint: "", // set after shortId is final
-    linkage: null,
-    sourcePath: descriptor.filePath,
-  };
-  row.resumeHint = resumeHintForSession({ ...row });
-  return row;
-}
-
-function buildBacklogRow(kind, filePath, fm, nowSecs) {
-  const stat = safeStat(filePath);
-  const updatedEpoch = dateToEpoch(fm.updated) || (stat ? Math.floor(stat.mtimeMs / 1000) : 0);
-  const frontmatter = { linear_id: fm.linear_id, slug: "" };
-  const shortId = deriveShortId(kind, frontmatter, filePath);
-  const topic = fm.title || path.basename(filePath, ".md");
-  const phase = fm.status || "active";
-  const ageSecs = nowSecs - updatedEpoch;
-  const row = {
-    shortId,
-    topic,
     kind,
     phase,
     phaseLabel: phaseLabel(kind, phase),
     updatedEpoch,
-    ageRelative: formatAgeRelative(ageSecs),
+    ageRelative: formatAgeRelative(nowSecs - updatedEpoch),
     staleness: classifyListAge(updatedEpoch, nowSecs),
-    resumeHint: "",
+    resumeHint: resumeHintForSession(kind, shortId),
+    linkage: null,
+    sourcePath: filePath,
+  };
+}
+
+function buildBacklogRow(kind, filePath, fm, nowSecs) {
+  // Fall back to mtime only when frontmatter lacks `updated` — saves a stat
+  // call per row on backlogs where every file has proper frontmatter.
+  let updatedEpoch = dateToEpoch(fm.updated);
+  if (!updatedEpoch) {
+    const stat = safeStat(filePath);
+    updatedEpoch = stat ? Math.floor(stat.mtimeMs / 1000) : 0;
+  }
+  const shortId = deriveShortId(kind, { linear_id: fm.linear_id, slug: "" }, filePath);
+  const phase = fm.status || "active";
+  return {
+    shortId,
+    topic: fm.title || path.basename(filePath, ".md"),
+    kind,
+    phase,
+    phaseLabel: phaseLabel(kind, phase),
+    updatedEpoch,
+    ageRelative: formatAgeRelative(nowSecs - updatedEpoch),
+    staleness: classifyListAge(updatedEpoch, nowSecs),
+    resumeHint: resumeHintForBacklog(kind, shortId),
     linkage: linkageForBacklog(fm),
     sourcePath: filePath,
   };
-  row.resumeHint = resumeHintForBacklog(kind, shortId);
-  return row;
 }
 
 function collectActive(sourceDir, nowSecs) {
@@ -165,7 +160,6 @@ function emitListRows(projectDir, options = {}) {
   shipped.sort(byUpdatedDesc);
   const shippedCapped = shipped.slice(0, SHIPPED_CAP);
 
-  // Disambiguate collisions within each kind (across the whole payload).
   disambiguateShortIds([...active, ...proposals, ...rfcs, ...shippedCapped]);
 
   return {

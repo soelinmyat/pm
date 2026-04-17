@@ -997,5 +997,4 @@ module.exports = {
   readSyncStatus,
   resolveSyncConfigured,
   timeAgo,
-  emitListRows,
 };

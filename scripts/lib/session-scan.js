@@ -257,7 +257,6 @@ module.exports = {
   listRfcSessions,
   listThinkSessions,
   pickMostRecent,
-  // Re-exported helpers so start-status.js (and other scripts) share one source.
   safeRead,
   safeStat,
   fileExists,
