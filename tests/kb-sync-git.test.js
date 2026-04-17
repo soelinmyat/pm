@@ -11,6 +11,34 @@ const { execSync } = require("child_process");
 // Helpers
 // ---------------------------------------------------------------------------
 
+const GIT_ENV_KEYS_TO_CLEAR = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_PREFIX",
+  "GIT_SUPER_PREFIX",
+];
+
+function gitEnv(extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+    delete env[key];
+  }
+  return env;
+}
+
+function gitExec(cmd, opts = {}) {
+  const { env, ...rest } = opts;
+  return execSync(cmd, {
+    stdio: "pipe",
+    env: gitEnv(env),
+    ...rest,
+  });
+}
+
 function withTempProject(files) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-test-"));
   const pmDir = path.join(root, "pm");
@@ -39,9 +67,9 @@ function withTempProject(files) {
  */
 function withBareRemote() {
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-remote-"));
-  execSync("git init --bare", { cwd: remote, stdio: "pipe" });
+  gitExec("git init --bare", { cwd: remote });
   // Ensure HEAD points to main so clones check out the right branch
-  execSync("git symbolic-ref HEAD refs/heads/main", { cwd: remote, stdio: "pipe" });
+  gitExec("git symbolic-ref HEAD refs/heads/main", { cwd: remote });
   return {
     path: remote,
     url: remote, // local path works as a git remote URL
@@ -73,7 +101,7 @@ test("isGitRepo returns true after git init", (t) => {
   const { pmDir, cleanup } = withTempProject({});
   t.after(cleanup);
 
-  execSync("git init", { cwd: pmDir, stdio: "pipe" });
+  gitExec("git init", { cwd: pmDir });
 
   const { isGitRepo } = require(KB_SYNC_GIT_PATH);
   assert.equal(isGitRepo(pmDir), true);
@@ -87,7 +115,7 @@ test("hasRemote returns false when no remote configured", (t) => {
   const { pmDir, cleanup } = withTempProject({});
   t.after(cleanup);
 
-  execSync("git init", { cwd: pmDir, stdio: "pipe" });
+  gitExec("git init", { cwd: pmDir });
 
   const { hasRemote } = require(KB_SYNC_GIT_PATH);
   assert.equal(hasRemote(pmDir), false);
@@ -101,10 +129,43 @@ test("hasRemote returns true and getRemoteUrl returns URL after adding remote", 
     remote.cleanup();
   });
 
-  execSync("git init", { cwd: pmDir, stdio: "pipe" });
-  execSync(`git remote add origin ${remote.url}`, { cwd: pmDir, stdio: "pipe" });
+  gitExec("git init", { cwd: pmDir });
+  gitExec(`git remote add origin ${remote.url}`, { cwd: pmDir });
 
   const { hasRemote, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
+  assert.equal(hasRemote(pmDir), true);
+  assert.equal(getRemoteUrl(pmDir), remote.url);
+});
+
+test("setup ignores inherited git hook env", (t) => {
+  const { pmDir, cleanup } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+  });
+  const remote = withBareRemote();
+  const repoRoot = path.join(__dirname, "..");
+  const hookGitDir = gitExec("git rev-parse --git-dir", { cwd: repoRoot, encoding: "utf8" }).trim();
+  const originalEnv = {};
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+    originalEnv[key] = process.env[key];
+  }
+
+  t.after(() => {
+    for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+      if (originalEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnv[key];
+    }
+    cleanup();
+    remote.cleanup();
+  });
+
+  process.env.GIT_DIR = hookGitDir;
+  process.env.GIT_WORK_TREE = repoRoot;
+  process.env.GIT_INDEX_FILE = path.join(hookGitDir, "index");
+
+  const { setup, hasRemote, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, remote.url);
+
+  assert.ok(result.ok, `setup should succeed under hook env: ${result.error || ""}`);
   assert.equal(hasRemote(pmDir), true);
   assert.equal(getRemoteUrl(pmDir), remote.url);
 });
@@ -133,7 +194,7 @@ test("setup initializes pm/ as git repo, commits, and pushes to remote", (t) => 
 
   // Verify files were pushed — clone the remote and check
   const checkDir = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-check-"));
-  execSync(`git clone ${remote.url} ${checkDir}/clone`, { stdio: "pipe" });
+  gitExec(`git clone ${remote.url} ${checkDir}/clone`);
   assert.ok(fs.existsSync(path.join(checkDir, "clone", "strategy.md")));
   assert.ok(fs.existsSync(path.join(checkDir, "clone", "backlog", "item.md")));
   fs.rmSync(checkDir, { recursive: true, force: true });
@@ -311,7 +372,7 @@ test("pull fetches remote changes", (t) => {
 
   // Clone to a second "machine"
   const dest = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-dest-"));
-  execSync(`git clone ${remote.url} ${dest}/pm`, { stdio: "pipe" });
+  gitExec(`git clone ${remote.url} ${dest}/pm`);
 
   // Push a change from src
   fs.writeFileSync(path.join(src, "strategy.md"), "# Strategy v2\n");
@@ -415,7 +476,7 @@ test("resolveCliPaths: same-repo mode resolves to {projectDir}/pm", (t) => {
   const { root, pmDir, cleanup } = withTempProject({});
   t.after(cleanup);
 
-  execSync("git init", { cwd: pmDir, stdio: "pipe" });
+  gitExec("git init", { cwd: pmDir });
 
   const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
   const paths = resolveCliPaths(root);
@@ -444,7 +505,7 @@ test("resolveCliPaths: separate-repo with content at pm-repo-root (natural layou
   );
 
   // KB root is a git repo; no pm/ subdir inside
-  execSync("git init", { cwd: kbRoot, stdio: "pipe" });
+  gitExec("git init", { cwd: kbRoot });
 
   const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
   const paths = resolveCliPaths(sourceRoot);
@@ -475,7 +536,7 @@ test("resolveCliPaths: separate-repo with pm/ subdir (doc convention)", (t) => {
   // Create pm/ subdir inside KB root and init git there
   const pmSubdir = path.join(kbRootReal, "pm");
   fs.mkdirSync(pmSubdir, { recursive: true });
-  execSync("git init", { cwd: pmSubdir, stdio: "pipe" });
+  gitExec("git init", { cwd: pmSubdir });
 
   const { resolveCliPaths } = require(KB_SYNC_GIT_PATH);
   const paths = resolveCliPaths(sourceRoot);
