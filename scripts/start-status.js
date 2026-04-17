@@ -18,7 +18,6 @@ const {
   frontmatterValue,
   dateToEpoch,
   listMarkdownFiles,
-  escapeRegExp,
 } = require("./lib/session-scan.js");
 
 function parseArgs(argv) {

@@ -42,7 +42,7 @@ function resumeHintForSession(descriptor) {
   return `resume ${id}`;
 }
 
-function resumeHintForBacklog(kind, id, frontmatter) {
+function resumeHintForBacklog(kind, id) {
   if (kind === "shipped") return `view ${id}`;
   if (kind === "rfc") return `/pm:dev ${id}`;
   return `/pm:rfc ${id}`;
@@ -114,7 +114,7 @@ function buildBacklogRow(kind, filePath, fm, nowSecs) {
     linkage: linkageForBacklog(fm),
     sourcePath: filePath,
   };
-  row.resumeHint = resumeHintForBacklog(kind, shortId, fm);
+  row.resumeHint = resumeHintForBacklog(kind, shortId);
   return row;
 }
 
