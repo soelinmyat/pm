@@ -2108,6 +2108,7 @@ const {
   VALID_EVIDENCE: V_EVIDENCE,
   VALID_SCOPE: V_SCOPE,
   VALID_GAP: V_GAP,
+  VALID_BACKLOG_KINDS: V_BACKLOG_KINDS,
   VALID_INSIGHT_STATUSES: V_INSIGHT_STATUSES,
   VALID_CONFIDENCE: V_CONFIDENCE,
   VALID_SOURCE_ORIGINS: V_SOURCE_ORIGINS,
@@ -2139,6 +2140,7 @@ test("PM-199: drift — every enum constant in validate.js appears backtick-wrap
     VALID_EVIDENCE: V_EVIDENCE,
     VALID_SCOPE: V_SCOPE,
     VALID_GAP: V_GAP,
+    VALID_BACKLOG_KINDS: V_BACKLOG_KINDS,
     VALID_INSIGHT_STATUSES: V_INSIGHT_STATUSES,
     VALID_CONFIDENCE: V_CONFIDENCE,
     VALID_SOURCE_ORIGINS: V_SOURCE_ORIGINS,
@@ -2175,6 +2177,7 @@ test("PM-199: drift — every backtick-wrapped enum value in reference schema ta
     ...V_EVIDENCE,
     ...V_SCOPE,
     ...V_GAP,
+    ...V_BACKLOG_KINDS,
     ...V_INSIGHT_STATUSES,
     ...V_CONFIDENCE,
     ...V_SOURCE_ORIGINS,
@@ -2375,4 +2378,80 @@ test("PM-201: config with all sync booleans false validates successfully", (t) =
     0,
     `all-false sync should pass: ${JSON.stringify(result.errors)}`
   );
+});
+
+// ---------------------------------------------------------------------------
+// PM-51: backlog `kind` field + resolveKind helper
+// ---------------------------------------------------------------------------
+
+const { resolveKind, VALID_BACKLOG_KINDS } = require("../scripts/validate.js");
+
+test('PM-51: kind "proposal" is accepted', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/prop.md": makeBacklogItem({ kind: "proposal" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test('PM-51: kind "task" is accepted', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/task-item.md": makeBacklogItem({ kind: "task" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test('PM-51: kind "bug" is accepted', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bug-item.md": makeBacklogItem({ kind: "bug" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test("PM-51: kind absent is accepted (backwards compat)", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/no-kind.md": makeBacklogItem(),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test('PM-51: invalid kind "chore" is rejected', (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-kind.md": makeBacklogItem({ kind: "chore" }),
+  });
+  t.after(cleanup);
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "kind"));
+});
+
+test("PM-51: VALID_BACKLOG_KINDS exports the three canonical values", () => {
+  assert.deepEqual(VALID_BACKLOG_KINDS, ["proposal", "task", "bug"]);
+});
+
+test('PM-51: resolveKind — empty object returns "proposal"', () => {
+  assert.equal(resolveKind({}), "proposal");
+});
+
+test('PM-51: resolveKind — {kind:null} returns "proposal"', () => {
+  assert.equal(resolveKind({ kind: null }), "proposal");
+});
+
+test('PM-51: resolveKind — {kind:undefined} returns "proposal"', () => {
+  assert.equal(resolveKind({ kind: undefined }), "proposal");
+});
+
+test('PM-51: resolveKind — {kind:"task"} returns "task"', () => {
+  assert.equal(resolveKind({ kind: "task" }), "task");
+});
+
+test('PM-51: resolveKind — {kind:"bug"} returns "bug"', () => {
+  assert.equal(resolveKind({ kind: "bug" }), "bug");
 });

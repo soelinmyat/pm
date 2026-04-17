@@ -20,6 +20,16 @@ const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
 const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];
 const VALID_GAP = ["unique", "partial", "parity", "behind"];
+const VALID_BACKLOG_KINDS = ["proposal", "task", "bug"];
+
+// Canonical default for backlog item `kind`. Keep in sync with VALID_BACKLOG_KINDS.
+// Absent / null / undefined `kind` is equivalent to "proposal" everywhere downstream
+// (validator enum check, dev routing, list-rows emitter). Route every reader through
+// this helper so the default lives in one place.
+function resolveKind(fm) {
+  const v = fm && fm.kind;
+  return v === null || v === undefined ? "proposal" : v;
+}
 
 const LEGACY_BACKLOG_TYPES = ["backlog-issue", "proposal", "idea", "notes"];
 const VALID_COMPETITOR_TYPES = [
@@ -212,6 +222,9 @@ function validateBacklogItem(filePath, data, errors, warnings) {
   validateEnum(rel, "evidence_strength", data.evidence_strength, VALID_EVIDENCE, errors);
   validateEnum(rel, "scope_signal", data.scope_signal, VALID_SCOPE, errors);
   validateEnum(rel, "competitor_gap", data.competitor_gap, VALID_GAP, errors);
+  if (data.kind !== undefined && data.kind !== null) {
+    validateEnum(rel, "kind", data.kind, VALID_BACKLOG_KINDS, errors);
+  }
 
   for (const field of ["created", "updated"]) {
     if (data[field] && !isIsoDate(data[field])) {
@@ -1138,12 +1151,14 @@ if (require.main === module) {
 module.exports = {
   validate,
   validateConfig,
+  resolveKind,
   // Exported for drift-detection tests
   VALID_STATUSES,
   VALID_PRIORITIES,
   VALID_EVIDENCE,
   VALID_SCOPE,
   VALID_GAP,
+  VALID_BACKLOG_KINDS,
   VALID_INSIGHT_STATUSES,
   VALID_CONFIDENCE,
   VALID_SOURCE_ORIGINS,
