@@ -4,6 +4,7 @@ const path = require("path");
 
 const { resolvePmPaths } = require("../resolve-pm-dir.js");
 const { parseFrontmatter } = require("../kb-frontmatter.js");
+const { resolveKind } = require("../validate.js");
 const {
   listGroomSessions,
   listRfcSessions,
@@ -55,6 +56,7 @@ function readBacklogFrontmatter(filePath) {
     rfc: data.rfc || "",
     branch: data.branch || "",
     linear_id: data.linear_id || data.id || "",
+    backlogKind: resolveKind(data),
   };
 }
 
@@ -102,6 +104,7 @@ function buildBacklogRow(kind, filePath, fm, nowSecs) {
     shortId,
     topic: fm.title || path.basename(filePath, ".md"),
     kind,
+    backlogKind: fm.backlogKind,
     phase,
     phaseLabel: phaseLabel(kind, phase),
     updatedEpoch,

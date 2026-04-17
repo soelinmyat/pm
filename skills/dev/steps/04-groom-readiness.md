@@ -25,6 +25,17 @@ No bypass flags. If the groom or RFC cost feels disproportionate to the work, th
 
 Before proceeding, check whether an approved RFC exists for this work.
 
+### Step 0: Kind short-circuit (runs first)
+
+If session state has `kind: task` or `kind: bug`, this is lightweight capture — groom and RFC are explicitly out of scope.
+
+- Log: `RFC check: skipped-kind-{kind}`
+- Skip both the RFC halt and the groom halt below
+- Do NOT hard-abort on missing RFC or missing proposal (the capture skill already created the backlog file)
+- Jump straight to Implementation (Step 05)
+
+For `kind: proposal` (or absent/null via `resolveKind`), continue to Step 1.
+
 ### Step 1: Check for existing proposal + RFC
 
 Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:

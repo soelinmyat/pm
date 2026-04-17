@@ -19,6 +19,7 @@
       "shortId": "p/shared-thing",
       "topic": "Shared thing",
       "kind": "proposal",
+      "backlogKind": "proposal",
       "phase": "planned",
       "phaseLabel": "Planned",
       "updatedEpoch": 1776211200,

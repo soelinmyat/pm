@@ -16,6 +16,8 @@ Only stop for:
 
 **Multi-task skip:** If `task_count > 1` in the session state, skip this step. Per-task agents in Step 05 handled simplify as part of their own lifecycle. This applies regardless of individual task outcomes (merged, blocked, or failed).
 
+**Kind skip (overrides size):** If session state has `kind: task` or `kind: bug`, skip this step entirely — regardless of size. Log: `Simplify: skipped-kind-{kind}`. Task/bug items are intentionally lightweight; the review gate (Step 07) still runs.
+
 ## Goal
 
 Run the mandatory post-implementation simplification gate so the delivered code is reusable, efficient, and ready for downstream review.

@@ -24,6 +24,7 @@
     "workflow"
   ],
   "commands": [
+    "bug",
     "dev",
     "features",
     "groom",
@@ -41,6 +42,7 @@
     "start",
     "sync",
     "strategy",
+    "task",
     "think"
   ],
   "codex": {
@@ -64,6 +66,8 @@
         "ship",
         "simplify",
         "review",
+        "task",
+        "bug",
         "using-pm"
       ],
       "dev": []

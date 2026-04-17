@@ -21,6 +21,10 @@ Load the task context, classify the work correctly, and create the initial dev s
    2. If the argument looks like an issue identifier, scan `{pm_dir}/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
    3. Only if no local backlog match: fall through to MCP lookup.
 
+   **Resolve `kind` (normative).** When frontmatter is read, route the value through the `resolveKind(fm)` helper exported from `scripts/validate.js` — absent/null/undefined become `"proposal"`. Persist the resolved value to `.pm/dev-sessions/{slug}.md` under the `kind:` field as a concrete string (`"proposal"`, `"task"`, or `"bug"`) — never write `null` or `undefined`. Every downstream step (04-groom-readiness, 06-simplify, 07-review) consumes `session.kind` as a defined string and treats missing/blank as a bug, not as "proposal by default".
+
+   **Kind × size collision.** When `kind` is `task` or `bug`, **kind wins** — downstream steps skip groom/RFC/simplify and force `pm:review` regardless of `size`. If the backlog file carries `size: M`, `L`, or `XL` on a task/bug item, log a one-line warning to the session state: `Warning: kind={kind} overrides size={size} — routing as lightweight.` Proceed without further action.
+
    **MCP lookup.** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog, fetch via MCP. If MCP returns nothing, proceed with the argument as the topic. If only conversation context is available, use that.
 
    **Linear readiness assessment.** If the MCP fetch returned a Linear issue, assess dev-readiness. Read the issue title, description, labels, and status. Check three criteria — be generous, look for testable statements anywhere, not just under "AC:" headers:
@@ -128,6 +132,16 @@ Each `<div class="test-strategy-block">` must contain a heading and non-empty bo
 If the gate halts, do NOT proceed to implementation. Instead:
 - Report: "Test Strategy gate failed: {reason}"
 - Route the user back to `pm:rfc` to regenerate the RFC with a complete Test Strategy section.
+
+## Routing by kind (overrides size)
+
+When `kind` is `task` or `bug`:
+- **Step 04 (groom-readiness):** skip RFC halt and groom halt, jump to implementation
+- **Step 06 (simplify):** skip entirely (regardless of size)
+- **Step 07 (review):** force `pm:review` (regardless of size) — do not fall to XS code-scan or S skip path
+- **Step 05 (implementation), 08 (ship), 09 (retro):** unchanged
+
+When `kind` is `proposal` (or absent/null via `resolveKind`), the Stage Routing by Size table below applies as normal — feature lifecycle.
 
 ## Stage Routing by Size
 

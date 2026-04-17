@@ -50,6 +50,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `evidence_strength` | enum\|null | optional | `"strong"` \| `"moderate"` \| `"weak"` | Strength of supporting evidence |
 | `scope_signal` | enum\|null | optional | `"small"` \| `"medium"` \| `"large"` | Estimated implementation scope |
 | `competitor_gap` | enum\|null | optional | `"unique"` \| `"partial"` \| `"parity"` \| `"behind"` | Competitive positioning |
+| `kind` | enum\|null | optional | `"proposal"` \| `"task"` \| `"bug"` | Sub-type discriminator. Defaults to `"proposal"` when absent/null. Drives `pm:dev` lifecycle depth: `proposal` runs groom/RFC; `task`/`bug` skip both and force `pm:review`. |
 | `size` | enum\|null | optional | `"XS"` \| `"S"` \| `"M"` \| `"L"` \| `"XL"` | T-shirt sizing estimate |
 | `ac_count` | integer\|null | optional | Non-negative integer | Number of acceptance criteria |
 | `source_note` | string\|null | optional | `"{relative-path}#{timestamp}"` | Origin note reference when promoted via `promoteNoteToIdea()` |

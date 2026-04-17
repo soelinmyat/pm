@@ -265,3 +265,85 @@ test("emitListRows — missing-frontmatter: rows emitted with graceful defaults"
     project.cleanup();
   }
 });
+
+// -----------------------------------------------------------------------------
+// PM-51: backlogKind propagation (proposal/task/bug)
+// -----------------------------------------------------------------------------
+test("PM-51 list-rows: backlogKind defaults to 'proposal' when absent", () => {
+  const project = createProject();
+  try {
+    project.write(
+      "pm/backlog/legacy.md",
+      fm({
+        type: "backlog",
+        id: "PM-100",
+        title: "Legacy item",
+        outcome: "ok",
+        status: "planned",
+        priority: "medium",
+        created: "2026-04-17",
+        updated: "2026-04-17",
+      }) + "body",
+      new Date("2026-04-17T00:00:00Z")
+    );
+    const payload = emitListRows(project.root, { now: FIXED_NOW });
+    assert.equal(payload.proposals.length, 1);
+    assert.equal(payload.proposals[0].backlogKind, "proposal");
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("PM-51 list-rows: backlogKind emits 'task' and 'bug' when set", () => {
+  const project = createProject();
+  try {
+    project.write(
+      "pm/backlog/chore.md",
+      fm({
+        type: "backlog",
+        id: "PM-101",
+        title: "Bump ESLint",
+        outcome: "on v10",
+        kind: "task",
+        status: "proposed",
+        priority: "medium",
+        created: "2026-04-17",
+        updated: "2026-04-17",
+      }) + "body",
+      new Date("2026-04-17T00:00:00Z")
+    );
+    project.write(
+      "pm/backlog/regression.md",
+      fm({
+        type: "backlog",
+        id: "PM-102",
+        title: "CSV export broken",
+        outcome: "fixed",
+        kind: "bug",
+        status: "proposed",
+        priority: "high",
+        created: "2026-04-17",
+        updated: "2026-04-17",
+      }) + "body",
+      new Date("2026-04-17T00:00:00Z")
+    );
+    const payload = emitListRows(project.root, { now: FIXED_NOW });
+    assert.equal(payload.proposals.length, 2);
+    const kinds = payload.proposals.map((r) => r.backlogKind).sort();
+    assert.deepEqual(kinds, ["bug", "task"]);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("PM-51 list-rows: backlogKind dependency gate — required files exist", () => {
+  // AC6 pre-flight: if pm:list infrastructure is removed, surface the signal.
+  assert.ok(
+    fs.existsSync(path.join(__dirname, "..", "skills", "list", "SKILL.md")),
+    "skills/list/SKILL.md must exist — pm:list prerequisite for Issue 5"
+  );
+  assert.ok(
+    fs.existsSync(path.join(__dirname, "..", "scripts", "lib", "list-rows.js")),
+    "scripts/lib/list-rows.js must exist — pm:list prerequisite for Issue 5"
+  );
+});

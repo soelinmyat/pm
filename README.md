@@ -157,6 +157,8 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 
 | Command | What it does |
 |---|---|
+| `/pm:task <title>` | Capture a lightweight chore (version bump, small cleanup) — skips groom/RFC, feeds straight into `/pm:dev` |
+| `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:rfc <feature-slug>` | Generate a technical RFC from a groomed proposal |
 | `/pm:dev [ticket]` | Auto-detects scope, invokes RFC for M/L/XL work, implements with TDD |
 | `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |
