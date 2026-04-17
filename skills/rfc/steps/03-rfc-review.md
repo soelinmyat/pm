@@ -164,10 +164,10 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     > "RFC approved. Continue to implementation, or stop and resume later?"
 
-    - **(a) Continue now** → Print "RFC approved. Run `/pm:dev {slug}` to implement." Delete the rfc session file (`{pm_state_dir}/rfc-sessions/{slug}.md`). **Stop here.**
+    - **(a) Continue now** → Print "RFC approved. Run `/pm:dev {slug}` to implement." Delete the rfc session file (`{source_dir}/.pm/rfc-sessions/{slug}.md`). **Stop here.**
     - **(b) Stop and resume later** → Do these in order:
       1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
-      2. Update `{pm_state_dir}/rfc-sessions/{slug}.md`:
+      2. Update `{source_dir}/.pm/rfc-sessions/{slug}.md`:
          - Set `Stage: approved`
          - Set `RFC path: {pm_dir}/backlog/rfcs/{slug}.html`
          - Update `Resume Instructions` → `Next action: RFC already approved. Run /pm:dev {slug} to implement.`
@@ -176,7 +176,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
          Session paused. RFC approved, ready to build.
          - RFC: {pm_dir}/backlog/rfcs/{slug}.html
          - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
-         - Session: {pm_state_dir}/rfc-sessions/{slug}.md (stage: approved)
+         - Session: {source_dir}/.pm/rfc-sessions/{slug}.md (stage: approved)
          - Resume: run /pm:dev {slug} to implement.
          ```
       **Stop here. Do not proceed to implementation.**

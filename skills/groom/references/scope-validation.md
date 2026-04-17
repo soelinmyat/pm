@@ -82,7 +82,7 @@ OPEN QUESTIONS (scope-adjacent, not yet decided)
 - {Question}: {who needs to decide, and by when}
 ```
 
-Write this to `{pm_state_dir}/groom-sessions/{topic-slug}.md` under the `scope:` key. Do not proceed to Step 5 until both lists are confirmed by the user.
+Write this to `{source_dir}/.pm/groom-sessions/{topic-slug}.md` under the `scope:` key. Do not proceed to Step 5 until both lists are confirmed by the user.
 
 ---
 

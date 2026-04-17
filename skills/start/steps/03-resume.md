@@ -114,14 +114,15 @@ This script is the shared source of truth used by the runtime hook and should de
 
 ### Session file locations
 
-When detecting active work, check the correct locations based on repo mode:
+All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
 
-| Session type | Same-repo mode | Separate-repo mode |
-|---|---|---|
-| Groom sessions | `{pm_state_dir}/groom-sessions/*.md` | `{pm_state_dir}/groom-sessions/*.md` (PM repo) |
-| Dev sessions | `{pm_state_dir}/dev-sessions/*.md` | `{source_dir}/.pm/dev-sessions/*.md` (source repo) |
+| Session type | Location |
+|---|---|
+| Groom sessions | `{source_dir}/.pm/groom-sessions/*.md` |
+| RFC sessions | `{source_dir}/.pm/rfc-sessions/*.md` |
+| Dev sessions | `{source_dir}/.pm/dev-sessions/*.md` |
 
-In separate-repo mode, groom and dev sessions live in different repos. Always check both locations to detect all active work, regardless of which repo the user is standing in.
+Session state is ephemeral machine-local scratchpad — it is gitignored and never written to the PM repo. Only the **artefacts** (proposals, RFCs, shipped code) live in their durable homes: proposals and RFCs in the PM repo under `{pm_dir}/`, shipped code in the source repo. Active work is only detectable when `pm:start` runs from the source repo; in same-repo mode, source_dir is the project root so this is unchanged.
 
 5. Pick the recommended next move using this priority:
 

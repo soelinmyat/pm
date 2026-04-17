@@ -106,7 +106,7 @@ These two paragraphs are the single source of truth for path fallback logic. The
 
 **pm_dir fallback:** "If `pm_dir` is not in conversation context, check if `pm/` exists at cwd. If yes, use it (same-repo mode). If no, tell the user: 'Run pm:start first to configure paths.' Do not proceed without a valid path."
 
-**pm_state_dir fallback:** "If `pm_state_dir` is not in conversation context, locate `.pm/` relative to `pm_dir`: if `{pm_dir}/.pm/` exists, use it (flat layout); otherwise use `.pm` at `pm_dir`'s parent (nested layout — e.g., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). Equivalently, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json` to get both paths in one call. This ensures preference reads and session writes always resolve to the PM repo's `.pm/` directory."
+**pm_state_dir fallback:** "If `pm_state_dir` is not in conversation context, locate `.pm/` relative to `pm_dir`: if `{pm_dir}/.pm/` exists, use it (flat layout); otherwise use `.pm` at `pm_dir`'s parent (nested layout — e.g., if `pm_dir` = `{base}/pm`, then `pm_state_dir` = `{base}/.pm`). Equivalently, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json` to get both paths in one call. `pm_state_dir` is used for PM-repo-side state (config, preferences, sync status) — **not** for session files. Session files (groom, rfc, dev) always live source-side at `{source_dir}/.pm/*-sessions/`."
 
 ### Structural Enforcement
 

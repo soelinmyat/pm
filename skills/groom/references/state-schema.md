@@ -1,8 +1,8 @@
 # Groom Session State Schema
 
-State file location: `{pm_state_dir}/groom-sessions/{topic-slug}.md`
+State file location: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
 
-**Repo location:** In separate-repo mode, `pm_state_dir` resolves to the PM repo's `.pm/` directory, so groom sessions are always stored in the PM repo — never in the source repo. This keeps product discovery artifacts co-located with the knowledge base. In same-repo mode, both groom and dev sessions live in the same `.pm/` directory (no change).
+**Repo location:** Groom sessions are ephemeral, machine-local scratchpad state. They live in the **source repo's** `.pm/groom-sessions/` (gitignored), never in the PM repo. Committing session state to the shared PM repo would leak in-progress work across machines and contributors. The grooming **artefact** (the proposal document) lives at `{pm_dir}/backlog/{topic-slug}.md` in the PM repo — only the session state is source-side. In same-repo mode, source_dir is the project root, so this resolves to `.pm/groom-sessions/` there.
 
 ```yaml
 ---

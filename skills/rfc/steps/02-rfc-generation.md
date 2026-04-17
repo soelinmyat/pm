@@ -67,7 +67,7 @@ Phase 1 — Generate engineering RFC for: {ISSUE_TITLE}.
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
-**Session file:** {pm_state_dir}/rfc-sessions/{slug}.md
+**Session file:** {source_dir}/.pm/rfc-sessions/{slug}.md
 **Proposal (includes full PRD):** {pm_dir}/backlog/{slug}.md
 
 Read the proposal for full product context (PRD content is inline — user flows, wireframes, competitive context).
@@ -118,5 +118,5 @@ After receiving `RFC_COMPLETE`:
 1. Record `task_count: {N}` in the session state (from `issues: {N}`).
 2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
 3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
-4. Update `{pm_state_dir}/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
+4. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 5. Proceed to RFC Review.
