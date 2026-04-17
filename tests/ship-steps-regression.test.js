@@ -98,9 +98,9 @@ const CRITICAL_KEYWORDS = [
 
   // Step 3: Review
   "review",
-  "/review",
+  "pm:review",
   "Review gate",
-  "review.md",
+  "skills/review/SKILL.md",
   "handling-feedback.md",
 
   // Step 4: Push
@@ -196,7 +196,7 @@ test("ship steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", 
     const steps = loadWorkflow("ship", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps);
 
-    const references = ["merge-loop.md", "review.md", "handling-feedback.md"];
+    const references = ["merge-loop.md", "skills/review/SKILL.md", "handling-feedback.md"];
 
     for (const ref of references) {
       assert.ok(
