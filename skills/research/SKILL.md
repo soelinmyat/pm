@@ -19,6 +19,15 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 References `capability-gates.md`, `writing.md`, and `kb-search.md` are loaded by the steps that need them — not here. Do not read them at skill load.
 
+## Setup Detection
+
+Before loading steps, verify `{pm_dir}` exists. Research writes durable artifacts to `{pm_dir}/evidence/` — without a workspace, findings have nowhere to persist.
+
+If `{pm_dir}` does not exist:
+> "No PM workspace found. Research writes into `{pm_dir}/evidence/` — run `/pm:start` first to set up the workspace, then re-invoke `/pm:research`."
+
+Stop. For quick one-off questions that don't need saved artifacts, answer directly without this skill.
+
 **Workflow:** `research` | **Telemetry steps:** `note-digest`, `mode-routing`, `landscape`, `competitor`, `topic`
 
 **When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.

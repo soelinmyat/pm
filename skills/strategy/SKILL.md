@@ -12,6 +12,15 @@ Every feature idea gets evaluated against it. Without one, grooming drifts.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
 
+## Setup Detection
+
+Before loading steps, verify `{pm_dir}` exists. Strategy writes to `{pm_dir}/strategy.md` — without a workspace, there's no canonical location.
+
+If `{pm_dir}` does not exist:
+> "No PM workspace found. Strategy writes to `{pm_dir}/strategy.md` — run `/pm:start` first, then re-invoke `/pm:strategy`."
+
+Stop.
+
 ## Iron Law
 
 **NEVER WRITE STRATEGY FROM THIN AIR.** Strategy must be grounded in explicit answers, existing evidence, or both. If key inputs are missing, surface the gap instead of inventing certainty.

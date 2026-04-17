@@ -17,10 +17,10 @@ Never ask an open-ended question here. XS/S routes through inline scoping with n
 
 - XS/S without RFC → proceed with inline scoping.
 - M+ with approved RFC → proceed to implementation.
-- M+ without RFC → halt with: `"Blocked: M+ work without RFC. Run: /rfc {slug}. To skip the RFC and accept inline planning, re-invoke /pm:dev {slug} --skip-rfc."`
-- M+ without proposal → halt with: `"Blocked: no groomed proposal. Run: /pm:groom {slug} (KB maturity: {level}, suggested tier: {tier}). To skip groom, re-invoke /pm:dev {slug} --skip-groom."`
+- M+ without RFC → halt with: `"Blocked: M+ work without RFC. Run: /rfc {slug}."`
+- M+ without proposal → halt with: `"Blocked: no groomed proposal. Run: /pm:groom {slug} (KB maturity: {level}, suggested tier: {tier})."`
 
-Once the user re-invokes with `--skip-rfc` or `--skip-groom`, treat that as explicit consent — do not re-prompt.
+No bypass flags. If the groom or RFC cost feels disproportionate to the work, the task is probably smaller than classified — downscope first, then proceed with inline scoping.
 </HARD-RULE>
 
 Before proceeding, check whether an approved RFC exists for this work.
@@ -38,16 +38,15 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 ### RFC halt (M+ without RFC)
 
-If `rfc:` is null and size is M+, and `--skip-rfc` was NOT passed on the current invocation:
+If `rfc:` is null and size is M+:
 
 Print and **stop** — do not ask a question:
 
 > `Blocked: M+ work without RFC. Run: /rfc {slug}.`
-> `To skip the RFC and accept inline planning, re-invoke: /pm:dev {slug} --skip-rfc`
 
 Log: `RFC: blocked-needs-rfc`.
 
-If `--skip-rfc` IS set: proceed with conversational inline planning (same as S behavior in Step 2). Log: `RFC: skipped-by-flag`
+There is no bypass flag. If the RFC cost feels disproportionate to the work, the task is probably S — downscope first, then proceed with inline scoping.
 
 ### Step 1.5: Linear-sourced dev-ready shortcut
 
@@ -82,17 +81,16 @@ Log in `.pm/dev-sessions/{slug}.md`: `kb_maturity: {level}, tier_cap: {tier}`
 |------|--------|
 | XS | No groom, no RFC. Confirm scope + ACs with the user inline, then skip to Implementation. |
 | S | No RFC needed. Brief conversational plan with user (Cursor plan-mode style), then skip to Implementation. |
-| M | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC prompt. |
-| L/XL | Offer skip prompt (see below). If grooming: invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for RFC prompt. |
+| M | Halt with the groom prompt (see below). When the user runs groom, invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for the RFC prompt. |
+| L/XL | Halt with the groom prompt (see below). When the user runs groom, invoke `pm:groom` with `groom_tier` set to the KB maturity tier. After groom, return here for the RFC prompt. |
 
-**If `--skip-groom` was NOT passed:** Print and **stop**:
+Print and **stop** — do not ask a question:
 
 > `Blocked: no groomed proposal. Run: /pm:groom {slug} (KB maturity: {level}, suggested tier: {tier}, ~{time}).`
-> `To build with available context, re-invoke: /pm:dev {slug} --skip-groom`
 
 Log: `groom: blocked-needs-proposal`.
 
-**If `--skip-groom` IS set:** Proceed with available context. Log: `groom: skipped-by-flag`.
+There is no bypass flag. If the groom cost feels disproportionate, the task is probably XS/S — reclassify and proceed with inline scoping.
 
 Time estimates by tier:
 
@@ -104,10 +102,10 @@ Time estimates by tier:
 
 Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
-- RFC check: approved (path: {rfc_path}) | blocked-needs-rfc | blocked-needs-proposal | incomplete-groom (status not proposed/planned/in-progress) | skipped-xs | conversational-s | skipped-by-flag
+- RFC check: approved (path: {rfc_path}) | blocked-needs-rfc | blocked-needs-proposal | incomplete-groom (status not proposed/planned/in-progress) | skipped-xs | conversational-s
 ```
 
 ## Done-when
 
-- RFC status determined: `approved` (skip to implementation), `blocked-needs-rfc`, `blocked-needs-proposal`, `skipped-xs`, `conversational-s`, or `skipped-by-flag`
+- RFC status determined: `approved` (skip to implementation), `blocked-needs-rfc`, `blocked-needs-proposal`, `skipped-xs`, or `conversational-s`
 - Decision logged in `.pm/dev-sessions/{slug}.md`

@@ -297,24 +297,31 @@ test("groom steps: ideate extracted to standalone skill", () => {
 
 test("groom steps: tier-gating reference file exists with expected content", () => {
   const tierGatingPath = path.join(PLUGIN_ROOT, "skills", "groom", "references", "tier-gating.md");
+  const groomSkillPath = path.join(PLUGIN_ROOT, "skills", "groom", "SKILL.md");
 
   assert.ok(fs.existsSync(tierGatingPath), "tier-gating.md should exist in references/");
+  assert.ok(fs.existsSync(groomSkillPath), "groom SKILL.md should exist");
 
-  const content = fs.readFileSync(tierGatingPath, "utf8");
-  const expectedKeywords = [
+  const tierGatingContent = fs.readFileSync(tierGatingPath, "utf8");
+  const skillContent = fs.readFileSync(groomSkillPath, "utf8");
+
+  // Tier-gating.md covers selection logic, KB-maturity cap, and research routing.
+  const tierGatingKeywords = [
     "quick",
     "standard",
     "full",
     "groom_tier",
     "HARD-GATE",
     "kb_maturity_tier",
-    "scope-review",
-    "team-review",
-    "bar-raiser",
   ];
+  for (const kw of tierGatingKeywords) {
+    assert.ok(tierGatingContent.includes(kw), `tier-gating.md should contain "${kw}"`);
+  }
 
-  for (const kw of expectedKeywords) {
-    assert.ok(content.includes(kw), `tier-gating.md should contain "${kw}"`);
+  // The tier -> steps matrix is inlined in SKILL.md so the happy path is visible.
+  const skillMatrixKeywords = ["scope-review", "team-review", "bar-raiser"];
+  for (const kw of skillMatrixKeywords) {
+    assert.ok(skillContent.includes(kw), `groom/SKILL.md should contain "${kw}" (tier matrix)`);
   }
 });
 

@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when doing product discovery, feature grooming, or scoping a feature for implementation. Use when the user says 'groom this', 'scope this', 'write a proposal', 'create a PRD', 'spec this out', 'break this down', 'what would it take to build', or wants sprint-ready product documentation. Use when pm:think produced an idea worth pursuing and the user wants to formalize it. Outputs a product proposal (PRD) — not engineering issues or implementation plans."
+description: "Use when the user has a validated idea and wants a sprint-ready PRD — not for exploring whether to build something. Triggers on 'groom this', 'scope this', 'write a proposal', 'create a PRD', 'spec this out'. NOT for open-ended framing ('should we build X', 'what if we') — route to pm:think first. Use when pm:think produced an idea worth pursuing. Outputs a product proposal (PRD) — not engineering issues or implementation plans."
 ---
 
 # pm:groom
@@ -21,6 +21,15 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 References `capability-gates.md` and `writing.md` are loaded by the steps that need them — not here. Do not read them at skill load.
 
+## Setup Detection
+
+Before loading steps, verify `{pm_dir}` resolves to an existing directory (check `pm/` at cwd or `pm_dir` already in conversation context). A proposal without a workspace has nowhere to live.
+
+If `{pm_dir}` does not exist:
+> "No PM workspace found. Groom writes proposals into `{pm_dir}/backlog/` — run `/pm:start` first to set up the workspace, then re-invoke `/pm:groom`."
+
+Stop. Do not create `.pm/` or `pm/` implicitly.
+
 **Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
 
 **When NOT to use:** Quick outlines or explanations ("what would X look like?"), when the user says "spec" but means "explain," or when they want a rough sketch — use `pm:think` instead. Groom produces a full PRD with reviews; think produces a lightweight artifact.
@@ -29,7 +38,19 @@ References `capability-gates.md` and `writing.md` are loaded by the steps that n
 
 ## Tier Gating
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` for tier selection logic, step-skipping rules, and research routing by tier.
+Three tiers control which steps execute. The matrix below is the source of truth for step coverage — each step's frontmatter `applies_to:` must match it.
+
+| Tier | Intended use | Steps that run |
+|------|--------------|----------------|
+| `quick` | Fill in missing structure fast — usually a handoff into implementation or backlog capture | `intake → strategy-check → research → scope → draft-proposal → link` |
+| `standard` | Solid product proposal without the full review stack | `intake → strategy-check → research → scope → scope-review → design → draft-proposal → link` |
+| `full` | Full PM ceremony with review stack and presentation | every step (adds `team-review`, `bar-raiser`, `present`) |
+
+**Research depth by tier:** `quick` = inline assessment only, no `pm:research` invocation. `standard` and `full` = full `pm:research` invocation (HARD-GATE applies).
+
+**Selection priority:** (1) explicit tier from caller, (2) tier requested by `pm:dev`, (3) max tier allowed by KB maturity (capped by Step 1 intake detection).
+
+For the full selection logic, KB-maturity cap nuances, and per-tier research routing, see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md`.
 
 ---
 
