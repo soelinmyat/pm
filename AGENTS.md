@@ -66,6 +66,45 @@ feature branch: commit → commit → npm run bump patch (last commit) → PR �
   ```
 - The pre-push hook enforces this — direct pushes to main are blocked
 
+## Worktree Workflow
+
+This repo is configured as **bare** (`core.bare = true`) to enforce worktree-based development. You cannot commit, branch, or `git status` from the repo root — all work happens inside isolated worktrees.
+
+### Why
+
+- Prevents accidental commits against the main directory.
+- Multiple parallel branches can exist on disk simultaneously without stashing.
+- Each worktree is a clean checkout; cache-sync and testing stay isolated per branch.
+
+### Convention
+
+Worktrees live under `.worktrees/<branch-name>/` (already gitignored).
+
+### Creating a worktree for new work
+
+```bash
+git fetch origin
+git worktree add .worktrees/<branch-name> -b <branch-name> origin/main
+cd .worktrees/<branch-name>
+# edit, commit, push from here
+```
+
+Always base new worktrees on `origin/main`, not local `main` — local `main` may lag behind origin.
+
+### When you're done
+
+```bash
+# after PR is merged
+git worktree remove .worktrees/<branch-name>
+git branch -d <branch-name>
+```
+
+### Troubleshooting
+
+- **`fatal: this operation must be run in a work tree`** — you're running git from the repo root instead of inside a worktree. `cd .worktrees/<branch>` first.
+- **Files on disk at repo root don't match any branch** — the repo root is not a worktree. Any edits there are free-floating and untracked. Move edits into a worktree.
+- **Local `main` is behind `origin/main`** — `git fetch origin && git branch -f main origin/main` to fast-forward the local ref (no checkout needed since main isn't a worktree).
+
 ## Git Hooks
 
 Hooks live in `.githooks/` (version-controlled). After cloning, activate them:

@@ -66,8 +66,8 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `dev/references/tdd.md` | dev (all sizes) | Test-first discipline |
 | `dev/references/subagent-dev.md` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `dev/references/debugging.md` | dev (when tests fail) | Root cause investigation before any fix |
-| `pm:review` | ship | Multi-perspective code review (code + PM + design + edge-cases) |
-| `pm:review` (handling-feedback ref) | dev, ship | Verify feedback before implementing suggestions |
+| `pm:review` | dev (M/L/XL), ship | Multi-agent code review (code + design + input edge-cases). Runtime-uniform. Tiers findings by confidence, auto-fixes high-confidence bugs. |
+| `ship/references/handling-feedback.md` | dev, ship | Verify feedback before implementing suggestions |
 | `rfc/references/spec-reviewers.md` | rfc (generation step) | Specialist reviewers for raw sub-issue specs before RFC |
 | `rfc/references/cross-cutting-reviewers.md` | rfc (review step) | Cross-cutting concern reviewers (security, perf, ops) |
 | `dev/references/design-critique.md` | dev (UI changes) | Design review with screenshots, a11y snapshots, consistency audit |

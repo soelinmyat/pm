@@ -257,5 +257,5 @@ Done!
 
 **Handled by dev orchestrator (not invoked separately):**
 - Workspace setup (dev Stage 2)
-- Code review (dev `/review` skill)
+- Code review (`pm:review` skill)
 - Branch finishing / merge / PR (dev Stage 4+)

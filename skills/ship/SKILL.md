@@ -35,7 +35,7 @@ The following reference files provide detailed guidance for specific ship phases
 
 | Reference | Purpose |
 |-----------|---------|
-| `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review.md` | Review agent configuration and execution |
+| `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md` | Review agent configuration and execution (canonical `pm:review` skill) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md` | Handling PR review feedback (M/L/XL) |
 | `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` | Shared self-healing merge loop procedure |
 

@@ -142,7 +142,7 @@ If the gate halts, do NOT proceed to implementation. Instead:
 | Simplify | — | `pm:simplify` | `pm:simplify` | `pm:simplify` | `pm:simplify` |
 | Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
 | QA | If UI (Quick) | If UI (Focused) | If UI (Full) | If UI (Full) | If UI (Full) |
-| Code scan | Code scan | — | `/review` (full) | `/review` (full) | `/review` (full) |
+| Code scan | Code scan | — | `pm:review` (full) | `pm:review` (full) | `pm:review` (full) |
 | Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
 | Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |

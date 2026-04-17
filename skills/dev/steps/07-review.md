@@ -145,22 +145,23 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 #### Full review (M/L/XL — HARD GATE)
 
 <HARD-GATE>
-BEFORE pushing or creating a PR, you MUST run `/review` on the branch.
+BEFORE pushing or creating a PR, you MUST invoke `pm:review` on the branch.
 This runs up to 3 review agents (conditionally skipping Design when upstream gate passed). This gate is NOT optional. Do NOT skip it.
 If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed`,
 STOP and run the review first.
 </HARD-GATE>
 
-**Fix ALL findings from ALL active agents.** `/review` runs up to 3 agents:
-1. **Code Review** — finds ALL genuine bugs for auto-fix. Routes by runtime.
-2. **Design Review** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed.
-3. **Input Edge-Case Review** — untested edge cases
+**Auto-fix all high-confidence findings.** `pm:review` runs up to 3 agents and tiers output by confidence (see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`):
+1. **Code Reviewer** — genuine bugs in the diff. Runtime-uniform dispatch via `agent-runtime.md`.
+2. **Design Reviewer** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed and no contract drift detected.
+3. **Input Edge-Case Reviewer** — untested edge cases and adversarial inputs.
 
-Agent 2 is skipped when the upstream Design Critique gate already covered its concerns. `/review` checks `.pm/dev-sessions/{slug}.md` automatically.
+High-confidence findings (80+) are auto-fixed and committed. Worth-checking findings (50–79) are surfaced for human judgment. Noisy findings (<50) are listed last for visibility only.
 
 **Checklist (all must be true before PR):**
-- [ ] `/review` invoked on the branch
-- [ ] All real issues fixed from all active agents
+- [ ] `pm:review` invoked on the branch
+- [ ] All high-confidence findings auto-fixed
+- [ ] Worth-checking findings resolved or explicitly deferred with a reason
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (see below)
 - [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`

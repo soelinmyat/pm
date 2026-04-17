@@ -119,7 +119,7 @@ Lifecycle:
 6. Invoke pm:simplify — fix findings, run tests, commit
 7. If UI changes: invoke /design-critique if available, else skip
 8. If UI changes: dispatch QA agent per implementation-flow.md
-9. If SIZE is M/L/XL: invoke /review on the branch, fix all findings, commit
+9. If SIZE is M/L/XL: invoke pm:review on the branch, fix all high-confidence findings, commit
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 10. Run full test suite as final verification
 11. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
