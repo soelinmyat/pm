@@ -774,8 +774,6 @@ function buildStatus(projectDir, options) {
   const opts = options || {};
   const runtimeDir = path.join(projectDir, ".pm");
   const pmDir = resolvePmDir(projectDir);
-  // In separate-repo mode, groom sessions live in the PM repo's .pm/
-  const pmStateDir = path.join(path.dirname(pmDir), ".pm");
   const kbLayout = detectKnowledgeBaseLayout(pmDir);
   const initialized =
     fileExists(pmDir) && (fileExists(path.join(runtimeDir, "config.json")) || kbLayout !== "none");
@@ -933,7 +931,7 @@ function buildStatus(projectDir, options) {
     }
   }
 
-  const groomSession = detectGroomSession(pmStateDir);
+  const groomSession = detectGroomSession(runtimeDir);
   const devSession = detectDevSession(projectDir, runtimeDir);
   const active = (() => {
     if (devSession && groomSession) {

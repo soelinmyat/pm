@@ -25,7 +25,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispa
 You are a product manager reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- Groom session state `{pm_state_dir}/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for ICP, priorities, non-goals, positioning. Read scope, strategy check result, research location. Do NOT re-read `strategy.md`.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for ICP, priorities, non-goals, positioning. Read scope, strategy check result, research location. Do NOT re-read `strategy.md`.
 - {pm_dir}/insights/business/landscape.md — market context
 - {pm_dir}/evidence/competitors/index.md — competitive landscape
 - Research files at the research location from groom state
@@ -55,7 +55,7 @@ Review from these angles:
 You are a competitive strategist reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- Groom session state `{pm_state_dir}/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for positioning, non-goals. Read scope, 10x filter result, research location. Do NOT re-read `strategy.md`.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for positioning, non-goals. Read scope, 10x filter result, research location. Do NOT re-read `strategy.md`.
 - {pm_dir}/insights/business/landscape.md — market context and positioning map
 - {pm_dir}/evidence/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 - Research files at the research location from groom state
@@ -82,7 +82,7 @@ Review from these angles:
 You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
 
 **Read before reviewing:**
-- Groom session state `{pm_state_dir}/groom-sessions/{topic-slug}.md` — read `strategy_check.context.non_goals` for boundaries, scope, codebase_context, research location.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context.non_goals` for boundaries, scope, codebase_context, research location.
 - **Feature inventory:** If `product_features_available` is true in groom state, read `{pm_dir}/product/features.md`. Flag overlap between proposed feature and existing capabilities.
 - **Codebase:** Explore the project's source code structure for implementation relevant to the scoped feature. Start from `codebase_context` in state (captured in intake), then read specific files as needed.
 

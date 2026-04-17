@@ -384,6 +384,38 @@ test("buildStatus detects latest groom session from .pm/groom-sessions", () => {
   }
 });
 
+test("buildStatus detects groom session from source-side .pm/ in separate-repo mode", () => {
+  const project = createProject();
+  const pmRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-"));
+  try {
+    fs.mkdirSync(path.join(pmRepoDir, "pm"), { recursive: true });
+    fs.mkdirSync(path.join(pmRepoDir, ".pm"), { recursive: true });
+
+    const configDir = path.join(project.root, ".pm");
+    const relPath = path.relative(configDir, pmRepoDir);
+
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: relPath } })
+    );
+
+    // Session lives source-side under the project's own .pm/, NOT under pm_state_dir.
+    project.write(
+      ".pm/groom-sessions/active.md",
+      ["---", "topic: Source-side topic", "phase: scope", "updated: 2026-04-10", "---", ""].join(
+        "\n"
+      )
+    );
+
+    const status = buildStatus(project.root);
+    assert.equal(status.active && status.active.kind, "groom");
+    assert.equal(status.focus, "groom in progress: Source-side topic (scope)");
+  } finally {
+    fs.rmSync(pmRepoDir, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
 test("renderTextStatus includes cached update guidance when requested", () => {
   const project = createProject();
   try {

@@ -123,7 +123,7 @@ Rules:
 - Prefer 2-4 high-signal findings over a long dump
 - Reference local source artifacts inline when useful, for example:
   - proposal: `{pm_dir}/backlog/{topic-slug}.md`
-  - state file: `{pm_state_dir}/groom-sessions/{topic-slug}.md`
+  - state file: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
   - dev state: `{source_dir}/.pm/dev-sessions/{slug}.md`
   - RFC: `{pm_dir}/backlog/rfcs/{slug}.html`
 

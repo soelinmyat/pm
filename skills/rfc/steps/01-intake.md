@@ -12,7 +12,7 @@ Determine whether an RFC is needed and gather all product context for generation
 
 ### 1. Resume Detection
 
-Glob `{pm_state_dir}/rfc-sessions/*.md`.
+Glob `{source_dir}/.pm/rfc-sessions/*.md`.
 
 If a matching session file exists for the requested slug:
 - Read it. Check the `Stage` field.
@@ -126,7 +126,7 @@ Extract and store in the session state file:
 
 ### 6. Write Session State
 
-Create `{pm_state_dir}/rfc-sessions/{slug}.md` following the template in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`. Use the markdown table format (not YAML frontmatter).
+Create `{source_dir}/.pm/rfc-sessions/{slug}.md` following the template in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`. Use the markdown table format (not YAML frontmatter).
 
 Update `Stage` to `rfc-generation` when intake completes.
 

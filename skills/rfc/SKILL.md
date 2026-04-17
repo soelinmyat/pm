@@ -31,7 +31,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Resume
 
-Before doing anything else, glob `{pm_state_dir}/rfc-sessions/*.md`.
+Before doing anything else, glob `{source_dir}/.pm/rfc-sessions/*.md`.
 
 If exactly one session exists, read it and say:
 
@@ -55,7 +55,7 @@ Wait for the user's answer. If resuming: skip completed stages. If starting fres
 
 ## State File
 
-Each RFC session has its own state file under `{pm_state_dir}/rfc-sessions/{slug}.md`. Write session state using the schema defined in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`.
+Each RFC session has its own state file under `{source_dir}/.pm/rfc-sessions/{slug}.md`. Session state is ephemeral and lives source-side (gitignored). The RFC artefact itself lives at `{pm_dir}/backlog/rfcs/{slug}.html` in the PM repo. Write session state using the schema defined in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`.
 
 ---
 

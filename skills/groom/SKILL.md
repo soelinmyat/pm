@@ -47,7 +47,7 @@ The workflow stays the same across runtimes. Dispatch mechanics come from the cu
 
 ## Resume
 
-Before doing anything else, glob `{pm_state_dir}/groom-sessions/*.md`.
+Before doing anything else, glob `{source_dir}/.pm/groom-sessions/*.md`.
 
 If exactly one session exists, read it and say:
 
@@ -90,7 +90,7 @@ The following reference files provide detailed guidance for specific groom capab
 
 ## State File
 
-Each grooming session has its own state file under `{pm_state_dir}/groom-sessions/{topic-slug}.md`. Write session state using the schema defined in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md`.
+Each grooming session has its own state file under `{source_dir}/.pm/groom-sessions/{topic-slug}.md`. Session state is ephemeral and lives source-side (gitignored). The grooming artefact (the proposal) lives at `{pm_dir}/backlog/{topic-slug}.md` in the PM repo. Write session state using the schema defined in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md`.
 
 ---
 

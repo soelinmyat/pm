@@ -45,7 +45,7 @@ Dev requires a source code repository to operate — it creates branches, worktr
 
      Do NOT proceed to the next step. The user must either configure `source_repo` in `.pm/config.json` (via `pm:setup separate-repo`) or invoke `pm:dev` from within the source repo.
 
-**Dev session files** (`.pm/dev-sessions/`) are always created in the source repo, not the PM repo. When `source_dir` differs from the PM repo root, use `{source_dir}/.pm/dev-sessions/` for all session file operations. In same-repo mode, this is the same location as `{pm_state_dir}/dev-sessions/`.
+**Dev session files** always live at `{source_dir}/.pm/dev-sessions/` in both same-repo and separate-repo modes — session state is ephemeral, machine-local, and gitignored. Groom and RFC sessions follow the same rule (`{source_dir}/.pm/groom-sessions/`, `{source_dir}/.pm/rfc-sessions/`). Only artefacts (proposals, RFCs) live in the PM repo.
 
 ## Done-when
 

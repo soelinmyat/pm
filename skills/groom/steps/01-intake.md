@@ -123,7 +123,7 @@ Every entry path — backlog, Linear, think, or scratch — MUST complete all of
    > (b) Build the missing prerequisites first (I can help with /pm:strategy or /pm:research)"
    Wait for the user's choice.
 
-5. **Write initial state** to `{pm_state_dir}/groom-sessions/{topic-slug}.md` (create `{pm_state_dir}/groom-sessions/` first if needed):
+5. **Write initial state** to `{source_dir}/.pm/groom-sessions/{topic-slug}.md` (create `{source_dir}/.pm/groom-sessions/` first if needed):
 
 ```yaml
 topic: "{topic}"

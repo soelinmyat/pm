@@ -16,11 +16,12 @@ Check these signals using the resolved paths and the current user request:
 - Does `.pm/config.json` exist at cwd?
 - Is the user explicitly asking to view PM?
 - Did the user pass a path argument after `/pm:start`?
-- Is there active work? Check for session files in BOTH locations:
-  - Groom sessions: `{pm_state_dir}/groom-sessions/*.md` (always in the PM repo's `.pm/`)
-  - Dev sessions: depends on repo mode:
-    - **Same-repo mode** (`pm_state_dir` == `{source_dir}/.pm`): `{pm_state_dir}/dev-sessions/*.md`
-    - **Separate-repo mode** (`pm_state_dir` != `{source_dir}/.pm`): check BOTH `{pm_state_dir}/dev-sessions/*.md` AND `{source_dir}/.pm/dev-sessions/*.md` — dev sessions are written to the source repo, but a stale session from before the split may exist in the PM repo
+- Is there active work? All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
+  - Groom sessions: `{source_dir}/.pm/groom-sessions/*.md`
+  - RFC sessions: `{source_dir}/.pm/rfc-sessions/*.md`
+  - Dev sessions: `{source_dir}/.pm/dev-sessions/*.md`
+
+  Session files are ephemeral machine-local scratchpad state and are gitignored. In same-repo mode, `source_dir` is the project root. In separate-repo mode, `source_dir` is the source repo (where builds and branches live), not the PM repo. Active work is only detectable when `pm:start` runs from the source repo — this is an accepted limitation, since dev/rfc/groom work all happens source-side.
 
 Routing:
 

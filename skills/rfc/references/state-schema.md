@@ -1,10 +1,10 @@
 # RFC Session State Schema
 
-State file location: `{pm_state_dir}/rfc-sessions/{slug}.md`
+State file location: `{source_dir}/.pm/rfc-sessions/{slug}.md`
 
-**Directory creation:** If `{pm_state_dir}/rfc-sessions/` does not exist, create it (`mkdir -p`) before the first write.
+**Directory creation:** If `{source_dir}/.pm/rfc-sessions/` does not exist, create it (`mkdir -p`) before the first write.
 
-**Repo location:** RFC sessions live in the PM repo's `.pm/rfc-sessions/` directory. In same-repo mode, this is `.pm/rfc-sessions/{slug}.md` at the project root.
+**Repo location:** RFC sessions are ephemeral, machine-local state — they always live in the **source repo's** `.pm/rfc-sessions/`, never in the PM repo. The source repo's `.pm/` is gitignored; committing session scratchpad state to the shared PM repo would leak in-progress work. The RFC **artefact** (the generated HTML document) still lives in `{pm_dir}/backlog/rfcs/` in the PM repo — only the session state is source-side. In same-repo mode, source_dir is the project root, so this resolves to `.pm/rfc-sessions/{slug}.md` there.
 
 ## Valid Stage Values
 
