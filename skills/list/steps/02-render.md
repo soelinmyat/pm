@@ -14,6 +14,13 @@ This step is a **prompt file**. There is no node function to call. You, the agen
 
 1. **Active Sessions** — `payload.active`. Cap: 7 rows.
 2. **Backlog Proposals** — `payload.proposals`. Cap: 5 rows.
+   - Sub-group by `row.backlogKind` when any row has `backlogKind: "task"` or `backlogKind: "bug"`:
+     - **Proposals** (rows where `backlogKind: "proposal"`)
+     - **Tasks** (rows where `backlogKind: "task"`)
+     - **Bugs** (rows where `backlogKind: "bug"`)
+     Render sub-group headers in that order. Omit any sub-group whose filtered list is empty — do not print an empty "Bugs" header when no bug rows exist.
+     Apply the 5-row cap across the combined section (not per sub-group). Overflow line still applies when the total exceeds 5.
+   - When every row has `backlogKind: "proposal"` (legacy / feature-only repos), render a single **Backlog Proposals** list with no sub-group headers — byte-identical to pre-PM-51 output.
 3. **RFCs awaiting dev** — `payload.rfcs`. Cap: 5 rows.
 4. **Recently Shipped** — `payload.shipped`. Cap: 3 rows (already capped by the emitter).
 

@@ -19,6 +19,7 @@
       "shortId": "p/bare",
       "topic": "Bare item",
       "kind": "proposal",
+      "backlogKind": "proposal",
       "phase": "active",
       "phaseLabel": "Active",
       "updatedEpoch": 1775779200,
