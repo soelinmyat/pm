@@ -142,6 +142,12 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 
 ### Code review
 
+#### Kind override: force pm:review for task/bug
+
+If session state has `kind: task` or `kind: bug`, run the **full `pm:review`** path below regardless of size. Do NOT fall to the XS code-scan path or the S skip path — task/bug items forfeit the simplify gate (Step 06 skipped them), so review is the single code-quality gate and must always run. Log: `Review gate: forced-kind-{kind}`.
+
+For `kind: proposal` (or absent/null via `resolveKind`), the normal size-based routing below applies.
+
 #### Full review (M/L/XL — HARD GATE)
 
 <HARD-GATE>
