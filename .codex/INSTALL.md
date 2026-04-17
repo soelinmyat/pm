@@ -39,6 +39,7 @@ ln -sfn ~/.agents/vendor/pm/skills/groom ~/.agents/skills/pm-groom
 ln -sfn ~/.agents/vendor/pm/skills/ideate ~/.agents/skills/pm-ideate
 ln -sfn ~/.agents/vendor/pm/skills/think ~/.agents/skills/pm-think
 ln -sfn ~/.agents/vendor/pm/skills/ingest ~/.agents/skills/pm-ingest
+ln -sfn ~/.agents/vendor/pm/skills/list ~/.agents/skills/pm-list
 ln -sfn ~/.agents/vendor/pm/skills/note ~/.agents/skills/pm-note
 ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/rfc ~/.agents/skills/pm-rfc
