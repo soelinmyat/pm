@@ -131,17 +131,15 @@ Log: `Backlog: {pm_dir}/backlog/{slug}.md → done`
 
 Note: In the single-backlog model, each backlog item has its own RFC. Issue decomposition lives inside the RFC, not as separate backlog files. Ship updates only this one backlog item — there are no child backlog files to iterate.
 
-**Step 2b: Ask user before updating Linear issues.**
+**Step 2b: Linear update eligibility.**
 
-If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is set in the session state:
+If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is set in the session state: proceed to Steps 3, 3b, 4, and 5 (Linear updates). Having Linear configured for the project is the standing consent — do not ask a per-PR confirmation.
 
-> "Update Linear issues to Done? (y/n)"
+If Linear is not configured or `linear_id` is absent: skip Steps 3, 3b, and 4. Jump to Step 5 (verify local backlog only — skip the Linear verification check). Log: `Skipping Linear updates. Local backlog marked done.`
 
-Wait for the user's answer.
-- **If yes:** Proceed to Steps 3, 3b, 4, and 5 (Linear updates).
-- **If no:** Skip Steps 3, 3b, and 4. Jump to Step 5 (verify local backlog only — skip the Linear verification check). Say: "Skipping Linear updates. Local backlog marked done."
+Opt-out: if the user has set `ship.skip_linear_updates: true` in `{pm_state_dir}/config.json`, skip Linear updates for this project even when Linear is otherwise configured.
 
-**Step 3: Close Linear child issues** (if tracker available, and user approved in Step 2b).
+**Step 3: Close Linear child issues** (if tracker available and eligible per Step 2b).
 
 Fetch children:
 ```
@@ -161,10 +159,13 @@ Do NOT close the parent issue until ALL children are confirmed Done. Re-fetch ch
 ```
 mcp__plugin_linear_linear__list_issues({ parentId: "{ISSUE_ID}" })
 ```
-Check that each returned child has `state: "Done"`. If any child is still open (e.g., a per-task agent was blocked and didn't close it), log: `WARN: Child {CHILD_ID} is still {state} — not closing parent.` Ask the user whether to close the parent anyway or leave it open.
+Check that each returned child has `state: "Done"`.
+
+- **All children Done** → Step 3b passes. Proceed to Step 4 and close the parent.
+- **Any child NOT Done** (e.g., a per-task agent was blocked and didn't close it) → log `WARN: Child {CHILD_ID} is still {state} — leaving parent open.` and **skip Step 4.** Leaving the parent open surfaces the blocked child for triage instead of hiding it. Do not ask the user. If they want the parent closed anyway, that's a manual override in Linear.
 </HARD-GATE>
 
-**Step 4: Close Linear parent issue** (if tracker available, user approved in Step 2b, and Step 3b passed).
+**Step 4: Close Linear parent issue** (if tracker available, eligible per Step 2b, and Step 3b passed).
 
 ```
 mcp__plugin_linear_linear__save_issue({ id: "{ISSUE_ID}", state: "Done" })
@@ -183,12 +184,12 @@ Log summary: `Status updates complete: backlog → done, Linear → Done`
 ## Progress Announcements (multi-task)
 
 <HARD-RULE>
-When task_count > 1, announce progress at every stage transition and after each task completes. The user should never need to ask "what's next?"
+When task_count > 1, announce progress at every stage transition and after each task completes, then proceed. The user should never need to ask "what's next?"
 
 **Format:**
-> **Stage N complete.** [M of N] tasks {planned/implemented/merged}. Next: {specific next action}. {Proceeding. | Approve to proceed?}
+> **Stage N complete.** [M of N] tasks {planned/implemented/merged}. Next: {specific next action}. Proceeding.
 
-In autonomous mode (after RFC Review approval), do NOT pause for confirmation. Announce and proceed.
+Do NOT append "Approve to proceed?" or any equivalent question. After RFC approval, ship is autonomous. The only stops are the structured Blocked escalations from the merge loop (`references/merge-loop.md` — Escalation format section).
 </HARD-RULE>
 
 ## Done-when

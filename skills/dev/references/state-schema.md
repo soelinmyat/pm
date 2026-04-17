@@ -122,6 +122,22 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 - Gate 4 (Comments): pending
 - Gate 5 (Conflicts): pending
 
+## Merge Loop Retries
+
+Persisted retry counters per gate + problem signature. Survives agent restarts so a recovered agent doesn't reset its retry budget.
+
+| Gate | Signature | Attempts | Last action |
+|------|-----------|----------|-------------|
+| ci | lint:no-unused-vars in src/auth/session.ts | 2 | removed import, renamed var — still failing |
+| ci | test:AuthSpec#login_rejects_expired_token | 1 | updated expiry clock handling |
+| review-comment | thread:RT_kwDO...abc (modal-vs-drawer) | 1 | flagged as design-call — pending user |
+
+Rules:
+- Signature is `{gate}:{short-id}` — enough to identify the same problem across iterations. For CI, use `{check-type}:{failing-symbol-or-test}`. For review comments, use `thread:{thread-id}`. For conflicts, use `file:{path}`.
+- Write one row per unique signature. Update Attempts in-place, don't append duplicates.
+- Attempts >= 3 on the same signature triggers escalation (the HARD-RULE on repeat-failure escalation). The escalation reads this table to populate the `tried:` field of the structured Blocked line.
+- Clear the table only when the PR reaches state `MERGED`.
+
 ## Per-Task Events (multi-task only — written by Step 05 checkpoint)
 - Task 1: reviews=0, CI runs=1, conflict commits=0, verdict=Merged
 - Task 2: reviews=2, CI runs=3, conflict commits=1, verdict=Merged
