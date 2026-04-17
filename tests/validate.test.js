@@ -2459,3 +2459,11 @@ test('PM-51: resolveKind — {kind:"task"} returns "task"', () => {
 test('PM-51: resolveKind — {kind:"bug"} returns "bug"', () => {
   assert.equal(resolveKind({ kind: "bug" }), "bug");
 });
+
+test('PM-51: resolveKind coerces non-string kinds to "proposal"', () => {
+  // Validator rejects these at write time, but pm:list / pm:dev read unvalidated files.
+  assert.equal(resolveKind({ kind: true }), "proposal");
+  assert.equal(resolveKind({ kind: 42 }), "proposal");
+  assert.equal(resolveKind({ kind: ["bug"] }), "proposal");
+  assert.equal(resolveKind({ kind: { nested: "task" } }), "proposal");
+});

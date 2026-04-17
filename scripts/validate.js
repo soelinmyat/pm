@@ -23,12 +23,13 @@ const VALID_GAP = ["unique", "partial", "parity", "behind"];
 const VALID_BACKLOG_KINDS = ["proposal", "task", "bug"];
 
 // Canonical default for backlog item `kind`. Keep in sync with VALID_BACKLOG_KINDS.
-// Absent / null / undefined `kind` is equivalent to "proposal" everywhere downstream
-// (validator enum check, dev routing, list-rows emitter). Route every reader through
-// this helper so the default lives in one place.
+// Absent / null / undefined / non-string `kind` resolves to "proposal" — the
+// validator enforces the enum at write time, but readers (pm:dev routing,
+// pm:list emitter) run on unvalidated files too, so coerce here.
 function resolveKind(fm) {
   const v = fm && fm.kind;
-  return v === null || v === undefined ? "proposal" : v;
+  if (typeof v !== "string") return "proposal";
+  return v;
 }
 
 const LEGACY_BACKLOG_TYPES = ["backlog-issue", "proposal", "idea", "notes"];

@@ -32,6 +32,10 @@ function slugify(title) {
     .slice(0, 60);
 }
 
+function defaultLabelsForKind(kind) {
+  return kind === "bug" ? ["bug"] : ["chore"];
+}
+
 function captureBacklogItem(pmDir, opts) {
   if (!opts || !opts.kind) {
     throw new Error("captureBacklogItem: kind is required");
@@ -43,9 +47,18 @@ function captureBacklogItem(pmDir, opts) {
   const title = opts.title;
   const outcome = opts.outcome || title;
   const slug = opts.slug || slugify(title);
+
+  // Collision check BEFORE allocating an id — otherwise two titles that slug
+  // identically burn one id per collision.
+  const filePath = path.join(pmDir, "backlog", `${slug}.md`);
+  if (fs.existsSync(filePath)) {
+    throw new Error(`captureBacklogItem: refusing to overwrite ${filePath}`);
+  }
+
   const id = opts.id || nextBacklogId(pmDir);
   const today = todayIso();
-  const labels = Array.isArray(opts.labels) && opts.labels.length ? opts.labels : ["chore"];
+  const labels =
+    Array.isArray(opts.labels) && opts.labels.length ? opts.labels : defaultLabelsForKind(kind);
   const frontmatter = {
     type: "backlog",
     id,
@@ -59,10 +72,6 @@ function captureBacklogItem(pmDir, opts) {
     updated: today,
   };
   const body = opts.body || "";
-  const filePath = path.join(pmDir, "backlog", `${slug}.md`);
-  if (fs.existsSync(filePath)) {
-    throw new Error(`captureBacklogItem: refusing to overwrite ${filePath}`);
-  }
   writeMarkdown(filePath, frontmatter, body, PREFERRED_KEYS);
   return { filePath, id, slug };
 }
@@ -73,9 +82,15 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (!arg.startsWith("--")) continue;
     const key = arg.slice(2);
-    const value = argv[i + 1];
-    i++;
-    opts[key] = value;
+    const next = argv[i + 1];
+    // Guard against "--kind --title foo" mis-parse — a flag can't be its own
+    // value. Require an explicit value; treat missing value as boolean true.
+    if (next === undefined || next.startsWith("--")) {
+      opts[key] = true;
+    } else {
+      opts[key] = next;
+      i++;
+    }
   }
   return opts;
 }

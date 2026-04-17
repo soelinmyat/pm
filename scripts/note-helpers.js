@@ -159,11 +159,16 @@ function nextBacklogId(pmDir) {
     return "PM-001";
   }
 
+  // Quotes: either, neither, mismatched — all valid YAML for a string id.
+  // Trailing: allow \r (CRLF) before EOL. Leading BOM tolerated via TrimStart.
+  const ID_LINE = /^id:\s*['"]?PM-(\d+)['"]?\s*\r?$/m;
+
   let max = 0;
   for (const name of names) {
     if (!name.endsWith(".md")) continue;
-    const content = fs.readFileSync(path.join(backlogDir, name), "utf8");
-    const match = content.match(/^id:\s*"?PM-(\d+)"?\s*$/m);
+    const raw = fs.readFileSync(path.join(backlogDir, name), "utf8");
+    const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    const match = content.match(ID_LINE);
     if (match) {
       const num = parseInt(match[1], 10);
       if (num > max) max = num;

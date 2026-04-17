@@ -85,6 +85,43 @@ test("PM-51 capture: refuses to overwrite existing file", (t) => {
   );
 });
 
+test("PM-51 capture: bug kind defaults labels to [bug] when not passed", (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const result = captureBacklogItem(pmDir, {
+    kind: "bug",
+    title: "Something broke",
+  });
+  const parsed = parseFrontmatter(fs.readFileSync(result.filePath, "utf8"));
+  assert.deepEqual(parsed.data.labels, ["bug"]);
+});
+
+test("PM-51 capture: task kind defaults labels to [chore]", (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const result = captureBacklogItem(pmDir, {
+    kind: "task",
+    title: "Chore work",
+  });
+  const parsed = parseFrontmatter(fs.readFileSync(result.filePath, "utf8"));
+  assert.deepEqual(parsed.data.labels, ["chore"]);
+});
+
+test("PM-51 capture: slug collision does not burn the next id", (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const first = captureBacklogItem(pmDir, { kind: "task", title: "Bump Dep" });
+  assert.equal(first.id, "PM-001");
+  // Second capture with same title collides on slug. We expect it to throw
+  // BEFORE allocating PM-002, so the next successful capture still gets PM-002.
+  assert.throws(
+    () => captureBacklogItem(pmDir, { kind: "task", title: "Bump Dep" }),
+    /refusing to overwrite/
+  );
+  const second = captureBacklogItem(pmDir, { kind: "task", title: "Different title" });
+  assert.equal(second.id, "PM-002", "id must not be burned on slug collision");
+});
+
 test("PM-51 capture: captured file passes validator", (t) => {
   const { pmDir, cleanup } = makeTmpPm();
   t.after(cleanup);

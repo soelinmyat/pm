@@ -104,7 +104,7 @@ function buildBacklogRow(kind, filePath, fm, nowSecs) {
     shortId,
     topic: fm.title || path.basename(filePath, ".md"),
     kind,
-    backlogKind: fm.backlogKind || "proposal",
+    backlogKind: fm.backlogKind,
     phase,
     phaseLabel: phaseLabel(kind, phase),
     updatedEpoch,

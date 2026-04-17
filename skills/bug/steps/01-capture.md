@@ -31,28 +31,24 @@ Write a single bug report to `{pm_dir}/backlog/{slug}.md` with `kind: bug` and a
 
 6. **Write the backlog item** using the capture helper. Pass the body via a temporary file so markdown escaping stays out of the shell:
 
+   Write the composed body to a tempfile directly (not via heredoc — a user's reproduction text might contain a line matching the heredoc sentinel and terminate early). The Write tool is safest:
+
+   1. `BODY_FILE=$(mktemp)` to get a unique path.
+   2. Use the Write tool to create `$BODY_FILE` with the composed body.
+   3. Invoke the helper:
+
    ```bash
-   BODY_FILE=$(mktemp)
-   cat > "$BODY_FILE" <<'EOF'
-   ## Observed
-   <observed or stub>
-
-   ## Expected
-   <expected or stub>
-
-   ## Reproduction
-   <reproduction or stub>
-   EOF
    node ${CLAUDE_PLUGIN_ROOT}/scripts/capture-backlog.js \
      --pm-dir {pm_dir} \
      --kind bug \
      --title "<title>" \
      --outcome "<outcome>" \
      --priority high \
-     --labels bug \
      --body-file "$BODY_FILE"
    rm -f "$BODY_FILE"
    ```
+
+   Note: the helper now defaults `labels` to `[bug]` when `--kind bug` is passed, so `--labels bug` is no longer required.
 
    The helper sets `type: backlog`, `kind: bug`, `status: proposed`, `priority: high` (bugs urgent by default — user can downgrade in enrich), `labels: [bug]`, and `created`/`updated` to today.
 
