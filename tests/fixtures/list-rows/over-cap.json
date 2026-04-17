@@ -1,0 +1,52 @@
+{
+  "active": [],
+  "proposals": [],
+  "rfcs": [],
+  "shipped": [
+    {
+      "shortId": "s/ship-a",
+      "topic": "ship-a",
+      "kind": "shipped",
+      "phase": "shipped",
+      "phaseLabel": "Shipped",
+      "updatedEpoch": 1776297600,
+      "ageRelative": "yesterday",
+      "staleness": "default",
+      "resumeHint": "view s/ship-a",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/ship-a.md"
+    },
+    {
+      "shortId": "s/ship-b",
+      "topic": "ship-b",
+      "kind": "shipped",
+      "phase": "shipped",
+      "phaseLabel": "Shipped",
+      "updatedEpoch": 1776211200,
+      "ageRelative": "2d ago",
+      "staleness": "default",
+      "resumeHint": "view s/ship-b",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/ship-b.md"
+    },
+    {
+      "shortId": "s/ship-c",
+      "topic": "ship-c",
+      "kind": "shipped",
+      "phase": "shipped",
+      "phaseLabel": "Shipped",
+      "updatedEpoch": 1776124800,
+      "ageRelative": "3d ago",
+      "staleness": "default",
+      "resumeHint": "view s/ship-c",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/ship-c.md"
+    }
+  ],
+  "meta": {
+    "pmDir": "<pmDir>",
+    "pmStateDir": "<pmStateDir>",
+    "sourceDir": "<sourceDir>",
+    "generatedAt": "2026-04-17T00:00:00.000Z"
+  }
+}

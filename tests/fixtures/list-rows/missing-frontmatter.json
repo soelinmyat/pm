@@ -1,0 +1,40 @@
+{
+  "active": [
+    {
+      "shortId": "g/no-fm",
+      "topic": "no-fm",
+      "kind": "groom",
+      "phase": "active",
+      "phaseLabel": "In progress",
+      "updatedEpoch": 1776373200,
+      "ageRelative": "3h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:groom resume g/no-fm",
+      "linkage": null,
+      "sourcePath": "<pmStateDir>/groom-sessions/no-fm.md"
+    }
+  ],
+  "proposals": [
+    {
+      "shortId": "p/bare",
+      "topic": "Bare item",
+      "kind": "proposal",
+      "phase": "active",
+      "phaseLabel": "Active",
+      "updatedEpoch": 1775779200,
+      "ageRelative": "7d ago",
+      "staleness": "stale",
+      "resumeHint": "/pm:rfc p/bare",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/bare.md"
+    }
+  ],
+  "rfcs": [],
+  "shipped": [],
+  "meta": {
+    "pmDir": "<pmDir>",
+    "pmStateDir": "<pmStateDir>",
+    "sourceDir": "<sourceDir>",
+    "generatedAt": "2026-04-17T00:00:00.000Z"
+  }
+}

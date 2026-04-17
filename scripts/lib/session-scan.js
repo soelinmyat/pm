@@ -83,6 +83,7 @@ function buildGroomDescriptor(filePath, stat, text) {
   const phase = frontmatterValue(text, "phase") || "active";
   const updated = frontmatterValue(text, "updated");
   const updatedEpoch = dateToEpoch(updated) || Math.floor(stat.mtimeMs / 1000);
+  const linearId = frontmatterValue(text, "linear_id");
   return {
     kind: "groom",
     filePath,
@@ -90,6 +91,7 @@ function buildGroomDescriptor(filePath, stat, text) {
     stage: phase,
     updated,
     updatedEpoch,
+    linearId,
     summary: `groom in progress: ${topic} (${phase})`,
     next: `resume grooming (${topic})`,
   };
@@ -119,6 +121,7 @@ function buildDevDescriptor(filePath, stat, text) {
     stage,
     updated: "",
     updatedEpoch: Math.floor(stat.mtimeMs / 1000),
+    linearId: ticket,
     summary,
     next: nextAction || "resume active delivery work",
   };
@@ -129,6 +132,7 @@ function buildRfcDescriptor(filePath, stat, text) {
   const stage = markdownTableValue(text, "Stage") || bulletValue(text, "Stage") || "active";
   const slug = markdownTableValue(text, "Slug") || baseName;
   const topic = slug;
+  const linearId = frontmatterValue(text, "linear_id") || markdownTableValue(text, "Linear ID");
 
   return {
     kind: "rfc",
@@ -137,6 +141,8 @@ function buildRfcDescriptor(filePath, stat, text) {
     stage,
     updated: "",
     updatedEpoch: Math.floor(stat.mtimeMs / 1000),
+    linearId,
+    slug,
     summary: `rfc in progress: ${topic} (${stage})`,
     next: `resume rfc (${topic})`,
   };
@@ -146,6 +152,7 @@ function buildThinkDescriptor(filePath, stat, text) {
   const topic = frontmatterValue(text, "topic") || path.basename(filePath, ".md");
   const updated = frontmatterValue(text, "updated");
   const updatedEpoch = dateToEpoch(updated) || Math.floor(stat.mtimeMs / 1000);
+  const linearId = frontmatterValue(text, "linear_id");
 
   return {
     kind: "think",
@@ -154,6 +161,7 @@ function buildThinkDescriptor(filePath, stat, text) {
     stage: "active",
     updated,
     updatedEpoch,
+    linearId,
     summary: `thinking in progress: ${topic}`,
     next: `resume thinking (${topic})`,
   };

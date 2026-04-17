@@ -8,6 +8,7 @@ const { classifyEpoch } = require("./kb-health-thresholds.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseNotesFile } = require("./note-helpers.js");
 const { resolvePmDir } = require("./resolve-pm-dir.js");
+const { emitListRows } = require("./lib/list-rows.js");
 const {
   listGroomSessions,
   listDevSessions,
@@ -970,6 +971,12 @@ function renderTextStatus(status, options = {}) {
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const projectDir = path.resolve(options.projectDir);
+
+  if (options.format === "list-rows") {
+    process.stdout.write(`${JSON.stringify(emitListRows(projectDir))}\n`);
+    return;
+  }
+
   const status = buildStatus(projectDir);
 
   if (options.format === "text") {
@@ -991,4 +998,5 @@ module.exports = {
   readSyncStatus,
   resolveSyncConfigured,
   timeAgo,
+  emitListRows,
 };

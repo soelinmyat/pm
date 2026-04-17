@@ -1,0 +1,40 @@
+{
+  "active": [
+    {
+      "shortId": "g/active",
+      "topic": "active",
+      "kind": "groom",
+      "phase": "scope",
+      "phaseLabel": "Scoping",
+      "updatedEpoch": 1776362400,
+      "ageRelative": "6h ago",
+      "staleness": "fresh",
+      "resumeHint": "/pm:groom resume g/active",
+      "linkage": null,
+      "sourcePath": "<sourceDir>/.pm/groom-sessions/active.md"
+    }
+  ],
+  "proposals": [
+    {
+      "shortId": "p/shared-thing",
+      "topic": "Shared thing",
+      "kind": "proposal",
+      "phase": "planned",
+      "phaseLabel": "Planned",
+      "updatedEpoch": 1776211200,
+      "ageRelative": "2d ago",
+      "staleness": "default",
+      "resumeHint": "/pm:rfc p/shared-thing",
+      "linkage": null,
+      "sourcePath": "<pmDir>/backlog/shared-thing.md"
+    }
+  ],
+  "rfcs": [],
+  "shipped": [],
+  "meta": {
+    "pmDir": "<pmDir>",
+    "pmStateDir": "<pmStateDir>",
+    "sourceDir": "<sourceDir>",
+    "generatedAt": "2026-04-17T00:00:00.000Z"
+  }
+}
