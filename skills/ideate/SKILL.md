@@ -15,6 +15,15 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
+## Setup Detection
+
+Before loading steps, verify `{pm_dir}` exists. Ideate mines the KB — without one, there's nothing to mine.
+
+If `{pm_dir}` does not exist:
+> "No PM workspace found. Ideate needs a knowledge base to mine — run `/pm:start` first, then re-invoke `/pm:ideate` once you have strategy or research in place."
+
+Stop.
+
 ## Iron Law
 
 **EVERY IDEA MUST CITE AT LEAST ONE SIGNAL SOURCE WITH A FILE PATH.** No signal, no idea. Unsourced ideas are opinions dressed as features.

@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. Checks for an approved RFC (halts with a direct /rfc instruction if missing for M+; bypass via --skip-rfc), then implements. One flow for all sizes. After RFC approval, runs autonomously through simplify, review, ship, and retro — pausing only on structured Blocked escalations from the merge loop."
+description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. For M+ work, a completed RFC is required — dev halts with a direct /rfc instruction if missing. One flow for all sizes. After RFC approval, runs autonomously through simplify, review, ship, and retro — pausing only on structured Blocked escalations from the merge loop."
 ---
 
 # Dev — Development Lifecycle

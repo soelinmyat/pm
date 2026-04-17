@@ -1,14 +1,6 @@
-# Groom Tier Gating
+# Groom Tier Gating — Detailed Routing
 
-`pm:groom` supports three tiers that control which steps execute.
-
-## Tiers
-
-| Tier | Intended use | Steps |
-|------|--------------|-------|
-| `quick` | Fill in missing structure fast, usually as a handoff to implementation or backlog capture | `intake -> strategy-check -> research -> scope -> draft-proposal -> link` |
-| `standard` | Solid product proposal without the full executive review stack | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> link` |
-| `full` | Full PM ceremony with review stack and presentation | `intake -> strategy-check -> research -> scope -> scope-review -> design -> draft-proposal -> team-review -> bar-raiser -> present -> link` |
+The tier matrix (which steps run per tier) lives in `skills/groom/SKILL.md` under "Tier Gating" — that is the source of truth. This file covers the deeper selection logic, KB-maturity cap, and research routing nuances.
 
 ## Tier Selection
 
@@ -32,11 +24,7 @@ groom_tier: quick | standard | full
 
 ## Step Loading Rules
 
-Each step file declares `applies_to: [...]` in frontmatter. The loader uses that metadata to include or exclude steps for the selected tier, and individual step bodies may still self-skip within an included tier when they need to explain why a gate is lightweight or deferred.
-
-- `quick` runs: intake, strategy-check, research, scope, draft-proposal, link
-- `standard` runs: intake, strategy-check, research, scope, scope-review, design, draft-proposal, link
-- `full` runs every step
+Each step file declares `applies_to: [...]` in frontmatter. The loader uses that metadata to include or exclude steps for the selected tier; individual step bodies may still self-skip within an included tier when they need to explain why a gate is lightweight or deferred. Keep `applies_to:` values in sync with the tier matrix in `skills/groom/SKILL.md`.
 
 For example, `strategy-check` is intentionally present in `quick` tier so the prompt can record the lightweight inline check and any skip rationale, even though the deeper strategy gate only applies to `standard` and `full`.
 

@@ -10,7 +10,16 @@ description: Self-healing merge loop with gate monitoring, auto-merge, cleanup, 
 
 **Goal:** Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
-After PR is created and CI passes, run the self-healing merge loop.
+### Pre-merge review attestation (HARD-GATE)
+
+Before arming auto-merge or invoking `gh pr merge`, re-verify the review attestation:
+
+1. Parse the SHA from the `Review gate: passed (commit <sha>)` line in `.pm/dev-sessions/{slug}.md` (written by `pm:review`).
+2. Compare it to `git rev-parse origin/{branch}` — the tip that would actually merge.
+3. If they match: proceed to the merge loop.
+4. If they differ — fix commits, rebases, or auto-fixes have landed since the last review — **re-invoke Step 03 (Review Gate)** against the new tip. Only proceed once review passes on the current SHA and the session file records the new SHA.
+
+This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure.
 
