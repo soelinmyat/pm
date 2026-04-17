@@ -136,6 +136,6 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 | Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/steps/05-scope-review.md` |
 | Team review | groom step 08 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/steps/08-team-review.md` |
 | Bar raiser | groom step 09 | 1 (Product Director) | `skills/groom/steps/09-bar-raiser.md` |
-| Code review | review | 5 (code, fix, PM, design, edge-case) | `skills/ship/references/review.md` |
+| Code review | review | 3 (code, design, input edge-case) | `skills/review/SKILL.md` |
 | Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer.md` |
 | Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer.md` |

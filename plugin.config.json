@@ -32,6 +32,7 @@
     "note",
     "refresh",
     "research",
+    "review",
     "rfc",
     "setup",
     "ship",
@@ -60,6 +61,7 @@
         "dev",
         "ship",
         "simplify",
+        "review",
         "using-pm"
       ],
       "dev": []
