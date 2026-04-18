@@ -1094,8 +1094,39 @@ function validate(pmDir) {
   return { errors, warnings, backlogCount: backlogIds.size };
 }
 
+function runPluginMode(args) {
+  const { runPack } = require("./rules/plugin/index.js");
+  let rootDir = process.cwd();
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--root" && args[i + 1]) {
+      rootDir = args[i + 1];
+      i++;
+    }
+  }
+  if (!fs.existsSync(rootDir)) {
+    console.log(JSON.stringify({ ok: false, error: `plugin root not found: ${rootDir}` }));
+    process.exit(1);
+  }
+  const result = runPack(rootDir);
+  const hasError = result.issues.some((i) => i.severity === "error");
+  const out = {
+    ok: !hasError,
+    mode: "plugin",
+    pack_version: result.packVersion,
+    rules_run: result.rulesRun,
+    files_scanned: result.filesScanned,
+    issues: result.issues,
+  };
+  console.log(JSON.stringify(out, null, 2));
+  process.exit(hasError ? 1 : 0);
+}
+
 function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--plugin")) {
+    runPluginMode(args);
+    return;
+  }
   let pmDir = null;
 
   for (let index = 0; index < args.length; index++) {

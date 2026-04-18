@@ -1,0 +1,12 @@
+{
+  "name": "fixture",
+  "owner": { "name": "Fixture" },
+  "plugins": [
+    {
+      "name": "fixture",
+      "description": "Valid canonical fixture",
+      "version": "0.0.1",
+      "source": "./"
+    }
+  ]
+}
