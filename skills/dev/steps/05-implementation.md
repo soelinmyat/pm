@@ -8,6 +8,18 @@ description: Dispatch fresh developer agents to implement the approved RFC
 
 Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 06–09).
 
+<HARD-RULE>
+Step 05 **dispatches agents**. It does NOT execute implementation in the orchestrator context.
+
+- **Multi-task (`task_count > 1`):** dispatch one fresh @developer agent per task, sequentially. The orchestrator coordinates — create worktree, dispatch, wait for return, checkpoint, sync main, next. Never read the RFC and start implementing.
+- **Single-task M/L/XL:** dispatch one fresh @developer agent in the existing worktree.
+- **Single-task XS/S:** handled inline per the XS Express Path / size routing table in `02-intake.md`. This is the **only** valid inline path.
+
+Enforcement check before writing any implementation code in this step: if `task_count > 1` OR size is M/L/XL, you MUST use `Agent(description=..., prompt=...)` (Claude runtime) or `spawn_agent(...)` (Codex delegated). If you catch yourself about to read the RFC to "start implementing", STOP — you are the orchestrator, not the implementer. Dispatch the agent with the brief below.
+
+Violations of this rule have happened when the orchestrator has hot context on the codebase and takes the path of least resistance. That path is wrong — fresh agents are the contract.
+</HARD-RULE>
+
 ## Implementation
 
 Dispatch **fresh** @developer agent(s) using the runtime adapter. The RFC is the contract and contains all codebase exploration findings needed for implementation. RFC generation and review are handled by the standalone `/rfc` skill — dev assumes an approved RFC exists (or inline planning was done for smaller work).
