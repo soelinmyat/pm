@@ -1176,14 +1176,14 @@ function main() {
   process.exit(errors.length > 0 ? 1 : 0);
 }
 
-if (require.main === module) {
-  main();
-}
-
+// Export before invoking main() so that lazy requires from submodules (e.g.
+// scripts/rules/plugin/index.js) observe a populated module.exports when the
+// CLI re-enters this module via runPluginMode's child require.
 module.exports = {
   validate,
   validateConfig,
   resolveKind,
+  walkMarkdownFiles,
   // Exported for drift-detection tests
   VALID_STATUSES,
   VALID_PRIORITIES,
@@ -1204,3 +1204,7 @@ module.exports = {
   REQUIRED_NOTES_FIELDS,
   REQUIRED_COMPETITOR_FIELDS,
 };
+
+if (require.main === module) {
+  main();
+}

@@ -16,6 +16,12 @@ const fs = require("fs");
 const path = require("path");
 
 const { parseFrontmatter } = require("../../kb-frontmatter.js");
+const { MANIFEST_FILES } = require("../../plugin-contract/constants.js");
+// Lazy require to avoid a circular dependency with validate.js (which requires
+// this module via runPluginMode). See module.exports in scripts/validate.js.
+function walkMarkdownFiles(dir, files) {
+  return require("../../validate.js").walkMarkdownFiles(dir, files);
+}
 
 const PACK_VERSION = "1.0.0";
 
@@ -39,9 +45,10 @@ function buildContext(rootDir) {
     if (!entry.isDirectory()) continue;
     const skillDir = path.join(skillsDir, entry.name);
     const skillFilePath = path.join(skillDir, "SKILL.md");
+    const hasSkillFm = fs.existsSync(skillFilePath);
     let skillFm = null;
     let skillBody = "";
-    if (fs.existsSync(skillFilePath)) {
+    if (hasSkillFm) {
       const content = readFile(skillFilePath);
       const parsed = parseFrontmatter(content);
       skillFm = parsed.data || {};
@@ -50,16 +57,14 @@ function buildContext(rootDir) {
 
     const stepsDir = path.join(skillDir, "steps");
     const steps = [];
-    for (const stepEntry of listDir(stepsDir)) {
-      if (!stepEntry.isFile()) continue;
-      if (!stepEntry.name.endsWith(".md")) continue;
-      const stepPath = path.join(stepsDir, stepEntry.name);
+    for (const stepPath of walkMarkdownFiles(stepsDir)) {
+      const fileName = path.basename(stepPath);
       const content = readFile(stepPath);
       const parsed = parseFrontmatter(content);
       steps.push({
-        fileName: stepEntry.name,
+        fileName,
         absPath: stepPath,
-        relPath: path.posix.join("skills", entry.name, "steps", stepEntry.name),
+        relPath: path.posix.join("skills", entry.name, "steps", fileName),
         frontmatter: parsed.data || {},
         hasFrontmatter: parsed.hasFrontmatter,
         body: parsed.body || "",
@@ -71,7 +76,7 @@ function buildContext(rootDir) {
       name: entry.name,
       absPath: skillDir,
       skillFilePath,
-      skillFmExists: fs.existsSync(skillFilePath),
+      skillFmExists: hasSkillFm,
       skillFm: skillFm || {},
       skillBody,
       steps,
@@ -82,30 +87,23 @@ function buildContext(rootDir) {
   // Personas
   const personas = [];
   const personasDir = path.join(rootDir, "personas");
-  for (const entry of listDir(personasDir)) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    personas.push(entry.name.replace(/\.md$/, ""));
+  for (const filePath of walkMarkdownFiles(personasDir)) {
+    personas.push(path.basename(filePath).replace(/\.md$/, ""));
   }
 
   // Commands
   const commands = [];
   const commandsDir = path.join(rootDir, "commands");
-  for (const entry of listDir(commandsDir)) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const name = entry.name.replace(/\.md$/, "");
-    const body = readFile(path.join(commandsDir, entry.name));
-    commands.push({ name, absPath: path.join(commandsDir, entry.name), body });
+  for (const filePath of walkMarkdownFiles(commandsDir)) {
+    const fileName = path.basename(filePath);
+    const name = fileName.replace(/\.md$/, "");
+    const body = readFile(filePath);
+    commands.push({ name, absPath: filePath, body });
   }
 
   // Manifests
   const manifests = {};
-  const manifestPaths = [
-    ".claude-plugin/plugin.json",
-    "plugin.config.json",
-    ".claude-plugin/marketplace.json",
-    ".codex-plugin/plugin.json",
-  ];
-  for (const rel of manifestPaths) {
+  for (const rel of MANIFEST_FILES) {
     const abs = path.join(rootDir, rel);
     if (!fs.existsSync(abs)) {
       manifests[rel] = { exists: false };

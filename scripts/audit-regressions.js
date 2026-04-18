@@ -23,26 +23,11 @@
 "use strict";
 
 const { execFileSync } = require("child_process");
+const { PRIORITY_SURFACES, MANIFEST_FILES } = require("./plugin-contract/constants.js");
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const PRIORITY_SURFACES = [
-  "skills/groom/steps/01-intake.md",
-  "skills/dev/steps/02-intake.md",
-  "skills/dev/steps/04-groom-readiness.md",
-  "skills/ship/steps/07-merge-loop.md",
-  "skills/review/SKILL.md",
-  "skills/simplify/SKILL.md",
-];
-
-const MANIFEST_FILES = [
-  ".claude-plugin/plugin.json",
-  "plugin.config.json",
-  ".claude-plugin/marketplace.json",
-  ".codex-plugin/plugin.json",
-];
 
 const REVERT_WINDOW_DAYS = 14;
 const KEYWORD_WINDOW_DAYS = 30;
@@ -161,10 +146,6 @@ function detectSchemaDriftField(patch) {
   return null;
 }
 
-function isManifestPath(filePath) {
-  return MANIFEST_FILES.includes(filePath);
-}
-
 // ---------------------------------------------------------------------------
 // Classification
 // ---------------------------------------------------------------------------
@@ -173,11 +154,21 @@ function isManifestPath(filePath) {
  * Classify commits against Decision #1.
  *
  * @param {Map<string, Array>} logsBySurface  surface -> entries (newest first).
- * @param {Map<string, string>} patchBySha  sha -> patch text (for schema-drift).
+ * @param {Function|Map<string, string>} fetchPatch  either a function
+ *        (sha, surface) -> patch text, or a pre-built Map keyed by
+ *        "<sha>:<surface>". Used lazily — only invoked when a class-B
+ *        schema-drift check evaluates a commit.
  * @returns {Object} classification report.
  */
-function classifyCommits(logsBySurface, patchBySha, options = {}) {
-  void options;
+function classifyCommits(logsBySurface, fetchPatch) {
+  // Normalize fetchPatch to a function form. Accept a Map for backward-compat
+  // (tests pass a Map directly). When the audit runs live it passes a memoized
+  // function to avoid spawning `git show` for every (sha, surface) upfront.
+  const getPatch =
+    typeof fetchPatch === "function"
+      ? fetchPatch
+      : (sha, surface) => (fetchPatch && fetchPatch.get(`${sha}:${surface}`)) || "";
+
   const perSurface = new Map();
 
   for (const surface of PRIORITY_SURFACES) {
@@ -245,9 +236,11 @@ function classifyCommits(logsBySurface, patchBySha, options = {}) {
         });
 
         // Schema-drift: only applies when (b) triggered — check the fix's
-        // patch for schema-relevant fields.
+        // patch for schema-relevant fields. `surface` iterates PRIORITY_SURFACES
+        // only, so a manifest branch here is unreachable; manifest awareness
+        // must come from the fix patch inspection itself.
         if (triggerHalf === "b-keyword-30d") {
-          const patch = patchBySha.get(`${triggeredBy.sha}:${surface}`) || "";
+          const patch = getPatch(triggeredBy.sha, surface) || "";
           const field = detectSchemaDriftField(patch);
           if (field) {
             schemaDrift.push({
@@ -255,14 +248,6 @@ function classifyCommits(logsBySurface, patchBySha, options = {}) {
               fix_sha: triggeredBy.sha,
               fix_subject: triggeredBy.subject,
               field,
-            });
-          } else if (isManifestPath(surface)) {
-            // Manifests are included as a schema-drift signal directly.
-            schemaDrift.push({
-              regression_sha: candidate.sha,
-              fix_sha: triggeredBy.sha,
-              fix_subject: triggeredBy.subject,
-              field: "manifest-parity",
             });
           }
         }
@@ -515,7 +500,6 @@ function runAudit(opts) {
   }
 
   const logsBySurface = new Map();
-  const patchBySha = new Map();
 
   for (const surface of PRIORITY_SURFACES) {
     const raw = runGit([
@@ -531,25 +515,23 @@ function runAudit(opts) {
     logsBySurface.set(surface, entries);
   }
 
-  // Preload patches for all commits (used for schema-drift detection on the
-  // fix commit when class B triggers). We fetch patches per (sha, surface).
-  const seen = new Set();
-  for (const [surface, entries] of logsBySurface) {
-    for (const e of entries) {
-      const key = `${e.sha}:${surface}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      let patch = "";
-      try {
-        patch = runGit(["show", e.sha, "--", surface]);
-      } catch {
-        patch = "";
-      }
-      patchBySha.set(key, patch);
+  // Lazy, memoized patch fetcher. Only the class-B schema-drift path invokes
+  // this, so most commits never incur a `git show`.
+  const patchCache = new Map();
+  function fetchPatch(sha, surface) {
+    const key = `${sha}:${surface}`;
+    if (patchCache.has(key)) return patchCache.get(key);
+    let patch = "";
+    try {
+      patch = runGit(["show", sha, "--", surface]);
+    } catch {
+      patch = "";
     }
+    patchCache.set(key, patch);
+    return patch;
   }
 
-  const report = classifyCommits(logsBySurface, patchBySha, {});
+  const report = classifyCommits(logsBySurface, fetchPatch);
 
   // Determine audit_until_iso from the until sha.
   let auditUntilIso = "";
