@@ -47,6 +47,22 @@ jobs:
       - name: Run tests with coverage
         run: npx c8 --reporter=text node --test tests/*.test.js
 
+  plugin-contract:
+    name: Plugin Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Plugin contract rule pack
+        run: node scripts/validate.js --plugin
+
   validate:
     name: Plugin Validation
     runs-on: ubuntu-latest

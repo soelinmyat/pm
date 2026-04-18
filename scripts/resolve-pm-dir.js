@@ -21,12 +21,34 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
+// Git hooks and worktree-aware invocations export repo-scoped env vars that
+// hijack child git commands — making them report on the parent repo even when
+// cwd is unrelated. Strip them so the child git discovers the repo from cwd.
+const GIT_ENV_KEYS_TO_CLEAR = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_SUPER_PREFIX",
+];
+
+function cleanGitEnv() {
+  const env = { ...process.env };
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+    delete env[key];
+  }
+  return env;
+}
+
 function defaultGitCommonDir(projectDir) {
   try {
     const result = execFileSync("git", ["rev-parse", "--git-common-dir"], {
       cwd: projectDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      env: cleanGitEnv(),
     }).trim();
     if (!result) return null;
     return path.isAbsolute(result) ? result : path.resolve(projectDir, result);

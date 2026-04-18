@@ -235,6 +235,7 @@ git push origin v{version}
 - When changing `scripts/`, run the relevant tests in `tests/`.
 - Prefer adding regression coverage for bugs in parsing, server behavior, security, and CLI contracts.
 - If behavior is cross-platform or shell-sensitive, verify both the script contract and the test coverage.
+- Plugin contract checks run in CI via `scripts/validate.js --plugin`. Run locally as `node scripts/validate.js --plugin` (or `npm run validate:plugin`) to match CI.
 
 ## Planning Notes
 
