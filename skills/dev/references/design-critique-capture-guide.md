@@ -174,9 +174,9 @@ Concrete data for WCAG findings: missing aria-labels, broken tab order, missing 
 
 ### Visual Consistency Audit
 
-**Purpose:** Detect visual inconsistencies — elements that should look the same but don't. This is NOT token compliance (linters catch hardcoded values). This catches cases where every value is a valid token but the *combination* produces inconsistent results: a card with `container-lg` padding on top and `container-sm` on bottom, sibling sections using different spacing tokens for the same role, headings at the same level styled differently across pages.
+**Purpose:** Detect visual inconsistencies — elements that should look the same but don't. This is NOT token compliance (linters catch hardcoded values). This catches cases where every value is a valid token but the *combination* produces inconsistent results: a card with `container-lg` padding on top and `container-sm` on bottom, sibling sections using different spacing tokens for the same role, headings at the same level styled differently across pages, or stacked components whose left/right edges drift by a few pixels.
 
-**The test:** Group elements by visual role. Within each group, flag variance.
+**The test:** Group elements by visual role. Within each group, flag variance. Then measure cross-component edge alignment numerically so 1-8px gutter drift is visible to the reviewer.
 
 For each page, run this via `browser_evaluate`:
 
@@ -185,6 +185,8 @@ For each page, run this via `browser_evaluate`:
   const inconsistencies = {};
   const hierarchy = [];
   const asymmetry = [];
+  const edgeAlignment = [];
+  const EDGE_TOLERANCE_PX = 2;
 
   function desc(el) {
     const tag = el.tagName.toLowerCase();
@@ -233,6 +235,74 @@ For each page, run this via `browser_evaluate`:
   function visible(el) {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
+  }
+
+  function rectSummary(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      left: Math.round(r.left),
+      right: Math.round(r.right),
+      top: Math.round(r.top),
+      bottom: Math.round(r.bottom),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    };
+  }
+
+  function visualChildren(parent) {
+    return [...parent.children].filter(child => {
+      if (!visible(child)) return false;
+      const r = child.getBoundingClientRect();
+      return r.width >= 8 && r.height >= 8;
+    });
+  }
+
+  function majorityCoordinate(items, edge) {
+    const buckets = [];
+    items.forEach(item => {
+      const value = item.rect[edge];
+      let bucket = buckets.find(candidate => Math.abs(candidate.value - value) < EDGE_TOLERANCE_PX);
+      if (!bucket) {
+        bucket = { value, count: 0 };
+        buckets.push(bucket);
+      }
+      bucket.count += 1;
+    });
+    buckets.sort((a, b) => b.count - a.count || Math.abs(a.value) - Math.abs(b.value));
+    return buckets[0];
+  }
+
+  function checkEdgeGroup({ type, scope, items, edges }) {
+    if (items.length < 3) return;
+    edges.forEach(edge => {
+      const majority = majorityCoordinate(items, edge);
+      if (!majority || majority.count < 2) return;
+      items.forEach(item => {
+        const value = item.rect[edge];
+        const delta = Math.abs(value - majority.value);
+        if (delta < EDGE_TOLERANCE_PX) return;
+        edgeAlignment.push({
+          type,
+          scope,
+          edge,
+          element: item.element,
+          ...(item.row ? { row: item.row } : {}),
+          majority: `${majority.value}px`,
+          outlier: `${value}px`,
+          delta: `${delta}px`,
+          detail: `${edge} edge differs from sibling majority by ${delta}px`,
+        });
+      });
+    });
+  }
+
+  function trailingControl(row) {
+    const controls = [...row.querySelectorAll(
+      'button,input,select,textarea,[role="switch"],[role="checkbox"],[aria-haspopup="menu"]'
+    )].filter(visible);
+    if (controls.length > 0) return controls[controls.length - 1];
+    const children = visualChildren(row);
+    return children.length > 0 ? children[children.length - 1] : null;
   }
 
   // --- Group 1: Headings by level (typography consistency) ---
@@ -354,6 +424,44 @@ For each page, run this via `browser_evaluate`:
     }
   });
 
+  // --- Edge alignment: stacked siblings in the same column ---
+  document.querySelectorAll(
+    'main,[role="main"],[class*="panel"],[class*="drawer"],[class*="sheet"],[class*="column"],[class*="body"],[class*="content"],[class*="list"]'
+  ).forEach(parent => {
+    if (!visible(parent)) return;
+    const children = visualChildren(parent).map(child => ({
+      element: desc(child),
+      rect: rectSummary(child),
+    }));
+    checkEdgeGroup({
+      type: 'stacked-sibling-edge',
+      scope: desc(parent),
+      items: children,
+      edges: ['left', 'right'],
+    });
+  });
+
+  // --- Edge alignment: trailing controls inside menus/popovers ---
+  document.querySelectorAll(
+    '[role="menu"],[role="listbox"],[class*="menu"],[class*="popover"],[class*="dropdown"],[class*="select"],[class*="dialog"]'
+  ).forEach(parent => {
+    if (!visible(parent)) return;
+    const controls = visualChildren(parent)
+      .map(row => ({ row, control: trailingControl(row) }))
+      .filter(({ control }) => control && visible(control))
+      .map(({ row, control }) => ({
+        element: desc(control),
+        row: desc(row),
+        rect: rectSummary(control),
+      }));
+    checkEdgeGroup({
+      type: 'inner-row-control-edge',
+      scope: desc(parent),
+      items: controls,
+      edges: ['left', 'right'],
+    });
+  });
+
   // --- Asymmetry check: containers with unbalanced padding ---
   document.querySelectorAll('div,section,article,aside,main,header,footer').forEach(el => {
     if (!visible(el)) return;
@@ -402,15 +510,19 @@ For each page, run this via `browser_evaluate`:
     return diffB - diffA;
   });
 
+  edgeAlignment.sort((a, b) => parseFloat(b.delta) - parseFloat(a.delta));
+
   return JSON.stringify({
     inconsistencies,
     hierarchy,
     asymmetry: asymmetry.slice(0, 10),
+    edgeAlignment: edgeAlignment.slice(0, 20),
     _meta: {
       groups_checked: Object.keys(inconsistencies).length,
       groups_with_variance: Object.values(inconsistencies).filter(v => Object.keys(v).length > 0).length,
       hierarchy_issues: hierarchy.length,
       asymmetric_elements: asymmetry.length,
+      edge_alignment_issues: edgeAlignment.length,
     }
   }, null, 2);
 })()
@@ -462,10 +574,19 @@ Then write a human-readable report:
 | div.hero-section | vertical | top=48px bottom=24px |
 | section.card-body | horizontal | left=24px right=16px |
 
+## Edge Alignment
+
+| Type | Scope | Edge | Majority | Outlier | Delta | Element |
+|------|-------|------|----------|---------|-------|---------|
+| stacked-sibling-edge | main.inbox | right | 1384px | 1388px | 4px | div.inbox-filter-row "Filters" |
+| stacked-sibling-edge | main.inbox | left | 16px | 0px | 16px | section.getting-started-banner "Get started" |
+| inner-row-control-edge | div.display-popover | right | 272px | 256px | 16px | button.switch "on" |
+
 ## Summary
 - {N} groups checked, {N} with inconsistencies
 - {N} hierarchy issues
 - {N} elements with asymmetric padding
+- {N} edge-alignment issues
 ```
 
 Save to `/tmp/design-review/{feature}/consistency-{page-slug}.md`.
@@ -483,6 +604,8 @@ Run at desktop viewport (1440px). One audit per page is sufficient.
 - List items in a flex container have inconsistent heights
 - A section has `pt-8 pb-4` — valid tokens, unbalanced result
 - Body text is the same size as the smallest heading — no visual distinction
+- A banner edge, filter row edge, or list row edge drifts by >=2px from sibling majority
+- Menu or popover trailing controls do not share the same x-position
 
 **What this does NOT catch (leave to the reviewer):**
 - Intentional variants (`.btn-sm` vs `.btn-lg` will flag — reviewer uses judgment)
@@ -500,7 +623,7 @@ Add enriched artifacts to the manifest:
 |------|------|-------------|
 | a11y-snapshot-{page}.md | Accessibility tree | Element roles, names, states, tab order |
 | consistency-{page}.json | Raw consistency data | Full variance detection output |
-| consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding |
+| consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding, edge alignment |
 ```
 
 ## Cleanup
