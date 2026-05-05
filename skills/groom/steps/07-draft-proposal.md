@@ -110,6 +110,19 @@ Behavior depends on the current `groom_tier` from session state.
    - Resolved Questions with numbered Q&A items
    - Footer with proposal ID, date, and "Product Proposal" label
 
+   **Hero prototype** — when the feature has a UI prototype (a wireframe file exists at `{pm_dir}/backlog/wireframes/{slug}.html` or `{pm_dir}/backlog/wireframes/{slug}/index.html`):
+
+   1. Read the wireframe metadata per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6:
+      - Single-file: parse `<script type="application/json" id="wireframe-meta">` from the HTML head
+      - Multi-file: read `{slug}/meta.json`
+   2. Render the hero prototype figure between the title block and TL;DR per `prototype-format.md` §8.
+   3. Iframe height by `fidelity` field: `sketch` → 560px, `wireframe` → 720px, `mockup` → 880px.
+   4. Auto-populate the Screens caption from `screens[].label` joined by ` · `.
+   5. Auto-populate the fidelity-specific note paragraph per `prototype-format.md` §8.
+   6. If wireframe metadata is missing or malformed, fall back to a generic "View prototype" caption with no screens listed and log a warning. Do not crash the render.
+
+   When the feature has no UI prototype, omit the hero prototype figure entirely. The proposal goes title → lede → TL;DR → TOC → sections.
+
    After writing the HTML, open it in the browser:
 
    ```bash
