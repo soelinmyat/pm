@@ -2,7 +2,7 @@
 name: Link
 order: 11
 description: Create proposal entry in backlog, Linear integration, retro extraction, durable decision writeback, cleanup
-applies_to: [quick, standard, full]
+applies_to: [quick, standard, full, agent]
 ---
 
 ### Step 11: Link

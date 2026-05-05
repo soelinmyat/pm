@@ -2,7 +2,7 @@
 name: Draft Proposal
 order: 7
 description: Detect feature type, generate flows/wireframes, draft proposal content and backlog entry
-applies_to: [quick, standard, full]
+applies_to: [quick, standard, full, agent]
 ---
 
 ### Step 7: Draft Proposal

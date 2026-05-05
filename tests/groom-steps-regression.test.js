@@ -31,12 +31,18 @@ function makeFakePmDir() {
 // AC 1: All 11 step files exist and load
 // ---------------------------------------------------------------------------
 
-test("groom steps: all 11 step files load with correct order", () => {
+test("groom steps: all step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("groom", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 11, `Expected 11 steps, got ${steps.length}`);
+    // 11 primary co-pilot steps + 4 agent-tier variant steps (PM-233):
+    // 01a-intake-agent, 04a-synthesis, 05a-scope-review-agent, 08a-team-review-agent.
+    assert.equal(
+      steps.length,
+      15,
+      `Expected 15 steps (11 primary + 4 agent variants), got ${steps.length}`
+    );
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -46,7 +52,9 @@ test("groom steps: all 11 step files load with correct order", () => {
       assert.equal(steps[i].source, "default", `Step ${i} source should be "default"`);
     }
 
-    // Verify order is strictly increasing
+    // Verify order is strictly increasing — agent variants slot in via
+    // decimal order (1.1, 4.1, 5.1, 8.1) so the sequence stays monotonic
+    // when both co-pilot and agent steps are loaded together.
     for (let i = 1; i < steps.length; i++) {
       assert.ok(steps[i].order > steps[i - 1].order, `Steps should be in increasing order`);
     }
@@ -214,15 +222,24 @@ test("groom steps: step names match expected structure", () => {
   try {
     const steps = loadWorkflow("groom", pmDir, PLUGIN_ROOT);
 
+    // Co-pilot tiers (quick / standard / full) run a contiguous 11-step
+    // sequence. Agent tier (PM-233) inserts variant steps that replace
+    // specific co-pilot steps via `applies_to: [agent]`. The variants
+    // appear in load order between their co-pilot siblings:
+    //   01 → 01a → 02 → 03 → 04 → 04a → 05 → 05a → 06 → 07 → 08 → 08a → 09 → 10 → 11
     const expectedNames = [
       "Intake",
+      "Intake (agent)",
       "Strategy Check",
       "Research",
       "Scope",
+      "Synthesis (agent)",
       "Scope Review",
+      "Scope Review (agent)",
       "Design",
       "Draft Proposal",
       "Team Review",
+      "Team Review (agent)",
       "Bar Raiser",
       "Present",
       "Link",
