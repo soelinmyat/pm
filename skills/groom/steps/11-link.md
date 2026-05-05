@@ -2,7 +2,7 @@
 name: Link
 order: 11
 description: Create proposal entry in backlog, Linear integration, retro extraction, durable decision writeback, cleanup
-applies_to: [quick, standard, full]
+applies_to: [quick, standard, full, agent]
 ---
 
 ### Step 11: Link
@@ -92,6 +92,30 @@ proposal:
    | Bar raiser send-back | `bar_raiser.verdict` = `send-back` | `quality` | Read the bar raiser feedback to identify the quality gap. Write a generalizable lesson: what quality check or standard should be applied earlier in grooming? |
    | Team review blocking fixes | `team_review.blocking_issues_fixed` > 0 | `review` | Read the blocking issues to identify the common pattern. Write a generalizable lesson: what should be verified or structured differently before team review? |
    | Strategy check failure | `strategy_check.status` = `failed` | `process` | Read the strategy check results to identify the misalignment. Write a generalizable lesson: what strategy validation should happen earlier in the grooming flow? |
+   | Agent-tier brief-exchange creep | `groom_tier == "agent"` AND `questions_asked > 2` | `process` | Default for agent tier is 0 questions. >2 means a trigger fired multiple times or the tier is being misused. Write: which gap forced the asks (KB anchor missing, JTBD ambiguity, or both)? |
+   | Agent-tier scope-lock churn | `groom_tier == "agent"` AND `redirects.scope_lock >= 2` | `scope` | Multiple redirects = synthesizer can't converge on user intent. Write: what KB signal would have anchored the synthesis correctly the first time? |
+   | Agent-tier citation invalidity | `groom_tier == "agent"` AND `citation_validity_sampled.sampled > 0` AND `valid / sampled < 0.85` | `quality` | Reviewers flagged invalid citations from the synthesizer. Write: which sub-persona produced the bad citations, and what KB hygiene would have prevented it? |
+   | Agent-tier reviewer escalation | `groom_tier == "agent"` AND (`iter_counts.scope_review > 2` OR `iter_counts.team_review > 2`) | `review` | Auto-iteration didn't converge within the cap. Write: was the issue a real disagreement or a reviewer-prompt failure mode? |
+
+   **5a-bis. Agent-tier session metrics (informational).** When `groom_tier == "agent"`, surface the session telemetry to the user before retro extraction. Read these fields from session state and print:
+
+   ```
+   Agent-tier session metrics
+     questions_asked:           {N}    (target: ≤2)
+     time_to_scope_lock:        {s}    (p50 target: ≤300s)
+     time_to_proposal_ready:    {s}
+     iter_counts.scope_review:  {N}    (cap: 2)
+     iter_counts.team_review:   {N}    (cap: 2)
+     redirects.scope_lock:      {N}    (cap: 3)
+     redirects.proposal_ready:  {N}    (cap: 3)
+     citation_validity_sampled: {valid}/{sampled}  ({pct}% — target: ≥85%)
+     cost_usd:                  ${X.XX}
+     tokens_used:               {N}
+   ```
+
+   These metrics drive the alpha → beta → GA promotion decision. Threshold breaches (questions_asked > 2, validity < 85%, scope_review > 2 iter, etc.) automatically generate retro entries via the table above. The metrics block is informational; the retro extraction is where they become durable learnings.
+
+   Skip this entire block for co-pilot tiers (`groom_tier ∈ {quick, standard, full}`).
 
    **5b. No events — skip silently.** If none of the conditions above match, log internally "no learnings detected this session" and skip to step 6 (state file deletion). Do NOT prompt the user.
 

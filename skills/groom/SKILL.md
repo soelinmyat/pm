@@ -38,17 +38,20 @@ Stop. Do not create `.pm/` or `pm/` implicitly.
 
 ## Tier Gating
 
-Three tiers control which steps execute. The matrix below is the source of truth for step coverage — each step's frontmatter `applies_to:` must match it.
+Four tiers control which steps execute. The matrix below is the source of truth for step coverage — each step's frontmatter `applies_to:` must match it.
 
 | Tier | Intended use | Steps that run |
 |------|--------------|----------------|
 | `quick` | Fill in missing structure fast — usually a handoff into implementation or backlog capture | `intake → strategy-check → research → scope → draft-proposal → link` |
 | `standard` | Solid product proposal without the full review stack | `intake → strategy-check → research → scope → scope-review → design → draft-proposal → link` |
 | `full` | Full PM ceremony with review stack and presentation | every step (adds `team-review`, `bar-raiser`, `present`) |
+| `agent` | Autonomous synthesis from a mature KB; two checkpoints, source-cited | `01a-intake-agent → 04a-synthesis → 05a-scope-review-agent → draft-proposal → 08a-team-review-agent → link` |
 
-**Research depth by tier:** `quick` = inline assessment only, no `pm:research` invocation. `standard` and `full` = full `pm:research` invocation (HARD-GATE applies).
+**Research depth by tier:** `quick` = inline assessment only, no `pm:research` invocation. `standard` and `full` = full `pm:research` invocation (HARD-GATE applies). `agent` = research must already exist (Iron Law gate refuses otherwise); no dispatch from inside groom.
 
-**Selection priority:** (1) explicit tier from caller, (2) tier requested by `pm:dev`, (3) max tier allowed by KB maturity (capped by Step 1 intake detection).
+**Runtime by tier:** `agent` is **claude-only for alpha**. Codex inline-execution is explicitly out of scope; agent tier requested under codex refuses with a directive pointing at standard tier.
+
+**Selection priority:** (1) explicit tier from caller, (2) tier requested by `pm:dev`, (3) max tier allowed by KB maturity (capped by Step 1 intake detection). `agent` requires a stricter freshness gate (strategy < 90d, ≥3 hot insights, ≥2 competitor profiles) — see `references/tier-gating.md`.
 
 For the full selection logic, KB-maturity cap nuances, and per-tier research routing, see `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md`.
 
