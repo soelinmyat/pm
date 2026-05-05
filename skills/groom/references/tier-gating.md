@@ -19,8 +19,49 @@ If no maturity check has run yet (first invocation, before Step 1 completes), tr
 Write the selected tier to the state file:
 
 ```yaml
-groom_tier: quick | standard | full
+groom_tier: quick | standard | full | agent
 ```
+
+## Agent tier — additional gating
+
+Agent tier is the autonomous variant introduced in PM-233. It runs synthesis, scope-setting, drafting, and review autonomously between two interactive checkpoints (scope-lock + proposal-ready), with mandatory source citations to the user's repo-committed KB.
+
+**Stricter freshness gate.** Agent tier requires more than just KB presence. It refuses unless:
+
+| Signal | Threshold | Rationale |
+|---|---|---|
+| `strategy.md` `updated:` age | < 90 days | Stale strategy → wrong inferences. Same threshold as `pm:refresh` for topic research. |
+| `insights/.hot.md` active hot insights | ≥ 3 | Synthesis needs at least 3 distinct insight signals to triangulate. |
+| `evidence/competitors/*/profile.md` count | ≥ 2 | Competitive context requires at least 2 profiles for meaningful positioning. |
+
+Refusal points the user at `/pm:strategy`, `/pm:research`, or `/pm:ingest` for filling the gaps. **Agent tier never silently degrades to standard tier.** That would hide the gap.
+
+**Runtime gating — claude-only for alpha.** Codex inline-execution is explicitly out of scope:
+
+> "Agent tier currently runs under Claude only. Use `--tier standard` for Codex."
+
+Refusal logic lives in Step `01a-intake-agent.md`. Codex runtime = refuse with the directive above.
+
+**Step coverage.** Agent tier runs a different sub-set of steps than co-pilot tiers — realised through dedicated `*-agent.md` step files, not inline conditionals:
+
+| Agent step file | Replaces co-pilot step | Notes |
+|---|---|---|
+| `01a-intake-agent.md` | `01-intake.md` | Tier gate, brief-exchange decision rule, KB freshness check |
+| `04a-synthesis.md` | `02-strategy-check + 03-research + 04-scope` | Synthesizer reads strategy + research + memory, derives scope, runs Iron Law gate |
+| `05a-scope-review-agent.md` | `05-scope-review.md` | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
+| `08a-team-review-agent.md` | `08-team-review.md` | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
+
+`07-draft-proposal.md` and `11-link.md` are shared with co-pilot tiers (`applies_to:` includes all four tiers). Step 7 has a clearly-bounded "agent-only citation render" subsection.
+
+Steps NOT in the agent path: `02-strategy-check.md`, `03-research.md`, `04-scope.md`, `06-design.md`, `09-bar-raiser.md`, `10-present.md`. Their `applies_to:` excludes `agent`.
+
+**Iter-cap mechanism.** Cap value is **literal** in the agent-variant files:
+
+- `05-scope-review.md` body says "Maximum 3 iterations" (unchanged) — `applies_to: [quick, standard, full]`
+- `05a-scope-review-agent.md` body says "Maximum 2 iterations" — `applies_to: [agent]`
+- Same pattern for `08-team-review.md` (cap 3) vs `08a-team-review-agent.md` (cap 2)
+
+No `if groom_tier == "agent"` conditionals inside step bodies. The runtime's `applies_to` dispatcher selects the right file per tier.
 
 ## Step Loading Rules
 

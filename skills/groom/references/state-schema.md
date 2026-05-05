@@ -8,8 +8,8 @@ State file location: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
 ---
 topic: "{topic name}"
 runtime: claude | codex
-groom_tier: quick | standard | full
-phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | bar-raiser | present | link
+groom_tier: quick | standard | full | agent
+phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | bar-raiser | present | link | synthesis | scope-lock | proposal-ready
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 run_id: "{PM_RUN_ID}"
@@ -27,6 +27,52 @@ kb_signals:
   strategy: true | false
   insights: true | false
   competitors: true | false
+
+# ─── Agent-tier-only fields (additive, optional) ────────────────────────────
+# Populated only when groom_tier == agent. Co-pilot tiers leave these unset.
+# Resume logic tolerates missing fields. No migration required.
+
+kb_freshness:                       # populated by Step 01a-intake-agent.md
+  strategy_age_days: int            # null if file missing; refuses if > 90
+  hot_insights_active: int          # count without resolved/expired status; refuses if < 3
+  competitor_profiles: int          # count of evidence/competitors/*/profile.md; refuses if < 2
+
+checkpoints:                        # populated as agent flow progresses
+  - name: scope-lock | proposal-ready
+    timestamp: YYYY-MM-DDTHH:MM:SSZ
+    outcome: approve | redirect | abort
+
+source_citations:                   # mirror of synthesizer output; rendered in proposal HTML audit details
+  - claim_id: "{anchor}"
+    file: "pm/evidence/research/{slug}.md"
+    line: int                       # nullable
+    finding_id: "{F-id}"            # nullable; for evidence files
+    excerpt: "{verbatim quote}"     # nullable; reviewer-aid
+
+iron_law_check:                     # populated by synthesizer; orchestrator validates fs.exists
+  research_cited: true | false      # must be true or 04a halts
+  research_files: ["pm/evidence/research/...md"]
+  fs_exists_checked: true           # MUST be true (orchestrator-side)
+  missing_paths: []                 # cited paths that failed fs.exists
+
+questions_asked: int                # 0-2 brief-exchange + any escalation; alerts if > 2
+cost_usd: float                     # cumulative session token spend
+tokens_used: int
+time_to_scope_lock_seconds: int
+time_to_proposal_ready_seconds: int
+
+iter_counts:                        # per-checkpoint, reset on session start only
+  scope_review: int                 # cap=2 for agent (vs 3 for co-pilot)
+  team_review: int                  # cap=2 for agent (vs 3 for full tier)
+
+redirects:
+  scope_lock: int                   # caps at 3; 4th escalates
+  proposal_ready: int               # caps at 3; 4th escalates
+
+citation_validity_sampled:          # filled by reviewer flagging during scope-review/team-review
+  sampled: int
+  valid: int
+# ─── End agent-tier-only fields ─────────────────────────────────────────────
 
 strategy_check:
   status: passed | failed | override | skipped

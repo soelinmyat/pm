@@ -350,7 +350,7 @@ test("groom steps: every step has applies_to tier metadata", () => {
       );
       for (const tier of step.appliesTo) {
         assert.ok(
-          ["quick", "standard", "full"].includes(tier),
+          ["quick", "standard", "full", "agent"].includes(tier),
           `Step "${step.name}" has invalid tier "${tier}" in applies_to`
         );
       }

@@ -49,7 +49,7 @@ These are the skills you invoke directly. Most other capabilities are built into
 |-----------|-------|--------------|
 | "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
 | "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Implements from an approved RFC. Prompts to run /rfc first for M+ work without one. Auto-grooms ungroomed work. |
-| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 3 tiers: quick, standard, full. No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
+| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 4 tiers: quick, standard, full, agent (autonomous, mature-KB-only, claude-only). No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
 | "Design this" / "Write an RFC" / "Technical plan" | `pm:rfc` | Technical design (RFC) for M+ work. Generates architecture, issue breakdown, and review. Outputs an RFC. |
 | "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, or a saved topic deep dive. For quick factual questions, answer directly instead of creating research artifacts |
 | "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
