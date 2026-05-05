@@ -116,3 +116,46 @@ Ready for engineering? Run `pm:rfc {slug}` to generate the technical RFC, then `
 | `planned` | `pm:rfc` | RFC exists and approved, ready to build |
 | `in-progress` | `pm:dev` | Implementation underway |
 | `done` | `pm:dev` / `pm:ship` | All work shipped |
+
+---
+
+## Agent-tier source citations (PM-233)
+
+Proposals produced by `groom_tier: agent` carry mandatory inline source citations on every derived decision. The citations live in three layers:
+
+1. **State** — `source_citations:` block at session-state level (already in `state-schema.md`); also inline `source:` field on each scope item, persona, JTBD, edge case, risk in the synthesizer's output.
+2. **Markdown proposal** — flattened to `[source: path#L42]` or `[source: path#F3]` notation, inline next to the cited claim. Example:
+   ```markdown
+   ## JTBD
+   When I groom a feature with KB-rich context, I want to skip questions about
+   facts already documented [source: pm/strategy.md#L24], so I can review a
+   complete proposal in one pass [source: pm/evidence/research/agent-mode-pm-tools.md#F2].
+   ```
+3. **HTML proposal** — small `<sup class="src">path#L42</sup>` superscript next to each cited claim, plus a collapsed `<details class="audit-block">` "Citation audit" block at the end of the proposal listing every citation in structured form.
+
+### Citation field shape
+
+Per RFC §5.2 (PM-233), citations are structured objects, not strings:
+
+```yaml
+source:
+  file: "pm/evidence/research/agent-mode-pm-tools.md"
+  line: 42                                # nullable
+  finding_id: "F3"                        # nullable; for evidence files with finding markers
+  excerpt: "Spark sells output, not process"   # nullable; reviewer-aid
+```
+
+State stores the structured object. Markdown render flattens to one of:
+- `[source: path#L<line>]` if line is set
+- `[source: path#<finding_id>]` if finding_id is set
+- `[source: path]` if neither (file-level citation only)
+
+HTML render emits the same string inside `<sup class="src">`. The audit `<details>` block at the end of the HTML lists the full structured form (file, line, finding_id, excerpt) for each citation. Audit block is collapsed by default; readers expand it to verify a specific claim.
+
+### Citation count parity rule
+
+The HTML proposal MUST contain at least as many `<sup class="src">` tags as the markdown contains `[source: ...]` tokens. Lower count = citation loss between layers (a real risk acknowledged in RFC §8 Risks). The 07-draft-proposal step's agent-tier subsection enforces parity by counting citations in the markdown source before HTML render and asserting the count is preserved.
+
+### When this applies
+
+Citations are **mandatory** for `groom_tier: agent`. Co-pilot tiers (quick / standard / full) MAY include citations but it is not required — the existing co-pilot 07-draft-proposal flow does not produce inline `[source: ...]` tokens. Step 07's "Agent-tier additions" subsection is the only place where citation rendering runs; co-pilot tiers skip it cleanly.

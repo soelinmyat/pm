@@ -159,3 +159,94 @@ proposal:
   slug: "{topic-slug}"
   backlog_path: {pm_dir}/backlog/{topic-slug}.md
 ```
+
+---
+
+## Agent-tier additions (PM-233)
+
+This subsection runs ONLY when `groom_tier == "agent"`. Co-pilot tiers (quick / standard / full) skip it cleanly — they don't read the `source_citations:` state block and don't render `[source: ...]` tokens.
+
+The agent-tier flow reaches Step 07 after `04a-synthesis.md` (synthesis + scope-lock) and `05a-scope-review-agent.md` (parallel reviewer dispatch). The session state already carries:
+- `synthesis:` block — JTBD, personas, scope, risks with `source:` on each item
+- `source_citations:` block — flattened mirror of every cited decision
+
+### Citation render — markdown
+
+When emitting the proposal markdown, every claim derived from a citation MUST carry inline `[source: ...]` notation. Use the flatten rules from `references/proposal-format.md` §"Agent-tier source citations":
+- `{file: "pm/strategy.md", line: 42}` → `[source: pm/strategy.md#L42]`
+- `{file: "pm/evidence/research/agent-mode.md", finding_id: "F3"}` → `[source: pm/evidence/research/agent-mode.md#F3]`
+- `{file: "pm/strategy.md"}` (no line/finding) → `[source: pm/strategy.md]`
+
+Tokens go inline next to the claim, NOT in a separate references list. Example output:
+
+```markdown
+## Job to be Done
+
+When I groom a feature with KB-rich context, I want to skip questions about
+facts already documented [source: pm/strategy.md#L24], so I can review a
+complete proposal in one pass [source: pm/evidence/research/agent-mode-pm-tools.md#F2].
+
+## Personas
+
+**Primary** — PM-engineer with mature KB [source: pm/strategy.md#L8]: lives
+in CLI, runs many sessions per week against the same project.
+```
+
+### Citation render — HTML
+
+The 07 step renders the markdown proposal first, then renders the HTML version (using `references/templates/proposal-reference.html`). For agent-tier:
+
+1. **Inline superscripts.** Every `[source: path#L42]` token in the markdown becomes `<sup class="src">path#L42</sup>` in the HTML, positioned immediately after the cited claim. The `.src` style is already in the proposal-reference template.
+2. **Audit details block.** Append a collapsed `<details class="audit-block">` near the end of the HTML proposal (after Risks, before Next Steps):
+
+   ```html
+   <section id="citation-audit" class="audit-block">
+     <details>
+       <summary>Citation audit (N citations)</summary>
+       <table class="audit-table">
+         <thead><tr><th>Claim</th><th>File</th><th>Line / ID</th><th>Excerpt</th></tr></thead>
+         <tbody>
+           <!-- One row per citation in source_citations[]. -->
+           <tr>
+             <td>{anchor — e.g., "JTBD primary"}</td>
+             <td><code>pm/strategy.md</code></td>
+             <td>L24</td>
+             <td>{verbatim excerpt}</td>
+           </tr>
+           ...
+         </tbody>
+       </table>
+     </details>
+   </section>
+   ```
+
+   The block is collapsed by default — readers click to expand when verifying a specific claim.
+
+### Parity check
+
+After rendering both layers, count:
+- Markdown `[source: ...]` token occurrences
+- HTML `<sup class="src">` tag occurrences
+
+Assert `html_count >= md_count`. If `html_count < md_count`: log a warning and surface as a blocking issue for team review (Step 08a). Citation loss between layers is a known render risk per RFC §8.
+
+### Persist state
+
+After both renders complete:
+
+```yaml
+phase: draft-proposal
+proposal:
+  slug: "{topic-slug}"
+  backlog_path: {pm_dir}/backlog/{topic-slug}.md
+  proposal_html_path: {pm_dir}/backlog/proposals/{topic-slug}.html
+  citation_count_md: int                  # number of [source: ...] tokens in markdown
+  citation_count_html: int                # number of <sup class="src"> in HTML
+  citation_parity: bool                   # html_count >= md_count
+```
+
+If `citation_parity: false`, the team-review step (08a) will flag this as a blocking issue. The fix is to re-render the HTML preserving every markdown citation.
+
+### Proceed to 08a
+
+Agent-tier flow proceeds directly to `08a-team-review-agent.md` for parallel reviewer dispatch. Do NOT wait for user approval at this step — the proposal-ready checkpoint comes after team review converges.
