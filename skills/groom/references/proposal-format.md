@@ -55,8 +55,15 @@ Out-of-scope:
 {Mermaid diagrams in fenced code blocks. Include %% Source: citations.}
 
 ## Wireframes
-{Link to wireframe HTML files: [Wireframe]({pm_dir}/backlog/wireframes/{name}.html).
-Or "No wireframes — feature is non-visual."}
+{For UI features with a prototype, link to the wireframe entry point:
+- Single-file: `[Prototype]({pm_dir}/backlog/wireframes/{slug}.html)`
+- Multi-file (3+ screens): `[Prototype]({pm_dir}/backlog/wireframes/{slug}/index.html)`
+
+The proposal HTML renderer (Step 7) reads the wireframe's metadata
+(per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6)
+to auto-populate the screens caption under the hero prototype figure.
+
+For non-visual features: "No wireframes — feature is non-visual." Omit the section entirely from the rendered HTML.}
 
 ## Competitive Context
 {For each relevant competitor: do they already have this feature? If yes, describe how they

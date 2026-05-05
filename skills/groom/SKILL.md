@@ -106,6 +106,7 @@ The following reference files provide detailed guidance for specific groom capab
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/scope-validation.md` | Scope validation methodology for Step 4 |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md` | Session state file YAML schema |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` | Proposal template, frontmatter schema, ID assignment, status lifecycle |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` | Wireframe spec — file organization, fidelity tiers, state coverage, metadata, embedding |
 
 ---
 
