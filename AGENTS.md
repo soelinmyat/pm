@@ -306,7 +306,7 @@ Every SKILL.md must contain these sections (order may vary):
 | Section | When to include |
 |---------|----------------|
 | **Status Definitions** | When the skill produces artifacts with lifecycle states |
-| **Tier Gating** | When the skill has depth tiers (quick/standard/full) |
+| **Tier Gating** | When the skill has depth tiers (quick/standard/full, plus agent for groom — see `skills/groom/references/tier-gating.md`) |
 | **Resume** | When the skill can pick up from a previous session |
 | **Error Handling** | When the skill has known failure modes worth documenting |
 | **References table** | When the skill has 3+ reference files |

@@ -30,9 +30,19 @@ Agent tier is the autonomous variant introduced in PM-233. It runs synthesis, sc
 
 | Signal | Threshold | Rationale |
 |---|---|---|
-| `strategy.md` `updated:` age | < 90 days | Stale strategy → wrong inferences. Same threshold as `pm:refresh` for topic research. |
-| `insights/.hot.md` active hot insights | ≥ 3 | Synthesis needs at least 3 distinct insight signals to triangulate. |
-| `evidence/competitors/*/profile.md` count | ≥ 2 | Competitive context requires at least 2 profiles for meaningful positioning. |
+| `strategy.md` `updated:` age | < 90 days | Stale strategy → wrong inferences. Aligned with `pm:refresh`'s 90-day threshold for topic research; the synthesizer's persona/JTBD derivations all anchor on strategy ICP, so freshness here is load-bearing. |
+| `insights/.hot.md` active hot insights | ≥ 3 | Single signal can be misleading; two can split. Three+ lets `@persona-jtbd-deriver` triangulate which JTBD is actually current vs. residual. Below 3, the synthesis tends to over-weight whichever insight was most recent. |
+| `evidence/competitors/*/profile.md` count | ≥ 2 | "We differentiate on X" requires comparing against at least one alternative. Below 2 profiles, `@scope-deriver`'s 10x filter result becomes ungrounded — every claim is self-referential. Two profiles forces a real positioning judgment. |
+
+**Promotion gate (alpha → beta → GA).** Agent tier ships as alpha (opt-in) and is gated for promotion based on dogfood metrics. The thresholds align with the success metrics in the proposal:
+
+| Stage | Promotion criteria | Decided by |
+|---|---|---|
+| **Alpha** | Ships opt-in. No criteria — anyone with a mature KB can opt in via `--tier agent`. | (default at ship) |
+| **Beta** | Maintainer reviews ≥30 self-run agent-tier sessions completed without abandonment. | Maintainer eyeballing session-state files. No central telemetry server exists; promotion is a single-user judgment call until shared dashboards land. |
+| **GA** | Headline metrics hold across the beta sample: questions_asked ≤ 2 in ≥80% of sessions; citation_validity_sampled ≥ 85% across the sample; ≥80% completion rate; positive qualitative feedback dominant. | Maintainer judgment, recorded in `pm/memory.md` as a learning entry. |
+
+The gate is intentionally simple because the plugin's free + local nature means there's no team to escrow the decision to. The maintainer dogfooding their own KB IS the alpha.
 
 Refusal points the user at `/pm:strategy`, `/pm:research`, or `/pm:ingest` for filling the gaps. **Agent tier never silently degrades to standard tier.** That would hide the gap.
 
