@@ -11,11 +11,13 @@ Complete implementation of the approved RFC and leave the branch in a verified, 
 <HARD-RULE>
 Step 05 **dispatches agents**. It does NOT execute implementation in the orchestrator context.
 
-- **Multi-task (`task_count > 1`):** dispatch one fresh @developer agent per task, sequentially. The orchestrator coordinates — create worktree, dispatch, wait for return, checkpoint, sync main, next. Never read the RFC and start implementing.
-- **Single-task M/L/XL:** dispatch one fresh @developer agent in the existing worktree.
+- **Multi-task (`task_count > 1`):** dispatch one fresh @developer agent per task as a **subprocess** (`scripts/dispatch-issue.sh`), sequentially. The subprocess owns the full lifecycle implement → simplify → review → ship → merge. The orchestrator coordinates — create worktree, build prompt, dispatch subprocess, read result.json, checkpoint, sync main, next. Never read the RFC and start implementing.
+- **Single-task M/L/XL:** dispatch one fresh @developer agent in the existing worktree. May use in-process `Agent(...)` / `spawn_agent(...)` since there's only one task and the orchestrator isn't carrying multi-task state.
 - **Single-task XS/S:** handled inline per the XS Express Path / size routing table in `02-intake.md`. This is the **only** valid inline path.
 
-Enforcement check before writing any implementation code in this step: if `task_count > 1` OR size is M/L/XL, you MUST use `Agent(description=..., prompt=...)` (Claude runtime) or `spawn_agent(...)` (Codex delegated). If you catch yourself about to read the RFC to "start implementing", STOP — you are the orchestrator, not the implementer. Dispatch the agent with the brief below.
+Enforcement check before writing any implementation code in this step: if `task_count > 1` OR size is M/L/XL, you MUST dispatch a fresh agent. Multi-task uses **subprocess dispatch** (see `dev/references/agent-runtime.md` § Subprocess Dispatch). If you catch yourself about to read the RFC to "start implementing", STOP — you are the orchestrator, not the implementer. Dispatch with the brief below.
+
+**Why subprocess for multi-task:** in-process sub-agents inherit "return promptly to parent" pressure and tend to bail back to the orchestrator after creating the PR — dumping the merge-loop work (CI watching, review-comment fixes) onto the orchestrator. Over an N-issue epic this burns orchestrator context and triggers compaction loops. A subprocess has no parent to bail to, so it owns the full lifecycle by construction.
 
 Violations of this rule have happened when the orchestrator has hot context on the codebase and takes the path of least resistance. That path is wrong — fresh agents are the contract.
 </HARD-RULE>
@@ -97,10 +99,12 @@ For each task (Issue section) in dependency order from the RFC:
    mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
    ```
 
-3. **Dispatch fresh @developer agent:**
+3. **Build the per-issue prompt** at `${pm_state_dir}/runs/issue-{N}/prompt.txt`:
 
 ```text
-Implement and ship the approved RFC task.
+Implement and ship the approved RFC task. You are running as a top-level subprocess —
+there is no parent to return to. You own the full lifecycle until the issue is merged
+or you write a blocked result. Do not exit until one of those happens.
 
 **CWD:** {TASK_WORKTREE_PATH}
 **Branch:** feat/{task-slug}
@@ -110,6 +114,7 @@ Implement and ship the approved RFC task.
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
+**Result file:** {pm_state_dir}/runs/issue-{N}/result.json
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -135,19 +140,66 @@ Lifecycle:
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 10. Run full test suite as final verification
 11. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-12. Report: "Merged. {ISSUE_ID} PR #{N}, sha {abc}, {N} files changed."
+12. **Before exiting**, write the result file:
+    On success:
+      {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
+    On block:
+      {"status":"blocked","issue_id":"{ISSUE_ID}","reason":"<one-line reason>"}
 
-If blocked, report: "Blocked: {ISSUE_ID} — {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
+Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
 ```
 
-Each per-task agent owns the full lifecycle for its task — implement through merge. The orchestrator coordinates task sequencing and state updates; Steps 06–08 are handled within the agent.
+4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
 
-4. **Wait for agent to return** "Merged" or "Blocked."
+   **Claude runtime:**
+   ```text
+   Bash(
+     command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
+       --runtime claude \\
+       --worktree {TASK_WORKTREE_PATH} \\
+       --prompt-file {pm_state_dir}/runs/issue-{N}/prompt.txt \\
+       --result-file {pm_state_dir}/runs/issue-{N}/result.json \\
+       --log-file {pm_state_dir}/runs/issue-{N}/log.txt",
+     run_in_background: true
+   )
+   ```
+   Returns a shell ID immediately. The subprocess runs uninterrupted in user context.
 
-5. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
+   **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
-   **Event extraction (for retro):** Per-task agents handle QA/review/ship internally and don't write event data to the shared state file. After each agent returns "Merged", extract key events from the PR so retro can learn from them:
+5. **Wait for the result file to appear** without burning context on active polling.
+
+   **Claude runtime:** use `Monitor` with an until-loop watching for the result file:
+   ```text
+   Monitor(
+     command: "until [ -f {pm_state_dir}/runs/issue-{N}/result.json ]; do sleep 30; done"
+   )
+   ```
+   The harness fires a notification when the loop exits. No active polling, no orchestrator-context burn during the long wait.
+
+   **Codex runtime / fallback:** check periodically using a low-frequency shell loop the runtime allows (e.g., a 30-second sleep cadence inside an `until` block). The same condition — result file existence — terminates the wait.
+
+   The wait can take minutes to hours. That is expected. Do NOT add a hard timeout; the subprocess decides completion by writing the result file or escalating via Blocked.
+
+6. **Read result and interpret:**
+
+   ```bash
+   STATUS=$(jq -r '.status' "{pm_state_dir}/runs/issue-{N}/result.json")
+   case "$STATUS" in
+     merged)  PR=$(jq -r '.pr' ...); SHA=$(jq -r '.merge_sha' ...); ;;
+     blocked) REASON=$(jq -r '.reason' ...); halt-and-escalate ;;
+     *)       treat as crashed; surface log to user ;;
+   esac
+   ```
+
+   If the background dispatch process exited but no result file exists (subprocess crashed before writing), treat as blocked with reason `"subprocess crashed — see {log-file}"`. Detect this by checking whether the background shell ID is still alive when the Monitor loop times out, OR by adding an OR-clause to the wait: `until [ -f result.json ] || ! kill -0 $DISPATCH_PID 2>/dev/null; do sleep 30; done`.
+
+Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via notification, read result, advance plan.
+
+7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
+
+   **Event extraction (for retro):** Per-task subprocesses handle QA/review/ship internally and don't write event data to the shared state file. After each subprocess returns merged, extract key events from the PR so retro can learn from them:
    ```bash
    # Get review iteration count
    gh pr view {PR_NUMBER} --json reviews --jq '.reviews | length'
@@ -161,15 +213,15 @@ Each per-task agent owns the full lifecycle for its task — implement through m
    - Task {N}: reviews={count}, CI runs={count}, conflict commits={count}, verdict={Merged|Blocked}
    ```
 
-6. **Sync main** before the next task:
+8. **Sync main** before the next task:
    ```bash
    git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
    ```
 
-7. **Announce progress:**
+9. **Announce progress:**
    > **Task {N} of {TOTAL} complete.** Next: {ISSUE_TITLE}. Proceeding.
 
-8. Proceed to next task.
+10. Proceed to next task.
 
 #### Per-task lifecycle tracking
 
@@ -221,11 +273,13 @@ Single-task: Fresh developer agent dispatched (Implementation)
   → implements code + tests, commits
   → returns "Implementation complete."
 
-Multi-task: For each task in order, fresh developer agent dispatched
-  → reads approved RFC, focuses on assigned Issue section
-  → implements → simplify → design critique → QA → review → merge → cleanup
-  → returns "Merged. {ISSUE_ID} PR #{N}" or "Blocked: {reason}"
-  → orchestrator checkpoints, syncs main, dispatches next
+Multi-task: For each task in order, fresh developer agent dispatched as a subprocess
+  → orchestrator builds prompt at .pm/runs/issue-{N}/prompt.txt
+  → orchestrator shells out: scripts/dispatch-issue.sh --runtime ... --prompt-file ...
+  → subprocess reads approved RFC, focuses on assigned Issue section
+  → subprocess: implements → simplify → design critique → QA → review → merge → cleanup
+  → subprocess writes .pm/runs/issue-{N}/result.json (status: merged | blocked) and exits
+  → orchestrator reads result.json, checkpoints, syncs main, dispatches next
 
 Orchestrator runs Step 09 (retro) once after all tasks complete.
 ```
@@ -234,4 +288,4 @@ Orchestrator runs Step 09 (retro) once after all tasks complete.
 
 **Single-task:** Code and tests committed on the feature branch, test suite passes, session file updated. Implementation agent has returned — orchestrator proceeds to Step 06.
 
-**Multi-task:** All per-task agents have returned "Merged" or "Blocked." Each task's branch is merged (or marked failed) and its worktree cleaned up. Session file `## Tasks` table reflects final status. Orchestrator proceeds to Step 09 (retro) — Steps 06–08 are skipped since per-task agents handled them.
+**Multi-task:** All per-task subprocesses have written `result.json` with `status: merged` or `status: blocked`. Each task's branch is merged (or marked failed) and its worktree cleaned up. Session file `## Tasks` table reflects final status. Orchestrator proceeds to Step 09 (retro) — Steps 06–08 are skipped since per-task subprocesses handled them.
