@@ -108,10 +108,13 @@ function setup(pmDir, remoteUrl, opts = {}) {
     if (!addRemote.ok) return { ok: false, error: `git remote add failed: ${addRemote.error}` };
   }
 
-  // Create .gitignore for pm-internal files that shouldn't sync
+  // Create .gitignore for pm-internal files and common OS/IDE noise that shouldn't sync
   const gitignorePath = path.join(pmDir, ".gitignore");
   if (!fs.existsSync(gitignorePath)) {
-    fs.writeFileSync(gitignorePath, "*.local-conflict\n");
+    fs.writeFileSync(
+      gitignorePath,
+      ["*.local-conflict", ".DS_Store", "Thumbs.db", ".trash/", ".idea/", ".vscode/", ""].join("\n")
+    );
   }
 
   // Initial commit if no commits yet
@@ -204,9 +207,9 @@ function push(pmDir) {
 
   if (changedFiles === 0) {
     // Nothing to commit — still push in case there are unpushed commits
-    const pushResult = runSafe("git push", { cwd: pmDir });
-    if (!pushResult.ok && !pushResult.error.includes("Everything up-to-date")) {
-      return { ok: false, committed: 0, error: `push failed: ${pushResult.error}` };
+    const pushResult = pushWithAutoRebase(pmDir);
+    if (!pushResult.ok) {
+      return { ok: false, committed: 0, error: pushResult.error };
     }
     return { ok: true, committed: 0 };
   }
@@ -218,13 +221,44 @@ function push(pmDir) {
     return { ok: false, committed: 0, error: `commit failed: ${commitResult.error}` };
   }
 
-  // Push
-  const pushResult = runSafe("git push", { cwd: pmDir });
+  // Push (auto-pull-rebase on non-fast-forward)
+  const pushResult = pushWithAutoRebase(pmDir);
   if (!pushResult.ok) {
-    return { ok: false, committed: changedFiles, error: `push failed: ${pushResult.error}` };
+    return { ok: false, committed: changedFiles, error: pushResult.error };
   }
 
   return { ok: true, committed: changedFiles };
+}
+
+/**
+ * Push to origin. If the push is rejected because remote has new commits,
+ * automatically pull --rebase and retry once. This makes push idempotent
+ * against concurrent commits from another machine.
+ */
+function pushWithAutoRebase(pmDir) {
+  const first = runSafe("git push", { cwd: pmDir });
+  if (first.ok || first.error.includes("Everything up-to-date")) {
+    return { ok: true };
+  }
+
+  const isNonFF =
+    /non-fast-forward|rejected|fetch first|tip of your current branch is behind/i.test(first.error);
+  if (!isNonFF) {
+    return { ok: false, error: `push failed: ${first.error}` };
+  }
+
+  // Remote has new commits — rebase our local commits on top, then retry.
+  const rebase = runSafe("git pull --rebase --autostash origin main", { cwd: pmDir });
+  if (!rebase.ok) {
+    runSafe("git rebase --abort", { cwd: pmDir });
+    return { ok: false, error: `push rejected; auto-rebase failed: ${rebase.error}` };
+  }
+
+  const second = runSafe("git push", { cwd: pmDir });
+  if (!second.ok && !second.error.includes("Everything up-to-date")) {
+    return { ok: false, error: `push failed after rebase: ${second.error}` };
+  }
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,35 +278,17 @@ function pull(pmDir) {
     return { ok: false, updated: 0, error: "No remote configured. Run setup first." };
   }
 
-  // Stash any uncommitted changes before pulling
-  const stashResult = runSafe("git stash --include-untracked", { cwd: pmDir });
-  const didStash = stashResult.ok && !stashResult.output.includes("No local changes");
-
-  // Pull
-  const pullResult = runSafe("git pull --rebase origin main", { cwd: pmDir });
+  // --autostash: git stashes uncommitted changes, rebases, then pops automatically.
+  // Cleaner than manual stash/pop and handles untracked files via .gitignore.
+  const pullResult = runSafe("git pull --rebase --autostash origin main", { cwd: pmDir });
   if (!pullResult.ok) {
-    // Abort rebase if it failed mid-way
     runSafe("git rebase --abort", { cwd: pmDir });
-    if (didStash) runSafe("git stash pop", { cwd: pmDir });
     return { ok: false, updated: 0, error: `pull failed: ${pullResult.error}` };
   }
 
-  // Count updated files from pull output
   let updated = 0;
   const match = pullResult.output.match(/(\d+) files? changed/);
   if (match) updated = parseInt(match[1], 10);
-
-  // Pop stash
-  if (didStash) {
-    const popResult = runSafe("git stash pop", { cwd: pmDir });
-    if (!popResult.ok && popResult.error.includes("CONFLICT")) {
-      return {
-        ok: true,
-        updated,
-        error: "Pull succeeded but stash pop had conflicts. Resolve manually.",
-      };
-    }
-  }
 
   return { ok: true, updated };
 }
