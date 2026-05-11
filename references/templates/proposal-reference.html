@@ -5,315 +5,991 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PM-042 — Multi-Language Support</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>document.fonts.ready.then(() => mermaid.initialize({ startOnLoad: true, theme: 'neutral', fontFamily: 'Inter' }));</script>
+<script>
+  document.fonts.ready.then(() => mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'Geist, system-ui, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#f4f1ec',
+      primaryTextColor: '#2a2622',
+      primaryBorderColor: '#d6cfc4',
+      lineColor: '#8a8175',
+      tertiaryColor: '#fbf9f5'
+    }
+  }));
+</script>
 <style>
-*,::after,::before{box-sizing:border-box;margin:0;padding:0}:root{--font:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono','SF Mono',monospace;--bg:#F6F6F4;--bg-surface:#FFFFFF;--bg-inset:#F0F0EE;--bg-muted:#EEEEED;--ink:#1A1A19;--ink-secondary:#4A4A48;--ink-tertiary:#8A8A87;--ink-faint:#B5B5B1;--rule:#E0E0DC;--rule-subtle:#EBEBEA;--accent:#5B5BD6;--accent-soft:#E8E8FD;--accent-text:#3E3EA8;--positive:#2B8A3E;--positive-soft:#E6F5EA;--negative:#C92A2A;--negative-soft:#FFF0F0;--warning:#E67700;--warning-soft:#FFF4E6;--info:#1971C2;--info-soft:#E7F5FF;--shadow-card:0 1px 3px rgba(0,0,0,0.03),0 6px 16px rgba(0,0,0,0.04);--r-sm:6px;--r-md:10px;--r-lg:14px;--r-pill:999px;--ease:cubic-bezier(0.22, 1, 0.36, 1);--content-w:860px}html{scroll-behavior:smooth;scroll-padding-top:3.75rem}body{font-family:var(--font);font-size:15px;line-height:1.6;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}.hero{background:#3b3870;color:#fff;padding:2.5rem 2rem 2rem;position:relative;overflow:hidden}.hero::before{content:'';position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.06) 1px,transparent 1px);background-size:24px 24px;pointer-events:none}.hero::after{content:'';position:absolute;top:-80px;right:-30px;width:350px;height:350px;background:radial-gradient(circle,rgba(91,91,214,.18) 0,transparent 65%);pointer-events:none}.hero-inner{max-width:var(--content-w);margin:0 auto;padding:0 2rem;position:relative;z-index:1}.hero-breadcrumb{font-size:.78rem;color:rgba(255,255,255,.35);margin-bottom:1.25rem;font-weight:500}.hero-breadcrumb a{color:rgba(255,255,255,.35);text-decoration:none}.hero-breadcrumb a:hover{color:rgba(255,255,255,.65)}.hero-meta-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}.hero h1{font-size:1.75rem;font-weight:800;letter-spacing:-.035em;line-height:1.15;margin-bottom:.5rem}.hero-summary{font-size:.92rem;color:rgba(255,255,255,.5);max-width:620px;line-height:1.55}.hero-meta{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;margin-top:1.125rem;padding-top:.875rem;border-top:1px solid rgba(255,255,255,.08)}.hero-meta-item{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;color:rgba(255,255,255,.4);font-weight:500}.hero-meta-sep{color:rgba(255,255,255,.15);font-size:.7rem}.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:var(--r-pill);font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}.pill .dot{width:5px;height:5px;border-radius:50%}.pill-proposed-dark{background:rgba(91,91,214,.2);color:rgba(180,180,255,.9);border:1px solid rgba(91,91,214,.25)}.pill-proposed-dark .dot{background:#818cf8}.pill-proposal-dark{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.1)}.pill-priority{background:rgba(230,119,0,.2);color:rgba(255,200,120,.9);border:1px solid rgba(230,119,0,.25)}.toc{position:sticky;top:0;z-index:100;background:rgba(246,246,244,.85);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);border-bottom:1px solid var(--rule);padding:0 2rem}.toc-inner{max-width:var(--content-w);margin:0 auto;display:flex;overflow-x:auto;scrollbar-width:none}.toc-inner::-webkit-scrollbar{display:none}.toc a{display:block;padding:.65rem .75rem;font-size:.76rem;font-weight:500;color:var(--ink-tertiary);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:all .2s var(--ease)}.toc a:hover{color:var(--ink-secondary)}.toc a.active{color:var(--accent-text);border-bottom-color:var(--accent);font-weight:600}.content{max-width:var(--content-w);margin:0 auto;padding:2rem 2rem 1rem}.section{margin-bottom:2.5rem}.section-header{display:flex;align-items:center;gap:.625rem;margin-bottom:1rem}.section-icon{width:30px;height:30px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;flex-shrink:0}.section-icon svg{width:16px;height:16px}.section-header h2{font-size:1.05rem;font-weight:700;letter-spacing:-.015em}.section-header::after{content:'';flex:1;height:1px;background:var(--rule-subtle);margin-left:.5rem}.section p{color:var(--ink-secondary);line-height:1.7;font-size:.9rem}.section p+p{margin-top:.625rem}.section-lead{font-weight:600;color:var(--ink);font-size:.92rem;margin-bottom:.5rem}.scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0}.scope-card{background:var(--bg-surface);border:1px solid var(--rule);border-radius:var(--r-md);padding:1rem 1.25rem}.scope-card h3{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem}.scope-card.in-scope h3{color:var(--positive)}.scope-card.out-scope h3{color:var(--ink-faint)}.scope-card ul{list-style:none;font-size:.84rem;display:flex;flex-direction:column;gap:.35rem}.scope-card.in-scope li{color:var(--ink-secondary);padding-left:1rem;position:relative}.scope-card.in-scope li::before{content:'+';position:absolute;left:0;color:var(--positive);font-weight:700}.scope-card.out-scope li{color:var(--ink-tertiary);padding-left:1rem;position:relative}.scope-card.out-scope li::before{content:'3';position:absolute;left:0;color:var(--ink-faint);font-weight:700}.filter-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r-pill);font-size:.72rem;font-weight:600;letter-spacing:.03em;margin-top:.75rem}.filter-10x{background:var(--accent-soft);color:var(--accent-text)}.filter-gap-fill{background:var(--info-soft);color:var(--info)}.filter-table-stakes{background:var(--bg-muted);color:var(--ink-tertiary)}.filter-parity{background:var(--warning-soft);color:var(--warning)}.callout{display:flex;gap:.75rem;padding:.875rem 1rem;border-radius:var(--r-md);border:1px solid;margin:1rem 0;font-size:.84rem;line-height:1.55}.callout-icon{flex-shrink:0;width:18px;text-align:center;font-size:.9rem}.callout-body{flex:1}.callout-body strong{font-weight:600}.callout-info{background:var(--info-soft);border-color:#bfdbfe;color:var(--info)}.callout-warning{background:var(--warning-soft);border-color:#fed7aa;color:#9a3412}.callout-positive{background:var(--positive-soft);border-color:#bbf7d0;color:var(--positive)}.diagram-card{background:var(--bg-surface);border:1px solid var(--rule);border-radius:var(--r-md);padding:1.25rem;overflow-x:auto;margin:1rem 0}.diagram-card .mermaid{display:flex;justify-content:center}.diagram-label{font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-bottom:.75rem}.table-wrap{background:var(--bg-surface);border:1px solid var(--rule);border-radius:var(--r-md);overflow:hidden;margin:1rem 0}.table-wrap table{width:100%;border-collapse:collapse;font-size:.82rem}.table-wrap thead{background:var(--bg-inset)}.table-wrap th{text-align:left;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);padding:.6rem 1rem;border-bottom:1px solid var(--rule)}.table-wrap td{padding:.65rem 1rem;border-bottom:1px solid var(--rule-subtle);color:var(--ink-secondary);vertical-align:top;line-height:1.5}.table-wrap tr:last-child td{border-bottom:none}.table-wrap td strong{color:var(--ink);font-weight:600}.question-item{display:flex;gap:.75rem;padding:.75rem 0;border-bottom:1px solid var(--rule-subtle)}.question-item:last-child{border-bottom:none}.question-num{width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;flex-shrink:0;margin-top:.1rem}.question-text{font-size:.86rem;color:var(--ink);font-weight:500;line-height:1.45}.question-answer{font-size:.84rem;color:var(--ink-secondary);line-height:1.55;margin-top:.25rem}.verdict-card{background:var(--bg-surface);border:1px solid var(--rule);border-radius:var(--r-md);padding:1rem 1.25rem;margin:.75rem 0}.verdict-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}.verdict-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:4px}.verdict-feasible{background:var(--positive-soft);color:var(--positive)}.verdict-caveats{background:var(--warning-soft);color:var(--warning)}.verdict-rearch{background:var(--negative-soft);color:var(--negative)}.verdict-body{font-size:.84rem;color:var(--ink-secondary);line-height:1.55}.verdict-body strong{color:var(--ink)}.pipeline-step{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--rule-subtle);font-size:.84rem}.pipeline-step:last-child{border-bottom:none}.pipeline-icon{width:20px;text-align:center;font-size:.9rem;flex-shrink:0}.pipeline-name{font-weight:600;color:var(--ink);min-width:120px}.pipeline-verdict{color:var(--ink-secondary)}details{margin:.5rem 0}details summary{cursor:pointer;font-size:.84rem;font-weight:600;color:var(--ink-secondary);padding:.5rem .75rem;list-style:none;display:flex;align-items:center;gap:.5rem;border-radius:var(--r-sm);transition:background .15s;user-select:none}details summary:hover{background:var(--bg-muted)}details summary::before{content:'';width:0;height:0;border-left:5px solid var(--ink-tertiary);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .2s var(--ease);flex-shrink:0}details[open] summary::before{transform:rotate(90deg)}details summary::-webkit-details-marker{display:none}details .details-body{padding:.5rem .75rem .5rem 1.75rem}details .details-body p{font-size:.85rem;color:var(--ink-secondary);line-height:1.65}.next-steps-card{background:var(--accent-soft);border:1px solid rgba(91,91,214,.15);border-radius:var(--r-md);padding:1rem 1.25rem;margin:1rem 0}.next-steps-card code{font-family:var(--mono);font-size:.82rem;background:rgba(91,91,214,.1);padding:2px 6px;border-radius:4px;color:var(--accent-text)}.next-steps-card p{font-size:.86rem;color:var(--accent-text);line-height:1.55}.footer{max-width:var(--content-w);margin:0 auto;padding:1.5rem 2rem 3rem;border-top:1px solid var(--rule);font-size:.72rem;color:var(--ink-faint);display:flex;justify-content:space-between;font-family:var(--mono)}.icon-outcome{background:var(--positive-soft);color:var(--positive)}.icon-problem{background:var(--negative-soft);color:var(--negative)}.icon-scope{background:var(--accent-soft);color:var(--accent-text)}.icon-flow{background:#f3e8ff;color:#7c3aed}.icon-wireframe{background:#e0f2f1;color:#00796b}.icon-compete{background:var(--warning-soft);color:var(--warning)}.icon-feasible{background:var(--info-soft);color:var(--info)}.icon-review{background:var(--bg-muted);color:var(--ink-tertiary)}.icon-question{background:var(--info-soft);color:var(--info)}.icon-metrics{background:#f3e8ff;color:#7c3aed}.icon-next{background:var(--accent-soft);color:var(--accent-text)}@media (max-width:700px){.hero{padding:2rem 1.25rem 1.5rem}.hero h1{font-size:1.5rem}.content{padding:1.5rem 1.25rem 1rem}.scope-grid{grid-template-columns:1fr}}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --serif: 'Spectral', Georgia, 'Times New Roman', serif;
+    --sans: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
+
+    --bg:        oklch(98% 0.005 60);
+    --bg-tint:   oklch(96% 0.008 60);
+    --ink:       oklch(20% 0.01 60);
+    --ink-2:     oklch(38% 0.012 60);
+    --ink-3:     oklch(55% 0.01 60);
+    --ink-4:     oklch(70% 0.008 60);
+    --rule:      oklch(88% 0.008 60);
+    --rule-soft: oklch(93% 0.006 60);
+
+    --accent:    oklch(38% 0.13 280);
+    --accent-2:  oklch(58% 0.1 280);
+    --accent-bg: oklch(96% 0.018 280);
+
+    --measure: 38rem;
+    --wide:    52rem;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+    --space-7: 3rem;
+    --space-8: 4rem;
+    --space-9: 6rem;
+  }
+
+  html { scroll-behavior: smooth; scroll-padding-top: var(--space-5); }
+  body {
+    font-family: var(--serif);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'kern', 'liga', 'onum';
+  }
+
+  /* ───────────── Page frame ───────────── */
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: var(--space-7) var(--space-5) var(--space-9);
+  }
+  @media (min-width: 720px) {
+    .page { padding: var(--space-8) var(--space-6) var(--space-9); }
+  }
+
+  /* ───────────── Masthead ───────────── */
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-bottom: var(--space-4);
+    margin-bottom: var(--space-6);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .masthead-id { font-family: var(--mono); letter-spacing: 0.04em; }
+  .masthead-meta { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+  .masthead-meta span:not(:last-child)::after {
+    content: '·'; margin-left: var(--space-4); color: var(--ink-4);
+  }
+  .status-mark {
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+  }
+
+  /* ───────────── Title block ───────────── */
+  .title-block { margin-bottom: var(--space-7); max-width: var(--measure); }
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(2rem, 4.2vw, 2.75rem);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: var(--space-4);
+  }
+  .lede {
+    font-size: 1.1875rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+
+  /* ───────────── Hero prototype (optional — for UI features) ───────────── */
+  .hero-prototype {
+    margin: 0 0 var(--space-6);
+    max-width: var(--wide);
+  }
+  .hero-prototype-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-3);
+  }
+  .hero-prototype-label { font-weight: 500; }
+  .hero-prototype-fig { font-family: var(--mono); color: var(--ink-4); letter-spacing: 0.04em; }
+  .hero-prototype-frame-wrap { background: var(--bg-tint); margin-top: var(--space-3); }
+  .hero-prototype-frame { width: 100%; border: 0; display: block; background: #fff; }
+  .hero-prototype-frame--sketch { height: 560px; }
+  .hero-prototype-frame--wireframe { height: 720px; }
+  .hero-prototype-frame--mockup { height: 880px; }
+  .hero-prototype-footer {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+    margin-top: var(--space-2);
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+  }
+  .hero-prototype-screens-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-4);
+    margin-right: 0.6em;
+  }
+  .hero-prototype-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .hero-prototype-link:hover { text-decoration: underline; }
+  .hero-prototype-note {
+    margin-top: var(--space-3);
+    font-size: 0.86rem;
+    color: var(--ink-3);
+    font-style: italic;
+    max-width: var(--measure);
+  }
+
+  /* ───────────── TL;DR — three labeled lines, no card ───────────── */
+  .tldr {
+    margin: var(--space-6) 0 var(--space-7);
+    max-width: var(--measure);
+  }
+  .tldr dl {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr;
+    gap: var(--space-2) var(--space-4);
+    align-items: baseline;
+  }
+  .tldr dt {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .tldr dd { font-size: 1rem; line-height: 1.55; color: var(--ink); }
+
+  /* ───────────── Table of contents ───────────── */
+  .toc {
+    margin: var(--space-6) 0 var(--space-8);
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+    column-count: 2;
+    column-gap: var(--space-6);
+    max-width: var(--measure);
+  }
+  @media (min-width: 720px) { .toc { column-count: 3; } }
+  .toc a {
+    display: block;
+    padding: var(--space-1) 0;
+    color: var(--ink-2);
+    text-decoration: none;
+    break-inside: avoid;
+  }
+  .toc a:hover { color: var(--accent); }
+  .toc-num {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--ink-4);
+    margin-right: 0.6em;
+    letter-spacing: 0.04em;
+  }
+
+  /* ───────────── Sections ───────────── */
+  section { margin-bottom: var(--space-8); }
+  section:last-child { margin-bottom: 0; }
+
+  h2 {
+    font-family: var(--serif);
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    margin-bottom: var(--space-4);
+    max-width: var(--measure);
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-4);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+    margin: var(--space-5) 0 var(--space-3);
+    max-width: var(--measure);
+  }
+
+  p {
+    max-width: var(--measure);
+    margin-bottom: var(--space-3);
+    color: var(--ink);
+  }
+  p:last-child { margin-bottom: 0; }
+
+  /* Lead sentence under heading */
+  .lead {
+    font-size: 1.0625rem;
+    color: var(--ink-2);
+    margin-bottom: var(--space-4);
+  }
+
+  ul, ol {
+    max-width: var(--measure);
+    margin-bottom: var(--space-3);
+    padding-left: 1.4em;
+  }
+  ul { list-style: none; padding-left: 1.2em; }
+  ul li { position: relative; margin-bottom: var(--space-2); }
+  ul li::before {
+    content: '·';
+    position: absolute;
+    left: -0.9em;
+    color: var(--ink-3);
+    font-weight: 700;
+  }
+  ol li { margin-bottom: var(--space-2); padding-left: 0.3em; }
+  li ul, li ol { margin-top: var(--space-2); margin-bottom: 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--ink);
+    background: var(--bg-tint);
+    padding: 0.1em 0.35em;
+    border-radius: 2px;
+  }
+
+  em { font-style: italic; }
+  strong { font-weight: 600; }
+
+  /* ───────────── Annotation pattern — JTBD pullquote, advisory, differentiator ───────────── */
+  .annotation {
+    margin: var(--space-5) 0;
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-tint);
+    max-width: var(--measure);
+    font-family: var(--serif);
+  }
+  .annotation-label {
+    display: block;
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-2);
+  }
+  .annotation p { max-width: none; margin: 0; }
+
+  .annotation-jtbd {
+    background: var(--accent-bg);
+    padding: var(--space-5) var(--space-5);
+  }
+  .annotation-jtbd .annotation-label { color: var(--accent); }
+  .annotation-jtbd p {
+    font-size: 1.25rem;
+    line-height: 1.45;
+    font-style: italic;
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .annotation-jtbd em { font-style: italic; color: var(--accent); font-weight: 500; }
+
+  /* ───────────── Personas — labeled rows, no cards ───────────── */
+  .personas {
+    margin: var(--space-4) 0;
+    max-width: var(--measure);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  @media (min-width: 640px) {
+    .personas { grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+  }
+  .persona { border-top: 1px solid var(--rule); padding-top: var(--space-3); }
+  .persona-tag {
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-2);
+  }
+  .persona-name {
+    font-family: var(--serif);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: var(--space-1);
+  }
+  .persona-desc { font-size: 0.95rem; color: var(--ink-2); line-height: 1.55; }
+
+  /* ───────────── Use cases — numbered, definition-list rows ───────────── */
+  .usecases { margin-top: var(--space-2); max-width: var(--measure); }
+  .usecase { padding: var(--space-4) 0; border-bottom: 1px solid var(--rule-soft); }
+  .usecase:last-child { border-bottom: none; }
+  .usecase-title {
+    font-family: var(--serif);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: var(--space-3);
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .usecase-num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-4);
+    flex-shrink: 0;
+    letter-spacing: 0.04em;
+  }
+  .usecase dl {
+    display: grid;
+    grid-template-columns: 4.5rem 1fr;
+    gap: var(--space-1) var(--space-4);
+    margin-left: 2rem;
+    font-size: 0.95rem;
+  }
+  .usecase dt {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding-top: 0.15em;
+  }
+  .usecase dd { color: var(--ink-2); line-height: 1.55; }
+
+  /* ───────────── Scope — two labeled lists, no cards ───────────── */
+  .scope {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
+    max-width: var(--measure);
+    margin-bottom: var(--space-4);
+  }
+  @media (min-width: 640px) {
+    .scope { grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  }
+  .scope-col { border-top: 1px solid var(--rule); padding-top: var(--space-3); }
+  .scope-col-label {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-3);
+  }
+  .scope-col ul { padding-left: 0; max-width: none; }
+  .scope-col ul li { font-size: 0.95rem; line-height: 1.55; color: var(--ink-2); }
+  .scope-col ul li::before { color: var(--ink-4); }
+  .scope-col-out ul li em {
+    font-style: normal;
+    color: var(--ink-3);
+    font-size: 0.86rem;
+    display: block;
+    margin-top: 2px;
+  }
+
+  .filter-tag {
+    margin-top: var(--space-4);
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--accent);
+    font-weight: 500;
+    max-width: var(--measure);
+  }
+
+  /* ───────────── Tables — single style ───────────── */
+  table {
+    width: 100%;
+    max-width: var(--wide);
+    border-collapse: collapse;
+    margin: var(--space-4) 0;
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+  th {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: var(--space-2) var(--space-3) var(--space-2) 0;
+    border-bottom: 1px solid var(--ink-3);
+    vertical-align: bottom;
+  }
+  td {
+    padding: var(--space-3) var(--space-3) var(--space-3) 0;
+    color: var(--ink-2);
+    vertical-align: top;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  td:first-child { color: var(--ink); }
+  td strong { color: var(--ink); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ───────────── Diagram ───────────── */
+  .diagram {
+    margin: var(--space-4) 0;
+    padding: var(--space-5);
+    background: var(--bg-tint);
+    max-width: var(--wide);
+    overflow-x: auto;
+  }
+  .diagram .mermaid { display: flex; justify-content: center; }
+
+  /* ───────────── Open questions — paragraphs with meta line ───────────── */
+  .open-q {
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--rule-soft);
+    max-width: var(--measure);
+  }
+  .open-q:last-child { border-bottom: none; }
+  .open-q-q {
+    font-family: var(--serif);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: var(--space-2);
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .open-q-num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-4);
+    flex-shrink: 0;
+  }
+  .open-q-rec {
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    line-height: 1.6;
+    margin-left: 2rem;
+  }
+  .open-q-meta {
+    margin-left: 2rem;
+    margin-top: var(--space-2);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    color: var(--ink-3);
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .open-q-meta span strong { font-weight: 500; color: var(--ink-2); margin-right: 0.3em; }
+
+  /* Resolved questions in details */
+  details {
+    margin-top: var(--space-5);
+    max-width: var(--measure);
+    border-top: 1px solid var(--rule);
+    padding-top: var(--space-3);
+  }
+  summary {
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    list-style: none;
+    user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: '▸ '; color: var(--ink-4); }
+  details[open] summary::before { content: '▾ '; }
+  .resolved-list { margin-top: var(--space-3); }
+  .resolved-q {
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 0.95rem;
+  }
+  .resolved-q:last-child { border-bottom: none; }
+  .resolved-q-q { color: var(--ink); margin-bottom: var(--space-1); }
+  .resolved-q-a { color: var(--ink-2); }
+  .resolved-q-a::before { content: '→ '; color: var(--ink-3); }
+
+  /* ───────────── Pipeline (Status & Next Steps) ───────────── */
+  .pipeline { max-width: var(--measure); }
+  .pipeline-row {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    font-size: 0.92rem;
+    border-bottom: 1px solid var(--rule-soft);
+    align-items: baseline;
+  }
+  .pipeline-row:last-child { border-bottom: none; }
+  .pipeline-step {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .pipeline-verdict { color: var(--ink-2); }
+
+  /* ───────────── Closing ───────────── */
+  .closing {
+    margin-top: var(--space-7);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--rule);
+    max-width: var(--measure);
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    line-height: 1.6;
+  }
+  .closing code {
+    font-size: 0.92em;
+    color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  /* Footer */
+  footer {
+    margin-top: var(--space-8);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    color: var(--ink-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  ::selection { background: var(--accent-bg); color: var(--accent); }
+
+  @media (max-width: 640px) {
+    body { font-size: 1rem; }
+    .tldr dl { grid-template-columns: 1fr; gap: var(--space-1); }
+    .tldr dt { margin-top: var(--space-2); }
+    .usecase dl, .pipeline-row { grid-template-columns: 1fr; margin-left: 0; gap: var(--space-1); }
+    .open-q-rec, .open-q-meta { margin-left: 0; }
+    .hero-prototype-frame--sketch { height: 420px; }
+    .hero-prototype-frame--wireframe { height: 520px; }
+    .hero-prototype-frame--mockup { height: 620px; }
+  }
 </style>
 </head>
 <body>
 
-<!-- ═══════════ HERO ═══════════ -->
-<header class="hero">
-  <div class="hero-inner">
-    <div class="hero-breadcrumb">PM-042</div>
-    <div class="hero-meta-row">
-      <span class="pill pill-proposed-dark"><span class="dot"></span>Proposed</span>
-      <span class="pill pill-proposal-dark">Product Proposal</span>
-      <span class="pill pill-priority">High</span>
+<div class="page">
+
+  <!-- Masthead -->
+  <header class="masthead">
+    <span class="masthead-id">PM-042</span>
+    <div class="masthead-meta">
+      <span class="status-mark">Proposed</span>
+      <span>Priority high</span>
+      <span>Size M</span>
+      <span>Apr 10, 2026</span>
     </div>
+  </header>
+
+  <!-- Title block -->
+  <div class="title-block">
     <h1>Multi-Language Support</h1>
-    <p class="hero-summary">Users can switch the interface language and manage translated content, starting with English, Spanish, and Japanese.</p>
-
-    <div class="hero-meta">
-      <span class="hero-meta-item">Size: M</span>
-      <span class="hero-meta-sep">&middot;</span>
-      <span class="hero-meta-item">Created Apr 10, 2026</span>
-    </div>
+    <p class="lede">Users can switch the interface language and manage translated content, expanding reach to three new markets without creating separate product builds.</p>
   </div>
-</header>
 
-<!-- ═══════════ TOC ═══════════ -->
-<nav class="toc">
-  <div class="toc-inner">
-    <a href="#outcome" class="active">Outcome</a>
-    <a href="#problem">Problem</a>
-    <a href="#scope">Scope</a>
-    <a href="#flows">User Flows</a>
-    <a href="#wireframes">Wireframes</a>
-    <a href="#competitive">Competitive</a>
-    <a href="#feasibility">Feasibility</a>
-    <a href="#review">Review</a>
-    <a href="#questions">Resolved</a>
-    <a href="#metrics">Metrics</a>
-    <a href="#next">Next Steps</a>
-  </div>
-</nav>
-
-<!-- ═══════════ MAIN ═══════════ -->
-<main class="content">
-
-  <!-- OUTCOME -->
-  <section class="section" id="outcome">
-    <div class="section-header">
-      <div class="section-icon icon-outcome">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.25"/><path d="M5.5 8l2 2 3.5-4"/></svg>
-      </div>
-      <h2>Outcome</h2>
+  <!-- Hero prototype (optional — render only when feature has a UI prototype; see prototype-format.md §8) -->
+  <figure class="hero-prototype">
+    <div class="hero-prototype-header">
+      <span class="hero-prototype-label">Prototype</span>
+      <span class="hero-prototype-fig">fig. 1 — wireframe</span>
     </div>
-    <p class="section-lead">Users can switch the app interface between English, Spanish, and Japanese &mdash; expanding reach to 3 new markets without creating separate product builds.</p>
-    <p>Non-English-speaking users currently bounce at onboarding because every label, tooltip, and help string is hardcoded in English. After this ships, the language picker in Settings lets users switch instantly. Content they create stays in whatever language they write it in; only the chrome translates.</p>
+    <div class="hero-prototype-frame-wrap">
+      <iframe class="hero-prototype-frame hero-prototype-frame--wireframe"
+              src="../wireframes/multi-language-support.html"
+              title="multi-language-support — 3 screens"
+              loading="lazy"></iframe>
+    </div>
+    <figcaption class="hero-prototype-footer">
+      <span>
+        <span class="hero-prototype-screens-label">Screens</span>
+        Settings · Language picker · Translated UI
+      </span>
+      <a class="hero-prototype-link"
+         href="../wireframes/multi-language-support.html"
+         target="_blank" rel="noopener">Open full prototype →</a>
+    </figcaption>
+    <p class="hero-prototype-note">Lo-fi by intent — fidelity comes during implementation when real components are wired in.</p>
+  </figure>
+
+  <!-- TL;DR -->
+  <div class="tldr">
+    <dl>
+      <dt>For</dt><dd>Non-English-speaking users hitting hardcoded English UI; sales prospects in LATAM and APAC asking for localized chrome before they sign.</dd>
+      <dt>What</dt><dd>i18n framework, language picker in Settings, extracted UI strings, English/Spanish/Japanese translations.</dd>
+      <dt>Why now</dt><dd>28% of trial signups come from non-English markets but only 4% convert — competitors already ship 5+ languages and we're losing deals.</dd>
+    </dl>
+  </div>
+
+  <!-- TOC -->
+  <nav class="toc" aria-label="Sections">
+    <a href="#problem"><span class="toc-num">I</span>Problem</a>
+    <a href="#jtbd"><span class="toc-num">II</span>Users &amp; JTBD</a>
+    <a href="#usecases"><span class="toc-num">III</span>Use Cases</a>
+    <a href="#scope"><span class="toc-num">IV</span>Scope</a>
+    <a href="#requirements"><span class="toc-num">V</span>Requirements</a>
+    <a href="#edge"><span class="toc-num">VI</span>Edge Cases</a>
+    <a href="#flow"><span class="toc-num">VII</span>Flow</a>
+    <a href="#competitive"><span class="toc-num">VIII</span>Competitive</a>
+    <a href="#feasibility"><span class="toc-num">IX</span>Feasibility</a>
+    <a href="#open-q"><span class="toc-num">X</span>Open Questions</a>
+    <a href="#metrics"><span class="toc-num">XI</span>Metrics</a>
+    <a href="#status"><span class="toc-num">XII</span>Status</a>
+  </nav>
+
+  <!-- ─── I. Problem ─── -->
+  <section id="problem">
+    <h2><span class="sec-num">I</span>Problem &amp; Context</h2>
+    <p class="lead">Non-English-speaking users bounce at onboarding because every label, tooltip, and help string is hardcoded in English.</p>
+    <p>28% of trial signups come from non-English markets but only 4% convert — a 7x gap vs. English users. The strategic driver is geographic expansion (Q2 priority). Competitors Acme and Globex already ship 5+ languages; we're losing deals to localized alternatives in LATAM and APAC.</p>
+    <div class="annotation">
+      <span class="annotation-label">Sales evidence — March 2026</span>
+      <p>"Three enterprise prospects in Japan asked for Japanese UI before signing POC agreements."</p>
+    </div>
   </section>
 
-  <!-- PROBLEM & CONTEXT -->
-  <section class="section" id="problem">
-    <div class="section-header">
-      <div class="section-icon icon-problem">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><line x1="8" y1="6.5" x2="8" y2="9.5"/><circle cx="8" cy="11.25" r="0.5" fill="currentColor" stroke="none"/></svg>
-      </div>
-      <h2>Problem &amp; Context</h2>
+  <!-- ─── II. Users & JTBD ─── -->
+  <section id="jtbd">
+    <h2><span class="sec-num">II</span>Users &amp; Job to be Done</h2>
+
+    <div class="annotation annotation-jtbd">
+      <span class="annotation-label">Primary JTBD</span>
+      <p>When I sign up for a tool that promises to fit my workflow, I want the interface in <em>my own language</em>, so I can evaluate it without translating chrome in my head.</p>
     </div>
-    <p class="section-lead">28% of trial signups come from non-English markets, but only 4% convert &mdash; a 7x gap vs. English users.</p>
-    <blockquote style="border-left:3px solid var(--accent);padding:0.5rem 1rem;margin:0.75rem 0;font-size:0.86rem;color:var(--ink-secondary);background:var(--bg-surface);border-radius:0 var(--r-sm) var(--r-sm) 0;">
-      "Three enterprise prospects in Japan asked for Japanese UI before signing POC agreements." &mdash; Sales call notes, March 2026
-    </blockquote>
-    <p>The strategic driver is geographic expansion (Q2 priority). Competitors Acme and Globex already ship 5+ languages. We're losing deals to localized alternatives in LATAM and APAC.</p>
+
+    <div class="personas">
+      <div class="persona">
+        <div class="persona-tag">Primary</div>
+        <div class="persona-name">Non-English trial user</div>
+        <p class="persona-desc">Discovers the product through localized marketing. Bounces during onboarding when the UI doesn't match. Pain: cognitive overhead translating every button label.</p>
+      </div>
+      <div class="persona">
+        <div class="persona-tag">Secondary</div>
+        <div class="persona-name">Enterprise buyer in APAC / LATAM</div>
+        <p class="persona-desc">Procurement requires localized UI before sign-off. Pain: blocks POC agreements; competitors who ship localization win the deal.</p>
+      </div>
+    </div>
   </section>
 
-  <!-- SCOPE -->
-  <section class="section" id="scope">
-    <div class="section-header">
-      <div class="section-icon icon-scope">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="6" y1="6" x2="6" y2="13.5"/></svg>
-      </div>
-      <h2>Scope</h2>
-    </div>
+  <!-- ─── III. Use Cases ─── -->
+  <section id="usecases">
+    <h2><span class="sec-num">III</span>Use Cases</h2>
+    <p class="lead">Top three user scenarios — ranked by frequency.</p>
 
-    <div class="scope-grid">
-      <div class="scope-card in-scope">
-        <h3>In Scope</h3>
+    <div class="usecases">
+      <div class="usecase">
+        <div class="usecase-title"><span class="usecase-num">01</span>Switch language during first session</div>
+        <dl>
+          <dt>Trigger</dt><dd>User opens Settings → Language</dd>
+          <dt>Action</dt><dd>Picker shows English / Spanish / Japanese; selection persists per-user</dd>
+          <dt>Result</dt><dd>UI re-renders in selected language within the current session — no reload, no logout</dd>
+        </dl>
+      </div>
+
+      <div class="usecase">
+        <div class="usecase-title"><span class="usecase-num">02</span>Browser-locale auto-detection on signup</div>
+        <dl>
+          <dt>Trigger</dt><dd>New user lands on signup page with non-English browser locale</dd>
+          <dt>Action</dt><dd>Page renders in detected language; banner offers to switch if mis-detected</dd>
+          <dt>Result</dt><dd>User reaches first-value moment in their own language — conversion lift expected</dd>
+        </dl>
+      </div>
+
+      <div class="usecase">
+        <div class="usecase-title"><span class="usecase-num">03</span>User-generated content stays in original language</div>
+        <dl>
+          <dt>Trigger</dt><dd>User writes a note in Japanese, then switches UI to English</dd>
+          <dt>Action</dt><dd>Chrome translates; content stays Japanese</dd>
+          <dt>Result</dt><dd>No surprise machine-translation of user data — predictable behavior</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── IV. Scope ─── -->
+  <section id="scope">
+    <h2><span class="sec-num">IV</span>Scope <span style="font-family:var(--sans); font-size:0.78rem; color:var(--ink-3); font-weight:400; letter-spacing:0">— Phase 1</span></h2>
+
+    <div class="scope">
+      <div class="scope-col">
+        <div class="scope-col-label">In scope</div>
         <ul>
-          <li>i18n framework (ICU MessageFormat)</li>
-          <li>Language picker in Settings</li>
+          <li>i18n framework using ICU MessageFormat</li>
+          <li>Language picker in Settings (English, Spanish, Japanese)</li>
           <li>Extract all UI strings to locale files</li>
-          <li>English, Spanish, Japanese translations</li>
-          <li>RTL-aware layout foundation</li>
+          <li>Browser-locale auto-detection on first visit</li>
         </ul>
       </div>
-      <div class="scope-card out-scope">
-        <h3>Out of Scope</h3>
+      <div class="scope-col scope-col-out">
+        <div class="scope-col-label">Out of scope</div>
         <ul>
-          <li>User-generated content translation</li>
-          <li>RTL languages (Arabic, Hebrew) &mdash; layout prep only</li>
-          <li>Auto-detection from browser locale</li>
-          <li>Translation management UI</li>
+          <li>Machine translation of user content<em>scope creep; predictable behavior wins</em></li>
+          <li>RTL languages<em>Phase 2 — needs separate layout audit</em></li>
+          <li>Per-document language override<em>Phase 2</em></li>
         </ul>
       </div>
     </div>
-
-    <span class="filter-pill filter-gap-fill">Gap-fill</span>
+    <div class="filter-tag">Gap-fill — competitors ship this; we're closing the gap to enter the market.</div>
   </section>
 
-  <!-- USER FLOWS -->
-  <section class="section" id="flows">
-    <div class="section-header">
-      <div class="section-icon icon-flow">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 7.2L10 4.8"/><path d="M6 8.8L10 11.2"/></svg>
-      </div>
-      <h2>User Flows</h2>
-    </div>
-    <p class="section-lead">Primary flow: switching interface language from Settings.</p>
+  <!-- ─── V. Functional Requirements ─── -->
+  <section id="requirements">
+    <h2><span class="sec-num">V</span>Functional Requirements</h2>
+    <p class="lead">What each in-scope item must support, grouped by scope item.</p>
 
-    <div class="diagram-card">
-      <div class="diagram-label">Language Switch Flow</div>
-      <div class="mermaid">
-graph TD
-    A[User opens Settings] --> B[Clicks Language picker]
-    B --> C{Select language}
-    C -->|English| D[Load en.json]
-    C -->|Spanish| E[Load es.json]
-    C -->|Japanese| F[Load ja.json]
-    D --> G[UI re-renders instantly]
-    E --> G
-    F --> G
-    G --> H[Preference saved to profile]
-    H --> I[Next session loads<br/>saved preference]
-      </div>
-    </div>
+    <h3>1 · i18n framework</h3>
+    <ul>
+      <li>ICU MessageFormat for pluralization, gender, and number formatting.</li>
+      <li>Locale files in <code>locales/{lang}.json</code>, one file per supported language.</li>
+      <li>Build-time check fails if any locale is missing keys present in <code>en.json</code>.</li>
+      <li>Runtime fallback to English when a key is missing in the active locale.</li>
+    </ul>
+
+    <h3>2 · Language picker</h3>
+    <ul>
+      <li>Settings page section titled "Language" with three options.</li>
+      <li>Selection persists to user profile; applies instantly without reload.</li>
+      <li>Status indicator shows save state (saving / saved).</li>
+    </ul>
+
+    <h3>3 · String extraction</h3>
+    <ul>
+      <li>Replace all hardcoded English strings with <code>t('key')</code> calls.</li>
+      <li>Lint rule rejects new commits with raw English strings in JSX/templates.</li>
+      <li>Provide initial translations for Spanish and Japanese (professional translation vendor).</li>
+    </ul>
+
+    <h3>4 · Browser-locale detection</h3>
+    <ul>
+      <li>On first visit, read <code>navigator.language</code> and match against supported locales.</li>
+      <li>If matched, render in detected language; if not, default to English.</li>
+      <li>Show one-time banner: "We detected your browser is in {lang}. Continue or switch?"</li>
+    </ul>
   </section>
 
-  <!-- WIREFRAMES -->
-  <section class="section" id="wireframes">
-    <div class="section-header">
-      <div class="section-icon icon-wireframe">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="2" y1="5.5" x2="14" y2="5.5"/><line x1="5.5" y1="5.5" x2="5.5" y2="14"/></svg>
-      </div>
-      <h2>Wireframes</h2>
-    </div>
-    <p>Language picker in Settings panel. Dropdown with locale name in native script (e.g., "Espa&ntilde;ol", "&#26085;&#26412;&#35486;").</p>
-    <div class="callout callout-info">
-      <div class="callout-icon">&#8505;</div>
-      <div class="callout-body"><strong>Wireframe link:</strong> <a href="#" style="color:var(--info);text-decoration:underline;">wireframes/multi-language-support.html</a></div>
-    </div>
+  <!-- ─── VI. Edge Cases ─── -->
+  <section id="edge">
+    <h2><span class="sec-num">VI</span>Edge Cases &amp; Constraints</h2>
+    <p class="lead">Boundary conditions and failure modes — each must have a defined handling.</p>
+
+    <table>
+      <thead>
+        <tr><th>Case</th><th>Expected handling</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Translation missing for active locale</strong></td>
+          <td>Fall back to English silently. Log to error tracker for translator backfill.</td>
+        </tr>
+        <tr>
+          <td><strong>Browser locale is a region we don't ship</strong></td>
+          <td>Match by base language (e.g., <code>es-MX</code> → Spanish). Default to English if no base match.</td>
+        </tr>
+        <tr>
+          <td><strong>String contains user variable (name, count)</strong></td>
+          <td>Use ICU MessageFormat placeholders — never concatenate translated fragments.</td>
+        </tr>
+        <tr>
+          <td><strong>User switches language mid-task</strong></td>
+          <td>Re-render chrome immediately; preserve form state and unsaved input.</td>
+        </tr>
+        <tr>
+          <td><strong>Translated string is significantly longer than English</strong></td>
+          <td>UI must reflow without truncation. CSS uses <code>min-content</code> for button labels.</td>
+        </tr>
+      </tbody>
+    </table>
   </section>
 
-  <!-- COMPETITIVE CONTEXT -->
-  <section class="section" id="competitive">
-    <div class="section-header">
-      <div class="section-icon icon-compete">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V6l5-4 5 4v7H3z"/><rect x="6" y="9" width="4" height="4"/></svg>
-      </div>
-      <h2>Competitive Context</h2>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Capability</th><th>Acme</th><th>Globex</th><th>Our Approach</th></tr></thead>
-        <tbody>
-          <tr><td><strong>Languages</strong></td><td>12 languages</td><td>5 languages</td><td>3 languages (en, es, ja)</td></tr>
-          <tr><td><strong>RTL support</strong></td><td>Full</td><td>None</td><td>Layout foundation only</td></tr>
-          <tr><td><strong>Auto-detection</strong></td><td>Yes (browser)</td><td>No</td><td>Out of scope (v2)</td></tr>
-          <tr><td><strong>Content translation</strong></td><td>Machine-assisted</td><td>Manual</td><td>Out of scope</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <blockquote style="border-left:3px solid var(--warning);padding:0.5rem 1rem;margin:0.75rem 0;font-size:0.86rem;color:var(--ink-secondary);background:var(--bg-surface);border-radius:0 var(--r-sm) var(--r-sm) 0;">
-      <strong>Handling decision: Gap-fill.</strong> We're closing the gap on basic i18n. Competitors already offer this; not shipping it is a deal-breaker in LATAM and APAC. No 10x claim &mdash; the goal is parity on language count with better UX on switching speed.
-    </blockquote>
-  </section>
-
-  <!-- TECHNICAL FEASIBILITY -->
-  <section class="section" id="feasibility">
-    <div class="section-header">
-      <div class="section-icon icon-feasible">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5.5 4.5 2.5 8 5.5 11.5"/><polyline points="10.5 4.5 13.5 8 10.5 11.5"/><line x1="9" y1="2.5" x2="7" y2="13.5"/></svg>
-      </div>
-      <h2>Technical Feasibility</h2>
-    </div>
-
-    <div class="verdict-card">
-      <div class="verdict-header">
-        <span class="verdict-label verdict-feasible">Feasible</span>
-      </div>
-      <div class="verdict-body">
-        <p><strong>Build-on:</strong> React app already uses component-based architecture. String extraction is mechanical.</p>
-        <p style="margin-top:0.4rem;"><strong>Build-new:</strong> i18n provider, locale file loading, language picker component, string extraction tooling.</p>
-        <p style="margin-top:0.4rem;"><strong>Risks:</strong> String extraction is labor-intensive but low-risk. Pluralization rules differ across locales (Japanese has no plural forms; Spanish has two). ICU MessageFormat handles this.</p>
-        <p style="margin-top:0.4rem;"><strong>Sequencing:</strong> Framework first, then extract strings, then translate. Translations can be parallelized.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- REVIEW SUMMARY -->
-  <section class="section" id="review">
-    <div class="section-header">
-      <div class="section-icon icon-review">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2.5h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"/><line x1="6" y1="5.5" x2="10" y2="5.5"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.5" x2="8.5" y2="10.5"/></svg>
-      </div>
-      <h2>Review Summary</h2>
-    </div>
-
-    <div class="pipeline-step">
-      <div class="pipeline-icon">&#9989;</div>
-      <div class="pipeline-name">Scope Review</div>
-      <div class="pipeline-verdict">EM confirmed feasible. No architectural blockers.</div>
-    </div>
-    <div class="pipeline-step">
-      <div class="pipeline-icon">&#9989;</div>
-      <div class="pipeline-name">Team Review</div>
-      <div class="pipeline-verdict">PM: approved. Design: approved. 1 blocking issue fixed (RTL scope clarification).</div>
-    </div>
-    <div class="pipeline-step">
-      <div class="pipeline-icon">&#9989;</div>
-      <div class="pipeline-name">Bar Raiser</div>
-      <div class="pipeline-verdict">Passed. Advisory: consider auto-detection in v2 to reduce friction.</div>
+  <!-- ─── VII. Flow ─── -->
+  <section id="flow">
+    <h2><span class="sec-num">VII</span>User Flow</h2>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TD
+    A[First visit] --> B{Browser locale matches supported?}
+    B -->|Yes| C[Render in detected language]
+    B -->|No| D[Render in English]
+    C --> E[Show 'switch language' banner]
+    D --> F[User signs up]
+    E --> F
+    F --> G[Profile saves language]
+    G --> H{User changes language?}
+    H -->|Yes| I[Re-render chrome]
+    H -->|No| J[Continue session]
+    I --> J
+      </pre>
     </div>
   </section>
 
-  <!-- RESOLVED QUESTIONS -->
-  <section class="section" id="questions">
-    <div class="section-header">
-      <div class="section-icon icon-question">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.25"/><path d="M6 6.25a2 2 0 013.5 1.25c0 1-1.5 1.25-1.5 2.25"/><circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none"/></svg>
-      </div>
-      <h2>Resolved Questions</h2>
-    </div>
-
-    <div class="question-item">
-      <div class="question-num">1</div>
-      <div>
-        <div class="question-text">Should we ship RTL support in this phase?</div>
-        <div class="question-answer">No &mdash; layout foundation only (CSS logical properties). Full RTL (Arabic, Hebrew) deferred to a follow-up. Rationale: Japan and LATAM are the priority markets; neither requires RTL.</div>
-      </div>
-    </div>
-    <div class="question-item">
-      <div class="question-num">2</div>
-      <div>
-        <div class="question-text">ICU MessageFormat vs. simpler key-value approach?</div>
-        <div class="question-answer">ICU MessageFormat. It handles pluralization, gender, and number formatting natively. The complexity cost is upfront (framework setup) but saves rework when adding languages later.</div>
-      </div>
+  <!-- ─── VIII. Competitive ─── -->
+  <section id="competitive">
+    <h2><span class="sec-num">VIII</span>Competitive Context</h2>
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Languages</th><th>Approach</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Acme</strong></td><td>9</td><td>Per-region builds; heavy infrastructure</td></tr>
+        <tr><td><strong>Globex</strong></td><td>5</td><td>Single build, runtime locale switching</td></tr>
+        <tr><td><strong>Initech</strong></td><td>English only</td><td>Same gap as us — competing for the same deals</td></tr>
+      </tbody>
+    </table>
+    <div class="annotation">
+      <span class="annotation-label">Handling decision</span>
+      <p><strong>Gap-fill.</strong> We're matching Globex's approach (single build, runtime switching) at 3 languages. Differentiation isn't the feature — it's how fast we can land it and beat Initech to localized deals.</p>
     </div>
   </section>
 
-  <!-- SUCCESS METRICS -->
-  <section class="section" id="metrics">
-    <div class="section-header">
-      <div class="section-icon icon-metrics">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5h11"/><rect x="3.5" y="9" width="2" height="4.5" rx="0.5"/><rect x="7" y="5.5" width="2" height="8" rx="0.5"/><rect x="10.5" y="2.5" width="2" height="11" rx="0.5"/></svg>
-      </div>
-      <h2>Success Metrics</h2>
-    </div>
-    <p class="section-lead">Leading indicators for 90-day success.</p>
-
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Metric</th><th>Baseline</th><th>Target</th><th>Timeframe</th></tr></thead>
-        <tbody>
-          <tr><td><strong>Non-English trial conversion</strong></td><td>4%</td><td>15%</td><td>90 days</td></tr>
-          <tr><td><strong>Language switch adoption</strong></td><td>0 (new feature)</td><td>30% of non-English users</td><td>60 days</td></tr>
-          <tr><td><strong>LATAM/APAC deal progression</strong></td><td>0 POCs signed</td><td>3 POCs signed</td><td>90 days</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <!-- ─── IX. Feasibility ─── -->
+  <section id="feasibility">
+    <h2><span class="sec-num">IX</span>Technical Feasibility</h2>
+    <p class="lead"><strong>Verdict:</strong> Feasible.</p>
+    <p><strong>Build on:</strong> existing React component library, user profile schema, settings page infrastructure.</p>
+    <p><strong>Build new:</strong> ICU MessageFormat integration, locale file structure, translation vendor pipeline, lint rule for hardcoded strings.</p>
+    <p><strong>Top risks:</strong> string extraction touches ~340 files (mechanical but tedious — schedule a one-shot codemod). Translation vendor turnaround is 5–10 business days per language. Long-string reflow may surface latent CSS bugs.</p>
   </section>
 
-  <!-- NEXT STEPS -->
-  <section class="section" id="next">
-    <div class="section-header">
-      <div class="section-icon icon-next">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/><polyline points="9 4 13 8 9 12"/></svg>
+  <!-- ─── X. Open Questions ─── -->
+  <section id="open-q">
+    <h2><span class="sec-num">X</span>Open Questions</h2>
+    <p class="lead">Decisions not yet made. Each carries a recommended answer.</p>
+
+    <div class="open-q">
+      <div class="open-q-q"><span class="open-q-num">01</span>Do we ship all three languages at GA, or roll out one at a time?</div>
+      <p class="open-q-rec"><strong>Recommendation:</strong> ship all three at GA. Reduces "is X supported?" support load; sales motion is cleaner.</p>
+      <div class="open-q-meta"><span><strong>Owner</strong>Product</span><span><strong>By</strong>Pre-GA cut</span></div>
+    </div>
+
+    <div class="open-q">
+      <div class="open-q-q"><span class="open-q-num">02</span>How do we source translations long-term?</div>
+      <p class="open-q-rec"><strong>Recommendation:</strong> Phase 1 uses a professional vendor; Phase 2 introduces an in-app contribution flow for community languages.</p>
+      <div class="open-q-meta"><span><strong>Owner</strong>Engineering</span><span><strong>By</strong>Phase 2 kickoff</span></div>
+    </div>
+
+    <details>
+      <summary>Resolved questions (3)</summary>
+      <div class="resolved-list">
+        <div class="resolved-q">
+          <div class="resolved-q-q">Should we machine-translate user content?</div>
+          <div class="resolved-q-a">No. Chrome only. Predictable user-data behavior wins.</div>
+        </div>
+        <div class="resolved-q">
+          <div class="resolved-q-q">RTL support in Phase 1?</div>
+          <div class="resolved-q-a">No. Needs a separate layout audit — Phase 2.</div>
+        </div>
+        <div class="resolved-q">
+          <div class="resolved-q-q">ICU MessageFormat or simpler key-value?</div>
+          <div class="resolved-q-a">ICU. Pluralization and gender alone justify the complexity.</div>
+        </div>
       </div>
-      <h2>Next Steps</h2>
-    </div>
-    <div class="next-steps-card">
-      <p>Ready for engineering. Run <code>pm:rfc multi-language-support</code> to generate the technical RFC, then <code>pm:dev multi-language-support</code> to implement.</p>
-    </div>
+    </details>
   </section>
 
-</main>
+  <!-- ─── XI. Metrics ─── -->
+  <section id="metrics">
+    <h2><span class="sec-num">XI</span>Success Metrics</h2>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th>Baseline</th><th>Target</th><th>By</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Trial conversion in non-English markets</strong></td><td>4%</td><td>≥10%</td><td>90 days post-GA</td></tr>
+        <tr><td>Signups from APAC / LATAM</td><td>28%</td><td>≥40%</td><td>90 days post-GA</td></tr>
+        <tr><td>Enterprise POCs signed in target regions</td><td>0</td><td>≥3</td><td>90 days post-GA</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:var(--space-3); font-size:0.92rem; color:var(--ink-3); max-width:var(--measure)"><strong style="color:var(--ink-2)">Caveat.</strong> Conversion lift assumes localized UI is the bottleneck. If conversion stays flat at 4% post-GA, the bottleneck is upstream (pricing, positioning, onboarding) and needs separate work.</p>
+  </section>
 
-<footer class="footer">
-  <span>PM-042 &middot; Updated Apr 10, 2026</span>
-  <span>Product Proposal &middot; pm/ knowledge base</span>
-</footer>
+  <!-- ─── XII. Status ─── -->
+  <section id="status">
+    <h2><span class="sec-num">XII</span>Status &amp; Next Steps</h2>
 
-<script>
-(function() {
-  const sections = document.querySelectorAll('.section[id]');
-  const tocLinks = document.querySelectorAll('.toc a');
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        const id = entry.target.getAttribute('id');
-        tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
-      }
-    });
-  }, { rootMargin: '-20% 0px -75% 0px' });
-  sections.forEach(s => observer.observe(s));
-})();
-</script>
+    <div class="pipeline">
+      <div class="pipeline-row"><div class="pipeline-step">Intake</div><div class="pipeline-verdict">Greenfield; clear strategic alignment</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Strategy check</div><div class="pipeline-verdict">Q2 priority — geographic expansion</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Research</div><div class="pipeline-verdict">i18n-landscape.md — 7 findings</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Scope</div><div class="pipeline-verdict">4 in / 3 out · gap-fill</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Scope review</div><div class="pipeline-verdict">PM ship-it · EM feasible</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Team review</div><div class="pipeline-verdict">All ready · 1 advisory item folded in</div></div>
+      <div class="pipeline-row"><div class="pipeline-step">Bar raiser</div><div class="pipeline-verdict">Ready</div></div>
+    </div>
+
+    <p class="closing">Ready for engineering. Run <code>pm:rfc multi-language-support</code> to generate the technical RFC, then <code>pm:dev multi-language-support</code> to implement.</p>
+  </section>
+
+  <footer>
+    <span>PM-042 · Multi-Language Support</span>
+    <span>Product Proposal · Apr 10, 2026</span>
+  </footer>
+
+</div>
 
 </body>
 </html>
