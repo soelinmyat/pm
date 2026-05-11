@@ -53,20 +53,23 @@ If the feature type is UI, link to wireframes from Design (Step 6). Design owns 
 
 #### Step 3: Assemble proposal content
 
-Gather all product context into a coherent proposal narrative. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. Source content for each section from:
+Gather all product context into a coherent proposal narrative. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. The body has twelve Roman-numeralled sections preceded by a TL;DR block. Source content for each section from:
 
-- **Outcome** — from scope definition (what changes for the user)
-- **Problem & Context** — from research (user pain, market signal, strategic driver)
-- **Scope** — in-scope and out-of-scope items with 10x filter result
-- **User Flows** — Mermaid diagrams (from Step 2a or Design step)
-- **Wireframes** — HTML wireframe links (from Step 2b or Design step)
-- **Competitive Context** — from research (do competitors have this feature? how do they handle it?) and from scope (10x filter result and handling decision rationale)
-- **Technical Feasibility** — EM assessment from Scope Review (Step 5)
-- **Review Summary** — pipeline steps completed so far
-- **Resolved Questions** — any questions resolved during scoping/research
-- **Freshness Notes** — only if `stale_research` in groom session state is non-empty. Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." Omit entirely if empty.
-- **Success Metrics** — leading indicators from scope validation (Q4: "What does success look like in 90 days?"). Table format: metric | baseline | target | timeframe. Use leading indicators, not lagging metrics like revenue.
-- **Next Steps** — standard dev handoff prompt
+- **TL;DR** (pre-section) — three lines: **For** (audience), **What** (the smallest shippable set), **Why now** (the time-pressure or strategic reason). The frontmatter `outcome:` field becomes the lede paragraph under the H1 — keep it to one sentence.
+- **I. Problem & Context** — from research (user pain, market signal, strategic driver). Include one verbatim evidence quote as a blockquote when one exists.
+- **II. Users & Job to be Done** — Primary JTBD in "When I X, I want to Y, so I can Z" form. 1–2 personas (Primary required, Secondary only when meaningfully different).
+- **III. Use Cases** — top 2–4 ranked scenarios. Each has Trigger / Action / Result.
+- **IV. Scope** — in-scope and out-of-scope items with one-clause reasons on out-of-scope. End with the 10x filter result line.
+- **V. Functional Requirements** — observable behaviors grouped by in-scope item (one H3 per item, bullets under it). Not implementation detail.
+- **VI. Edge Cases & Constraints** — markdown table: Case | Expected handling.
+- **VII. User Flow** — Mermaid diagrams (from Step 2a or Design step). Omit entirely for non-UI features.
+- **VIII. Competitive Context** — comparison table (3–5 rows). End with the **Handling decision** paragraph that ties the 10x filter result to competitor reality.
+- **IX. Technical Feasibility** — EM assessment from Scope Review (Step 5). Verdict line, Build on, Build new, Top risks.
+- **X. Open Questions** — each open question carries a **Recommendation**, **Owner**, and **By** date so reviewers can confirm or override. Resolved questions go into a `<details>` block at the end of this section.
+- **XI. Success Metrics** — leading indicators from scope validation (Q4: "What does success look like in 90 days?"). Table: Metric | Baseline | Target | By. Optional **Caveat** paragraph naming the assumption that would invalidate the metrics. Use leading indicators, not lagging metrics like revenue.
+- **XII. Status & Next Steps** — bulleted pipeline of grooming steps completed (Intake, Strategy check, Research, Scope, Scope review, Team review if full, Bar raiser if full), each with a one-clause verdict. Closing line invokes `pm:rfc {slug}` and `pm:dev {slug}`. If `stale_research` in groom session state is non-empty, append a **Freshness note** at the end of this section. Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." Omit entirely if empty.
+
+**Wireframes are not a section.** When a UI prototype exists, the markdown surfaces it as a link inside the TL;DR block and the HTML renderer embeds it as a hero-prototype figure between the title and TL;DR (see Step 5 below).
 
 This content feeds into the proposal backlog entry (Step 10) and linking (Step 11).
 
@@ -98,30 +101,47 @@ Behavior depends on the current `groom_tier` from session state.
 
 5. **Generate HTML proposal artifact and open in browser.**
 
-   Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`. Use the reference template at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` for structure and styling. The HTML must include:
+   Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`. Use the reference template at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` for structure and styling — it is the canonical render. Match its DOM shape exactly so the styling carries.
 
-   - Hero with proposal ID, status pill ("Proposed"), priority pill, title, and outcome summary
-   - Sticky TOC linking to each section
-   - All 12 proposal sections rendered with the section-card pattern from the reference template
-   - Mermaid diagrams rendered via the mermaid.js CDN script (same as RFC)
-   - Scope presented as in-scope / out-of-scope cards with 10x filter pill
-   - Technical Feasibility as a verdict card
-   - Review Summary as a pipeline visualization
-   - Resolved Questions with numbered Q&A items
-   - Footer with proposal ID, date, and "Product Proposal" label
+   **HTML layout, top to bottom:**
+
+   1. **Masthead** (`<header class="masthead">`) — left: `<span class="masthead-id">{ID}</span>`; right: `<div class="masthead-meta">` with `<span class="status-mark">Proposed</span>` + priority + size + date spans.
+   2. **Title block** (`<div class="title-block">`) — `<h1>{title}</h1>` followed by `<p class="lede">{outcome sentence from frontmatter}</p>`.
+   3. **Hero prototype** (`<figure class="hero-prototype">`) — only when a UI prototype exists. See "Hero prototype" sub-rules below.
+   4. **TL;DR** (`<div class="tldr">`) — `<dl>` with three `<dt>`/`<dd>` pairs: For / What / Why now.
+   5. **TOC** (`<nav class="toc" aria-label="Sections">`) — twelve `<a>` links, each containing `<span class="toc-num">{Roman}</span>` plus a short label. Three-column rule-divided layout; styling is in the reference template.
+   6. **Twelve sections** in fixed order, each `<section id="{anchor}">` with `<h2><span class="sec-num">{Roman}</span>{Section name}</h2>`. Anchor IDs are fixed: `problem`, `jtbd`, `usecases`, `scope`, `requirements`, `edge`, `flow`, `competitive`, `feasibility`, `open-q`, `metrics`, `status`. See the per-section patterns below.
+   7. **Footer** (`<footer>`) — two spans: "`{ID} · {Title}`" and "`Product Proposal · {date}`".
+
+   **Per-section patterns** (use the listed wrapper components from the reference template — do NOT invent new class names):
+
+   - **I. Problem** — `<p class="lead">` for the one-line restatement, then 1–2 `<p>` paragraphs of evidence, then optionally `<div class="annotation">` with `<span class="annotation-label">` for an evidence quote.
+   - **II. Users & JTBD** — `<div class="annotation annotation-jtbd">` for the JTBD pullquote (use `<em>` inside for the "in my own language"-style emphasis), then `<div class="personas">` containing one or two `<div class="persona">` cards, each with `<div class="persona-tag">`, `<div class="persona-name">`, `<p class="persona-desc">`.
+   - **III. Use Cases** — `<p class="lead">` blurb, then `<div class="usecases">` containing 2–4 `<div class="usecase">` blocks. Each has `<div class="usecase-title"><span class="usecase-num">{01}</span>{title}</div>` and a `<dl>` with Trigger / Action / Result.
+   - **IV. Scope** — `<div class="scope">` with two columns: `<div class="scope-col">` (In scope) and `<div class="scope-col scope-col-out">` (Out of scope). Each starts with `<div class="scope-col-label">` and contains a `<ul>`. Out-of-scope items use `<em>` for the inline reason. Below the columns: `<div class="filter-tag">{10x filter result and one-clause rationale}</div>`.
+   - **V. Functional Requirements** — `<p class="lead">` blurb, then one `<h3>` per scope item with a `<ul>` of observable behaviors. Use `<code>` for technical identifiers (file paths, function names, env vars).
+   - **VI. Edge Cases** — `<p class="lead">` blurb, then a single `<table>` with two columns: Case | Expected handling. Use `<strong>` to bold the case name in the first cell.
+   - **VII. User Flow** — `<div class="diagram"><pre class="mermaid">{flow}</pre></div>`. Omit the whole section for non-UI features.
+   - **VIII. Competitive Context** — `<table>` with 3–5 rows. End with `<div class="annotation"><span class="annotation-label">Handling decision</span><p>{rationale}</p></div>`.
+   - **IX. Feasibility** — `<p class="lead"><strong>Verdict:</strong> {…}</p>`, then `<p>` paragraphs for **Build on:**, **Build new:**, **Top risks:**.
+   - **X. Open Questions** — `<p class="lead">` blurb, then one `<div class="open-q">` per open question, each containing `<div class="open-q-q"><span class="open-q-num">{01}</span>{question}</div>`, `<p class="open-q-rec">`, and `<div class="open-q-meta">` with Owner + By. Resolved questions wrap in `<details><summary>Resolved questions ({N})</summary><div class="resolved-list">…</div></details>`, with each entry as `<div class="resolved-q">` containing `<div class="resolved-q-q">` and `<div class="resolved-q-a">`.
+   - **XI. Metrics** — `<table>` with four columns: Metric | Baseline | Target | By. Optional caveat paragraph below using `<p style="margin-top:var(--space-3); font-size:0.92rem; color:var(--ink-3); max-width:var(--measure)"><strong style="color:var(--ink-2)">Caveat.</strong> …</p>` — match the reference template inline style verbatim.
+   - **XII. Status** — `<div class="pipeline">` containing one `<div class="pipeline-row">` per groomed step. Each row has `<div class="pipeline-step">` (left label) and `<div class="pipeline-verdict">` (right verdict). End the section with `<p class="closing">Ready for engineering. Run <code>pm:rfc {slug}</code> to generate the technical RFC, then <code>pm:dev {slug}</code> to implement.</p>`. If a freshness note applies, render it as a `<p>` with `<strong>Freshness note.</strong>` directly after the closing paragraph.
+
+   Render Mermaid via the existing `https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js` CDN script and the `mermaid.initialize` call already in the reference template — keep both the script tag and the initialize block intact.
 
    **Hero prototype** — when the feature has a UI prototype (a wireframe file exists at `{pm_dir}/backlog/wireframes/{slug}.html` or `{pm_dir}/backlog/wireframes/{slug}/index.html`):
 
    1. Read the wireframe metadata per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6:
       - Single-file: parse `<script type="application/json" id="wireframe-meta">` from the HTML head
       - Multi-file: read `{slug}/meta.json`
-   2. Render the hero prototype figure between the title block and TL;DR per `prototype-format.md` §8.
-   3. Iframe height by `fidelity` field: `sketch` → 560px, `wireframe` → 720px, `mockup` → 880px.
+   2. Render the hero prototype figure between the title block and TL;DR per `prototype-format.md` §8. The wrapping element is `<figure class="hero-prototype">` and the iframe carries a fidelity modifier class: `hero-prototype-frame--sketch`, `hero-prototype-frame--wireframe`, or `hero-prototype-frame--mockup`.
+   3. Iframe height by `fidelity` field: `sketch` → 560px, `wireframe` → 720px, `mockup` → 880px (already encoded in the modifier classes — do NOT inline `style="height: …"`).
    4. Auto-populate the Screens caption from `screens[].label` joined by ` · `.
    5. Auto-populate the fidelity-specific note paragraph per `prototype-format.md` §8.
    6. If wireframe metadata is missing or malformed, fall back to a generic "View prototype" caption with no screens listed and log a warning. Do not crash the render.
 
-   When the feature has no UI prototype, omit the hero prototype figure entirely. The proposal goes title → lede → TL;DR → TOC → sections.
+   When the feature has no UI prototype, omit the hero prototype figure entirely. The proposal goes masthead → title-block → TL;DR → TOC → sections.
 
    After writing the HTML, open it in the browser:
 
@@ -180,16 +200,15 @@ When emitting the proposal markdown, every claim derived from a citation MUST ca
 Tokens go inline next to the claim, NOT in a separate references list. Example output:
 
 ```markdown
-## Job to be Done
+## II. Users & Job to be Done
 
-When I groom a feature with KB-rich context, I want to skip questions about
-facts already documented [source: pm/strategy.md#L24], so I can review a
-complete proposal in one pass [source: pm/evidence/research/agent-mode-pm-tools.md#F2].
+**Primary JTBD.** When I groom a feature with KB-rich context, I want to
+skip questions about facts already documented [source: pm/strategy.md#L24],
+so I can review a complete proposal in one pass
+[source: pm/evidence/research/agent-mode-pm-tools.md#F2].
 
-## Personas
-
-**Primary** — PM-engineer with mature KB [source: pm/strategy.md#L8]: lives
-in CLI, runs many sessions per week against the same project.
+**Primary persona — PM-engineer with mature KB** [source: pm/strategy.md#L8]:
+lives in CLI, runs many sessions per week against the same project.
 ```
 
 ### Citation render — HTML
@@ -197,7 +216,7 @@ in CLI, runs many sessions per week against the same project.
 The 07 step renders the markdown proposal first, then renders the HTML version (using `references/templates/proposal-reference.html`). For agent-tier:
 
 1. **Inline superscripts.** Every `[source: path#L42]` token in the markdown becomes `<sup class="src">path#L42</sup>` in the HTML, positioned immediately after the cited claim. The `.src` style is already in the proposal-reference template.
-2. **Audit details block.** Append a collapsed `<details class="audit-block">` near the end of the HTML proposal (after Risks, before Next Steps):
+2. **Audit details block.** Append a collapsed `<details class="audit-block">` near the end of the HTML proposal (after Success Metrics, before Status & Next Steps):
 
    ```html
    <section id="citation-audit" class="audit-block">
