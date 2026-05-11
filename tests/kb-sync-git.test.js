@@ -344,6 +344,52 @@ test("push returns committed=0 when nothing changed", (t) => {
   assert.equal(result.committed, 0);
 });
 
+test("push auto-rebases and retries when remote has new commits", (t) => {
+  const remote = withBareRemote();
+
+  // First "machine" sets up and pushes
+  const { pmDir: machineA, cleanup: cleanupA } = withTempProject({
+    "pm/strategy.md": "# v1\n",
+  });
+  const { setup, push } = require(KB_SYNC_GIT_PATH);
+  setup(machineA, remote.url);
+
+  // Second "machine" clones the same remote
+  const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-b-"));
+  gitExec(`git clone ${remote.url} ${machineBRoot}/pm`);
+  const machineB = path.join(machineBRoot, "pm");
+
+  t.after(() => {
+    cleanupA();
+    remote.cleanup();
+    fs.rmSync(machineBRoot, { recursive: true, force: true });
+  });
+
+  // Machine A pushes a new commit (machine B is now behind)
+  fs.writeFileSync(path.join(machineA, "a.md"), "# from A\n");
+  const pushA = push(machineA);
+  assert.ok(pushA.ok);
+
+  // Machine B makes its own commit and pushes — should auto-rebase
+  fs.writeFileSync(path.join(machineB, "b.md"), "# from B\n");
+  const pushB = push(machineB);
+
+  assert.ok(pushB.ok, `push from B should succeed via auto-rebase: ${pushB.error || ""}`);
+
+  // Verify both files exist on the remote (clone fresh and check)
+  const verify = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-verify-"));
+  gitExec(`git clone ${remote.url} ${verify}/pm`);
+  assert.ok(
+    fs.existsSync(path.join(verify, "pm", "a.md")),
+    "a.md from machine A should be present"
+  );
+  assert.ok(
+    fs.existsSync(path.join(verify, "pm", "b.md")),
+    "b.md from machine B should be present"
+  );
+  fs.rmSync(verify, { recursive: true, force: true });
+});
+
 test("push returns error when pm/ is not a git repo", (t) => {
   const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
