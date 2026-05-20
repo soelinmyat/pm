@@ -203,6 +203,11 @@ test("buildStatus uses updated research timestamps before created for freshness"
     project.write("pm/evidence/log.md", "");
     project.write("pm/evidence/research/index.md", "");
     project.write("pm/evidence/research/log.md", "");
+    // Computed dynamically — a hardcoded "recent" date time-bombs once real
+    // time advances past the FRESH_DAYS window (30 days).
+    const recent = new Date();
+    recent.setUTCDate(recent.getUTCDate() - 1);
+    const recentIso = recent.toISOString().slice(0, 10);
     project.write(
       "pm/evidence/research/fresh-note.md",
       [
@@ -212,7 +217,7 @@ test("buildStatus uses updated research timestamps before created for freshness"
         "topic: Fresh Note",
         "source_origin: internal",
         "created: 2024-01-01",
-        "updated: 2026-04-13",
+        `updated: ${recentIso}`,
         "sources: []",
         "cited_by: []",
         "---",

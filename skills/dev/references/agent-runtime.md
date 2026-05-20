@@ -92,14 +92,27 @@ Both runtimes support this via their non-interactive CLI:
 
 | Runtime | Command |
 |---------|---------|
-| `claude` | `claude -p --dangerously-skip-permissions` (reads prompt from stdin) |
+| `claude` | `claude -p --model opus --dangerously-skip-permissions` (reads prompt from stdin) |
 | `codex`  | `codex exec --full-auto -C <worktree> -` (reads prompt from stdin) |
+
+**Model pinning:** the `claude` subprocess pins `--model opus`. A spawned subprocess does not inherit the orchestrator's model selection — without `--model` it resolves the config default (Sonnet), silently downgrading implementation quality below the orchestrator's Opus. The `opus` alias tracks the latest Opus automatically.
 
 The orchestrator dispatches via `${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh`, which abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
 
+### Placeholder resolution
+
+`prompt.txt` may carry two `${...}` placeholders that the subprocess cannot resolve on its own — it has no `CLAUDE_PLUGIN_ROOT` env var, and a relative path written from inside the worktree resolves differently than the orchestrator expects. `dispatch-issue.sh` rewrites both to absolute paths before the subprocess runs:
+
+| Placeholder | Resolved to |
+|-------------|-------------|
+| `${CLAUDE_PLUGIN_ROOT}` | the plugin root, derived from the dispatcher's own location |
+| `${RESULT_FILE}` | the absolute form of the `--result-file` argument |
+
+Write these two placeholders **literally** into `prompt.txt` — do not hand-expand them, and do not escape them away. The dispatcher is the single source of truth.
+
 ### Result contract
 
-Every subprocess agent MUST write `<result-file>` before exiting. Schema:
+Every subprocess agent MUST write its result file — referenced in the prompt as `${RESULT_FILE}` — before exiting. Schema:
 
 ```json
 {
@@ -220,17 +233,19 @@ wait_agent([agent_id])
 ### Subprocess dispatch (runtime-agnostic)
 
 ```bash
-# Build the per-issue prompt (orchestrator)
-cat > .pm/runs/issue-1/prompt.txt <<EOF
+# Build the per-issue prompt (orchestrator). The heredoc is single-quoted so
+# ${CLAUDE_PLUGIN_ROOT} and ${RESULT_FILE} land literally — dispatch-issue.sh
+# resolves them to absolute paths before the subprocess runs.
+cat > .pm/runs/issue-1/prompt.txt <<'EOF'
 Implement and ship PM-145 Issue 1.
 RFC: pm/backlog/rfcs/qr-download-unified.html
 Worktree: .worktrees/qr-issue-1
 Branch: feat/qr-issue-1
 
-Read \${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
 Own everything from impl through merged PR. Do NOT exit until merged or blocked.
 
-Before exiting, write .pm/runs/issue-1/result.json with the schema in agent-runtime.md.
+Before exiting, write your result JSON to ${RESULT_FILE} (schema in agent-runtime.md).
 EOF
 
 # Dispatch (orchestrator)

@@ -114,7 +114,7 @@ or you write a blocked result. Do not exit until one of those happens.
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
 **Source directory:** {source_dir}
-**Result file:** {pm_state_dir}/runs/issue-{N}/result.json
+**Result file:** ${RESULT_FILE}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
@@ -140,7 +140,7 @@ Lifecycle:
    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 10. Run full test suite as final verification
 11. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-12. **Before exiting**, write the result file:
+12. **Before exiting**, write your structured result to ${RESULT_FILE}:
     On success:
       {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
     On block:
@@ -149,6 +149,8 @@ Lifecycle:
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
 ```
+
+**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, …) are substituted by **you, the orchestrator**, as you write the file. `${CLAUDE_PLUGIN_ROOT}` and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no `CLAUDE_PLUGIN_ROOT`, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these two.
 
 4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
 
