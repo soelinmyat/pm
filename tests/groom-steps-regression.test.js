@@ -472,9 +472,15 @@ test("groom steps: buildPrompt without tier returns all enabled steps (backward 
 
 // ---------------------------------------------------------------------------
 // AC 11: Proposal section consistency — proposal-format.md is the authority
+//
+// The doc itself declares its contract twice in two parseable forms: the
+// "Section name discipline" table (the contract) and the ```markdown
+// template block (the canonical body shape). The point of the test is to
+// catch drift BETWEEN those two views — not to mirror them in a hardcoded
+// list that has to be hand-patched on every template refresh.
 // ---------------------------------------------------------------------------
 
-test("groom steps: proposal-format.md section names are consistent", () => {
+test("groom steps: proposal-format.md template and discipline table agree", () => {
   const proposalFormatPath = path.join(
     PLUGIN_ROOT,
     "skills",
@@ -482,37 +488,63 @@ test("groom steps: proposal-format.md section names are consistent", () => {
     "references",
     "proposal-format.md"
   );
-  const content = fs.readFileSync(proposalFormatPath, "utf8");
+  const lines = fs.readFileSync(proposalFormatPath, "utf8").split("\n");
 
-  // Extract ## section headers from the template block (between ``` markers)
-  const templateMatch = content.match(/```markdown\n---[\s\S]*?---\n([\s\S]*?)```/);
-  assert.ok(templateMatch, "proposal-format.md should contain a markdown template block");
+  // 1. Extract the H2 headings from the ```markdown template block. The block
+  //    contains nested fences (mermaid, yaml) so a non-greedy regex stops at
+  //    the wrong place — walk lines and track fence depth instead.
+  const startIdx = lines.findIndex((l) => l.trim() === "```markdown");
+  assert.notEqual(startIdx, -1, "must contain a ```markdown template block");
 
-  const templateBody = templateMatch[1];
-  const sectionHeaders = templateBody
-    .split("\n")
-    .filter((line) => /^## /.test(line))
-    .map((line) => line.replace(/^## /, "").trim());
+  let depth = 1; // the ```markdown line itself opens depth 1
+  let endIdx = -1;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t.startsWith("```")) continue;
+    // Bare ``` closes the innermost fence; ```<lang> opens a nested one.
+    depth += t === "```" ? -1 : 1;
+    if (depth === 0) {
+      endIdx = i;
+      break;
+    }
+  }
+  assert.notEqual(endIdx, -1, "```markdown template block must be closed");
 
-  const expectedSections = [
-    "Outcome",
-    "Problem & Context",
-    "Scope",
-    "User Flows",
-    "Wireframes",
-    "Competitive Context",
-    "Technical Feasibility",
-    "Review Summary",
-    "Resolved Questions",
-    "Freshness Notes",
-    "Success Metrics",
-    "Next Steps",
-  ];
+  const templateH2 = lines
+    .slice(startIdx + 1, endIdx)
+    .filter((l) => /^## /.test(l))
+    .map((l) => l.replace(/^## /, "").trim());
 
+  // 2. Parse the "Section name discipline" table — rows look like
+  //    | I | Problem & Context | `problem` |
+  //    The doc explicitly names this table as the contract: "H2 headings in
+  //    the markdown MUST be the twelve Roman-numeralled names below."
+  const tableRowRe = /^\|\s*([IVX]+)\s*\|\s*([^|]+?)\s*\|\s*`([^`]+)`\s*\|$/;
+  const tableRows = lines
+    .map((l) => l.match(tableRowRe))
+    .filter(Boolean)
+    .map((m) => ({ roman: m[1], heading: m[2].trim(), anchor: m[3] }));
+
+  assert.ok(
+    tableRows.length >= 1,
+    "Section name discipline table must be present with at least one row"
+  );
+
+  // 3. TL;DR sits before Section I with no Roman numeral — explicitly called
+  //    out in the doc as not-a-section. The template's first H2 must be it.
+  assert.equal(
+    templateH2[0],
+    "TL;DR",
+    "first H2 in the template must be TL;DR (the elevator pitch, before Section I)"
+  );
+
+  // 4. After TL;DR, the template's H2s must match the discipline table row-
+  //    for-row, in order. Drift in either file fails the test loudly.
+  const expectedFromTable = tableRows.map((r) => `${r.roman}. ${r.heading}`);
   assert.deepEqual(
-    sectionHeaders,
-    expectedSections,
-    "proposal-format.md template sections must match the expected canonical list"
+    templateH2.slice(1),
+    expectedFromTable,
+    "template H2 headings (after TL;DR) must match the Section name discipline table, in order"
   );
 });
 
