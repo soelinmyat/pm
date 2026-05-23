@@ -82,14 +82,44 @@ WORKTREE="$(cd "$WORKTREE" && pwd)"
 # Remove stale result so we can detect whether THIS run wrote one
 rm -f "$RESULT_FILE"
 
+# PID file for orchestrator liveness checks. The orchestrator's wait loop ORs
+# `kill -0 $(cat dispatch.pid)` with result-file existence, so a dispatcher
+# crash (or SIGKILL) breaks the loop instead of hanging it forever.
+PID_FILE="$(dirname "$RESULT_FILE")/dispatch.pid"
+printf '%s\n' "$$" > "$PID_FILE"
+
+# Crash-safe result contract: orchestrator waits for [ -f result.json ]. If
+# the subprocess exits without writing one (crashed, killed, OOM, etc.), this
+# trap leaves a stub blocked result so the wait terminates and the
+# orchestrator can surface the failure. SIGKILL bypasses traps — the PID
+# liveness check above is the safety net for that case.
+RESOLVED_PROMPT=""
+cleanup() {
+  if [[ ! -f "$RESULT_FILE" ]]; then
+    cat > "$RESULT_FILE" <<EOF
+{
+  "status": "blocked",
+  "reason": "subprocess exited without writing result file (dispatcher trap fired)",
+  "log_file": "$LOG_FILE"
+}
+EOF
+  fi
+  [[ -n "$RESOLVED_PROMPT" ]] && rm -f "$RESOLVED_PROMPT"
+  rm -f "$PID_FILE"
+}
+trap cleanup EXIT
+
 # Resolve prompt placeholders the subprocess cannot resolve itself, then feed
 # the rewritten prompt (not the original) to the runtime:
 #   ${CLAUDE_PLUGIN_ROOT} -> absolute plugin root, so reference files are Readable
 #   ${RESULT_FILE}        -> absolute result path, so the agent writes where we check
 RESOLVED_PROMPT="$(mktemp)"
-trap 'rm -f "$RESOLVED_PROMPT"' EXIT
 prompt_body="$(cat "$PROMPT_FILE")"
+# shellcheck disable=SC2016 # Single quotes are intentional: we want the LITERAL
+# string "${CLAUDE_PLUGIN_ROOT}" as the search pattern in ${var//pat/replacement},
+# not its expansion. The replacement (right of the slash) is the expanded value.
 prompt_body="${prompt_body//'${CLAUDE_PLUGIN_ROOT}'/$CLAUDE_PLUGIN_ROOT}"
+# shellcheck disable=SC2016
 prompt_body="${prompt_body//'${RESULT_FILE}'/$RESULT_FILE}"
 printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"
 

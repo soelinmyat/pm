@@ -120,4 +120,125 @@ describe("dispatch-issue.sh", () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  // Guards the wait-loop-hang bug: if the subprocess exits without writing a
+  // result file, the dispatcher's EXIT trap must leave a stub blocked result
+  // behind so the orchestrator's `until [ -f result.json ]` wait terminates.
+  // Without this, an empty log + no result = orchestrator hangs forever.
+  it("leaves a stub blocked result when the subprocess exits without writing one", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-stub-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      fs.mkdirSync(worktree);
+      fs.mkdirSync(binDir);
+
+      // Stub runtime: drain stdin and exit 0 WITHOUT writing the result file.
+      // Mimics a subprocess that crashed mid-run or silently bailed.
+      const stub = ["#!/usr/bin/env bash", "cat > /dev/null", "exit 0"].join("\n");
+      const stubPath = path.join(binDir, "claude");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "noop\n");
+
+      const resultFile = path.join(tmp, "result.json");
+
+      // Dispatcher exits non-zero (exit 4 — subprocess wrote no result) but
+      // the EXIT trap fires anyway and leaves a stub result behind.
+      let exitCode = 0;
+      try {
+        execFileSync(
+          "bash",
+          [
+            scriptPath,
+            "--runtime",
+            "claude",
+            "--worktree",
+            worktree,
+            "--prompt-file",
+            promptFile,
+            "--result-file",
+            resultFile,
+          ],
+          {
+            env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+            encoding: "utf8",
+            stdio: "pipe",
+          }
+        );
+      } catch (err) {
+        exitCode = err.status;
+      }
+
+      assert.equal(exitCode, 4, "dispatcher should still exit 4 to flag missing-result");
+      assert.ok(fs.existsSync(resultFile), "stub result.json must exist after dispatcher exits");
+      const stub_result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(stub_result.status, "blocked", "stub must report blocked status");
+      assert.ok(stub_result.reason, "stub must include a human-readable reason");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // The dispatch.pid file is the orchestrator's escape hatch: if the
+  // dispatcher dies via SIGKILL (bypassing the EXIT trap), the orchestrator's
+  // wait loop checks `kill -0 $(cat dispatch.pid)` to detect the death.
+  // Verify the file is written during run and removed on clean exit.
+  it("writes dispatch.pid during run and removes it on clean exit", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-pid-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      fs.mkdirSync(worktree);
+      fs.mkdirSync(binDir);
+
+      const resultFile = path.join(tmp, "result.json");
+      const pidFile = path.join(tmp, "dispatch.pid");
+      const pidSnapshot = path.join(tmp, "pid-during-run.txt");
+
+      // Stub runtime: snapshot dispatch.pid mid-run (proves it exists while
+      // the subprocess is active), then write a merged result.
+      const stub = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "cat > /dev/null",
+        `cp ${JSON.stringify(pidFile)} ${JSON.stringify(pidSnapshot)}`,
+        `echo '{"status":"merged","issue_id":"X","pr":1,"merge_sha":"a","files_changed":0}' > ${JSON.stringify(resultFile)}`,
+      ].join("\n");
+      const stubPath = path.join(binDir, "claude");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "noop\n");
+
+      execFileSync(
+        "bash",
+        [
+          scriptPath,
+          "--runtime",
+          "claude",
+          "--worktree",
+          worktree,
+          "--prompt-file",
+          promptFile,
+          "--result-file",
+          resultFile,
+        ],
+        {
+          env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+          encoding: "utf8",
+        }
+      );
+
+      assert.ok(fs.existsSync(pidSnapshot), "dispatch.pid must exist while subprocess is running");
+      const recordedPid = fs.readFileSync(pidSnapshot, "utf8").trim();
+      assert.match(recordedPid, /^\d+$/, "dispatch.pid must contain a numeric PID");
+      assert.ok(!fs.existsSync(pidFile), "dispatch.pid must be removed on clean exit");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
