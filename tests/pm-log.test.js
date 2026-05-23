@@ -14,6 +14,12 @@ const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log");
 const STATE_PRE = path.join(ROOT, "hooks", "state-pre");
 const STATE_STEP = path.join(ROOT, "hooks", "state-step");
 
+// Pin host_id for deterministic per-host filenames across platforms.
+const TEST_HOST_ID = "test-host";
+const ACTIVITY_FILE = `activity-${TEST_HOST_ID}.jsonl`;
+const STEPS_FILE = `steps-${TEST_HOST_ID}.jsonl`;
+const CURRENT_STEP_FILE = `.current-step-${TEST_HOST_ID}.json`;
+
 // Clean env strips GIT_DIR/GIT_WORK_TREE that git hooks inject, so child
 // processes in temp repos resolve their own git root instead of the parent's.
 function cleanGitEnv() {
@@ -22,6 +28,7 @@ function cleanGitEnv() {
   delete env.GIT_WORK_TREE;
   delete env.GIT_OBJECT_DIRECTORY;
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  env.PM_HOST_ID = TEST_HOST_ID;
   return env;
 }
 
@@ -67,7 +74,7 @@ test("legacy activity logging still writes activity.jsonl", () => {
       env,
       stdio: "ignore",
     });
-    const records = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
+    const records = readJsonLines(path.join(root, ".pm", "analytics", ACTIVITY_FILE));
     assert.equal(records.length, 1);
     assert.equal(records[0].skill, "dev");
     assert.equal(records[0].event, "invoked");
@@ -127,8 +134,8 @@ test("run-start, step, and run-end write structured telemetry", () => {
       { cwd: root, env, stdio: "ignore" }
     );
 
-    const activity = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
-    const steps = readJsonLines(path.join(root, ".pm", "analytics", "steps.jsonl"));
+    const activity = readJsonLines(path.join(root, ".pm", "analytics", ACTIVITY_FILE));
+    const steps = readJsonLines(path.join(root, ".pm", "analytics", STEPS_FILE));
 
     assert.equal(activity.length, 2);
     assert.equal(activity[0].event, "started");
@@ -216,7 +223,7 @@ test("agent-pre + agent-step produce step with real duration", () => {
     });
 
     // Verify step record has real duration
-    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    const steps = readJsonLines(path.join(analyticsDir, STEPS_FILE));
     assert.equal(steps.length, 1);
     assert.equal(steps[0].run_id, runId);
     assert.equal(steps[0].skill, "dev");
@@ -270,7 +277,7 @@ test("agent-step without agent-pre falls back to duration 0", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    const steps = readJsonLines(path.join(analyticsDir, STEPS_FILE));
     assert.equal(steps.length, 1);
     assert.equal(steps[0].skill, "review");
     assert.equal(steps[0].duration_ms, 0, "without PreToolUse, duration falls back to 0");
@@ -297,7 +304,7 @@ test("analytics-log preserves quoted args and writes current skill", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const activity = readJsonLines(path.join(root, ".pm", "analytics", "activity.jsonl"));
+    const activity = readJsonLines(path.join(root, ".pm", "analytics", ACTIVITY_FILE));
     assert.equal(activity.length, 2);
     assert.equal(activity[0].detail, 'args=Redesign the "inspection report" flow');
     assert.equal(activity[1].detail, 'Redesign the "inspection report" flow');
@@ -374,7 +381,7 @@ test("state hooks log groom phase transitions and keep the next phase active", (
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    const steps = readJsonLines(path.join(analyticsDir, STEPS_FILE));
     assert.equal(steps.length, 1);
     assert.equal(steps[0].skill, "groom");
     assert.equal(steps[0].phase, "intake");
@@ -383,9 +390,7 @@ test("state hooks log groom phase transitions and keep the next phase active", (
     assert.equal(steps[0].started_at, "2026-04-05T00:00:00Z");
     assert.equal(steps[0].meta.state_file, ".pm/groom-sessions/tracking.md");
 
-    const active = JSON.parse(
-      fs.readFileSync(path.join(analyticsDir, ".current-step.json"), "utf8")
-    );
+    const active = JSON.parse(fs.readFileSync(path.join(analyticsDir, CURRENT_STEP_FILE), "utf8"));
     assert.equal(active.skill, "groom");
     assert.equal(active.phase, "research");
     assert.equal(active.step, "research");
@@ -456,20 +461,20 @@ test("session-end closes the last active stateful step", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+    const steps = readJsonLines(path.join(analyticsDir, STEPS_FILE));
     assert.equal(steps.length, 1);
     assert.equal(steps[0].skill, "dev");
     assert.equal(steps[0].step, "implementation");
     assert.equal(steps[0].run_id, runId);
     assert.equal(steps[0].started_at, "2026-04-06T01:15:00Z");
 
-    const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
     const endEvents = activity.filter((record) => record.event === "completed");
     assert.equal(endEvents.length, 1);
     assert.equal(endEvents[0].run_id, runId);
 
     assert.ok(
-      !fs.existsSync(path.join(analyticsDir, ".current-step.json")),
+      !fs.existsSync(path.join(analyticsDir, CURRENT_STEP_FILE)),
       ".current-step.json should be deleted"
     );
   } finally {
@@ -504,7 +509,7 @@ test("session-end closes open run and cleans up", () => {
     });
 
     // Verify run was closed
-    const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
     const endEvents = activity.filter((r) => r.event === "completed");
     assert.equal(endEvents.length, 1);
     assert.equal(endEvents[0].run_id, runId);
@@ -554,7 +559,7 @@ test("session-end preserves hyphenated skill names", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
     const endEvents = activity.filter((r) => r.event === "completed");
     assert.equal(endEvents.length, 1);
     assert.equal(endEvents[0].skill, "design-critique");
@@ -583,7 +588,7 @@ test("session-end is a no-op when no run is active", () => {
 
     // No activity file should be created
     assert.ok(
-      !fs.existsSync(path.join(root, ".pm", "analytics", "activity.jsonl")),
+      !fs.existsSync(path.join(root, ".pm", "analytics", ACTIVITY_FILE)),
       "no activity should be written"
     );
   } finally {

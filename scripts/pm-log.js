@@ -6,6 +6,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 
+const {
+  activityFilePath,
+  stepsFilePath,
+  currentStepFilePath,
+  getHostId,
+} = require("./lib/analytics-paths.js");
+
 function usage(message) {
   if (message) {
     console.error(message);
@@ -139,7 +146,7 @@ function writeJsonLine(filePath, record) {
 }
 
 function currentStepFile(projectRoot) {
-  return path.join(projectRoot, ".pm", "analytics", ".current-step.json");
+  return currentStepFilePath(projectRoot);
 }
 
 function readActiveStep(projectRoot) {
@@ -200,6 +207,7 @@ function baseContext(projectRoot) {
   return {
     project: path.basename(projectRoot),
     branch: detectBranch(projectRoot),
+    host_id: getHostId(projectRoot),
   };
 }
 
@@ -211,6 +219,7 @@ function buildActivityRecord(options, projectRoot) {
     ts: nowIso(),
     project: context.project,
     branch: context.branch,
+    host_id: context.host_id,
   };
   if (options.detail) {
     record.detail = options.detail;
@@ -285,6 +294,7 @@ function buildStepRecord(options, projectRoot) {
     files_written: parseNumber(options.filesWritten),
     project: context.project,
     branch: context.branch,
+    host_id: context.host_id,
   };
 
   const meta = parseMeta(options.metaJson);
@@ -298,14 +308,14 @@ function buildStepRecord(options, projectRoot) {
 }
 
 function writeActivity(options, projectRoot) {
-  const logPath = path.join(projectRoot, ".pm", "analytics", "activity.jsonl");
+  const logPath = activityFilePath(projectRoot);
   const record = buildActivityRecord(options, projectRoot);
   writeJsonLine(logPath, record);
   return record;
 }
 
 function writeStep(options, projectRoot) {
-  const logPath = path.join(projectRoot, ".pm", "analytics", "steps.jsonl");
+  const logPath = stepsFilePath(projectRoot);
   const record = buildStepRecord(options, projectRoot);
   writeJsonLine(logPath, record);
   return record;

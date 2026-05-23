@@ -5,6 +5,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 
+const { analyticsDir: resolveAnalyticsDir, listHostFiles } = require("./lib/analytics-paths.js");
+
 function parseArgs(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -120,10 +122,24 @@ function formatStepLabel(record) {
   return `${record.skill} — ${phase}${record.step}`;
 }
 
+function readAllHostStreams(projectRoot, stream) {
+  const files = listHostFiles(projectRoot, stream);
+  // Back-compat: also read the legacy single-file form if present. Migration
+  // copies these into per-host files, so this branch is purely defensive.
+  const legacyFile = path.join(resolveAnalyticsDir(projectRoot), `${stream}.jsonl`);
+  if (fs.existsSync(legacyFile) && !files.includes(legacyFile)) {
+    files.push(legacyFile);
+  }
+  const rows = [];
+  for (const file of files) {
+    rows.push(...readJsonLines(file));
+  }
+  return rows;
+}
+
 function buildBaseline(projectRoot) {
-  const analyticsDir = path.join(projectRoot, ".pm", "analytics");
-  const activity = readJsonLines(path.join(analyticsDir, "activity.jsonl"));
-  const steps = readJsonLines(path.join(analyticsDir, "steps.jsonl"));
+  const activity = readAllHostStreams(projectRoot, "activity");
+  const steps = readAllHostStreams(projectRoot, "steps");
   const today = new Date().toISOString().slice(0, 10);
 
   const lines = [
