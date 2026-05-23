@@ -286,6 +286,49 @@ test("agent-step without agent-pre falls back to duration 0", () => {
   }
 });
 
+test("agent-step skips logging when no pm run is active (orphan dispatch)", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const pluginRoot = ROOT;
+    const agentStep = path.join(pluginRoot, "hooks", "agent-step");
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.mkdirSync(analyticsDir, { recursive: true });
+    // Note: no .current-run written — simulates an Agent dispatch happening
+    // outside any pm:* workflow (e.g., direct user-invoked general-purpose).
+
+    const postInput = JSON.stringify({
+      tool_name: "Agent",
+      tool_input: {
+        name: "orphan-dispatch",
+        prompt: "Prompt long enough to clear the 10 char filter",
+        subagent_type: "general-purpose",
+      },
+      tool_output: "done",
+    });
+
+    childProcess.execFileSync(agentStep, {
+      cwd: root,
+      input: postInput,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const stepsPath = path.join(analyticsDir, STEPS_FILE);
+    if (fs.existsSync(stepsPath)) {
+      const steps = readJsonLines(stepsPath);
+      const untracked = steps.filter((s) => s.run_id === "untracked");
+      assert.equal(
+        untracked.length,
+        0,
+        `orphan agent-dispatch wrote untracked entry: ${JSON.stringify(untracked)}`
+      );
+      assert.equal(steps.length, 0, "no step record should be written for orphan dispatch");
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test("analytics-log preserves quoted args and writes current skill", () => {
   const { root, env, cleanup } = setupRepo();
   try {

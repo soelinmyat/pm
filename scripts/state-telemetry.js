@@ -283,12 +283,17 @@ function clearActiveStep(projectDir, pluginRoot, stateFile) {
 }
 
 function setActiveStep(projectDir, pluginRoot, state) {
+  if (!state.runId) {
+    // No run context to attribute this state change to. Skip rather than
+    // writing run_id="untracked" — orphan state events break per-run rollups.
+    return;
+  }
   const args = [
     "active-step-set",
     "--skill",
     state.skill,
     "--run-id",
-    state.runId || "untracked",
+    state.runId,
     "--step",
     state.step,
     "--started-at",
@@ -335,25 +340,30 @@ function applyState(projectDir, pluginRoot, targetPath) {
     (!nextState || !sameTrackedStep(previousState, nextState) || Boolean(nextState.completedAt));
 
   if (shouldClosePrevious) {
-    const args = [
-      "step",
-      "--skill",
-      previousState.skill,
-      "--run-id",
-      previousState.runId || currentRunId || "untracked",
-      "--step",
-      previousState.step,
-      "--started-at",
-      previousState.startedAt || nowIso(),
-      "--ended-at",
-      nowIso(),
-      "--state-file",
-      previousState.stateFile,
-    ];
-    if (previousState.phase) {
-      args.push("--phase", previousState.phase);
+    const recoveredRunId = previousState.runId || currentRunId;
+    if (recoveredRunId) {
+      const args = [
+        "step",
+        "--skill",
+        previousState.skill,
+        "--run-id",
+        recoveredRunId,
+        "--step",
+        previousState.step,
+        "--started-at",
+        previousState.startedAt || nowIso(),
+        "--ended-at",
+        nowIso(),
+        "--state-file",
+        previousState.stateFile,
+      ];
+      if (previousState.phase) {
+        args.push("--phase", previousState.phase);
+      }
+      runPmLog(pluginRoot, projectDir, args);
     }
-    runPmLog(pluginRoot, projectDir, args);
+    // If no run_id can be recovered, the state change is orphan — skip
+    // rather than logging run_id="untracked" which breaks per-run rollups.
   }
 
   if (nextState && !nextState.completedAt) {

@@ -39,12 +39,16 @@ const resultChars = resultText.length;
 // Skip tiny dispatches (likely empty or error)
 if (promptChars < 10) process.exit(0);
 
-// Read current run_id from .current-run
+// Read current run_id from .current-run. If no pm run is active, this
+// Agent dispatch happened outside any pm workflow (orphan) — skip logging
+// so steps.jsonl stays correlated to real runs instead of filling with
+// uncorrelated noise from ad-hoc general-purpose/Explore dispatches.
 const projectDir = process.env.CLAUDE_PROJECT_DIR || '.';
 const runFile = path.join(projectDir, '.pm', 'analytics', '.current-run');
 const skillFile = path.join(projectDir, '.pm', 'analytics', '.current-skill');
-let runId = 'untracked';
-try { runId = readFileSync(runFile, 'utf8').trim() || 'untracked'; } catch {}
+let runId = '';
+try { runId = readFileSync(runFile, 'utf8').trim(); } catch {}
+if (!runId) process.exit(0);
 let parentSkill = '';
 try { parentSkill = readFileSync(skillFile, 'utf8').trim() || ''; } catch {}
 
