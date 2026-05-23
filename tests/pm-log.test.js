@@ -376,6 +376,10 @@ test("analytics-log marks the displaced previous run as abandoned", () => {
     const analyticsDir = path.join(root, ".pm", "analytics");
     fs.writeFileSync(path.join(analyticsDir, ".current-run"), prevRunId);
     fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
+    // Seed: current run timestamp is older than the user prompt — this is the
+    // signal that the user initiated a new top-level skill.
+    fs.writeFileSync(path.join(analyticsDir, ".current-run-ts"), "2026-01-01T00:00:00.000Z");
+    fs.writeFileSync(path.join(analyticsDir, ".last-user-prompt-ts"), "2026-01-01T00:01:00.000Z");
 
     // User switches to a new skill before the dev run finished
     const input = JSON.stringify({
@@ -396,6 +400,59 @@ test("analytics-log marks the displaced previous run as abandoned", () => {
       prevEnd.status,
       "abandoned",
       "displaced run must be marked abandoned, not completed"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("analytics-log treats sub-skill call as nested (parent stays active)", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    // Seed: ship is mid-flight
+    const parentRunId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "ship"], { cwd: root, env, encoding: "utf8" })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), parentRunId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "ship");
+    // The parent's run timestamp is AFTER the last user prompt — meaning no
+    // user prompt has fired since ship started, so any Skill call now is
+    // ship invoking a sub-skill (e.g. pm:review).
+    fs.writeFileSync(path.join(analyticsDir, ".last-user-prompt-ts"), "2026-01-01T00:00:00.000Z");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run-ts"), "2026-01-01T00:01:00.000Z");
+
+    // ship's body calls pm:review
+    const input = JSON.stringify({
+      tool_name: "Skill",
+      tool_input: { skill: "pm:review", args: "" },
+    });
+    childProcess.execFileSync(ANALYTICS_LOG, {
+      cwd: root,
+      input,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
+    const parentEnd = activity.find((r) => r.event === "completed" && r.run_id === parentRunId);
+    assert.equal(parentEnd, undefined, "parent run must NOT be closed on nested call");
+
+    const nestedStart = activity.find(
+      (r) => r.event === "started" && r.skill === "review" && r.parent_run_id === parentRunId
+    );
+    assert.ok(nestedStart, "nested skill must record parent_run_id");
+
+    // Parent retains step attribution
+    assert.equal(
+      fs.readFileSync(path.join(analyticsDir, ".current-run"), "utf8"),
+      parentRunId,
+      ".current-run must continue pointing to parent"
+    );
+    assert.equal(
+      fs.readFileSync(path.join(analyticsDir, ".current-skill"), "utf8"),
+      "ship",
+      ".current-skill must continue pointing to parent"
     );
   } finally {
     cleanup();

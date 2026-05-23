@@ -200,9 +200,14 @@ If validation fails, fix the entries and re-validate before proceeding.
 
 ---
 
-### Step 7: Delete state file
+### Step 7: Mark completed, then delete state file
 
-Delete `{source_dir}/.pm/dev-sessions/{slug}.md` after successful retro extraction (or silent skip). Dev session is complete.
+Two writes, in this order:
+
+1. **Set `Completed at`** in the state file to the current ISO timestamp (replace `| Completed at | null |` with `| Completed at | {now ISO} |`). This is the signal the analytics state-telemetry hook watches for — without it the run sits open and gets marked abandoned at session end, even on a clean ship.
+2. **Delete** `{source_dir}/.pm/dev-sessions/{slug}.md`. Dev session is complete.
+
+The completion timestamp must be written as a separate write before deletion — the Write hook fires synchronously and closes the run with `status=completed` before the delete runs. If you delete without writing the timestamp, the run will still be closed (by session-end), but as abandoned.
 
 ---
 

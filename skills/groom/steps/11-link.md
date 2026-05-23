@@ -217,9 +217,14 @@ proposal:
 
    If this writeback fails after you decided it should happen, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
 
-6. **Delete state file.**
+6. **Mark completed, then delete state file.**
 
-Delete `{source_dir}/.pm/groom-sessions/{topic-slug}.md` after successful retro extraction (or silent skip) and link. Grooming is complete.
+Two writes, in this order:
+
+   a. **Set `completed_at`** in the state file frontmatter to the current ISO timestamp (replace `completed_at: null` with `completed_at: {now ISO}`). This is the signal the analytics state-telemetry hook watches for — without it the run sits open and gets marked abandoned at session end, even on a clean groom.
+   b. **Delete** `{source_dir}/.pm/groom-sessions/{topic-slug}.md`. Grooming is complete.
+
+The completion timestamp must be written as a separate write before deletion — the Write hook fires synchronously and closes the run with `status=completed` before the delete runs. If you delete without writing the timestamp, the run will still be closed (by session-end), but as abandoned.
 
 Say:
 > "Grooming complete for '{topic}'.
