@@ -20,7 +20,7 @@ function usage(message) {
   console.error(`Usage:
   pm-log.sh <skill> <event> [detail]
   pm-log.sh activity --skill <skill> --event <event> [--detail <detail>] [--run-id <id>] [--status <status>] [--meta-json <json>]
-  pm-log.sh run-start --skill <skill> [--args <args>] [--detail <detail>] [--run-id <id>]
+  pm-log.sh run-start --skill <skill> [--args <args>] [--detail <detail>] [--run-id <id>] [--parent-run-id <id>]
   pm-log.sh run-end --skill <skill> --run-id <id> [--status <status>] [--detail <detail>] [--meta-json <json>]
   pm-log.sh step --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--status <status>] [--started-at <iso>] [--ended-at <iso>] [--duration-ms <n>] [--attempt <n>] [--actor <actor>] [--input-chars <n>] [--output-chars <n>] [--token-source <source>] [--input-file <path>] [--output-file <path>] [--state-file <path>] [--meta-json <json>]
   pm-log.sh active-step-set --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--started-at <iso>] [--state-file <path>]
@@ -250,6 +250,9 @@ function buildActivityRecord(options, projectRoot) {
   if (options.runId) {
     record.run_id = options.runId;
   }
+  if (options.parentRunId) {
+    record.parent_run_id = options.parentRunId;
+  }
   if (options.status) {
     record.status = options.status;
   }
@@ -408,6 +411,7 @@ function main() {
           event: "started",
           detail: options.detail || options.args,
           runId,
+          parentRunId: options["parent-run-id"],
           status: "running",
         },
         projectRoot

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# UserPromptSubmit hook — records when the user submits a prompt so the
+# analytics-log hook can distinguish user-initiated skill invocations from
+# nested sub-skill calls (e.g. ship invoking pm:review). Without this
+# signal, every Skill PostToolUse looks like a new top-level workflow,
+# which falsely marks parents as abandoned and inflates skill-transition
+# counts with what are actually sub-skill calls.
+
+set -euo pipefail
+
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+
+# Check analytics flag — bail fast if disabled
+ANALYTICS=$(sed -n 's/^analytics: *//p' "$PROJECT_DIR/.claude/pm.local.md" 2>/dev/null | head -1)
+[ "$ANALYTICS" != "true" ] && exit 0
+
+ANALYTICS_DIR="$PROJECT_DIR/.pm/analytics"
+mkdir -p "$ANALYTICS_DIR"
+# Use Node for millisecond precision — analytics-log compares this against
+# .current-run-ts lexicographically, so whole-second precision (.000Z) would
+# collide when both hooks fire in the same second.
+node -e 'process.stdout.write(new Date().toISOString())' > "$ANALYTICS_DIR/.last-user-prompt-ts"
