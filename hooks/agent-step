@@ -28,13 +28,10 @@ const crypto = require('node:crypto');
 
 const input = JSON.parse(process.argv[1]);
 const ti = input.tool_input || {};
-const rawOutput = input.tool_output;
-const resultText = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput || '');
 
 const subagent = ti.subagent_type || 'general-purpose';
 const agentName = ti.name || ti.description || 'unnamed';
 const promptChars = (ti.prompt || '').length;
-const resultChars = resultText.length;
 
 // Skip tiny dispatches (likely empty or error)
 if (promptChars < 10) process.exit(0);
@@ -67,9 +64,10 @@ const skill =
   parentSkill || (subagent.startsWith('pm:') ? subagent.slice(3) : subagent);
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');
 
+// PostToolUse only sees a short summary of the agent's response, not the
+// full conversation, so output_chars from here would always be misleading.
+// We log only input_chars (prompt length is accurate) and skip output_chars.
 const meta = { agent_name: agentName, subagent_type: subagent };
-// PostToolUse tool_output is a summary, not the full agent conversation
-if (resultChars < 100) meta.output_truncated = true;
 
 const args = [
   'step',
@@ -78,7 +76,6 @@ const args = [
   '--step', 'agent-dispatch',
   '--actor', 'agent:' + subagent,
   '--input-chars', String(promptChars),
-  '--output-chars', String(resultChars),
   '--meta-json', JSON.stringify(meta),
 ];
 

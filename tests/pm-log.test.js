@@ -118,10 +118,6 @@ test("run-start, step, and run-end write structured telemetry", () => {
         "80",
         "--output-chars",
         "40",
-        "--files-read",
-        "2",
-        "--files-written",
-        "1",
         "--meta-json",
         '{"state":"ok"}',
       ],
@@ -151,8 +147,13 @@ test("run-start, step, and run-end write structured telemetry", () => {
     assert.equal(steps[0].est_input_tokens, 20);
     assert.equal(steps[0].est_output_tokens, 10);
     assert.equal(steps[0].token_source, "estimated");
-    assert.equal(steps[0].files_read, 2);
-    assert.equal(steps[0].files_written, 1);
+    assert.equal(
+      steps[0].files_read,
+      undefined,
+      "files_read column dropped (was 0% populated in production)"
+    );
+    assert.equal(steps[0].files_written, undefined, "files_written column dropped");
+    assert.equal(steps[0].tool_calls, undefined, "tool_calls column dropped");
     assert.deepEqual(steps[0].meta, { state: "ok" });
   } finally {
     cleanup();
@@ -234,7 +235,12 @@ test("agent-pre + agent-step produce step with real duration", () => {
       `duration_ms should be >= 1000, got ${steps[0].duration_ms}`
     );
     assert.equal(steps[0].started_at, past);
-    assert.ok(steps[0].meta.output_truncated, "short output should be flagged as truncated");
+    assert.equal(
+      steps[0].output_chars,
+      null,
+      "agent-step no longer writes output_chars (was always truncated)"
+    );
+    assert.equal(steps[0].input_chars, "Do something useful for testing purposes here".length);
 
     // Verify timestamp file was cleaned up
     assert.ok(!fs.existsSync(startFile), "start timestamp file should be deleted after use");
