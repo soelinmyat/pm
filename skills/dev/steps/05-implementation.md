@@ -170,32 +170,50 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
-5. **Wait for the result file to appear** without burning context on active polling.
+5. **Wait for the result file via a bounded heartbeat.** The wait can take hours, but the Claude Code harness does not guarantee that a single Monitor invocation will fire its notification — Monitor can silently stall on long runs. Cap each Monitor call at **15 minutes (900s)** and re-arm if the subprocess hasn't finished. The orchestrator wakes every 15 min, does a fast state check, and either advances or re-arms — never idles for hours waiting on a notification that may never come.
 
-   **Claude runtime:** use `Monitor` with an until-loop watching for the result file:
+   **Claude runtime — primary wait:**
    ```text
    Monitor(
-     command: "until [ -f {pm_state_dir}/runs/issue-{N}/result.json ]; do sleep 30; done"
+     command: "PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid; RESULT={pm_state_dir}/runs/issue-{N}/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done"
    )
    ```
-   The harness fires a notification when the loop exits. No active polling, no orchestrator-context burn during the long wait.
+   Three-clause termination:
+   - **Done:** `result.json` exists → first clause true → loop exits.
+   - **Crashed:** dispatcher dies (SIGKILL, OOM, parent torn down) without writing a result → second clause true → loop exits. The dispatcher's EXIT trap covers SIGTERM/SIGINT/normal exit by leaving a stub `result.json`, so those fire the first clause instead.
+   - **Heartbeat tick:** 15 min elapsed → third clause true → loop exits so the orchestrator can re-check and re-arm. Bounds idle time even if Monitor itself never notifies.
 
-   **Codex runtime / fallback:** check periodically using a low-frequency shell loop the runtime allows (e.g., a 30-second sleep cadence inside an `until` block). The same condition — result file existence — terminates the wait.
+   **Codex runtime / fallback:** same three-clause loop in a foreground shell.
 
-   The wait can take minutes to hours. That is expected. Do NOT add a hard timeout; the subprocess decides completion by writing the result file or escalating via Blocked.
-
-6. **Read result and interpret:**
+6. **Read result and re-arm if needed.** After Monitor returns, the orchestrator inspects state and either advances or schedules the next heartbeat:
 
    ```bash
-   STATUS=$(jq -r '.status' "{pm_state_dir}/runs/issue-{N}/result.json")
-   case "$STATUS" in
-     merged)  PR=$(jq -r '.pr' ...); SHA=$(jq -r '.merge_sha' ...); ;;
-     blocked) REASON=$(jq -r '.reason' ...); halt-and-escalate ;;
-     *)       treat as crashed; surface log to user ;;
-   esac
+   RESULT={pm_state_dir}/runs/issue-{N}/result.json
+   PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid
+
+   if [ -f "$RESULT" ]; then
+     # Done — process result and advance to the next task.
+     STATUS=$(jq -r '.status' "$RESULT")
+     case "$STATUS" in
+       merged)  PR=$(jq -r '.pr' "$RESULT"); SHA=$(jq -r '.merge_sha' "$RESULT"); ;;
+       blocked) REASON=$(jq -r '.reason' "$RESULT"); halt-and-escalate ;;
+       *)       treat as crashed; surface log to user ;;
+     esac
+   elif [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+     # Dispatcher died without a result file (SIGKILL — trap couldn't fire).
+     halt-and-escalate "subprocess crashed without result — see {log-file}"
+   else
+     # Heartbeat tick — subprocess still running. Re-arm Monitor.
+     # Re-issue the exact same Monitor command from Step 5. Continue the loop
+     # until result.json exists OR the dispatcher dies. Do NOT cap the number
+     # of heartbeats — a 6-hour task is 24 ticks and that is fine. Each tick
+     # is a cheap state check, much cheaper than a wedged orchestrator
+     # waiting hours on a dropped notification.
+     goto step 5
+   fi
    ```
 
-   If the background dispatch process exited but no result file exists (subprocess crashed before writing), treat as blocked with reason `"subprocess crashed — see {log-file}"`. Detect this by checking whether the background shell ID is still alive when the Monitor loop times out, OR by adding an OR-clause to the wait: `until [ -f result.json ] || ! kill -0 $DISPATCH_PID 2>/dev/null; do sleep 30; done`.
+   The cost of the heartbeat is one cache-miss orchestrator wake per 15 min while a subprocess runs. Over a 3-hour task that's ~12 wakes — bounded, predictable, and cheaper than the hours of idle wedging that prompted this design.
 
 Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via notification, read result, advance plan.
 

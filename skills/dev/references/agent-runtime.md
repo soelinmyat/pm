@@ -134,10 +134,12 @@ Or, when escalating:
 }
 ```
 
+**Crash-safety:** `dispatch-issue.sh` registers an EXIT trap that leaves a stub blocked result behind if the agent exits without writing one (covers normal exit codes, SIGTERM, SIGINT). It also writes `dispatch.pid` next to `result.json` so the orchestrator can detect SIGKILL (which bypasses traps) via a liveness check in its wait loop. Either way the orchestrator's `until [ -f result.json ]` style wait terminates.
+
 Orchestrator handling:
 - `status=merged` + `pr` + `merge_sha` → success, advance plan
 - `status=blocked` + `reason` → halt epic, surface to user
-- Result file missing → subprocess crashed; treat as blocked with crash reason from the log
+- Result file missing AND dispatcher PID dead → subprocess crashed (SIGKILL); treat as blocked with crash reason from the log
 
 ### Dispatch shape
 
@@ -160,18 +162,25 @@ Bash(
 
 Codex runtime: detach via shell (`nohup ... &`, capture PID) — same `dispatch-issue.sh` call with `--runtime codex`.
 
-**Step 2 — wait for result file via notification:**
+**Step 2 — wait via a bounded heartbeat (15-min ceiling, re-arm on tick):**
 
-Claude runtime (preferred — no orchestrator-context burn during the wait):
+The Claude Code harness does not guarantee Monitor notifications fire on long runs — `claude -p` subprocesses span hours and Monitor has been observed to silently stall. Cap each Monitor invocation at 900s so the orchestrator wakes every 15 min, checks state, and either advances or re-arms.
+
+Claude runtime:
 ```text
 Monitor(
-  command: "until [ -f .pm/runs/issue-$N/result.json ] || ! kill -0 $DISPATCH_PID 2>/dev/null; do sleep 30; done"
+  command: "PID_FILE=.pm/runs/issue-$N/dispatch.pid; RESULT=.pm/runs/issue-$N/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done"
 )
 ```
 
-The OR-clause catches subprocess crashes (process exited without writing the result file). Notification fires when either condition becomes true.
+Three termination clauses:
+- **Done:** `result.json` exists (happy path or dispatcher EXIT trap stub).
+- **Crashed:** dispatcher PID is dead and no result — SIGKILL bypassed the trap.
+- **Tick:** 900s elapsed — orchestrator wakes for a state check and re-arms if still running.
 
-Codex runtime / fallback: same `until` loop in a foreground shell at the runtime's allowed cadence.
+After Monitor returns, the orchestrator: (a) reads `result.json` and advances on done/blocked, (b) treats dispatcher-dead-without-result as blocked, or (c) re-arms the same Monitor command on the tick branch. A 3-hour subprocess = ~12 heartbeat re-arms; each re-arm is a fast file check.
+
+Codex runtime / fallback: same three-clause loop in a foreground shell.
 
 **Step 3 — read result:**
 
