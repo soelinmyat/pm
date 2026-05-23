@@ -138,7 +138,6 @@ function readAllHostStreams(projectRoot, stream) {
 }
 
 function buildBaseline(projectRoot) {
-  const analyticsDir = resolveAnalyticsDir(projectRoot);
   const activity = readAllHostStreams(projectRoot, "activity");
   const steps = readAllHostStreams(projectRoot, "steps");
   const today = new Date().toISOString().slice(0, 10);

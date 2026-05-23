@@ -253,7 +253,7 @@ test("host_id: sanitized hostname is filename-safe", () => {
     const files = fs.readdirSync(analyticsDir).filter((f) => f.startsWith("activity-"));
     assert.equal(files.length, 1);
     assert.match(files[0], /^activity-[A-Za-z0-9._-]+\.jsonl$/);
-    assert.doesNotMatch(files[0], /[\s\/!]/);
+    assert.doesNotMatch(files[0], /[\s/!]/);
   } finally {
     cleanup();
   }
