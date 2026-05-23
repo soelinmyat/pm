@@ -170,50 +170,39 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
-5. **Wait for the result file via a bounded heartbeat.** The wait can take hours, but the Claude Code harness does not guarantee that a single Monitor invocation will fire its notification — Monitor can silently stall on long runs. Cap each Monitor call at **15 minutes (900s)** and re-arm if the subprocess hasn't finished. The orchestrator wakes every 15 min, does a fast state check, and either advances or re-arms — never idles for hours waiting on a notification that may never come.
+5. **Wait via a bounded heartbeat — the Monitor command emits a sentinel you MUST read.** The wait can take hours, but the Claude Code harness does not guarantee a single Monitor invocation will fire its notification. Cap each Monitor call at **15 minutes (900s)**. The Monitor command itself does the state check and prints a `DISPATCH_STATE=<done|crashed|tick>` sentinel on its final line — that sentinel is the orchestrator's instruction for what to do next.
 
    **Claude runtime — primary wait:**
    ```text
    Monitor(
-     command: "PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid; RESULT={pm_state_dir}/runs/issue-{N}/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done"
+     command: "PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid; RESULT={pm_state_dir}/runs/issue-{N}/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done; if [ -f \"$RESULT\" ]; then echo DISPATCH_STATE=done; cat \"$RESULT\"; elif [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then echo DISPATCH_STATE=crashed; else echo DISPATCH_STATE=tick; fi"
    )
    ```
-   Three-clause termination:
-   - **Done:** `result.json` exists → first clause true → loop exits.
-   - **Crashed:** dispatcher dies (SIGKILL, OOM, parent torn down) without writing a result → second clause true → loop exits. The dispatcher's EXIT trap covers SIGTERM/SIGINT/normal exit by leaving a stub `result.json`, so those fire the first clause instead.
-   - **Heartbeat tick:** 15 min elapsed → third clause true → loop exits so the orchestrator can re-check and re-arm. Bounds idle time even if Monitor itself never notifies.
 
-   **Codex runtime / fallback:** same three-clause loop in a foreground shell.
+   Monitor's final stdout line is one of:
+   - `DISPATCH_STATE=done` — followed by the contents of result.json
+   - `DISPATCH_STATE=crashed` — dispatcher PID dead with no result (SIGKILL bypassed EXIT trap)
+   - `DISPATCH_STATE=tick` — 15 min elapsed, subprocess still running
 
-6. **Read result and re-arm if needed.** After Monitor returns, the orchestrator inspects state and either advances or schedules the next heartbeat:
+   **Codex runtime / fallback:** same command in a foreground shell.
 
-   ```bash
-   RESULT={pm_state_dir}/runs/issue-{N}/result.json
-   PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid
+6. **Read DISPATCH_STATE and act. This is non-negotiable.**
 
-   if [ -f "$RESULT" ]; then
-     # Done — process result and advance to the next task.
-     STATUS=$(jq -r '.status' "$RESULT")
-     case "$STATUS" in
-       merged)  PR=$(jq -r '.pr' "$RESULT"); SHA=$(jq -r '.merge_sha' "$RESULT"); ;;
-       blocked) REASON=$(jq -r '.reason' "$RESULT"); halt-and-escalate ;;
-       *)       treat as crashed; surface log to user ;;
-     esac
-   elif [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-     # Dispatcher died without a result file (SIGKILL — trap couldn't fire).
-     halt-and-escalate "subprocess crashed without result — see {log-file}"
-   else
-     # Heartbeat tick — subprocess still running. Re-arm Monitor.
-     # Re-issue the exact same Monitor command from Step 5. Continue the loop
-     # until result.json exists OR the dispatcher dies. Do NOT cap the number
-     # of heartbeats — a 6-hour task is 24 ticks and that is fine. Each tick
-     # is a cheap state check, much cheaper than a wedged orchestrator
-     # waiting hours on a dropped notification.
-     goto step 5
-   fi
-   ```
+<HARD-RULE>
+After every Monitor return, your VERY NEXT ACTION is to locate the `DISPATCH_STATE=` line in Monitor's output and branch on it. Do NOT re-fire Monitor without first identifying which state was reached.
 
-   The cost of the heartbeat is one cache-miss orchestrator wake per 15 min while a subprocess runs. Over a 3-hour task that's ~12 wakes — bounded, predictable, and cheaper than the hours of idle wedging that prompted this design.
+**The failure mode this rule exists to prevent:** the orchestrator treats Monitor as a "wait" primitive and reflexively re-fires it after each return, burning 15 min per tick and learning nothing. If you catch yourself about to type `Monitor(...)` right after a Monitor return without first reading the `DISPATCH_STATE=` sentinel — STOP. That is the bug.
+
+Branch table — execute exactly one of these based on the sentinel:
+
+| DISPATCH_STATE | Next action |
+|---|---|
+| `done` | Parse result.json (emitted on the line after the sentinel). On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
+| `crashed` | Halt epic. Escalate: "subprocess crashed without writing result — see `{log-file}`". |
+| `tick` | Re-arm: re-issue the exact same Monitor command from Step 5. Heartbeats are uncapped — a 6-hour subprocess = ~24 ticks, all expected. |
+
+A `tick` is the **only** state in which re-firing Monitor is correct. Any other path that ends in another Monitor call is the bug. The cost of the heartbeat is one cache-miss orchestrator wake per 15 min while a subprocess runs — bounded, predictable, and cheaper than the hours of idle wedging that prompted this design.
+</HARD-RULE>
 
 Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via notification, read result, advance plan.
 
