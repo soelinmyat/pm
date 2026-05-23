@@ -24,11 +24,14 @@ fi
 
 if [ -n "$PREV_RUN_ID" ] && [ -n "$PREV_SKILL" ]; then
   cd "$PROJECT_DIR"
-  "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close 2>/dev/null || true
+  # Session is exiting with a run still active — the user did not explicitly
+  # complete it. Mark as abandoned so per-status rollups don't falsely show
+  # everything as completed.
+  "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close --status abandoned 2>/dev/null || true
   "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
     --skill "$PREV_SKILL" \
     --run-id "$PREV_RUN_ID" \
-    --status completed 2>/dev/null || true
+    --status abandoned 2>/dev/null || true
   rm -f "$CURRENT_RUN_FILE"
   rm -f "$CURRENT_SKILL_FILE"
 fi

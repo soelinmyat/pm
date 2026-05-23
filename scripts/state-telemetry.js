@@ -372,6 +372,37 @@ function applyState(projectDir, pluginRoot, targetPath) {
   }
 
   clearActiveStep(projectDir, pluginRoot, tracked.relative);
+
+  // When the state file flips to completed (explicit `Completed at` or
+  // `completed_at` frontmatter), the workflow run is genuinely done. Close
+  // the run here so it doesn't sit open until session-end and end up flagged
+  // as abandoned. Without this, even successful workflows looked abandoned.
+  if (nextState && nextState.completedAt) {
+    const recoveredRunId = nextState.runId || currentRunId;
+    if (recoveredRunId) {
+      runPmLog(pluginRoot, projectDir, [
+        "run-end",
+        "--skill",
+        nextState.skill,
+        "--run-id",
+        recoveredRunId,
+        "--status",
+        "completed",
+      ]);
+      // Clear .current-run so session-end / next analytics-log don't
+      // re-close the same run as abandoned.
+      if (recoveredRunId === currentRunId) {
+        const dir = analyticsDir(projectDir);
+        for (const name of [".current-run", ".current-skill"]) {
+          try {
+            fs.unlinkSync(path.join(dir, name));
+          } catch {
+            // File may not exist — that's fine.
+          }
+        }
+      }
+    }
+  }
 }
 
 function main() {
