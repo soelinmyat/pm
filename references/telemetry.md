@@ -18,8 +18,19 @@ The logger also respects `PM_ANALYTICS=1` for testing.
 
 ## Files written
 
-- `.pm/analytics/activity.jsonl` — run-level events such as `invoked`, `started`, and `completed`
-- `.pm/analytics/steps.jsonl` — step spans with timing, token estimates, retries, and lightweight metadata
+Analytics files are append-only JSONL streams, partitioned per host so multiple
+machines can write into the same shared storage repo without git conflicts.
+The `<host_id>` is taken from `PM_HOST_ID`, then the `host_id` field in
+`pm.config.json` / `.pm/config.json`, then `os.hostname()` (sanitized).
+
+- `<pmStateDir>/analytics/activity-<host_id>.jsonl` — run-level events such as `invoked`, `started`, and `completed`
+- `<pmStateDir>/analytics/steps-<host_id>.jsonl` — step spans with timing, token estimates, retries, and lightweight metadata
+
+`<pmStateDir>` is resolved by `scripts/resolve-pm-dir.js` and points at the
+storage repo's `.pm/` (typically the kb sibling). Writers must never compose
+the path from `process.cwd()` directly — that's how worktree fragmentation
+crept in historically. Readers should fold all `activity-*.jsonl` /
+`steps-*.jsonl` files together via `lib/analytics-paths.js#listHostFiles`.
 
 ## Run lifecycle
 

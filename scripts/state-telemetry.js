@@ -6,6 +6,8 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 
+const { analyticsDir, stateBeforeDir } = require("./lib/analytics-paths.js");
+
 function usage(message) {
   if (message) {
     console.error(message);
@@ -85,12 +87,12 @@ function resolveTrackedPath(projectDir, targetPath) {
 
 function snapshotFilePath(projectDir, relativePath) {
   const key = crypto.createHash("sha256").update(relativePath).digest("hex");
-  return path.join(projectDir, ".pm", "analytics", ".state-before", `${key}.json`);
+  return path.join(stateBeforeDir(projectDir), `${key}.json`);
 }
 
 function readCurrentFile(projectDir, name) {
   try {
-    return fs.readFileSync(path.join(projectDir, ".pm", "analytics", name), "utf8").trim();
+    return fs.readFileSync(path.join(analyticsDir(projectDir), name), "utf8").trim();
   } catch {
     return "";
   }

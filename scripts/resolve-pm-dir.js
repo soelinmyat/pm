@@ -4,14 +4,21 @@
 // Resolve the pm/ directory for a project.
 //
 // Resolution order:
-//   1. {projectDir}/.pm/config.json with `pm_repo.path` → resolve relative to
-//      that config's parent and return `{resolved}/pm`.
+//   1. {projectDir}/.pm/config.json (nested) or {projectDir}/pm.config.json
+//      (flat) with `pm_repo.path` → resolve relative to that config's parent
+//      and return `{resolved}/pm`.
 //   2. If projectDir is inside a git worktree whose main repo lives elsewhere,
-//      try the main repo's .pm/config.json the same way.
+//      try the main repo's config the same way.
 //   3. Fallback: {projectDir}/pm (same-repo mode).
 //
 // Step 2 exists because `.pm/` is gitignored. A worktree created from a repo
 // in separate-repo mode has no `.pm/` of its own, but the main repo does.
+//
+// The flat `pm.config.json` form exists so projects can stop carrying a
+// `.pm/` directory entirely — eliminating the worktree-fragmentation footgun
+// where writers like pm-log.js create per-worktree `.pm/` trees. A tracked
+// `pm.config.json` at the repo root is the only thing pm needs to find the
+// storage repo.
 //
 // CLI usage:
 //   node scripts/resolve-pm-dir.js [projectDir]
@@ -57,12 +64,38 @@ function defaultGitCommonDir(projectDir) {
   }
 }
 
-// Read .pm/config.json under configRoot and translate `pm_repo` into a pm dir.
-// Returns the resolved pm dir, or null if there is nothing usable here (no
-// config, malformed, missing field, or target dir does not exist on disk).
-// Throws only for explicitly unsupported types (e.g. remote repos).
+// Track which configRoots already had a both-configs warning emitted so we
+// only warn once per process per root.
+const warnedAboutBothConfigs = new Set();
+
+// Read .pm/config.json (nested) or pm.config.json (flat) under configRoot and
+// translate `pm_repo` into a pm dir. Returns the resolved pm dir, or null if
+// there is nothing usable here (no config, malformed, missing field, or
+// target dir does not exist on disk). Throws only for explicitly unsupported
+// types (e.g. remote repos).
 function tryConfigBased(configRoot) {
-  const configPath = path.join(configRoot, ".pm", "config.json");
+  const nestedPath = path.join(configRoot, ".pm", "config.json");
+  const flatPath = path.join(configRoot, "pm.config.json");
+
+  const nestedExists = fs.existsSync(nestedPath);
+  const flatExists = fs.existsSync(flatPath);
+
+  let configPath;
+  if (nestedExists && flatExists) {
+    if (!warnedAboutBothConfigs.has(configRoot)) {
+      process.stderr.write(
+        `pm-resolver: both .pm/config.json and pm.config.json present at ${configRoot} — using .pm/config.json for back-compat. Remove .pm/config.json once migrated.\n`
+      );
+      warnedAboutBothConfigs.add(configRoot);
+    }
+    configPath = nestedPath;
+  } else if (nestedExists) {
+    configPath = nestedPath;
+  } else if (flatExists) {
+    configPath = flatPath;
+  } else {
+    return null;
+  }
 
   let config;
   try {
@@ -135,10 +168,24 @@ function resolvePmPaths(projectDir, options = {}) {
   return { pmDir, pmStateDir };
 }
 
+// In-process memoization. Helps callers like start-status / kb-sync-git that
+// resolve repeatedly within a single node process. Skipped when the caller
+// injects a custom gitCommonDir (tests) to keep behavior deterministic.
+const pmDirCache = new Map();
+
 function resolvePmDir(projectDir, options = {}) {
-  // 1. Direct: projectDir's own .pm/config.json
+  const cacheable = !options.gitCommonDir;
+  const cacheKey = cacheable ? path.resolve(projectDir) : null;
+  if (cacheable && pmDirCache.has(cacheKey)) {
+    return pmDirCache.get(cacheKey);
+  }
+
+  // 1. Direct: projectDir's own config (.pm/config.json or pm.config.json)
   const direct = tryConfigBased(projectDir);
-  if (direct !== null) return direct;
+  if (direct !== null) {
+    if (cacheable) pmDirCache.set(cacheKey, direct);
+    return direct;
+  }
 
   // 2. Worktree walk: if projectDir is inside a worktree, the main repo may
   //    hold the config.
@@ -148,12 +195,22 @@ function resolvePmDir(projectDir, options = {}) {
     const mainRepoRoot = path.dirname(commonDir);
     if (path.resolve(mainRepoRoot) !== path.resolve(projectDir)) {
       const fromMain = tryConfigBased(mainRepoRoot);
-      if (fromMain !== null) return fromMain;
+      if (fromMain !== null) {
+        if (cacheable) pmDirCache.set(cacheKey, fromMain);
+        return fromMain;
+      }
     }
   }
 
   // 3. Fallback: same-repo mode at projectDir
-  return path.join(projectDir, "pm");
+  const fallback = path.join(projectDir, "pm");
+  if (cacheable) pmDirCache.set(cacheKey, fallback);
+  return fallback;
+}
+
+function _clearCache() {
+  pmDirCache.clear();
+  warnedAboutBothConfigs.clear();
 }
 
 module.exports = {
@@ -161,6 +218,7 @@ module.exports = {
   resolvePmPaths,
   tryConfigBased,
   defaultGitCommonDir,
+  _clearCache,
 };
 
 if (require.main === module) {
