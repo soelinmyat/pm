@@ -1021,24 +1021,13 @@ test("PM-170: plugin.config.json has expected commands (no merge, has features, 
   assert.ok(config.commands.includes("bug"), "bug command must be present");
 });
 
-test("PM-170: plugin.config.json has 0 agents", () => {
-  const configPath = path.join(__dirname, "..", "plugin.config.json");
-  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-
-  // agents key should not exist or be an empty array
-  if (config.agents) {
-    assert.equal(config.agents.length, 0, "agents array must be empty");
-  }
-});
-
-test("PM-170: agents/ directory does not exist or is empty", () => {
-  const agentsDir = path.join(__dirname, "..", "agents");
-  if (fs.existsSync(agentsDir)) {
-    const files = fs.readdirSync(agentsDir).filter((f) => f.endsWith(".md"));
-    assert.equal(files.length, 0, `agents/ should be empty, found: ${files.join(", ")}`);
-  }
-  // If directory doesn't exist, that's also valid
-});
+// PM-170: prior tests required agents/ to be absent. Reversed once telemetry
+// showed the 7 personas should ship as callable plugin agents (registered as
+// pm:<name>) so skills can route specialized work via subagent_type instead of
+// general-purpose. The full agents/ contract is now enforced by agents.test.js.
+// The "no stale agent names" guard below is retained — it rejects only the
+// specific names from the earlier aborted attempt (code-reviewer,
+// engineering-manager, etc.), not the current 7 persona slugs.
 
 test("PM-170: no stale agent names in skill files", () => {
   const staleAgentNames = [

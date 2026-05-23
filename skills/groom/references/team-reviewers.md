@@ -258,8 +258,8 @@ The adversarial reviewer's `verdict: likely-mistake` is treated as **blocking** 
 
 In `05a-scope-review-agent.md` and `08a-team-review-agent.md`:
 
-1. Dispatch the standard 3 reviewers (`@product-manager`, `@strategist`, `@staff-engineer`) — but prepend the **anti-collusion framing** block above to each prompt.
-2. Dispatch `@adversarial-reviewer` with its full prompt above (which already includes the anti-collusion framing).
-3. For team review only (Step 08a): dispatch `@designer` if visual artifacts exist, also with anti-collusion framing.
+1. Dispatch the standard 3 reviewers — but prepend the **anti-collusion framing** block above to each prompt. Claude `subagent_type`: `pm:product-manager`, `pm:strategist`, `pm:staff-engineer`.
+2. Dispatch `@adversarial-reviewer` with its full prompt above (which already includes the anti-collusion framing). Claude `subagent_type`: `pm:adversarial-engineer`.
+3. For team review only (Step 08a): dispatch `@designer` if visual artifacts exist, also with anti-collusion framing. Claude `subagent_type`: `pm:designer`.
 
 All dispatches run in parallel. The convergence rule (Step 05a/08a Phase B) treats blocking issues from any reviewer — including `@adversarial-reviewer`'s `likely-mistake` verdict — as the loop continuation signal.

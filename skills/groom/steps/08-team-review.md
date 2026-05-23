@@ -20,14 +20,14 @@ After the proposal is drafted, dispatch parallel reviewers to review the complet
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. In runtimes that support delegation, run them in parallel. Otherwise run the same briefs inline before merging findings.
 
-**Reviewer personas:** Load prompts from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md`. Dispatch these reviewers:
+**Reviewer personas:** Load prompts from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md`. Dispatch these reviewers (Claude Code: pass `subagent_type` from the table; Codex: inline the persona body):
 
-| Persona | Angle | Always run? |
-|---------|-------|-------------|
-| `@product-manager` | Proposal quality, scope coverage, research utilization | Yes |
-| `@strategist` | Competitive positioning, differentiation, research-to-proposal pipeline | Yes |
-| `@staff-engineer` | Technical feasibility, scope-to-implementation gap, risk identification | Yes |
-| `@designer` | Flow completeness, wireframe alignment, UX red flags | Only if visual artifacts exist |
+| Persona | `subagent_type` (Claude) | Angle | Always run? |
+|---------|--------------------------|-------|-------------|
+| `@product-manager` | `pm:product-manager` | Proposal quality, scope coverage, research utilization | Yes |
+| `@strategist` | `pm:strategist` | Competitive positioning, differentiation, research-to-proposal pipeline | Yes |
+| `@staff-engineer` | `pm:staff-engineer` | Technical feasibility, scope-to-implementation gap, risk identification | Yes |
+| `@designer` | `pm:designer` | Flow completeness, wireframe alignment, UX red flags | Only if visual artifacts exist |
 
 **Handling team review findings:**
 

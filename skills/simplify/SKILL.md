@@ -55,7 +55,7 @@ Dispatch all 3 agents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-r
 
 - Codex with delegation: 3 `spawn_agent` calls, `wait_agent` all
 - Codex inline / other runtimes: run 3 review briefs sequentially, merge findings
-- Claude Code: 3 parallel `Agent` calls with `subagent_type: general-purpose`
+- Claude Code: 3 parallel `Agent` calls with `subagent_type: pm:staff-engineer`
 
 Persona for all 3: `@staff-engineer` (same base persona, different briefs).
 

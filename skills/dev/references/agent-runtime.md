@@ -39,25 +39,39 @@ For additional tool/skill requirements, read `${CLAUDE_PLUGIN_ROOT}/references/c
 
 ## Persona Intent Labels
 
-Flow docs use `@persona` references to indicate which persona perspective to apply. There are 7 personas:
+Flow docs use `@persona` references to indicate which persona perspective to apply. There are 7 personas — each is **both** a `@name` label inlined into prompts AND a callable plugin agent registered as `pm:<name>`:
 
-- `@developer` — implementation, debugging, TDD
-- `@staff-engineer` — architecture, code review, maintainability, integration
-- `@adversarial-engineer` — risk assessment, attack surface analysis
-- `@tester` — QA, edge cases, test coverage, assertion-driven testing
-- `@designer` — UX review, design system compliance, visual quality
-- `@product-manager` — scope validation, JTBD clarity, outcome coverage
-- `@strategist` — competitive intelligence, positioning, differentiation
+| Persona | Plugin agent | Focus |
+|---|---|---|
+| `@developer` | `pm:developer` | implementation, debugging, TDD |
+| `@staff-engineer` | `pm:staff-engineer` | architecture, code review, maintainability, integration |
+| `@adversarial-engineer` | `pm:adversarial-engineer` | risk assessment, attack surface analysis |
+| `@tester` | `pm:tester` | QA, edge cases, test coverage, assertion-driven testing |
+| `@designer` | `pm:designer` | UX review, design system compliance, visual quality |
+| `@product-manager` | `pm:product-manager` | scope validation, JTBD clarity, outcome coverage |
+| `@strategist` | `pm:strategist` | competitive intelligence, positioning, differentiation |
 
-These are intent labels, not a guarantee that the runtime has a built-in specialized agent for each one. The persona file content (from `${CLAUDE_PLUGIN_ROOT}/personas/`) is injected into agent prompts via the step loader.
+Plugin agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`. Reference docs (longer guidance and methodology) live at `${CLAUDE_PLUGIN_ROOT}/personas/<name>.md` and are injected into prompts via the step loader when the runtime can't dispatch to a plugin agent.
 
 ## Claude Adapter
 
 All dispatches use fresh, short-lived agents:
 
 ```text
-Agent(description=..., prompt=...)
+Agent(description=..., subagent_type=..., prompt=...)
 ```
+
+**Pick `subagent_type` by intent:**
+
+| Intent | `subagent_type` |
+|---|---|
+| Persona-led review or work matching one of the 7 personas | `pm:<persona>` (e.g. `pm:strategist`, `pm:adversarial-engineer`) |
+| Code search / file location | `Explore` |
+| Generic task with no matching persona | `general-purpose` |
+
+Prefer `pm:*` whenever the task maps to a persona — telemetry shows specialized agents finish 2-5× faster than `general-purpose` for the same review work. Reserve `general-purpose` for tasks that don't fit any persona.
+
+When `subagent_type: pm:<persona>` is used, the agent's system message already establishes the persona — the prompt should focus on the task, scope, and inputs. Do not also inline the `@<persona>` body.
 
 No `team_name`. The result returns directly to the orchestrator.
 
