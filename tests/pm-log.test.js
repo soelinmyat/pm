@@ -118,10 +118,6 @@ test("run-start, step, and run-end write structured telemetry", () => {
         "80",
         "--output-chars",
         "40",
-        "--files-read",
-        "2",
-        "--files-written",
-        "1",
         "--meta-json",
         '{"state":"ok"}',
       ],
@@ -151,8 +147,13 @@ test("run-start, step, and run-end write structured telemetry", () => {
     assert.equal(steps[0].est_input_tokens, 20);
     assert.equal(steps[0].est_output_tokens, 10);
     assert.equal(steps[0].token_source, "estimated");
-    assert.equal(steps[0].files_read, 2);
-    assert.equal(steps[0].files_written, 1);
+    assert.equal(
+      steps[0].files_read,
+      undefined,
+      "files_read column dropped (was 0% populated in production)"
+    );
+    assert.equal(steps[0].files_written, undefined, "files_written column dropped");
+    assert.equal(steps[0].tool_calls, undefined, "tool_calls column dropped");
     assert.deepEqual(steps[0].meta, { state: "ok" });
   } finally {
     cleanup();
@@ -234,7 +235,12 @@ test("agent-pre + agent-step produce step with real duration", () => {
       `duration_ms should be >= 1000, got ${steps[0].duration_ms}`
     );
     assert.equal(steps[0].started_at, past);
-    assert.ok(steps[0].meta.output_truncated, "short output should be flagged as truncated");
+    assert.equal(
+      steps[0].output_chars,
+      null,
+      "agent-step no longer writes output_chars (was always truncated)"
+    );
+    assert.equal(steps[0].input_chars, "Do something useful for testing purposes here".length);
 
     // Verify timestamp file was cleaned up
     assert.ok(!fs.existsSync(startFile), "start timestamp file should be deleted after use");
@@ -286,6 +292,49 @@ test("agent-step without agent-pre falls back to duration 0", () => {
   }
 });
 
+test("agent-step skips logging when no pm run is active (orphan dispatch)", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const pluginRoot = ROOT;
+    const agentStep = path.join(pluginRoot, "hooks", "agent-step");
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.mkdirSync(analyticsDir, { recursive: true });
+    // Note: no .current-run written — simulates an Agent dispatch happening
+    // outside any pm:* workflow (e.g., direct user-invoked general-purpose).
+
+    const postInput = JSON.stringify({
+      tool_name: "Agent",
+      tool_input: {
+        name: "orphan-dispatch",
+        prompt: "Prompt long enough to clear the 10 char filter",
+        subagent_type: "general-purpose",
+      },
+      tool_output: "done",
+    });
+
+    childProcess.execFileSync(agentStep, {
+      cwd: root,
+      input: postInput,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: pluginRoot },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const stepsPath = path.join(analyticsDir, STEPS_FILE);
+    if (fs.existsSync(stepsPath)) {
+      const steps = readJsonLines(stepsPath);
+      const untracked = steps.filter((s) => s.run_id === "untracked");
+      assert.equal(
+        untracked.length,
+        0,
+        `orphan agent-dispatch wrote untracked entry: ${JSON.stringify(untracked)}`
+      );
+      assert.equal(steps.length, 0, "no step record should be written for orphan dispatch");
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test("analytics-log preserves quoted args and writes current skill", () => {
   const { root, env, cleanup } = setupRepo();
   try {
@@ -311,6 +360,123 @@ test("analytics-log preserves quoted args and writes current skill", () => {
     assert.equal(
       fs.readFileSync(path.join(root, ".pm", "analytics", ".current-skill"), "utf8"),
       "groom"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("analytics-log marks the displaced previous run as abandoned", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    // Seed: a prior run is in flight
+    const prevRunId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], { cwd: root, env, encoding: "utf8" })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), prevRunId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
+
+    // User switches to a new skill before the dev run finished
+    const input = JSON.stringify({
+      tool_name: "Skill",
+      tool_input: { skill: "pm:groom", args: "" },
+    });
+    childProcess.execFileSync(ANALYTICS_LOG, {
+      cwd: root,
+      input,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
+    const prevEnd = activity.find((r) => r.event === "completed" && r.run_id === prevRunId);
+    assert.ok(prevEnd, "previous run should have a completed event");
+    assert.equal(
+      prevEnd.status,
+      "abandoned",
+      "displaced run must be marked abandoned, not completed"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("state-telemetry closes run with status=completed when state file flips to completedAt", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    const runId = childProcess
+      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], { cwd: root, env, encoding: "utf8" })
+      .trim();
+    const analyticsDir = path.join(root, ".pm", "analytics");
+    fs.writeFileSync(path.join(analyticsDir, ".current-run"), runId);
+    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
+
+    const stateDir = path.join(root, ".pm", "dev-sessions");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "feature-x.md");
+    const baseLines = [
+      "# Dev Session State",
+      "",
+      "| Field | Value |",
+      "|-------|-------|",
+      `| Run ID | ${runId} |`,
+      "| Stage | implement |",
+      "| Started at | 2026-04-06T01:00:00Z |",
+      "| Stage started at | 2026-04-06T01:15:00Z |",
+      "| Completed at | null |",
+      "",
+    ];
+    fs.writeFileSync(stateFile, baseLines.join("\n"));
+
+    const payload = JSON.stringify({
+      tool_name: "Write",
+      tool_input: { file_path: stateFile },
+    });
+    childProcess.execFileSync(STATE_PRE, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    childProcess.execFileSync(STATE_STEP, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Now flip the state file to completed
+    fs.writeFileSync(
+      stateFile,
+      baseLines
+        .map((l) =>
+          l.startsWith("| Completed at |") ? "| Completed at | 2026-04-06T02:00:00Z |" : l
+        )
+        .join("\n")
+    );
+    childProcess.execFileSync(STATE_PRE, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    childProcess.execFileSync(STATE_STEP, {
+      cwd: root,
+      input: payload,
+      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
+    const completedEvent = activity.find((r) => r.event === "completed" && r.run_id === runId);
+    assert.ok(completedEvent, "run-end should be emitted when state flips to completedAt");
+    assert.equal(completedEvent.status, "completed");
+
+    // .current-run should be cleared so session-end doesn't re-close as abandoned
+    assert.ok(
+      !fs.existsSync(path.join(analyticsDir, ".current-run")),
+      ".current-run should be removed after explicit completion"
     );
   } finally {
     cleanup();
@@ -508,12 +674,13 @@ test("session-end closes open run and cleans up", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    // Verify run was closed
+    // Verify run was closed and flagged abandoned (session-end without an
+    // explicit completion signal means the user did not finish the run).
     const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
     const endEvents = activity.filter((r) => r.event === "completed");
     assert.equal(endEvents.length, 1);
     assert.equal(endEvents[0].run_id, runId);
-    assert.equal(endEvents[0].status, "completed");
+    assert.equal(endEvents[0].status, "abandoned");
 
     // Verify .current-run was removed
     assert.ok(

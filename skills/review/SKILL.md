@@ -115,8 +115,11 @@ Before first dispatch, run `ToolSearch({ query: "select:TeamCreate,SendMessage" 
 
 Dispatch via `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 
-- **Claude Code:** parallel `Agent` calls with `subagent_type: general-purpose`
-- **Codex with delegation:** parallel `spawn_agent` calls, `wait_agent` all
+- **Claude Code:** parallel `Agent` calls with the matching plugin agent:
+  - Agent 1 (Code Reviewer) → `subagent_type: pm:staff-engineer`
+  - Agent 2 (Design Reviewer) → `subagent_type: pm:designer`
+  - Agent 3 (Input Edge-Case Reviewer) → `subagent_type: pm:tester`
+- **Codex with delegation:** parallel `spawn_agent` calls, `wait_agent` all (no plugin agents — inline the `@persona` body as before)
 - **Codex inline / other runtimes:** run review briefs sequentially, merge findings
 
 Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which reviewers to skip.

@@ -283,12 +283,17 @@ function clearActiveStep(projectDir, pluginRoot, stateFile) {
 }
 
 function setActiveStep(projectDir, pluginRoot, state) {
+  if (!state.runId) {
+    // No run context to attribute this state change to. Skip rather than
+    // writing run_id="untracked" — orphan state events break per-run rollups.
+    return;
+  }
   const args = [
     "active-step-set",
     "--skill",
     state.skill,
     "--run-id",
-    state.runId || "untracked",
+    state.runId,
     "--step",
     state.step,
     "--started-at",
@@ -335,25 +340,30 @@ function applyState(projectDir, pluginRoot, targetPath) {
     (!nextState || !sameTrackedStep(previousState, nextState) || Boolean(nextState.completedAt));
 
   if (shouldClosePrevious) {
-    const args = [
-      "step",
-      "--skill",
-      previousState.skill,
-      "--run-id",
-      previousState.runId || currentRunId || "untracked",
-      "--step",
-      previousState.step,
-      "--started-at",
-      previousState.startedAt || nowIso(),
-      "--ended-at",
-      nowIso(),
-      "--state-file",
-      previousState.stateFile,
-    ];
-    if (previousState.phase) {
-      args.push("--phase", previousState.phase);
+    const recoveredRunId = previousState.runId || currentRunId;
+    if (recoveredRunId) {
+      const args = [
+        "step",
+        "--skill",
+        previousState.skill,
+        "--run-id",
+        recoveredRunId,
+        "--step",
+        previousState.step,
+        "--started-at",
+        previousState.startedAt || nowIso(),
+        "--ended-at",
+        nowIso(),
+        "--state-file",
+        previousState.stateFile,
+      ];
+      if (previousState.phase) {
+        args.push("--phase", previousState.phase);
+      }
+      runPmLog(pluginRoot, projectDir, args);
     }
-    runPmLog(pluginRoot, projectDir, args);
+    // If no run_id can be recovered, the state change is orphan — skip
+    // rather than logging run_id="untracked" which breaks per-run rollups.
   }
 
   if (nextState && !nextState.completedAt) {
@@ -362,6 +372,37 @@ function applyState(projectDir, pluginRoot, targetPath) {
   }
 
   clearActiveStep(projectDir, pluginRoot, tracked.relative);
+
+  // When the state file flips to completed (explicit `Completed at` or
+  // `completed_at` frontmatter), the workflow run is genuinely done. Close
+  // the run here so it doesn't sit open until session-end and end up flagged
+  // as abandoned. Without this, even successful workflows looked abandoned.
+  if (nextState && nextState.completedAt) {
+    const recoveredRunId = nextState.runId || currentRunId;
+    if (recoveredRunId) {
+      runPmLog(pluginRoot, projectDir, [
+        "run-end",
+        "--skill",
+        nextState.skill,
+        "--run-id",
+        recoveredRunId,
+        "--status",
+        "completed",
+      ]);
+      // Clear .current-run so session-end / next analytics-log don't
+      // re-close the same run as abandoned.
+      if (recoveredRunId === currentRunId) {
+        const dir = analyticsDir(projectDir);
+        for (const name of [".current-run", ".current-skill"]) {
+          try {
+            fs.unlinkSync(path.join(dir, name));
+          } catch {
+            // File may not exist — that's fine.
+          }
+        }
+      }
+    }
+  }
 }
 
 function main() {

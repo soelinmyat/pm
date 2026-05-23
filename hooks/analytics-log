@@ -60,11 +60,14 @@ if [ -f "$CURRENT_RUN_FILE" ]; then
     PREV_SKILL=$(printf '%s' "$PREV_RUN_ID" | sed 's/-.*//')
   fi
   if [ -n "$PREV_RUN_ID" ] && [ -n "$PREV_SKILL" ]; then
-    "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close 2>/dev/null || true
+    # User started a new skill before finishing the previous run — the
+    # previous run was abandoned, not completed. Recording it as completed
+    # made 100% of runs falsely appear successful in analytics.
+    "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close --status abandoned 2>/dev/null || true
     "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
       --skill "$PREV_SKILL" \
       --run-id "$PREV_RUN_ID" \
-      --status completed 2>/dev/null || true
+      --status abandoned 2>/dev/null || true
   fi
 fi
 

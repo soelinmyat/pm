@@ -22,7 +22,7 @@ function usage(message) {
   pm-log.sh activity --skill <skill> --event <event> [--detail <detail>] [--run-id <id>] [--status <status>] [--meta-json <json>]
   pm-log.sh run-start --skill <skill> [--args <args>] [--detail <detail>] [--run-id <id>]
   pm-log.sh run-end --skill <skill> --run-id <id> [--status <status>] [--detail <detail>] [--meta-json <json>]
-  pm-log.sh step --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--status <status>] [--started-at <iso>] [--ended-at <iso>] [--duration-ms <n>] [--attempt <n>] [--actor <actor>] [--input-chars <n>] [--output-chars <n>] [--input-tokens <n>] [--output-tokens <n>] [--token-source <source>] [--tool-calls <n>] [--files-read <n>] [--files-written <n>] [--input-file <path>] [--output-file <path>] [--state-file <path>] [--meta-json <json>]
+  pm-log.sh step --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--status <status>] [--started-at <iso>] [--ended-at <iso>] [--duration-ms <n>] [--attempt <n>] [--actor <actor>] [--input-chars <n>] [--output-chars <n>] [--token-source <source>] [--input-file <path>] [--output-file <path>] [--state-file <path>] [--meta-json <json>]
   pm-log.sh active-step-set --skill <skill> --run-id <id> --step <step> [--phase <phase>] [--started-at <iso>] [--state-file <path>]
   pm-log.sh active-step-clear [--state-file <path>]
   pm-log.sh active-step-close [--ended-at <iso>] [--status <status>]`);
@@ -126,6 +126,29 @@ function readAnalyticsFlag(projectRoot) {
   } catch {
     return false;
   }
+}
+
+const STEP_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+function normalizeStepName(rawStep) {
+  if (typeof rawStep !== "string" || rawStep.length === 0) {
+    return { step: "unknown", warning: "missing step name" };
+  }
+  if (STEP_NAME_PATTERN.test(rawStep)) {
+    return { step: rawStep, warning: null };
+  }
+  const head = rawStep.split(/[\s(]/, 1)[0].toLowerCase();
+  const normalized = head.replace(/[^a-z0-9-]/g, "");
+  if (STEP_NAME_PATTERN.test(normalized)) {
+    return {
+      step: normalized,
+      warning: `step name "${rawStep}" is not kebab-case; normalized to "${normalized}". Step names must match ${STEP_NAME_PATTERN}.`,
+    };
+  }
+  return {
+    step: "unknown",
+    warning: `step name "${rawStep}" could not be normalized to a kebab-case token; logged as "unknown".`,
+  };
 }
 
 function parseMeta(jsonText) {
@@ -255,29 +278,27 @@ function buildStepRecord(options, projectRoot) {
     parseNumber(options.durationMs) ??
     (startedMs !== null && endedMs !== null ? Math.max(0, endedMs - startedMs) : null);
 
+  const { step: normalizedStep, warning: stepWarning } = normalizeStepName(options.step);
+  if (stepWarning) {
+    process.stderr.write(`[pm-log] ${stepWarning}\n`);
+  }
+
   const inputChars =
     parseNumber(options.inputChars) ?? readFileSize(options.inputFile, projectRoot);
   const outputChars =
     parseNumber(options.outputChars) ?? readFileSize(options.outputFile, projectRoot);
-  const inputTokens = parseNumber(options.inputTokens);
-  const outputTokens = parseNumber(options.outputTokens);
 
-  let tokenSource = options.tokenSource || null;
-  if (!tokenSource) {
-    if (inputTokens !== null || outputTokens !== null) {
-      tokenSource = "exact";
-    } else if (inputChars !== null || outputChars !== null) {
-      tokenSource = "estimated";
-    } else {
-      tokenSource = "unknown";
-    }
-  }
+  // tokenSource is always "estimated" or "unknown" now — we never received
+  // exact provider tokens in practice (input_tokens/output_tokens were 0%
+  // populated across 1848 production rows), so the column has been removed.
+  const tokenSource =
+    options.tokenSource || (inputChars !== null || outputChars !== null ? "estimated" : "unknown");
 
   const record = {
     run_id: options.runId,
     skill: options.skill,
     phase: options.phase || null,
-    step: options.step,
+    step: normalizedStep,
     attempt: parseNumber(options.attempt) || 1,
     actor: options.actor || "orchestrator",
     status: options.status || "completed",
@@ -286,12 +307,9 @@ function buildStepRecord(options, projectRoot) {
     duration_ms: durationMs,
     input_chars: inputChars,
     output_chars: outputChars,
-    est_input_tokens: inputTokens ?? estimateTokens(inputChars),
-    est_output_tokens: outputTokens ?? estimateTokens(outputChars),
+    est_input_tokens: estimateTokens(inputChars),
+    est_output_tokens: estimateTokens(outputChars),
     token_source: tokenSource,
-    tool_calls: parseNumber(options.toolCalls),
-    files_read: parseNumber(options.filesRead),
-    files_written: parseNumber(options.filesWritten),
     project: context.project,
     branch: context.branch,
     host_id: context.host_id,
@@ -432,12 +450,7 @@ function main() {
           actor: options.actor,
           inputChars: options["input-chars"],
           outputChars: options["output-chars"],
-          inputTokens: options["input-tokens"],
-          outputTokens: options["output-tokens"],
           tokenSource: options["token-source"],
-          toolCalls: options["tool-calls"],
-          filesRead: options["files-read"],
-          filesWritten: options["files-written"],
           inputFile: options["input-file"],
           outputFile: options["output-file"],
           stateFile: options["state-file"],
@@ -451,11 +464,15 @@ function main() {
       if (!options.skill || !options["run-id"] || !options.step) {
         usage("active-step-set requires --skill, --run-id, and --step");
       }
+      const { step: activeStep, warning: activeStepWarning } = normalizeStepName(options.step);
+      if (activeStepWarning) {
+        process.stderr.write(`[pm-log] ${activeStepWarning}\n`);
+      }
       writeActiveStep(projectRoot, {
         skill: options.skill,
         run_id: options["run-id"],
         phase: options.phase || null,
-        step: options.step,
+        step: activeStep,
         started_at: options["started-at"] || nowIso(),
         state_file: options["state-file"] || null,
       });
@@ -477,4 +494,8 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { normalizeStepName, STEP_NAME_PATTERN };
