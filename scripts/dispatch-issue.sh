@@ -115,7 +115,11 @@ trap cleanup EXIT
 #   ${RESULT_FILE}        -> absolute result path, so the agent writes where we check
 RESOLVED_PROMPT="$(mktemp)"
 prompt_body="$(cat "$PROMPT_FILE")"
+# shellcheck disable=SC2016 # Single quotes are intentional: we want the LITERAL
+# string "${CLAUDE_PLUGIN_ROOT}" as the search pattern in ${var//pat/replacement},
+# not its expansion. The replacement (right of the slash) is the expanded value.
 prompt_body="${prompt_body//'${CLAUDE_PLUGIN_ROOT}'/$CLAUDE_PLUGIN_ROOT}"
+# shellcheck disable=SC2016
 prompt_body="${prompt_body//'${RESULT_FILE}'/$RESULT_FILE}"
 printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"
 
