@@ -162,25 +162,27 @@ Bash(
 
 Codex runtime: detach via shell (`nohup ... &`, capture PID) — same `dispatch-issue.sh` call with `--runtime codex`.
 
-**Step 2 — wait via a bounded heartbeat (15-min ceiling, re-arm on tick):**
+**Step 2 — wait via a bounded heartbeat with a forced state sentinel:**
 
-The Claude Code harness does not guarantee Monitor notifications fire on long runs — `claude -p` subprocesses span hours and Monitor has been observed to silently stall. Cap each Monitor invocation at 900s so the orchestrator wakes every 15 min, checks state, and either advances or re-arms.
+The Claude Code harness does not guarantee Monitor notifications fire on long runs — `claude -p` subprocesses span hours and Monitor has been observed to silently stall. Cap each Monitor invocation at 900s. The Monitor command itself prints a `DISPATCH_STATE=` sentinel on its final stdout line — that sentinel is the orchestrator's branch instruction for the next turn.
 
 Claude runtime:
 ```text
 Monitor(
-  command: "PID_FILE=.pm/runs/issue-$N/dispatch.pid; RESULT=.pm/runs/issue-$N/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done"
+  command: "PID_FILE=.pm/runs/issue-$N/dispatch.pid; RESULT=.pm/runs/issue-$N/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done; if [ -f \"$RESULT\" ]; then echo DISPATCH_STATE=done; cat \"$RESULT\"; elif [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then echo DISPATCH_STATE=crashed; else echo DISPATCH_STATE=tick; fi"
 )
 ```
 
-Three termination clauses:
-- **Done:** `result.json` exists (happy path or dispatcher EXIT trap stub).
-- **Crashed:** dispatcher PID is dead and no result — SIGKILL bypassed the trap.
-- **Tick:** 900s elapsed — orchestrator wakes for a state check and re-arms if still running.
+Monitor's final stdout line is one of:
+- `DISPATCH_STATE=done` (followed by result.json contents) → parse status, advance on `merged`, halt on `blocked`
+- `DISPATCH_STATE=crashed` → dispatcher PID dead with no result file (SIGKILL bypassed EXIT trap); halt and escalate
+- `DISPATCH_STATE=tick` → 900s elapsed, subprocess still running; re-arm the same Monitor command
 
-After Monitor returns, the orchestrator: (a) reads `result.json` and advances on done/blocked, (b) treats dispatcher-dead-without-result as blocked, or (c) re-arms the same Monitor command on the tick branch. A 3-hour subprocess = ~12 heartbeat re-arms; each re-arm is a fast file check.
+**Critical orchestrator discipline:** after every Monitor return, the orchestrator MUST locate the `DISPATCH_STATE=` sentinel and branch on it BEFORE any other action. Re-firing Monitor without reading the sentinel — the natural failure mode if Monitor is mentally tagged as a "wait" primitive — burns 15 min per tick and learns nothing. The sentinel exists precisely because pseudocode like `if file_exists then advance else re-arm` is too easily skipped by an orchestrator under context pressure.
 
-Codex runtime / fallback: same three-clause loop in a foreground shell.
+A 3-hour subprocess produces ~12 ticks; each is a cheap state check. Bounded and predictable, vs. unbounded idle wedging on a dropped notification.
+
+Codex runtime / fallback: same command in a foreground shell.
 
 **Step 3 — read result:**
 
