@@ -128,6 +128,29 @@ function readAnalyticsFlag(projectRoot) {
   }
 }
 
+const STEP_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+function normalizeStepName(rawStep) {
+  if (typeof rawStep !== "string" || rawStep.length === 0) {
+    return { step: "unknown", warning: "missing step name" };
+  }
+  if (STEP_NAME_PATTERN.test(rawStep)) {
+    return { step: rawStep, warning: null };
+  }
+  const head = rawStep.split(/[\s(]/, 1)[0].toLowerCase();
+  const normalized = head.replace(/[^a-z0-9-]/g, "");
+  if (STEP_NAME_PATTERN.test(normalized)) {
+    return {
+      step: normalized,
+      warning: `step name "${rawStep}" is not kebab-case; normalized to "${normalized}". Step names must match ${STEP_NAME_PATTERN}.`,
+    };
+  }
+  return {
+    step: "unknown",
+    warning: `step name "${rawStep}" could not be normalized to a kebab-case token; logged as "unknown".`,
+  };
+}
+
 function parseMeta(jsonText) {
   if (!jsonText) {
     return {};
@@ -255,6 +278,11 @@ function buildStepRecord(options, projectRoot) {
     parseNumber(options.durationMs) ??
     (startedMs !== null && endedMs !== null ? Math.max(0, endedMs - startedMs) : null);
 
+  const { step: normalizedStep, warning: stepWarning } = normalizeStepName(options.step);
+  if (stepWarning) {
+    process.stderr.write(`[pm-log] ${stepWarning}\n`);
+  }
+
   const inputChars =
     parseNumber(options.inputChars) ?? readFileSize(options.inputFile, projectRoot);
   const outputChars =
@@ -277,7 +305,7 @@ function buildStepRecord(options, projectRoot) {
     run_id: options.runId,
     skill: options.skill,
     phase: options.phase || null,
-    step: options.step,
+    step: normalizedStep,
     attempt: parseNumber(options.attempt) || 1,
     actor: options.actor || "orchestrator",
     status: options.status || "completed",
@@ -451,11 +479,15 @@ function main() {
       if (!options.skill || !options["run-id"] || !options.step) {
         usage("active-step-set requires --skill, --run-id, and --step");
       }
+      const { step: activeStep, warning: activeStepWarning } = normalizeStepName(options.step);
+      if (activeStepWarning) {
+        process.stderr.write(`[pm-log] ${activeStepWarning}\n`);
+      }
       writeActiveStep(projectRoot, {
         skill: options.skill,
         run_id: options["run-id"],
         phase: options.phase || null,
-        step: options.step,
+        step: activeStep,
         started_at: options["started-at"] || nowIso(),
         state_file: options["state-file"] || null,
       });
@@ -477,4 +509,8 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { normalizeStepName, STEP_NAME_PATTERN };
