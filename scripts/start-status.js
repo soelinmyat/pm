@@ -537,11 +537,24 @@ function resolveSyncConfigured(projectDir, credentialsPath) {
     return false;
   }
 
-  if (!config || !config.projectId) {
+  if (!config) {
     return false;
   }
 
+  // An explicit `sync.enabled: false` turns off either backend.
   if (config.sync && config.sync.enabled === false) {
+    return false;
+  }
+
+  // Git backend: `/pm:sync setup` records `sync.backend: "git"` and there is
+  // no projectId/credentials — the git remote is the store. Without this branch
+  // a fully git-synced project is reported as "sync not configured".
+  if (config.sync && config.sync.backend === "git") {
+    return true;
+  }
+
+  // Server backend: requires a projectId plus a stored credentials token.
+  if (!config.projectId) {
     return false;
   }
 

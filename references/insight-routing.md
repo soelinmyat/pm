@@ -268,7 +268,7 @@ If a subagent fails (error, timeout, malformed output):
 After all rewrites (successful and failed) complete, run the validator:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, report the failure but do not block routing. Pre-existing unrelated validation failures do not block the flow.
@@ -313,7 +313,7 @@ When no matches exist and no new topic is warranted:
 After all writes, run the validator:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, report the failure and continue returning to the caller. Do not attempt auto-fix. Pre-existing unrelated validation failures do not block routing.

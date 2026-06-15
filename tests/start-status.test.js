@@ -39,6 +39,16 @@ function createProject() {
   };
 }
 
+// A date guaranteed "fresh" (within FRESH_DAYS) no matter when the suite runs.
+// Hardcoded fixture dates time-bomb once real time crosses the staleness window
+// (see kb-health-thresholds.js: FRESH_DAYS=30). Use this for fixtures whose
+// assertions depend on the content being fresh.
+function freshDateIso() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 3);
+  return d.toISOString().slice(0, 10);
+}
+
 test("buildStatus reports an uninitialized repo", () => {
   const project = createProject();
   try {
@@ -80,7 +90,7 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
         "type: insight",
         "domain: custom",
         "topic: Voice of Customer",
-        "last_updated: 2026-04-01",
+        `last_updated: ${freshDateIso()}`,
         "status: active",
         "confidence: medium",
         "sources:",
@@ -101,7 +111,7 @@ test("buildStatus recognizes a layered KB workspace without config", () => {
         "type: evidence",
         "evidence_type: research",
         "source_origin: external",
-        "created: 2026-04-01",
+        `created: ${freshDateIso()}`,
         "sources: []",
         "cited_by:",
         "  - insights/custom/voice-of-customer.md",
@@ -489,7 +499,7 @@ test("renderTextStatus includes alternative actions when available", () => {
         "type: insight",
         "domain: product",
         "topic: Checkout",
-        "last_updated: 2026-03-25",
+        `last_updated: ${freshDateIso()}`,
         "status: active",
         "confidence: medium",
         "sources: []",
@@ -553,7 +563,7 @@ test("buildStatus prefers layered KB counts when legacy directories still exist"
         "type: insight",
         "domain: business",
         "topic: Landscape",
-        "last_updated: 2026-04-02",
+        `last_updated: ${freshDateIso()}`,
         "status: active",
         "confidence: high",
         "sources: []",

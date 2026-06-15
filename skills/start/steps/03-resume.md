@@ -20,27 +20,13 @@ bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 
 This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
 
-2. Auto-push (non-blocking):
+2. Sync (handled automatically by the session hooks — no action in this step):
 
-Silently push local knowledge base changes to the server in the background. This step is fire-and-forget — it must never block the session brief or interrupt the user.
+Knowledge base sync is owned by the backend-aware session hooks, not this step:
+- `kb-pull` (SessionStart) pulls the latest `pm/` files for the active backend.
+- `kb-push` (SessionEnd) pushes local changes for the active backend when the dirty marker is set.
 
-**Pre-conditions (both must be true):**
-- `.pm/config.json` exists and contains a `projectId` field
-- `~/.pm/credentials` exists
-
-If either condition is missing, skip this step silently — produce no output.
-
-**Execution:**
-
-```bash
-nohup node ${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync.js push > /dev/null 2>&1 &
-```
-
-This runs in the background. Do not wait for it to complete. Proceed to the next step immediately.
-
-**Failure handling:**
-- If the lock file (`.pm/sync.lock`) is held by a concurrent process, `kb-sync.js` exits cleanly without error — no action needed.
-- Any sync errors are written to `sync-status.json` by the script's crash-safe wrapper (Issue #3). They do not surface to the user during `pm:start`.
+Both branch on `config.sync.backend`, so git-backend and server-backend projects are both covered. Do **not** push from this step. A previous in-skill push was hardcoded to the server backend and gated on `projectId`, so it silently skipped every git-backend user and double-pushed server users. Rely on the hooks as the single source of truth.
 
 3. Evidence detection:
 
