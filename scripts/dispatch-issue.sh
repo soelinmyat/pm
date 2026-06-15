@@ -126,18 +126,50 @@ printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"
 case "$RUNTIME" in
   claude)
     command -v claude >/dev/null 2>&1 || { echo "claude CLI not in PATH" >&2; exit 3; }
-    (
-      cd "$WORKTREE"
-      # Pin to the latest Opus. A spawned subprocess does NOT inherit the
-      # orchestrator's model selection — without --model it falls back to the
-      # config default (Sonnet), silently degrading implementation quality.
-      # The `opus` alias always resolves to the newest Opus, so this stays
-      # current without a model-ID bump.
-      claude -p \
-        --model opus \
-        --dangerously-skip-permissions \
-        < "$RESOLVED_PROMPT"
-    ) > "$LOG_FILE" 2>&1
+    # Subscription cost gate. As of 2026-06-15 a non-interactive `claude -p`
+    # run no longer draws from the normal Pro/Max subscription pool — it bills
+    # against a separate, smaller monthly "Agent SDK credit". A multi-hour epic
+    # can exhaust it, then either hard-fail or bill real API dollars. So
+    # subprocess dispatch is OPT-IN: the orchestrator sets PM_ALLOW_SUBPROCESS=1
+    # only after the user agrees to spend that credit. Unset => refuse and write
+    # a blocked result the orchestrator surfaces, rather than silently spending.
+    if [[ "${PM_ALLOW_SUBPROCESS:-0}" != "1" ]]; then
+      echo "subprocess dispatch disabled (PM_ALLOW_SUBPROCESS != 1)" >&2
+      cat > "$RESULT_FILE" <<EOF
+{
+  "status": "blocked",
+  "reason": "subprocess dispatch is off. A background 'claude -p' run draws from the separate Agent SDK credit pool on Pro/Max subscriptions (not your normal usage). Set PM_ALLOW_SUBPROCESS=1 to enable it for this run, or run on an API key / one task at a time.",
+  "log_file": "$LOG_FILE"
+}
+EOF
+    else
+      (
+        cd "$WORKTREE"
+        # Pin Opus. A spawned subprocess does NOT inherit the orchestrator's
+        # model — without --model it falls back to the config default (often
+        # Sonnet), silently degrading implementation quality.
+        # `opus` resolves to the newest Opus only on the direct Anthropic API
+        # (Opus 4.8 as of mid-2026); on Bedrock/Vertex/Foundry it pins an older
+        # Opus and on Claude-on-AWS it pins 4.7 — provider-dependent, not always
+        # newest. Opus 4.8 is also no longer top-tier (Fable 5 is), so this pin
+        # is a cost/latency choice, not "the strongest model".
+        claude -p \
+          --model opus \
+          --dangerously-skip-permissions \
+          < "$RESOLVED_PROMPT"
+      ) > "$LOG_FILE" 2>&1 || true
+      # Surface an Agent SDK credit / quota stop as a clear blocked reason
+      # instead of the opaque "exited without writing result" trap stub.
+      if [[ ! -f "$RESULT_FILE" ]] && grep -qiE 'agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|quota|rate.?limit' "$LOG_FILE" 2>/dev/null; then
+        cat > "$RESULT_FILE" <<EOF
+{
+  "status": "blocked",
+  "reason": "subprocess stopped on an Agent SDK credit / quota limit. On Pro/Max, 'claude -p' draws from a separate monthly Agent SDK credit — enable usage credits or run on an API key. See log.",
+  "log_file": "$LOG_FILE"
+}
+EOF
+      fi
+    fi
     ;;
 
   codex)

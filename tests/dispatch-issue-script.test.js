@@ -85,7 +85,11 @@ describe("dispatch-issue.sh", () => {
         ],
         {
           cwd: tmp,
-          env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+          env: {
+            ...process.env,
+            PM_ALLOW_SUBPROCESS: "1",
+            PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          },
           encoding: "utf8",
         }
       );
@@ -163,7 +167,11 @@ describe("dispatch-issue.sh", () => {
             resultFile,
           ],
           {
-            env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+            env: {
+              ...process.env,
+              PM_ALLOW_SUBPROCESS: "1",
+              PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+            },
             encoding: "utf8",
             stdio: "pipe",
           }
@@ -228,7 +236,11 @@ describe("dispatch-issue.sh", () => {
           resultFile,
         ],
         {
-          env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+          env: {
+            ...process.env,
+            PM_ALLOW_SUBPROCESS: "1",
+            PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          },
           encoding: "utf8",
         }
       );
@@ -237,6 +249,73 @@ describe("dispatch-issue.sh", () => {
       const recordedPid = fs.readFileSync(pidSnapshot, "utf8").trim();
       assert.match(recordedPid, /^\d+$/, "dispatch.pid must contain a numeric PID");
       assert.ok(!fs.existsSync(pidFile), "dispatch.pid must be removed on clean exit");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // The subscription cost gate: without PM_ALLOW_SUBPROCESS=1 the claude branch
+  // must NOT spawn `claude -p` (which now draws from the separate Agent SDK
+  // credit pool on Pro/Max). It writes a blocked result explaining the opt-in
+  // and never invokes the runtime.
+  it("refuses to dispatch and writes a blocked result when PM_ALLOW_SUBPROCESS is unset", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-gate-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      fs.mkdirSync(worktree);
+      fs.mkdirSync(binDir);
+
+      const resultFile = path.join(tmp, "result.json");
+      const invokedMarker = path.join(tmp, "claude-was-invoked");
+
+      // Stub runtime: if it ever runs it leaves a marker. The gate must keep
+      // that from happening, so the marker must NOT exist after the run.
+      const stub = [
+        "#!/usr/bin/env bash",
+        "cat > /dev/null",
+        `touch ${JSON.stringify(invokedMarker)}`,
+        `echo '{"status":"merged","issue_id":"X","pr":1,"merge_sha":"a","files_changed":0}' > ${JSON.stringify(resultFile)}`,
+      ].join("\n");
+      const stubPath = path.join(binDir, "claude");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "noop\n");
+
+      // Env deliberately WITHOUT PM_ALLOW_SUBPROCESS.
+      const env = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
+      delete env.PM_ALLOW_SUBPROCESS;
+
+      const out = execFileSync(
+        "bash",
+        [
+          scriptPath,
+          "--runtime",
+          "claude",
+          "--worktree",
+          worktree,
+          "--prompt-file",
+          promptFile,
+          "--result-file",
+          resultFile,
+        ],
+        { env, encoding: "utf8" }
+      );
+
+      assert.ok(
+        !fs.existsSync(invokedMarker),
+        "claude -p must NOT be invoked when the cost gate is off"
+      );
+      assert.match(out, /"status"\s*:\s*"blocked"/);
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.status, "blocked", "gate must write a blocked result");
+      assert.match(
+        result.reason,
+        /PM_ALLOW_SUBPROCESS/,
+        "blocked reason must explain how to opt in"
+      );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

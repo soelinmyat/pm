@@ -84,6 +84,24 @@ Skip if no task touches mobile code. Log in the state file whether Metro was sta
 
 If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
 
+#### Subprocess opt-in check (subscription cost gate)
+
+Multi-task dispatch spawns a background `claude -p` subprocess per task. As of 2026-06-15, those runs draw from a separate **Agent SDK credit** pool on Pro/Max subscriptions (not normal usage) — a multi-task epic can exhaust a Pro user's monthly credit, then either hard-fail or bill real API dollars. See `dev/references/agent-runtime.md` § "Subscription billing".
+
+Before dispatching the first task, check `PM_ALLOW_SUBPROCESS`:
+
+- If it is already `1`, proceed.
+- If unset, **STOP and ask the user once** (this is the only place dev pauses outside the approval/blocked cases in Continuous Execution):
+
+  > This epic has {N} tasks. Building them runs background Claude sessions (`claude -p`), which on Pro/Max subscriptions now draw from your separate Agent SDK credit (~$20/mo on Pro), not your normal usage. How do you want to proceed?
+  > 1. Enable for this run and build all {N} tasks.
+  > 2. Run on an API key instead (no separate pool).
+  > 3. Stop here.
+
+  Proceed only if the user chooses option 1. Then set `PM_ALLOW_SUBPROCESS=1` on each dispatch (it is already in the Bash command below). Record the user's choice in the session state file.
+
+This gate exists because the spend is silent and irreversible once incurred. Do not skip it, and do not set `PM_ALLOW_SUBPROCESS=1` without the user's explicit consent. (On an API key, where there is no separate pool, option 1 is the normal path.)
+
 #### Sequential execution
 
 For each task (Issue section) in dependency order from the RFC:
@@ -157,7 +175,7 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
    **Claude runtime:**
    ```text
    Bash(
-     command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
+     command: "PM_ALLOW_SUBPROCESS=1 bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
        --runtime claude \\
        --worktree {TASK_WORKTREE_PATH} \\
        --prompt-file {pm_state_dir}/runs/issue-{N}/prompt.txt \\
@@ -166,7 +184,7 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
      run_in_background: true
    )
    ```
-   Returns a shell ID immediately. The subprocess runs uninterrupted in user context.
+   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. `PM_ALLOW_SUBPROCESS=1` is set only because the opt-in check above passed — without it the dispatcher refuses and writes a blocked result (see the cost gate). If the user did not consent, do not dispatch.
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
@@ -263,6 +281,7 @@ After the user approves the RFC (via /rfc), the orchestrator proceeds through AL
 The rationale: by this point, the spec has been reviewed by product/design agents, the plan has been reviewed by engineering agents, and the user has explicitly approved. The plan is the contract. Execute it.
 
 **Only stop for:**
+- Subprocess cost consent (multi-task, before the first dispatch): if `PM_ALLOW_SUBPROCESS` is unset, get the user's opt-in before spending Agent SDK credit (see Subprocess opt-in check). This is the one consent gate that precedes continuous execution.
 - Test failures that can't be resolved after 3 attempts
 - QA verdict of **Blocked** (ask user for guidance, Step 07)
 - Merge conflicts (Step 08)

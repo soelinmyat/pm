@@ -168,7 +168,7 @@ When a topic already exists from `pm:research`, read and follow `${CLAUDE_PLUGIN
 After writing or updating any `{pm_dir}/` artifacts, run:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.

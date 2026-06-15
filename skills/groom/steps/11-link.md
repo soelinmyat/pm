@@ -63,7 +63,7 @@ applies_to: [quick, standard, full, agent]
 
 3. **Validate written artifacts.** Run:
    ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "${CLAUDE_PROJECT_DIR:-$PWD}/pm"
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
    ```
    If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
 
