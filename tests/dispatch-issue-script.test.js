@@ -87,7 +87,6 @@ describe("dispatch-issue.sh", () => {
           cwd: tmp,
           env: {
             ...process.env,
-            PM_ALLOW_SUBPROCESS: "1",
             PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
           },
           encoding: "utf8",
@@ -169,7 +168,6 @@ describe("dispatch-issue.sh", () => {
           {
             env: {
               ...process.env,
-              PM_ALLOW_SUBPROCESS: "1",
               PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
             },
             encoding: "utf8",
@@ -238,7 +236,6 @@ describe("dispatch-issue.sh", () => {
         {
           env: {
             ...process.env,
-            PM_ALLOW_SUBPROCESS: "1",
             PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
           },
           encoding: "utf8",
@@ -254,11 +251,66 @@ describe("dispatch-issue.sh", () => {
     }
   });
 
-  // The subscription cost gate: without PM_ALLOW_SUBPROCESS=1 the claude branch
-  // must NOT spawn `claude -p` (which now draws from the separate Agent SDK
-  // credit pool on Pro/Max). It writes a blocked result explaining the opt-in
-  // and never invokes the runtime.
-  it("refuses to dispatch and writes a blocked result when PM_ALLOW_SUBPROCESS is unset", () => {
+  it("surfaces Claude usage-limit stops as blocked results", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-limit-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      fs.mkdirSync(worktree);
+      fs.mkdirSync(binDir);
+
+      const resultFile = path.join(tmp, "result.json");
+      const logFile = path.join(tmp, "run.log");
+
+      // Stub runtime: emit a limit error and exit without writing result.json.
+      // The dispatcher should classify this before the generic trap result.
+      const stub = [
+        "#!/usr/bin/env bash",
+        "cat > /dev/null",
+        "echo 'usage limit reached' >&2",
+        "exit 1",
+      ].join("\n");
+      const stubPath = path.join(binDir, "claude");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "noop\n");
+
+      const out = execFileSync(
+        "bash",
+        [
+          scriptPath,
+          "--runtime",
+          "claude",
+          "--worktree",
+          worktree,
+          "--prompt-file",
+          promptFile,
+          "--result-file",
+          resultFile,
+          "--log-file",
+          logFile,
+        ],
+        {
+          env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+          encoding: "utf8",
+        }
+      );
+
+      assert.match(out, /"status"\s*:\s*"blocked"/);
+      const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+      assert.equal(result.status, "blocked", "limit stop must be a blocked result");
+      assert.match(result.reason, /normal subscription usage limits/);
+      assert.equal(result.log_file, logFile);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Claude paused the previously announced Agent SDK credit split, so an
+  // unset PM_ALLOW_SUBPROCESS must not block `claude -p` dispatch.
+  it("dispatches when PM_ALLOW_SUBPROCESS is unset", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-gate-"));
     try {
       const worktree = path.join(tmp, "wt");
@@ -269,8 +321,8 @@ describe("dispatch-issue.sh", () => {
       const resultFile = path.join(tmp, "result.json");
       const invokedMarker = path.join(tmp, "claude-was-invoked");
 
-      // Stub runtime: if it ever runs it leaves a marker. The gate must keep
-      // that from happening, so the marker must NOT exist after the run.
+      // Stub runtime: if dispatch works it leaves a marker and writes the
+      // merged result. PM_ALLOW_SUBPROCESS is deliberately absent.
       const stub = [
         "#!/usr/bin/env bash",
         "cat > /dev/null",
@@ -304,18 +356,10 @@ describe("dispatch-issue.sh", () => {
         { env, encoding: "utf8" }
       );
 
-      assert.ok(
-        !fs.existsSync(invokedMarker),
-        "claude -p must NOT be invoked when the cost gate is off"
-      );
-      assert.match(out, /"status"\s*:\s*"blocked"/);
+      assert.ok(fs.existsSync(invokedMarker), "claude -p must be invoked without the old gate");
+      assert.match(out, /"status"\s*:\s*"merged"/);
       const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
-      assert.equal(result.status, "blocked", "gate must write a blocked result");
-      assert.match(
-        result.reason,
-        /PM_ALLOW_SUBPROCESS/,
-        "blocked reason must explain how to opt in"
-      );
+      assert.equal(result.status, "merged", "dispatcher should return the subprocess result");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

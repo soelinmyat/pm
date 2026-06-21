@@ -111,9 +111,9 @@ Both runtimes support this via their non-interactive CLI:
 
 **Model pinning:** the `claude` subprocess pins `--model opus`. A spawned subprocess does not inherit the orchestrator's model selection — without `--model` it resolves the config default (often Sonnet), silently downgrading implementation quality. The `opus` alias tracks the latest Opus **only on the direct Anthropic API** (Opus 4.8 as of mid-2026); on Bedrock/Vertex/Foundry it pins an older Opus, and on Claude-on-AWS it pins 4.7. Opus 4.8 is also no longer the single most capable model (Fable 5 sits above it), so this pin is a deliberate cost/latency choice, not "the strongest model available."
 
-**Subscription billing — subprocess dispatch is opt-in.** As of 2026-06-15, non-interactive `claude -p` runs no longer draw from the normal Pro/Max subscription usage pool. They bill against a separate, smaller monthly "Agent SDK credit" (~$20 Pro / $100 Max 5x / $200 Max 20x, non-rolling) at standard API rates. A single multi-hour epic can exhaust that credit, after which the subprocess either hard-fails (credit refresh required) or bills real API dollars (if usage credits are enabled). On an API key there is no separate pool — the work just bills at API rates.
+**Claude subscription behavior.** Anthropic paused the previously announced 2026-06-15 Agent SDK credit split. For now, Claude Agent SDK usage, `claude -p`, and third-party Agent SDK app usage still draw from the user's normal Claude subscription usage limits; the separate monthly Agent SDK credit is not active. On an API key, pay-as-you-go billing continues as before.
 
-Because of this, **subprocess dispatch must be explicitly enabled** via `PM_ALLOW_SUBPROCESS=1` in the environment. When it is unset, `dispatch-issue.sh` writes a `blocked` result explaining the cost and does **not** spawn the subprocess — the orchestrator surfaces this so the user can opt in for the session, switch to an API key, or run the work one task at a time. The dispatcher also detects credit/quota rejections in the subprocess log and emits a clear `blocked` reason instead of an opaque crash. The orchestrator must obtain the user's consent before exporting `PM_ALLOW_SUBPROCESS=1` for the dispatch (see `dev/steps/05-implementation.md` § Subprocess opt-in check).
+Because the separate credit is paused, subprocess dispatch is **not** gated by `PM_ALLOW_SUBPROCESS`. `dispatch-issue.sh` starts the Claude subprocess directly. The dispatcher still detects normal usage-limit, usage-credit, quota, and rate-limit rejections in the subprocess log and emits a clear `blocked` result instead of an opaque crash.
 
 The orchestrator dispatches via `${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh`, which abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
 
@@ -165,10 +165,10 @@ Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude'
 
 **Step 1 — background dispatch:**
 
-Claude runtime (`PM_ALLOW_SUBPROCESS=1` set only after the opt-in check passed — see below):
+Claude runtime:
 ```text
 Bash(
-  command: "PM_ALLOW_SUBPROCESS=1 bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
+  command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
     --runtime claude \\
     --worktree $WORKTREE_PATH \\
     --prompt-file .pm/runs/issue-$N/prompt.txt \\
@@ -277,9 +277,9 @@ Own everything from impl through merged PR. Do NOT exit until merged or blocked.
 Before exiting, write your result JSON to ${RESULT_FILE} (schema in agent-runtime.md).
 EOF
 
-# Dispatch (orchestrator). PM_ALLOW_SUBPROCESS=1 only after the user opts in
-# (subprocess draws from the separate Agent SDK credit on Pro/Max).
-PM_ALLOW_SUBPROCESS=1 bash \${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \
+# Dispatch (orchestrator). Claude paused the separate Agent SDK credit split,
+# so `claude -p` currently draws from normal subscription usage limits.
+bash \${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \
   --runtime claude \
   --worktree .worktrees/qr-issue-1 \
   --prompt-file .pm/runs/issue-1/prompt.txt \
