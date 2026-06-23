@@ -978,7 +978,7 @@ test("real pm/ directory passes validation", (t) => {
 // PM-170 Issue 3: Plugin registration — commands, agents, stale references
 // ---------------------------------------------------------------------------
 
-test("PM-170: plugin.config.json has expected commands (no merge, has features, sync, note, ideate, rfc, simplify, list, review, task, bug)", () => {
+test("PM-170: plugin.config.json has expected commands (no merge, has loop, features, sync, note, ideate, rfc, simplify, list, review, task, bug)", () => {
   const configPath = path.join(__dirname, "..", "plugin.config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
@@ -990,6 +990,7 @@ test("PM-170: plugin.config.json has expected commands (no merge, has features, 
     "ideate",
     "ingest",
     "list",
+    "loop",
     "note",
     "refresh",
     "research",
@@ -1016,6 +1017,7 @@ test("PM-170: plugin.config.json has expected commands (no merge, has features, 
   assert.ok(config.commands.includes("sync"), "sync command must be present");
   assert.ok(config.commands.includes("note"), "note command must be present");
   assert.ok(config.commands.includes("list"), "list command must be present");
+  assert.ok(config.commands.includes("loop"), "loop command must be present");
   assert.ok(config.commands.includes("review"), "review command must be present");
   assert.ok(config.commands.includes("task"), "task command must be present");
   assert.ok(config.commands.includes("bug"), "bug command must be present");
@@ -1359,6 +1361,49 @@ test("PM-199: labels as non-empty array passes validation", (t) => {
   t.after(cleanup);
   const result = runValidate(pmDir);
   assert.equal(result.ok, true, `valid labels should pass: ${JSON.stringify(result.details)}`);
+});
+
+test("PM Loop: implementation approval requires approver and approval date", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/approved-missing-audit.md": makeBacklogItem({
+      implementation_approved: "true",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "approved_by"));
+  assert.ok(result.details.some((d) => d.field === "approved_at"));
+});
+
+test("PM Loop: implementation approval with approver and approval date passes", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/approved.md": makeBacklogItem({
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test("PM Loop: invalid implementation approval fields are rejected", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-approved.md": makeBacklogItem({
+      implementation_approved: "maybe",
+      approved_at: "June 23",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "implementation_approved"));
+  assert.ok(result.details.some((d) => d.field === "approved_at"));
 });
 
 test("PM-199: empty labels array produces error", (t) => {

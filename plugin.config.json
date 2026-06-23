@@ -2,7 +2,7 @@
   "name": "pm",
   "displayName": "PM",
   "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "author": {
     "name": "Soe Lin Myat",
     "url": "https://github.com/soelinmyat"
@@ -31,6 +31,7 @@
     "ideate",
     "ingest",
     "list",
+    "loop",
     "note",
     "refresh",
     "research",
@@ -57,6 +58,7 @@
         "think",
         "ingest",
         "list",
+        "loop",
         "note",
         "refresh",
         "features",

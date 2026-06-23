@@ -181,6 +181,53 @@ function validateArrayField(relativeFile, field, value, errors) {
   return true;
 }
 
+function parseBooleanFlag(value) {
+  if (value === undefined || value === null) return null;
+  if (value === true || value === false) return value;
+  if (typeof value !== "string") return "invalid";
+
+  const normalized = value.trim().toLowerCase();
+  if (["true", "yes", "y", "1"].includes(normalized)) return true;
+  if (["false", "no", "n", "0"].includes(normalized)) return false;
+  return "invalid";
+}
+
+function validateImplementationApproval(rel, data, errors) {
+  const flag = parseBooleanFlag(data.implementation_approved);
+  if (flag === "invalid") {
+    pushIssue(
+      errors,
+      rel,
+      "implementation_approved",
+      "implementation_approved must be a boolean-like true/false value"
+    );
+  }
+
+  if (data.approved_at && !isIsoDate(data.approved_at)) {
+    pushIssue(
+      errors,
+      rel,
+      "approved_at",
+      `invalid date format "${data.approved_at}" — expected YYYY-MM-DD`
+    );
+  }
+
+  if (flag !== true) return;
+
+  if (!data.approved_by || !String(data.approved_by).trim()) {
+    pushIssue(
+      errors,
+      rel,
+      "approved_by",
+      'implementation_approved: true requires non-empty "approved_by"'
+    );
+  }
+
+  if (!data.approved_at) {
+    pushIssue(errors, rel, "approved_at", 'implementation_approved: true requires "approved_at"');
+  }
+}
+
 function validateBacklogItem(filePath, data, errors, warnings) {
   const rel = path.basename(filePath);
 
@@ -226,6 +273,7 @@ function validateBacklogItem(filePath, data, errors, warnings) {
   if (data.kind !== undefined && data.kind !== null) {
     validateEnum(rel, "kind", data.kind, VALID_BACKLOG_KINDS, errors);
   }
+  validateImplementationApproval(rel, data, errors);
 
   for (const field of ["created", "updated"]) {
     if (data[field] && !isIsoDate(data[field])) {
@@ -1182,6 +1230,7 @@ function main() {
 module.exports = {
   validate,
   validateConfig,
+  parseBooleanFlag,
   resolveKind,
   walkMarkdownFiles,
   // Exported for drift-detection tests
