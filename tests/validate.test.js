@@ -1363,6 +1363,49 @@ test("PM-199: labels as non-empty array passes validation", (t) => {
   assert.equal(result.ok, true, `valid labels should pass: ${JSON.stringify(result.details)}`);
 });
 
+test("PM Loop: implementation approval requires approver and approval date", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/approved-missing-audit.md": makeBacklogItem({
+      implementation_approved: "true",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "approved_by"));
+  assert.ok(result.details.some((d) => d.field === "approved_at"));
+});
+
+test("PM Loop: implementation approval with approver and approval date passes", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/approved.md": makeBacklogItem({
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true, JSON.stringify(result.details));
+});
+
+test("PM Loop: invalid implementation approval fields are rejected", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/bad-approved.md": makeBacklogItem({
+      implementation_approved: "maybe",
+      approved_at: "June 23",
+    }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, false);
+  assert.ok(result.details.some((d) => d.field === "implementation_approved"));
+  assert.ok(result.details.some((d) => d.field === "approved_at"));
+});
+
 test("PM-199: empty labels array produces error", (t) => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/empty-labels.md": makeBacklogItem({ labels: [] }),

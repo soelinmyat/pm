@@ -56,6 +56,8 @@ test("loop board classifies backlog cards by durable git-backed fields", (t) => 
       kind: "task",
       status: "planned",
       implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
       priority: "high",
       updated: "2026-06-22",
     }) + "body"
@@ -116,6 +118,8 @@ test("loop board treats pm/loop leases as durable state and .pm sessions as loca
       kind: "task",
       status: "planned",
       implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
       updated: "2026-06-22",
     }) + "body"
   );
@@ -156,6 +160,8 @@ test("loop board overlays git-synced session snapshots without reading .pm for e
       kind: "task",
       status: "planned",
       implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
       updated: "2026-06-22",
     }) + "body"
   );
@@ -171,4 +177,127 @@ test("loop board overlays git-synced session snapshots without reading .pm for e
   assert.deepEqual(ids(board.columns.reviewing), ["PM-020"]);
   assert.equal(board.columns.reviewing[0].snapshot.stage, "review");
   assert.deepEqual(board.localOnly, []);
+});
+
+test("loop board maps rfc snapshots to needs_rfc and sorts critical priority first", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/high-task.md",
+    fm({
+      type: "backlog",
+      id: "PM-030",
+      title: "High task",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+      priority: "high",
+      updated: "2026-06-22",
+    }) + "body"
+  );
+  project.write(
+    "pm/backlog/critical-task.md",
+    fm({
+      type: "backlog",
+      id: "PM-031",
+      title: "Critical task",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+      priority: "critical",
+      updated: "2026-06-21",
+    }) + "body"
+  );
+  writeJsonAtomic(path.join(project.pmDir, "loop", "session-snapshots", "pm-032.json"), {
+    card_id: "PM-032",
+    title: "RFC in progress",
+    kind: "proposal",
+    stage: "rfc",
+    updated_at: "2026-06-22T23:00:00Z",
+  });
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.deepEqual(ids(board.columns.ready_for_dev), ["PM-031", "PM-030"]);
+  assert.deepEqual(ids(board.columns.needs_rfc), ["PM-032"]);
+});
+
+test("loop board requires approval audit fields before ready_for_dev", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/approved-without-audit.md",
+    fm({
+      type: "backlog",
+      id: "PM-040",
+      title: "Approved without audit",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      updated: "2026-06-22",
+    }) + "body"
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.deepEqual(ids(board.columns.ready_for_dev), []);
+  assert.deepEqual(ids(board.columns.needs_human), ["PM-040"]);
+});
+
+test("loop board skips backlog index and blocks invalid card files", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write("pm/backlog/index.md", "# Backlog index\n");
+  project.write("pm/backlog/no-frontmatter.md", "# Missing frontmatter\n");
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.equal(
+    board.cards.some((card) => card.slug === "index"),
+    false
+  );
+  assert.deepEqual(ids(board.columns.needs_human), ["no-frontmatter"]);
+  assert.match(board.columns.needs_human[0].blocker, /missing backlog frontmatter/);
+});
+
+test("loop board blocks all cards with duplicate ids after overlays", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  for (const slug of ["dup-a", "dup-b"]) {
+    project.write(
+      `pm/backlog/${slug}.md`,
+      fm({
+        type: "backlog",
+        id: "PM-050",
+        title: slug,
+        kind: "task",
+        status: "planned",
+        implementation_approved: "true",
+        approved_by: "soelinmyat",
+        approved_at: "2026-06-23",
+        updated: "2026-06-22",
+      }) + "body"
+    );
+  }
+  writeJsonAtomic(path.join(project.pmDir, "loop", "session-snapshots", "pm-050.json"), {
+    card_id: "PM-050",
+    title: "Duplicate overlay",
+    stage: "review",
+    updated_at: "2026-06-22T23:00:00Z",
+  });
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.deepEqual(ids(board.columns.ready_for_dev), []);
+  assert.deepEqual(ids(board.columns.reviewing), []);
+  assert.equal(board.columns.blocked.length, 2);
+  assert.ok(board.columns.blocked.every((card) => /duplicate card id/.test(card.blocker)));
 });

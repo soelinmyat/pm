@@ -5,8 +5,9 @@ const fs = require("fs");
 const path = require("path");
 
 const { parseFrontmatter } = require("./kb-frontmatter.js");
+const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
-const { resolveKind } = require("./validate.js");
+const { parseBooleanFlag, resolveKind } = require("./validate.js");
 const { listDevSessions, listMarkdownFiles, safeRead, safeStat } = require("./lib/session-scan.js");
 const { listLeases } = require("./loop-git.js");
 
@@ -46,6 +47,19 @@ function cardIdFor(filePath, data) {
   return data.id || data.linear_id || path.basename(filePath, ".md");
 }
 
+function isIsoDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function hasImplementationApproval(data) {
+  return (
+    parseBooleanFlag(data.implementation_approved) === true &&
+    typeof data.approved_by === "string" &&
+    data.approved_by.trim() !== "" &&
+    isIsoDate(data.approved_at)
+  );
+}
+
 function relPath(baseDir, filePath) {
   const rel = path.relative(baseDir, filePath);
   return rel && !rel.startsWith("..") ? rel : filePath;
@@ -69,7 +83,8 @@ function stageToColumn(stage) {
   ) {
     return "implementing";
   }
-  if (["research", "groom", "grooming", "rfc"].includes(normalized)) return "needs_research";
+  if (normalized === "rfc") return "needs_rfc";
+  if (["research", "groom", "grooming"].includes(normalized)) return "needs_research";
   return "implementing";
 }
 
@@ -119,39 +134,63 @@ function classifyBacklogCard(card) {
 
 function readBacklogCards(pmDir, sourceDir) {
   const backlogDir = path.join(pmDir, "backlog");
-  return listMarkdownFiles(backlogDir).map((filePath) => {
-    const text = safeRead(filePath);
-    const { data, hasFrontmatter } = parseFrontmatter(text);
-    const id = cardIdFor(filePath, data);
-    const kind = resolveKind(data);
-    const implementationApproved = asBool(
-      data.implementation_approved ||
-        data.implementationApproved ||
-        data.approved_for_implementation
-    );
-    const card = {
-      id,
-      slug: path.basename(filePath, ".md"),
-      title: data.title || path.basename(filePath, ".md"),
-      kind,
-      status: data.status || "",
-      priority: data.priority || "",
-      rfc: data.rfc || "",
-      branch: data.branch || "",
-      implementationApproved,
-      updatedEpoch: updatedEpoch(filePath, data),
-      sourcePath: filePath,
-      relativePath: relPath(sourceDir, filePath),
-      hasFrontmatter,
-      origin: "backlog",
-    };
-    const classification = classifyBacklogCard(card);
-    return {
-      ...card,
-      ...classification,
-      command: commandFor(card, classification.column),
-    };
-  });
+  return listMarkdownFiles(backlogDir)
+    .filter((filePath) => path.basename(filePath) !== "index.md")
+    .map((filePath) => {
+      const text = safeRead(filePath);
+      const { data, hasFrontmatter } = parseFrontmatter(text);
+      const id = cardIdFor(filePath, data);
+      const kind = resolveKind(data);
+      const implementationApproved = hasImplementationApproval(data);
+      const card = {
+        id,
+        slug: path.basename(filePath, ".md"),
+        title: data.title || path.basename(filePath, ".md"),
+        kind,
+        status: data.status || "",
+        priority: data.priority || "",
+        rfc: data.rfc || "",
+        branch: data.branch || "",
+        implementationApproved,
+        updatedEpoch: updatedEpoch(filePath, data),
+        sourcePath: filePath,
+        relativePath: relPath(sourceDir, filePath),
+        hasFrontmatter,
+        origin: "backlog",
+      };
+      const invalidReasons = [];
+      if (!hasFrontmatter) invalidReasons.push("missing backlog frontmatter");
+      if (!data.id) invalidReasons.push("missing id");
+      if (!data.title) invalidReasons.push("missing title");
+      if (!data.status) invalidReasons.push("missing status");
+      const classification =
+        invalidReasons.length > 0
+          ? {
+              column: "needs_human",
+              blocker: invalidReasons.join("; "),
+            }
+          : classifyBacklogCard(card);
+      return {
+        ...card,
+        ...classification,
+        command: commandFor(card, classification.column),
+      };
+    });
+}
+
+function blockDuplicateIds(cards) {
+  const counts = new Map();
+  for (const card of cards) {
+    counts.set(card.id, (counts.get(card.id) || 0) + 1);
+  }
+
+  for (const card of cards) {
+    if (counts.get(card.id) > 1) {
+      card.column = "blocked";
+      card.blocker = `duplicate card id "${card.id}"`;
+      card.command = "";
+    }
+  }
 }
 
 function commandFor(card, column) {
@@ -199,9 +238,7 @@ function readSnapshotCards(pmDir, existingById, sourceDir) {
       priority: snapshot.priority || "",
       rfc: snapshot.rfc || "",
       branch: snapshot.branch || "",
-      implementationApproved: asBool(
-        snapshot.implementation_approved || snapshot.implementationApproved
-      ),
+      implementationApproved: hasImplementationApproval(snapshot),
       updatedEpoch:
         Math.floor(Date.parse(snapshot.updated_at || snapshot.updatedAt || "") / 1000) || 0,
       sourcePath: filePath,
@@ -249,7 +286,7 @@ function collectLocalOnly(sourceDir) {
 
 function sortCards(cards) {
   return cards.sort((a, b) => {
-    const priority = { high: 3, medium: 2, low: 1 };
+    const priority = { critical: 4, high: 3, medium: 2, low: 1 };
     const ap = priority[String(a.priority || "").toLowerCase()] || 0;
     const bp = priority[String(b.priority || "").toLowerCase()] || 0;
     if (bp !== ap) return bp - ap;
@@ -267,6 +304,7 @@ function buildLoopBoard(projectDir, options = {}) {
   const byId = new Map(cards.map((card) => [card.id, card]));
   cards.push(...readSnapshotCards(pmDir, byId, sourceDir));
   const leases = attachLeases(cards, pmDir, now);
+  blockDuplicateIds(cards);
 
   const columns = emptyColumns();
   for (const card of sortCards(cards)) {
@@ -316,26 +354,24 @@ function formatSummary(board) {
 }
 
 function parseArgs(argv) {
-  const args = {
+  const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
     format: "summary",
     includeLocal: false,
   };
-
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index];
-    if (arg === "--project-dir" && argv[index + 1]) {
-      args.projectDir = path.resolve(argv[++index]);
-    } else if (arg === "--pm-dir" && argv[index + 1]) {
-      args.pmDir = path.resolve(argv[++index]);
-    } else if (arg === "--format" && argv[index + 1]) {
-      args.format = argv[++index];
-    } else if (arg === "--include-local") {
-      args.includeLocal = true;
-    }
-  }
-
+  const { args } = parseCliArgs(
+    argv,
+    {
+      "--project-dir": { key: "projectDir", type: "string" },
+      "--pm-dir": { key: "pmDir", type: "string" },
+      "--format": { key: "format", type: "string" },
+      "--include-local": { key: "includeLocal", type: "boolean" },
+    },
+    defaults
+  );
+  args.projectDir = path.resolve(args.projectDir);
+  if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
   return args;
 }
 
@@ -361,6 +397,7 @@ module.exports = {
   COLUMN_ORDER,
   asBool,
   buildLoopBoard,
+  hasImplementationApproval,
   classifyBacklogCard,
   formatSummary,
   normalizeStatus,

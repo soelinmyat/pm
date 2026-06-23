@@ -6,6 +6,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
+const { parseCliArgs } = require("./loop-args.js");
 const { DEFAULT_LOOP_CONFIG, loadLoopConfig } = require("./loop-config.js");
 
 const GIT_ENV_KEYS_TO_CLEAR = [
@@ -35,10 +36,38 @@ function runGit(args, cwd, options = {}) {
   }).trim();
 }
 
+function realpathForGit(targetPath) {
+  const parts = [];
+  let cursor = path.resolve(targetPath);
+  while (!fs.existsSync(cursor)) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    parts.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+
+  let resolved = fs.existsSync(cursor) ? fs.realpathSync(cursor) : path.resolve(cursor);
+  for (const part of parts) {
+    resolved = path.join(resolved, part);
+  }
+  return resolved;
+}
+
+function gitRelativePath(gitRoot, targetPath) {
+  const root = realpathForGit(gitRoot);
+  const target = realpathForGit(targetPath);
+  const rel = path.relative(root, target);
+  if (!rel || rel === "") return ".";
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(`path ${targetPath} is outside git root ${gitRoot}`);
+  }
+  return rel;
+}
+
 function findGitRoot(startDir) {
   try {
     const out = runGit(["rev-parse", "--show-toplevel"], startDir);
-    return out || null;
+    return out ? realpathForGit(out) : null;
   } catch {
     return null;
   }
@@ -167,7 +196,7 @@ function buildLease(input, config = DEFAULT_LOOP_CONFIG, options = {}) {
 }
 
 function canClaimLease(pmDir, input, options = {}) {
-  const existing = activeLeaseFor(pmDir, input.cardId || input.card_id, input.stage, options);
+  const existing = activeLeaseFor(pmDir, input.cardId || input.card_id, null, options);
   if (existing) {
     return {
       ok: false,
@@ -223,7 +252,7 @@ function ensureGitSyncReady(gitRoot, pmDir) {
     throw new Error("git sync required for loop mutation, but the branch has no upstream");
   }
 
-  const loopRel = path.relative(gitRoot, path.join(pmDir, "loop")) || ".";
+  const loopRel = gitRelativePath(gitRoot, path.join(pmDir, "loop"));
   const status = runGit(["status", "--porcelain", "--", loopRel], gitRoot);
   if (status) {
     throw new Error(
@@ -235,6 +264,22 @@ function ensureGitSyncReady(gitRoot, pmDir) {
 function stagedNames(gitRoot, relPath) {
   const out = runGit(["diff", "--cached", "--name-only", "--", relPath], gitRoot);
   return out ? out.split(/\r?\n/).filter(Boolean) : [];
+}
+
+function cleanupFailedLeaseCommit(gitRoot, relPath, commitHash) {
+  const head = runGit(["rev-parse", "HEAD"], gitRoot);
+  if (head !== commitHash) {
+    return {
+      cleaned: false,
+      cleanup_error: `HEAD moved after lease commit (${head}); expected ${commitHash}`,
+    };
+  }
+
+  runGit(["reset", "--soft", "HEAD~1"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
+  runGit(["restore", "--staged", "--worktree", "--", relPath], gitRoot, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return { cleaned: true };
 }
 
 function claimLease(pmDir, input, config = DEFAULT_LOOP_CONFIG, options = {}) {
@@ -252,7 +297,7 @@ function claimLease(pmDir, input, config = DEFAULT_LOOP_CONFIG, options = {}) {
   const prepared = prepareLease(pmDir, input, config, options);
   if (!prepared.ok) return prepared;
 
-  const relPath = path.relative(gitRoot, prepared.filePath);
+  const relPath = gitRelativePath(gitRoot, prepared.filePath);
   runGit(["add", "--", relPath], gitRoot);
 
   const staged = stagedNames(gitRoot, relPath);
@@ -262,21 +307,54 @@ function claimLease(pmDir, input, config = DEFAULT_LOOP_CONFIG, options = {}) {
 
   const msg = `pm loop lease ${prepared.lease.card_id} ${prepared.lease.stage}`;
   runGit(["commit", "-m", msg, "--", relPath], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
+  const commitHash = runGit(["rev-parse", "HEAD"], gitRoot);
 
-  if (!options.skipPush) {
+  if (options.skipPush) {
+    const cleanup = cleanupFailedLeaseCommit(gitRoot, relPath, commitHash);
+    return {
+      ok: false,
+      reason: "push-skipped",
+      lease: prepared.lease,
+      filePath: prepared.filePath,
+      gitRoot,
+      committed: false,
+      commitHash,
+      pushed: false,
+      ...cleanup,
+    };
+  }
+
+  try {
     runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (err) {
+    const cleanup = cleanupFailedLeaseCommit(gitRoot, relPath, commitHash);
+    return {
+      ok: false,
+      reason: "push-failed",
+      error: err.stderr || err.message,
+      lease: prepared.lease,
+      filePath: prepared.filePath,
+      gitRoot,
+      committed: false,
+      commitHash,
+      pushed: false,
+      ...cleanup,
+    };
   }
 
   return {
     ...prepared,
     gitRoot,
     committed: true,
+    commitHash,
     pushed: !options.skipPush,
   };
 }
 
 function parseArgs(argv) {
-  const args = {
+  const action = argv[0] && !argv[0].startsWith("--") ? argv[0] : "list";
+  const optionArgv = action === argv[0] ? argv.slice(1) : argv;
+  const defaults = {
     action: argv[0] || "list",
     pmDir: path.join(process.cwd(), "pm"),
     cardId: "",
@@ -288,30 +366,24 @@ function parseArgs(argv) {
     skipPush: false,
     allowUnsynced: false,
   };
-
-  for (let index = 1; index < argv.length; index++) {
-    const arg = argv[index];
-    if (arg === "--pm-dir" && argv[index + 1]) {
-      args.pmDir = path.resolve(argv[++index]);
-    } else if (arg === "--card-id" && argv[index + 1]) {
-      args.cardId = argv[++index];
-    } else if (arg === "--stage" && argv[index + 1]) {
-      args.stage = argv[++index];
-    } else if (arg === "--holder" && argv[index + 1]) {
-      args.holder = argv[++index];
-    } else if (arg === "--source-path" && argv[index + 1]) {
-      args.sourcePath = argv[++index];
-    } else if (arg === "--dry-run") {
-      args.dryRun = true;
-    } else if (arg === "--skip-pull") {
-      args.skipPull = true;
-    } else if (arg === "--skip-push") {
-      args.skipPush = true;
-    } else if (arg === "--allow-unsynced") {
-      args.allowUnsynced = true;
-    }
-  }
-
+  defaults.action = action;
+  const { args, positionals } = parseCliArgs(
+    optionArgv,
+    {
+      "--pm-dir": { key: "pmDir", type: "string" },
+      "--card-id": { key: "cardId", type: "string" },
+      "--stage": { key: "stage", type: "string" },
+      "--holder": { key: "holder", type: "string" },
+      "--source-path": { key: "sourcePath", type: "string" },
+      "--dry-run": { key: "dryRun", type: "boolean" },
+      "--skip-pull": { key: "skipPull", type: "boolean" },
+      "--skip-push": { key: "skipPush", type: "boolean" },
+      "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
+    },
+    defaults
+  );
+  if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
+  args.pmDir = path.resolve(args.pmDir);
   return args;
 }
 
@@ -370,8 +442,10 @@ module.exports = {
   canClaimLease,
   claimLease,
   cleanGitEnv,
+  cleanupFailedLeaseCommit,
   ensureGitSyncReady,
   findGitRoot,
+  gitRelativePath,
   isLeaseExpired,
   leaseFileName,
   leasePath,

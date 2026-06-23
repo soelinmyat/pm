@@ -80,6 +80,29 @@ test("prepareLease writes one active lease and blocks duplicate claims", (t) => 
   assert.equal(second.lease.holder, "machine-a");
 });
 
+test("prepareLease blocks a second active lease for the same card across stages", (t) => {
+  const { pmDir, cleanup } = makePmDir();
+  t.after(cleanup);
+
+  const first = prepareLease(
+    pmDir,
+    { cardId: "PM-001", stage: "dev", holder: "machine-a" },
+    CONFIG,
+    { now: new Date("2026-06-23T00:00:00Z") }
+  );
+  assert.equal(first.ok, true);
+
+  const second = prepareLease(
+    pmDir,
+    { cardId: "PM-001", stage: "review", holder: "machine-b" },
+    CONFIG,
+    { now: new Date("2026-06-23T00:10:00Z") }
+  );
+  assert.equal(second.ok, false);
+  assert.equal(second.reason, "active-lease");
+  assert.equal(second.lease.stage, "dev");
+});
+
 test("expired leases are not considered active", () => {
   assert.equal(
     isLeaseExpired(

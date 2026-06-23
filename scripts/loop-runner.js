@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const { buildLoopBoard } = require("./loop-board.js");
+const { parseCliArgs } = require("./loop-args.js");
 const { loadLoopConfig } = require("./loop-config.js");
-const { claimLease } = require("./loop-git.js");
+const { claimLease, ensureGitSyncReady, findGitRoot, runGit } = require("./loop-git.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const MODE_COLUMNS = {
@@ -78,6 +78,21 @@ function selectNextCard(board, config, options = {}) {
         continue;
       }
 
+      const implementingLimit = Number(config.wip_limits && config.wip_limits.implementing);
+      if (
+        column === "ready_for_dev" &&
+        Number.isFinite(implementingLimit) &&
+        implementingLimit >= 0 &&
+        (board.columns.implementing || []).length >= implementingLimit
+      ) {
+        skipped.push({
+          id: card.id,
+          column,
+          reason: "wip limit implementing reached",
+        });
+        continue;
+      }
+
       if (column === "needs_rfc" && config.autonomy.draft_rfc !== true) {
         skipped.push({
           id: card.id,
@@ -115,11 +130,15 @@ function selectNextCard(board, config, options = {}) {
   };
 }
 
-function appendEvent(pmDir, event) {
-  const runId = event.run_id || event.runId || new Date().toISOString().replace(/[^0-9]/g, "");
-  const dir = path.join(pmDir, "loop", "events");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.appendFileSync(path.join(dir, `${runId}.jsonl`), `${JSON.stringify(event)}\n`);
+function syncBeforeMutation(pmDir, config, options = {}) {
+  if (options.skipPull) return false;
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) throw new Error(`Cannot find git root for ${pmDir}`);
+  if (config.sync_required_for_mutation !== false && !options.allowUnsynced) {
+    ensureGitSyncReady(gitRoot, pmDir);
+  }
+  runGit(["pull", "--rebase"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
+  return true;
 }
 
 function runLoop(projectDir, options = {}) {
@@ -128,6 +147,10 @@ function runLoop(projectDir, options = {}) {
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
   const config = options.config || loadLoopConfig(paths.pmDir);
+  const didPrePull =
+    options.dryRun === false && options.claimOnly
+      ? syncBeforeMutation(paths.pmDir, config, options)
+      : false;
   const board = options.board || buildLoopBoard(projectDir, { pmDir: paths.pmDir, now });
   const selected = selectNextCard(board, config, { mode: options.mode || "default" });
   const runId = options.runId || `loop-${now.toISOString().replace(/[^0-9]/g, "")}`;
@@ -177,7 +200,7 @@ function runLoop(projectDir, options = {}) {
     },
     config,
     {
-      skipPull: options.skipPull,
+      skipPull: didPrePull || options.skipPull,
       skipPush: options.skipPush,
       allowUnsynced: options.allowUnsynced,
     }
@@ -192,15 +215,14 @@ function runLoop(projectDir, options = {}) {
     };
   }
 
-  const event = {
-    run_id: runId,
-    type: "lease_claimed",
-    ts: now.toISOString(),
-    card_id: selected.card.id,
-    stage: selected.stage,
-    lease_path: claim.filePath,
-  };
-  appendEvent(paths.pmDir, event);
+  if (claim.pushed !== true) {
+    return {
+      ...plan,
+      status: "blocked",
+      reason: claim.reason || "lease was not pushed; no durable claim",
+      lease: claim.lease,
+    };
+  }
 
   return {
     ...plan,
@@ -212,7 +234,7 @@ function runLoop(projectDir, options = {}) {
 }
 
 function parseArgs(argv) {
-  const args = {
+  const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
     mode: "default",
@@ -223,32 +245,25 @@ function parseArgs(argv) {
     allowUnsynced: false,
     format: "json",
   };
-
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index];
-    if (arg === "--project-dir" && argv[index + 1]) {
-      args.projectDir = path.resolve(argv[++index]);
-    } else if (arg === "--pm-dir" && argv[index + 1]) {
-      args.pmDir = path.resolve(argv[++index]);
-    } else if (arg === "--mode" && argv[index + 1]) {
-      args.mode = argv[++index];
-    } else if (arg === "--dry-run") {
-      args.dryRun = true;
-    } else if (arg === "--no-dry-run") {
-      args.dryRun = false;
-    } else if (arg === "--claim-only") {
-      args.claimOnly = true;
-    } else if (arg === "--skip-pull") {
-      args.skipPull = true;
-    } else if (arg === "--skip-push") {
-      args.skipPush = true;
-    } else if (arg === "--allow-unsynced") {
-      args.allowUnsynced = true;
-    } else if (arg === "--format" && argv[index + 1]) {
-      args.format = argv[++index];
-    }
-  }
-
+  const { args, positionals } = parseCliArgs(
+    argv,
+    {
+      "--project-dir": { key: "projectDir", type: "string" },
+      "--pm-dir": { key: "pmDir", type: "string" },
+      "--mode": { key: "mode", type: "string" },
+      "--dry-run": { key: "dryRun", type: "boolean", value: true },
+      "--no-dry-run": { key: "dryRun", type: "boolean", value: false },
+      "--claim-only": { key: "claimOnly", type: "boolean" },
+      "--skip-pull": { key: "skipPull", type: "boolean" },
+      "--skip-push": { key: "skipPush", type: "boolean" },
+      "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
+      "--format": { key: "format", type: "string" },
+    },
+    defaults
+  );
+  if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
+  args.projectDir = path.resolve(args.projectDir);
+  if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
   return args;
 }
 
@@ -266,10 +281,10 @@ function main() {
 
 module.exports = {
   MODE_COLUMNS,
-  appendEvent,
   runLoop,
   selectNextCard,
   stageForColumn,
+  syncBeforeMutation,
 };
 
 if (require.main === module) {

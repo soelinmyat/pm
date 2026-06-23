@@ -4,6 +4,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const { parseCliArgs } = require("./loop-args.js");
+
 const DEFAULT_LOOP_CONFIG = Object.freeze({
   version: 1,
   enabled: true,
@@ -71,7 +73,19 @@ function loadLoopConfig(pmDir) {
     throw new Error(`Invalid loop config JSON at ${filePath}: ${err.message}`);
   }
 
-  return deepMerge(DEFAULT_LOOP_CONFIG, userConfig);
+  return normalizeLoopConfig(deepMerge(DEFAULT_LOOP_CONFIG, userConfig));
+}
+
+function normalizeLoopConfig(config) {
+  const normalized = deepMerge(DEFAULT_LOOP_CONFIG, config);
+  for (const key of ["wip_limits", "autonomy", "budgets"]) {
+    if (!isPlainObject(normalized[key])) {
+      normalized[key] = clone(DEFAULT_LOOP_CONFIG[key]);
+    } else {
+      normalized[key] = deepMerge(DEFAULT_LOOP_CONFIG[key], normalized[key]);
+    }
+  }
+  return normalized;
 }
 
 function ensureLoopDirs(pmDir) {
@@ -100,26 +114,23 @@ function initLoopConfig(pmDir, options = {}) {
 }
 
 function parseArgs(argv) {
-  const args = {
+  const defaults = {
     pmDir: path.join(process.cwd(), "pm"),
     init: false,
     force: false,
     format: "json",
   };
-
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index];
-    if (arg === "--pm-dir" && argv[index + 1]) {
-      args.pmDir = path.resolve(argv[++index]);
-    } else if (arg === "--init") {
-      args.init = true;
-    } else if (arg === "--force") {
-      args.force = true;
-    } else if (arg === "--format" && argv[index + 1]) {
-      args.format = argv[++index];
-    }
-  }
-
+  const { args } = parseCliArgs(
+    argv,
+    {
+      "--pm-dir": { key: "pmDir", type: "string" },
+      "--init": { key: "init", type: "boolean" },
+      "--force": { key: "force", type: "boolean" },
+      "--format": { key: "format", type: "string" },
+    },
+    defaults
+  );
+  args.pmDir = path.resolve(args.pmDir);
   return args;
 }
 
@@ -151,6 +162,7 @@ module.exports = {
   ensureLoopDirs,
   initLoopConfig,
   loadLoopConfig,
+  normalizeLoopConfig,
 };
 
 if (require.main === module) {
