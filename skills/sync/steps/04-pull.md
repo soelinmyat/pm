@@ -1,23 +1,29 @@
 ---
-name: Pull
+name: Pull / Sync
 order: 4
-description: Pull knowledge base changes from the remote and report the outcome
+description: Pull knowledge base changes, or run the default bidirectional sync route
 ---
 
 ## Goal
 
-Download remote knowledge base changes and report the outcome clearly.
+Download remote knowledge base changes, or run default bidirectional sync, and report the outcome clearly.
 
 ## How
 
-Run this step when the selected route is `pull` or `auto`. Otherwise skip it.
+Run this step when the selected route is `pull` or `sync`. Otherwise skip it.
 
 ### Git backend
 
-Run the sync script:
+For explicit `pull`, run the sync script:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" pull
+```
+
+For default bidirectional `sync`, run the sync script once:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" sync
 ```
 
 After it completes, read `{pm_state_dir}/sync-status.json`.
@@ -26,18 +32,22 @@ Parse the JSON and display:
 
 **On success** (`ok: true`):
 
-If `downloaded > 0`:
+If route is `pull` and `downloaded > 0`:
 > Pulled {downloaded} files.
 
-If `downloaded === 0` **and route is `pull`** (explicit):
+If route is `pull` and `downloaded === 0`:
 > Already up to date. Nothing to pull.
 
-If `downloaded === 0` **and route is `auto`**: say nothing — push step will report the combined result.
+If route is `sync`:
+- If `downloaded > 0`, display: `Pulled {downloaded} files.`
+- If `uploaded > 0`, display: `Pushed {uploaded} files.`
+- If both are `0`, display: `All synced. Nothing to pull or push.`
 
 **On failure** (`ok: false`):
-> Pull failed. Error: {error message}
+- If route is `pull`, display: `Pull failed. Error: {error message}`
+- If route is `sync`, display: `Sync failed. Error: {error message}`
 
-If the route is `auto` and pull fails, stop — do not proceed to push.
+If the route is `sync`, this step already attempted the full bidirectional operation. Step 5 must skip.
 
 Never display raw JSON to the user.
 

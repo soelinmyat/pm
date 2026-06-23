@@ -453,6 +453,88 @@ test("pull returns error when pm/ is not a git repo", (t) => {
 });
 
 // ---------------------------------------------------------------------------
+// Test: sync — pulls then pushes in one bidirectional pass
+// ---------------------------------------------------------------------------
+
+test("sync pulls remote changes before pushing local changes", (t) => {
+  const remote = withBareRemote();
+
+  const { pmDir: machineA, cleanup: cleanupA } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+  });
+  const { setup, push, sync } = require(KB_SYNC_GIT_PATH);
+  setup(machineA, remote.url);
+
+  const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-sync-b-"));
+  gitExec(`git clone ${remote.url} ${machineBRoot}/pm`);
+  const machineB = path.join(machineBRoot, "pm");
+
+  t.after(() => {
+    cleanupA();
+    remote.cleanup();
+    fs.rmSync(machineBRoot, { recursive: true, force: true });
+  });
+
+  fs.writeFileSync(path.join(machineA, "remote-note.md"), "# from remote\n");
+  const pushA = push(machineA);
+  assert.ok(pushA.ok, `remote update should push: ${pushA.error || ""}`);
+
+  fs.writeFileSync(path.join(machineB, "local-note.md"), "# from local\n");
+  const result = sync(machineB);
+  assert.ok(result.ok, `sync should succeed: ${result.error || ""}`);
+  assert.equal(typeof result.downloaded, "number");
+  assert.ok(result.uploaded > 0, "sync should push local changes after pulling");
+  assert.ok(
+    fs.existsSync(path.join(machineB, "remote-note.md")),
+    "local machine should receive remote changes"
+  );
+
+  const verify = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-sync-verify-"));
+  gitExec(`git clone ${remote.url} ${verify}/pm`);
+  assert.ok(fs.existsSync(path.join(verify, "pm", "remote-note.md")));
+  assert.ok(fs.existsSync(path.join(verify, "pm", "local-note.md")));
+  fs.rmSync(verify, { recursive: true, force: true });
+});
+
+test("CLI default sync writes combined sync-status.json", (t) => {
+  const remote = withBareRemote();
+
+  const { pmDir: machineA, cleanup: cleanupA } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+  });
+  const { setup, push } = require(KB_SYNC_GIT_PATH);
+  setup(machineA, remote.url);
+
+  const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-git-sync-cli-"));
+  fs.mkdirSync(path.join(machineBRoot, ".pm"), { recursive: true });
+  gitExec(`git clone ${remote.url} ${machineBRoot}/pm`);
+
+  t.after(() => {
+    cleanupA();
+    remote.cleanup();
+    fs.rmSync(machineBRoot, { recursive: true, force: true });
+  });
+
+  fs.writeFileSync(path.join(machineA, "remote-cli.md"), "# from remote\n");
+  const pushA = push(machineA);
+  assert.ok(pushA.ok, `remote update should push: ${pushA.error || ""}`);
+
+  fs.writeFileSync(path.join(machineBRoot, "pm", "local-cli.md"), "# from local\n");
+  gitExec(`node "${KB_SYNC_GIT_PATH}"`, {
+    cwd: machineBRoot,
+    env: { CLAUDE_PROJECT_DIR: machineBRoot },
+  });
+
+  const statusPath = path.join(machineBRoot, ".pm", "sync-status.json");
+  const syncStatus = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+  assert.equal(syncStatus.mode, "sync");
+  assert.equal(syncStatus.backend, "git");
+  assert.equal(syncStatus.ok, true);
+  assert.equal(typeof syncStatus.downloaded, "number");
+  assert.ok(syncStatus.uploaded > 0);
+});
+
+// ---------------------------------------------------------------------------
 // Test: status
 // ---------------------------------------------------------------------------
 

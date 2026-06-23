@@ -294,6 +294,49 @@ function pull(pmDir) {
 }
 
 // ---------------------------------------------------------------------------
+// Sync — pull first, then push
+// ---------------------------------------------------------------------------
+
+/**
+ * Bidirectional sync for the default /pm:sync path.
+ * Pulling first prevents a local push from racing or overwriting remote work
+ * created on another machine.
+ *
+ * @param {string} pmDir
+ * @returns {{ ok: boolean, downloaded: number, uploaded: number, errors: string[], error?: string }}
+ */
+function sync(pmDir) {
+  const pullResult = pull(pmDir);
+  if (!pullResult.ok) {
+    return {
+      ok: false,
+      downloaded: pullResult.updated || 0,
+      uploaded: 0,
+      errors: [pullResult.error],
+      error: pullResult.error,
+    };
+  }
+
+  const pushResult = push(pmDir);
+  if (!pushResult.ok) {
+    return {
+      ok: false,
+      downloaded: pullResult.updated || 0,
+      uploaded: pushResult.committed || 0,
+      errors: [pushResult.error],
+      error: pushResult.error,
+    };
+  }
+
+  return {
+    ok: true,
+    downloaded: pullResult.updated || 0,
+    uploaded: pushResult.committed || 0,
+    errors: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Status — report sync state
 // ---------------------------------------------------------------------------
 
@@ -380,11 +423,24 @@ function resolveCliPaths(projectDir) {
 }
 
 if (require.main === module) {
-  const mode = process.argv[2];
+  const mode = process.argv[2] || "sync";
   const projectDir = path.resolve(process.env.CLAUDE_PROJECT_DIR || ".");
   const { pmDir, dotPmDir } = resolveCliPaths(projectDir);
 
-  if (mode === "push") {
+  if (mode === "sync") {
+    const result = sync(pmDir);
+    writeSyncStatus(dotPmDir, {
+      mode: "sync",
+      uploaded: result.uploaded || 0,
+      downloaded: result.downloaded || 0,
+      errors: result.errors || [],
+      ok: result.ok,
+    });
+    if (!result.ok) {
+      process.stderr.write((result.error || result.errors.join("; ")) + "\n");
+      process.exit(1);
+    }
+  } else if (mode === "push") {
     const result = push(pmDir);
     writeSyncStatus(dotPmDir, {
       mode: "push",
@@ -412,7 +468,7 @@ if (require.main === module) {
     const result = status(pmDir);
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stderr.write("Usage: kb-sync-git.js <push|pull|status>\n");
+    process.stderr.write("Usage: kb-sync-git.js [sync|push|pull|status]\n");
     process.exit(1);
   }
 }
@@ -427,6 +483,7 @@ module.exports = {
   getRemoteUrl,
   setup,
   clone,
+  sync,
   push,
   pull,
   status,
