@@ -53,3 +53,21 @@ test("sync skill references kb-sync-git.js and does not use raw curl", () => {
   assert.match(text, /kb-sync-git\.js/);
   assert.doesNotMatch(text, /curl -s -H "Authorization: Bearer \{token\}"/);
 });
+
+test("sync skill keeps bare sync bidirectional with explicit pull and push overrides", () => {
+  const skill = read("skills/sync/SKILL.md");
+  const command = read("commands/sync.md");
+  const parse = read("skills/sync/steps/01-parse-subcommand.md");
+  const pullStep = read("skills/sync/steps/04-pull.md");
+  const pushStep = read("skills/sync/steps/05-push.md");
+
+  assert.match(skill, /Bare `\/pm:sync` is always bidirectional/);
+  assert.match(command, /With no subcommand, run bidirectional sync/);
+  assert.match(parse, /Route to `sync`/);
+  assert.match(pullStep, /kb-sync-git\.js" sync/);
+  assert.match(pushStep, /selected route is `push`/);
+  assert.doesNotMatch(
+    `${parse}\n${pullStep}\n${pushStep}`,
+    /route is `auto`|selected route is `auto`/
+  );
+});

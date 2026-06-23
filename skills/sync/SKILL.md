@@ -1,13 +1,13 @@
 ---
 name: sync
-description: "Sync the knowledge base via git. Bare /pm:sync auto-detects: sets up if needed, pulls then pushes if ready. Triggers on: 'sync', 'sync push', 'sync pull', 'sync status', 'sync setup', 'push kb', 'pull kb', 'sync my knowledge base', 'upload pm', 'download pm'."
+description: "Sync the knowledge base via git. Bare /pm:sync is bidirectional: sets up if needed, then pulls remote changes and pushes local changes in one pass. Explicit /pm:sync pull and /pm:sync push are one-way overrides. Triggers on: 'sync', 'sync push', 'sync pull', 'sync status', 'sync setup', 'push kb', 'pull kb', 'sync my knowledge base', 'upload pm', 'download pm'."
 ---
 
 # pm:sync
 
 ## Purpose
 
-Sync the project knowledge base. Bare `/pm:sync` does the right thing automatically — if no backend is configured it onboards the user, otherwise it pulls then pushes in one pass. Explicit subcommands (`push`, `pull`, `status`, `setup`) are available as overrides.
+Sync the project knowledge base. Bare `/pm:sync` is always bidirectional — if no backend is configured it onboards the user, otherwise it pulls remote changes and then pushes local changes in one pass. Explicit subcommands (`pull`, `push`, `status`, `setup`) are available as one-way overrides.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution.
 
@@ -21,7 +21,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **Default behavior (no subcommand):**
 1. No backend configured → route to setup
-2. Backend configured → pull first, then push, report combined result
+2. Backend configured → run bidirectional sync (`pull` then `push`), report the combined result
 
 **When NOT to use:** When `pm/` doesn't exist yet (use start). Git operations on the project source code. When the user just wants to commit changes to their source repo locally.
 

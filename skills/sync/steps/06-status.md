@@ -31,9 +31,9 @@ Ahead:   {ahead} commit(s)
 Behind:  {behind} commit(s)
 ```
 
-If `uncommitted > 0`, add: "Run `/pm:sync push` to push local changes."
+If `uncommitted > 0`, add: "Run `/pm:sync` to pull remote changes first, then push local changes. Use `/pm:sync push` only when you intentionally want the push-only override."
 
-If `behind > 0`, add: "Run `/pm:sync pull` to pull remote changes."
+If `behind > 0`, add: "Run `/pm:sync` to pull remote changes and then push any local changes. Use `/pm:sync pull` only when you intentionally want the pull-only override."
 
 If everything is zero: "All synced."
 
