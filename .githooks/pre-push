@@ -88,7 +88,10 @@ run_commit_tests() {
   fi
   if [[ -d "$test_tmp/tests" ]]; then
     echo "Running tests for $commit..."
-    if ! (cd "$test_tmp" && node --test tests/*.test.js); then
+    if ! (
+      cd "$test_tmp" &&
+        env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX node --test tests/*.test.js
+    ); then
       git worktree remove --force "$test_tmp" >/dev/null 2>&1 || rm -rf "$test_tmp"
       echo "ERROR: tests failed for pushed commit $commit."
       return 1
