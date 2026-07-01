@@ -10,14 +10,16 @@ description: Self-healing merge loop with gate monitoring, auto-merge, cleanup, 
 
 **Goal:** Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
-### Pre-merge review attestation (HARD-GATE)
+### Pre-merge gate attestation (HARD-GATE)
 
-Before arming auto-merge or invoking `gh pr merge`, re-verify the review attestation:
+Before arming auto-merge or invoking `gh pr merge`, re-verify the gate attestation:
 
-1. Parse the SHA from the `Review gate: passed (commit <sha>)` line in `.pm/dev-sessions/{slug}.md` (written by `pm:review`).
-2. Compare it to `git rev-parse origin/{branch}` — the tip that would actually merge.
-3. If they match: proceed to the merge loop.
-4. If they differ — fix commits, rebases, or auto-fixes have landed since the last review — **re-invoke Step 03 (Review Gate)** against the new tip. Only proceed once review passes on the current SHA and the session file records the new SHA.
+1. Resolve `remote_tip="$(git rev-parse origin/{branch})"` — the tree that would actually merge.
+2. Read `.pm/dev-sessions/{slug}.gates.json`. For each required row, the effective attestation is `commit` when it equals `remote_tip`, otherwise `verified_commit` when it equals `remote_tip`.
+3. Compute changed files with `changed_files="$(git diff --name-only origin/{DEFAULT_BRANCH}...origin/{branch} | paste -sd, -)"`.
+4. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$remote_tip" --changed-files "$changed_files"`. The checker is the authority for effective attestation; do not require every raw `commit` field to equal the remote tip.
+5. If every required row is effectively attested and the checker passes: proceed to the merge loop.
+6. If any row is missing or neither `commit` nor `verified_commit` matches `remote_tip` — fix commits, rebases, or auto-fixes have landed since the last attestation — run the final recertification pass from `skills/dev/steps/07-review.md`. Rerun review and any other gate whose relevant surface changed. Only proceed once the sidecar attests the remote branch tip.
 
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 

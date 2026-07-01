@@ -112,4 +112,4 @@ The seed task is created during implementation (in /dev), not during design crit
 1. Writes feature code
 2. Creates the seed task covering all visual states
 3. Runs the seed, starts servers, captures screenshots
-4. Visually self-checks before invoking /design-critique
+4. Visually self-checks before invoking `pm:design-critique`

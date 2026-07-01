@@ -69,6 +69,27 @@ function validateEvalTree(rootDir = process.cwd()) {
     }
   }
 
+  const resultsDir = path.join(rootDir, "evals", "results");
+  if (fs.existsSync(resultsDir)) {
+    for (const entry of fs.readdirSync(resultsDir).sort()) {
+      const resultPath = path.join(resultsDir, entry);
+      if (!fs.statSync(resultPath).isFile()) continue;
+      if (!entry.endsWith(".json")) {
+        issues.push(issue(resultPath, "result ledgers must be JSON files"));
+        continue;
+      }
+      try {
+        issues.push(
+          ...validateResultLedger(JSON.parse(fs.readFileSync(resultPath, "utf8")), resultPath, {
+            requiredScenarioIds: REQUIRED_SENTINEL_IDS,
+          }).issues
+        );
+      } catch (err) {
+        issues.push(issue(resultPath, `result ledger is invalid JSON: ${err.message}`));
+      }
+    }
+  }
+
   return { ok: issues.length === 0, issues };
 }
 
@@ -213,9 +234,26 @@ function braceDelta(line) {
 }
 
 function validateBaselineLedger(ledger, filePath = "evals/baselines/sentinel.json", opts = {}) {
+  return validateLedger(ledger, filePath, {
+    ...opts,
+    label: "baseline",
+    requireCurrentBehaviorFail: true,
+  });
+}
+
+function validateResultLedger(ledger, filePath = "evals/results/current.json", opts = {}) {
+  return validateLedger(ledger, filePath, {
+    ...opts,
+    label: "result",
+    requireCurrentBehaviorFail: false,
+  });
+}
+
+function validateLedger(ledger, filePath, opts = {}) {
+  const label = opts.label || "ledger";
   const issues = [];
   if (!ledger || typeof ledger !== "object" || Array.isArray(ledger)) {
-    return { ok: false, issues: [issue(filePath, "baseline ledger must be an object")] };
+    return { ok: false, issues: [issue(filePath, `${label} ledger must be an object`)] };
   }
   for (const key of Object.keys(ledger)) {
     if (!LEDGER_TOP_KEYS.has(key))
@@ -232,16 +270,20 @@ function validateBaselineLedger(ledger, filePath = "evals/baselines/sentinel.jso
     const ids = new Set(ledger.scenarios.map((row) => row && row.id).filter(Boolean));
     for (const id of opts.requiredScenarioIds || []) {
       if (!ids.has(id)) {
-        issues.push(issue(filePath, `missing baseline row for ${id}`));
+        issues.push(issue(filePath, `missing ${label} row for ${id}`));
       }
     }
     const determinate = ledger.scenarios.filter(
       (row) => row.status === "pass" || row.status === "fail"
     ).length;
     if (ledger.scenarios.length >= 5 && determinate < 3) {
-      issues.push(issue(filePath, "at least three baseline rows must be pass or fail"));
+      issues.push(issue(filePath, `at least three ${label} rows must be pass or fail`));
     }
-    if (ledger.scenarios.length >= 5 && !ledger.scenarios.some((row) => row.status === "fail")) {
+    if (
+      opts.requireCurrentBehaviorFail &&
+      ledger.scenarios.length >= 5 &&
+      !ledger.scenarios.some((row) => row.status === "fail")
+    ) {
       issues.push(issue(filePath, "at least one baseline row must be a current-behavior fail"));
     }
   }
@@ -315,5 +357,6 @@ module.exports = {
   validateEvalTree,
   validateScenario,
   validateBaselineLedger,
+  validateResultLedger,
   analyzeShellFunctions,
 };

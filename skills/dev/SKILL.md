@@ -32,11 +32,18 @@ When the task is classified XS (one-line fix, typo, config tweak) and the user c
 **XS Express replaces Steps 01-09 with this inline sequence:**
 
 1. **Branch** — `git checkout -b fix/{slug} origin/{DEFAULT_BRANCH}`. No worktree. No state file.
-2. **Implement + test** — Write the fix. Write or update a test (TDD: test first). Run the project test suite. All tests must pass.
-3. **Code scan** — Run a single-pass inline code scan (same brief as Step 07's XS code scan section). Fix any findings, re-run tests.
-4. **Ship** — `git push -u origin fix/{slug}`, create PR via `gh pr create`, squash-merge via `gh pr merge --squash --auto` or the merge loop. Wait for merge confirmation.
-5. **Status** — Update `{pm_dir}/backlog/{slug}.md` to `status: done` if it exists. Update Linear issue to Done if configured (ask user first).
-6. **Cleanup** — `git checkout {DEFAULT_BRANCH} && git pull && git branch -d fix/{slug}`.
+2. **Gate sidecar** — Create `.pm/dev-sessions/{slug}.gates.json` with `schema_version: 1`, `size: "XS"`, and an empty `gates` array even though the full Markdown state file is skipped.
+3. **Implement + test** — Write or update a failing test first. Write the fix. Run the project test suite. All tests must pass.
+4. **Commit implementation** — Commit the source and test changes before recording gate rows. If `git diff {DEFAULT_BRANCH}...HEAD --quiet` would show no committed diff after this commit, stop; do not push an empty branch. Record the failing command and final passing command as the `tdd` gate artifact tied to this committed HEAD.
+5. **Simplify skip row** — Record `simplify` as `skipped` with reason `XS size`.
+6. **Design critique if UI** — If the diff touches UI/UX files or user-visible interaction, invoke `pm:design-critique`, commit any fixes, and record the gate against the resulting HEAD. If there is no visual impact, record `design-critique` as `skipped` with a concrete reason.
+7. **QA if UI** — If the diff touches UI/UX files or user-visible interaction, run Quick QA, fix any Fail verdict, commit any fixes, and record `qa` as `passed` against the resulting HEAD. If there is no visual impact, record `qa` as `skipped` with a concrete reason. If the QA environment is blocked, record `qa: blocked` and stop.
+8. **Code scan** — Run a single-pass inline code scan (same brief as Step 07's XS/S code scan section). Fix any findings, re-run tests, commit any fixes, and record `Review gate: passed (commit <sha>)` plus the `review` gate row.
+9. **Verification + recertification** — Run the full project test suite fresh, read the output, record the `verification` gate row, then recertify earlier gate rows for the final HEAD using `verified_commit` / `verified_at` as described in `skills/dev/steps/07-review.md`.
+10. **Gate check** — Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}`. If it fails, fix the missing or stale gate before pushing.
+11. **Ship** — `git push -u origin fix/{slug}`, create PR via `gh pr create`, squash-merge via `gh pr merge --squash --auto` or the merge loop. Wait for merge confirmation.
+12. **Status** — Update `{pm_dir}/backlog/{slug}.md` to `status: done` if it exists. Update Linear issue to Done if configured (ask user first).
+13. **Cleanup** — `git checkout {DEFAULT_BRANCH} && git pull && git branch -d fix/{slug}`.
 
 **No worktree, no session state file, no context discovery, no formal retro, no agent dispatch.** The orchestrator does all work inline.
 
@@ -78,6 +85,7 @@ All workflow skills are self-contained within this plugin. No external skill dep
 | `dev/references/tdd.md` (reference) | Implementation agent (all) |
 | `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
 | `dev/references/debugging.md` (reference) | Debug |
+| `pm:design-critique` | UI design critique gate |
 | `dev/references/qa.md` (reference) | QA ship gate (all UI changes) |
 | `ship/references/handling-feedback.md` (reference) | Ship (M/L/XL) — handling PR feedback |
 
@@ -109,7 +117,8 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **"Tests pass, so the code is correct."** Tests verify your assumptions, not the user's requirements. Passing tests with wrong assertions give false confidence.
 - **"I know what's wrong, I'll skip debugging."** Known fixes are guesses until confirmed. The debugging reference exists to prevent shipping the wrong fix to the right symptom.
 - **"I'll just start coding and figure out the plan as I go."** Coding commits you to an approach. The RFC forces you to think before you commit. Improvised architecture is how you end up rewriting.
-- **"Review is overkill for this size."** Code scan for XS, simplify for S, full review for M+. The gate scales — it's never skipped. Cross-cutting issues are invisible from inside the change.
+- **"Review is overkill for this size."** Code scan for XS/S, full review for M+. The gate scales — it's never skipped. Cross-cutting issues are invisible from inside the change.
+- **"The gate checker is for big work only."** Every path that can push or create a PR writes a gate sidecar and runs `scripts/dev-gate-check.js` first.
 
 ## Escalation Paths
 
@@ -133,6 +142,7 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 
 - [ ] All tests pass (TDD — tests written before implementation)
 - [ ] Simplify gate passed before review
+- [ ] Gate manifest sidecar is current or explicitly skipped with reasons
 - [ ] State file updated to current stage
 - [ ] Code committed on feature branch
 - [ ] User confirmed the final outcome or received a clear handoff summary

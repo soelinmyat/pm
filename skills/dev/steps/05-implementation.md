@@ -53,8 +53,10 @@ Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
 3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation
-4. Run the project test suite — all tests must pass
-5. Commit implementation changes
+4. Use TDD: run the targeted failing test before implementation, then make it pass
+5. Run the project test suite — all tests must pass
+6. Commit implementation and test changes
+7. Record TDD evidence in `.pm/dev-sessions/{slug}.gates.json` as `tdd` tied to the committed HEAD, or `skipped` with reason for docs/config/generated-only work tied to that same committed HEAD
 
 If blocked, report: "Blocked: {reason}"
 Do NOT pause for confirmation — the RFC is the contract. Execute it.
@@ -114,7 +116,9 @@ or you write a blocked result. Do not exit until one of those happens.
 
 **CWD:** {TASK_WORKTREE_PATH}
 **Branch:** feat/{task-slug}
-**RFC:** {pm_dir}/backlog/rfcs/{slug}.html
+**RFC:** {pm_dir}/backlog/rfcs/{parent_slug}.html
+**Parent RFC slug:** {parent_slug}
+**Task/session slug:** {task-slug}
 **Your issue:** Issue {N} — {ISSUE_TITLE}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **PM directory:** {pm_dir}
@@ -138,14 +142,17 @@ Lifecycle:
 3. Read the RFC Execution Contract, focus on Issue {N}, implement its tasks
 4. Run the project test suite — all tests must pass
 5. Commit implementation changes
-6. Invoke pm:simplify — fix findings, run tests, commit
-7. If UI changes: invoke /design-critique if available, else skip
-8. If UI changes: dispatch QA agent per implementation-flow.md
-9. If SIZE is M/L/XL: invoke pm:review on the branch, fix all high-confidence findings, commit
-   If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
-10. Run full test suite as final verification
-11. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-12. **Before exiting**, write your structured result to ${RESULT_FILE}:
+6. Record TDD evidence in `.pm/dev-sessions/{task-slug}.gates.json` as `tdd` tied to the commit, or `skipped` with reason for docs/config/generated-only work
+7. Invoke pm:simplify — fix findings, run tests, commit
+8. If UI changes: invoke pm:design-critique. If no visual impact, record `design-critique` as `skipped` with a concrete reason
+9. If UI changes: dispatch QA agent per implementation-flow.md and record the `qa` gate
+10. If SIZE is M/L/XL: invoke pm:review on the branch, fix all high-confidence findings, commit
+    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
+11. Run full test suite as final verification and record the `verification` gate
+12. Run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed after their evidence commit, or write `verified_commit` / `verified_at` only when existing evidence still applies to current HEAD
+13. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{task-slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}` and fix any missing/stale gates before push
+14. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+15. **Before exiting**, write your structured result to ${RESULT_FILE}:
     On success:
       {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
     On block:
@@ -155,7 +162,7 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
 ```
 
-**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, …) are substituted by **you, the orchestrator**, as you write the file. `${CLAUDE_PLUGIN_ROOT}` and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no `CLAUDE_PLUGIN_ROOT`, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these two.
+**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${CLAUDE_PLUGIN_ROOT}` and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no `CLAUDE_PLUGIN_ROOT`, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these two.
 
 4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
 

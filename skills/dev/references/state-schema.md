@@ -4,9 +4,18 @@
 
 State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
 
-- **All sessions:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by stripping the type prefix (`feat/`, `fix/`, `chore/`). Example: branch `feat/add-auth` → `.pm/dev-sessions/add-auth.md`. For XS tasks (no branch), use the topic slug from intake.
+- **All sessions:** `.pm/dev-sessions/{slug}.md` — where `{slug}` is derived from the branch name by the shared helper exported from `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js` as `deriveSessionSlug`.
+- **Gate sidecar:** `.pm/dev-sessions/{slug}.gates.json` — machine-checkable quality gate state consumed by `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js`.
 - **`.gitignore`:** `.pm/` covers all state files (no separate pattern needed).
 - **Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.
+
+Slug normalization:
+
+1. Start from `git branch --show-current`.
+2. Strip one leading branch-family prefix: `codex/`, `feat/`, `fix/`, `chore/`, or `release/`.
+3. Replace any remaining `/` characters with `-`.
+
+Examples: `feat/add-auth` -> `add-auth`; `codex/pm-dev-workflow-proposal` -> `pm-dev-workflow-proposal`; `release/v1.2.3` -> `v1.2.3`; `team/feature/foo` -> `team-feature-foo`. For XS tasks with no branch, use the topic slug from intake.
 
 **Repo location:** Dev sessions always live in the source repo's `.pm/dev-sessions/` directory — even in separate-repo mode. This keeps dev state co-located with the code being modified. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before.
 
@@ -42,6 +51,54 @@ These are the only valid values for the `Status` column in the `## Tasks` table:
 | `skipped` | Task was already implemented or intentionally skipped |
 
 Multi-task per-task agents should update the Tasks table status at each lifecycle transition (via the orchestrator's checkpoint). This enables accurate resume and retro.
+
+## Gate Manifest Sidecar
+
+Every dev session that can push, create a PR, or ship code must maintain `.pm/dev-sessions/{slug}.gates.json` next to the Markdown state file. The Markdown state remains the human-readable source of truth; the sidecar is the executable contract for hooks and ship gates.
+
+Schema:
+
+```json
+{
+  "schema_version": 1,
+  "size": "M",
+  "kind": "proposal",
+  "gates": [
+    {
+      "name": "tdd",
+      "status": "passed",
+      "commit": "abc123",
+      "artifact": ".pm/dev-sessions/feature.tdd.json",
+      "reason": "",
+      "checked_at": "2026-04-04T04:20:00Z",
+      "verified_commit": "def456",
+      "verified_at": "2026-04-04T05:10:00Z"
+    }
+  ]
+}
+```
+
+Gate names are `tdd`, `simplify`, `design-critique`, `qa`, `review`, and `verification`. Status values are `passed`, `skipped`, `failed`, and `blocked`. Top-level `size` and `kind` mirror the dev session routing context; they are required when a skip reason depends on that routing context.
+
+Rules:
+
+- Update the row immediately after each gate runs or is explicitly skipped.
+- `commit` is the evidence commit where the gate ran or was explicitly skipped.
+- `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
+- Final push/ship checks accept a row only when either `commit` or `verified_commit` equals `git rev-parse HEAD`; otherwise the row is stale.
+- `passed` rows need an existing artifact path. State-file section anchors such as `.pm/dev-sessions/{slug}.md#review` are valid when the file exists. `skipped`, `failed`, and `blocked` rows need a concrete reason.
+- `tdd`, `simplify`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.
+- `simplify: skipped` with reason `XS size` requires top-level `size: "XS"`. `simplify: skipped` with reason `kind task uses review gate instead` or `kind bug uses review gate instead` requires top-level `kind` to match.
+- `design-critique` and `qa` skip reasons must describe no UI/user-visible impact (for example backend-only, docs-only, non-UI config-only, generated-only, pure refactor, or no visual impact). UI config, design-token/theme data, static HTML, and server-rendered templates are UI-impacting. Environment failures, auth failures, missing DBs, or servers that cannot start are `blocked`, not `skipped`.
+- Before final verification, run the final recertification pass in `skills/dev/steps/07-review.md`: rerun any gate whose relevant surface changed after its evidence commit, or write `verified_commit` / `verified_at` when the gate evidence still applies to final HEAD.
+- Before any PM-mediated push, PR creation, or ship handoff, run:
+  ```bash
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+    --manifest .pm/dev-sessions/{slug}.gates.json \
+    --commit "$(git rev-parse HEAD)" \
+    --base origin/{DEFAULT_BRANCH}
+  ```
+- If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or write `verified_commit` / `verified_at` only when the evidence still applies. Do not push around it.
 
 ## Template
 
@@ -113,6 +170,11 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 ## Review
 - Review gate: pending
 
+## Gate Manifest
+- Sidecar: .pm/dev-sessions/{slug}.gates.json
+- Checker: node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)"
+- Required before push: tdd, simplify, design-critique, qa, review, verification (skipped gates require reasons)
+
 ## Merge-Watch
 - Stage: pending
 - PR: (not yet created)
@@ -167,5 +229,6 @@ Per-task agents handle QA/review/ship internally. This section aggregates key ev
 - Keep `Stage started at` current at every stage transition and set `Completed at` when the session finishes
 - Include all decisions made so far — a cold reader should understand the full context
 - After design critique, add the report path
+- After every quality gate, update `.pm/dev-sessions/{slug}.gates.json`
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
 - After retro, delete the file

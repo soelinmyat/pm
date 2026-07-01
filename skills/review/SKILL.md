@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Iron Law
 
-**NEVER RE-REVIEW THE SAME COMMIT.** Before dispatching agents, check `.pm/dev-sessions/{slug}.md` for `Review gate: passed (commit <sha>)`. If the session's HEAD sha matches, log "skipped (already reviewed)" and return.
+**NEVER RE-REVIEW THE SAME COMMIT.** Before dispatching agents, check `.pm/dev-sessions/{slug}.md` for `Review gate: passed (commit <sha>)` and confirm `.pm/dev-sessions/{slug}.gates.json` has `review: passed` for the same SHA. If both match HEAD, log "skipped (already reviewed)" and return. If only the Markdown line is current, repair the sidecar before returning.
 
 **NEVER BYPASS THE GATE.** This gate cannot be skipped via flags, state manipulation, or "I already looked at it." If the diff has real code changes and no prior-review record, agents must run.
 
@@ -32,14 +32,16 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 ## When NOT to use
 
 - Before implementation is committed — review scans committed diffs, not uncommitted edits.
-- XS-sized work — `pm:dev` runs a lighter inline code-scan for XS.
-- S-sized work — `pm:simplify` is the only code-review gate for S.
+- XS/S-sized work inside `pm:dev` when the current dev gate sidecar already records the lightweight code scan for HEAD.
+- Standalone `pm:ship` still calls `pm:review` unless a current `review` gate already exists.
 - Docs-only, config-only, or lockfile-only changes — skip via the scan below.
 - Same-SHA re-review — see Iron Law.
 
 ## State file convention
 
-The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (`feat/add-auth` → `add-auth`). Derive slug from `git branch --show-current`, stripping `feat/` / `fix/` / `chore/` prefixes. If no state file matches, proceed without upstream-gate data — all agents run.
+The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` (`deriveSessionSlug` in `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js`). Examples: `feat/add-auth` -> `add-auth`; `codex/pm-dev-workflow-proposal` -> `pm-dev-workflow-proposal`. If no state file matches, proceed without upstream-gate data — all agents run.
+
+The machine-checkable gate sidecar is `.pm/dev-sessions/{slug}.gates.json`. When review passes or is explicitly skipped, write/update the `review` row with `status`, `commit`, `artifact`, `reason`, and `checked_at` using the schema in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`. A stale or missing sidecar row means downstream push/ship gates re-run review.
 
 ## Default branch detection
 
@@ -74,9 +76,12 @@ Before reviewing, ensure the branch is up to date with `{DEFAULT_BRANCH}`:
 
 ### Skip conditions
 
-1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` and filter to code files (exclude `.md`, `.json` config, `.yml`, `.env`, lockfiles, generated files).
-2. If no code files changed: log `Review: skipped (no code changes)` in the session file and return.
-3. If session file shows `Review gate: passed (commit <current-sha>)`: log `Review: skipped (already reviewed at <sha>)` and return.
+1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` and filter to reviewable runtime files. Exclude ordinary docs, static config, env files, lockfiles, and generated files. UI-impacting markup/data such as App Router `app/page.mdx`, `src/app/**/page.md`, static HTML, server-rendered templates, design-token JSON/YAML/TOML, and theme/token config are reviewable source, not docs-only/config-only. **PM plugin exception:** files under `commands/`, `skills/`, `personas/`, `templates/`, `hooks/`, `scripts/`, `tests/`, `references/`, `agents/`, `.githooks/`, `.claude-plugin/`, `.codex-plugin/`, and `plugin.config.json` are runtime/source files even when they are Markdown, JSON, or shell; do not treat them as docs-only/config-only.
+2. If no reviewable source files changed: log `Review gate: passed (commit <current-sha>)` and `Review path: no reviewable source changes` in the session file, write `review: passed` with an artifact pointing to the state section in `.pm/dev-sessions/{slug}.gates.json`, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review`, and return. This is a pass attestation from inspecting the diff, not a skipped gate.
+3. If session file shows `Review gate: passed (commit <current-sha>)`, do not skip yet. Read `.pm/dev-sessions/{slug}.gates.json` and confirm it has `review: passed` for the same SHA.
+   - If both Markdown and sidecar are current: log `Review: skipped (already reviewed at <sha>)` and return.
+   - If Markdown is current but the sidecar is missing or stale: repair the sidecar `review` row from the Markdown attestation, then run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review` before returning.
+   - If the checker fails: run the review instead of skipping.
 
 ### Build project context
 
@@ -339,7 +344,25 @@ Append to `.pm/dev-sessions/{slug}.md` (if present):
 - Review findings: High: N, Worth checking: N, Noisy: N | Auto-fixed: N | Deferred: N
 ```
 
-Standalone invocations (no session file) skip the state write — just report to the caller.
+Also write or update the `review` row inside `.pm/dev-sessions/{slug}.gates.json` without deleting any existing gate rows:
+
+```json
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "name": "review",
+      "status": "passed",
+      "commit": "<current-sha>",
+      "artifact": ".pm/dev-sessions/<slug>.md#review",
+      "reason": "",
+      "checked_at": "<ISO timestamp>"
+    }
+  ]
+}
+```
+
+Standalone invocations with no session file create the gate sidecar and a minimal session note under `.pm/dev-sessions/{slug}.md` so `pm:ship` can verify what was reviewed before push.
 
 ---
 
@@ -351,10 +374,10 @@ Return to the caller:
 Review complete. {N} findings. Auto-fixed {N}, deferred {N}, noisy {N}. Tests passing.
 ```
 
-On skip:
+When there are no reviewable source changes:
 
 ```
-Review skipped — {reason}.
+Review passed — no reviewable source changes.
 ```
 
 ---

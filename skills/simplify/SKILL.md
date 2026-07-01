@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Iron Law
 
-**NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
+**NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code or runtime-source changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
 
 **Workflow:** `simplify` | **Telemetry steps:** `scan`, `review`, `merge`, `fix`.
 
@@ -44,8 +44,9 @@ Cleaning up code before design critique and QA means those stages see cleaner co
 
 Before dispatching agents:
 
-1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` and filter to code files (exclude `.md`, `.json` config, `.yml`, `.env`, lockfiles, generated files).
-2. If no code files changed: log `Simplify: skipped (no code changes)` in `.pm/dev-sessions/{slug}.md` (if present) and return.
+1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` and filter to code/runtime-source files. Exclude ordinary docs, static config, env files, lockfiles, and generated files. UI-impacting markup/data such as App Router `app/page.mdx`, `src/app/**/page.md`, static HTML, server-rendered templates, design-token JSON/YAML/TOML, and theme/token config are runtime source, not docs-only/config-only.
+2. **PM plugin exception:** files under `commands/`, `skills/`, `personas/`, `templates/`, `hooks/`, `scripts/`, `tests/`, `references/`, `agents/`, `.githooks/`, `.claude-plugin/`, `.codex-plugin/`, and `plugin.config.json` are runtime/source files even when they are Markdown, JSON, or shell; do not treat them as docs-only/config-only.
+3. If no code/runtime-source files changed: log `Simplify: skipped (no code changes)` in `.pm/dev-sessions/{slug}.md` (if present), write `simplify: skipped` with reason `no code changes` to `.pm/dev-sessions/{slug}.gates.json`, and return.
 
 ## 3 Parallel Review Agents
 
@@ -182,7 +183,25 @@ After simplify completes, append to `.pm/dev-sessions/{slug}.md` (if the session
 - Simplify: passed (0 findings) | passed (N findings fixed, M skipped) | skipped (no code changes)
 ```
 
-Standalone invocations (no session file) skip the state write — just report the findings and fixes to the caller.
+Also write or update the `simplify` row inside `.pm/dev-sessions/{slug}.gates.json` without deleting any existing gate rows:
+
+```json
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "name": "simplify",
+      "status": "passed",
+      "commit": "<current-sha>",
+      "artifact": ".pm/dev-sessions/<slug>.md#simplify",
+      "reason": "",
+      "checked_at": "<ISO timestamp>"
+    }
+  ]
+}
+```
+
+Standalone invocations with no session file create the gate sidecar and a minimal session note under `.pm/dev-sessions/{slug}.md` so downstream `pm:dev` and `pm:ship` checks can verify simplify ran or was explicitly skipped.
 
 ## Output Contract
 

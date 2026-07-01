@@ -25,6 +25,7 @@
   ],
   "commands": [
     "bug",
+    "design-critique",
     "dev",
     "features",
     "groom",
@@ -64,6 +65,7 @@
         "features",
         "rfc",
         "sync",
+        "design-critique",
         "dev",
         "ship",
         "simplify",

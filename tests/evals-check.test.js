@@ -16,7 +16,16 @@ const {
   validateEvalTree,
   validateScenario,
   validateBaselineLedger,
+  validateResultLedger,
 } = require("../scripts/evals/check.js");
+
+const requiredSentinelIds = [
+  "dev-ui-design-critique-required",
+  "dev-review-before-push",
+  "dev-tdd-before-implementation",
+  "skill-description-body-read",
+  "review-catches-planted-bug",
+];
 
 function makeTmp() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-evals-check-"));
@@ -57,6 +66,30 @@ function writeScenario(tmp, id, overrides = {}) {
     overrides.checksMode ?? 0o644
   );
   return path.join(tmp.root, dir);
+}
+
+function ledgerRow(id, status = "pass", reason = "") {
+  return {
+    id,
+    tier: "sentinel",
+    agent: "codex",
+    status,
+    reason,
+    artifact_ref: `runs/20260701T050100Z--${id}--codex`,
+    recorded_at: "2026-07-01T05:01:00Z",
+  };
+}
+
+function sentinelLedger(statuses = {}) {
+  return {
+    $schema: "https://pm-plugin.local/evals/baseline.schema.json",
+    schema_version: 1,
+    updated: "2026-07-01",
+    scenarios: requiredSentinelIds.map((id) => {
+      const status = statuses[id] || "pass";
+      return ledgerRow(id, status, status === "pass" ? "" : "captured current behavior");
+    }),
+  };
 }
 
 test("eval:check validates a well-formed scenario tree", () => {
@@ -177,6 +210,53 @@ test("baseline ledger can require named sentinel rows", () => {
     result.issues.map((i) => i.message).join("\n"),
     /missing baseline row for dev-tdd-before-implementation/
   );
+});
+
+test("baseline ledger keeps current-behavior fail requirement", () => {
+  const result = validateBaselineLedger(sentinelLedger(), "evals/baselines/sentinel.json", {
+    requiredScenarioIds: requiredSentinelIds,
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    result.issues.map((i) => i.message).join("\n"),
+    /at least one baseline row must be a current-behavior fail/
+  );
+});
+
+test("result ledger allows all sentinel rows to pass", () => {
+  const result = validateResultLedger(sentinelLedger(), "evals/results/proposal-2.json", {
+    requiredScenarioIds: requiredSentinelIds,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
+
+test("result ledger can require named sentinel rows", () => {
+  const ledger = sentinelLedger();
+  ledger.scenarios.pop();
+  const result = validateResultLedger(ledger, "evals/results/proposal-2.json", {
+    requiredScenarioIds: requiredSentinelIds,
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    result.issues.map((i) => i.message).join("\n"),
+    /missing result row for review-catches-planted-bug/
+  );
+});
+
+test("eval:check validates result ledgers without requiring a fail row", () => {
+  const tmp = makeTmp();
+  try {
+    for (const id of requiredSentinelIds) writeScenario(tmp, id);
+    tmp.write(
+      "evals/baselines/sentinel.json",
+      JSON.stringify(sentinelLedger({ "dev-review-before-push": "fail" }), null, 2)
+    );
+    tmp.write("evals/results/proposal-2.json", JSON.stringify(sentinelLedger(), null, 2));
+    const result = validateEvalTree(tmp.root);
+    assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  } finally {
+    tmp.cleanup();
+  }
 });
 
 test("eval:check CLI exits non-zero on invalid eval tree", () => {
