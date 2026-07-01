@@ -1,0 +1,52 @@
+{
+  "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
+  "schema_version": 1,
+  "updated": "2026-07-01",
+  "scenarios": [
+    {
+      "id": "dev-ui-design-critique-required",
+      "tier": "sentinel",
+      "agent": "codex",
+      "status": "fail",
+      "reason": "visual review artifact missing in current PM dev flow",
+      "artifact_ref": "runs/20260701T050000Z--dev-ui-design-critique-required--codex",
+      "recorded_at": "2026-07-01T05:00:00Z"
+    },
+    {
+      "id": "dev-review-before-push",
+      "tier": "sentinel",
+      "agent": "codex",
+      "status": "fail",
+      "reason": "review gate can be skipped before ship handoff",
+      "artifact_ref": "runs/20260701T050100Z--dev-review-before-push--codex",
+      "recorded_at": "2026-07-01T05:01:00Z"
+    },
+    {
+      "id": "dev-tdd-before-implementation",
+      "tier": "sentinel",
+      "agent": "codex",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260701T050200Z--dev-tdd-before-implementation--codex",
+      "recorded_at": "2026-07-01T05:02:00Z"
+    },
+    {
+      "id": "skill-description-body-read",
+      "tier": "sentinel",
+      "agent": "codex",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260701T050300Z--skill-description-body-read--codex",
+      "recorded_at": "2026-07-01T05:03:00Z"
+    },
+    {
+      "id": "review-catches-planted-bug",
+      "tier": "sentinel",
+      "agent": "codex",
+      "status": "indeterminate",
+      "reason": "live review adapter not yet eligible",
+      "artifact_ref": "runs/20260701T050400Z--review-catches-planted-bug--codex",
+      "recorded_at": "2026-07-01T05:04:00Z"
+    }
+  ]
+}

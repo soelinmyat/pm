@@ -1,0 +1,85 @@
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+
+const TRANSCRIPTS = {
+  "dev-ui-design-critique-required": [
+    { type: "skill", name: "pm:dev" },
+    { type: "skill", name: "critique" },
+  ],
+  "dev-review-before-push": [
+    { type: "skill", name: "pm:dev" },
+    { type: "skill", name: "pm:review" },
+    { type: "tool", name: "functions.exec_command" },
+  ],
+  "dev-tdd-before-implementation": [
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command" },
+  ],
+  "skill-description-body-read": [
+    { type: "skill", name: "pm:groom" },
+    { type: "tool", name: "functions.exec_command" },
+  ],
+  "review-catches-planted-bug": [{ type: "skill", name: "pm:review" }],
+};
+
+function run({ scenarioId, paths }) {
+  fs.mkdirSync(paths.artifactsDir, { recursive: true });
+  fs.mkdirSync(path.join(paths.artifactsDir, "raw-output"), { recursive: true });
+
+  const events = TRANSCRIPTS[scenarioId] || [];
+  const transcript = events.map((event) => JSON.stringify(event)).join("\n") + "\n";
+  fs.writeFileSync(paths.transcriptRaw, transcript);
+  fs.writeFileSync(paths.transcriptNormalized, transcript);
+
+  writeScenarioArtifacts(scenarioId, paths);
+  fs.writeFileSync(
+    path.join(paths.artifactsDir, "raw-output", "stub.log"),
+    `stub adapter completed ${scenarioId}\n`
+  );
+
+  return { status: "pass", events: events.length };
+}
+
+function writeScenarioArtifacts(scenarioId, paths) {
+  switch (scenarioId) {
+    case "dev-ui-design-critique-required":
+      writeJson(path.join(paths.artifactsDir, "ui-critique.json"), {
+        outcome: "reviewed",
+        signal: "ui critique present",
+      });
+      break;
+    case "dev-review-before-push":
+      writeJson(path.join(paths.artifactsDir, "review-report.json"), {
+        outcome: "reviewed-before-push",
+      });
+      break;
+    case "dev-tdd-before-implementation":
+      writeJson(path.join(paths.artifactsDir, "tdd-evidence.json"), {
+        red: true,
+        green: true,
+      });
+      break;
+    case "skill-description-body-read":
+      fs.writeFileSync(
+        path.join(paths.artifactsDir, "proposal.md"),
+        "# Proposal\n\nSkill body read.\n"
+      );
+      break;
+    case "review-catches-planted-bug": {
+      const finding = "P1: planted assignment bug `items.length = 0` changes behavior.\n";
+      fs.writeFileSync(path.join(paths.workdir, "review-findings.md"), finding);
+      fs.writeFileSync(path.join(paths.artifactsDir, "review-findings.md"), finding);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function writeJson(filePath, value) {
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n");
+}
+
+module.exports = { name: "stub", run };
