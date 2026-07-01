@@ -150,7 +150,14 @@ Lifecycle:
     If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
 11. Run full test suite as final verification and record the `verification` gate
 12. Run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed after their evidence commit, or write `verified_commit` / `verified_at` only when existing evidence still applies to current HEAD
-13. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{task-slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}` and fix any missing/stale gates before push
+13. Run the gate checker and fix any missing/stale gates before push:
+    ```bash
+    PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+    node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+      --manifest .pm/dev-sessions/{task-slug}.gates.json \
+      --commit "$(git rev-parse HEAD)" \
+      --base origin/{DEFAULT_BRANCH}
+    ```
 14. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
 15. **Before exiting**, write your structured result to ${RESULT_FILE}:
     On success:
@@ -162,14 +169,14 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
 ```
 
-**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${CLAUDE_PLUGIN_ROOT}` and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no `CLAUDE_PLUGIN_ROOT`, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these two.
+**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${PM_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_ROOT}`, and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no plugin-root env var, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these three.
 
 4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
 
    **Claude runtime:**
    ```text
    Bash(
-     command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
+     command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh\" \\
        --runtime claude \\
        --worktree {TASK_WORKTREE_PATH} \\
        --prompt-file {pm_state_dir}/runs/issue-{N}/prompt.txt \\

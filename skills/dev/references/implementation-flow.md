@@ -251,7 +251,8 @@ Multi-task agents execute these gates **per task** within their own worktree. Th
 Before any `git push` or `gh pr create`, run the shared checker against current HEAD:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}.gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
@@ -263,7 +264,8 @@ If the checker fails, stop and run the missing gate. For stale rows, run the fin
 
 ```bash
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
-node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
 git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```

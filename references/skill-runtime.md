@@ -6,6 +6,22 @@ Shared runtime contract for all PM skills. Each skill references the sections it
 
 ## Path Resolution
 
+PM skill files may still mention `${CLAUDE_PLUGIN_ROOT}` because Claude Code's plugin command contract historically used that name. Treat it as a legacy alias for the PM plugin root. For runtime-neutral shell commands, prefer `${PM_PLUGIN_ROOT}` and keep `${CLAUDE_PLUGIN_ROOT}` only as a fallback alias.
+
+Before running any shell snippet that executes a PM plugin script, ensure the plugin root is set:
+
+```bash
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -z "$PM_PLUGIN_ROOT" ]; then
+  echo "Set PM_PLUGIN_ROOT to the PM plugin root. In Codex, derive it from the loaded skill path: .../skills/<skill>/SKILL.md -> .../" >&2
+  exit 1
+fi
+export PM_PLUGIN_ROOT
+export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$PM_PLUGIN_ROOT}"
+```
+
+`scripts/dispatch-issue.sh` derives the plugin root from its own path and exports both names before launching Claude or Codex subprocesses, so multi-task subprocess prompts can use either placeholder safely.
+
 If `pm_dir` is not in conversation context, run:
 
 ```bash

@@ -85,7 +85,15 @@ Finally update `.pm/dev-sessions/{slug}.gates.json` with:
 
 Write or update only the `design-critique` row; preserve any existing `tdd`, `simplify`, `qa`, `review`, or `verification` rows.
 
-Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require design-critique` before returning.
+Run before returning:
+
+```bash
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --commit "$(git rev-parse HEAD)" \
+  --require design-critique
+```
 
 ## Done-when
 

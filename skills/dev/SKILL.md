@@ -40,7 +40,15 @@ When the task is classified XS (one-line fix, typo, config tweak) and the user c
 7. **QA if UI** — If the diff touches UI/UX files or user-visible interaction, run Quick QA, fix any Fail verdict, commit any fixes, and record `qa` as `passed` against the resulting HEAD. If there is no visual impact, record `qa` as `skipped` with a concrete reason. If the QA environment is blocked, record `qa: blocked` and stop.
 8. **Code scan** — Run a single-pass inline code scan (same brief as Step 07's XS/S code scan section). Fix any findings, re-run tests, commit any fixes, and record `Review gate: passed (commit <sha>)` plus the `review` gate row.
 9. **Verification + recertification** — Run the full project test suite fresh, read the output, record the `verification` gate row, then recertify earlier gate rows for the final HEAD using `verified_commit` / `verified_at` as described in `skills/dev/steps/07-review.md`.
-10. **Gate check** — Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}`. If it fails, fix the missing or stale gate before pushing.
+10. **Gate check** — Run:
+    ```bash
+    PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+    node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+      --manifest .pm/dev-sessions/{slug}.gates.json \
+      --commit "$(git rev-parse HEAD)" \
+      --base origin/{DEFAULT_BRANCH}
+    ```
+    If it fails, fix the missing or stale gate before pushing.
 11. **Ship** — `git push -u origin fix/{slug}`, create PR via `gh pr create`, squash-merge via `gh pr merge --squash --auto` or the merge loop. Wait for merge confirmation.
 12. **Status** — Update `{pm_dir}/backlog/{slug}.md` to `status: done` if it exists. Update Linear issue to Done if configured (ask user first).
 13. **Cleanup** — `git checkout {DEFAULT_BRANCH} && git pull && git branch -d fix/{slug}`.

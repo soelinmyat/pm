@@ -11,9 +11,10 @@
 # exiting. The orchestrator reads that file after the subprocess returns
 # to determine success/blocked and advance the plan.
 #
-# Prompt placeholders ${CLAUDE_PLUGIN_ROOT} and ${RESULT_FILE} are resolved to
-# absolute paths here before dispatch — the subprocess cannot resolve them
-# itself (no env var; the Read tool does not expand variables).
+# Prompt placeholders ${PM_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_ROOT}, and
+# ${RESULT_FILE} are resolved to absolute paths here before dispatch — the
+# subprocess cannot resolve them itself (no env var; the Read tool does not
+# expand variables).
 
 set -euo pipefail
 
@@ -63,11 +64,13 @@ done
 [[ -d "$WORKTREE"   ]] || { echo "worktree not found: $WORKTREE"   >&2; exit 2; }
 
 # Derive the plugin root from this script's own location. A spawned subprocess
-# has no CLAUDE_PLUGIN_ROOT env var; export it so plugin-relative shell paths
-# resolve, and use it for prompt substitution below.
+# has no plugin-root env var; export the runtime-neutral PM_PLUGIN_ROOT plus
+# the legacy CLAUDE_PLUGIN_ROOT alias so plugin-relative shell paths resolve,
+# and use both for prompt substitution below.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-export CLAUDE_PLUGIN_ROOT
+PM_PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLAUDE_PLUGIN_ROOT="$PM_PLUGIN_ROOT"
+export PM_PLUGIN_ROOT CLAUDE_PLUGIN_ROOT
 
 LOG_FILE="${LOG_FILE:-${RESULT_FILE%.json}.log}"
 mkdir -p "$(dirname "$RESULT_FILE")" "$(dirname "$LOG_FILE")"
@@ -111,14 +114,19 @@ trap cleanup EXIT
 
 # Resolve prompt placeholders the subprocess cannot resolve itself, then feed
 # the rewritten prompt (not the original) to the runtime:
-#   ${CLAUDE_PLUGIN_ROOT} -> absolute plugin root, so reference files are Readable
+#   ${PM_PLUGIN_ROOT}     -> absolute plugin root, so reference files are readable
+#   ${CLAUDE_PLUGIN_ROOT} -> same absolute plugin root, for legacy prompts
 #   ${RESULT_FILE}        -> absolute result path, so the agent writes where we check
 RESOLVED_PROMPT="$(mktemp)"
 prompt_body="$(cat "$PROMPT_FILE")"
 # shellcheck disable=SC2016 # Single quotes are intentional: we want the LITERAL
+# string "${PM_PLUGIN_ROOT}" as the search pattern in ${var//pat/replacement},
+# not its expansion. The replacement (right of the slash) is the expanded value.
+prompt_body="${prompt_body//'${PM_PLUGIN_ROOT}'/$PM_PLUGIN_ROOT}"
+# shellcheck disable=SC2016 # Single quotes are intentional: we want the LITERAL
 # string "${CLAUDE_PLUGIN_ROOT}" as the search pattern in ${var//pat/replacement},
 # not its expansion. The replacement (right of the slash) is the expanded value.
-prompt_body="${prompt_body//'${CLAUDE_PLUGIN_ROOT}'/$CLAUDE_PLUGIN_ROOT}"
+prompt_body="${prompt_body//'${CLAUDE_PLUGIN_ROOT}'/$PM_PLUGIN_ROOT}"
 # shellcheck disable=SC2016
 prompt_body="${prompt_body//'${RESULT_FILE}'/$RESULT_FILE}"
 printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"

@@ -129,10 +129,11 @@ test("XS Express records every default gate before push", () => {
   assert.match(block[0], /record `qa` as `passed`/);
   assert.match(block[0], /record `qa` as `skipped` with a concrete reason/);
   assert.match(block[0], /recertify earlier gate rows/);
-  assert.match(
-    block[0],
-    /dev-gate-check\.js --manifest .* --commit "\$\(git rev-parse HEAD\)" --base origin\/\{DEFAULT_BRANCH\}/
-  );
+  assert.match(block[0], /PM_PLUGIN_ROOT/);
+  assert.match(block[0], /scripts\/dev-gate-check\.js/);
+  assert.match(block[0], /--manifest .pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(block[0], /--commit "\$\(git rev-parse HEAD\)"/);
+  assert.match(block[0], /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.doesNotMatch(block[0], /--require tdd,design-critique,review,verification/);
 });
 
@@ -158,8 +159,31 @@ test("multi-task implementation prompt uses branch slug for gate sidecar", () =>
   assert.match(prompt[0], /\*\*Parent RFC slug:\*\* \{parent_slug\}/);
   assert.match(prompt[0], /\*\*Task\/session slug:\*\* \{task-slug\}/);
   assert.match(prompt[0], /\.pm\/dev-sessions\/\{task-slug\}\.gates\.json/);
+  assert.match(prompt[0], /PM_PLUGIN_ROOT/);
   assert.match(prompt[0], /pre-push hook derives the required manifest from `feat\/\{task-slug\}`/);
   assert.doesNotMatch(prompt[0], /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+});
+
+test("runtime shell snippets use PM_PLUGIN_ROOT with CLAUDE fallback", () => {
+  const files = [
+    "references/skill-runtime.md",
+    "skills/dev/SKILL.md",
+    "skills/dev/steps/05-implementation.md",
+    "skills/dev/steps/06-simplify.md",
+    "skills/dev/steps/07-review.md",
+    "skills/dev/references/implementation-flow.md",
+    "skills/dev/references/state-schema.md",
+    "skills/design-critique/steps/03-critique.md",
+    "skills/review/SKILL.md",
+    "skills/ship/steps/04-push.md",
+    "skills/ship/steps/07-merge-loop.md",
+  ];
+  for (const file of files) {
+    const text = read(file);
+    assert.match(text, /PM_PLUGIN_ROOT/, `${file} must mention PM_PLUGIN_ROOT`);
+  }
+  assert.match(read("references/skill-runtime.md"), /legacy alias/);
+  assert.match(read("scripts/dispatch-issue.sh"), /export PM_PLUGIN_ROOT CLAUDE_PLUGIN_ROOT/);
 });
 
 test("dev review step blocks QA environment failures instead of skipping them", () => {

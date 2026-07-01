@@ -42,7 +42,14 @@ After simplify completes and all findings are fixed:
 1. Run the full test suite to verify nothing broke
 2. Commit all simplification fixes
 3. Update `.pm/dev-sessions/{slug}.gates.json` with `simplify: passed`, `commit` set to `git rev-parse HEAD`, `artifact` pointing to the simplify report or state section, and an empty reason
-4. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require simplify`
+4. Run:
+   ```bash
+   PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+   node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+     --manifest .pm/dev-sessions/{slug}.gates.json \
+     --commit "$(git rev-parse HEAD)" \
+     --require simplify
+   ```
 5. Proceed to review (or design critique if UI changes exist)
 
 ## Done-when

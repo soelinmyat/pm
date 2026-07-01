@@ -115,18 +115,19 @@ Both runtimes support this via their non-interactive CLI:
 
 Because the separate credit is paused, subprocess dispatch is **not** gated by `PM_ALLOW_SUBPROCESS`. `dispatch-issue.sh` starts the Claude subprocess directly. The dispatcher still detects normal usage-limit, usage-credit, quota, and rate-limit rejections in the subprocess log and emits a clear `blocked` result instead of an opaque crash.
 
-The orchestrator dispatches via `${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh`, which abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
+The orchestrator dispatches via `scripts/dispatch-issue.sh`, using `PM_PLUGIN_ROOT` as the runtime-neutral plugin root and `CLAUDE_PLUGIN_ROOT` as a legacy fallback alias. The script abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
 
 ### Placeholder resolution
 
-`prompt.txt` may carry two `${...}` placeholders that the subprocess cannot resolve on its own — it has no `CLAUDE_PLUGIN_ROOT` env var, and a relative path written from inside the worktree resolves differently than the orchestrator expects. `dispatch-issue.sh` rewrites both to absolute paths before the subprocess runs:
+`prompt.txt` may carry three `${...}` placeholders that the subprocess cannot resolve on its own — it has no plugin-root env var, and a relative path written from inside the worktree resolves differently than the orchestrator expects. `dispatch-issue.sh` rewrites them to absolute paths before the subprocess runs:
 
 | Placeholder | Resolved to |
 |-------------|-------------|
-| `${CLAUDE_PLUGIN_ROOT}` | the plugin root, derived from the dispatcher's own location |
+| `${PM_PLUGIN_ROOT}` | the plugin root, derived from the dispatcher's own location |
+| `${CLAUDE_PLUGIN_ROOT}` | the same plugin root, kept for legacy prompts |
 | `${RESULT_FILE}` | the absolute form of the `--result-file` argument |
 
-Write these two placeholders **literally** into `prompt.txt` — do not hand-expand them, and do not escape them away. The dispatcher is the single source of truth.
+Write these placeholders **literally** into `prompt.txt` — do not hand-expand them, and do not escape them away. The dispatcher is the single source of truth.
 
 ### Result contract
 
@@ -168,7 +169,7 @@ Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude'
 Claude runtime:
 ```text
 Bash(
-  command: "bash ${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \\
+  command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh\" \\
     --runtime claude \\
     --worktree $WORKTREE_PATH \\
     --prompt-file .pm/runs/issue-$N/prompt.txt \\
@@ -263,15 +264,15 @@ wait_agent([agent_id])
 
 ```bash
 # Build the per-issue prompt (orchestrator). The heredoc is single-quoted so
-# ${CLAUDE_PLUGIN_ROOT} and ${RESULT_FILE} land literally — dispatch-issue.sh
-# resolves them to absolute paths before the subprocess runs.
+# ${PM_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_ROOT}, and ${RESULT_FILE} land literally —
+# dispatch-issue.sh resolves them to absolute paths before the subprocess runs.
 cat > .pm/runs/issue-1/prompt.txt <<'EOF'
 Implement and ship PM-145 Issue 1.
 RFC: pm/backlog/rfcs/qr-download-unified.html
 Worktree: .worktrees/qr-issue-1
 Branch: feat/qr-issue-1
 
-Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
+Read ${PM_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
 Own everything from impl through merged PR. Do NOT exit until merged or blocked.
 
 Before exiting, write your result JSON to ${RESULT_FILE} (schema in agent-runtime.md).
@@ -279,7 +280,8 @@ EOF
 
 # Dispatch (orchestrator). Claude paused the separate Agent SDK credit split,
 # so `claude -p` currently draws from normal subscription usage limits.
-bash \${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-issue.sh \
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+bash "$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh" \
   --runtime claude \
   --worktree .worktrees/qr-issue-1 \
   --prompt-file .pm/runs/issue-1/prompt.txt \

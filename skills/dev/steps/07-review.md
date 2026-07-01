@@ -37,7 +37,8 @@ Before running this step, ensure `.pm/dev-sessions/{slug}.gates.json` exists:
 After every gate below, update that sidecar using the schema in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`. The checker is the enforcement point:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}.gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
@@ -206,7 +207,7 @@ High-confidence findings (80+) are auto-fixed and committed. Worth-checking find
 - [ ] Verification gate passed (see below)
 - [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
 - [ ] `.pm/dev-sessions/{slug}.gates.json` updated with `review: passed` for the same commit
-- [ ] `node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review` passes
+- [ ] `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"; node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review` passes
 
 #### Code scan (XS/S — HARD GATE)
 
@@ -277,7 +278,8 @@ Append a short state note:
 Before handing off to ship, run the shared checker:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}.gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}

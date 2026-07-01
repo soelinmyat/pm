@@ -10,6 +10,8 @@ The fallback symlink flow below creates explicit `pm-*` aliases on disk for ever
 
 In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as `pm:groom` and `pm:dev`. Treat the alias directory names as an installation detail, not the public skill names.
 
+Runtime note: PM skill text may still mention `${CLAUDE_PLUGIN_ROOT}` because the Claude command contract historically used that placeholder. In Codex, treat it as a legacy alias for the PM plugin root. For shell commands that run PM scripts, set `PM_PLUGIN_ROOT` to your PM clone or loaded plugin root, for example `export PM_PLUGIN_ROOT=~/.agents/vendor/pm`. PM subprocess dispatch exports both `PM_PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` automatically.
+
 The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
 
 ## Prerequisites

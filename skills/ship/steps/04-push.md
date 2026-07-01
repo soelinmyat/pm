@@ -28,7 +28,8 @@ Before running `git push`, ensure `.pm/dev-sessions/{slug}.gates.json` has a cur
 Then run the shared PM gate checker against current HEAD:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}.gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}

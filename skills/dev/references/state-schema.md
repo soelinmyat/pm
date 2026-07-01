@@ -93,7 +93,8 @@ Rules:
 - Before final verification, run the final recertification pass in `skills/dev/steps/07-review.md`: rerun any gate whose relevant surface changed after its evidence commit, or write `verified_commit` / `verified_at` when the gate evidence still applies to final HEAD.
 - Before any PM-mediated push, PR creation, or ship handoff, run:
   ```bash
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js \
+  PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+  node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
     --manifest .pm/dev-sessions/{slug}.gates.json \
     --commit "$(git rev-parse HEAD)" \
     --base origin/{DEFAULT_BRANCH}
@@ -172,7 +173,7 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}.gates.json
-- Checker: node ${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)"
+- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)"`
 - Required before push: tdd, simplify, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch
