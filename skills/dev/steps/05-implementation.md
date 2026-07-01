@@ -52,7 +52,7 @@ handled by the orchestrator after you return.
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
-3. Read the RFC end-to-end and implement all issues
+3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation
 4. Run the project test suite — all tests must pass
 5. Commit implementation changes
 
@@ -125,8 +125,7 @@ or you write a blocked result. Do not exit until one of those happens.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
-Read the RFC. Focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also
-contains shared architecture and data model sections that apply to your issue.
+Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
 
 Lifecycle tracking: before each step, write your current stage to a tracking file:
   echo "{stage}" > .dev-lifecycle-stage
@@ -136,7 +135,7 @@ This file is NOT committed — it's for recovery if you fail mid-lifecycle.
 Lifecycle:
 1. cd {TASK_WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
-3. Read the RFC, focus on Issue {N}, implement its tasks
+3. Read the RFC Execution Contract, focus on Issue {N}, implement its tasks
 4. Run the project test suite — all tests must pass
 5. Commit implementation changes
 6. Invoke pm:simplify — fix findings, run tests, commit

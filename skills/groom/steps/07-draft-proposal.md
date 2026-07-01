@@ -53,9 +53,10 @@ If the feature type is UI, link to wireframes from Design (Step 6). Design owns 
 
 #### Step 3: Assemble proposal content
 
-Gather all product context into a coherent proposal narrative. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. The body has twelve Roman-numeralled sections preceded by a TL;DR block. Source content for each section from:
+Gather all product context into a coherent layered proposal. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. The body has a Decision Brief, an Execution Contract, and an Appendix body with twelve Roman-numeralled sections. Source content for each layer and section from:
 
-- **TL;DR** (pre-section) — three lines: **For** (audience), **What** (the smallest shippable set), **Why now** (the time-pressure or strategic reason). The frontmatter `outcome:` field becomes the lede paragraph under the H1 — keep it to one sentence.
+- **Decision Brief** (pre-section) — three TL;DR lines plus a <= 120-word approval recommendation. It must state For, What, Why now, smallest useful scope, biggest risk, and any decision still needed. The frontmatter `outcome:` field becomes the lede paragraph under the H1 — keep it to one sentence.
+- **Execution Contract** (pre-section) — structured handoff for agents. Include scope, non-goals, acceptance criteria, edge cases, success metrics, and open decisions. If this block conflicts with appendix prose, the contract wins and the prose must be revised before approval.
 - **I. Problem & Context** — from research (user pain, market signal, strategic driver). Include one verbatim evidence quote as a blockquote when one exists.
 - **II. Users & Job to be Done** — Primary JTBD in "When I X, I want to Y, so I can Z" form. 1–2 personas (Primary required, Secondary only when meaningfully different).
 - **III. Use Cases** — top 2–4 ranked scenarios. Each has Trigger / Action / Result.
@@ -68,6 +69,7 @@ Gather all product context into a coherent proposal narrative. Use the exact sec
 - **X. Open Questions** — each open question carries a **Recommendation**, **Owner**, and **By** date so reviewers can confirm or override. Resolved questions go into a `<details>` block at the end of this section.
 - **XI. Success Metrics** — leading indicators from scope validation (Q4: "What does success look like in 90 days?"). Table: Metric | Baseline | Target | By. Optional **Caveat** paragraph naming the assumption that would invalidate the metrics. Use leading indicators, not lagging metrics like revenue.
 - **XII. Status & Next Steps** — bulleted pipeline of grooming steps completed (Intake, Strategy check, Research, Scope, Scope review, Team review if full, Bar raiser if full), each with a one-clause verdict. Closing line invokes `pm:rfc {slug}` and `pm:dev {slug}`. If `stale_research` in groom session state is non-empty, append a **Freshness note** at the end of this section. Format: "'{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update." Omit entirely if empty.
+- **Appendix discipline** — evidence, alternatives, citations, flow details, feasibility details, and review notes live in the numbered sections. Keep the default brief/contract path compact; the appendix can be longer.
 
 **Wireframes are not a section.** When a UI prototype exists, the markdown surfaces it as a link inside the TL;DR block and the HTML renderer embeds it as a hero-prototype figure between the title and TL;DR (see Step 5 below).
 
@@ -109,9 +111,11 @@ Behavior depends on the current `groom_tier` from session state.
    2. **Title block** (`<div class="title-block">`) — `<h1>{title}</h1>` followed by `<p class="lede">{outcome sentence from frontmatter}</p>`.
    3. **Hero prototype** (`<figure class="hero-prototype">`) — only when a UI prototype exists. See "Hero prototype" sub-rules below.
    4. **TL;DR** (`<div class="tldr">`) — `<dl>` with three `<dt>`/`<dd>` pairs: For / What / Why now.
-   5. **TOC** (`<nav class="toc" aria-label="Sections">`) — twelve `<a>` links, each containing `<span class="toc-num">{Roman}</span>` plus a short label. Three-column rule-divided layout; styling is in the reference template.
-   6. **Twelve sections** in fixed order, each `<section id="{anchor}">` with `<h2><span class="sec-num">{Roman}</span>{Section name}</h2>`. Anchor IDs are fixed: `problem`, `jtbd`, `usecases`, `scope`, `requirements`, `edge`, `flow`, `competitive`, `feasibility`, `open-q`, `metrics`, `status`. See the per-section patterns below.
-   7. **Footer** (`<footer>`) — two spans: "`{ID} · {Title}`" and "`Product Proposal · {date}`".
+   5. **Decision brief** (`<section class="decision-brief">`) — one <= 120-word approval recommendation. Do not wrap it in a card.
+   6. **Execution contract** (`<section class="execution-contract">`) — compact table or definition list for Scope / Non-goals / Acceptance criteria / Edge cases / Success metrics / Open decisions.
+   7. **TOC** (`<nav class="toc" aria-label="Sections">`) — twelve `<a>` links, each containing `<span class="toc-num">{Roman}</span>` plus a short label. Three-column rule-divided layout; styling is in the reference template.
+   8. **Twelve appendix sections** in fixed order, each `<section id="{anchor}">` with `<h2><span class="sec-num">{Roman}</span>{Section name}</h2>`. Anchor IDs are fixed: `problem`, `jtbd`, `usecases`, `scope`, `requirements`, `edge`, `flow`, `competitive`, `feasibility`, `open-q`, `metrics`, `status`. See the per-section patterns below.
+   9. **Footer** (`<footer>`) — two spans: "`{ID} · {Title}`" and "`Product Proposal · {date}`".
 
    **Per-section patterns** (use the listed wrapper components from the reference template — do NOT invent new class names):
 

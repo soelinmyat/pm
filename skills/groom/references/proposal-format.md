@@ -10,6 +10,18 @@ The final output is a single `type: backlog` document at `{pm_dir}/backlog/{topi
 
 No other step may contradict the schema or the reference template. If a conflict is found, the schema wins for frontmatter; the reference template wins for HTML structure.
 
+## Layered artifact contract
+
+Every proposal has three reader layers. Keep them in this order so humans and agents can stop at the right depth:
+
+1. **Decision Brief** — verdict-first prose for human approval. Target <= 400 words. It answers: who, what, why now, scope, biggest risk, and open decision.
+2. **Execution Contract** — structured agent handoff. Target <= 900 words. It captures scope, non-goals, acceptance criteria, edge cases, success metrics, and unresolved decisions.
+3. **Appendix** — evidence, alternatives, citations, research notes, flow detail, feasibility detail, and review notes. It may be long, but it is outside the default read path.
+
+**Contract wins:** if prose and the Execution Contract disagree, fix the prose before approval. Agents should execute from the contract.
+
+**Budget enforcement:** warn first for word budgets. Required layer presence is blocking; exact word counts are not blocking until the format has been dogfooded.
+
 ## ID Assignment
 
 When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
@@ -18,9 +30,10 @@ When an issue tracker is available (Linear) and a Linear issue is created or alr
 
 A finished proposal has three layers stacked top-to-bottom:
 
-1. **Header block** — frontmatter (machine), title + lede (the outcome restated as one sentence), optional hero prototype figure, TL;DR (For / What / Why now), table of contents.
-2. **Twelve numbered sections** (I–XII) — the body. Order is fixed. Roman numerals in the rendered HTML; H2 headings in the markdown.
-3. **Closing** — status pipeline and next-step command.
+1. **Decision Brief block** — frontmatter (machine), title + lede, optional hero prototype figure, TL;DR (For / What / Why now), and one short verdict paragraph.
+2. **Execution Contract block** — a compact, structured handoff before the long body. This is the default agent read path.
+3. **Appendix body** — the twelve numbered sections (I–XII). Order is fixed. Roman numerals in the rendered HTML; H2 headings in the markdown.
+4. **Closing** — status pipeline and next-step command.
 
 The markdown body need not visually mimic the HTML — it just needs to carry the same information, organized under the same section headings, so the HTML renderer can produce the reference layout deterministically.
 
@@ -53,6 +66,8 @@ updated: YYYY-MM-DD
 - **What** — {what ships — the smallest set of components needed to deliver the outcome}
 - **Why now** — {the time-pressure or strategic reason this is the right quarter, not next}
 
+**Decision Brief.** {One short paragraph, <= 120 words, that states the approval recommendation, the smallest useful scope, the biggest risk, and any decision still needed.}
+
 {If a UI prototype exists, link it here for the markdown reader:
 - Single-file: `[Prototype]({pm_dir}/backlog/wireframes/{slug}.html)`
 - Multi-file (3+ screens): `[Prototype]({pm_dir}/backlog/wireframes/{slug}/index.html)`
@@ -61,6 +76,19 @@ The HTML renderer (Step 7) reads the wireframe's metadata per
 `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6 and
 embeds it as a hero-prototype figure between the title block and TL;DR.
 For non-visual features, omit the prototype link entirely.}
+
+**Execution Contract.** Agents execute from this block. If it conflicts with the appendix prose, revise the prose before approval.
+
+| Field | Contract |
+|---|---|
+| **Scope** | {3–6 compact bullets or one sentence list of what ships} |
+| **Non-goals** | {3–6 compact bullets or one sentence list of what is explicitly out} |
+| **Acceptance criteria** | {Numbered, testable conditions. Keep implementation detail out unless it is a hard constraint.} |
+| **Edge cases** | {Boundary cases the implementation must handle} |
+| **Success metrics** | {Leading indicators from Section XI} |
+| **Open decisions** | {Questions that still need a human call, or "None"} |
+
+**Appendix.** The numbered sections below are the detail layer. Keep them rigorous, but do not force reviewers or agents to read all of them before they can decide or execute.
 
 ## I. Problem & Context
 

@@ -42,7 +42,11 @@ Load the task context, classify the work correctly, and create the initial dev s
    | fetch failed | Ask user to paste the issue description. Proceed with pasted text. |
 
    Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps`.
-4. **Discover tasks from RFC** — After resolving the backlog item, check if it has a non-null `rfc:` field. If so, read the RFC HTML file at `{pm_dir}/backlog/{rfc_field}` (the `rfc:` value is relative to `{pm_dir}/backlog/`). Parse the RFC Issue sections by finding elements with class `.issue-detail`. For each, extract:
+4. **Discover tasks from RFC** — After resolving the backlog item, check if it has a non-null `rfc:` field. If so, read the RFC HTML file at `{pm_dir}/backlog/{rfc_field}` (the `rfc:` value is relative to `{pm_dir}/backlog/`).
+
+   **Layered RFC preference.** If the RFC contains `id="execution-contract"`, read that section first and store a compact summary in the session state under `## Execution Contract`. This is the default agent handoff. It should contain scope, non-goals, files, dependencies, AC summary, Test hooks, verification commands, and open implementation questions.
+
+   **Legacy fallback.** Whether or not an Execution Contract exists, parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards remain the task-discovery contract for both new layered RFCs and legacy RFCs. For each, extract:
    - Issue number from `.issue-detail-num`
    - Title from `.issue-detail-title`
    - Size from `.issue-detail-size`
@@ -58,6 +62,8 @@ Load the task context, classify the work correctly, and create the initial dev s
    ```
 
    If no RFC exists (XS/S work, or RFC not yet generated), set `task_count = 1` and create a single-row `## Tasks` table from the proposal title.
+
+   If a current schema-v2 RFC has no `id="execution-contract"`, warn: `Layered RFC missing Execution Contract — proceeding with legacy issue-card parsing.` Do not hard-abort unless the existing issue-card parser fails.
 
    **Linear enrichment (optional):** If Linear MCP is available and `linear_id` is set, fetch sub-issues via `list_issues({ parentId })` for **status sync only** (setting "In Progress" on sub-issues during implementation). Do NOT use Linear sub-issues for task decomposition — the RFC is the single source of truth.
 5. **Classify size:**
