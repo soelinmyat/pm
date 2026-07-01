@@ -16,3 +16,6 @@ pm/
 
 # SWE-bench eval harness (internal)
 tools/swe-bench/
+
+# PM behavioral eval local run artifacts
+eval-results/

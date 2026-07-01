@@ -26,10 +26,14 @@ jobs:
       - name: Prettier
         run: npx prettier --check .
 
+      - name: Eval static check
+        run: npm run eval:check
+
       - name: ShellCheck
         run: |
           sudo apt-get install -y shellcheck
-          find .githooks/ hooks/ scripts/ -name '*.sh' -type f | xargs shellcheck
+          # Includes evals/**/*.sh scenario setup and check files.
+          find .githooks/ hooks/ scripts/ evals/ -name '*.sh' -type f | xargs shellcheck
 
   test:
     name: Tests
