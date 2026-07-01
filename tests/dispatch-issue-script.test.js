@@ -33,7 +33,7 @@ describe("dispatch-issue.sh", () => {
   // End-to-end check of placeholder resolution + result-file path handling.
   // A stub `claude` on PATH stands in for the real runtime: it captures the
   // resolved prompt and writes a result where the prompt tells it to.
-  it("resolves ${CLAUDE_PLUGIN_ROOT} / ${RESULT_FILE} and locates the result file from any cwd", () => {
+  it("resolves plugin root placeholders / ${RESULT_FILE} and locates the result file from any cwd", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-"));
     try {
       const worktree = path.join(tmp, "wt");
@@ -52,6 +52,7 @@ describe("dispatch-issue.sh", () => {
         "set -euo pipefail",
         'prompt="$(cat)"',
         `printf '%s' "$prompt" > ${JSON.stringify(promptDump)}`,
+        `printf '\\nENV_PM_PLUGIN_ROOT=%s\\nENV_CLAUDE_PLUGIN_ROOT=%s\\n' "$PM_PLUGIN_ROOT" "$CLAUDE_PLUGIN_ROOT" >> ${JSON.stringify(promptDump)}`,
         `rf="$(printf '%s\\n' "$prompt" | sed -n 's/^RESULT_PATH=//p')"`,
         'echo \'{"status":"merged","issue_id":"PM-1.1","pr":1,"merge_sha":"abc","files_changed":1}\' > "$rf"',
       ].join("\n");
@@ -63,7 +64,8 @@ describe("dispatch-issue.sh", () => {
       const promptFile = path.join(tmp, "prompt.txt");
       fs.writeFileSync(
         promptFile,
-        "Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md\n" +
+        "Read ${PM_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md\n" +
+          "Legacy ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md\n" +
           "RESULT_PATH=${RESULT_FILE}\n"
       );
 
@@ -107,6 +109,10 @@ describe("dispatch-issue.sh", () => {
 
       const received = fs.readFileSync(promptDump, "utf8");
       assert.ok(
+        !received.includes("${PM_PLUGIN_ROOT}"),
+        "${PM_PLUGIN_ROOT} must be resolved before the subprocess sees it"
+      );
+      assert.ok(
         !received.includes("${CLAUDE_PLUGIN_ROOT}"),
         "${CLAUDE_PLUGIN_ROOT} must be resolved before the subprocess sees it"
       );
@@ -117,7 +123,17 @@ describe("dispatch-issue.sh", () => {
       assert.match(
         received,
         /Read \/.+\/skills\/dev\/references\/implementation-flow\.md/,
-        "${CLAUDE_PLUGIN_ROOT} must resolve to an absolute plugin path"
+        "${PM_PLUGIN_ROOT} must resolve to an absolute plugin path"
+      );
+      assert.match(
+        received,
+        /Legacy \/.+\/skills\/dev\/references\/implementation-flow\.md/,
+        "${CLAUDE_PLUGIN_ROOT} legacy alias must resolve to an absolute plugin path"
+      );
+      assert.match(
+        received,
+        /ENV_PM_PLUGIN_ROOT=\/.+\nENV_CLAUDE_PLUGIN_ROOT=\/.+/,
+        "dispatcher must export both plugin-root env vars to subprocesses"
       );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

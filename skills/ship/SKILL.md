@@ -27,7 +27,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## State File
 
-The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name (e.g., `feat/add-auth` → `.pm/dev-sessions/add-auth.md`). To find it: derive slug from `git branch --show-current`, stripping the `feat/`/`fix/`/`chore/` prefix. If not found, check legacy path `.dev-state-{slug}.md`.
+The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` (`deriveSessionSlug` in `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js`). Examples: `feat/add-auth` -> `.pm/dev-sessions/add-auth.md`; `codex/pm-dev-workflow-proposal` -> `.pm/dev-sessions/pm-dev-workflow-proposal.md`. If not found, check legacy path `.dev-state-{slug}.md`.
 
 ## References
 

@@ -11,20 +11,20 @@ Report-only QA gate for the dev lifecycle. Tests the running app using DOM asser
 | Mode | How invoked | Lifecycle |
 |------|-------------|-----------|
 | **Persistent worker** (preferred) | Dev dispatches a persistent QA worker `qa-{slug}` | Stays alive across fix-and-retest iterations when the runtime supports it. Phase 0-2 run once. Re-verify via resume message. |
-| **Standalone** | User invokes `pm:qa` directly | One-shot. Full Phase 0-6 each time. |
+| **Manual reference run** | A user or agent explicitly asks to run QA and reads this reference file | One-shot. Full Phase 0-6 each time. |
 
-**Persistent worker mode** is the default when called from `/dev`. The dev orchestrator dispatches this skill through the runtime adapter in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`. On re-verify, the orchestrator resumes the same worker — the worker skips environment setup and re-runs only the relevant assertions.
+**Persistent worker mode** is the default when called from `/dev`. The dev orchestrator dispatches a worker that reads this reference through the runtime adapter in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`. On re-verify, the orchestrator resumes the same worker — the worker skips environment setup and re-runs only the relevant assertions.
 
-**Standalone mode** is for ad-hoc QA outside a dev session (e.g., `pm:qa --page /dashboard`). Runs the full lifecycle as a one-shot.
+**Manual reference mode** is for ad-hoc QA outside a dev session. This repository does not install a standalone `pm:qa` command or skill; read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md` directly when QA is requested outside `/dev`.
 
 ### Detecting mode
 
 ```
 Spawned as persistent worker with feature/AC context in prompt  →  Persistent
-Invoked as pm:qa skill with arguments                     →  Standalone
+Asked to run QA by reading this reference file            →  Manual reference
 ```
 
-In persistent mode, all context (feature, ACs, routes, platform, tier) comes from the spawn prompt. In standalone mode, context comes from arguments and the session file.
+In persistent mode, all context (feature, ACs, routes, platform, tier) comes from the spawn prompt. In manual reference mode, context comes from the user's request and the session file.
 
 ## Telemetry (opt-in)
 
@@ -33,7 +33,7 @@ If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
 Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for runtime-specific worker dispatch.
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-Minimum coverage for `pm:qa`:
+Minimum coverage for this QA reference:
 - run start / run end
 - one step span for `environment-readiness`
 - one step span for `orient`
@@ -56,12 +56,12 @@ Minimum coverage for `pm:qa`:
 
 The dev orchestrator dispatches this as a persistent QA worker. See `implementation-flow.md` Step 5 for the spawn pattern. The worker receives all context in its prompt and stays resumable for re-verify iterations.
 
-**Standalone:**
+**Manual reference run:**
 
 ```
-pm:qa --page /dashboard
-pm:qa --feature "user onboarding flow"
-pm:qa --diff
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md and run QA for /dashboard.
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md and run QA for "user onboarding flow".
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md and run diff-aware QA.
 ```
 
 **Arguments:**
@@ -69,9 +69,9 @@ pm:qa --diff
 | Arg | Effect | Mode |
 |-----|--------|------|
 | `--quick` | Force Quick tier regardless of session size | Both |
-| `--page <route>` | Test a specific route | Standalone |
-| `--feature <desc>` | Test by feature description | Standalone |
-| `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` | Standalone |
+| `--page <route>` | Test a specific route | Manual reference |
+| `--feature <desc>` | Test by feature description | Manual reference |
+| `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` | Manual reference |
 | `--mobile` | Force mobile platform (Maestro MCP) | Both |
 | `--visual` | Include visual layers (L2: token/style fidelity, L5: layout judgment) | Both |
 
@@ -209,7 +209,7 @@ If server or auth fails: Blocked. If seed or routes partially fail: note finding
 
 **Persistent agent mode:** All context (feature, ACs, routes, platform, tier) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}.md` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
 
-**Standalone mode:** If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current`, stripping `feat/`/`fix/`/`chore/` prefix):
+**Manual reference mode:** If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current` using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`):
 
 - Extract: feature description, platform, affected routes, **acceptance criteria**, dev size
 
@@ -362,7 +362,7 @@ With --visual flag:
   Run: All 5 layers
 ```
 
-**Rationale:** QA's unique value is functional correctness — does the data render right, do interactions work, do state transitions happen. Visual concerns (design tokens, layout composition, style consistency) are the domain of design critique, which runs as a separate stage. When visual QA is needed without design critique (e.g., standalone invocation), pass `--visual`.
+**Rationale:** QA's unique value is functional correctness — does the data render right, do interactions work, do state transitions happen. Visual concerns (design tokens, layout composition, style consistency) are the domain of design critique, which runs as a separate stage. When visual QA is needed without design critique (e.g., a manual reference run), pass `--visual`.
 
 Log the decision:
 ```
@@ -688,7 +688,7 @@ Append structured report to `.pm/dev-sessions/{slug}.md` under `## QA`:
 | Accessibility | {score} | {count} | {STRUCTURAL} |
 ```
 
-### Standalone mode (no dev session)
+### Manual reference mode (no dev session)
 
 Write full report to `/tmp/qa/{feature}/report.md`.
 
@@ -746,9 +746,9 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 - Phase 2 (charter already built)
 - Layers 2+5 (only run if `--visual` was set on initial spawn)
 
-### Re-verify flow (standalone mode)
+### Re-verify flow (manual reference mode)
 
-For standalone invocations, re-verify works the old way:
+For manual reference runs, re-verify works the old way:
 
 1. Read previous findings from `.pm/dev-sessions/{slug}.md` `## QA` section
 2. Re-run Phase 0 (environment readiness — cold start needed)
@@ -764,7 +764,7 @@ Append to existing `## QA` section. Do NOT overwrite previous runs.
 - **Updated verdict:** {Pass/Pass with concerns/Fail}
 - **Previous health:** {score}/100
 - **Updated health:** {score}/100
-- **Mode:** persistent-agent | standalone
+- **Mode:** persistent-agent | manual-reference
 
 #### Fixed
 - [HIGH] Font size mismatch on .card-title — FIXED (now 18px, was 14px)
@@ -799,7 +799,7 @@ curl -sf http://localhost:3000/health > /dev/null 2>&1 || echo "API down"
 curl -sf http://localhost:5173 > /dev/null 2>&1 || echo "Vite down"
 ```
 
-### Standalone mode
+### Manual reference mode
 
 Same as before — start servers at Phase 0, kill on completion:
 
@@ -811,7 +811,7 @@ lsof -ti :8081 | xargs kill 2>/dev/null || true   # Metro
 ```
 
 <HARD-RULE>
-ALWAYS kill servers you started when QA is fully done (final passing verdict in persistent mode, or completion in standalone mode). In persistent mode, do NOT kill servers between re-verify iterations.
+ALWAYS kill servers you started when QA is fully done (final passing verdict in persistent mode, or completion in manual reference mode). In persistent mode, do NOT kill servers between re-verify iterations.
 </HARD-RULE>
 
 ---
@@ -821,7 +821,7 @@ ALWAYS kill servers you started when QA is fully done (final passing verdict in 
 QA reads from and writes to `.pm/dev-sessions/{slug}.md`.
 
 **Reads:**
-- Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — standalone only; persistent agent gets these from spawn prompt)
+- Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — manual reference mode only; persistent agent gets these from spawn prompt)
 - Dev session size for tier detection (Phase 1)
 - Design critique status for layer selection (Phase 3)
 

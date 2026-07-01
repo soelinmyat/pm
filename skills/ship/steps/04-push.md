@@ -21,6 +21,22 @@ Read AGENTS.md for any pre-push hook setup commands the project requires. Common
 
 Run any documented setup commands before pushing.
 
+### Dev gate checker
+
+Before running `git push`, ensure `.pm/dev-sessions/{slug}.gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
+
+Then run the shared PM gate checker against current HEAD:
+
+```bash
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --commit "$(git rev-parse HEAD)" \
+  --base origin/{DEFAULT_BRANCH}
+```
+
+If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
+
 ### Attempt push
 
 Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). If no upstream tracking branch exists, use `git push -u origin HEAD`.

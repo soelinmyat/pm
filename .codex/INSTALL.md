@@ -10,6 +10,8 @@ The fallback symlink flow below creates explicit `pm-*` aliases on disk for ever
 
 In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as `pm:groom` and `pm:dev`. Treat the alias directory names as an installation detail, not the public skill names.
 
+Runtime note: PM skill text may still mention `${CLAUDE_PLUGIN_ROOT}` because the Claude command contract historically used that placeholder. In Codex, treat it as a legacy alias for the PM plugin root. For shell commands that run PM scripts, set `PM_PLUGIN_ROOT` to your PM clone or loaded plugin root, for example `export PM_PLUGIN_ROOT=~/.agents/vendor/pm`. PM subprocess dispatch exports both `PM_PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` automatically.
+
 The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
 
 ## Prerequisites
@@ -28,7 +30,7 @@ git clone https://github.com/soelinmyat/pm ~/.agents/vendor/pm
 
 ### 2. Expose the skills to Codex
 
-#### PM skills (22)
+#### PM skills (23)
 
 ```bash
 ln -sfn ~/.agents/vendor/pm/skills/start ~/.agents/skills/pm-start
@@ -46,6 +48,7 @@ ln -sfn ~/.agents/vendor/pm/skills/refresh ~/.agents/skills/pm-refresh
 ln -sfn ~/.agents/vendor/pm/skills/features ~/.agents/skills/pm-features
 ln -sfn ~/.agents/vendor/pm/skills/rfc ~/.agents/skills/pm-rfc
 ln -sfn ~/.agents/vendor/pm/skills/sync ~/.agents/skills/pm-sync
+ln -sfn ~/.agents/vendor/pm/skills/design-critique ~/.agents/skills/pm-design-critique
 ln -sfn ~/.agents/vendor/pm/skills/dev ~/.agents/skills/pm-dev
 ln -sfn ~/.agents/vendor/pm/skills/ship ~/.agents/skills/pm-ship
 ln -sfn ~/.agents/vendor/pm/skills/simplify ~/.agents/skills/pm-simplify
@@ -74,11 +77,11 @@ If Codex does not find a skill:
 2. Confirm the symlink points at your PM clone.
 3. Restart Codex again.
 
-### Quick check: all 22 skills
+### Quick check: all 23 skills
 
 ```bash
 ls -d ~/.agents/skills/pm-*
-# Should list 22 pm-* directories
+# Should list 23 pm-* directories
 ```
 
 ## Updating

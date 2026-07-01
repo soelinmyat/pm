@@ -14,9 +14,9 @@ The review gate is the last quality check before code leaves your machine. Bugs 
 
 ### Skip check
 
-**Verify review ran (standalone invocation guard):** Check `.pm/dev-sessions/*.md` for the current branch. Parse the SHA from the `Review gate: passed (commit <sha>)` line that `pm:review` writes. If that SHA equals `git rev-parse HEAD`, skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
+**Verify review ran (standalone invocation guard):** Check `.pm/dev-sessions/*.md` and `.pm/dev-sessions/*.gates.json` for the current branch. Parse the SHA from the `Review gate: passed (commit <sha>)` line that `pm:review` writes and confirm the sidecar has a `review` row for the same SHA. If both equal `git rev-parse HEAD`, skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
 
-If the `Review gate:` line is missing, absent a SHA, or differs from current HEAD, the state is stale — do NOT skip. Re-run review so what ships is what was reviewed.
+If the `Review gate:` line or `review` sidecar row is missing, absent a SHA, or differs from current HEAD, the state is stale — do NOT skip. Re-run review so what ships is what was reviewed.
 
 If no state file exists (standalone ship invocation without a dev session), invoke `pm:review` as the gate. Do not skip review for standalone invocations.
 
@@ -34,9 +34,9 @@ For the full workflow, see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`.
 
 If `pm:review` reports "No changes to review", stop — there's nothing to push.
 
-`pm:review` writes `Review gate: passed (commit <sha>)` to `.pm/dev-sessions/{slug}.md` when it completes. That SHA is the attestation that review read the actual commits on HEAD at review time. Every downstream gate (push skip check above, pre-merge verification in Step 07) parses that line and compares against the current SHA — if any commit is added after, whether a fix, rebase, or merge-loop auto-fix, the recorded SHA will not match and review must re-run before merge.
+`pm:review` writes `Review gate: passed (commit <sha>)` to `.pm/dev-sessions/{slug}.md` and `review: passed` to `.pm/dev-sessions/{slug}.gates.json` when it completes. That SHA is the attestation that review read the actual commits on HEAD at review time. Every downstream gate (push skip check above, pre-merge verification in Step 07) parses that line and the sidecar row and compares against the current SHA — if any commit is added after, whether a fix, rebase, or merge-loop auto-fix, the recorded SHA will not match and review must re-run before merge.
 
-Confirm the line was written before proceeding. If it is missing (e.g. `pm:review` aborted mid-flight), treat the gate as not passed and re-invoke.
+Confirm the line and sidecar row were written before proceeding. If either is missing (e.g. `pm:review` aborted mid-flight), treat the gate as not passed and re-invoke.
 
 ### What "passing" means
 
@@ -44,7 +44,8 @@ Review passes when there are no unresolved **critical** findings. The bar by cha
 
 | Size | Review bar |
 |------|-----------|
-| XS/S | Code scan only — automated bug detection, no full review |
+| XS/S via `pm:dev` | Code scan attestation is acceptable if the sidecar has `review: passed` for HEAD |
+| Standalone `pm:ship` | Run `pm:review` unless a current `review` gate already exists |
 | M | All critical findings auto-fixed. Advisory findings noted but don't block. |
 | L/XL | All critical findings auto-fixed. Advisory findings reviewed — fix or explicitly defer with a reason. |
 

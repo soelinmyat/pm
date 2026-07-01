@@ -26,7 +26,7 @@ If you're a single-task agent and you've reached Step 3, **stop** — return "Im
 ```
 Setup -> Implement -> Simplify (S+, skip XS) -> Design Critique (if UI) ->
   QA (if UI, iterates on Fail) ->
-  Review (M/L/XL) or Code Scan (XS only) -> Verification -> Push + PR ->
+  Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Gate Check -> Push + PR ->
   Merge -> Cleanup -> Done
 
 ```
@@ -187,6 +187,12 @@ Log the scan result in `.pm/dev-sessions/{slug}.md`:
 3. Follow `tdd.md` (in this directory) for each feature
 4. Commit after each logical group of changes
 
+### TDD Evidence Gate
+
+For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}.gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
+
+Docs-only, config-only, generated-only, or lockfile-only changes may record `tdd: skipped`, but only with a concrete reason. A missing `tdd` row blocks the pre-push gate checker.
+
 #### Sub-agent parallelism budget
 
 Dispatch one agent per independent problem domain. Let them work concurrently.
@@ -240,10 +246,26 @@ Multi-task agents execute these gates **per task** within their own worktree. Th
 
 ## Step 7: Push + PR + Merge
 
+### Gate check before push
+
+Before any `git push` or `gh pr create`, run the shared checker against current HEAD:
+
+```bash
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --commit "$(git rev-parse HEAD)" \
+  --base origin/{DEFAULT_BRANCH}
+```
+
+If the checker fails, stop and run the missing gate. For stale rows, run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not push, create a PR, or proceed to the merge loop until it passes.
+
 ### Push and create PR
 
 ```bash
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
+PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
 git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```

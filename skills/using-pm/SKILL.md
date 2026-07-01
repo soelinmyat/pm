@@ -70,7 +70,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `ship/references/handling-feedback.md` | dev, ship | Verify feedback before implementing suggestions |
 | `rfc/references/spec-reviewers.md` | rfc (generation step) | Specialist reviewers for raw sub-issue specs before RFC |
 | `rfc/references/cross-cutting-reviewers.md` | rfc (review step) | Cross-cutting concern reviewers (security, perf, ops) |
-| `dev/references/design-critique.md` | dev (UI changes) | Design review with screenshots, a11y snapshots, consistency audit |
+| `pm:design-critique` | dev (UI changes), standalone UI review | PM-native design review with screenshots, a11y snapshots, consistency audit, and gate manifest update |
 | `dev/references/qa.md` | dev (UI changes) | QA ship gate — assertion-driven testing via Playwright MCP, health score verdict |
 
 ## Utilities

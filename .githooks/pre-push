@@ -6,7 +6,102 @@
 # 4. Validate skill directory structure
 
 remote="$1"
+push_ref_lines=()
+
+derive_gate_slug() {
+  local slug="$1"
+  local prefix
+  for prefix in "codex/" "feat/" "fix/" "chore/" "release/"; do
+    if [[ "$slug" == "$prefix"* ]]; then
+      slug="${slug#"$prefix"}"
+      break
+    fi
+  done
+  slug="${slug//\//-}"
+  if [[ -z "$slug" ]]; then
+    slug="current"
+  fi
+  printf "%s" "$slug"
+}
+
+verify_pm_commit_inventory() {
+  local commit="$1"
+  local required_path=""
+  local missing=0
+  local required_paths=""
+
+  for required_path in "scripts/dev-gate-check.js" "plugin.config.json"; do
+    if ! git cat-file -e "$commit:$required_path" 2>/dev/null; then
+      echo "ERROR: pushed commit $commit is missing $required_path."
+      missing=1
+    fi
+  done
+  if [[ "$missing" -ne 0 ]]; then
+    return 1
+  fi
+
+  required_paths=$(
+    git show "$commit:plugin.config.json" 2>/dev/null | node -e '
+      let input = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", chunk => { input += chunk; });
+      process.stdin.on("end", () => {
+        const config = JSON.parse(input);
+        const commands = Array.isArray(config.commands) ? config.commands : [];
+        for (const name of commands) {
+          if (!/^[a-z0-9-]+$/.test(name)) {
+            throw new Error(`invalid command name in plugin.config.json: ${name}`);
+          }
+          console.log(`commands/${name}.md`);
+          console.log(`skills/${name}/SKILL.md`);
+        }
+      });
+    '
+  )
+  if [[ "$?" -ne 0 ]]; then
+    echo "ERROR: unable to read command inventory from $commit:plugin.config.json."
+    return 1
+  fi
+
+  while IFS= read -r required_path; do
+    if [[ -z "$required_path" ]]; then
+      continue
+    fi
+    if ! git cat-file -e "$commit:$required_path" 2>/dev/null; then
+      echo "ERROR: pushed commit $commit is missing $required_path from plugin.config.json."
+      missing=1
+    fi
+  done <<<"$required_paths"
+
+  return "$missing"
+}
+
+run_commit_tests() {
+  local commit="$1"
+  local test_tmp=""
+  test_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-pre-push-tests.XXXXXX") || exit 1
+  rm -rf "$test_tmp"
+  if ! git worktree add --detach --quiet "$test_tmp" "$commit"; then
+    rm -rf "$test_tmp"
+    echo "ERROR: unable to create test worktree for pushed commit $commit."
+    return 1
+  fi
+  if [[ -d "$test_tmp/tests" ]]; then
+    echo "Running tests for $commit..."
+    if ! (
+      cd "$test_tmp" &&
+        env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX node --test tests/*.test.js
+    ); then
+      git worktree remove --force "$test_tmp" >/dev/null 2>&1 || rm -rf "$test_tmp"
+      echo "ERROR: tests failed for pushed commit $commit."
+      return 1
+    fi
+  fi
+  git worktree remove --force "$test_tmp" >/dev/null 2>&1 || rm -rf "$test_tmp"
+}
+
 while read -r local_ref local_oid remote_ref remote_oid; do
+  push_ref_lines+=("$local_ref $local_oid $remote_ref $remote_oid")
   if [[ "$remote_ref" == "refs/heads/main" ]]; then
     echo "ERROR: Direct push to main is not allowed."
     echo "Create a PR and merge instead."
@@ -28,11 +123,69 @@ if [[ -f "$manifest" ]]; then
   fi
 fi
 
-# --- Run test suite ---
-if [[ -d "tests" ]]; then
-  echo "Running tests..."
-  node --test tests/*.test.js
-fi
+# --- PM dev gate backstop ---
+zero_oid="0000000000000000000000000000000000000000"
+for push_ref_line in "${push_ref_lines[@]}"; do
+  read -r local_ref local_oid remote_ref remote_oid <<<"$push_ref_line"
+  if [[ "$local_oid" == "$zero_oid" || "$remote_ref" != refs/heads/* ]]; then
+    continue
+  fi
+
+  if ! run_commit_tests "$local_oid"; then
+    exit 1
+  fi
+
+  branch_name="${remote_ref#refs/heads/}"
+  if [[ -z "$branch_name" || "$branch_name" == "$remote_ref" ]]; then
+    branch_name="${local_ref#refs/heads/}"
+  fi
+  gate_slug=$(derive_gate_slug "$branch_name")
+
+  gate_manifest=".pm/dev-sessions/${gate_slug}.gates.json"
+  if [[ ! -f "$gate_manifest" && "$branch_name" == "$(git branch --show-current 2>/dev/null)" && -f ".pm/dev-sessions/current.gates.json" ]]; then
+    gate_manifest=".pm/dev-sessions/current.gates.json"
+  fi
+
+  if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+    echo "ERROR: unable to verify origin/main for PM dev gate checks."
+    echo "Fetch origin/main, then retry the push."
+    exit 1
+  fi
+  changed_pm_runtime_files=$(git diff --name-only "origin/main...$local_oid" -- commands skills scripts hooks personas templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
+  if [[ "$?" -ne 0 ]]; then
+    echo "ERROR: unable to diff origin/main...$local_oid for PM dev gate checks."
+    exit 1
+  fi
+
+  if [[ -n "$changed_pm_runtime_files" || -f "$gate_manifest" ]]; then
+    if ! verify_pm_commit_inventory "$local_oid"; then
+      exit 1
+    fi
+  fi
+
+  if [[ -f "$gate_manifest" ]]; then
+    checker_tmp=$(mktemp "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
+    if ! git show "$local_oid:scripts/dev-gate-check.js" > "$checker_tmp"; then
+      rm -f "$checker_tmp"
+      echo "ERROR: unable to read scripts/dev-gate-check.js from pushed commit $local_oid."
+      exit 1
+    fi
+    echo "Checking PM dev gates for $branch_name..."
+    if ! node "$checker_tmp" \
+      --manifest "$gate_manifest" \
+      --commit "$local_oid" \
+      --base origin/main; then
+      rm -f "$checker_tmp"
+      exit 1
+    fi
+    rm -f "$checker_tmp"
+  elif [[ -n "$changed_pm_runtime_files" ]]; then
+    echo "ERROR: PM dev gate manifest not found for branch $branch_name."
+    echo "Expected $gate_manifest before pushing PM runtime/source changes."
+    echo "Run all required dev gates, record .pm/dev-sessions/${gate_slug}.gates.json, then retry."
+    exit 1
+  fi
+done
 
 # --- Validate skill directory structure ---
 # Every skill dir with a SKILL.md must have name/description frontmatter
