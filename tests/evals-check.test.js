@@ -243,6 +243,47 @@ test("result ledger can require named sentinel rows", () => {
   );
 });
 
+test("result ledger allows all sentinel rows to be skipped", () => {
+  const result = validateResultLedger(
+    sentinelLedger(Object.fromEntries(requiredSentinelIds.map((id) => [id, "skip"]))),
+    "evals/results/current.json",
+    {
+      requiredScenarioIds: requiredSentinelIds,
+    }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
+
+test("baseline ledger still requires three determinate rows", () => {
+  const result = validateBaselineLedger(
+    sentinelLedger(Object.fromEntries(requiredSentinelIds.map((id) => [id, "skip"]))),
+    "evals/baselines/sentinel.json",
+    {
+      requiredScenarioIds: requiredSentinelIds,
+    }
+  );
+  assert.equal(result.ok, false);
+  assert.match(
+    result.issues.map((i) => i.message).join("\n"),
+    /at least three baseline rows must be pass or fail/
+  );
+});
+
+test("ledger validation rejects duplicate and unknown scenario ids", () => {
+  const ledger = sentinelLedger({ "dev-review-before-push": "fail" });
+  ledger.scenarios[1] = ledgerRow("dev-ui-design-critique-required", "pass");
+  ledger.scenarios.push(ledgerRow("unknown-scenario", "pass"));
+
+  const result = validateResultLedger(ledger, "evals/results/current.json", {
+    requiredScenarioIds: requiredSentinelIds,
+  });
+  assert.equal(result.ok, false);
+  const text = result.issues.map((i) => i.message).join("\n");
+  assert.match(text, /duplicate result row for dev-ui-design-critique-required/);
+  assert.match(text, /unknown result row unknown-scenario/);
+  assert.match(text, /missing result row for dev-review-before-push/);
+});
+
 test("eval:check validates result ledgers without requiring a fail row", () => {
   const tmp = makeTmp();
   try {

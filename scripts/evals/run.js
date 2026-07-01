@@ -83,6 +83,7 @@ function runEval(opts) {
   const startedAt = new Date().toISOString();
 
   validateRunId(runId, scenarioId, agent);
+  const adapter = loadAdapter(agent);
 
   const validation = validateScenario(scenarioDir);
   if (!validation.ok) {
@@ -108,7 +109,6 @@ function runEval(opts) {
   );
   writeSandboxIdentity(paths, agent);
 
-  const adapter = loadAdapter(agent);
   writeJson(path.join(paths.metadataDir, "adapter_boot.json"), {
     adapter: adapter.name || agent,
     run_id: runId,
@@ -399,6 +399,7 @@ if (require.main === module) {
 
 module.exports = {
   runEval,
+  loadAdapter,
   parseArgs,
   timestamp,
 };

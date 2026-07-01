@@ -84,3 +84,26 @@ test("ineligible live adapters skip before scenario shell starts", () => {
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+test("unknown adapters fail before creating a run directory", () => {
+  const runId = "20260701T050200Z--dev-tdd-before-implementation--typo";
+  const runDir = path.join(repoRoot, "eval-results", "runs", runId);
+  fs.rmSync(runDir, { recursive: true, force: true });
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      runScript,
+      "evals/scenarios/dev-tdd-before-implementation",
+      "--agent",
+      "typo",
+      "--run-id",
+      runId,
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unknown adapter: typo/);
+  assert.equal(fs.existsSync(runDir), false);
+});

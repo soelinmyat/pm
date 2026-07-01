@@ -237,6 +237,7 @@ function validateBaselineLedger(ledger, filePath = "evals/baselines/sentinel.jso
   return validateLedger(ledger, filePath, {
     ...opts,
     label: "baseline",
+    minDeterminateRows: 3,
     requireCurrentBehaviorFail: true,
   });
 }
@@ -245,6 +246,7 @@ function validateResultLedger(ledger, filePath = "evals/results/current.json", o
   return validateLedger(ledger, filePath, {
     ...opts,
     label: "result",
+    minDeterminateRows: 0,
     requireCurrentBehaviorFail: false,
   });
 }
@@ -267,7 +269,19 @@ function validateLedger(ledger, filePath, opts = {}) {
     issues.push(issue(filePath, "scenarios must be an array"));
   } else {
     ledger.scenarios.forEach((row, index) => validateLedgerRow(row, index, filePath, issues));
-    const ids = new Set(ledger.scenarios.map((row) => row && row.id).filter(Boolean));
+    const requiredIds = new Set(opts.requiredScenarioIds || []);
+    const ids = new Set();
+    for (const [index, row] of ledger.scenarios.entries()) {
+      if (!row || !row.id) continue;
+      const where = `${filePath}#scenarios[${index}]`;
+      if (ids.has(row.id)) {
+        issues.push(issue(where, `duplicate ${label} row for ${row.id}`));
+      }
+      ids.add(row.id);
+      if (requiredIds.size > 0 && !requiredIds.has(row.id)) {
+        issues.push(issue(where, `unknown ${label} row ${row.id}`));
+      }
+    }
     for (const id of opts.requiredScenarioIds || []) {
       if (!ids.has(id)) {
         issues.push(issue(filePath, `missing ${label} row for ${id}`));
@@ -276,8 +290,11 @@ function validateLedger(ledger, filePath, opts = {}) {
     const determinate = ledger.scenarios.filter(
       (row) => row.status === "pass" || row.status === "fail"
     ).length;
-    if (ledger.scenarios.length >= 5 && determinate < 3) {
-      issues.push(issue(filePath, `at least three ${label} rows must be pass or fail`));
+    const minDeterminateRows =
+      typeof opts.minDeterminateRows === "number" ? opts.minDeterminateRows : 3;
+    if (ledger.scenarios.length >= 5 && determinate < minDeterminateRows) {
+      const minLabel = minDeterminateRows === 3 ? "three" : String(minDeterminateRows);
+      issues.push(issue(filePath, `at least ${minLabel} ${label} rows must be pass or fail`));
     }
     if (
       opts.requireCurrentBehaviorFail &&
@@ -358,5 +375,6 @@ module.exports = {
   validateScenario,
   validateBaselineLedger,
   validateResultLedger,
+  REQUIRED_SENTINEL_IDS,
   analyzeShellFunctions,
 };
