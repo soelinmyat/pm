@@ -28,6 +28,36 @@ node scripts/evals/run.js evals/scenarios/dev-review-before-push --agent stub
 Raw run artifacts can contain sensitive agent output. Keep them local unless a
 specific sanitized artifact is intentionally shared for review.
 
+## Current Score
+
+Run the sentinel suite and write a sanitized result ledger:
+
+```bash
+npm run eval:score -- --agent stub --write evals/results/current.json
+```
+
+The `stub` adapter is harness-only. It proves runner and scoring behavior; it is
+not live Codex behavior.
+
+Run the current Codex adapter when you want to see live-adapter eligibility:
+
+```bash
+npm run eval:score -- --agent codex --write /tmp/pm-codex-current.json
+```
+
+Codex currently reports `skip: network-policy` until live network allowlisting is
+implemented. That is an honest score state. It should be read as "not
+comparable" rather than as a pass or fail.
+
+Score an existing sanitized ledger:
+
+```bash
+npm run eval:score -- --results evals/results/current.json
+npm run eval:score -- --results evals/results/current.json --json
+```
+
+Commit scenarios and sanitized ledgers only. Do not commit `eval-results/`.
+
 ## Scenario Shape
 
 Each v1 scenario has exactly three files:
