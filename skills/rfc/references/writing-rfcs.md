@@ -2,7 +2,7 @@
 
 ## Overview
 
-Write engineering RFCs that turn a product proposal into an actionable implementation plan. The RFC contains the technical approach, issue breakdown, test strategy (see the [Test Strategy](#test-strategy-section) chapter below), and risks — everything an engineer needs to implement from zero context.
+Write engineering RFCs that turn a product proposal into an actionable implementation plan. The RFC contains a Decision Brief for humans, an Execution Contract for agents, and an Appendix for rationale. It also contains the technical approach, issue breakdown, test strategy (see the [Test Strategy](#test-strategy-section) chapter below), and risks — everything an engineer needs to implement from zero context.
 
 Assume the implementer is a skilled developer but knows almost nothing about the codebase or problem domain. Document everything: which files to touch, implementation approach per issue, verification commands, and the testing contract. DRY. YAGNI. TDD. Frequent commits.
 
@@ -50,16 +50,27 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 
 1. **Hero header** — title, one-line summary, metadata strip (size, status, task count)
 2. **Sticky TOC** — navigation bar for all active sections
-3. **Codebase Findings** — what was discovered during exploration that shaped the design
-4. **Architecture** — system diagram (Mermaid), component relationships, data flow
-5. **Key Decisions** — alternatives considered, chosen option, rationale (may become ADRs)
-6. **Data Model** — schema changes, migrations, types (omit if none)
-7. **API** — new/modified endpoints, request/response shapes (omit if none)
-8. **Risks** — risk table with impact and mitigations
-9. **Test Strategy** — test levels, infrastructure, regression surface, verification commands, open questions (see [Test Strategy](#test-strategy-section) chapter)
-10. **Issues** — independently implementable units with ACs, approach, dependencies, size, and Test hooks
-11. **Resolved Questions** — populated during review, empty in draft
-12. **Change Log** — review iterations, populated during review
+3. **Decision Brief** — <= 400 words for human approval: recommendation, fit, biggest risk, decision needed
+4. **Execution Contract** — <= 1,500 words before issue cards: scope, non-goals, files, AC summary, dependency order, test hooks, commands
+5. **Appendix marker** — everything below is rationale/detail, not the default read path
+6. **Codebase Findings** — what was discovered during exploration that shaped the design
+7. **Architecture** — system diagram (Mermaid), component relationships, data flow
+8. **Key Decisions** — alternatives considered, chosen option, rationale (may become ADRs)
+9. **Data Model** — schema changes, migrations, types (omit if none)
+10. **API** — new/modified endpoints, request/response shapes (omit if none)
+11. **Risks** — risk table with impact and mitigations
+12. **Test Strategy** — test levels, infrastructure, regression surface, verification commands, open questions (see [Test Strategy](#test-strategy-section) chapter)
+13. **Issues** — independently implementable units with ACs, approach, dependencies, size, and Test hooks
+14. **Resolved Questions** — populated during review, empty in draft
+15. **Change Log** — review iterations, populated during review
+
+## Layered Read Contract
+
+- **Humans read first:** Decision Brief, then Risks and Resolved Questions if they need confidence.
+- **Agents read first:** Execution Contract, then Issue cards, then Test Strategy.
+- **Auditors read later:** Appendix sections with findings, architecture, decisions, advisory notes, and change log.
+- **Contract wins:** if the Execution Contract conflicts with appendix prose, fix the appendix before approval.
+- **Budget enforcement:** word budgets are warning-first. Required layer presence and parser class preservation are blocking.
 
 ## Test Strategy Section
 
@@ -148,6 +159,9 @@ The dev intake step parses RFC Issue sections by CSS class name. These class nam
 | `.issue-detail-num` | Issue number (e.g., "1", "2") |
 | `.issue-detail-title` | Issue title text |
 | `.issue-detail-size` | Size badge (XS/S/M/L/XL) |
+| `#brief` | Decision Brief section anchor |
+| `#execution-contract` | Execution Contract section anchor |
+| `#appendix` | Appendix marker before rationale/detail |
 | `.test-strategy` | Container for the Test Strategy section |
 | `.test-strategy-block` | Container for each Test Strategy subsection card |
 | `.hooks-badge` | Per-issue Test hooks badge inside `.issue-detail` |

@@ -114,8 +114,8 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read RFC file once: {pm_dir}/backlog/rfcs/feature-plan.html]
-[Extract all 5 tasks with full text and context]
+[Read RFC Execution Contract first: {pm_dir}/backlog/rfcs/feature-plan.html#execution-contract]
+[Extract all 5 tasks from .issue-detail cards with full text and context]
 [Create TodoWrite with all tasks]
 
 Task 1: Hook installation script

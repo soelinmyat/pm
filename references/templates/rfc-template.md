@@ -23,6 +23,27 @@ Embedded in the HTML as data attributes or a `<script type="application/json">` 
 Title, one-line summary, metadata strip: size, status, author, task count.
 Link back to the proposal and PRD.
 
+## Decision Brief
+
+{Short human review layer. Target <= 400 words. State the recommended engineering approach, why it fits the proposal, the largest implementation risk, and any decision still needed. This is the first section a human should read after metadata.}
+
+## Execution Contract
+
+{Structured agent handoff. Target <= 1,500 words before issue cards. This is the first section an implementation agent should read. Include:
+- Scope and non-goals
+- Files to modify or create
+- Acceptance criteria summary
+- Dependencies and ordering
+- Test Strategy hooks summary
+- Verification commands
+- Open implementation questions}
+
+**Contract wins:** if this section conflicts with later prose, update the prose before approval. Implementation agents execute from this section plus the Issue cards.
+
+## Appendix
+
+{Everything below this point is rationale and detail. Keep it rigorous, but do not require humans or agents to read it before they can approve or start implementation.}
+
 ## Codebase Findings
 
 {What was discovered during codebase exploration that shaped the architecture.

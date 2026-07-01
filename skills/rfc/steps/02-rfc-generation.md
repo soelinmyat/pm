@@ -95,8 +95,14 @@ The RFC may produce multiple Issues if the work naturally splits. Use splitting-
 A single Issue is fine if the work is genuinely one concern.
 {END IF}
 
+**Layered artifact requirements:**
+The RFC must include a Decision Brief, an Execution Contract, and an Appendix marker before detailed rationale. Decision Brief is for human approval (target <= 400 words). Execution Contract is for agents (target <= 1,500 words before issue cards) and must summarize scope, non-goals, files, dependencies, ACs, Test hooks, verification commands, and open implementation questions. Appendix contains codebase findings, architecture, decisions, risks, advisory notes, resolved questions, and change log.
+
 **Test Strategy requirements:**
 The RFC must include a complete Test Strategy section between Risks and Issues. Read `rfc-template.md` (already in your reading list above) for the canonical subsection schema — fill every subsection. Ground the strategy in the test-layers.md principles you read above. Each Issue must include a `Test hooks:` field that names which Test Strategy subsections the issue exercises and traces them to specific ACs. Do not list hooks that the issue does not actually exercise.
+
+**Stable HTML contract:**
+Preserve `id="brief"`, `id="execution-contract"`, `id="appendix"`, `id="test-strategy"`, `data-schema-version="2"`, `.issue-detail`, `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size`, `.test-strategy`, `.test-strategy-block`, and `.hooks-badge`. Dev intake depends on these hooks.
 
 Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
 Commit the RFC, then end your response with:
