@@ -34,6 +34,9 @@ function composeVerdict(input) {
     return verdict(input, "indeterminate", "harness-record-missing");
   }
 
+  const failedPre = (input.preRecords || []).find((record) => record.status === "fail");
+  if (failedPre) return verdict(input, "indeterminate", "pre-check-failed");
+
   const failed = (input.postRecords || []).find((record) => record.status === "fail");
   if (failed) return verdict(input, "fail", failed.reason || "post-check-failed");
 

@@ -54,3 +54,33 @@ test("stub eval runner stages source and writes a passing verdict", () => {
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+test("ineligible live adapters skip before scenario shell starts", () => {
+  const runId = "20260701T050200Z--dev-tdd-before-implementation--codex";
+  const runDir = path.join(repoRoot, "eval-results", "runs", runId);
+  fs.rmSync(runDir, { recursive: true, force: true });
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        runScript,
+        "evals/scenarios/dev-tdd-before-implementation",
+        "--agent",
+        "codex",
+        "--run-id",
+        runId,
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const verdict = JSON.parse(fs.readFileSync(path.join(runDir, "verdict.json"), "utf8"));
+    assert.equal(verdict.status, "skip");
+    assert.equal(verdict.reason, "network-policy");
+    assert.equal(fs.existsSync(path.join(runDir, "workdir", "desired-behavior.md")), false);
+    assert.equal(fs.existsSync(path.join(runDir, "metadata", "check-results.pre.jsonl")), false);
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});

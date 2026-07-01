@@ -117,6 +117,20 @@ function runEval(opts) {
     argv: ["node", "scripts/evals/run.js", rel(scenarioDir, rootDir), "--agent", agent],
   });
 
+  const preflight = runAdapterPreflight(adapter, { scenarioId, paths });
+  if (preflight.status === "skip") {
+    const verdict = makeVerdict({
+      scenarioId,
+      agent,
+      runId,
+      startedAt,
+      status: "skip",
+      reason: preflight.reason,
+    });
+    writeJson(path.join(runDir, "verdict.json"), verdict);
+    return verdict;
+  }
+
   const setup = runSetup(paths);
   if (setup.status !== 0) {
     const verdict = makeVerdict({
@@ -236,6 +250,11 @@ function writeSandboxIdentity(paths, agent) {
     container_runtime: detected.ok ? detected.name : null,
     plan: buildSandboxPlan({ runDir: paths.runDir, adapter: agent }),
   });
+}
+
+function runAdapterPreflight(adapter, context) {
+  if (typeof adapter.preflight !== "function") return { status: "pass" };
+  return adapter.preflight(context) || { status: "pass" };
 }
 
 function runSetup(paths) {

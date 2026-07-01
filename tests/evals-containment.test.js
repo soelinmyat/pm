@@ -145,6 +145,20 @@ test("verdict precedence favors safety and harness uncertainty over deterministi
   assert.equal(failed.status, "fail");
 });
 
+test("verdict treats failing pre-checks as indeterminate precondition failures", () => {
+  const verdict = composeVerdict({
+    scenario: "dev-review-before-push",
+    agent: "stub",
+    runId: "20260701T050000Z--dev-review-before-push--stub",
+    preExecuted: true,
+    postExecuted: true,
+    preRecords: [{ status: "fail", reason: "missing fixture" }],
+    postRecords: [{ status: "pass" }],
+  });
+  assert.equal(verdict.status, "indeterminate");
+  assert.equal(verdict.reason, "pre-check-failed");
+});
+
 test("resource breaches normalize to resource-limit hazards", () => {
   const breach = sanitizeResourceBreach({ type: "timeout", phase: "post" });
   assert.deepEqual(breach, { reason: "resource-limit", detail: "timeout in post" });

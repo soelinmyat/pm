@@ -1,6 +1,6 @@
 "use strict";
 
-function run() {
+function skipResult() {
   return {
     status: "skip",
     reason: "network-policy",
@@ -11,5 +11,6 @@ function run() {
 module.exports = {
   name: "codex",
   live: true,
-  run,
+  preflight: skipResult,
+  run: skipResult,
 };
