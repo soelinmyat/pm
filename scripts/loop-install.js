@@ -45,7 +45,7 @@ function buildLaunchdPlist(opts) {
     "--project-dir",
     opts.projectDir,
     "--mode",
-    opts.mode || "dev",
+    opts.mode || "default",
   ];
   const intervalSeconds = (Number(opts.intervalMinutes) || 30) * 60;
   const logPath = opts.logPath || path.join(os.homedir(), "Library", "Logs", `${label}.log`);
@@ -91,7 +91,7 @@ function buildCronLine(opts) {
   const pathEnv = opts.pathEnv || process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
   return (
     `${schedule} PATH=${pathEnv} ${nodeBin} ${opts.workerScript} ` +
-    `--project-dir ${opts.projectDir} --mode ${opts.mode || "dev"} >> ${logPath} 2>&1`
+    `--project-dir ${opts.projectDir} --mode ${opts.mode || "default"} >> ${logPath} 2>&1`
   );
 }
 
@@ -176,7 +176,7 @@ function parseArgs(argv) {
   const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
-    mode: "dev",
+    mode: "default",
     intervalMinutes: 0,
     format: "auto",
     install: false,

@@ -21,8 +21,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --dry-run
 Execute one unit of work:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --mode dev
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD"
 ```
+
+The default mode covers the full lifecycle in priority order (ship cycles for
+in-flight PRs first, then new dev work, then rfc/research if their autonomy
+dials allow). Pass `--mode dev|ship|research` to restrict a wake to one lane.
 
 The worker refuses to run when:
 
@@ -70,7 +74,7 @@ When summarizing the JSON result:
   the next wake will do (ship cycle, next sibling, or nothing).
 - `failed` / `timeout` / `bootstrap-failed` — report the reason and log paths;
   the lease was released either way.
-- `stopped` / `budget-exhausted` / `idle` / `blocked` — nothing ran; report why.
+- `stopped` / `disabled` / `budget-exhausted` / `attempts-exhausted` / `rejected` / `idle` / `blocked` — nothing ran (any lease was released); report why.
 
 ## Done-when
 

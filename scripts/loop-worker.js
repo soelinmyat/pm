@@ -327,7 +327,7 @@ function runWorker(projectDir, options = {}) {
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
   const config = options.config || loadLoopConfig(paths.pmDir);
-  const mode = options.mode || "dev";
+  const mode = options.mode || "default";
 
   if (config.enabled === false) {
     return { status: "disabled", reason: "loop disabled in config" };
@@ -537,7 +537,7 @@ function parseArgs(argv) {
   const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
-    mode: "dev",
+    mode: "default",
     dryRun: false,
     holder: os.hostname(),
     skipPull: false,

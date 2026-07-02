@@ -49,7 +49,7 @@ test("cron line uses */N for sub-hour and hourly schedule above 60m", () => {
     pathEnv: "/usr/bin",
   });
   assert.match(line30, /^\*\/30 \* \* \* \* /);
-  assert.match(line30, /--project-dir \/work\/proj --mode dev >> \/tmp\/loop\.log 2>&1$/);
+  assert.match(line30, /--project-dir \/work\/proj --mode default >> \/tmp\/loop\.log 2>&1$/);
 
   const line120 = buildCronLine({
     projectDir: "/work/proj",
