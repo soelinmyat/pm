@@ -6,7 +6,7 @@ description: Dispatch fresh developer agents to implement the approved RFC
 
 ## Goal
 
-Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 06–09).
+Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 07–09).
 
 <HARD-RULE>
 Step 05 **dispatches agents**. It does NOT execute implementation in the orchestrator context.
@@ -46,7 +46,7 @@ Implement the approved RFC.
 **Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md Steps 1–2
-for setup and implementation methodology. Steps 3+ (review, ship) are
+for setup and implementation methodology. Steps 4+ (design critique, QA, review, ship) are
 handled by the orchestrator after you return.
 
 Lifecycle:
@@ -158,7 +158,7 @@ Lifecycle:
       --base origin/{DEFAULT_BRANCH}
     ```
 13. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-15. **Before exiting**, write your structured result to ${RESULT_FILE}:
+14. **Before exiting**, write your structured result to ${RESULT_FILE}:
     On success:
       {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
     On block:
@@ -311,4 +311,4 @@ Multi-task: For each task in order, fresh developer agent dispatched as a subpro
 Orchestrator runs Step 09 (retro) once after all tasks complete.
 ```
 
-**Single-task** hands off to Step 06 with code and tests committed on the feature branch, the suite passing, and the session file updated. **Multi-task** subprocesses each own implement→merge and write `result.json` (`status: merged` or `blocked`); the orchestrator checkpoints the `## Tasks` table, then proceeds straight to Step 09 (retro) — Steps 06–08 are skipped because the subprocesses handled them.
+**Single-task** hands off to Step 07 with code and tests committed on the feature branch, the suite passing, and the session file updated. **Multi-task** subprocesses each own implement→merge and write `result.json` (`status: merged` or `blocked`); the orchestrator checkpoints the `## Tasks` table, then proceeds straight to Step 09 (retro) — Steps 07–08 are skipped because the subprocesses handled them.

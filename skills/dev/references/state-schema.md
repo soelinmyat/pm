@@ -84,6 +84,7 @@ Rules:
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
+- The `review` row carries a `lenses` array recording which lenses actually ran (e.g. `["bug", "design", "edge", "reuse", "quality", "efficiency"]`, minus `design` when conditionally skipped). On M/L/XL manifests the checker requires the absorbed lenses `reuse`, `quality`, `efficiency` to be present — a pre-v1.9 3-lens review row does not pass.
 - Final push/ship checks accept a row only when either `commit` or `verified_commit` equals `git rev-parse HEAD`; otherwise the row is stale.
 - `passed` rows need an existing artifact path. State-file section anchors such as `.pm/dev-sessions/{slug}.md#review` are valid when the file exists. `skipped`, `failed`, and `blocked` rows need a concrete reason.
 - `tdd`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.

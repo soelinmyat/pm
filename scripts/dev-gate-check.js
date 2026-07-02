@@ -7,8 +7,10 @@ const path = require("node:path");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
-// "simplify" was absorbed into review in v1.9; legacy sidecars still carry its
-// rows and legacy sessions may still --require it, so the name stays valid.
+// "simplify" was absorbed into review in v1.9. The name stays valid only so
+// legacy sidecars carrying old rows don't hard-fail; passed/skipped/stale rows
+// are tolerated, failed/blocked rows are not. Single-gate --require calls are
+// incremental checks, never a substitute for the default full-gate run.
 const VALID_GATE_NAMES = new Set([...DEFAULT_REQUIRED_GATES, "simplify"]);
 const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
 const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
@@ -82,14 +84,21 @@ function checkGateManifest(manifest, opts = {}) {
   }
   const sessionContext = readSessionContext(manifest, opts);
 
+  const requiredSet = new Set(requiredGates);
   const byName = new Map();
   manifest.gates.forEach((gate, index) => {
     const where = `${manifestPath}#gates[${index}]`;
-    validateGateRow(gate, where, issues, { artifactRoot });
+    const legacyRow =
+      gate && typeof gate === "object" && gate.name === "simplify" && !requiredSet.has("simplify");
+    validateGateRow(gate, where, issues, { artifactRoot, skipArtifactExistence: legacyRow });
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) return;
     if (byName.has(gate.name)) {
       issues.push(issue(where, `duplicate gate ${gate.name}`));
       return;
+    }
+    // Legacy tolerance covers passed/skipped/stale rows, never recorded failures.
+    if (legacyRow && (gate.status === "failed" || gate.status === "blocked")) {
+      issues.push(issue(where, `legacy gate simplify is ${gate.status} — resolve or remove it`));
     }
     byName.set(gate.name, gate);
   });
@@ -121,7 +130,32 @@ function checkGateManifest(manifest, opts = {}) {
     }
   }
 
+  validateReviewLenses(byName.get("review"), manifestPath, sessionContext, issues);
+
   return { ok: issues.length === 0, issues };
+}
+
+// The v1.9 absorption of simplify into review is enforceable, not prose-only:
+// M/L/XL sessions must show the review row actually ran the absorbed lenses.
+const ABSORBED_REVIEW_LENSES = ["reuse", "quality", "efficiency"];
+const LENSED_SIZES = new Set(["m", "l", "xl"]);
+
+function validateReviewLenses(reviewGate, manifestPath, sessionContext, issues) {
+  if (!reviewGate || reviewGate.status !== "passed") return;
+  if (!LENSED_SIZES.has(String(sessionContext.sessionSize || "").toLowerCase())) return;
+  if (!Array.isArray(reviewGate.lenses)) {
+    issues.push(
+      issue(
+        manifestPath,
+        "review row must record lenses for M/L/XL sessions (6-lens fan-out, v1.9)"
+      )
+    );
+    return;
+  }
+  const have = new Set(reviewGate.lenses.map((l) => String(l).toLowerCase()));
+  if (!ABSORBED_REVIEW_LENSES.every((l) => have.has(l))) {
+    issues.push(issue(manifestPath, "review lenses must include reuse, quality, efficiency"));
+  }
 }
 
 function validateGateRow(gate, where, issues, context = {}) {
@@ -147,6 +181,7 @@ function validateGateRow(gate, where, issues, context = {}) {
     issues.push(issue(where, "artifact is required when gate passed"));
   } else if (
     gate.status === "passed" &&
+    !context.skipArtifactExistence &&
     !artifactExists(gate.artifact, context.artifactRoot || process.cwd())
   ) {
     issues.push(issue(where, `artifact path does not exist: ${gate.artifact}`));

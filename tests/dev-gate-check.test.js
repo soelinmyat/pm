@@ -912,3 +912,96 @@ test("dev gate checker still validates simplify when explicitly required (legacy
   const text = result.issues.map((i) => i.message).join("\n");
   assert.match(text, /simplify skip reason is not allowed/);
 });
+
+test("legacy simplify rows with failed or blocked status still fail the checker", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("tdd"),
+      gate("simplify", "abc123", { status: "failed", reason: "findings not fixed" }),
+      gate("design-critique"),
+      gate("qa"),
+      gate("review"),
+      gate("verification"),
+    ]),
+    { currentCommit: "abc123" }
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.issues.map((i) => i.message).join("\n"), /legacy gate simplify is failed/);
+});
+
+test("legacy passed simplify rows are not policed for artifact existence", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("tdd"),
+      gate("simplify", "old-sha", { artifact: ".pm/dev-sessions/gone.md#simplify" }),
+      gate("design-critique"),
+      gate("qa"),
+      gate("review"),
+      gate("verification"),
+    ]),
+    { currentCommit: "abc123" }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
+
+test("M/L/XL manifests require the review row to record the absorbed lenses", () => {
+  const noLenses = checkGateManifest(
+    manifest(
+      [gate("tdd"), gate("design-critique"), gate("qa"), gate("review"), gate("verification")],
+      { size: "M" }
+    ),
+    { currentCommit: "abc123" }
+  );
+  assert.equal(noLenses.ok, false);
+  assert.match(noLenses.issues.map((i) => i.message).join("\n"), /review row must record lenses/);
+
+  const withLenses = checkGateManifest(
+    manifest(
+      [
+        gate("tdd"),
+        gate("design-critique"),
+        gate("qa"),
+        gate("review", "abc123", {
+          lenses: ["bug", "design", "edge", "reuse", "quality", "efficiency"],
+        }),
+        gate("verification"),
+      ],
+      { size: "L" }
+    ),
+    { currentCommit: "abc123" }
+  );
+  assert.equal(withLenses.ok, true, JSON.stringify(withLenses.issues, null, 2));
+
+  const partialLenses = checkGateManifest(
+    manifest(
+      [
+        gate("tdd"),
+        gate("design-critique"),
+        gate("qa"),
+        gate("review", "abc123", { lenses: ["bug", "design", "edge"] }),
+        gate("verification"),
+      ],
+      { size: "XL" }
+    ),
+    { currentCommit: "abc123" }
+  );
+  assert.equal(partialLenses.ok, false);
+  assert.match(
+    partialLenses.issues.map((i) => i.message).join("\n"),
+    /review lenses must include reuse, quality, efficiency/
+  );
+});
+
+test("XS/S and unsized manifests do not require review lenses", () => {
+  for (const size of ["XS", "S", undefined]) {
+    const overrides = size ? { size } : {};
+    const result = checkGateManifest(
+      manifest(
+        [gate("tdd"), gate("design-critique"), gate("qa"), gate("review"), gate("verification")],
+        overrides
+      ),
+      { currentCommit: "abc123" }
+    );
+    assert.equal(result.ok, true, `size=${size}: ${JSON.stringify(result.issues)}`);
+  }
+});

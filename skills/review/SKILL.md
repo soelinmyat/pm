@@ -448,11 +448,14 @@ Also write or update the `review` row inside `.pm/dev-sessions/{slug}.gates.json
       "commit": "<current-sha>",
       "artifact": ".pm/dev-sessions/<slug>.md#review",
       "reason": "",
-      "checked_at": "<ISO timestamp>"
+      "checked_at": "<ISO timestamp>",
+      "lenses": ["bug", "design", "edge", "reuse", "quality", "efficiency"]
     }
   ]
 }
 ```
+
+`lenses` records which lenses actually ran (omit `design` when it was conditionally skipped). This is machine-checked: `dev-gate-check.js` rejects M/L/XL manifests whose review row is missing the absorbed lenses (`reuse`, `quality`, `efficiency`) — a review that skipped them is not a passing v1.9 review.
 
 Standalone invocations with no session file create the gate sidecar and a minimal session note under `.pm/dev-sessions/{slug}.md` so `pm:ship` can verify what was reviewed before push.
 

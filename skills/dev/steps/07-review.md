@@ -207,7 +207,7 @@ High-confidence findings (80+) are auto-fixed and committed. Worth-checking find
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (see below)
 - [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
-- [ ] `.pm/dev-sessions/{slug}.gates.json` updated with `review: passed` for the same commit
+- [ ] `.pm/dev-sessions/{slug}.gates.json` updated with `review: passed` for the same commit, including the `lenses` array (the checker requires `reuse`, `quality`, `efficiency` on M/L/XL manifests)
 - [ ] `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"; node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review` passes
 
 #### Code scan (XS/S — HARD GATE)

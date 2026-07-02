@@ -14,7 +14,7 @@ The dispatching brief in Step 05 always specifies scope. This note is a cross-ch
 
 | Mode | Steps to execute | Who handles the rest |
 |------|-----------------|---------------------|
-| Single-task | Steps 1–2 only | Orchestrator (dev steps 06–09) |
+| Single-task | Steps 1–2 only | Orchestrator (dev steps 07–09) |
 | Multi-task | Steps 1–8 (full lifecycle) | Agent is self-contained |
 
 If you're a single-task agent and you've finished Step 2, **stop** — return "Implementation complete" and let the orchestrator proceed.
