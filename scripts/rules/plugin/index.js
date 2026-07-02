@@ -93,7 +93,8 @@ function buildContext(rootDir) {
     const parsed = parseFrontmatter(readFile(filePath));
     agents.push({
       name: path.basename(filePath).replace(/\.md$/, ""),
-      relPath: path.posix.join("agents", path.basename(filePath)),
+      // path.relative from the root keeps this correct if agents/ ever nests.
+      relPath: path.relative(rootDir, filePath).split(path.sep).join("/"),
       frontmatter: parsed.data || {},
     });
   }

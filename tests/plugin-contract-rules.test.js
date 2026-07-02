@@ -206,6 +206,62 @@ test("D1-TOOLS-001 fail: unknown agent tool rejected", () => {
   assert.match(out[0].file, /agents\/reviewer\.md/);
 });
 
+test("D1-TOOLS-001 pass: mcp__-prefixed tools accepted (skills and agents)", () => {
+  const skillCtx = makeCtx({
+    skills: [
+      mkSkill("s", {
+        name: "s",
+        description: "x",
+        "allowed-tools": ["Read", "mcp__playwright__click"],
+      }),
+    ],
+  });
+  assert.equal(byId.get("D1-TOOLS-001").check(skillCtx).length, 0);
+
+  const agentCtx = makeCtx({
+    agents: [
+      { name: "qa", relPath: "agents/qa.md", frontmatter: { tools: "Read, mcp__maestro__tap" } },
+    ],
+  });
+  assert.equal(byId.get("D1-TOOLS-001").check(agentCtx).length, 0);
+});
+
+test("D1-TOOLS-001 fail: agent using allowed-tools: (wrong key) is flagged", () => {
+  const ctx = makeCtx({
+    agents: [
+      {
+        name: "reviewer",
+        relPath: "agents/reviewer.md",
+        frontmatter: { "allowed-tools": "Read, Grep" },
+      },
+    ],
+  });
+  const out = byId.get("D1-TOOLS-001").check(ctx);
+  assert.equal(out.length, 1);
+  assert.match(out[0].message, /agents use `tools:`/);
+  assert.match(out[0].file, /agents\/reviewer\.md/);
+});
+
+test("D1-TOOLS-001 fail: skill or step using tools: (wrong key) is flagged", () => {
+  const skillCtx = makeCtx({
+    skills: [mkSkill("s", { name: "s", description: "x", tools: "Read" })],
+  });
+  const skillOut = byId.get("D1-TOOLS-001").check(skillCtx);
+  assert.equal(skillOut.length, 1);
+  assert.match(skillOut[0].message, /skills use `allowed-tools:`/);
+
+  const stepCtx = makeCtx({
+    skills: [
+      mkSkill("s", { name: "s", description: "x" }, [
+        mkStep("01-a.md", { order: 1, description: "d", tools: "Read" }),
+      ]),
+    ],
+  });
+  const stepOut = byId.get("D1-TOOLS-001").check(stepCtx);
+  assert.equal(stepOut.length, 1);
+  assert.match(stepOut[0].message, /skills use `allowed-tools:`/);
+});
+
 // ---------------------------------------------------------------------------
 // D1-CMD-001 command resolves to skill
 // ---------------------------------------------------------------------------
