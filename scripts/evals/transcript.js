@@ -2,6 +2,31 @@
 
 const FRAME_PREFIX = "::pm-eval-check::";
 
+// Adapter-neutral tool taxonomy. Checks reference logical classes
+// (run-command, edit-file, ...) so scenarios stay valid across Codex,
+// Claude Code, and future adapters; exact raw names still match too.
+const TOOL_CLASSES = {
+  "run-command": ["functions.exec_command", "exec_command", "local_shell", "shell", "bash"],
+  "edit-file": [
+    "functions.apply_patch",
+    "apply_patch",
+    "str_replace_editor",
+    "edit",
+    "multiedit",
+    "notebookedit",
+  ],
+  "write-file": ["write", "functions.write_file", "create_file"],
+  "read-file": ["read", "functions.read_file", "open_file"],
+};
+
+function classifyTool(name) {
+  const lower = String(name || "").toLowerCase();
+  for (const [toolClass, names] of Object.entries(TOOL_CLASSES)) {
+    if (names.includes(lower)) return toolClass;
+  }
+  return null;
+}
+
 function parseJsonl(text) {
   if (!text || !String(text).trim()) {
     return { status: "indeterminate", reason: "empty-transcript", events: [] };
@@ -37,13 +62,25 @@ function normalizeEvent(event, index) {
   const command = String(event.command || event.input || "");
 
   if (type === "tool" || event.tool) {
-    return {
+    const toolName = String(event.name || event.tool || "").trim();
+    const normalized = {
       index,
       type: "tool",
-      name: String(event.name || event.tool || "").trim(),
+      name: toolName,
+      tool_class: event.tool_class || classifyTool(toolName),
       command,
-      raw: event,
+      raw: event.raw || event,
     };
+    const exitCode = firstDefined(
+      event.exit_code,
+      event.exitCode,
+      normalized.raw && normalized.raw.exit_code,
+      normalized.raw && normalized.raw.exitCode
+    );
+    if (exitCode !== undefined && exitCode !== null && exitCode !== "") {
+      normalized.exit_code = Number(exitCode);
+    }
+    return normalized;
   }
 
   if (type === "skill" || event.skill) {
@@ -51,7 +88,7 @@ function normalizeEvent(event, index) {
       index,
       type: "skill",
       name: String(event.name || event.skill || name).trim(),
-      raw: event,
+      raw: event.raw || event,
     };
   }
 
@@ -60,8 +97,12 @@ function normalizeEvent(event, index) {
     type: type || "event",
     name,
     command,
-    raw: event,
+    raw: event.raw || event,
   };
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null);
 }
 
 function checkTranscript(events, command, ...args) {
@@ -75,6 +116,8 @@ function checkTranscript(events, command, ...args) {
       return hasSkill(normalized, args[0]) ? pass() : fail(`skill not called: ${args[0]}`);
     case "tool-called":
       return hasTool(normalized, args[0]) ? pass() : fail(`tool not called: ${args[0]}`);
+    case "tool-not-called":
+      return hasTool(normalized, args[0]) ? fail(`tool called: ${args[0]}`) : pass();
     case "skill-before-tool":
       return before(
         findSkillIndex(normalized, args[0]),
@@ -89,25 +132,75 @@ function checkTranscript(events, command, ...args) {
         ? pass()
         : fail(`tool ${args[0]} ran before skill ${args[1]}`);
     }
+    case "test-red-green":
+      return testRedGreen(normalized, args[0] || "test");
     default:
       return { status: "indeterminate", reason: `unknown-transcript-check:${command}` };
   }
+}
+
+// Observed TDD evidence: a test command fails, a source edit follows,
+// then the same class of test command passes. Replaces trusting an
+// agent-written attestation artifact.
+function testRedGreen(events, needle) {
+  const selector = `run-command~${needle}`;
+  const runs = events.filter((event) => matchesToolSelector(event, selector));
+  if (runs.length === 0) {
+    return fail(`no test commands matching "${needle}" were run`);
+  }
+  if (
+    !runs.some((event) => typeof event.exit_code === "number" && !Number.isNaN(event.exit_code))
+  ) {
+    return { status: "indeterminate", reason: "test-runs-missing-exit-codes" };
+  }
+  const red = runs.find((event) => typeof event.exit_code === "number" && event.exit_code !== 0);
+  if (!red) return fail("no failing test run observed before implementation");
+  const edit = events.find(
+    (event) =>
+      event.index > red.index &&
+      event.type === "tool" &&
+      (event.tool_class === "edit-file" || event.tool_class === "write-file")
+  );
+  if (!edit) return fail("no source edit observed after the failing test run");
+  const green = runs.find((event) => event.index > edit.index && event.exit_code === 0);
+  if (!green) return fail("no passing test run observed after the implementation edit");
+  return pass();
 }
 
 function hasSkill(events, skill) {
   return findSkillIndex(events, skill) !== -1;
 }
 
-function hasTool(events, tool) {
-  return findToolIndex(events, tool) !== -1;
+function hasTool(events, selector) {
+  return findToolIndex(events, selector) !== -1;
 }
 
 function findSkillIndex(events, skill) {
   return events.findIndex((event) => event.type === "skill" && event.name === skill);
 }
 
-function findToolIndex(events, tool) {
-  return events.findIndex((event) => event.type === "tool" && event.name === tool);
+function findToolIndex(events, selector) {
+  return events.findIndex((event) => matchesToolSelector(event, selector));
+}
+
+// Selector grammar: "<name-or-class>" or "<name-or-class>~<command substring>".
+// The name part matches the raw tool name or its logical class; "*" matches any.
+function parseToolSelector(selector) {
+  const text = String(selector || "");
+  const sep = text.indexOf("~");
+  if (sep === -1) return { name: text, needle: "" };
+  return { name: text.slice(0, sep), needle: text.slice(sep + 1) };
+}
+
+function matchesToolSelector(event, selector) {
+  if (!event || event.type !== "tool") return false;
+  const { name, needle } = parseToolSelector(selector);
+  if (name && name !== "*" && event.name !== name && event.tool_class !== name) return false;
+  if (needle) {
+    const command = String(event.command || "").toLowerCase();
+    if (!command.includes(needle.toLowerCase())) return false;
+  }
+  return true;
 }
 
 function before(left, right, reason) {
@@ -172,6 +265,9 @@ function escapeFrameLines(text) {
 
 module.exports = {
   FRAME_PREFIX,
+  TOOL_CLASSES,
+  classifyTool,
+  matchesToolSelector,
   parseJsonl,
   normalizeEvents,
   checkTranscript,

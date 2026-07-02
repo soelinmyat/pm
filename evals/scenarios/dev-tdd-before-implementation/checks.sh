@@ -4,6 +4,5 @@ pre() {
 
 post() {
   check-transcript skill-called pm:dev
-  check-transcript tool-called functions.exec_command
-  artifact-exists tdd-evidence.json
+  check-transcript test-red-green test
 }

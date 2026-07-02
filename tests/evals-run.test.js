@@ -46,10 +46,10 @@ test("stub eval runner stages source and writes a passing verdict", () => {
       .trim()
       .split(/\r?\n/)
       .map((line) => JSON.parse(line));
-    assert.ok(postRecords.length >= 3);
+    assert.ok(postRecords.length >= 2);
     assert.deepEqual(
       postRecords.map((record) => record.status),
-      ["pass", "pass", "pass"]
+      ["pass", "pass"]
     );
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -350,7 +350,6 @@ process.stdin.on("end", () => {
   if (${opts.writeMarker ? "true" : "false"}) {
     fs.writeFileSync(path.join(artifacts, "pm-source-marker.txt"), marker + "\\n");
   }
-  fs.writeFileSync(path.join(artifacts, "tdd-evidence.json"), JSON.stringify({ red: true, green: true }) + "\\n");
   fs.writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
     argv: process.argv.slice(2),
     env: {
@@ -364,7 +363,9 @@ process.stdin.on("end", () => {
     markerInPrompt: input.includes("pm-eval-source:")
   }, null, 2));
   console.log(JSON.stringify({ type: "skill", name: "pm:dev" }));
-  console.log(JSON.stringify({ type: "tool", name: "functions.exec_command" }));
+  console.log(JSON.stringify({ type: "tool", name: "functions.exec_command", command: "npm test -- --filter behavior", exit_code: 1 }));
+  console.log(JSON.stringify({ type: "tool", name: "functions.apply_patch", command: "apply_patch src/behavior.js" }));
+  console.log(JSON.stringify({ type: "tool", name: "functions.exec_command", command: "npm test -- --filter behavior", exit_code: 0 }));
 });
 `
   );

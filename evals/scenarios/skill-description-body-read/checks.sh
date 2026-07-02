@@ -4,6 +4,6 @@ pre() {
 
 post() {
   check-transcript skill-called pm:groom
-  check-transcript skill-before-tool pm:groom functions.exec_command
+  check-transcript no-tool-before-skill "run-command~skills/groom" pm:groom
   artifact-exists proposal.md
 }

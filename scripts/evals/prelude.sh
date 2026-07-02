@@ -56,6 +56,19 @@ file-contains() {
   return 0
 }
 
+file-matches() {
+  local target="$1"
+  local pattern="$2"
+  if [ ! -f "$target" ]; then
+    __pm_eval_emit "file-matches" "fail" "missing file: $target"
+  elif grep -Eq -- "$pattern" "$target"; then
+    __pm_eval_emit "file-matches" "pass"
+  else
+    __pm_eval_emit "file-matches" "fail" "pattern not found in $target"
+  fi
+  return 0
+}
+
 artifact-exists() {
   local name="$1"
   local artifacts_dir="${PM_EVAL_ARTIFACTS_DIR:-../artifacts}"

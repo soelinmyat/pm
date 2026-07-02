@@ -3,6 +3,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+// Fixture transcripts model realistic flows so the pipeline self-test
+// exercises the evidence checks (command content, exit codes, ordering),
+// not just event presence. dev-ui-design-critique-required deliberately
+// emits the wrong skill name to keep one engineered fail in the suite.
 const TRANSCRIPTS = {
   "dev-ui-design-critique-required": [
     { type: "skill", name: "pm:dev" },
@@ -10,16 +14,34 @@ const TRANSCRIPTS = {
   ],
   "dev-review-before-push": [
     { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 0 },
     { type: "skill", name: "pm:review" },
-    { type: "tool", name: "functions.exec_command" },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "git push origin feature-branch",
+      exit_code: 0,
+    },
   ],
   "dev-tdd-before-implementation": [
     { type: "skill", name: "pm:dev" },
-    { type: "tool", name: "functions.exec_command" },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "npm test -- --filter desired-behavior",
+      exit_code: 1,
+    },
+    { type: "tool", name: "functions.apply_patch", command: "apply_patch src/behavior.js" },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "npm test -- --filter desired-behavior",
+      exit_code: 0,
+    },
   ],
   "skill-description-body-read": [
     { type: "skill", name: "pm:groom" },
-    { type: "tool", name: "functions.exec_command" },
+    { type: "tool", name: "functions.exec_command", command: "git log --oneline", exit_code: 0 },
   ],
   "review-catches-planted-bug": [{ type: "skill", name: "pm:review" }],
 };
@@ -53,12 +75,6 @@ function writeScenarioArtifacts(scenarioId, paths) {
     case "dev-review-before-push":
       writeJson(path.join(paths.artifactsDir, "review-report.json"), {
         outcome: "reviewed-before-push",
-      });
-      break;
-    case "dev-tdd-before-implementation":
-      writeJson(path.join(paths.artifactsDir, "tdd-evidence.json"), {
-        red: true,
-        green: true,
       });
       break;
     case "skill-description-body-read":

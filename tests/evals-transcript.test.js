@@ -48,6 +48,71 @@ test("missing or malformed transcript data is indeterminate", () => {
   assert.equal(parseJsonl("{bad json").status, "indeterminate");
 });
 
+test("tool selectors match logical classes and command content", () => {
+  const events = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 0 },
+    { type: "skill", name: "pm:review" },
+    { type: "tool", name: "Bash", command: "git push origin main", exit_code: 0 },
+  ]);
+
+  assert.equal(checkTranscript(events, "tool-called", "run-command").status, "pass");
+  assert.equal(checkTranscript(events, "tool-called", "run-command~git push").status, "pass");
+  assert.equal(checkTranscript(events, "tool-not-called", "run-command~rm -rf").status, "pass");
+  assert.equal(checkTranscript(events, "tool-not-called", "run-command~git push").status, "fail");
+  assert.equal(
+    checkTranscript(events, "no-tool-before-skill", "run-command~git push", "pm:review").status,
+    "pass"
+  );
+});
+
+test("no-tool-before-skill fails when the anchored tool precedes the skill", () => {
+  const events = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "git push origin main", exit_code: 0 },
+    { type: "skill", name: "pm:review" },
+  ]);
+
+  const result = checkTranscript(
+    events,
+    "no-tool-before-skill",
+    "run-command~git push",
+    "pm:review"
+  );
+  assert.equal(result.status, "fail");
+});
+
+test("test-red-green requires observed fail, edit, then pass", () => {
+  const good = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 1 },
+    { type: "tool", name: "functions.apply_patch", command: "apply_patch src/x.js" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 0 },
+  ]);
+  assert.equal(checkTranscript(good, "test-red-green", "test").status, "pass");
+
+  const neverRed = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 0 },
+  ]);
+  const neverRedResult = checkTranscript(neverRed, "test-red-green", "test");
+  assert.equal(neverRedResult.status, "fail");
+  assert.match(neverRedResult.reason, /no failing test run/);
+
+  const noGreenAfterEdit = normalizeEvents([
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 1 },
+    { type: "tool", name: "functions.apply_patch", command: "apply_patch src/x.js" },
+  ]);
+  assert.equal(checkTranscript(noGreenAfterEdit, "test-red-green", "test").status, "fail");
+
+  const noExitCodes = normalizeEvents([
+    { type: "tool", name: "functions.exec_command", command: "npm test" },
+  ]);
+  const noExitResult = checkTranscript(noExitCodes, "test-red-green", "test");
+  assert.equal(noExitResult.status, "indeterminate");
+  assert.equal(noExitResult.reason, "test-runs-missing-exit-codes");
+});
+
 test("shell reads of SKILL.md do not count as skill compliance", () => {
   const events = normalizeEvents([
     { type: "tool", name: "functions.exec_command", command: "sed -n '1,80p' skills/dev/SKILL.md" },
