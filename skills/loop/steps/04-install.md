@@ -27,6 +27,15 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUG
   scheduled wakes stay observation-only — a valid first configuration.
 - **Engine:** `worker.engine` (`codex` | `claude`) or `worker.engine_bin` must
   name a CLI that is installed, authenticated, and on PATH.
+- **Engine permissions:** the claude engine defaults to
+  `worker.claude_permission_mode: "acceptEdits"`, under which unattended shell
+  commands are denied and runs fail loudly. Fully unattended implementation
+  requires the operator to explicitly set it to `"bypassPermissions"` — treat
+  that as granting the engine full control of the machine during runs; prefer
+  a dedicated user account or container for the scheduler. Codex runs keep
+  codex's own workspace-write sandbox under `--full-auto`. The worker also
+  refuses any card whose `command` is not a `/pm:dev|rfc|research <id>` shape,
+  so git-synced card frontmatter cannot inject arbitrary instructions.
 - **Worktree bootstrap:** list the project's gitignored-but-required files
   (env files, generated specs) in `worker.bootstrap_files`; use
   `worker.bootstrap_command` for install steps. Fresh-worktree test failures

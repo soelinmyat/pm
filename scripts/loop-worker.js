@@ -64,6 +64,14 @@ function countRunsToday(runsDir, now = new Date()) {
   return count;
 }
 
+// Card `command` values are git-synced frontmatter — an injection surface for
+// unattended runs. Only dispatch commands the loop itself generates.
+const DISPATCHABLE_COMMAND = /^\/pm:(dev|rfc|research) [A-Za-z0-9 ._-]{1,120}$/;
+
+function isDispatchableCommand(command) {
+  return DISPATCHABLE_COMMAND.test(String(command || ""));
+}
+
 function engineCommand(config, prompt) {
   const worker = config.worker || {};
   const extraArgs = Array.isArray(worker.engine_args) ? worker.engine_args : [];
@@ -72,18 +80,18 @@ function engineCommand(config, prompt) {
   }
   const kind = worker.engine || config.default_runtime || "codex";
   if (kind === "claude") {
+    // Default is acceptEdits: unattended Bash will be denied and the run will
+    // fail loudly. Granting the engine full permissions is an explicit operator
+    // opt-in (worker.claude_permission_mode: "bypassPermissions"), same as the
+    // autonomy gates — never a built-in default.
+    const permissionMode = worker.claude_permission_mode || "acceptEdits";
     return {
       bin: "claude",
-      args: [
-        "-p",
-        "--permission-mode",
-        "bypassPermissions",
-        "--no-session-persistence",
-        ...extraArgs,
-      ],
+      args: ["-p", "--permission-mode", permissionMode, "--no-session-persistence", ...extraArgs],
       input: prompt,
     };
   }
+  // codex --full-auto keeps its OS-level workspace-write sandbox.
   return {
     bin: "codex",
     args: ["exec", "--full-auto", "--skip-git-repo-check", ...extraArgs, "-"],
@@ -260,6 +268,17 @@ function runWorker(projectDir, options = {}) {
   });
   if (plan.status !== "claimed") return plan;
 
+  if (!isDispatchableCommand(plan.selected.command)) {
+    releaseLease(paths.pmDir, plan.lease, options);
+    return {
+      ...plan,
+      status: "rejected",
+      reason: `card command is not a dispatchable /pm:* shape: ${JSON.stringify(
+        plan.selected.command
+      )}`,
+    };
+  }
+
   const projectGitRoot = findGitRoot(projectDir);
   if (!projectGitRoot) {
     releaseLease(paths.pmDir, plan.lease, options);
@@ -404,6 +423,7 @@ module.exports = {
   buildPrompt,
   countRunsToday,
   engineCommand,
+  isDispatchableCommand,
   isStopped,
   killSwitchPath,
   prepareWorkspace,

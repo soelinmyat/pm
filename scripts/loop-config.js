@@ -37,6 +37,7 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     engine: "",
     engine_bin: "",
     engine_args: [],
+    claude_permission_mode: "acceptEdits",
     bootstrap_files: [],
     bootstrap_command: "",
     keep_workspace: false,
