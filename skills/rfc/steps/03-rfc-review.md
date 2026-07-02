@@ -185,8 +185,18 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     - **If yes:** update each child card (or the single card) frontmatter:
       `implementation_approved: true`, `approved_by: {user}`,
-      `approved_at: {today}`, `updated: {today}`. Say: "Approved for loop
-      pickup. The next scheduled wake will start `{first child slug}`."
+      `approved_at: {today}`, `updated: {today}`. Then offer an immediate
+      start:
+
+      > "Approved for loop pickup. The next scheduled wake will start
+      > `{first child slug}` — or I can start it now with `/pm:loop work`.
+      > Start now? (y/n)"
+
+      If yes, run one worker cycle:
+
+      ```bash
+      node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --mode dev
+      ```
     - **If no:** skip — cards stay `needs_human` on the loop board until
       approved manually or via a later `/pm:loop` session.
 
