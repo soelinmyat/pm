@@ -62,8 +62,6 @@ function bakePluginRootPaths(runtimeDir) {
 
 // Post-run guard: any command or path touching a host plugin install means
 // the run exercised the wrong code, regardless of marker evidence.
-const HOST_PLUGIN_PATH_RE = /\.claude\/plugins\/cache|\.agents\/vendor\/pm(?!\b.*eval-results)/;
-
 function transcriptTouchesHostPlugin(events, stagedRoot) {
   for (const event of events) {
     const haystack = `${event.command || ""} ${event.name || ""}`;
