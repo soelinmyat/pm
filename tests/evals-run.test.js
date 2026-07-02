@@ -153,17 +153,32 @@ test("codex live adapter stages isolated runtime and captures transcript", () =>
     const command = JSON.parse(
       fs.readFileSync(path.join(runDir, "metadata", "codex_command.json"), "utf8")
     );
+    const writableArtifactsDir = path.join(runDir, "workdir", ".pm-eval-artifacts");
+    assert.deepEqual(command.argv.slice(0, 5), [
+      "exec",
+      "-m",
+      "gpt-5.5",
+      "-c",
+      'model_reasoning_effort="xhigh"',
+    ]);
     assert.ok(command.argv.includes("--ignore-user-config"));
     assert.ok(command.argv.includes("--ignore-rules"));
     assert.ok(command.argv.includes("--json"));
+    assert.equal(command.timeout_ms, 1234);
+    assert.equal(command.env.PM_EVAL_ARTIFACTS_DIR, writableArtifactsDir);
 
     const fakeLog = JSON.parse(fs.readFileSync(logPath, "utf8"));
     assert.equal(fakeLog.markerInPrompt, false);
+    assert.equal(fakeLog.skillTelemetryInPrompt, true);
     assert.equal(fakeLog.env.HOME, path.join(runDir, "home"));
     assert.equal(fakeLog.env.CODEX_HOME, path.join(runDir, "home", ".codex"));
     assert.equal(fakeLog.env.PM_PLUGIN_ROOT, path.join(runDir, "home", ".agents", "vendor", "pm"));
     assert.equal(fakeLog.env.CLAUDE_PLUGIN_ROOT, fakeLog.env.PM_PLUGIN_ROOT);
+    assert.equal(fakeLog.env.PM_EVAL_ARTIFACTS_DIR, writableArtifactsDir);
     assert.match(fakeLog.marker, /^pm-eval-source:/);
+    assert.equal(fs.existsSync(path.join(writableArtifactsDir, "tdd-evidence.json")), true);
+    assert.equal(fs.existsSync(path.join(runDir, "artifacts", "tdd-evidence.json")), true);
+    assert.equal(fs.existsSync(path.join(runDir, "artifacts", "pm-source-marker.txt")), true);
 
     assert.equal(fs.existsSync(path.join(runDir, "home", ".codex", "auth.json")), true);
     assert.equal(fs.existsSync(path.join(runDir, "home", ".codex", "config.toml")), false);
@@ -226,6 +241,8 @@ test("codex live adapter marks missing marker evidence as wrong-source", () => {
     const verdict = JSON.parse(fs.readFileSync(path.join(runDir, "verdict.json"), "utf8"));
     assert.equal(verdict.status, "indeterminate");
     assert.equal(verdict.reason, "wrong-source");
+    assert.equal(fs.existsSync(path.join(runDir, "artifacts", "tdd-evidence.json")), true);
+    assert.equal(fs.existsSync(path.join(runDir, "artifacts", "pm-source-marker.txt")), false);
     assert.equal(fs.existsSync(path.join(runDir, "metadata", "check-results.post.jsonl")), false);
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -319,6 +336,9 @@ function liveCodexEnv({ template, binDir }) {
     PM_EVAL_CODEX_LIVE: "1",
     PM_EVAL_CODEX_ALLOW_UNCONTAINED_NETWORK: "1",
     PM_EVAL_CODEX_HOME_TEMPLATE: template,
+    PM_EVAL_CODEX_MODEL: "gpt-5.5",
+    PM_EVAL_CODEX_REASONING_EFFORT: "xhigh",
+    PM_EVAL_CODEX_TIMEOUT_MS: "1234",
   };
 }
 
@@ -361,10 +381,35 @@ process.stdin.on("end", () => {
       PM_EVAL_ARTIFACTS_DIR: process.env.PM_EVAL_ARTIFACTS_DIR
     },
     marker,
-    markerInPrompt: input.includes("pm-eval-source:")
+    markerInPrompt: input.includes("pm-eval-source:"),
+    skillTelemetryInPrompt: input.includes("Codex JSONL has no native PM skill-call event")
   }, null, 2));
-  console.log(JSON.stringify({ type: "skill", name: "pm:dev" }));
-  console.log(JSON.stringify({ type: "tool", name: "functions.exec_command" }));
+  console.log(JSON.stringify({ type: "thread.started", thread_id: "fake-thread" }));
+  console.log(JSON.stringify({ type: "turn.started" }));
+  console.log(JSON.stringify({
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      text: "I’ll use the PM workflow skills for this turn: \`pm:dev\` for implementation."
+    }
+  }));
+  console.log(JSON.stringify({
+    type: "item.started",
+    item: {
+      type: "command_execution",
+      command: "/bin/zsh -lc 'node --test tests/example.test.js'"
+    }
+  }));
+  console.log(JSON.stringify({
+    type: "item.completed",
+    item: {
+      type: "command_execution",
+      command: "/bin/zsh -lc 'node --test tests/example.test.js'",
+      exit_code: 0,
+      status: "completed"
+    }
+  }));
+  console.log(JSON.stringify({ type: "turn.completed" }));
 });
 `
   );
