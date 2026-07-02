@@ -7,11 +7,22 @@ const { spawnSync } = require("node:child_process");
 
 const { safeCopyTree } = require("../stage.js");
 const { parseJsonl } = require("../transcript.js");
+const {
+  MARKER_ARTIFACT,
+  assertUnderRunDir,
+  buildStoryPrompt,
+  copyAuthTemplate,
+  enableWorkdirAnalytics,
+  injectSourceMarker,
+  resolveBin,
+  sourceMarkerVerified,
+  sourceSkipDirs,
+  templateHasAuthMaterial,
+  treeContains,
+} = require("./shared.js");
 
 const ADAPTER_TIMEOUT_MS = 600_000;
 const OUTPUT_MAX_BUFFER = 2 * 1024 * 1024;
-const MARKER_ARTIFACT = "pm-source-marker.txt";
-const AUTH_FILE_RE = /(auth|credential|session|token)/i;
 
 function preflight() {
   if (!liveEnabled()) return skipNetworkPolicy();
@@ -31,7 +42,9 @@ function run({ scenarioId, paths }) {
   const prepared = prepareCodexRuntime({ paths });
   if (prepared.status !== "pass") return prepared;
 
-  const prompt = buildPrompt({ scenarioId, paths });
+  enableWorkdirAnalytics(paths.workdir);
+
+  const prompt = buildStoryPrompt({ scenarioId, paths, runtimeLabel: "Codex" });
   const argv = [
     "exec",
     "--full-auto",
@@ -165,66 +178,9 @@ function prepareCodexRuntime({ paths }) {
   };
 }
 
-function copyAuthTemplate(template, codexHome) {
-  if (!templateHasAuthMaterial(template)) return false;
-
-  let stat;
-  try {
-    stat = fs.lstatSync(template);
-  } catch {
-    return false;
-  }
-  if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-
-  fs.mkdirSync(codexHome, { recursive: true });
-  let copied = 0;
-  for (const entry of fs.readdirSync(template)) {
-    const source = path.join(template, entry);
-    const sourceStat = fs.lstatSync(source);
-    if (sourceStat.isSymbolicLink()) continue;
-    if (!sourceStat.isFile()) continue;
-    if (!AUTH_FILE_RE.test(entry)) continue;
-    fs.copyFileSync(source, path.join(codexHome, entry));
-    fs.chmodSync(path.join(codexHome, entry), sourceStat.mode & 0o600);
-    copied += 1;
-  }
-  return copied > 0;
-}
-
-function templateHasAuthMaterial(template) {
-  if (!template) return false;
-  let stat;
-  try {
-    stat = fs.lstatSync(template);
-  } catch {
-    return false;
-  }
-  if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-
-  for (const entry of fs.readdirSync(template)) {
-    const source = path.join(template, entry);
-    const sourceStat = fs.lstatSync(source);
-    if (sourceStat.isSymbolicLink()) continue;
-    if (sourceStat.isFile() && AUTH_FILE_RE.test(entry)) return true;
-  }
-  return false;
-}
-
 function readManifestVersion(runtimeDir) {
   const configPath = path.join(runtimeDir, "plugin.config.json");
   return JSON.parse(fs.readFileSync(configPath, "utf8")).version;
-}
-
-function injectSourceMarker(runtimeDir, marker) {
-  const skillsDir = path.join(runtimeDir, "skills");
-  let injected = 0;
-  for (const skill of fs.readdirSync(skillsDir)) {
-    const skillPath = path.join(skillsDir, skill, "SKILL.md");
-    if (!fs.existsSync(skillPath)) continue;
-    fs.appendFileSync(skillPath, `\n\n<!-- PM_EVAL_SOURCE_MARKER ${marker} -->\n`);
-    injected += 1;
-  }
-  if (injected === 0) throw new Error("unable to inject PM eval source marker");
 }
 
 function stageSkillAliases(sourceSkillsDir, destSkillsDir) {
@@ -234,42 +190,6 @@ function stageSkillAliases(sourceSkillsDir, destSkillsDir) {
     if (!fs.statSync(source).isDirectory()) continue;
     safeCopyTree(source, path.join(destSkillsDir, `pm-${skill}`));
   }
-}
-
-function sourceMarkerVerified(paths, marker) {
-  const markerPath = path.join(paths.artifactsDir, MARKER_ARTIFACT);
-  try {
-    const text = fs.readFileSync(markerPath, "utf8").trim();
-    return text === marker;
-  } catch {
-    return false;
-  }
-}
-
-function buildPrompt({ scenarioId, paths }) {
-  const story = fs.readFileSync(path.join(paths.scenarioStageDir, "story.md"), "utf8");
-  const artifactNames = expectedArtifacts(paths.scenarioStageDir);
-  return [
-    "You are running a PM behavioral eval scenario against the staged PM plugin.",
-    "Use the PM workflow skills exposed in this isolated Codex environment.",
-    "Do not read host paths, credentials, user caches, or eval-results outside the provided run paths.",
-    `Scenario id: ${scenarioId}`,
-    "",
-    story.trim(),
-    "",
-    "Artifacts:",
-    `- Write required scenario artifacts under the directory named by PM_EVAL_ARTIFACTS_DIR.`,
-    `- Write the PM source marker to ${MARKER_ARTIFACT}.`,
-    "- The marker value is not in this prompt. Read it from the PM skill/runtime text you actually use.",
-    ...artifactNames.map((name) => `- Scenario check expects artifact: ${name}`),
-    "",
-    "Stop when the scenario stop condition is satisfied.",
-  ].join("\n");
-}
-
-function expectedArtifacts(scenarioStageDir) {
-  const checks = fs.readFileSync(path.join(scenarioStageDir, "checks.sh"), "utf8");
-  return [...checks.matchAll(/artifact-exists\s+([A-Za-z0-9._-]+)/g)].map((match) => match[1]);
 }
 
 function codexEnv({ paths, prepared }) {
@@ -290,62 +210,7 @@ function codexEnv({ paths, prepared }) {
 }
 
 function resolveCodexBin() {
-  const requested = process.env.PM_EVAL_CODEX_BIN || "codex";
-  if (requested.includes(path.sep)) {
-    return isExecutableFile(requested) ? requested : "";
-  }
-  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, requested);
-    if (isExecutableFile(candidate)) return candidate;
-  }
-  return "";
-}
-
-function isExecutableFile(filePath) {
-  try {
-    fs.accessSync(filePath, fs.constants.X_OK);
-    return fs.statSync(filePath).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function treeContains(root, needle, opts = {}) {
-  const skipDirs = opts.skipDirs || new Set();
-  let stat;
-  try {
-    stat = fs.lstatSync(root);
-  } catch {
-    return false;
-  }
-  if (stat.isSymbolicLink()) return false;
-  if (stat.isFile()) {
-    if (stat.size > 1024 * 1024) return false;
-    try {
-      return fs.readFileSync(root, "utf8").includes(needle);
-    } catch {
-      return false;
-    }
-  }
-  if (!stat.isDirectory()) return false;
-  for (const entry of fs.readdirSync(root)) {
-    if (skipDirs.has(entry)) continue;
-    if (treeContains(path.join(root, entry), needle, opts)) return true;
-  }
-  return false;
-}
-
-function sourceSkipDirs() {
-  return new Set([".git", ".worktrees", "node_modules", "eval-results", ".pm"]);
-}
-
-function assertUnderRunDir(target, runDir) {
-  const realTarget = fs.realpathSync(target);
-  const realRunDir = fs.realpathSync(runDir);
-  if (realTarget !== realRunDir && !realTarget.startsWith(`${realRunDir}${path.sep}`)) {
-    throw new Error(`PM eval path escapes run directory: ${target}`);
-  }
+  return resolveBin(process.env.PM_EVAL_CODEX_BIN, "codex");
 }
 
 function writeJson(filePath, value) {
@@ -359,7 +224,7 @@ module.exports = {
   preflight,
   run,
   _private: {
-    buildPrompt,
+    buildPrompt: buildStoryPrompt,
     copyAuthTemplate,
     resolveCodexBin,
   },
