@@ -52,26 +52,39 @@ Refusal points the user at `/pm:strategy`, `/pm:research`, or `/pm:ingest` for f
 
 Refusal logic lives in Step `01a-intake-agent.md`. Codex runtime = refuse with the directive above.
 
-**Step coverage.** Agent tier runs a different sub-set of steps than co-pilot tiers — realised through dedicated `*-agent.md` step files, not inline conditionals:
+**Step coverage.** Agent tier runs a different sub-set of steps than co-pilot tiers — intake and synthesis have dedicated `*-agent.md` variant files (01a, 04a), while the review gates (05, 08) are shared steps whose in-body agent-tier parameter blocks tighten caps and add the adversarial reviewer:
 
 | Agent step file | Replaces co-pilot step | Notes |
 |---|---|---|
 | `01a-intake-agent.md` | `01-intake.md` | Tier gate, brief-exchange decision rule, KB freshness check |
 | `04a-synthesis.md` | `02-strategy-check + 03-research + 04-scope` | Synthesizer reads strategy + research + memory, derives scope, runs Iron Law gate |
-| `05a-scope-review-agent.md` | `05-scope-review.md` | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
-| `08a-team-review-agent.md` | `08-team-review.md` | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
+| `05-scope-review.md` § Agent tier | (same file — parameter block) | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
+| `08-team-review.md` § Agent tier | (same file — parameter block) | Cap=2 iterations, anti-collusion framing, adversarial reviewer |
 
 `07-draft-proposal.md` and `11-link.md` are shared with co-pilot tiers (`applies_to:` includes all four tiers). Step 7 has a clearly-bounded "agent-only citation render" subsection.
 
-Steps NOT in the agent path: `02-strategy-check.md`, `03-research.md`, `04-scope.md`, `06-design.md`, `09-bar-raiser.md`, `10-present.md`. Their `applies_to:` excludes `agent`.
+Steps NOT in the agent path: `02-strategy-check.md`, `03-research.md`, `04-scope.md`, `06-design.md`, `10-present.md`. Their `applies_to:` excludes `agent`. (The review steps 05 and 08 ARE in the agent path — their agent-tier parameter blocks tighten the caps and add the adversarial reviewer; since v1.9 the bar raiser runs concurrently inside step 08.)
 
 **Iter-cap mechanism.** Cap value is **literal** in the agent-variant files:
 
-- `05-scope-review.md` body says "Maximum 3 iterations" (unchanged) — `applies_to: [quick, standard, full]`
-- `05a-scope-review-agent.md` body says "Maximum 2 iterations" — `applies_to: [agent]`
-- Same pattern for `08-team-review.md` (cap 3) vs `08a-team-review-agent.md` (cap 2)
+- `05-scope-review.md` and `08-team-review.md` declare cap 3 with an agent-tier parameter block dropping it to 2 — `applies_to: [standard, full, agent]` / `[full, agent]`
 
-No `if groom_tier == "agent"` conditionals inside step bodies. The runtime's `applies_to` dispatcher selects the right file per tier.
+## Agent-tier review escalation
+
+When a review gate hits its agent-tier iteration cap with blocking issues remaining, escalate to the user (this is an exceptional checkpoint, allowed beyond the two standing ones):
+
+> "{Gate name} didn't converge after 2 iterations. Blocking issues remaining:
+>
+> {list of blocking issues, each tagged with reviewer role}
+>
+> Options:
+> (a) Approve as-is — proceed with these as known limitations
+> (b) Redirect — go back to the prior checkpoint with the reviewer feedback as guidance
+> (c) Abort — stop the session"
+
+Append the outcome to `checkpoints[]` with `name: scope-review-escalation` or `name: team-review-escalation` and the user's choice.
+
+The runtime's `applies_to` dispatcher selects steps per tier. Intake/synthesis variants are separate files; the review gates carry an explicit agent-tier parameter block in-body (the one sanctioned form of tier branching, since the gate loop itself is shared).
 
 ## Step Loading Rules
 

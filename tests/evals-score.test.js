@@ -71,12 +71,12 @@ test("score summary counts determinate and non-comparable rows", () => {
     "dev-tdd-before-implementation": "fail",
   });
   const summary = summarizeLedger(result);
-  assert.equal(summary.pass, 2);
+  assert.equal(summary.pass, 3);
   assert.equal(summary.fail, 1);
   assert.equal(summary.skip, 1);
   assert.equal(summary.indeterminate, 1);
-  assert.equal(summary.determinate, 3);
-  assert.equal(summary.determinate_pass_rate, 2 / 3);
+  assert.equal(summary.determinate, 4);
+  assert.equal(summary.determinate_pass_rate, 3 / 4);
 });
 
 test("score comparison identifies improvements regressions and unscorable rows", () => {
@@ -96,7 +96,7 @@ test("score comparison identifies improvements regressions and unscorable rows",
   assert.deepEqual(comparison.regressions, ["dev-review-before-push"]);
   assert.deepEqual(comparison.newly_unscorable, ["dev-tdd-before-implementation"]);
   assert.deepEqual(comparison.newly_scored, ["review-catches-planted-bug"]);
-  assert.equal(comparison.comparable, 3);
+  assert.equal(comparison.comparable, 4);
 });
 
 test("score report marks all-skip current runs as not comparable", () => {
@@ -112,7 +112,7 @@ test("score report marks all-skip current runs as not comparable", () => {
   });
   assert.equal(report.results.determinate_pass_rate, null);
   assert.equal(report.comparison.comparable, 0);
-  assert.equal(report.comparison.newly_unscorable.length, 4);
+  assert.equal(report.comparison.newly_unscorable.length, 5);
   assert.match(formatScore(report), /All result rows are skipped or indeterminate/);
 });
 
@@ -124,6 +124,7 @@ test("score report explains zero comparable rows without claiming all results sk
       "dev-tdd-before-implementation": "fail",
       "skill-description-body-read": "indeterminate",
       "review-catches-planted-bug": "indeterminate",
+      "groom-quick-from-backlog": "indeterminate",
     }),
     results: ledger({
       "dev-ui-design-critique-required": "skip",
@@ -131,12 +132,13 @@ test("score report explains zero comparable rows without claiming all results sk
       "dev-tdd-before-implementation": "skip",
       "skill-description-body-read": "pass",
       "review-catches-planted-bug": "pass",
+      "groom-quick-from-backlog": "pass",
     }),
     baselineRef: "evals/baselines/sentinel.json",
     resultsRef: "/tmp/current.json",
   });
   const text = formatScore(report);
-  assert.equal(report.results.determinate, 2);
+  assert.equal(report.results.determinate, 3);
   assert.equal(report.comparison.comparable, 0);
   assert.doesNotMatch(text, /All result rows are skipped or indeterminate/);
   assert.match(text, /No rows are determinate in both baseline and current results/);

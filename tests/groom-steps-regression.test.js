@@ -36,12 +36,14 @@ test("groom steps: all step files load with correct order", () => {
   try {
     const steps = loadWorkflow("groom", pmDir, PLUGIN_ROOT);
 
-    // 11 primary co-pilot steps + 4 agent-tier variant steps (PM-233):
-    // 01a-intake-agent, 04a-synthesis, 05a-scope-review-agent, 08a-team-review-agent.
+    // 10 primary co-pilot steps + 2 agent-tier variant steps (PM-233):
+    // 01a-intake-agent, 04a-synthesis. Since v1.9 the review gates (05, 08)
+    // carry agent-tier parameter blocks instead of variant files, and the
+    // bar raiser runs concurrently inside step 08.
     assert.equal(
       steps.length,
-      15,
-      `Expected 15 steps (11 primary + 4 agent variants), got ${steps.length}`
+      12,
+      `Expected 12 steps (10 primary + 2 agent variants), got ${steps.length}`
     );
 
     // Verify each step has a valid order and non-empty body
@@ -226,7 +228,7 @@ test("groom steps: step names match expected structure", () => {
     // sequence. Agent tier (PM-233) inserts variant steps that replace
     // specific co-pilot steps via `applies_to: [agent]`. The variants
     // appear in load order between their co-pilot siblings:
-    //   01 → 01a → 02 → 03 → 04 → 04a → 05 → 05a → 06 → 07 → 08 → 08a → 09 → 10 → 11
+    //   01 → 01a → 02 → 03 → 04 → 04a → 05 → 06 → 07 → 08 → 10 → 11
     const expectedNames = [
       "Intake",
       "Intake (agent)",
@@ -235,12 +237,9 @@ test("groom steps: step names match expected structure", () => {
       "Scope",
       "Synthesis (agent)",
       "Scope Review",
-      "Scope Review (agent)",
       "Design",
       "Draft Proposal",
       "Team Review",
-      "Team Review (agent)",
-      "Bar Raiser",
       "Present",
       "Link",
     ];
@@ -407,8 +406,10 @@ test("groom steps: buildPrompt filters steps by tier (quick)", () => {
       "quick tier should NOT include Scope Review"
     );
     assert.ok(!prompt.includes("Step 6: Design"), "quick tier should NOT include Design");
-    assert.ok(!prompt.includes("Step 8: Team Review"), "quick tier should NOT include Team Review");
-    assert.ok(!prompt.includes("Step 9: Bar Raiser"), "quick tier should NOT include Bar Raiser");
+    assert.ok(
+      !prompt.includes("Step 8: Team Review"),
+      "quick tier should NOT include Team Review (which carries the concurrent bar raiser)"
+    );
     assert.ok(!prompt.includes("Step 10: Present"), "quick tier should NOT include Present");
   } finally {
     cleanup();
@@ -428,11 +429,7 @@ test("groom steps: buildPrompt filters steps by tier (standard)", () => {
     // Standard should NOT include full-only steps
     assert.ok(
       !prompt.includes("Step 8: Team Review"),
-      "standard tier should NOT include Team Review"
-    );
-    assert.ok(
-      !prompt.includes("Step 9: Bar Raiser"),
-      "standard tier should NOT include Bar Raiser"
+      "standard tier should NOT include Team Review (which carries the concurrent bar raiser)"
     );
     assert.ok(!prompt.includes("Step 10: Present"), "standard tier should NOT include Present");
   } finally {
@@ -446,10 +443,12 @@ test("groom steps: buildPrompt filters steps by tier (full)", () => {
     const steps = loadWorkflow("groom", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps, { tier: "full" });
 
-    // Full tier should include all 11 steps
-    for (let i = 1; i <= 11; i++) {
+    // Full tier includes every primary step (step 9 was absorbed into step 8's
+    // concurrent wave in v1.9, so its number is a deliberate gap)
+    for (const i of [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]) {
       assert.ok(prompt.includes(`Step ${i}:`), `full tier should include Step ${i}`);
     }
+    assert.ok(prompt.includes("Bar Raiser"), "full tier runs the bar raiser inside step 8");
   } finally {
     cleanup();
   }
@@ -462,7 +461,7 @@ test("groom steps: buildPrompt without tier returns all enabled steps (backward 
     const promptNoTier = buildPrompt(steps);
 
     // Without tier, all enabled steps are included (same as full)
-    for (let i = 1; i <= 11; i++) {
+    for (const i of [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]) {
       assert.ok(promptNoTier.includes(`Step ${i}:`), `no-tier prompt should include Step ${i}`);
     }
   } finally {

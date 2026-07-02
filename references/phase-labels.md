@@ -23,7 +23,7 @@ Both `/pm:list` (terminal) and any future dashboard consumer import labels from 
 | `groom` | `design` | Design |
 | `groom` | `draft-proposal` | Draft proposal |
 | `groom` | `team-review` | Team review |
-| `groom` | `bar-raiser` | Bar raiser |
+| `groom` | `bar-raiser` | Bar raiser (legacy, pre-v1.9 — runs inside team-review) |
 | `groom` | `present` | Present |
 | `groom` | `link` | Link |
 | `rfc` | `active` | In progress |

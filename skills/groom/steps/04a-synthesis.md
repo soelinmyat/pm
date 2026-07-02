@@ -164,7 +164,7 @@ Wait for user response. Three valid outcomes:
 
 | Outcome | Action |
 |---|---|
-| **Approve** | Append to `checkpoints[]` with `outcome: approve`. Advance to `05a-scope-review-agent.md`. |
+| **Approve** | Append to `checkpoints[]` with `outcome: approve`. Advance to `05-scope-review.md` (agent parameters). |
 | **Redirect** | Increment `redirects.scope_lock`. If `redirects.scope_lock <= 3`: re-dispatch synthesis (Phase A); the user's redirect comment becomes additional `brief_answers` context. If `redirects.scope_lock > 3`: escalate. |
 | **Abort** | Append to `checkpoints[]` with `outcome: abort`. Stop session. State file preserved for resume. |
 

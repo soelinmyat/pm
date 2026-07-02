@@ -2,12 +2,23 @@
 name: Scope Review
 order: 5
 description: Three parallel reviewers (PM, Competitive, EM) challenge the scope before drafting
-applies_to: [standard, full]
+applies_to: [standard, full, agent]
 ---
 
 ### Step 5: Scope Review
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
+This is a review gate. Run the canonical dispatch-collect-fix loop from `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` with these parameters:
+
+| Parameter | Value |
+|-----------|-------|
+| Artifact | The scoped initiative — groom session state `scope` block + `strategy_check.context` |
+| Reviewers | `@product-manager` (product manager — business value), `@strategist` (competitive strategist — positioning), `@staff-engineer` (engineering manager — feasibility, scans the codebase) |
+| Briefs | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md` § Scope Review briefs |
+| Dispatch | All reviewers in one parallel wave via `agent-runtime.md` |
+| Iteration cap | 3 (agent tier: 2) |
+| Verdicts | PM: `ship-it \| rethink-scope \| wrong-priority` · Competitive: `strengthens \| neutral \| weakens` · EM: `feasible \| feasible-with-caveats \| needs-rearchitecting` |
+| Blocking fix | Adjust scope (move items out-of-scope, refine in-scope definitions), then re-dispatch the whole wave |
+| Escalation | Cap reached with blocking issues → present to user for decision |
 
 <HARD-GATE>
 All three reviews (PM, Competitive, EM) are required before drafting the proposal.
@@ -15,118 +26,18 @@ Do NOT skip based on feature type (infrastructure, internal tooling, developer f
 If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking.
 </HARD-GATE>
 
-After scope is confirmed, dispatch **3 parallel reviewers** to challenge the scoped initiative before drafting the proposal. This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Step 2) is too coarse to find.
+This catches strategic misalignment, competitive blind spots, and technical risks that the strategy check (Step 2) is too coarse to find.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching reviewers. Use the reviewer intents below in both Claude and Codex. If delegation is unavailable, run the same briefs inline before merging findings.
+**Step-specific behavior on top of the canonical loop:**
 
-**Reviewer persona: `@product-manager`**
+1. **Interactive EM checkpoint (co-pilot tiers only — never in the agent tier).** After the EM agent completes, present its findings conversationally to the user — invite follow-up questions or pushback before proceeding:
+   > "The EM reviewed the codebase. Here are the findings: {summary}. Any questions or concerns before we proceed to proposal drafting?"
+   Wait for user confirmation. Capture the EM's key findings for the `## Technical Feasibility` section of the proposal.
+2. **Opportunity capture.** For each non-blocking **Opportunity** from the Competitive Review (and any non-blocking opportunity from PM Review), call `writeNote(pmDir, body, 'groom-opportunity', inferredTags)` via `scripts/note-helpers.js`. Skip if a backlog item with a matching slug already exists in `{pm_dir}/backlog/`. Log: "Captured N opportunities as notes." If zero opportunities were surfaced, skip silently.
 
-```
-You are a product manager reviewing a scoped feature initiative.
+**Agent tier (headless):** same gate, tighter parameters — the artifact is the synthesis YAML from Step 4a, the anti-collusion prepend from `team-reviewers.md` § Agent-tier is prepended to every brief, a fourth `@adversarial-reviewer` joins the wave (its `likely-mistake` verdict is blocking), the iteration cap is 2, and the interactive EM checkpoint is skipped (opportunity capture still runs — it is autonomous-safe). Increment `iter_counts.scope_review` per iteration; record `adversarial_verdict` and `citation_validity_sampled` in state. At the cap with blocking issues, run the escalation checkpoint in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` § Agent-tier review escalation (`name: scope-review-escalation`).
 
-**Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for ICP, priorities, non-goals, positioning. Read scope, strategy check result, research location. Do NOT re-read `strategy.md`.
-- {pm_dir}/insights/business/landscape.md — market context
-- {pm_dir}/evidence/competitors/index.md — competitive landscape
-- Research files at the research location from groom state
-
-You are opinionated. You care about whether this moves the needle for the business, not whether the scope is well-formatted.
-
-Review from these angles:
-
-1. **JTBD clarity.** What job is the customer hiring this feature to do? Can you state it in one sentence? If not, the scope is too vague to draft a proposal from.
-2. **ICP fit.** Does this solve a problem the ICP (from `strategy_check.context.icp`) actually has, or is it a feature we think is cool?
-3. **Prioritization.** Given the current priorities (from `strategy_check.context.priorities`), does this belong now or is it a distraction? Be harsh.
-4. **Scope right-sizing.** Is the scope trying to do too much? Would cutting 30% still deliver the core value? Are any in-scope items actually out-of-scope in disguise?
-5. **Success criteria.** How would we know this worked in 90 days? If there's no measurable outcome defined, that's a gap.
-
-**Output:**
-## Product Review
-**Verdict:** ship-it | rethink-scope | wrong-priority
-**Blocking issues:** (must fix before drafting the proposal)
-- [issue] - [why this matters for the business]
-**Pushback:** (challenges to consider, non-blocking)
-- [concern] - [what to watch for]
-```
-
-**Reviewer persona: `@strategist`**
-
-```
-You are a competitive strategist reviewing a scoped feature initiative.
-
-**Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for positioning, non-goals. Read scope, 10x filter result, research location. Do NOT re-read `strategy.md`.
-- {pm_dir}/insights/business/landscape.md — market context and positioning map
-- {pm_dir}/evidence/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
-- Research files at the research location from groom state
-
-Review from these angles:
-
-1. **Differentiation.** Does this make the product more different from incumbents, or more similar? "Table stakes" features are fine if required for switching, but label them as such.
-2. **Switching motivation.** Would this contribute to a customer's decision to switch from competitors (identified in {pm_dir}/evidence/competitors/)? Or is it "nice to have" post-switch?
-3. **Competitive response.** How easily can incumbents copy this? If trivially, it needs to be wrapped in something defensible.
-4. **Differentiation opportunity.** Is there a unique angle (AI, automation, workflow depth) that the scope is missing? Check what competitors lack in their feature profiles.
-
-**Output:**
-## Competitive Review
-**Verdict:** strengthens | neutral | weakens
-**Blocking issues:** (strategic misalignment that should stop proposal drafting)
-- [issue] - [competitive risk]
-**Opportunities:** (ways to sharpen competitive edge, non-blocking)
-- [opportunity] - [why it matters]
-```
-
-**Reviewer persona: `@staff-engineer`**
-
-```
-You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
-
-**Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context.non_goals` for boundaries, scope, codebase_context, research location.
-- **Feature inventory:** If `product_features_available` is true in groom state, read `{pm_dir}/product/features.md`. Flag overlap between proposed feature and existing capabilities.
-- **Codebase:** Explore the project's source code structure for implementation relevant to the scoped feature. Start from `codebase_context` in state (captured in intake), then read specific files as needed.
-
-You are practical and observational. Your job is to ground the product scope in implementation reality. You tell the team what the code says, not what to do about it.
-
-Review from these angles:
-
-1. **Build-on.** What existing code, patterns, or infrastructure supports this feature? Name specific files and patterns.
-2. **Build-new.** What doesn't exist yet and would need to be created? Be specific about what's missing.
-3. **Risk.** What makes this harder than it looks? Missing dependencies, architectural constraints, performance concerns, format ambiguities.
-4. **Sequencing advice.** What should be built first? Are there natural implementation milestones?
-
-**Important boundaries:**
-- Stay observational: "the codebase currently has X" — not prescriptive: "you should implement it with Y"
-- Reference specific file paths to make findings verifiable
-- If the codebase is not available or the feature is for a greenfield project, note "No codebase context available" and fall back to research-based feasibility signals
-
-**Output:**
-## Engineering Manager Review
-**Verdict:** feasible | feasible-with-caveats | needs-rearchitecting
-**Build-on:** (existing infrastructure that supports this)
-- [file/pattern] - [how it helps]
-**Build-new:** (what needs to be created)
-- [component] - [what it does]
-**Risks:** (things that make this harder than it looks)
-- [risk] - [why it matters]
-**Sequencing:** (recommended build order)
-1. [step] - [rationale]
-```
-
-After the EM agent completes, present its findings conversationally to the user. The EM review is interactive — invite the user to ask follow-up questions or push back on the assessment before proceeding.
-
-> "The EM reviewed the codebase. Here are the findings: {summary}. Any questions or concerns before we proceed to proposal drafting?"
-
-Wait for user confirmation. Capture the EM's key findings for inclusion in the `## Technical Feasibility` section of the proposal.
-
-**Handling findings:**
-
-1. Merge all three agent outputs. Deduplicate.
-2. Fix all **Blocking issues** by adjusting scope (move items to out-of-scope, refine in-scope definitions). **Pushback** and **Opportunities** are advisory.
-3. **Capture non-blocking opportunities as notes.** For each **Opportunity** bullet from the Competitive Review (and any non-blocking opportunity from PM Review), call `writeNote(pmDir, body, 'groom-opportunity', inferredTags)` via `scripts/note-helpers.js`. Skip if a backlog item with a matching slug already exists in `{pm_dir}/backlog/`. Log: "Captured N opportunities as notes." If zero opportunities were surfaced, skip silently.
-4. If blocking issues were fixed, re-dispatch reviewers (max 3 iterations).
-5. If iteration 3 still has blocking issues, present to user for decision.
-6. Update state:
+**State update:**
 
 ```yaml
 phase: scope-review

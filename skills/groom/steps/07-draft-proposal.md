@@ -75,7 +75,7 @@ This content feeds into the proposal backlog entry (Step 10) and linking (Step 1
 
 #### Step 4: Write proposal backlog entry
 
-Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Step 8, Step 9) can read the assembled proposal. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. Set `status: drafted`, `prd: null`, `rfc: null`. For full tier, Step 10 (Present) will resolve open questions, apply final edits, and upgrade `status: drafted` to `status: proposed`.
+Write the draft proposal to `{pm_dir}/backlog/{topic-slug}.md` so that review agents (Step 8) can read the assembled proposal. Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. Set `status: drafted`, `prd: null`, `rfc: null`. For full tier, Step 10 (Present) will resolve open questions, apply final edits, and upgrade `status: drafted` to `status: proposed`.
 
 Create the `{pm_dir}/backlog/` directory if needed (`mkdir -p {pm_dir}/backlog`).
 
@@ -150,7 +150,7 @@ proposal:
 
 This subsection runs ONLY when `groom_tier == "agent"`. Co-pilot tiers (quick / standard / full) skip it cleanly — they don't read the `source_citations:` state block and don't render `[source: ...]` tokens.
 
-The agent-tier flow reaches Step 07 after `04a-synthesis.md` (synthesis + scope-lock) and `05a-scope-review-agent.md` (parallel reviewer dispatch). The session state already carries:
+The agent-tier flow reaches Step 07 after `04a-synthesis.md` (synthesis + scope-lock) and `05-scope-review.md` with agent-tier parameters (parallel reviewer dispatch). The session state already carries:
 - `synthesis:` block — JTBD, personas, scope, risks with `source:` on each item
 - `source_citations:` block — flattened mirror of every cited decision
 
@@ -211,7 +211,7 @@ After rendering both layers, count:
 - Markdown `[source: ...]` token occurrences
 - HTML `<sup class="src">` tag occurrences
 
-Assert `html_count >= md_count`. If `html_count < md_count`: log a warning and surface as a blocking issue for team review (Step 08a). Citation loss between layers is a known render risk per RFC §8.
+Assert `html_count >= md_count`. If `html_count < md_count`: log a warning and surface as a blocking issue for team review (Step 08, agent parameters). Citation loss between layers is a known render risk per RFC §8.
 
 ### Persist state
 
@@ -228,8 +228,8 @@ proposal:
   citation_parity: bool                   # html_count >= md_count
 ```
 
-If `citation_parity: false`, the team-review step (08a) will flag this as a blocking issue. The fix is to re-render the HTML preserving every markdown citation.
+If `citation_parity: false`, the team-review step (Step 08) will flag this as a blocking issue. The fix is to re-render the HTML preserving every markdown citation.
 
-### Proceed to 08a
+### Proceed to Step 08 (agent tier)
 
-Agent-tier flow proceeds directly to `08a-team-review-agent.md` for parallel reviewer dispatch. Do NOT wait for user approval at this step — the proposal-ready checkpoint comes after team review converges.
+Agent-tier flow proceeds directly to `08-team-review.md` (agent parameters) for parallel reviewer dispatch. Do NOT wait for user approval at this step — the proposal-ready checkpoint comes after team review converges.

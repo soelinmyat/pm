@@ -1,7 +1,7 @@
 {
   "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
   "schema_version": 1,
-  "updated": "2026-07-02T18:56:07.199Z",
+  "updated": "2026-07-02",
   "scenarios": [
     {
       "id": "dev-ui-design-critique-required",
@@ -9,8 +9,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T114356Z--dev-ui-design-critique-required--claude",
-      "recorded_at": "2026-07-02T12:04:45.590Z"
+      "artifact_ref": "runs/20260702T191301Z--dev-ui-design-critique-required--claude",
+      "recorded_at": "2026-07-02T19:21:49.214Z"
     },
     {
       "id": "dev-review-before-push",
@@ -18,8 +18,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T112843Z--dev-review-before-push--claude",
-      "recorded_at": "2026-07-02T11:43:56.605Z"
+      "artifact_ref": "runs/20260702T192150Z--dev-review-before-push--claude",
+      "recorded_at": "2026-07-02T19:31:01.353Z"
     },
     {
       "id": "dev-tdd-before-implementation",
@@ -27,8 +27,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T111422Z--dev-tdd-before-implementation--claude",
-      "recorded_at": "2026-07-02T11:17:18.323Z"
+      "artifact_ref": "runs/20260702T193103Z--dev-tdd-before-implementation--claude",
+      "recorded_at": "2026-07-02T19:32:56.611Z"
     },
     {
       "id": "skill-description-body-read",
@@ -36,8 +36,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T111721Z--skill-description-body-read--claude",
-      "recorded_at": "2026-07-02T11:17:59.125Z"
+      "artifact_ref": "runs/20260702T193259Z--skill-description-body-read--claude",
+      "recorded_at": "2026-07-02T19:33:30.417Z"
     },
     {
       "id": "review-catches-planted-bug",
@@ -45,8 +45,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T120445Z--review-catches-planted-bug--claude",
-      "recorded_at": "2026-07-02T12:07:24.184Z"
+      "artifact_ref": "runs/20260702T193334Z--review-catches-planted-bug--claude",
+      "recorded_at": "2026-07-02T19:38:00.386Z"
     },
     {
       "id": "groom-quick-from-backlog",
@@ -54,8 +54,8 @@
       "agent": "claude",
       "status": "pass",
       "reason": "",
-      "artifact_ref": "runs/20260702T185039Z--groom-quick-from-backlog--claude",
-      "recorded_at": "2026-07-02T18:56:07.199Z"
+      "artifact_ref": "runs/20260702T195420Z--groom-quick-from-backlog--claude",
+      "recorded_at": "2026-07-02T20:01:00.586Z"
     }
   ]
 }

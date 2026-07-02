@@ -47,8 +47,8 @@ Four tiers control which steps execute. The matrix below is the source of truth 
 |------|--------------|----------------|
 | `quick` | Fill in missing structure fast — usually a handoff into implementation or backlog capture | `intake → strategy-check → research → scope → draft-proposal → link` |
 | `standard` | Solid product proposal without the full review stack | `intake → strategy-check → research → scope → scope-review → design → draft-proposal → link` |
-| `full` | Full PM ceremony with review stack and presentation | every step (adds `team-review`, `bar-raiser`, `present`) |
-| `agent` | Autonomous synthesis from a mature KB; two checkpoints, source-cited | `01a-intake-agent → 04a-synthesis → 05a-scope-review-agent → draft-proposal → 08a-team-review-agent → link` |
+| `full` | Full PM ceremony with review stack and presentation | every step (adds `team-review` with its concurrent `bar-raiser` wave, `present`) |
+| `agent` | Autonomous synthesis from a mature KB; two checkpoints, source-cited | `01a-intake-agent → 04a-synthesis → scope-review (agent params) → draft-proposal → team-review (agent params) → link` |
 
 **Research depth by tier:** `quick` = inline assessment only, no `pm:research` invocation. `standard` and `full` = full `pm:research` invocation (HARD-GATE applies). `agent` = research must already exist (Iron Law gate refuses otherwise); no dispatch from inside groom.
 
@@ -107,8 +107,7 @@ The following reference files provide detailed guidance for specific groom capab
 |-----------|---------|
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` | Tier selection, step-skipping rules, research routing |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` | Groom-specific formatting supplement |
-| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md` | Team review persona prompts (Step 8) |
-| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/spec-reviewer.md` | Spec review agent template |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md` | Groom reviewer prompt library — scope review (Step 5), team review + bar raiser (Step 8), agent-tier variants (Step 8) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/scope-validation.md` | Scope validation methodology for Step 4 |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md` | Session state file YAML schema |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` | Proposal template, frontmatter schema, ID assignment, status lifecycle |

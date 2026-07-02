@@ -9,7 +9,7 @@ State file location: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
 topic: "{topic name}"
 runtime: claude | codex
 groom_tier: quick | standard | full | agent
-phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | bar-raiser | present | link | synthesis | scope-lock | proposal-ready
+phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | present | link | synthesis | scope-lock | proposal-ready   # bar-raiser is a legacy phase from pre-v1.9 sessions (the bar raiser now runs inside team-review)
 started: YYYY-MM-DD
 updated: YYYY-MM-DD
 run_id: "{PM_RUN_ID}"
@@ -38,7 +38,7 @@ kb_freshness:                       # populated by Step 01a-intake-agent.md
   competitor_profiles: int          # count of evidence/competitors/*/profile.md; refuses if < 2
 
 checkpoints:                        # populated as agent flow progresses
-  - name: scope-lock | proposal-ready
+  - name: scope-lock | proposal-ready | scope-review-escalation | team-review-escalation
     timestamp: YYYY-MM-DDTHH:MM:SSZ
     outcome: approve | redirect | abort
 
@@ -104,6 +104,7 @@ scope_review:
   pm_verdict: ship-it | rethink-scope | wrong-priority | null
   competitive_verdict: strengthens | neutral | weakens | null
   em_verdict: feasible | feasible-with-caveats | needs-rearchitecting | null
+  adversarial_verdict: no-issue-found | possible-mistake | likely-mistake | null   # agent tier only
   blocking_issues_fixed: 0
   iterations: 1
 
@@ -112,6 +113,8 @@ team_review:
   competitive_verdict: sharp | adequate | undifferentiated | null
   em_verdict: ready | needs-restructuring | missing-prerequisites | null
   design_verdict: complete | gaps | inconsistencies | null
+  adversarial_verdict: no-issue-found | possible-mistake | likely-mistake | null   # agent tier only
+  advisory_notes: []                                                               # agent tier: appended to proposal Advisory Notes
   blocking_issues_fixed: 0
   iterations: 1
 
