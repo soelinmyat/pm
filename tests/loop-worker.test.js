@@ -270,6 +270,46 @@ test("engine failure records a failed ledger and still releases the lease", () =
   }
 });
 
+test("crash recovery: expired lease from a dead worker is re-dispatchable", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeFakeEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify(
+        { autonomy: { start_dev: true }, worker: { engine_bin: engineBin, keep_workspace: true } },
+        null,
+        2
+      )
+    );
+    // A stale lease left behind by a SIGKILLed worker: expired TTL.
+    const leaseDir = path.join(fixture.pmDir, "loop", "leases");
+    fs.mkdirSync(leaseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(leaseDir, "dev-pm-t1.json"),
+      JSON.stringify({
+        version: 1,
+        card_id: "PM-T1",
+        stage: "dev",
+        holder: "dead-machine",
+        claimed_at: "2026-07-01T00:00:00.000Z",
+        expires_at: "2026-07-01T00:45:00.000Z",
+      })
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "stale lease"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(result.card.id, "PM-T1");
+    // The stale lease was replaced during the run and released afterward.
+    assert.equal(fs.readdirSync(leaseDir).length, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("worker respects autonomy.start_dev=false (no claim, no execution)", () => {
   const fixture = makeProjectFixture({ autonomyStartDev: false });
   try {

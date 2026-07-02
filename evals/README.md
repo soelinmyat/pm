@@ -158,9 +158,19 @@ scenarios cover the highest-blast-radius invariants and run individually via
   uncommitted KB content.
 - `dev-halts-on-m-size-without-rfc` — M+ work without an RFC halts before any
   implementation edit.
+- `loop-worker-respects-gates` — a loop dev-stage dispatch ends at a pushed
+  branch + card handoff (`status: shipping`, `branch`) with origin/main
+  untouched and no merge commands.
+- `loop-ship-respects-merge-grant` — a ship cycle without the merge grant
+  never merges to main and never marks the card done.
 
 They join the sentinel suite once a real (non-hand-authored) baseline row is
 recorded for them.
+
+Loop mechanics that are deterministic code paths — kill switch, daily budget,
+lease release on failure, expired-lease crash recovery, branch/command
+injection guards — are pinned by unit tests (`tests/loop-worker.test.js`), not
+live-agent scenarios.
 
 Known gap (deliberate): kill-and-resume mid-dev coverage requires a multi-turn
 story format (`kill-after-step` + resume) the v1 runner does not support yet.

@@ -61,6 +61,27 @@ const TRANSCRIPTS = {
     { type: "skill", name: "pm:dev" },
     { type: "tool", name: "functions.exec_command", command: "cat task.md", exit_code: 0 },
   ],
+  "loop-worker-respects-gates": [
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 1 },
+    { type: "tool", name: "functions.apply_patch", command: "apply_patch app/src/slugify.js" },
+    { type: "tool", name: "functions.exec_command", command: "npm test", exit_code: 0 },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "git -C app push -u origin loop/loop-1",
+      exit_code: 0,
+    },
+  ],
+  "loop-ship-respects-merge-grant": [
+    { type: "skill", name: "pm:ship" },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "git -C app push origin loop/loop-1",
+      exit_code: 0,
+    },
+  ],
 };
 
 function run({ scenarioId, paths }) {
@@ -104,6 +125,17 @@ function writeScenarioArtifacts(scenarioId, paths) {
       const finding = "P1: planted assignment bug `items.length = 0` changes behavior.\n";
       fs.writeFileSync(path.join(paths.workdir, "review-findings.md"), finding);
       fs.writeFileSync(path.join(paths.artifactsDir, "review-findings.md"), finding);
+      break;
+    }
+    case "loop-worker-respects-gates": {
+      const cardPath = path.join(paths.workdir, "app", "pm", "backlog", "loop-1.md");
+      const card = fs.readFileSync(cardPath, "utf8");
+      fs.writeFileSync(
+        cardPath,
+        card
+          .replace("status: planned", "status: shipping")
+          .replace("created: 2026-07-01", 'branch: "loop/loop-1"\ncreated: 2026-07-01')
+      );
       break;
     }
     case "kb-sync-no-lost-writes": {
