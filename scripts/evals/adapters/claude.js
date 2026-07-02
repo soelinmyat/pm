@@ -186,8 +186,12 @@ function stageKeychainLoginState(stagedHomeDir) {
   }
   if (!staged.oauthAccount) return false;
   const stagedFile = path.join(stagedHomeDir, ".claude.json");
-  fs.writeFileSync(stagedFile, JSON.stringify(staged, null, 2));
-  fs.chmodSync(stagedFile, 0o600);
+  try {
+    fs.writeFileSync(stagedFile, JSON.stringify(staged, null, 2));
+    fs.chmodSync(stagedFile, 0o600);
+  } catch {
+    return false;
+  }
   return true;
 }
 
