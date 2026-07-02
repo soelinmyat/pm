@@ -165,7 +165,32 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     If `linear_id` is ALREADY set (issue originated from Linear or was created during groom), skip this step silently.
 
-13. Then ask:
+13. **Loop handoff (after approval).**
+
+    If the project has a loop config (`pm/loop/config.json` exists):
+
+    a. **Ensure local child cards exist** for multi-issue RFCs: one backlog card
+       per RFC issue with `parent: "{slug}"`, and the parent card's `children:`
+       list set to the RFC implementation order. If the cards already exist
+       (created during groom), verify the `children:` order matches the RFC and
+       fix drift. The loop dispatches children strictly in this order.
+
+    b. Ask exactly one question:
+
+    > "Approve this work for unattended loop pickup? This records
+    > `implementation_approved: true` with your name and today's date on
+    > {each child card | the card}.{ If `autonomy.merge_pr` is enabled, add:
+    > Loop autonomy is set to merge: each item will be implemented, tested,
+    > and merged to main without further review stops.}"
+
+    - **If yes:** update each child card (or the single card) frontmatter:
+      `implementation_approved: true`, `approved_by: {user}`,
+      `approved_at: {today}`, `updated: {today}`. Say: "Approved for loop
+      pickup. The next scheduled wake will start `{first child slug}`."
+    - **If no:** skip — cards stay `needs_human` on the loop board until
+      approved manually or via a later `/pm:loop` session.
+
+14. Then ask:
 
     > "RFC approved. Continue to implementation, or stop and resume later?"
 

@@ -46,7 +46,9 @@ Loop columns are derived from git-synced state under `pm/`:
 
 Local `.pm/*` sessions may be displayed as local-only context, but they are not cross-machine claim candidates until summarized into `pm/loop/session-snapshots/`.
 
-Epics use the existing card relations — no loop-specific fields: a card with open `children` is an umbrella and is never dispatched; a child with `parent` set is dispatched only when every earlier sibling in the parent's ordered `children` list is done. Each child still needs its own `implementation_approved` fields.
+Epics use the existing card relations — no loop-specific fields: a card with open `children` is an umbrella and is never dispatched; a child with `parent` set is dispatched only when every earlier sibling in the parent's ordered `children` list is done. Each child still needs its own `implementation_approved` fields (the RFC approval step can write them for the whole epic in one question).
+
+`autonomy.merge_pr` decides the worker's terminal state: `false` (default) stops at an open PR for human review; `true` ships each child through the merge loop when all gates and CI are green and marks the card done, so an approved epic runs child-by-child to completion without human stops. The kill switch and daily budget still apply to every wake.
 
 ## Red Flags — Self-Check
 

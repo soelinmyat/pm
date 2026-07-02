@@ -42,8 +42,12 @@ engine logs under `.pm/loop-runs/<run_id>/`.
 
 When summarizing the JSON result:
 
-- `completed` — engine exited 0; report the branch and remind the user the
-  worker never merges: review the PR it opened.
+- `completed` — engine exited 0. With `autonomy.merge_pr: false` (default) the
+  worker never merges: report the branch and point the user at the PR to
+  review. With `autonomy.merge_pr: true` the worker ships through merge when
+  all gates and CI are green, and marks the card done — the next wake picks up
+  the next sibling, so an approved epic proceeds child-by-child to completion
+  unattended.
 - `failed` / `timeout` / `bootstrap-failed` — report the reason and log paths;
   the lease was released either way.
 - `stopped` / `budget-exhausted` / `idle` / `blocked` — nothing ran; report why.

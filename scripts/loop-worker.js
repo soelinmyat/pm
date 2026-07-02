@@ -99,8 +99,16 @@ function engineCommand(config, prompt) {
   };
 }
 
-function buildPrompt(plan) {
+function buildPrompt(plan, config = {}) {
   const card = plan.selected;
+  const mergeAutonomy = Boolean(config.autonomy && config.autonomy.merge_pr === true);
+  const terminalRules = mergeAutonomy
+    ? [
+        "- Run the workflow through ship: merge the PR via the workflow's merge loop, and only when every review gate and CI check is green.",
+        "- Never bypass, skip, or self-approve a failing gate or check to reach a merge.",
+        "- After the merge is verified as MERGED, update the backlog card status to done so dependent work can proceed.",
+      ]
+    : ["- Open a pull request for the work; do NOT merge it."];
   return [
     "You are an autonomous PM loop worker running unattended in an isolated git worktree.",
     `Execute: ${card.command}`,
@@ -108,7 +116,7 @@ function buildPrompt(plan) {
     "Rules:",
     "- Work only inside this worktree.",
     "- Follow the workflow's gates; never skip or self-approve a gate.",
-    "- Open a pull request for the work; do NOT merge it.",
+    ...terminalRules,
     "- If a gate requires human approval or input, stop and state exactly what is needed.",
   ].join("\n");
 }
@@ -246,7 +254,7 @@ function runWorker(projectDir, options = {}) {
       dryRun: true,
     });
     if (!preview.selected) return preview;
-    const command = engineCommand(config, buildPrompt(preview));
+    const command = engineCommand(config, buildPrompt(preview, config));
     return {
       ...preview,
       status: "dry-run",
@@ -317,7 +325,7 @@ function runWorker(projectDir, options = {}) {
       status = "bootstrap-failed";
       reason = workspace.reason;
     } else {
-      const command = engineCommand(config, buildPrompt(plan));
+      const command = engineCommand(config, buildPrompt(plan, config));
       const timeoutMs = (Number(config.budgets.max_runtime_seconds_per_run) || 2400) * 1000;
       ledger.engine = { bin: command.bin, args: command.args };
       ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };

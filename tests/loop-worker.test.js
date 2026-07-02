@@ -315,11 +315,23 @@ test("worker rejects cards with non-dispatchable command shapes", () => {
   }
 });
 
-test("buildPrompt names the card and forbids merging", () => {
+test("buildPrompt names the card and forbids merging by default", () => {
   const prompt = buildPrompt({
     selected: { id: "PM-9", title: "T", kind: "task", command: "/pm:dev PM-9" },
   });
   assert.match(prompt, /\/pm:dev PM-9/);
   assert.match(prompt, /do NOT merge/);
   assert.match(prompt, /never skip or self-approve a gate/);
+});
+
+test("buildPrompt with merge autonomy ships through merge, gates intact", () => {
+  const prompt = buildPrompt(
+    { selected: { id: "PM-9", title: "T", kind: "task", command: "/pm:dev PM-9" } },
+    { autonomy: { merge_pr: true } }
+  );
+  assert.match(prompt, /merge the PR via the workflow's merge loop/);
+  assert.match(prompt, /every review gate and CI check is green/);
+  assert.match(prompt, /update the backlog card status to done/);
+  assert.doesNotMatch(prompt, /do NOT merge/);
+  assert.match(prompt, /Never bypass, skip, or self-approve/);
 });
