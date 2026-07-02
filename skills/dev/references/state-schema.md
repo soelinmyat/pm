@@ -147,7 +147,7 @@ Rules:
 | 1 | First task | S | done | feat/first-task | #312 |
 | 2 | Second task | M | in-progress | feat/second-task | — |
 
-Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` cards). Single-task sessions have one row. The RFC is the single source of truth for task decomposition — not Linear sub-issues or backlog `children:` fields. See "Valid Task Status Values" above for allowed Status values.
+Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it is present and valid (`num`, `title`, `size`), falling back to the HTML `.issue-detail` cards for pre-sidecar RFCs (see `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract). Single-task sessions have one row. The RFC is the single source of truth for task decomposition — not Linear sub-issues or backlog `children:` fields. See "Valid Task Status Values" above for allowed Status values.
 
 ## Key Files
 - backend/app/controllers/api/v1/features_controller.rb

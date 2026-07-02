@@ -40,6 +40,7 @@ Implement the approved RFC.
 **CWD:** {WORKTREE_PATH}
 **Branch:** {BRANCH}
 **RFC:** {pm_dir}/backlog/rfcs/{slug}.html
+**Test hooks:** {TEST_HOOKS}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
@@ -52,7 +53,7 @@ handled by the orchestrator after you return.
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
-3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation. For issue metadata (num/title/size/test_hooks), prefer the RFC JSON sidecar (`{slug}.json`) when present; the HTML Issue cards are the fallback.
+3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation. Your `Test hooks` (above) come pre-parsed from the validated RFC sidecar — you do not need to read the sidecar yourself.
 4. Use TDD: run the targeted failing test before implementation, then make it pass
 5. Run the project test suite — all tests must pass
 6. Commit implementation and test changes
@@ -120,6 +121,7 @@ or you write a blocked result. Do not exit until one of those happens.
 **Parent RFC slug:** {parent_slug}
 **Task/session slug:** {task-slug}
 **Your issue:** Issue {N} — {ISSUE_TITLE}
+**Test hooks:** {TEST_HOOKS}
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 **PM directory:** {pm_dir}
 **PM state directory:** {pm_state_dir}
@@ -129,7 +131,7 @@ or you write a blocked result. Do not exit until one of those happens.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
-Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. For issue metadata (num/title/size/test_hooks), prefer the RFC JSON sidecar (`{parent_slug}.json`) when present; the HTML Issue cards are the fallback. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
+Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. Your `Test hooks` (above) come pre-parsed from the validated RFC sidecar — you do not need to read the sidecar yourself. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
 
 Lifecycle tracking: before each step, write your current stage to a tracking file:
   echo "{stage}" > .dev-lifecycle-stage
@@ -168,7 +170,7 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
 ```
 
-**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${PM_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_ROOT}`, and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no plugin-root env var, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these three.
+**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TEST_HOOKS}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. `{TEST_HOOKS}` is this issue's `test_hooks` array from the validated RFC sidecar — the worker receives them pre-parsed and never reads the sidecar itself. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${PM_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_ROOT}`, and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no plugin-root env var, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these three.
 
 4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
 

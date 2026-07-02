@@ -34,7 +34,7 @@ Minimum coverage for `subagent-dev`:
 
 ## The Process
 
-**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite. When the plan is an RFC, prefer its JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json`) as the issue source — `issues[]` gives `num`, `title`, `size`, and `test_hooks` without HTML parsing. Fall back to the `.issue-detail` cards for pre-sidecar RFCs.
+**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite. When the plan is an RFC, the controller extracts issues from the validated JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`: `num`, `title`, `size`, `test_hooks`) per `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract, and injects each issue's hooks into its implementer prompt. Pre-sidecar RFCs fall back to the `.issue-detail` cards.
 
 **Per task (repeat until all tasks complete):**
 
@@ -68,6 +68,7 @@ Always include in every implementer subagent prompt:
 - `**Branch:** {feature branch name}`
 - `**App:** {app path(s) from AGENTS.md or project structure}`
 - `**Test command:** {app-specific test command from AGENTS.md}`
+- `**Test hooks:** {this issue's test_hooks from the validated RFC sidecar}` — inject them pre-parsed; the implementer does not read the sidecar itself.
 - `**Core rules:** {project-specific rules from AGENTS.md — e.g., token usage, codegen, locale requirements}`
 
 **Git hygiene rules (include in every implementer prompt):**
