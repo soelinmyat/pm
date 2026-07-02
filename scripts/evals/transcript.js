@@ -208,6 +208,38 @@ function checkTranscript(events, command, ...args) {
     }
     case "test-red-green":
       return testRedGreen(normalized, args[0] || "test");
+    case "gate-evidence": {
+      // A discipline gate is satisfied by ANY observed form of the work:
+      // the skill invoked, a matching agent dispatched, or matching command
+      // activity in the transcript. All three are observed behavior; an
+      // engine that skips the discipline produces none of them.
+      if (hasSkill(normalized, args[0])) return pass();
+      let agentRe, activityRe;
+      try {
+        agentRe = new RegExp(args[1], "i");
+        activityRe = new RegExp(args[2], "i");
+      } catch {
+        return { status: "indeterminate", reason: "invalid-gate-evidence-pattern" };
+      }
+      const agentHit = normalized.some(
+        (event) =>
+          event.type === "tool" &&
+          (event.name === "Task" || event.name === "Agent") &&
+          agentRe.test(String(event.command || ""))
+      );
+      if (agentHit) return pass();
+      const activityHit = normalized.some(
+        (event) =>
+          event.type === "tool" &&
+          (event.tool_class === "run-command" || event.name === "Bash") &&
+          activityRe.test(String(event.command || ""))
+      );
+      return activityHit
+        ? pass()
+        : fail(
+            `no observed evidence for gate ${args[0]}: no skill invocation, agent dispatch, or matching activity`
+          );
+    }
     case "skill-or-agent": {
       // A gate can be satisfied by invoking the skill OR by dispatching an
       // agent with the same intent — both are observable evidence of the

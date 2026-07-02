@@ -193,6 +193,32 @@ test("test-red-green detects red runs masked by pipelines via result text", () =
   assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass");
 });
 
+test("gate-evidence accepts skill, agent dispatch, or observed activity — nothing else", () => {
+  const AGENT_RE = "pm:designer";
+  const ACT_RE = "playwright|screenshot";
+  const viaActivity = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npx playwright screenshot --viewport-size=375,812 page.html shot.png",
+      exit_code: 0,
+    },
+  ]);
+  assert.equal(
+    checkTranscript(viaActivity, "gate-evidence", "pm:design-critique", AGENT_RE, ACT_RE).status,
+    "pass"
+  );
+  const nothing = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Bash", command: "npm test", exit_code: 0 },
+  ]);
+  assert.equal(
+    checkTranscript(nothing, "gate-evidence", "pm:design-critique", AGENT_RE, ACT_RE).status,
+    "fail"
+  );
+});
+
 test("skill-or-agent accepts either invocation or matching agent dispatch", () => {
   const viaSkill = normalizeEvents([{ type: "skill", name: "pm:design-critique" }]);
   assert.equal(

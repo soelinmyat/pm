@@ -501,6 +501,6 @@ test("UI sentinel checks the PM-native design critique gate", () => {
   const checks = read("evals/scenarios/dev-ui-design-critique-required/checks.sh");
   // Gate evidence = pm:design-critique invocation OR designer-agent dispatch;
   // the sentinel must name the PM-native skill either way.
-  assert.match(checks, /skill-or-agent pm:design-critique/);
+  assert.match(checks, /gate-evidence pm:design-critique/);
   assert.doesNotMatch(checks, /skill-called critique\b/);
 });
