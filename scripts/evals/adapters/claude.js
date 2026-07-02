@@ -162,19 +162,23 @@ function normalizeClaudeStream(stdout) {
 const LOGIN_STATE_KEYS = ["oauthAccount", "userID", "hasCompletedOnboarding", "installMethod"];
 
 function stageKeychainLoginState(stagedHomeDir) {
-  const hostFile = path.join(process.env.HOME || "", ".claude.json");
+  if (!process.env.HOME) return false;
+  const hostFile = path.join(process.env.HOME, ".claude.json");
   let host;
   try {
     host = JSON.parse(fs.readFileSync(hostFile, "utf8"));
   } catch {
     return false;
   }
+  if (!host || typeof host !== "object") return false;
   const staged = {};
   for (const key of LOGIN_STATE_KEYS) {
     if (key in host) staged[key] = host[key];
   }
   if (!staged.oauthAccount) return false;
-  fs.writeFileSync(path.join(stagedHomeDir, ".claude.json"), JSON.stringify(staged, null, 2));
+  const stagedFile = path.join(stagedHomeDir, ".claude.json");
+  fs.writeFileSync(stagedFile, JSON.stringify(staged, null, 2));
+  fs.chmodSync(stagedFile, 0o600);
   return true;
 }
 
@@ -192,6 +196,7 @@ function prepareClaudeRuntime({ paths }) {
   if (
     !template &&
     !process.env.PM_EVAL_CLAUDE_API_KEY &&
+    !process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN &&
     process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1" &&
     !stageKeychainLoginState(paths.homeDir)
   ) {
@@ -227,12 +232,12 @@ function claudeEnv({ paths, prepared }) {
     PM_EVAL_SCENARIO_ID: paths.scenarioId,
     DISABLE_AUTOUPDATER: "1",
   };
-  if (process.env.PM_EVAL_CLAUDE_API_KEY) {
-    env.ANTHROPIC_API_KEY = process.env.PM_EVAL_CLAUDE_API_KEY;
-  }
-  // Subscription-backed headless auth: token minted once via `claude setup-token`.
+  // Subscription-backed headless auth (token minted once via `claude setup-token`)
+  // takes priority over an API key so the two credentials are never both forwarded.
   if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) {
     env.CLAUDE_CODE_OAUTH_TOKEN = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  } else if (process.env.PM_EVAL_CLAUDE_API_KEY) {
+    env.ANTHROPIC_API_KEY = process.env.PM_EVAL_CLAUDE_API_KEY;
   }
   return env;
 }
