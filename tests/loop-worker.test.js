@@ -360,9 +360,135 @@ test("worker rejects cards with non-dispatchable command shapes", () => {
     assert.match(result.reason, /not a dispatchable/);
     // Lease released; nothing executed.
     assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    // Rejection still writes a ledger so budgets/attempts advance (no livelock).
+    const rejLedger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(rejLedger.status, "rejected");
   } finally {
     fixture.cleanup();
   }
+});
+
+test("attempts backstop: card that keeps failing is not re-dispatched forever", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const runsDir = path.join(path.dirname(fixture.pmDir), ".pm", "loop-runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    const today = new Date().toISOString();
+    for (let i = 0; i < 3; i += 1) {
+      fs.writeFileSync(
+        path.join(runsDir, `fail${i}.json`),
+        JSON.stringify({
+          status: "failed",
+          stage: "dev",
+          card: { id: "PM-T1" },
+          started_at: today,
+        })
+      );
+    }
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "attempts-exhausted", JSON.stringify(result));
+    assert.match(result.reason, /needs a human look/);
+    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("ship cycles have their own budget and do not consume the dev budget", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-shipbudget-"));
+  try {
+    const today = new Date("2026-07-02T10:00:00Z").toISOString();
+    for (let i = 0; i < 20; i += 1) {
+      fs.writeFileSync(
+        path.join(dir, `ship${i}.json`),
+        JSON.stringify({ status: "completed", stage: "ship", started_at: today })
+      );
+    }
+    fs.writeFileSync(
+      path.join(dir, "dev1.json"),
+      JSON.stringify({ status: "completed", stage: "dev", started_at: today })
+    );
+    const now = new Date("2026-07-02T11:00:00Z");
+    assert.equal(countRunsToday(dir, now), 1);
+    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 20);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("failed ship cycle removes its worktree so the next cycle can proceed", () => {
+  const fixture = makeProjectFixture();
+  try {
+    git(["checkout", "-b", "loop/pm-t1"], fixture.project);
+    fs.writeFileSync(path.join(fixture.project, "work.txt"), "wip\n");
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "wip"], fixture.project);
+    git(["push", "-u", "origin", "loop/pm-t1"], fixture.project);
+    git(["checkout", "main"], fixture.project);
+
+    const failEngine = writeFakeEngine(fixture.root, { exitCode: 3, marker: "fail-run" });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      [
+        "---",
+        'id: "PM-T1"',
+        'title: "Test card"',
+        "kind: task",
+        "status: shipping",
+        'branch: "loop/pm-t1"',
+        "---",
+        "",
+        "Ship it.",
+      ].join("\n") + "\n"
+    );
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({ worker: { engine_bin: failEngine } }, null, 2)
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "shipping fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const first = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(first.status, "failed", JSON.stringify(first));
+    // Worktree removed despite failure — card.branch is free for the next cycle.
+    const worktrees = path.join(fixture.project, ".worktrees");
+    assert.ok(!fs.existsSync(worktrees) || fs.readdirSync(worktrees).length === 0);
+    // Ship branch itself must survive cleanup.
+    assert.ok(git(["rev-parse", "--verify", "loop/pm-t1"], fixture.project).length > 0);
+
+    const okEngine = writeFakeEngine(fixture.root, { exitCode: 0, marker: "ok-run" });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({ worker: { engine_bin: okEngine } }, null, 2)
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "swap engine"], fixture.project);
+    git(["push"], fixture.project);
+
+    const second = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(second.status, "completed", JSON.stringify(second));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("rfc/research stage prompt produces artifacts, never PRs or shipping status", () => {
+  const prompt = buildPrompt(
+    {
+      selected: {
+        id: "PM-9",
+        title: "T",
+        kind: "task",
+        command: "/pm:research PM-9",
+        stage: "research",
+      },
+    },
+    {}
+  );
+  assert.match(prompt, /do NOT open pull requests/);
+  assert.match(prompt, /RFC approval is always human/);
+  assert.doesNotMatch(prompt, /status: shipping/);
 });
 
 test("dev-stage prompt opens a PR, never merges, and hands off to ship wakes", () => {

@@ -47,21 +47,49 @@ function runsDirFor(paths) {
   return path.join(paths.pmStateDir, "loop-runs");
 }
 
-function countRunsToday(runsDir, now = new Date()) {
-  if (!fs.existsSync(runsDir)) return 0;
-  const today = now.toISOString().slice(0, 10);
-  let count = 0;
+function readLedgers(runsDir) {
+  if (!fs.existsSync(runsDir)) return [];
+  const ledgers = [];
   for (const entry of fs.readdirSync(runsDir)) {
     if (!entry.endsWith(".json")) continue;
     try {
-      const record = JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8"));
-      if (String(record.started_at || "").slice(0, 10) === today) count += 1;
+      ledgers.push(JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8")));
     } catch {
-      // unreadable ledger entries still count toward budget: fail closed
-      count += 1;
+      // unreadable ledger entries still count toward budgets: fail closed
+      ledgers.push({ status: "unreadable", started_at: "9999-12-31T00:00:00Z" });
     }
   }
-  return count;
+  return ledgers;
+}
+
+function isShipLedger(record) {
+  return record.stage === "ship" || record.stage === "review";
+}
+
+// Ship cycles poll external state and get their own budget so a slow PR
+// cannot starve dev dispatch (and vice versa). Stage-less legacy ledgers
+// count toward the main budget: fail closed.
+function countRunsToday(runsDir, now = new Date(), opts = {}) {
+  const today = now.toISOString().slice(0, 10);
+  return readLedgers(runsDir).filter((record) => {
+    const sameDay =
+      String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
+    if (!sameDay) return false;
+    if (opts.stage === "ship") return isShipLedger(record);
+    return !isShipLedger(record);
+  }).length;
+}
+
+// Attempts per card+stage: every non-completed ledger counts. Backstop for
+// cards that fail or get rejected every wake (budgets.max_attempts_per_stage).
+function countCardAttempts(runsDir, cardId, stage) {
+  return readLedgers(runsDir).filter(
+    (record) =>
+      record.card &&
+      record.card.id === cardId &&
+      (record.stage || "dev") === stage &&
+      record.status !== "completed"
+  ).length;
 }
 
 // Card `command` values are git-synced frontmatter — an injection surface for
@@ -121,6 +149,19 @@ function buildPrompt(plan, config = {}) {
       "- If CI is still running or you are waiting on external state, stop and report — the next wake continues.",
       mergeRule,
       "- If a gate requires human approval or input, stop and state exactly what is needed.",
+    ].join("\n");
+  }
+
+  if (stage === "rfc" || stage === "research") {
+    return [
+      "You are an autonomous PM loop worker running unattended in an isolated git worktree.",
+      `Execute: ${card.command}`,
+      `Backlog card: ${card.id} — ${card.title} (kind: ${card.kind || "unknown"})`,
+      "Rules:",
+      "- Work only inside this worktree.",
+      "- Produce the artifact the workflow defines (RFC draft or research findings); do NOT open pull requests or merge anything.",
+      "- Update the backlog card status per the workflow, and stop at any gate that requires human approval — RFC approval is always human.",
+      "- If input is needed, stop and state exactly what is required.",
     ].join("\n");
   }
 
@@ -199,6 +240,9 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     runGit(["fetch", "origin"], gitRoot);
     if (shipStage) {
       runGit(["worktree", "add", workspacePath, branch], gitRoot);
+      // Each cycle starts from the remote tip so pushes from humans or other
+      // machines are never ignored or clobbered by a stale local branch.
+      runGit(["reset", "--hard", `origin/${branch}`], workspacePath);
     } else {
       const base = options.baseBranch || defaultBranch(gitRoot);
       runGit(["worktree", "add", workspacePath, "-b", branch, `origin/${base}`], gitRoot);
@@ -298,6 +342,8 @@ function runWorker(projectDir, options = {}) {
   if (runsToday >= maxRuns) {
     return { status: "budget-exhausted", runs_today: runsToday, max_runs_per_day: maxRuns };
   }
+  const shipCyclesToday = countRunsToday(runsDir, now, { stage: "ship" });
+  const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
 
   if (options.dryRun) {
     const preview = runLoop(projectDir, {
@@ -330,23 +376,8 @@ function runWorker(projectDir, options = {}) {
   });
   if (plan.status !== "claimed") return plan;
 
-  if (!isDispatchableCommand(plan.selected.command)) {
-    releaseLease(paths.pmDir, plan.lease, options);
-    return {
-      ...plan,
-      status: "rejected",
-      reason: `card command is not a dispatchable /pm:* shape: ${JSON.stringify(
-        plan.selected.command
-      )}`,
-    };
-  }
-
-  const projectGitRoot = findGitRoot(projectDir);
-  if (!projectGitRoot) {
-    releaseLease(paths.pmDir, plan.lease, options);
-    return { ...plan, status: "failed", reason: "project is not a git repository" };
-  }
-
+  const stage = plan.selected.stage || "dev";
+  const shipStage = stage === "ship" || stage === "review";
   const runId = plan.run_id;
   const ledgerPath = path.join(runsDir, `${runId}.json`);
   const logDir = path.join(runsDir, runId);
@@ -360,9 +391,53 @@ function runWorker(projectDir, options = {}) {
     card: plan.selected,
     lease: plan.lease,
     mode,
+    stage,
     started_at: now.toISOString(),
     log_dir: logDir,
   };
+
+  // Every claimed dispatch gets a ledger — including early rejections — so
+  // budgets and the attempts backstop always advance and nothing can livelock
+  // the wake cycle for free.
+  const bail = (status, reason) => {
+    const release = releaseLease(paths.pmDir, plan.lease, options);
+    writeJsonAtomic(ledgerPath, {
+      ...ledger,
+      status,
+      reason,
+      ended_at: new Date().toISOString(),
+      lease_release: release,
+    });
+    return { ...plan, status, reason, run_id: runId, ledger: ledgerPath };
+  };
+
+  if (shipStage && shipCyclesToday >= maxShipCycles) {
+    return bail(
+      "budget-exhausted",
+      `ship cycles today (${shipCyclesToday}) reached max_ship_cycles_per_day (${maxShipCycles})`
+    );
+  }
+
+  const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
+  const attempts = countCardAttempts(runsDir, plan.selected.id, stage);
+  if (attempts >= maxAttempts) {
+    return bail(
+      "attempts-exhausted",
+      `card ${plan.selected.id} failed ${attempts}x at stage ${stage} (max_attempts_per_stage ${maxAttempts}); needs a human look`
+    );
+  }
+
+  if (!isDispatchableCommand(plan.selected.command)) {
+    return bail(
+      "rejected",
+      `card command is not a dispatchable /pm:* shape: ${JSON.stringify(plan.selected.command)}`
+    );
+  }
+
+  const projectGitRoot = findGitRoot(projectDir);
+  if (!projectGitRoot) {
+    return bail("failed", "project is not a git repository");
+  }
   // Crash-safe: written before the engine starts. If this process dies, the
   // "running" record + lease TTL tell the next scout what happened; merged-PR
   // recovery is handled by the reconcile-merged session hook.
@@ -380,8 +455,7 @@ function runWorker(projectDir, options = {}) {
       reason = workspace.reason;
     } else {
       const command = engineCommand(config, buildPrompt(plan, config));
-      const shipCycle = plan.selected.stage === "ship" || plan.selected.stage === "review";
-      const timeoutSeconds = shipCycle
+      const timeoutSeconds = shipStage
         ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
         : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
       const timeoutMs = timeoutSeconds * 1000;
@@ -429,8 +503,19 @@ function runWorker(projectDir, options = {}) {
     writeJsonAtomic(ledgerPath, ledger);
 
     const keepWorkspace = Boolean(config.worker && config.worker.keep_workspace);
-    if (status === "completed" && !keepWorkspace && workspace && workspace.ok) {
+    if (!keepWorkspace && workspace && workspace.ok) {
+      // Ship worktrees must ALWAYS go: card.branch stays checked out otherwise
+      // and every subsequent cycle fails worktree-add. Dev worktrees go too
+      // (logs are already captured); failed dev run branches are deleted so
+      // retries don't accumulate refs — never the ship branch itself.
       ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath);
+      if (!shipStage && status !== "completed" && ledger.workspace_removed) {
+        try {
+          runGit(["branch", "-D", workspace.branch], projectGitRoot);
+        } catch {
+          // branch may be gone already
+        }
+      }
       writeJsonAtomic(ledgerPath, ledger);
     }
   }
@@ -495,6 +580,7 @@ function main() {
 module.exports = {
   buildPrompt,
   isSafeBranchRef,
+  countCardAttempts,
   countRunsToday,
   engineCommand,
   isDispatchableCommand,

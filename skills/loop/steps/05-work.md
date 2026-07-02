@@ -27,10 +27,20 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --mode de
 The worker refuses to run when:
 
 - `pm/loop/STOP` exists (kill switch — commit and push it to halt every machine),
-- the daily run budget (`budgets.max_runs_per_day`) is spent,
+- the daily run budget is spent — dev/rfc/research runs count against
+  `budgets.max_runs_per_day`; ship cycles have their own
+  `budgets.max_ship_cycles_per_day` so a slow PR can't starve dev dispatch,
+- the card already failed `budgets.max_attempts_per_stage` times at this stage
+  (`attempts-exhausted` — the card needs a human look),
 - both implementation gates are not true (`autonomy.start_dev` + per-card
   `implementation_approved`/`approved_by`/`approved_at`),
 - the lease cannot be committed AND pushed (no durable claim, no dispatch).
+
+Every claimed dispatch writes a ledger — including rejections — so budgets and
+the attempts backstop always advance. Worktrees are removed after every run
+(ship worktrees especially, so the PR branch is free for the next cycle);
+failed dev run branches are deleted; set `worker.keep_workspace: true` to keep
+them for debugging.
 
 Engine selection comes from `pm/loop/config.json` → `worker.engine`
 (`codex` | `claude`) or `worker.engine_bin` for a custom command. Projects with
