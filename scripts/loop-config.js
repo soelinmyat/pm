@@ -28,7 +28,8 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
   },
   budgets: {
     max_runs_per_day: 12,
-    max_runtime_seconds_per_run: 2400,
+    max_runtime_seconds_per_run: 5400,
+    max_runtime_seconds_per_ship_cycle: 1800,
     lease_ttl_minutes: 45,
     max_attempts_per_stage: 3,
   },

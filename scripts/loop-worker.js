@@ -66,7 +66,7 @@ function countRunsToday(runsDir, now = new Date()) {
 
 // Card `command` values are git-synced frontmatter — an injection surface for
 // unattended runs. Only dispatch commands the loop itself generates.
-const DISPATCHABLE_COMMAND = /^\/pm:(dev|rfc|research) [A-Za-z0-9 ._-]{1,120}$/;
+const DISPATCHABLE_COMMAND = /^\/pm:(dev|ship|rfc|research) [A-Za-z0-9 ._-]{1,120}$/;
 
 function isDispatchableCommand(command) {
   return DISPATCHABLE_COMMAND.test(String(command || ""));
@@ -102,13 +102,33 @@ function engineCommand(config, prompt) {
 function buildPrompt(plan, config = {}) {
   const card = plan.selected;
   const mergeAutonomy = Boolean(config.autonomy && config.autonomy.merge_pr === true);
-  const terminalRules = mergeAutonomy
-    ? [
-        "- Run the workflow through ship: merge the PR via the workflow's merge loop, and only when every review gate and CI check is green.",
-        "- Never bypass, skip, or self-approve a failing gate or check to reach a merge.",
-        "- After the merge is verified as MERGED, update the backlog card status to done so dependent work can proceed.",
-      ]
-    : ["- Open a pull request for the work; do NOT merge it."];
+  const stage = plan.selected.stage || "dev";
+
+  // Ship is event-driven (CI runs, remote review rounds) and cannot finish in
+  // one engine run. Each wake runs ONE bounded ship cycle against the durable
+  // PR; the wake cadence is the iteration loop.
+  if (stage === "ship" || stage === "review") {
+    const mergeRule = mergeAutonomy
+      ? "- Merge only when every review gate and CI check is green; never bypass a failing check. After a verified merge, update the backlog card status to done."
+      : "- Do NOT merge. When the PR is green and review threads are resolved, update the backlog card status to needs-human and report it is ready for human merge.";
+    return [
+      "You are an autonomous PM loop worker running ONE bounded ship cycle for an existing pull request.",
+      `Execute: ${card.command}`,
+      `Backlog card: ${card.id} — ${card.title} (branch: ${card.branch || "see card"})`,
+      "Rules:",
+      "- Work only inside this worktree, on the existing branch.",
+      "- One cycle only: assess CI status and new review comments, fix what is actionable now, push, then stop.",
+      "- If CI is still running or you are waiting on external state, stop and report — the next wake continues.",
+      mergeRule,
+      "- If a gate requires human approval or input, stop and state exactly what is needed.",
+    ].join("\n");
+  }
+
+  const terminalRules = [
+    "- Open a pull request for the work; do NOT merge it in this run.",
+    "- Before finishing, update the backlog card frontmatter: status: shipping, branch, and prs — subsequent wakes run the ship cycles (CI, review rounds" +
+      (mergeAutonomy ? ", merge)." : ") and a human merges."),
+  ];
   return [
     "You are an autonomous PM loop worker running unattended in an isolated git worktree.",
     `Execute: ${card.command}`,
@@ -138,7 +158,12 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     .toISOString()
     .replace(/[^0-9]/g, "")
     .slice(0, 12);
-  const branch = `loop/${slug}-${stamp}`;
+  const shipStage = plan.selected.stage === "ship" || plan.selected.stage === "review";
+  const existingBranch = String(plan.selected.branch || "");
+  if (shipStage && !existingBranch) {
+    return { ok: false, reason: "ship-branch-missing" };
+  }
+  const branch = shipStage ? existingBranch : `loop/${slug}-${stamp}`;
   const workspacePath = path.join(gitRoot, ".worktrees", `loop-${slug}-${stamp}`);
 
   if (fs.existsSync(workspacePath)) {
@@ -147,8 +172,12 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
 
   try {
     runGit(["fetch", "origin"], gitRoot);
-    const base = options.baseBranch || defaultBranch(gitRoot);
-    runGit(["worktree", "add", workspacePath, "-b", branch, `origin/${base}`], gitRoot);
+    if (shipStage) {
+      runGit(["worktree", "add", workspacePath, branch], gitRoot);
+    } else {
+      const base = options.baseBranch || defaultBranch(gitRoot);
+      runGit(["worktree", "add", workspacePath, "-b", branch, `origin/${base}`], gitRoot);
+    }
   } catch (err) {
     return { ok: false, reason: "worktree-add-failed", error: err.message };
   }
@@ -326,7 +355,11 @@ function runWorker(projectDir, options = {}) {
       reason = workspace.reason;
     } else {
       const command = engineCommand(config, buildPrompt(plan, config));
-      const timeoutMs = (Number(config.budgets.max_runtime_seconds_per_run) || 2400) * 1000;
+      const shipCycle = plan.selected.stage === "ship" || plan.selected.stage === "review";
+      const timeoutSeconds = shipCycle
+        ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
+        : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
+      const timeoutMs = timeoutSeconds * 1000;
       ledger.engine = { bin: command.bin, args: command.args };
       ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
       writeJsonAtomic(ledgerPath, ledger);

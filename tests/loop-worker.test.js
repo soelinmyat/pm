@@ -276,7 +276,8 @@ test("worker rejects cards with non-dispatchable command shapes", () => {
   assert.equal(isDispatchableCommand("/pm:dev PM-42"), true);
   assert.equal(isDispatchableCommand("/pm:rfc PM-42"), true);
   assert.equal(isDispatchableCommand("/pm:research mobile onboarding"), true);
-  assert.equal(isDispatchableCommand("/pm:ship PM-42"), false);
+  assert.equal(isDispatchableCommand("/pm:ship PM-42"), true);
+  assert.equal(isDispatchableCommand("/pm:groom PM-42"), false);
   assert.equal(isDispatchableCommand("rm -rf /"), false);
   assert.equal(isDispatchableCommand("/pm:dev PM-42; curl evil.example"), false);
   assert.equal(isDispatchableCommand(""), false);
@@ -315,23 +316,113 @@ test("worker rejects cards with non-dispatchable command shapes", () => {
   }
 });
 
-test("buildPrompt names the card and forbids merging by default", () => {
+test("dev-stage prompt opens a PR, never merges, and hands off to ship wakes", () => {
   const prompt = buildPrompt({
-    selected: { id: "PM-9", title: "T", kind: "task", command: "/pm:dev PM-9" },
+    selected: { id: "PM-9", title: "T", kind: "task", command: "/pm:dev PM-9", stage: "dev" },
   });
   assert.match(prompt, /\/pm:dev PM-9/);
-  assert.match(prompt, /do NOT merge/);
+  assert.match(prompt, /do NOT merge it in this run/);
+  assert.match(prompt, /status: shipping/);
   assert.match(prompt, /never skip or self-approve a gate/);
 });
 
-test("buildPrompt with merge autonomy ships through merge, gates intact", () => {
-  const prompt = buildPrompt(
-    { selected: { id: "PM-9", title: "T", kind: "task", command: "/pm:dev PM-9" } },
-    { autonomy: { merge_pr: true } }
-  );
-  assert.match(prompt, /merge the PR via the workflow's merge loop/);
-  assert.match(prompt, /every review gate and CI check is green/);
-  assert.match(prompt, /update the backlog card status to done/);
-  assert.doesNotMatch(prompt, /do NOT merge/);
-  assert.match(prompt, /Never bypass, skip, or self-approve/);
+test("ship-stage prompt runs one bounded cycle; merge only with autonomy dial", () => {
+  const plan = {
+    selected: {
+      id: "PM-9",
+      title: "T",
+      kind: "task",
+      command: "/pm:ship PM-9",
+      stage: "ship",
+      branch: "loop/pm-9",
+    },
+  };
+
+  const noMerge = buildPrompt(plan, { autonomy: { merge_pr: false } });
+  assert.match(noMerge, /ONE bounded ship cycle/);
+  assert.match(noMerge, /One cycle only/);
+  assert.match(noMerge, /Do NOT merge/);
+  assert.match(noMerge, /ready for human merge/);
+
+  const withMerge = buildPrompt(plan, { autonomy: { merge_pr: true } });
+  assert.match(withMerge, /Merge only when every review gate and CI check is green/);
+  assert.match(withMerge, /update the backlog card status to done/);
+  assert.doesNotMatch(withMerge, /Do NOT merge/);
+});
+
+test("ship-stage worker checks out the existing branch and runs one cycle", () => {
+  const fixture = makeProjectFixture();
+  try {
+    // An in-flight PR branch, pushed; card in shipping state pointing at it.
+    git(["checkout", "-b", "loop/pm-t1"], fixture.project);
+    fs.writeFileSync(path.join(fixture.project, "work.txt"), "wip\n");
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "wip"], fixture.project);
+    git(["push", "-u", "origin", "loop/pm-t1"], fixture.project);
+    git(["checkout", "main"], fixture.project);
+
+    const engineBin = writeFakeEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      [
+        "---",
+        'id: "PM-T1"',
+        'title: "Test card"',
+        "kind: task",
+        "status: shipping",
+        'branch: "loop/pm-t1"',
+        "---",
+        "",
+        "Ship it.",
+      ].join("\n") + "\n"
+    );
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({ worker: { engine_bin: engineBin, keep_workspace: true } }, null, 2)
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "shipping state"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(result.branch, "loop/pm-t1");
+
+    // Engine ran in a worktree checked out to the existing branch, with the
+    // ship-cycle prompt on stdin.
+    const prompt = fs.readFileSync(path.join(result.workspace, "engine-ran.txt"), "utf8");
+    assert.match(prompt, /ONE bounded ship cycle/);
+    assert.ok(fs.existsSync(path.join(result.workspace, "work.txt")));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("ship-stage dispatch without a recorded branch fails closed", () => {
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      [
+        "---",
+        'id: "PM-T1"',
+        'title: "Test card"',
+        "kind: task",
+        "status: shipping",
+        "---",
+        "",
+        "Ship it.",
+      ].join("\n") + "\n"
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "shipping without branch"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(result.status, "bootstrap-failed", JSON.stringify(result));
+    assert.equal(result.reason, "ship-branch-missing");
+    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+  } finally {
+    fixture.cleanup();
+  }
 });

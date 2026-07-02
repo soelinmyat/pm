@@ -244,6 +244,7 @@ function blockDuplicateIds(cards) {
 
 function commandFor(card, column) {
   if (column === "ready_for_dev" || column === "implementing") return `/pm:dev ${card.id}`;
+  if (column === "shipping" || column === "reviewing") return `/pm:ship ${card.id}`;
   if (column === "needs_rfc") return `/pm:rfc ${card.id}`;
   if (column === "needs_research") return `/pm:research ${card.title}`;
   if (column === "inbox") return `/pm:groom ${card.id}`;

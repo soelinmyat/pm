@@ -40,14 +40,24 @@ gitignored-but-required files (env files, generated specs) must list them in
 Results land in the local state dir: ledger at `.pm/loop-runs/<run_id>.json`,
 engine logs under `.pm/loop-runs/<run_id>/`.
 
+A card's lifecycle spans multiple wakes by design — ship is event-driven
+(CI runs, remote review rounds) and cannot finish in one engine run:
+
+- **Implement wake** (`stage: dev`, budget `max_runtime_seconds_per_run`):
+  fresh worktree → dev workflow → PR opened → card updated to
+  `status: shipping` + `branch` + `prs`. Never merges.
+- **Ship wakes** (`stage: ship`, budget `max_runtime_seconds_per_ship_cycle`):
+  each wake checks out the existing branch and runs ONE bounded cycle —
+  assess CI + new review comments, fix what's actionable, push, stop. Rounds
+  of remote review each get absorbed by a subsequent wake. With
+  `autonomy.merge_pr: true` the cycle merges when everything is green and
+  marks the card done; with `false` it parks the green PR as needs-human for
+  your merge.
+
 When summarizing the JSON result:
 
-- `completed` — engine exited 0. With `autonomy.merge_pr: false` (default) the
-  worker never merges: report the branch and point the user at the PR to
-  review. With `autonomy.merge_pr: true` the worker ships through merge when
-  all gates and CI are green, and marks the card done — the next wake picks up
-  the next sibling, so an approved epic proceeds child-by-child to completion
-  unattended.
+- `completed` — this wake's stage finished cleanly; say which stage and what
+  the next wake will do (ship cycle, next sibling, or nothing).
 - `failed` / `timeout` / `bootstrap-failed` — report the reason and log paths;
   the lease was released either way.
 - `stopped` / `budget-exhausted` / `idle` / `blocked` — nothing ran; report why.

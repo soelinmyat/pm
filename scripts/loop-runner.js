@@ -171,6 +171,7 @@ function runLoop(projectDir, options = {}) {
           column: selected.column,
           stage: selected.stage,
           command: selected.command,
+          branch: selected.card.branch || "",
           sourcePath: selected.card.sourcePath,
         }
       : null,
