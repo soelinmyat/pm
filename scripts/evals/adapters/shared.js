@@ -19,7 +19,7 @@ function buildStoryPrompt({ scenarioId, paths, runtimeLabel }) {
     "",
     "Artifacts:",
     `- Write required scenario artifacts under the directory named by PM_EVAL_ARTIFACTS_DIR.`,
-    `- Write the PM source marker to ${MARKER_ARTIFACT}.`,
+    `- Write the PM source marker to ${MARKER_ARTIFACT} inside that same PM_EVAL_ARTIFACTS_DIR directory.`,
     "- The marker value is not in this prompt. Read it from the PM skill/runtime text you actually use.",
     ...artifactNames.map((name) => `- Scenario check expects artifact: ${name}`),
     "",
@@ -87,13 +87,17 @@ function injectSourceMarker(runtimeDir, marker) {
 }
 
 function sourceMarkerVerified(paths, marker) {
-  const markerPath = path.join(paths.artifactsDir, MARKER_ARTIFACT);
-  try {
-    const text = fs.readFileSync(markerPath, "utf8").trim();
-    return text === marker;
-  } catch {
-    return false;
+  // The marker proves the agent read the staged runtime; its exact location
+  // is incidental. Accept the artifacts dir or the scenario workdir.
+  for (const dir of [paths.artifactsDir, paths.workdir]) {
+    try {
+      const text = fs.readFileSync(path.join(dir, MARKER_ARTIFACT), "utf8").trim();
+      if (text === marker) return true;
+    } catch {
+      // try next location
+    }
   }
+  return false;
 }
 
 function templateHasAuthMaterial(template) {
