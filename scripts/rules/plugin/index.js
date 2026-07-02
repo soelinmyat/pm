@@ -84,12 +84,21 @@ function buildContext(rootDir) {
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
 
-  // Personas
-  const personas = [];
-  const personasDir = path.join(rootDir, "agents");
-  for (const filePath of walkMarkdownFiles(personasDir)) {
-    personas.push(path.basename(filePath).replace(/\.md$/, ""));
+  // Agents (a.k.a. personas). `personas` stays a name-only list for backward
+  // compatibility (D1-PERSONA-001, filesScanned); `agents` carries frontmatter
+  // so tool-whitelist validation can read each agent's `tools:` declaration.
+  const agents = [];
+  const agentsDir = path.join(rootDir, "agents");
+  for (const filePath of walkMarkdownFiles(agentsDir)) {
+    const parsed = parseFrontmatter(readFile(filePath));
+    agents.push({
+      name: path.basename(filePath).replace(/\.md$/, ""),
+      // path.relative from the root keeps this correct if agents/ ever nests.
+      relPath: path.relative(rootDir, filePath).split(path.sep).join("/"),
+      frontmatter: parsed.data || {},
+    });
   }
+  const personas = agents.map((a) => a.name);
 
   // Commands
   const commands = [];
@@ -124,6 +133,7 @@ function buildContext(rootDir) {
     rootDir,
     skills,
     personas,
+    agents,
     commands,
     manifests,
   };

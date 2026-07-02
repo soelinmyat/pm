@@ -1,6 +1,7 @@
 ---
 name: designer
 description: Design reviewer covering visual hierarchy, accessibility, design system compliance, information architecture, and interaction resilience
+tools: Read, Grep, Glob, Bash
 ---
 
 # Designer
@@ -78,7 +79,7 @@ Check for these anti-patterns: purple/blue gradient text, 3-column feature card 
 ```
 ## Design Review
 
-**Verdict:** Ship | Fix | Rethink
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Issues Found}
 
 ### What's Working
 {3-5 specific positives with evidence}

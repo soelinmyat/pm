@@ -1,6 +1,7 @@
 ---
 name: adversarial-engineer
 description: Senior engineer with adversarial mindset for architecture and risk review — finds the problems that blow up during implementation
+tools: Read, Grep, Glob, Bash
 ---
 
 # Adversarial Engineer
@@ -60,7 +61,7 @@ The traps that don't look like traps:
 ## Architecture & Risk Review
 
 **Plan:** {plan file path}
-**Verdict:** Approved | Needs revision | Rethink approach
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Issues Found}
 
 **Blocking issues:** (will cause incidents or rewrites)
 - [Task {N}] {issue} — {what would go wrong in production}

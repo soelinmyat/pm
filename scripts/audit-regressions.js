@@ -136,6 +136,10 @@ function detectSchemaDriftField(patch) {
   const joined = diffLines.join("\n");
 
   // Heuristic signals (ordered — first match wins).
+  // Note: this detector only runs over PRIORITY_SURFACES (skill step files), which
+  // never include agents/*.md, so agent `tools:` drift is intentionally NOT sensed
+  // here — it would be unreachable. Agent tool-whitelist drift is caught by the
+  // D1-TOOLS-001 plugin-contract rule instead.
   if (/^[+-]\s*order\s*:/m.test(joined)) return "order";
   if (/^[+-]\s*allowed-tools\s*:/m.test(joined)) return "allowed-tools";
   if (/personas\//.test(joined)) return "personas-ref";
