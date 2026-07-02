@@ -180,6 +180,410 @@ test("claude live adapter marks missing marker evidence as wrong-source", () => 
   }
 });
 
+test("stageKeychainLoginState copies only login-state keys when oauthAccount present", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({
+        oauthAccount: { emailAddress: "user@example.com" },
+        userID: "abc123",
+        hasCompletedOnboarding: true,
+        installMethod: "native",
+        projects: { "/some/host/path": { some: "cache" } },
+      })
+    );
+    process.env.HOME = home;
+
+    const staged = _private.stageKeychainLoginState(stagedHome);
+    assert.equal(staged, true);
+
+    const written = JSON.parse(fs.readFileSync(path.join(stagedHome, ".claude.json"), "utf8"));
+    assert.deepEqual(Object.keys(written).sort(), [
+      "hasCompletedOnboarding",
+      "installMethod",
+      "oauthAccount",
+      "userID",
+    ]);
+    assert.equal(written.projects, undefined);
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState returns false when oauthAccount is missing or falsy", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    process.env.HOME = home;
+    for (const hostConfig of [{ userID: "abc123" }, { oauthAccount: null }, { oauthAccount: "" }]) {
+      fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify(hostConfig));
+      const staged = _private.stageKeychainLoginState(stagedHome);
+      assert.equal(staged, false);
+      assert.equal(fs.existsSync(path.join(stagedHome, ".claude.json")), false);
+    }
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState returns false when the host file is missing or unreadable", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    process.env.HOME = home;
+    const staged = _private.stageKeychainLoginState(stagedHome);
+    assert.equal(staged, false);
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState returns false without throwing when host JSON is not an object", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    process.env.HOME = home;
+    for (const primitive of [
+      "null",
+      "42",
+      '"just a string"',
+      "true",
+      "[]",
+      '[{"oauthAccount":1}]',
+    ]) {
+      fs.writeFileSync(path.join(home, ".claude.json"), primitive);
+      assert.doesNotThrow(() => {
+        const staged = _private.stageKeychainLoginState(stagedHome);
+        assert.equal(staged, false);
+      });
+    }
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState returns false when HOME is unset", () => {
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    delete process.env.HOME;
+    const staged = _private.stageKeychainLoginState(stagedHome);
+    assert.equal(staged, false);
+  } finally {
+    setOrDelete("HOME", priorHome);
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState returns false instead of throwing when stagedHomeDir is not writable", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({ oauthAccount: { emailAddress: "user@example.com" } })
+    );
+    process.env.HOME = home;
+
+    const missingStagedHome = path.join(os.tmpdir(), "pm-staged-home-does-not-exist");
+    assert.doesNotThrow(() => {
+      const staged = _private.stageKeychainLoginState(missingStagedHome);
+      assert.equal(staged, false);
+    });
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("stageKeychainLoginState writes the staged login file with owner-only permissions", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const stagedHome = fs.mkdtempSync(path.join(os.tmpdir(), "pm-staged-home-"));
+  const priorHome = process.env.HOME;
+  try {
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({ oauthAccount: { emailAddress: "user@example.com" } })
+    );
+    process.env.HOME = home;
+
+    _private.stageKeychainLoginState(stagedHome);
+    const mode = fs.statSync(path.join(stagedHome, ".claude.json")).mode & 0o777;
+    assert.equal(mode, 0o600);
+  } finally {
+    process.env.HOME = priorHome;
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(stagedHome, { recursive: true, force: true });
+  }
+});
+
+test("prepareClaudeRuntime does not require keychain staging when an OAuth token is set", () => {
+  const runId = "20260702T060203Z--dev-review-before-push--claude";
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-prepare-runtime-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const priorHome = process.env.HOME;
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorApiKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  const priorTemplate = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+  const priorKeychain = process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN;
+  try {
+    // No oauthAccount on the host — keychain staging would fail if attempted.
+    fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ userID: "abc123" }));
+    process.env.HOME = home;
+    delete process.env.PM_EVAL_CLAUDE_API_KEY;
+    delete process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN = "1";
+    process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN = "sk-eval-oauth-token";
+
+    const homeDir = path.join(runDir, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-runtime-src-"));
+    fs.mkdirSync(path.join(runtimeDir, "skills", "dummy"), { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, "skills", "dummy", "SKILL.md"), "# dummy\n");
+
+    const prepared = _private.prepareClaudeRuntime({
+      paths: {
+        runId,
+        homeDir,
+        rootDir: runDir,
+        runtimeDir,
+        runDir,
+      },
+    });
+    assert.equal(prepared.status, "pass", JSON.stringify(prepared));
+    assert.equal(fs.existsSync(path.join(homeDir, ".claude.json")), false);
+  } finally {
+    process.env.HOME = priorHome;
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorApiKey);
+    setOrDelete("PM_EVAL_CLAUDE_HOME_TEMPLATE", priorTemplate);
+    setOrDelete("PM_EVAL_CLAUDE_ALLOW_KEYCHAIN", priorKeychain);
+    fs.rmSync(runDir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("prepareClaudeRuntime stages keychain login state and passes when no other auth path is set", () => {
+  const runId = "20260702T060203Z--dev-review-before-push--claude";
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-prepare-runtime-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const priorHome = process.env.HOME;
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorApiKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  const priorTemplate = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+  const priorKeychain = process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN;
+  try {
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({ oauthAccount: { emailAddress: "user@example.com" } })
+    );
+    process.env.HOME = home;
+    delete process.env.PM_EVAL_CLAUDE_API_KEY;
+    delete process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+    delete process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN = "1";
+
+    const homeDir = path.join(runDir, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-runtime-src-"));
+    fs.mkdirSync(path.join(runtimeDir, "skills", "dummy"), { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, "skills", "dummy", "SKILL.md"), "# dummy\n");
+
+    const prepared = _private.prepareClaudeRuntime({
+      paths: { runId, homeDir, rootDir: runDir, runtimeDir, runDir },
+    });
+    assert.equal(prepared.status, "pass", JSON.stringify(prepared));
+    assert.equal(fs.existsSync(path.join(homeDir, ".claude.json")), true);
+  } finally {
+    process.env.HOME = priorHome;
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorApiKey);
+    setOrDelete("PM_EVAL_CLAUDE_HOME_TEMPLATE", priorTemplate);
+    setOrDelete("PM_EVAL_CLAUDE_ALLOW_KEYCHAIN", priorKeychain);
+    fs.rmSync(runDir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("prepareClaudeRuntime skips with claude-auth-missing when keychain staging fails and no other auth path is set", () => {
+  const runId = "20260702T060203Z--dev-review-before-push--claude";
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-prepare-runtime-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "pm-fake-host-home-"));
+  const priorHome = process.env.HOME;
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorApiKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  const priorTemplate = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+  const priorKeychain = process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN;
+  try {
+    // No oauthAccount on the host — keychain staging fails.
+    fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ userID: "abc123" }));
+    process.env.HOME = home;
+    delete process.env.PM_EVAL_CLAUDE_API_KEY;
+    delete process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+    delete process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN = "1";
+
+    const homeDir = path.join(runDir, "home");
+    fs.mkdirSync(homeDir, { recursive: true });
+    const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-runtime-src-"));
+
+    const prepared = _private.prepareClaudeRuntime({
+      paths: { runId, homeDir, rootDir: runDir, runtimeDir, runDir },
+    });
+    assert.deepEqual(prepared, { status: "skip", reason: "claude-auth-missing" });
+  } finally {
+    process.env.HOME = priorHome;
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorApiKey);
+    setOrDelete("PM_EVAL_CLAUDE_HOME_TEMPLATE", priorTemplate);
+    setOrDelete("PM_EVAL_CLAUDE_ALLOW_KEYCHAIN", priorKeychain);
+    fs.rmSync(runDir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("hasAuthPath accepts an OAuth token as a standalone auth path", () => {
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorApiKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  const priorTemplate = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+  const priorKeychain = process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN;
+  try {
+    delete process.env.PM_EVAL_CLAUDE_API_KEY;
+    delete process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE;
+    delete process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN;
+    process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN = "sk-eval-oauth-token";
+    assert.equal(_private.hasAuthPath(), true);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorApiKey);
+    setOrDelete("PM_EVAL_CLAUDE_HOME_TEMPLATE", priorTemplate);
+    setOrDelete("PM_EVAL_CLAUDE_ALLOW_KEYCHAIN", priorKeychain);
+  }
+});
+
+test("claudeEnv forwards PM_EVAL_CLAUDE_OAUTH_TOKEN as CLAUDE_CODE_OAUTH_TOKEN", () => {
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  try {
+    process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN = "sk-eval-oauth-token";
+    const env = _private.claudeEnv({
+      paths: {
+        homeDir: "/tmp/pm-eval-home",
+        tmpDir: "/tmp/pm-eval-tmp",
+        xdgCacheDir: "/tmp/pm-eval-cache",
+        xdgConfigDir: "/tmp/pm-eval-config",
+        xdgDataDir: "/tmp/pm-eval-data",
+        artifactsDir: "/tmp/pm-eval-artifacts",
+        scenarioId: "dev-review-before-push",
+      },
+      prepared: { pluginRoot: "/tmp/pm-eval-plugin" },
+    });
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "sk-eval-oauth-token");
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+  }
+});
+
+test("claudeEnv omits CLAUDE_CODE_OAUTH_TOKEN when unset", () => {
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  try {
+    delete process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+    const env = _private.claudeEnv({
+      paths: {
+        homeDir: "/tmp/pm-eval-home",
+        tmpDir: "/tmp/pm-eval-tmp",
+        xdgCacheDir: "/tmp/pm-eval-cache",
+        xdgConfigDir: "/tmp/pm-eval-config",
+        xdgDataDir: "/tmp/pm-eval-data",
+        artifactsDir: "/tmp/pm-eval-artifacts",
+        scenarioId: "dev-review-before-push",
+      },
+      prepared: { pluginRoot: "/tmp/pm-eval-plugin" },
+    });
+    assert.equal("CLAUDE_CODE_OAUTH_TOKEN" in env, false);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+  }
+});
+
+test("claudeEnv prefers the OAuth token and omits ANTHROPIC_API_KEY when both are set", () => {
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorApiKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  try {
+    process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN = "sk-eval-oauth-token";
+    process.env.PM_EVAL_CLAUDE_API_KEY = "pm-eval-test-key";
+    const env = _private.claudeEnv({
+      paths: {
+        homeDir: "/tmp/pm-eval-home",
+        tmpDir: "/tmp/pm-eval-tmp",
+        xdgCacheDir: "/tmp/pm-eval-cache",
+        xdgConfigDir: "/tmp/pm-eval-config",
+        xdgDataDir: "/tmp/pm-eval-data",
+        artifactsDir: "/tmp/pm-eval-artifacts",
+        scenarioId: "dev-review-before-push",
+      },
+      prepared: { pluginRoot: "/tmp/pm-eval-plugin" },
+    });
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "sk-eval-oauth-token");
+    assert.equal("ANTHROPIC_API_KEY" in env, false);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorApiKey);
+  }
+});
+
+test("adapterTimeoutMs uses the default when PM_EVAL_CLAUDE_TIMEOUT_MS is unset", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    delete process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
+test("adapterTimeoutMs honors a valid PM_EVAL_CLAUDE_TIMEOUT_MS override", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "1200000";
+    assert.equal(_private.adapterTimeoutMs(), 1_200_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
+test("adapterTimeoutMs falls back to the default for invalid or too-small overrides", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "not-a-number";
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "500";
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "99999999999999999999";
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
+function setOrDelete(key, value) {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 function liveClaudeEnv({ binDir }) {
   return {
     ...process.env,

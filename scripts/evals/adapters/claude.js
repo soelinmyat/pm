@@ -23,6 +23,15 @@ const {
 const ADAPTER_TIMEOUT_MS = 600_000;
 const OUTPUT_MAX_BUFFER = 16 * 1024 * 1024;
 
+// Dev-flow scenarios can exceed 10 minutes. PM_EVAL_CLAUDE_TIMEOUT_MS overrides
+// the default per run (mirrors PM_EVAL_CODEX_TIMEOUT_MS).
+function adapterTimeoutMs() {
+  const raw = String(process.env.PM_EVAL_CLAUDE_TIMEOUT_MS || "").trim();
+  if (!/^[0-9]+$/.test(raw)) return ADAPTER_TIMEOUT_MS;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 1000 ? value : ADAPTER_TIMEOUT_MS;
+}
+
 function preflight() {
   if (!liveEnabled()) return skipNetworkPolicy();
   if (!networkAcknowledged()) return skipNetworkPolicy();
@@ -73,7 +82,7 @@ function run({ scenarioId, paths }) {
     input: prompt,
     env: claudeEnv({ paths, prepared }),
     encoding: "utf8",
-    timeout: ADAPTER_TIMEOUT_MS,
+    timeout: adapterTimeoutMs(),
     maxBuffer: OUTPUT_MAX_BUFFER,
   });
 
@@ -156,6 +165,36 @@ function normalizeClaudeStream(stdout) {
   return events;
 }
 
+// Claude Code only consults the macOS keychain when ~/.claude.json carries
+// login state. Stage the minimal auth-relevant keys — never the host's full
+// config (projects map, caches) — into the isolated HOME.
+const LOGIN_STATE_KEYS = ["oauthAccount", "userID", "hasCompletedOnboarding", "installMethod"];
+
+function stageKeychainLoginState(stagedHomeDir) {
+  if (!process.env.HOME) return false;
+  const hostFile = path.join(process.env.HOME, ".claude.json");
+  let host;
+  try {
+    host = JSON.parse(fs.readFileSync(hostFile, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!host || typeof host !== "object") return false;
+  const staged = {};
+  for (const key of LOGIN_STATE_KEYS) {
+    if (key in host) staged[key] = host[key];
+  }
+  if (!staged.oauthAccount) return false;
+  const stagedFile = path.join(stagedHomeDir, ".claude.json");
+  try {
+    fs.writeFileSync(stagedFile, JSON.stringify(staged, null, 2));
+    fs.chmodSync(stagedFile, 0o600);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function prepareClaudeRuntime({ paths }) {
   const template = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE
     ? path.resolve(process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE)
@@ -165,6 +204,15 @@ function prepareClaudeRuntime({ paths }) {
   const marker = `pm-eval-source:${paths.runId}:${crypto.randomBytes(12).toString("hex")}`;
 
   if (template && !copyAuthTemplate(template, claudeHome)) {
+    return skip("claude-auth-missing");
+  }
+  if (
+    !template &&
+    !process.env.PM_EVAL_CLAUDE_API_KEY &&
+    !process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN &&
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1" &&
+    !stageKeychainLoginState(paths.homeDir)
+  ) {
     return skip("claude-auth-missing");
   }
 
@@ -197,7 +245,11 @@ function claudeEnv({ paths, prepared }) {
     PM_EVAL_SCENARIO_ID: paths.scenarioId,
     DISABLE_AUTOUPDATER: "1",
   };
-  if (process.env.PM_EVAL_CLAUDE_API_KEY) {
+  // Subscription-backed headless auth (token minted once via `claude setup-token`)
+  // takes priority over an API key so the two credentials are never both forwarded.
+  if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  } else if (process.env.PM_EVAL_CLAUDE_API_KEY) {
     env.ANTHROPIC_API_KEY = process.env.PM_EVAL_CLAUDE_API_KEY;
   }
   return env;
@@ -205,6 +257,7 @@ function claudeEnv({ paths, prepared }) {
 
 function hasAuthPath() {
   if (process.env.PM_EVAL_CLAUDE_API_KEY) return true;
+  if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) return true;
   if (templateHasAuthMaterial(process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE)) return true;
   // macOS keychain OAuth survives HOME isolation; require explicit opt-in.
   if (process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1") return true;
@@ -247,5 +300,9 @@ module.exports = {
   _private: {
     normalizeClaudeStream,
     prepareClaudeRuntime,
+    stageKeychainLoginState,
+    hasAuthPath,
+    claudeEnv,
+    adapterTimeoutMs,
   },
 };
