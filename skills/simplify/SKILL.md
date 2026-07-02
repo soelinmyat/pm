@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code or runtime-source changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
 
-**Workflow:** `simplify` | **Telemetry steps:** `scan`, `review`, `merge`, `fix`.
+**Workflow:** `simplify`
 
 ## When to use
 

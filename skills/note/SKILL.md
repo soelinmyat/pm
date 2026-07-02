@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **When NOT to use:** Bulk evidence imports from files (use ingest). Research that needs web sources (use research). If the observation belongs in an existing research file, update that file directly.
 
-**Workflow:** `note` | **Telemetry steps:** `capture`, `enrich`.
+**Workflow:** `note`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/note/steps/` in numeric filename order. If `.pm/workflows/note/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

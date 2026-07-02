@@ -30,7 +30,7 @@ If `{pm_dir}` does not exist:
 
 Stop. Do not create `.pm/` or `pm/` implicitly.
 
-**Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy-check`, `research`, `scope`, `scope-review`, `design`, `draft-proposal`, `team-review`, `bar-raiser`, `present`, `link`.
+**Workflow:** `groom`
 
 **When NOT to use:** Quick outlines or explanations ("what would X look like?"), when the user says "spec" but means "explain," or when they want a rough sketch — use `pm:think` instead. Groom produces a full PRD with reviews; think produces a lightweight artifact.
 

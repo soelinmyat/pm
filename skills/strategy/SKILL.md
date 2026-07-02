@@ -25,7 +25,7 @@ Stop.
 
 **NEVER WRITE STRATEGY FROM THIN AIR.** Strategy must be grounded in explicit answers, existing evidence, or both. If key inputs are missing, surface the gap instead of inventing certainty.
 
-**Workflow:** `strategy` | **Telemetry steps:** `prereq-check`, `detect-existing`, `interview`, `write-strategy`.
+**Workflow:** `strategy`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/strategy/steps/` in numeric filename order. If `.pm/workflows/strategy/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

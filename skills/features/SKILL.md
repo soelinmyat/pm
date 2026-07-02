@@ -22,7 +22,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 Do not use this skill when the user wants code explanation, architecture review, API documentation, or implementation guidance. Use direct answers, `pm:dev`, or `pm:research` instead.
 
-**Workflow:** `features` | **Telemetry steps:** `overwrite-guard`, `scan`, `review`, `write`
+**Workflow:** `features`
 
 **Steps:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/features.md`. Treat that reference as the executable contract for the overwrite guard, scanning pipeline, user review, output format, and completion behavior.
 

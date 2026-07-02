@@ -24,7 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - **Product signal** (customer feedback, observation). Use `pm:note`.
 - **Immediate help** — the user wants you to investigate the bug *right now*, not track it. Investigate directly; capture after if the fix is non-trivial.
 
-**Workflow:** `bug` | **Telemetry steps:** `capture`, `enrich`.
+**Workflow:** `bug`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/bug/steps/` in numeric filename order. If `.pm/workflows/bug/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

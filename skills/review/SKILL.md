@@ -21,7 +21,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER BYPASS THE GATE.** This gate cannot be skipped via flags, state manipulation, or "I already looked at it." If the diff has real code changes and no prior-review record, agents must run.
 
-**Workflow:** `review` | **Telemetry steps:** `gather-context`, `parallel-reviews`, `merge-findings`, `auto-fix`.
+**Workflow:** `review`
 
 ## When to use
 

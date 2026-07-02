@@ -24,7 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - **One-off question or answer** that doesn't need tracking. Just answer it inline.
 - **Product signals or evidence** (customer feedback, competitor observations). Use `pm:note`.
 
-**Workflow:** `task` | **Telemetry steps:** `capture`, `enrich`.
+**Workflow:** `task`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/task/steps/` in numeric filename order. If `.pm/workflows/task/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

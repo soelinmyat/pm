@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER BYPASS THE SYNC SCRIPT FOR GIT OPERATIONS INSIDE `pm/`.** The sync script (`kb-sync-git.js`) owns staging, committing, pushing, pulling, and status checks for the KB repo. Running raw git commands inside `pm/` outside the script creates state drift.
 
-**Workflow:** `sync` | **Telemetry steps:** `parse-subcommand`, `setup`, `auth-check`, `pull`, `push`, `status`.
+**Workflow:** `sync`
 
 **Default behavior (no subcommand):**
 1. No backend configured → route to setup

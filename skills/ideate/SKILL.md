@@ -32,7 +32,7 @@ Stop.
 
 When the user already knows what to build and wants to scope it — use `pm:groom`. When they want to explore a single idea — use `pm:think`. Ideate is for discovery across the full KB, not deep-diving one idea.
 
-**Workflow:** `ideate` | **Telemetry steps:** `audit`, `mine`, `filter`, `shape`, `rank`, `present`, `write`.
+**Workflow:** `ideate`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ideate/steps/` in numeric filename order. If `.pm/workflows/ideate/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

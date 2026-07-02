@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 **When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
-**Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `tool-check`, `intake`, `workspace`, `groom-readiness`, `implementation`, `simplify`, `review`, `ship`, `retro`.
+**Workflow:** `dev`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

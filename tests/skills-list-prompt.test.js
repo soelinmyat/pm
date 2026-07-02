@@ -20,12 +20,24 @@ test("skills/list/SKILL.md exists with required frontmatter", () => {
   assert.match(text, /^description: /m, "frontmatter missing description");
 });
 
-test("SKILL.md declares iron law and workflow/telemetry", () => {
+test("SKILL.md declares iron law and workflow", () => {
   const text = read(SKILL_MD);
   assert.match(text, /## Iron Law/);
   assert.match(text, /LIST IS READ-ONLY/i, "iron law must forbid writes");
   assert.match(text, /Workflow:.*`list`/);
-  assert.match(text, /discover.*render|render.*discover/is);
+});
+
+test("list workflow ships its discover and render steps", () => {
+  const stepsDir = path.join(__dirname, "..", "skills", "list", "steps");
+  const steps = fs.readdirSync(stepsDir).sort();
+  assert.ok(
+    steps.some((f) => f.includes("discover")),
+    "discover step missing"
+  );
+  assert.ok(
+    steps.some((f) => f.includes("render")),
+    "render step missing"
+  );
 });
 
 test("SKILL.md preserves per-skill resume (not replacement)", () => {

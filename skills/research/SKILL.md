@@ -28,7 +28,7 @@ If `{pm_dir}` does not exist:
 
 Stop. For quick one-off questions that don't need saved artifacts, answer directly without this skill.
 
-**Workflow:** `research` | **Telemetry steps:** `note-digest`, `mode-routing`, `landscape`, `competitor`, `topic`
+**Workflow:** `research`
 
 **When NOT to use:** Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
 

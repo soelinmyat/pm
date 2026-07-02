@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER FORCE A PM WORKFLOW ON A DIRECT USER REQUEST.** `using-pm` exists to route or orient, not to hijack straightforward tasks into ceremony.
 
-**Workflow:** `using-pm` | **Telemetry steps:** `session-start`, `route`.
+**Workflow:** `using-pm`
 
 ## When NOT to use
 
