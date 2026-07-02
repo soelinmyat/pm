@@ -437,6 +437,38 @@ test("claudeEnv prefers the OAuth token and omits ANTHROPIC_API_KEY when both ar
   }
 });
 
+test("adapterTimeoutMs uses the default when PM_EVAL_CLAUDE_TIMEOUT_MS is unset", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    delete process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
+test("adapterTimeoutMs honors a valid PM_EVAL_CLAUDE_TIMEOUT_MS override", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "1200000";
+    assert.equal(_private.adapterTimeoutMs(), 1_200_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
+test("adapterTimeoutMs falls back to the default for invalid or too-small overrides", () => {
+  const prior = process.env.PM_EVAL_CLAUDE_TIMEOUT_MS;
+  try {
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "not-a-number";
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+    process.env.PM_EVAL_CLAUDE_TIMEOUT_MS = "500";
+    assert.equal(_private.adapterTimeoutMs(), 600_000);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_TIMEOUT_MS", prior);
+  }
+});
+
 function setOrDelete(key, value) {
   if (value === undefined) delete process.env[key];
   else process.env[key] = value;

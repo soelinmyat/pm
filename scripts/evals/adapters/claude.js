@@ -23,6 +23,15 @@ const {
 const ADAPTER_TIMEOUT_MS = 600_000;
 const OUTPUT_MAX_BUFFER = 16 * 1024 * 1024;
 
+// Dev-flow scenarios can exceed 10 minutes. PM_EVAL_CLAUDE_TIMEOUT_MS overrides
+// the default per run (mirrors PM_EVAL_CODEX_TIMEOUT_MS).
+function adapterTimeoutMs() {
+  const raw = String(process.env.PM_EVAL_CLAUDE_TIMEOUT_MS || "").trim();
+  if (!/^[0-9]+$/.test(raw)) return ADAPTER_TIMEOUT_MS;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 1000 ? value : ADAPTER_TIMEOUT_MS;
+}
+
 function preflight() {
   if (!liveEnabled()) return skipNetworkPolicy();
   if (!networkAcknowledged()) return skipNetworkPolicy();
@@ -73,7 +82,7 @@ function run({ scenarioId, paths }) {
     input: prompt,
     env: claudeEnv({ paths, prepared }),
     encoding: "utf8",
-    timeout: ADAPTER_TIMEOUT_MS,
+    timeout: adapterTimeoutMs(),
     maxBuffer: OUTPUT_MAX_BUFFER,
   });
 
@@ -290,5 +299,6 @@ module.exports = {
     stageKeychainLoginState,
     hasAuthPath,
     claudeEnv,
+    adapterTimeoutMs,
   },
 };
