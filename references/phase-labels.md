@@ -36,7 +36,7 @@ Both `/pm:list` (terminal) and any future dashboard consumer import labels from 
 | `dev` | `workspace` | Workspace |
 | `dev` | `rfc-check` | RFC check |
 | `dev` | `implement` | Implementation |
-| `dev` | `simplify` | Simplify |
+| `dev` | `simplify` | Simplify (legacy, pre-v1.9 — absorbed into review) |
 | `dev` | `design-critique` | Design critique |
 | `dev` | `qa` | QA |
 | `dev` | `review` | Review |

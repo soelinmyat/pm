@@ -2,7 +2,7 @@
 type: backlog
 id: PM-901
 title: Fixture — task item
-outcome: Test fixture for dev routing — kind=task skips groom/RFC/simplify and forces review
+outcome: Test fixture for dev routing — kind=task skips groom/RFC and forces review
 kind: task
 status: proposed
 priority: medium

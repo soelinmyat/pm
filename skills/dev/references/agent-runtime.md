@@ -216,7 +216,7 @@ The orchestrator builds the prompt (per-issue brief: RFC path, issue scope, life
 
 ### When to use subprocess dispatch
 
-- Multi-task implementation: each task owns implement → simplify → review → ship → merge
+- Multi-task implementation: each task owns implement → review → ship → merge
 - Single tasks expected to run >30 min wall time (CI-heavy, multi-round review fixes)
 - Any phase that includes long waits on external systems
 

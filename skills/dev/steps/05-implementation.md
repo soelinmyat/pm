@@ -6,12 +6,12 @@ description: Dispatch fresh developer agents to implement the approved RFC
 
 ## Goal
 
-Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 06–09).
+Complete implementation of the approved RFC and leave the branch in a verified, reviewable state for downstream gates (Steps 07–09).
 
 <HARD-RULE>
 Step 05 **dispatches agents**. It does NOT execute implementation in the orchestrator context.
 
-- **Multi-task (`task_count > 1`):** dispatch one fresh @developer agent per task as a **subprocess** (`scripts/dispatch-issue.sh`), sequentially. The subprocess owns the full lifecycle implement → simplify → review → ship → merge. The orchestrator coordinates — create worktree, build prompt, dispatch subprocess, read result.json, checkpoint, sync main, next. Never read the RFC and start implementing.
+- **Multi-task (`task_count > 1`):** dispatch one fresh @developer agent per task as a **subprocess** (`scripts/dispatch-issue.sh`), sequentially. The subprocess owns the full lifecycle implement → review → ship → merge. The orchestrator coordinates — create worktree, build prompt, dispatch subprocess, read result.json, checkpoint, sync main, next. Never read the RFC and start implementing.
 - **Single-task M/L/XL:** dispatch one fresh @developer agent in the existing worktree. May use in-process `Agent(...)` / `spawn_agent(...)` since there's only one task and the orchestrator isn't carrying multi-task state.
 - **Single-task XS/S:** handled inline per the XS Express Path / size routing table in `02-intake.md`. This is the **only** valid inline path.
 
@@ -46,7 +46,7 @@ Implement the approved RFC.
 **Source directory:** {source_dir}
 
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md Steps 1–2
-for setup and implementation methodology. Steps 3+ (simplify, review, ship) are
+for setup and implementation methodology. Steps 4+ (design critique, QA, review, ship) are
 handled by the orchestrator after you return.
 
 Lifecycle:
@@ -64,7 +64,7 @@ Do NOT pause for confirmation — the RFC is the contract. Execute it.
 Report when done: "Implementation complete. {N} files changed, tests passing."
 ```
 
-The implementation agent does NOT own simplify, design critique, QA, review, ship, or cleanup. Those are handled by Steps 06–09.
+The implementation agent does NOT own design critique, QA, review, ship, or cleanup. Those are handled by Steps 07–09.
 
 ### Multi-task implementation (task_count > 1)
 
@@ -133,7 +133,7 @@ Read the RFC Execution Contract first (`id="execution-contract"` when present). 
 
 Lifecycle tracking: before each step, write your current stage to a tracking file:
   echo "{stage}" > .dev-lifecycle-stage
-Valid stages: setup, implement, simplify, design-critique, qa, review, ship, cleanup.
+Valid stages: setup, implement, design-critique, qa, review, ship, cleanup.
 This file is NOT committed — it's for recovery if you fail mid-lifecycle.
 
 Lifecycle:
@@ -143,14 +143,13 @@ Lifecycle:
 4. Run the project test suite — all tests must pass
 5. Commit implementation changes
 6. Record TDD evidence in `.pm/dev-sessions/{task-slug}.gates.json` as `tdd` tied to the commit, or `skipped` with reason for docs/config/generated-only work
-7. Invoke pm:simplify — fix findings, run tests, commit
-8. If UI changes: invoke pm:design-critique. If no visual impact, record `design-critique` as `skipped` with a concrete reason
-9. If UI changes: dispatch QA agent per implementation-flow.md and record the `qa` gate
-10. If SIZE is M/L/XL: invoke pm:review on the branch, fix all high-confidence findings, commit
+7. If UI changes: invoke pm:design-critique. If no visual impact, record `design-critique` as `skipped` with a concrete reason
+8. If UI changes: dispatch QA agent per implementation-flow.md and record the `qa` gate
+9. If SIZE is M/L/XL: invoke pm:review on the branch (6-lens fan-out incl. the simplification lenses), fix all high-confidence findings, commit
     If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
-11. Run full test suite as final verification and record the `verification` gate
-12. Run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed after their evidence commit, or write `verified_commit` / `verified_at` only when existing evidence still applies to current HEAD
-13. Run the gate checker and fix any missing/stale gates before push:
+10. Run full test suite as final verification and record the `verification` gate
+11. Run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed after their evidence commit, or write `verified_commit` / `verified_at` only when existing evidence still applies to current HEAD
+12. Run the gate checker and fix any missing/stale gates before push:
     ```bash
     PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
     node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
@@ -158,8 +157,8 @@ Lifecycle:
       --commit "$(git rev-parse HEAD)" \
       --base origin/{DEFAULT_BRANCH}
     ```
-14. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-15. **Before exiting**, write your structured result to ${RESULT_FILE}:
+13. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+14. **Before exiting**, write your structured result to ${RESULT_FILE}:
     On success:
       {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
     On block:
@@ -257,7 +256,7 @@ Each per-task agent must track its lifecycle progress so recovery agents know wh
 
 ```bash
 echo "{stage}" > {TASK_WORKTREE_PATH}/.dev-lifecycle-stage
-# Valid values: setup, implement, simplify, design-critique, qa, review, ship, cleanup
+# Valid values: setup, implement, design-critique, qa, review, ship, cleanup
 ```
 
 This file is NOT committed — it's a transient marker for recovery. It lives in the worktree and is removed during cleanup.
@@ -305,11 +304,11 @@ Multi-task: For each task in order, fresh developer agent dispatched as a subpro
   → orchestrator builds prompt at .pm/runs/issue-{N}/prompt.txt
   → orchestrator shells out: scripts/dispatch-issue.sh --runtime ... --prompt-file ...
   → subprocess reads approved RFC, focuses on assigned Issue section
-  → subprocess: implements → simplify → design critique → QA → review → merge → cleanup
+  → subprocess: implements → design critique → QA → review → merge → cleanup
   → subprocess writes .pm/runs/issue-{N}/result.json (status: merged | blocked) and exits
   → orchestrator reads result.json, checkpoints, syncs main, dispatches next
 
 Orchestrator runs Step 09 (retro) once after all tasks complete.
 ```
 
-**Single-task** hands off to Step 06 with code and tests committed on the feature branch, the suite passing, and the session file updated. **Multi-task** subprocesses each own implement→merge and write `result.json` (`status: merged` or `blocked`); the orchestrator checkpoints the `## Tasks` table, then proceeds straight to Step 09 (retro) — Steps 06–08 are skipped because the subprocesses handled them.
+**Single-task** hands off to Step 07 with code and tests committed on the feature branch, the suite passing, and the session file updated. **Multi-task** subprocesses each own implement→merge and write `result.json` (`status: merged` or `blocked`); the orchestrator checkpoints the `## Tasks` table, then proceeds straight to Step 09 (retro) — Steps 07–08 are skipped because the subprocesses handled them.

@@ -31,7 +31,7 @@ After compaction or if context feels stale, read this file to recover full sessi
 
 ## Valid Stage Values
 
-`intake`, `workspace`, `rfc-check`, `implement`, `simplify`, `design-critique`, `qa`, `review`, `ship`, `retro`.
+`intake`, `workspace`, `rfc-check`, `implement`, `design-critique`, `qa`, `review`, `ship`, `retro`. (`simplify` is a legacy stage from pre-v1.9 sessions — treat it as `review`.)
 
 ## Valid Task Status Values
 
@@ -42,7 +42,6 @@ These are the only valid values for the `Status` column in the `## Tasks` table:
 | `pending` | Task has not started |
 | `in-progress` | Agent has been dispatched and is working |
 | `implementing` | Agent is in the implementation phase (multi-task lifecycle tracking) |
-| `simplifying` | Agent is in the simplify phase |
 | `reviewing` | Agent is in the review phase |
 | `shipping` | Agent is in the push/PR/merge phase |
 | `done` | Task completed successfully (single-task) or merged (multi-task) |
@@ -78,17 +77,17 @@ Schema:
 }
 ```
 
-Gate names are `tdd`, `simplify`, `design-critique`, `qa`, `review`, and `verification`. Status values are `passed`, `skipped`, `failed`, and `blocked`. Top-level `size` and `kind` mirror the dev session routing context; they are required when a skip reason depends on that routing context.
+Gate names are `tdd`, `design-critique`, `qa`, `review`, and `verification` (`simplify` is a tolerated legacy name from pre-v1.9 sidecars — never required, never validated for freshness). Status values are `passed`, `skipped`, `failed`, and `blocked`. Top-level `size` and `kind` mirror the dev session routing context; they are required when a skip reason depends on that routing context.
 
 Rules:
 
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
+- The `review` row carries a `lenses` array recording which lenses actually ran (e.g. `["bug", "design", "edge", "reuse", "quality", "efficiency"]`, minus `design` when conditionally skipped). On M/L/XL manifests the checker requires the absorbed lenses `reuse`, `quality`, `efficiency` to be present — a pre-v1.9 3-lens review row does not pass.
 - Final push/ship checks accept a row only when either `commit` or `verified_commit` equals `git rev-parse HEAD`; otherwise the row is stale.
 - `passed` rows need an existing artifact path. State-file section anchors such as `.pm/dev-sessions/{slug}.md#review` are valid when the file exists. `skipped`, `failed`, and `blocked` rows need a concrete reason.
-- `tdd`, `simplify`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.
-- `simplify: skipped` with reason `XS size` requires top-level `size: "XS"`. `simplify: skipped` with reason `kind task uses review gate instead` or `kind bug uses review gate instead` requires top-level `kind` to match.
+- `tdd`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.
 - `design-critique` and `qa` skip reasons must describe no UI/user-visible impact (for example backend-only, docs-only, non-UI config-only, generated-only, pure refactor, or no visual impact). UI config, design-token/theme data, static HTML, and server-rendered templates are UI-impacting. Environment failures, auth failures, missing DBs, or servers that cannot start are `blocked`, not `skipped`.
 - Before final verification, run the final recertification pass in `skills/dev/steps/07-review.md`: rerun any gate whose relevant surface changed after its evidence commit, or write `verified_commit` / `verified_at` when the gate evidence still applies to final HEAD.
 - Before any PM-mediated push, PR creation, or ship handoff, run:
@@ -174,7 +173,7 @@ Tasks are populated during intake by reading the RFC HTML file (`.issue-detail` 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}.gates.json
 - Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)"`
-- Required before push: tdd, simplify, design-critique, qa, review, verification (skipped gates require reasons)
+- Required before push: tdd, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch
 - Stage: pending

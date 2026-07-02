@@ -34,14 +34,12 @@ function routeForKind(kind) {
     return {
       resolvedKind: k,
       groomReadiness: "skip",
-      simplify: "skip",
       review: "force-full",
     };
   }
   return {
     resolvedKind: "proposal",
     groomReadiness: "size-routed",
-    simplify: "size-routed",
     review: "size-routed",
   };
 }
@@ -56,7 +54,6 @@ test("PM-51 routing: fixture proposal → resolved kind = proposal, feature path
   const r = routeForKind(fm.kind);
   assert.equal(r.resolvedKind, "proposal");
   assert.equal(r.groomReadiness, "size-routed");
-  assert.equal(r.simplify, "size-routed");
   assert.equal(r.review, "size-routed");
 });
 
@@ -66,7 +63,6 @@ test("PM-51 routing: fixture task → resolved kind = task, lightweight path", (
   const r = routeForKind(fm.kind);
   assert.equal(r.resolvedKind, "task");
   assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.simplify, "skip");
   assert.equal(r.review, "force-full");
 });
 
@@ -76,7 +72,6 @@ test("PM-51 routing: fixture bug → resolved kind = bug, lightweight path", () 
   const r = routeForKind(fm.kind);
   assert.equal(r.resolvedKind, "bug");
   assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.simplify, "skip");
   assert.equal(r.review, "force-full");
 });
 
@@ -87,7 +82,6 @@ test("PM-51 routing AC6: fixture no-kind → resolved kind = proposal (feature p
   const r = routeForKind(fm.kind);
   assert.equal(r.resolvedKind, "proposal");
   assert.equal(r.groomReadiness, "size-routed");
-  assert.equal(r.simplify, "size-routed");
   assert.equal(r.review, "size-routed");
 });
 
@@ -97,7 +91,6 @@ test("PM-51 routing AC7: kind=task + size=L → kind wins, lightweight path", ()
   assert.equal(fm.size, "L");
   const r = routeForKind(fm.kind);
   assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.simplify, "skip");
   assert.equal(r.review, "force-full");
 });
 
@@ -122,14 +115,6 @@ test("PM-51 routing: 04-groom-readiness short-circuits on task/bug", () => {
   assert.match(text, /jump.*to.*Implementation/i);
 });
 
-test("PM-51 routing: 06-simplify skips on task/bug regardless of size", () => {
-  const text = readStep("06-simplify.md");
-  assert.match(text, /Kind skip/);
-  assert.match(text, /kind.*task.*kind.*bug/i);
-  assert.match(text, /skipped-kind-/);
-  assert.match(text, /regardless of size/i);
-});
-
 test("PM-51 routing: 07-review forces pm:review on task/bug regardless of size", () => {
   const text = readStep("07-review.md");
   assert.match(text, /Kind override/);
@@ -145,11 +130,10 @@ test("PM-51 routing: 07-review forces pm:review on task/bug regardless of size",
 
 test("PM-51 routing regression: proposal kind still runs size-based routing", () => {
   const r = routeForKind("proposal");
-  assert.equal(r.simplify, "size-routed");
   assert.equal(r.review, "size-routed");
 });
 
 test("PM-51 routing regression: absent/null kind still runs size-based routing", () => {
-  assert.equal(routeForKind(undefined).simplify, "size-routed");
-  assert.equal(routeForKind(null).simplify, "size-routed");
+  assert.equal(routeForKind(undefined).review, "size-routed");
+  assert.equal(routeForKind(null).review, "size-routed");
 });
