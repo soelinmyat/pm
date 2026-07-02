@@ -60,7 +60,7 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | `dev/references/tdd.md` | dev (all sizes) | Test-first discipline |
 | `dev/references/subagent-dev.md` | dev (all sizes) | Dispatches parallel agents for plan execution |
 | `dev/references/debugging.md` | dev (when tests fail) | Root cause investigation before any fix |
-| `pm:review` | dev (M/L/XL), ship | Multi-agent review, 6-lens fan-out (bugs, design, edge cases, reuse, quality, efficiency — the last three absorbed from the former pm:simplify). Runtime-uniform. Tiers findings by confidence, auto-fixes high-confidence bugs. |
+| `pm:review` | dev (M/L/XL), ship | Multi-agent review on the branch diff — 6-lens fan-out (bugs, design, edge cases, reuse, quality, efficiency; the last three absorbed from the former pm:simplify), tiers findings by confidence, auto-fixes high-confidence bugs, and commits. |
 | `ship/references/handling-feedback.md` | dev, ship | Verify feedback before implementing suggestions |
 | `rfc/references/spec-reviewers.md` | rfc (generation step) | Specialist reviewers for raw sub-issue specs before RFC |
 | `rfc/references/cross-cutting-reviewers.md` | rfc (review step) | Cross-cutting concern reviewers (security, perf, ops) |
