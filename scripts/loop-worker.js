@@ -395,7 +395,14 @@ function runWorker(projectDir, options = {}) {
         encoding: "utf8",
         timeout: timeoutMs,
         maxBuffer: ENGINE_MAX_BUFFER,
-        env: process.env,
+        env: {
+          ...process.env,
+          // Deterministic mode detection for skills (dev/ship read these to
+          // switch into headless loop-worker behavior).
+          PM_LOOP_WORKER: "1",
+          PM_LOOP_STAGE: plan.selected.stage || "dev",
+          PM_LOOP_CARD_ID: plan.selected.id,
+        },
       });
       fs.writeFileSync(path.join(logDir, "stdout.log"), result.stdout || "");
       fs.writeFileSync(path.join(logDir, "stderr.log"), result.stderr || "");

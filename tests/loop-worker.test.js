@@ -90,6 +90,7 @@ function writeFakeEngine(root, { exitCode = 0, marker = "engine-ran" } = {}) {
       'process.stdin.on("data", (c) => { input += c; });',
       'process.stdin.on("end", () => {',
       `  fs.writeFileSync("${marker}.txt", input);`,
+      '  fs.writeFileSync("engine-env.json", JSON.stringify({ worker: process.env.PM_LOOP_WORKER, stage: process.env.PM_LOOP_STAGE, card: process.env.PM_LOOP_CARD_ID }));',
       '  console.log("fake engine done");',
       `  process.exit(${exitCode});`,
       "});",
@@ -224,6 +225,14 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
 
     // Gitignored-but-required file was copied into the fresh worktree
     assert.ok(fs.existsSync(path.join(result.workspace, "local.env")));
+
+    // Skills detect loop mode deterministically via env
+    const engineEnv = JSON.parse(
+      fs.readFileSync(path.join(result.workspace, "engine-env.json"), "utf8")
+    );
+    assert.equal(engineEnv.worker, "1");
+    assert.equal(engineEnv.stage, "dev");
+    assert.equal(engineEnv.card, "PM-T1");
 
     // Lease released (file gone) and the release was pushed
     assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
