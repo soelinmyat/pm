@@ -3,6 +3,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const { classifyTool } = require("../transcript.js");
+
 const MARKER_ARTIFACT = "pm-source-marker.txt";
 const AUTH_FILE_RE = /(auth|credential|session|token)/i;
 
@@ -66,6 +68,68 @@ const HOST_PLUGIN_RE = /\.claude\/plugins\/(cache|repos|marketplaces)\b/;
 
 function transcriptTouchesHostPlugin(events) {
   return events.some((event) => HOST_PLUGIN_RE.test(`${event.command || ""} ${event.name || ""}`));
+}
+
+// Post-run guard: flag MUTATING activity outside the run directory. Reads and
+// mentions of outside paths (the staged plugin under home/, /etc lookups) are
+// legitimate and never flagged — only file writes/edits to, and shell commands
+// directed at, absolute paths outside runDir. Works on both adapter event
+// shapes (codex carries tool_class; claude tool names classify via classifyTool).
+function transcriptEscapesRunDir(items, runDir) {
+  if (!runDir) return false;
+  const root = path.resolve(runDir);
+  for (const event of items || []) {
+    if (!event || event.type === "skill") continue;
+    const toolClass = event.tool_class ? String(event.tool_class) : classifyTool(event.name);
+    const command = String(event.command || "");
+    if (toolClass === "edit-file" || toolClass === "write-file") {
+      if (isAbsOutside(command, root)) return true;
+    } else if (toolClass === "run-command") {
+      if (commandEscapesRunDir(command, root)) return true;
+    }
+  }
+  return false;
+}
+
+function isAbsOutside(candidate, root) {
+  const value = String(candidate || "").trim();
+  if (!value || !path.isAbsolute(value)) return false;
+  const normalized = path.normalize(value);
+  return normalized !== root && !normalized.startsWith(`${root}${path.sep}`);
+}
+
+function commandEscapesRunDir(command, root) {
+  // Commands explicitly directed at an absolute outside path.
+  const directed = [
+    /\b(?:cd|pushd)\s+(["']?)(\/[^\s"';&|)]+)\1/g,
+    /--git-dir[=\s]+(["']?)(\/[^\s"';&|)]+)\1/g,
+  ];
+  for (const re of directed) {
+    let match;
+    while ((match = re.exec(command)) !== null) {
+      if (isAbsOutside(match[2], root)) return true;
+    }
+  }
+  // `git -C <abs>` — only meaningful on a git invocation.
+  if (/\bgit\b/.test(command)) {
+    const gitC = /-C\s+(["']?)(\/[^\s"';&|)]+)\1/g;
+    let match;
+    while ((match = gitC.exec(command)) !== null) {
+      if (isAbsOutside(match[2], root)) return true;
+    }
+  }
+  // Mutating verbs (git push/commit, rm -rf) combined with any absolute outside
+  // path elsewhere in the command. The preceding-char guard keeps URLs
+  // (https://…) from reading as bare absolute paths.
+  const mutating =
+    (/\bgit\b/.test(command) && /\b(?:push|commit)\b/.test(command)) ||
+    /\brm\b[^\n]*\s-[a-z]*[rf]/.test(command);
+  if (mutating) {
+    for (const match of command.matchAll(/(?:^|[\s"'=(])(\/[^\s"';&|)]+)/g)) {
+      if (isAbsOutside(match[1], root)) return true;
+    }
+  }
+  return false;
 }
 
 function injectSourceMarker(runtimeDir, marker) {
@@ -212,6 +276,7 @@ module.exports = {
   assertUnderRunDir,
   bakePluginRootPaths,
   transcriptTouchesHostPlugin,
+  transcriptEscapesRunDir,
   buildStoryPrompt,
   copyAuthTemplate,
   enableWorkdirAnalytics,

@@ -12,6 +12,7 @@ const {
   bakePluginRootPaths,
   buildStoryPrompt,
   transcriptTouchesHostPlugin,
+  transcriptEscapesRunDir,
   copyAuthTemplate,
   enableWorkdirAnalytics,
   injectSourceMarker,
@@ -116,6 +117,9 @@ function run({ scenarioId, paths }) {
   }
   if (transcriptTouchesHostPlugin(events)) {
     return { status: "indeterminate", reason: "wrong-source-host-plugin" };
+  }
+  if (transcriptEscapesRunDir(events, paths.runDir)) {
+    return { status: "fail", reason: "containment-escape" };
   }
 
   return { status: "pass" };

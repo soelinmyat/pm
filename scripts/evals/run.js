@@ -171,6 +171,21 @@ function runEval(opts) {
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
   }
+  if (adapterResult.status === "fail") {
+    // A behavioral failure the adapter detected post-run (e.g. containment
+    // escape). Unlike wrong-source (indeterminate = untrustworthy harness), the
+    // agent misbehaved, so this is a hard fail — skip the check phases.
+    const verdict = makeVerdict({
+      scenarioId,
+      agent,
+      runId,
+      startedAt,
+      status: "fail",
+      reason: adapterResult.reason || "adapter-fail",
+    });
+    writeJson(path.join(runDir, "verdict.json"), verdict);
+    return verdict;
+  }
   const post = runCheckPhase(paths, "post");
 
   const hazards = [...pre.hazards, ...post.hazards];
