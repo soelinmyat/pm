@@ -24,7 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - The user wants a one-time active-work list without orchestration policy — use `/pm:list`.
 - The user wants to create or groom new work — use `/pm:task`, `/pm:bug`, `/pm:groom`, or `/pm:rfc`.
 
-**Workflow:** `loop` | **Telemetry steps:** `status`, `wake`, `config`, `install`.
+**Workflow:** `loop`
 
 ## Steps
 
