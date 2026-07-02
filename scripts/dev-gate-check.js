@@ -252,7 +252,14 @@ function hasUiImpact(changedFiles) {
   return changedFiles.some(isUiImpactPath);
 }
 
+const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
+
 function isUiImpactPath(file) {
+  // pm/ (and .pm/) hold PM knowledge-base documents — generated RFC/proposal
+  // HTML included. They are read as documents, not shipped as app UI; without
+  // this exemption every branch carrying an RFC HTML would force the
+  // design-critique gate.
+  if (KB_ARTIFACT_PATH_RE.test(file)) return false;
   if (UI_PATH_RE.test(file)) return true;
   if (UI_TOKEN_DATA_RE.test(file)) return true;
   if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;

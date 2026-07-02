@@ -49,6 +49,30 @@ function makeTmpManifest(content) {
   };
 }
 
+test("pm/ KB artifacts (generated RFC HTML) are not UI-impact paths", () => {
+  const rows = [
+    gate("tdd"),
+    gate("simplify"),
+    gate("design-critique", "abc123", {
+      status: "skipped",
+      artifact: "",
+      reason: "backend-only: no UI impact",
+    }),
+    gate("qa"),
+    gate("review"),
+    gate("verification"),
+  ];
+  const result = checkGateManifest(manifest(rows), {
+    currentCommit: "abc123",
+    changedFiles: ["pm/backlog/rfcs/some-feature.html", ".pm/dev-sessions/x.md", "scripts/a.js"],
+  });
+  assert.equal(
+    result.issues.some((issue) => /UI-impact/.test(issue.message)),
+    false,
+    JSON.stringify(result.issues)
+  );
+});
+
 test("dev gate checker accepts required gates tied to the current commit", () => {
   const result = checkGateManifest(
     manifest([
