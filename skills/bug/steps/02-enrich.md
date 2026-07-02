@@ -24,8 +24,4 @@ If the user provides answers:
 
 If the user says "skip" or declines, end cleanly without edits.
 
-## Done-when
-
-Either the file has been updated with the user's refinements, or the user declined and the file is unchanged.
-
 Say: "Bug captured. Run `/pm:dev {slug}` to fix when you want, or `/pm:list` to see it alongside other work."

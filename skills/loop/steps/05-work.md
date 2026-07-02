@@ -76,9 +76,4 @@ When summarizing the JSON result:
   the lease was released either way.
 - `stopped` / `disabled` / `budget-exhausted` / `attempts-exhausted` / `rejected` / `idle` / `blocked` — nothing ran (any lease was released); report why.
 
-## Done-when
-
-One worker cycle has run (or been correctly refused) and the user knows the
-outcome, where the logs are, and what needs human attention next.
-
-**Advance:** stop after this step unless the user asked for another subcommand.
+Close by telling the user the outcome, where the logs are, and what needs human attention next.

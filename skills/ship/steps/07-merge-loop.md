@@ -86,6 +86,6 @@ Before cleanup, verify the backlog entry was written:
 - Check: `test -f {pm_dir}/backlog/{slug}.md`
 - If missing and `linear_id` is set: warn the user that product memory was not created.
 
-**Done-when:** The PR is confirmed merged, required Product Memory updates are complete, cleanup is finished or intentionally skipped, and the final shipped report can be printed without ambiguity.
+Finish only when the PR is confirmed merged, required Product Memory updates are complete, and cleanup is done or intentionally skipped — then print the final shipped report.
 
 Say: "Ship complete. PR merged and cleanup finished. What would you like to work on next?"

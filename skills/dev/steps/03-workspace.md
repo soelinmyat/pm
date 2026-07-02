@@ -82,8 +82,4 @@ If tests fail at this point, the worktree setup is broken — not your changes. 
 
 Record the baseline test outcome in the session file (pass, or which tests failed).
 
-## Done-when
-
-The final repo root, branch, cwd, worktree, backlog status, and baseline test result are recorded in the session state, and implementation can begin from a verified clean baseline.
-
-**Advance:** proceed to Step 4 (Groom Readiness).
+Once the repo root, branch, cwd, worktree, backlog status, and baseline test result are recorded and implementation can begin from a verified clean baseline, proceed to Groom Readiness.

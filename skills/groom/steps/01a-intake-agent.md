@@ -138,21 +138,3 @@ redirects:
 ```
 
 Advance phase to `synthesis` and proceed to `04a-synthesis.md`.
-
----
-
-#### Done-when
-
-- Runtime gate passed (claude only)
-- KB freshness gate passed (all three thresholds met)
-- Slug derived
-- Q1 asked (only if no KB anchor) — `brief_answers.q1` set
-- Session state file written with `groom_tier: agent` and `phase: synthesis`
-
----
-
-#### Red flags — self-check
-
-- **"The KB looks thin but I'll proceed and degrade gracefully."** No. Agent tier never silently degrades. Refuse with directive.
-- **"I'll ask a few clarifying questions to be safe."** No. Default is 0 questions. The KB is the source of truth. Asking when KB has the answer defeats the tier's purpose.
-- **"Codex feels close enough; let me try."** No. Codex inline-execution lacks the agent dispatch boundary the synthesizer relies on. Refuse.

@@ -10,8 +10,6 @@ description: Check if branch is behind default branch and resolve merge conflict
 
 **Goal:** Ensure the branch is up to date with `{DEFAULT_BRANCH}` and free of merge conflicts before review.
 
-**Done-when:** `git log HEAD..origin/{DEFAULT_BRANCH} --oneline` produces no output (branch is current), or conflicts have been resolved, committed, and verified with tests.
-
 ### Check if branch is behind {DEFAULT_BRANCH}
 
 Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH} --oneline`
@@ -38,4 +36,4 @@ Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH}
    - Run relevant verification commands for the resolved files (see AGENTS.md)
    - If tests fail after resolution, fix and amend the merge commit
 
-**Advance:** proceed to Step 3 (Review Gate).
+Once the branch is current with `{DEFAULT_BRANCH}` — or conflicts are resolved, committed, and verified with tests — proceed to the review gate.

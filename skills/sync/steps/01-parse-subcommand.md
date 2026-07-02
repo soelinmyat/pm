@@ -36,9 +36,3 @@ If the user asked for `push`, `pull`, or `status` but `sync.backend` is not set 
 Then route to Step 2 (Setup).
 
 Persist the selected route (`sync`, `setup`, `push`, `pull`, or `status`) in the working context so later steps can skip cleanly.
-
-## Done-when
-
-One concrete route has been selected, or the skill has routed to setup for onboarding.
-
-**Advance:** proceed to Step 2 (Setup).

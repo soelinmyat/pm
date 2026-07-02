@@ -12,4 +12,4 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol 
 
 **How:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/note/digest.md`. This synthesizes any un-digested quick-capture notes from the last 30 days into research themes.
 
-**Done-when:** Digest completes (notes synthesized) or completes silently (no un-digested notes exist). Proceed to mode routing either way.
+Whether notes were synthesized or none existed, proceed to mode routing.

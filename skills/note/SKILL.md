@@ -5,50 +5,18 @@ description: "Use when capturing a customer signal, product observation, or evid
 
 # pm:note
 
-## Purpose
-
-Capture one durable product observation into the shared evidence pool. Notes are lightweight and fast by design — they preserve the signal now so downstream research and grooming can synthesize it later.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and interaction pacing.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
-
-**NEVER LET A PRODUCT SIGNAL DIE IN CHAT.** If the user is handing you a real observation worth remembering, write it to the notes pool before the conversation moves on.
-
-**When NOT to use:** Bulk evidence imports from files (use ingest). Research that needs web sources (use research). If the observation belongs in an existing research file, update that file directly.
+Capture one durable product observation into the shared evidence pool in a single pass — lightweight by design, so downstream research and grooming can synthesize it later. Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions, and `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for the `writeNote` contract, tag inference, and capture-vs-ingest-vs-research routing. Extract the observation (ask "What did you observe?" if none is given), infer source and tags, write it with `writeNote`, then offer optional enrichment.
 
 **Workflow:** `note`
 
-**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/note/steps/` in numeric filename order. If `.pm/workflows/note/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
+## Hard rules
 
-## Red Flags — Self-Check
-
-If you catch yourself thinking any of these, you're drifting off-skill:
-
-- **"This is obvious enough that I’ll remember it later."** You won’t. Notes exist because product signals evaporate fast.
-- **"It’s only one observation, so it doesn’t need structure."** Single signals become patterns only if they enter the shared pool.
-- **"I should normalize this like ingest."** Note is intentionally lightweight. Don’t turn quick capture into a full evidence pipeline.
-- **"The note is saved, so enrichment isn’t worth offering."** Enrichment is optional, but it is often the difference between noise and useful context.
+- Never let a product signal die in chat — write it before the conversation moves on.
+- Enrichment appends to the saved entry; the original note is never rewritten or lost, and `note_count`/`digested_through` are left untouched.
+- Bulk file/transcript imports go to `pm:ingest`, not here; synthesis into a research artifact goes to `pm:research` or a direct edit of the existing topic file.
 
 ## Escalation Paths
 
 - **User wants to import a file or batch of evidence:** "This looks like a heavier evidence import. Want to switch to `/pm:ingest` instead of a quick note?"
 - **User wants synthesis, not capture:** "If you want this folded into a research artifact right now, I can use `/pm:research` or update the existing topic file instead."
 - **Observation is too vague to capture:** "I can save it, but I need one concrete observation first. What did you notice?"
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "I'll add this to the research file directly" | Notes feed the evidence pool. Research files are synthesized output. Mixing raw signals with analysis corrupts both. |
-| "One note isn't worth the ceremony" | Notes compound. A single observation is noise — the 10th one on the same topic is a pattern. |
-| "I'll remember this for later" | You won't. The conversation ends, the signal is lost. Write it down now. |
-
-## Before Marking Done
-
-- [ ] Note saved to `{pm_dir}/evidence/notes/YYYY-MM.md`
-- [ ] Source type set (observation, sales call, support thread, user interview)
-- [ ] Tags inferred or provided
-- [ ] User offered interview mode for enrichment

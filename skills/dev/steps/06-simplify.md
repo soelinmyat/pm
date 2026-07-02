@@ -51,7 +51,3 @@ After simplify completes and all findings are fixed:
      --require simplify
    ```
 5. Proceed to review (or design critique if UI changes exist)
-
-## Done-when
-
-Simplify has either been correctly skipped with a sidecar reason or completed with all required fixes committed, the tests rerun, `.pm/dev-sessions/{slug}.gates.json` updated for the current commit, and the task is ready for review/critique.

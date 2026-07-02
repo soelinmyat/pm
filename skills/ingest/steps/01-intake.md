@@ -108,7 +108,3 @@ If no path is provided:
   > "Do you want to refresh research from existing imported evidence, or ingest a new file/folder path?"
 - If no prior imports exist, ask:
   > "Provide a file or folder path containing customer evidence to ingest."
-
-**Done-when:** The source path, source type, and any CSV/audio prerequisites are resolved, and the user has confirmed any ambiguous or high-impact import decisions before normalization begins.
-
-**Advance:** proceed to Step 2 (Normalize).

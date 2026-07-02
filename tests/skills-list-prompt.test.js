@@ -20,10 +20,10 @@ test("skills/list/SKILL.md exists with required frontmatter", () => {
   assert.match(text, /^description: /m, "frontmatter missing description");
 });
 
-test("SKILL.md declares iron law and workflow", () => {
+test("SKILL.md declares the read-only hard rule and workflow", () => {
   const text = read(SKILL_MD);
-  assert.match(text, /## Iron Law/);
-  assert.match(text, /LIST IS READ-ONLY/i, "iron law must forbid writes");
+  assert.match(text, /## Hard rules/);
+  assert.match(text, /LIST IS READ-ONLY/i, "hard rules must forbid writes");
   assert.match(text, /Workflow:.*`list`/);
 });
 
@@ -46,9 +46,10 @@ test("SKILL.md preserves per-skill resume (not replacement)", () => {
   assert.match(text, /preserved/i);
 });
 
-test("SKILL.md covers red flags and escalation paths", () => {
+test("SKILL.md hard rules cover the emitter contract, with escalation paths", () => {
   const text = read(SKILL_MD);
-  assert.match(text, /## Red Flags/i);
+  assert.match(text, /## Hard rules/);
+  assert.match(text, /emitter is the contract/i, "hard rules must pin the emitter contract");
   assert.match(text, /## Escalation Paths/i);
 });
 

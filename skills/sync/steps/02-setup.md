@@ -128,9 +128,3 @@ config.sync.auto_push = true;
 > - `/pm:sync status` — check sync state
 >
 > Auto-sync is enabled: pull on session start, push on session end.
-
-## Done-when
-
-The `pm/` directory is a git repo with a configured remote, the initial push succeeded (or clone succeeded), and `.pm/config.json` has `sync.backend: "git"`.
-
-**Advance:** proceed to Step 3 (Auth Check) — which will skip since setup is the active route.

@@ -8,17 +8,6 @@ description: Select research mode (landscape, competitor, or topic) based on arg
 
 **Goal:** Determine which research mode to execute based on the user's argument and the current state of the knowledge base.
 
-**How:** Read `${CLAUDE_PLUGIN_ROOT}/skills/research/references/mode-routing.md` for the full routing table and menu logic.
+**How:** Read `${CLAUDE_PLUGIN_ROOT}/skills/research/references/mode-routing.md` — it is the sole authority for the routing table and the no-argument menu logic. Select the single mode it resolves to (landscape → Step 3, competitor → Step 4, topic → Step 5) and proceed to that step; only one mode executes per invocation, so skip the remaining mode steps.
 
-Route to the appropriate mode step based on the argument:
-- `landscape` argument -> Step 3 (Landscape Mode)
-- `competitors` argument -> Step 4 (Competitor Mode)
-- No argument and no `{pm_dir}/insights/business/landscape.md` -> Step 3 (Landscape Mode, first-time default)
-- No argument and `{pm_dir}/insights/business/landscape.md` exists -> present the mode selection menu and wait for user choice
-- Any other argument -> Step 5 (Topic Mode, argument is the topic name)
-
-Only one mode executes per invocation. After the selected mode step completes, skip remaining mode steps. SEO provider configuration is a shared reference consulted during each mode — see `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md`.
-
-**Done-when:** A single research mode has been selected. The agent knows which step to jump to next.
-
-**Advance:** if landscape selected, proceed to Step 3 (Landscape Mode); if competitors selected, proceed to Step 4 (Competitor Mode); if topic selected, proceed to Step 5 (Topic Mode).
+SEO provider configuration is a shared reference consulted during each mode — see `${CLAUDE_PLUGIN_ROOT}/skills/research/references/seo-provider.md`.

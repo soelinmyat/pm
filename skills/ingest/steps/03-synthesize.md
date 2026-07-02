@@ -172,5 +172,3 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
-
-**Done-when:** Research artifacts, indexes, and logs have been updated consistently for the synthesized themes, and post-write validation passes before routing begins.

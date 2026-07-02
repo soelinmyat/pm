@@ -10,9 +10,7 @@ description: Verify branch, check uncommitted changes, detect default branch, an
 
 **Goal:** Verify the working tree is ready to ship: correct branch, clean state, required tools available.
 
-**Done-when:** On a feature branch (not `{DEFAULT_BRANCH}`), working tree is clean (all changes committed), `gh` is authenticated, and `{DEFAULT_BRANCH}` is detected.
-
-**Advance:** proceed to Step 2 (Conflict Check).
+Once you're on a feature branch (not `{DEFAULT_BRANCH}`) with a clean working tree, `gh` authenticated, and `{DEFAULT_BRANCH}` detected, proceed to the conflict check.
 
 ### Prerequisites
 

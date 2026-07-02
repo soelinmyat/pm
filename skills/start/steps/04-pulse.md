@@ -42,8 +42,4 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 - `pm:start` is the public entry point for PM.
 - Dashboard sync setup is handled by `pm:setup` or `pm:sync`. `pm:start` only reads sync status — it never configures sync itself.
 
-### Done-when
-
-Pulse mode has produced a clear `Next:` recommendation, optional `Also:` alternatives.
-
 Ask: "Which would you like to start with?" followed by the numbered options from the recommendation above.

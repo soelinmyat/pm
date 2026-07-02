@@ -23,5 +23,3 @@ Print a short confirmation based on the action taken:
 - This skill toggles integrations and configures separate-repo mode. It does not initialize the project — that is `/pm:start`.
 - Do not delete existing config fields when writing back. Only update the specific field.
 - If the user runs `/pm:setup` without arguments, show the usage examples from Step 1.
-
-**Done-when:** The correct confirmation message has been shown for the completed action, or the skill has exited after surfacing usage guidance when no valid action was provided.

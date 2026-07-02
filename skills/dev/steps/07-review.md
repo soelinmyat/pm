@@ -293,8 +293,4 @@ If the checker reports a missing or stale gate, run the gate or record a valid s
 
 For M/L/XL, if human reviewers leave comments on the PR after creation, use `ship/references/handling-feedback.md` to process and respond to feedback.
 
-## Done-when
-
-The size-appropriate review path has passed, all required QA/design gates for UI work are complete, final verification has run, `.pm/dev-sessions/{slug}.gates.json` is current for HEAD, and `scripts/dev-gate-check.js` passes before handing off to ship.
-
-**Advance:** proceed to Step 8 (Ship).
+Once the size-appropriate review path has passed, UI gates are complete, verification has run, and `scripts/dev-gate-check.js` passes for HEAD, hand off to Ship (Step 8).

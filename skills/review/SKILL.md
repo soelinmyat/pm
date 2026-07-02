@@ -11,9 +11,7 @@ Post-implementation multi-agent code review gate. Reviews the current branch dif
 
 This is the single review entrypoint for all PM workflows. One code path, every runtime, no external dependency on Anthropic's `/review` command.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
 ## Iron Law
 
@@ -115,8 +113,6 @@ Save the diff and file list — agents receive them as input.
 ---
 
 ## Phase 2: Parallel Reviews
-
-Before first dispatch, run `ToolSearch({ query: "select:TeamCreate,SendMessage" })` to load deferred tools (Claude Code only — skip in other runtimes).
 
 Dispatch via `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 

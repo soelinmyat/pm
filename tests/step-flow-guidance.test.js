@@ -20,24 +20,14 @@ function makeFakePmDir() {
   };
 }
 
-// All skills that have step files
-const SKILLS = [
-  "dev",
-  "groom",
-  "ideate",
-  "ingest",
-  "note",
-  "refresh",
-  "research",
-  "rfc",
-  "setup",
-  "ship",
-  "start",
-  "strategy",
-  "sync",
-  "think",
-  "using-pm",
-];
+// Skills whose step files still use explicit step-based advancement.
+// Phase C is removing per-invocation advancement ceremony fleet-wide — modern
+// engines run steps in order without being told to advance. Skills already
+// stripped (ingest, note, refresh, setup, start, sync, using-pm, research,
+// ideate) carry no "**Advance:**"/"## Done-when" footers (some no longer have a
+// steps dir at all), so they are not enforced here. As each remaining skill is
+// stripped, drop it from this list.
+const SKILLS = ["dev", "groom", "rfc", "ship", "strategy", "think"];
 
 // Patterns that count as mid-step advancement language
 const MID_STEP_PATTERNS = [
@@ -139,18 +129,29 @@ test("every final step has next-action language", () => {
   }
 });
 
-test("skill-runtime.md contains Step Transitions section", () => {
-  const text = fs.readFileSync(path.join(PLUGIN_ROOT, "references", "skill-runtime.md"), "utf8");
-
-  assert.match(text, /## Step Transitions/);
-  assert.match(text, /### Mid-step advancement/);
-  assert.match(text, /### Final-step completion/);
-  assert.match(text, /\*\*Advance:\*\*/);
-});
-
 test("AGENTS.md Done-when description mentions advancement directive", () => {
   const text = fs.readFileSync(path.join(PLUGIN_ROOT, "AGENTS.md"), "utf8");
 
   assert.match(text, /advancement directive/i);
   assert.match(text, /skill-runtime\.md/);
+});
+
+// Phase C regression pin: the Advance/Done-when apparatus is deleted
+// fleet-wide. Steps may use natural transition prose, but the mechanical
+// footer contract must never return.
+test("no step file reintroduces Advance footers or Done-when headings", () => {
+  const skillsDir = path.join(PLUGIN_ROOT, "skills");
+  const offenders = [];
+  for (const skill of fs.readdirSync(skillsDir)) {
+    const stepsDir = path.join(skillsDir, skill, "steps");
+    if (!fs.existsSync(stepsDir)) continue;
+    for (const file of fs.readdirSync(stepsDir)) {
+      if (!file.endsWith(".md")) continue;
+      const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
+      if (/\*\*Advance:\*\*/.test(text) || /^## Done-when/m.test(text)) {
+        offenders.push(`${skill}/steps/${file}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
 });

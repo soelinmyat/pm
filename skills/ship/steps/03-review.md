@@ -70,4 +70,4 @@ Before creating the PR in the next step, the review step should ensure you have 
 
 For handling review feedback after PR creation, see `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md`.
 
-**Done-when:** The correct review path has run for this invocation, blocking findings are fixed or the flow has stopped, and there is enough context to create a meaningful PR.
+Once the correct review path has run, blocking findings are fixed (or the flow has stopped), and you have enough context to write a meaningful PR, proceed to push.

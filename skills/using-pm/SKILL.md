@@ -9,23 +9,11 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 ## Purpose
 
-Route session-start behavior and teach the runtime how to use PM skills without forcing PM ceremony onto direct questions or explicit user instructions.
+Route session-start behavior and teach the runtime how to use PM skills. **Never force a PM workflow on a direct user request** — `using-pm` routes and orients, it does not hijack straightforward tasks into ceremony.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and interaction pacing.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
-
-**NEVER FORCE A PM WORKFLOW ON A DIRECT USER REQUEST.** `using-pm` exists to route or orient, not to hijack straightforward tasks into ceremony.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
 **Workflow:** `using-pm`
-
-## When NOT to use
-
-Do not lean on this skill once a concrete PM workflow is already active. If the user is already in `pm:groom`, `pm:dev`, `pm:research`, or another explicit lane, stay in that lane.
-
-**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/using-pm/steps/` in numeric filename order. If `.pm/workflows/using-pm/` exists, same-named files there override defaults. Execute each step in order — the first handles session-start routing, the second handles skill routing discipline.
 
 ## Session Start
 
@@ -36,6 +24,8 @@ When this skill loads at the beginning of a new session:
 3. **If it's a session-opening request** ("start PM", "open PM", "show research", "what should I do next", or similarly general session kickoff) — check whether `.pm/config.json` exists in the project root.
 4. **If `.pm/config.json` exists** — invoke `pm:start` before responding (Resume/Pulse path).
 5. **If `.pm/config.json` does not exist** — print: "PM not initialized. Run /pm:start to set up." Do not invoke `pm:start`.
+
+Once a concrete PM workflow is already active (`pm:groom`, `pm:dev`, `pm:research`, or another explicit lane), stay in that lane — don't bounce the user back through `using-pm`.
 
 # Using Plugin Skills
 
@@ -82,15 +72,6 @@ Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right sta
 | "Open pm" / "View research" / "Show knowledge base" | `pm:start` | Project pulse, onboarding |
 | First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
 
-## Shared References (consulted by skills, never invoked)
-
-| Reference | What it covers |
-|-----------|---------------|
-| `references/writing.md` | Prose quality, document structure, output format, frontmatter compliance |
-| `references/merge-loop.md` | Self-healing merge loop — used by the ship skill |
-| `references/review-gate.md` | Dispatch-collect-fix-loop pattern for all review gates |
-| `references/templates/` | RFC HTML template and wireframe references |
-
 ## Instruction Priority
 
 User instructions always take precedence over plugin skills:
@@ -101,81 +82,8 @@ User instructions always take precedence over plugin skills:
 
 If the user asks a direct question or wants a quick answer, give them one. Don't force a skill flow when the user doesn't want one.
 
-## Red Flags — Self-Check
-
-If you catch yourself thinking any of these, you're drifting off-skill:
-
-- **"PM is installed, so I should always invoke `pm:start` first."** Wrong. Direct questions and concrete tasks should be answered or routed directly.
-- **"The user probably wants ceremony even though they asked for a simple answer."** `using-pm` should reduce friction, not create it.
-- **"I can skip explaining the available lanes because I know the right one."** Part of this skill is making the routing surface legible to the user.
-- **"Default skill usage overrides explicit user instructions."** It does not. User instructions still win.
-
 ## Escalation Paths
 
 - **User wants general orientation, not a specific task:** "Want to open PM with `/pm:start`, or should I route you directly to the lane that matches what you want to do?"
 - **PM is not initialized in this project:** "PM isn’t initialized here yet. Want to run `/pm:start` to set it up, or continue without PM?"
 - **A concrete PM lane is clearly a better fit:** "This looks like `{skill}` work rather than session routing. I’ll switch there directly unless you want a broader PM overview first."
-
-## The Rule
-
-**Default to invoking relevant skills before acting.** If there's a clear skill match for what the user is doing, invoke it. If it turns out to be wrong for the situation, you don't need to follow it. But if the user's request is straightforward or they've given explicit instructions, follow those first.
-
-## Skill Bookends
-
-Every skill invocation MUST start with a plan and end with a summary.
-
-### Opening (before any work)
-
-After the skill is loaded but before doing anything, tell the user what's about to happen:
-
-```
-**[Skill Name]** — here's the plan:
-1. [Step 1 — what you'll do first]
-2. [Step 2 — what comes next]
-3. [Step 3 — etc.]
-
-I'll check in with you at [decision points]. Let's start.
-```
-
-Keep it to 3-6 steps. Use plain language. Name the gates that will run (TDD, review, design critique, etc.) so the user knows what to expect. If the skill has optional phases (e.g., design system discovery), mention them as conditional: "If your project has a design system, I'll use it for mockups."
-
-### Closing (after all work is done)
-
-End every skill with a structured summary:
-
-```
-**Done.** Here's what happened:
-
-- **What:** [1-2 sentence summary of what was accomplished]
-- **Key decisions:** [Any choices made during the flow]
-- **Artifacts:** [Files created/modified, PRs opened, issues created — with paths/links]
-- **Gates:** [Which gates ran and their results — e.g., "Review: passed (B+)", "Design critique: skipped (no UI)", "TDD: 4 tests written"]
-- **Next steps:** [What the user should do next, if anything]
-```
-
-Skip sections that don't apply. If the skill was blocked or abandoned, say what happened and why.
-
-## Common Rationalizations
-
-When the user is starting a workflow (building, shipping, grooming), these thoughts mean you're skipping discipline:
-
-| Thought | Reality |
-|---------|---------|
-| "This is too simple for /dev" | XS tasks still get TDD + auto-merge gates |
-| "I'll just write the code first" | TDD means test first. Always. |
-| "I know the fix already" | Debugging skill exists to prevent wrong fixes |
-| "Let me just push this" | /ship runs review gates before push |
-| "I'll just create a branch and PR manually" | /ship handles branch, push, PR, CI, and merge as one flow |
-| "I'll skip the design phase, it's obvious" | Obvious features have unexamined assumptions |
-
-These do NOT apply when the user is asking a direct question, requesting a quick answer, or giving explicit instructions that override the default flow.
-
-## Before Marking Done
-
-- [ ] Session-start routing respected the user's actual intent
-- [ ] `pm:start` was only invoked when the request was genuinely a kickoff/open-PM action
-- [ ] The user was either routed into the right PM skill or allowed to continue without forced PM ceremony
-
-## Activity Analytics (opt-in)
-
-Analytics are opt-in per project. See `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md` for the full contract (enabling, CLI surface, file formats, state-file fields).

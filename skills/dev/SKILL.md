@@ -9,11 +9,20 @@ description: "Development lifecycle — auto-detects scope. Use when building, d
 
 Unified orchestrator for all development work. Takes a task from intake through implementation to merged PR — whether the work is 1 task or N tasks emerges from the RFC. One flow handles everything from XS typo fixes to XL multi-domain overhauls.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and telemetry.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-## Iron Law
+## Hard rules
 
-**NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR. "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
+- **NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR, written before the implementation (TDD). "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
+- **M+ work requires a completed RFC.** Dev halts with a direct /rfc instruction if it's missing. Don't start coding to figure out the plan as you go — the RFC is 15 minutes; the wrong direction is hours. If the RFC feels like overhead, simplify it, don't skip it.
+- **Use a worktree for S+ work.** A wrong-branch commit on a dirty main blocks everything downstream. XS Express is the only worktree-free path, and it branches explicitly.
+- **Debugging is not optional on "known" fixes.** A known fix is a guess until confirmed; the debugging reference prevents shipping the wrong fix to the right symptom.
+- **Review is never skipped — it scales.** Code scan for XS/S, full review for M+. Cross-cutting issues are invisible from inside the change.
+- **Simplify gate passes before review.**
+- **Passing tests are not proof of correctness.** They verify your assumptions, not the user's requirements — check the assertions match the spec.
+- **Every path that can push or open a PR writes a gate sidecar and runs `scripts/dev-gate-check.js` first.** The gate manifest must be current, or a gate explicitly skipped with a reason.
+- **Before marking done:** all tests pass, simplify passed before review, the gate sidecar is current (or skipped with reasons), the state file is at the current stage, code is committed on the feature branch, and the user has the final outcome or a clear handoff.
+- **No destructive git operations.**
 
 **When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
@@ -123,18 +132,6 @@ When referencing the state file in subsequent sections, `.dev-state.md` means `.
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for checkpoint format, path preflight, default branch detection, pre-commit validation, git state guard, subagent git context, and repeated error handling.
 
-## Red Flags — Self-Check
-
-If you catch yourself thinking any of these, you're drifting off-skill:
-
-- **"The RFC is overhead for this change."** The RFC is 15 minutes. Wrong direction is 2 hours. Run /rfc — it IS the shortcut. If it feels like overhead, the RFC is too heavy — simplify it, don't skip it.
-- **"I'll skip the worktree, it's just one file."** For S+, wrong-branch commits break everything downstream. Worktree setup takes seconds; recovering from a dirty main takes much longer. XS Express is the only valid worktree-free path — and it branches explicitly.
-- **"Tests pass, so the code is correct."** Tests verify your assumptions, not the user's requirements. Passing tests with wrong assertions give false confidence.
-- **"I know what's wrong, I'll skip debugging."** Known fixes are guesses until confirmed. The debugging reference exists to prevent shipping the wrong fix to the right symptom.
-- **"I'll just start coding and figure out the plan as I go."** Coding commits you to an approach. The RFC forces you to think before you commit. Improvised architecture is how you end up rewriting.
-- **"Review is overkill for this size."** Code scan for XS/S, full review for M+. The gate scales — it's never skipped. Cross-cutting issues are invisible from inside the change.
-- **"The gate checker is for big work only."** Every path that can push or create a PR writes a gate sidecar and runs `scripts/dev-gate-check.js` first.
-
 ## Escalation Paths
 
 - **Tests won't pass after 3 attempts:** "Blocked on test failures after 3 attempts. Here's what I've tried: {summary}. Want to pair on this, or should I document and move on?"
@@ -142,23 +139,3 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **Needs product decisions mid-implementation:** "Hit a product question the RFC doesn't answer: {question}. Want to decide now, or pause and groom this first?"
 - **Can't get a clean test baseline:** "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
 - **Agent keeps failing (API overload, timeouts):** "Implementation agent failed {N} times on this task. Git state preserved. Resume manually, or skip to the next task?"
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "This is XS, skip TDD" | XS tasks still break when untested. Test takes 30 seconds. |
-| "I know the fix, skip debugging" | Known fixes are guesses. Debugging skill exists to prevent wrong fixes. |
-| "Review is overkill for this change" | Review catches cross-cutting issues you can't see from inside the change. |
-| "I'll just start coding, RFC is overhead" | Run /rfc — 15 minutes. Wrong direction is 2 hours. The RFC IS the shortcut. |
-| "Worktree is overhead for one file" | For S+, dirty main blocks all future work. XS Express is the only worktree-free path. |
-
-## Before Marking Done
-
-- [ ] All tests pass (TDD — tests written before implementation)
-- [ ] Simplify gate passed before review
-- [ ] Gate manifest sidecar is current or explicitly skipped with reasons
-- [ ] State file updated to current stage
-- [ ] Code committed on feature branch
-- [ ] User confirmed the final outcome or received a clear handoff summary
-- [ ] No destructive git operations used

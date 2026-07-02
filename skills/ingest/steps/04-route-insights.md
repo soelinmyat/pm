@@ -14,5 +14,3 @@ their key findings as input. Batch all evidence together for one
 routing pass (not one per file).
 
 If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step — there is nowhere to route findings yet.
-
-**Done-when:** All synthesized evidence files have been routed to their matching insight topics (or routing was skipped because no domains exist). Proceed to the report step.

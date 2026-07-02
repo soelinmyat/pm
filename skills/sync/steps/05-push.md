@@ -36,9 +36,3 @@ If `uploaded === 0`:
 > Push failed. Error: {error message}
 
 Never display raw JSON to the user.
-
-## Done-when
-
-The push result has been read from `sync-status.json` and shown clearly, or the combined auto-sync result has been reported.
-
-**Advance:** proceed to Step 6 (Status).

@@ -10,8 +10,6 @@ description: Create PR with structured description or detect existing PR, then c
 
 **Goal:** Create a PR with a meaningful description, or detect an existing one. Resolve the auto-merge preference.
 
-**Done-when:** PR exists and URL is reported to the user. Auto-merge preference is resolved and persisted. If `auto_merge` is disabled, early-exit report is printed and skill exits after Product Memory steps.
-
 ### Check for existing PR
 
 Run: `gh pr view --json number,url,title,state 2>/dev/null`
@@ -80,4 +78,4 @@ PR is green and ready. Merge manually or re-run `/pm:ship` to trigger the merge 
 
 Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup — the branch stays open.
 
-**Advance:** proceed to Step 6 (CI Monitor).
+With the PR created (or detected) and its URL reported, and the auto-merge preference resolved and persisted, proceed to CI monitoring.

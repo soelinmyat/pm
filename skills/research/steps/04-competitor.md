@@ -7,7 +7,6 @@ description: Competitor discovery, profiling (5 files per competitor), and synth
 ## Competitor Mode (`$pm-research competitors`)
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
 
 **Goal:** Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
 
@@ -32,17 +31,11 @@ The goal is to find **genuinely close competitors** — not just well-known play
 
 ### Phase 2: Profile
 
+**5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. If any is missing, re-run only that section of research before proceeding.
+
 Determine dispatch strategy based on candidate count and environment:
 
-**1 competitor:** Profile inline. Create all 5 files per competitor:
-1. Read methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`
-2. Create `{pm_dir}/evidence/competitors/{slug}/profile.md`
-3. Create `{pm_dir}/evidence/competitors/{slug}/features.md`
-4. Create `{pm_dir}/evidence/competitors/{slug}/api.md`
-5. Create `{pm_dir}/evidence/competitors/{slug}/seo.md` (note if SEO data unavailable per provider config)
-6. Create `{pm_dir}/evidence/competitors/{slug}/sentiment.md`
-
-Verify all 5 files exist before proceeding to Phase 3.
+**1 competitor:** Profile inline. Read the methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`, create the five files, then run the completeness check before Phase 3.
 
 **2+ competitors, subagents available (Claude Code, Codex):**
 Dispatch one researcher agent per competitor in parallel. Use this syntax for each:
@@ -54,18 +47,7 @@ Write all output files to {pm_dir}/evidence/competitors/{slug}/.
 Do NOT write to {pm_dir}/evidence/competitors/index.md — that is owned by the parent skill."
 ```
 
-Wait for all agents to complete, then validate output for each competitor:
-
-```
-For each {slug}, verify these 5 files exist:
-- {pm_dir}/evidence/competitors/{slug}/profile.md
-- {pm_dir}/evidence/competitors/{slug}/features.md
-- {pm_dir}/evidence/competitors/{slug}/api.md
-- {pm_dir}/evidence/competitors/{slug}/seo.md
-- {pm_dir}/evidence/competitors/{slug}/sentiment.md
-
-If any file is missing, re-run that section of research before proceeding to Phase 3.
-```
+Wait for all agents to complete, then run the 5-file completeness check for each competitor before Phase 3.
 
 **2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
 Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
@@ -82,18 +64,7 @@ Index updates, synthesized comparison content, market gaps, and landscape update
 Without synthesis, profiling is raw data — not knowledge.
 </HARD-GATE>
 
-**Pre-synthesis validation.** Before proceeding, verify all profiles have all 5 files:
-
-For each competitor slug, check:
-- [ ] `{pm_dir}/evidence/competitors/{slug}/profile.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/features.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/api.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/seo.md` exists
-- [ ] `{pm_dir}/evidence/competitors/{slug}/sentiment.md` exists
-
-If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?"
-
-Only proceed to synthesis after all files are present.
+**Pre-synthesis validation.** Re-run the 5-file completeness check across every competitor. If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?" Only proceed to synthesis once all files are present.
 
 1. Update `{pm_dir}/evidence/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
 2. Add or update a **Market Gaps** section in `{pm_dir}/evidence/competitors/index.md` — capabilities absent or weak across all competitors.
@@ -123,4 +94,4 @@ Before running batch SEO calls across multiple competitors, estimate the request
 
 Only continue after explicit confirmation.
 
-**Done-when:** All confirmed competitors have 5 complete profile files, the competitor index is updated with links and market gaps, the landscape document is updated with new players and positioning map entries, insight routing completed (or explicitly skipped), and all logs are appended.
+Competitor mode is complete once all confirmed competitors pass the 5-file completeness check, the competitor index is updated with links and market gaps, the landscape document reflects new players and positioning-map entries, insight routing has run (or been explicitly skipped), and all logs are appended.

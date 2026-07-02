@@ -7,8 +7,6 @@ applies_to: [quick, standard, full, agent]
 
 ### Step 7: Draft Proposal
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
-
 Assemble the product proposal from research, scope, and design artifacts. This step produces the proposal content that will be reviewed and presented — not engineering issues.
 
 #### Step 1: Feature-type detection
@@ -103,49 +101,11 @@ Behavior depends on the current `groom_tier` from session state.
 
 5. **Generate HTML proposal artifact and open in browser.**
 
-   Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`. Use the reference template at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` for structure and styling — it is the canonical render. Match its DOM shape exactly so the styling carries.
+   Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`.
 
-   **HTML layout, top to bottom:**
+   `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical render and the sole authority for DOM shape, per-section wrapper components, and styling — match it exactly and use only its existing class names (do not invent new ones). Its layout runs masthead → title block → optional hero prototype → TL;DR → decision brief → execution contract → TOC → the twelve appendix sections → footer. The two pre-body sections carry the fixed anchors `decision-brief` and `execution-contract`; the twelve appendix sections use the fixed section names and anchor IDs defined in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` (`problem`, `jtbd`, `usecases`, `scope`, `requirements`, `edge`, `flow`, `competitive`, `feasibility`, `open-q`, `metrics`, `status`), in that order. Keep the template's Mermaid CDN script tag and `mermaid.initialize` block intact; omit the User Flow section for non-UI features.
 
-   1. **Masthead** (`<header class="masthead">`) — left: `<span class="masthead-id">{ID}</span>`; right: `<div class="masthead-meta">` with `<span class="status-mark">Proposed</span>` + priority + size + date spans.
-   2. **Title block** (`<div class="title-block">`) — `<h1>{title}</h1>` followed by `<p class="lede">{outcome sentence from frontmatter}</p>`.
-   3. **Hero prototype** (`<figure class="hero-prototype">`) — only when a UI prototype exists. See "Hero prototype" sub-rules below.
-   4. **TL;DR** (`<div class="tldr">`) — `<dl>` with three `<dt>`/`<dd>` pairs: For / What / Why now.
-   5. **Decision brief** (`<section class="decision-brief">`) — one <= 120-word approval recommendation. Do not wrap it in a card.
-   6. **Execution contract** (`<section class="execution-contract">`) — compact table or definition list for Scope / Non-goals / Acceptance criteria / Edge cases / Success metrics / Open decisions.
-   7. **TOC** (`<nav class="toc" aria-label="Sections">`) — twelve `<a>` links, each containing `<span class="toc-num">{Roman}</span>` plus a short label. Three-column rule-divided layout; styling is in the reference template.
-   8. **Twelve appendix sections** in fixed order, each `<section id="{anchor}">` with `<h2><span class="sec-num">{Roman}</span>{Section name}</h2>`. Anchor IDs are fixed: `problem`, `jtbd`, `usecases`, `scope`, `requirements`, `edge`, `flow`, `competitive`, `feasibility`, `open-q`, `metrics`, `status`. See the per-section patterns below.
-   9. **Footer** (`<footer>`) — two spans: "`{ID} · {Title}`" and "`Product Proposal · {date}`".
-
-   **Per-section patterns** (use the listed wrapper components from the reference template — do NOT invent new class names):
-
-   - **I. Problem** — `<p class="lead">` for the one-line restatement, then 1–2 `<p>` paragraphs of evidence, then optionally `<div class="annotation">` with `<span class="annotation-label">` for an evidence quote.
-   - **II. Users & JTBD** — `<div class="annotation annotation-jtbd">` for the JTBD pullquote (use `<em>` inside for the "in my own language"-style emphasis), then `<div class="personas">` containing one or two `<div class="persona">` cards, each with `<div class="persona-tag">`, `<div class="persona-name">`, `<p class="persona-desc">`.
-   - **III. Use Cases** — `<p class="lead">` blurb, then `<div class="usecases">` containing 2–4 `<div class="usecase">` blocks. Each has `<div class="usecase-title"><span class="usecase-num">{01}</span>{title}</div>` and a `<dl>` with Trigger / Action / Result.
-   - **IV. Scope** — `<div class="scope">` with two columns: `<div class="scope-col">` (In scope) and `<div class="scope-col scope-col-out">` (Out of scope). Each starts with `<div class="scope-col-label">` and contains a `<ul>`. Out-of-scope items use `<em>` for the inline reason. Below the columns: `<div class="filter-tag">{10x filter result and one-clause rationale}</div>`.
-   - **V. Functional Requirements** — `<p class="lead">` blurb, then one `<h3>` per scope item with a `<ul>` of observable behaviors. Use `<code>` for technical identifiers (file paths, function names, env vars).
-   - **VI. Edge Cases** — `<p class="lead">` blurb, then a single `<table>` with two columns: Case | Expected handling. Use `<strong>` to bold the case name in the first cell.
-   - **VII. User Flow** — `<div class="diagram"><pre class="mermaid">{flow}</pre></div>`. Omit the whole section for non-UI features.
-   - **VIII. Competitive Context** — `<table>` with 3–5 rows. End with `<div class="annotation"><span class="annotation-label">Handling decision</span><p>{rationale}</p></div>`.
-   - **IX. Feasibility** — `<p class="lead"><strong>Verdict:</strong> {…}</p>`, then `<p>` paragraphs for **Build on:**, **Build new:**, **Top risks:**.
-   - **X. Open Questions** — `<p class="lead">` blurb, then one `<div class="open-q">` per open question, each containing `<div class="open-q-q"><span class="open-q-num">{01}</span>{question}</div>`, `<p class="open-q-rec">`, and `<div class="open-q-meta">` with Owner + By. Resolved questions wrap in `<details><summary>Resolved questions ({N})</summary><div class="resolved-list">…</div></details>`, with each entry as `<div class="resolved-q">` containing `<div class="resolved-q-q">` and `<div class="resolved-q-a">`.
-   - **XI. Metrics** — `<table>` with four columns: Metric | Baseline | Target | By. Optional caveat paragraph below using `<p style="margin-top:var(--space-3); font-size:0.92rem; color:var(--ink-3); max-width:var(--measure)"><strong style="color:var(--ink-2)">Caveat.</strong> …</p>` — match the reference template inline style verbatim.
-   - **XII. Status** — `<div class="pipeline">` containing one `<div class="pipeline-row">` per groomed step. Each row has `<div class="pipeline-step">` (left label) and `<div class="pipeline-verdict">` (right verdict). End the section with `<p class="closing">Ready for engineering. Run <code>pm:rfc {slug}</code> to generate the technical RFC, then <code>pm:dev {slug}</code> to implement.</p>`. If a freshness note applies, render it as a `<p>` with `<strong>Freshness note.</strong>` directly after the closing paragraph.
-
-   Render Mermaid via the existing `https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js` CDN script and the `mermaid.initialize` call already in the reference template — keep both the script tag and the initialize block intact.
-
-   **Hero prototype** — when the feature has a UI prototype (a wireframe file exists at `{pm_dir}/backlog/wireframes/{slug}.html` or `{pm_dir}/backlog/wireframes/{slug}/index.html`):
-
-   1. Read the wireframe metadata per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6:
-      - Single-file: parse `<script type="application/json" id="wireframe-meta">` from the HTML head
-      - Multi-file: read `{slug}/meta.json`
-   2. Render the hero prototype figure between the title block and TL;DR per `prototype-format.md` §8. The wrapping element is `<figure class="hero-prototype">` and the iframe carries a fidelity modifier class: `hero-prototype-frame--sketch`, `hero-prototype-frame--wireframe`, or `hero-prototype-frame--mockup`.
-   3. Iframe height by `fidelity` field: `sketch` → 560px, `wireframe` → 720px, `mockup` → 880px (already encoded in the modifier classes — do NOT inline `style="height: …"`).
-   4. Auto-populate the Screens caption from `screens[].label` joined by ` · `.
-   5. Auto-populate the fidelity-specific note paragraph per `prototype-format.md` §8.
-   6. If wireframe metadata is missing or malformed, fall back to a generic "View prototype" caption with no screens listed and log a warning. Do not crash the render.
-
-   When the feature has no UI prototype, omit the hero prototype figure entirely. The proposal goes masthead → title-block → TL;DR → TOC → sections.
+   **Hero prototype:** include `<figure class="hero-prototype">` between the title block and TL;DR only when a UI prototype exists (`{pm_dir}/backlog/wireframes/{slug}.html` or `{pm_dir}/backlog/wireframes/{slug}/index.html`). Read the metadata and render the figure per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6 (metadata) and §8 (embedding — fidelity modifier class, iframe height, screens caption, fidelity note). If metadata is missing or malformed, fall back to a generic "View prototype" caption and log a warning — do not crash the render. When there is no UI prototype, omit the figure entirely.
 
    After writing the HTML, open it in the browser:
 

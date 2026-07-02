@@ -9,9 +9,16 @@ description: "Use when shipping committed changes — review, push, PR, CI monit
 
 Complete shipping lifecycle in one command: review, push, create PR, monitor CI, poll readiness gates, and auto-merge. Ship takes committed code and drives it through every gate to a merged PR — or stops with a clear diagnosis when a gate fails.
 
-## Iron Law
+## Hard rules
 
-**NEVER MERGE WITHOUT READING THE DIFF.** Every merge must be preceded by a review that read the actual changes — not just checked status labels. If review was skipped, CI was green, and auto-merge is armed, that's a pipeline that shipped unreviewed code. Stop and review before merging.
+- **NEVER MERGE WITHOUT READING THE DIFF.** Every merge is preceded by a review that read the actual changes — not just status labels. Review is mandatory regardless of diff size; small diffs cause incidents too. If review was skipped, CI was green, and auto-merge is armed, that's a pipeline shipping unreviewed code — stop and review first.
+- **Green CI is necessary, not sufficient.** CI catches syntax and regressions, not wrong behavior, missing edge cases, or security holes. "Tests pass locally" is not the clean-room test — don't skip the CI wait, and don't treat green as a substitute for review.
+- **Armed is not merged.** Verify the PR state is MERGED before reporting success — auto-merge can be blocked by late review requests, branch-protection changes, or conflicts.
+- **Never skip the conflict check**, even when the user says "ship it" — shipping with conflicts corrupts the merge.
+- **Never bypass hooks (`--no-verify`).** Hook failures are bugs; fix them, don't ship them.
+- **You don't get to classify findings as "nits."** Follow the review step's severity rubric — advisory findings are evaluated, not dismissed.
+- **The PR description is for the reviewer, not the author** — a meaningful title and enough context, not a terse note.
+- **Before done:** PR created with a meaningful title/description, CI passed (not just running), review comments evaluated and addressed (not blindly resolved), merge state verified as MERGED (not just armed), and the feature branch cleaned up.
 
 ## Loop Worker Mode (headless)
 
@@ -21,9 +28,9 @@ When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=ship` (or `review`), this run is ONE
 - Merge only if the loop granted it (the dispatch prompt says so) AND every gate and check is green; after a verified merge, update the backlog card `status: done`. Without the merge grant, when the PR is green and threads are resolved, set the card `status: needs-human` and report it is ready for human merge.
 - Non-interactive: never wait for user input; stop and report when a decision requires a human.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and interaction pacing.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Document output (the PR description) follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `ship`
 
@@ -47,17 +54,6 @@ The following reference files provide detailed guidance for specific ship phases
 | `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md` | Handling PR review feedback (M/L/XL) |
 | `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` | Shared self-healing merge loop procedure |
 
-## Red Flags — Self-Check
-
-If you catch yourself thinking any of these, you're drifting off-skill:
-
-- **"The diff is small, I don't need to review it."** Small diffs cause production incidents too. Review is not proportional to line count — it's mandatory.
-- **"CI is green, so the code must be correct."** CI catches syntax and regressions. It doesn't catch wrong behavior, missing edge cases, or security holes. Green CI is necessary, not sufficient.
-- **"Auto-merge is armed, my job is done."** Armed is not merged. Verify the PR state is MERGED before reporting success. Auto-merge can be blocked by late review requests, branch protection changes, or merge conflicts.
-- **"The user said 'ship it' so I'll skip the conflict check."** Shipping with conflicts corrupts the merge. The user said ship, not skip.
-- **"Push failed but --no-verify would fix it."** Hook failures are bugs. Bypassing them ships those bugs. Fix the failure, never bypass it.
-- **"Review found issues but they're just style nits."** You don't get to classify findings as nits. Follow the severity rubric in the review step. Advisory findings are evaluated, not dismissed.
-
 ## Escalation Paths
 
 - **Changes aren't committed yet:** "There are uncommitted changes. Want to commit first, or run `/pm:dev` to finish the implementation?"
@@ -65,21 +61,3 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **CI keeps failing after 3 fix rounds:** "CI has failed 3 times. Here's what's still broken: [details]. Want to investigate manually, or should I try a different approach?"
 - **Merge conflicts can't be auto-resolved:** "Merge conflicts in [files] require judgment calls I can't make confidently. Want to resolve these manually?"
 - **Branch is stale and diverged significantly:** "Branch is [N] commits behind {DEFAULT_BRANCH} with conflicts in [critical files]. Consider rebasing or re-running `/pm:dev` to verify the implementation still works after merge."
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "Code looks clean, skip review" | Clean code can have wrong behavior. Review checks intent, not style. |
-| "Just push, CI will catch issues" | CI catches syntax. Review catches logic, security, and architectural drift. |
-| "Small change, PR description can be brief" | PR description is for the reviewer, not the author. Brief = reviewer misses context. |
-| "Tests pass locally, skip CI wait" | Local passes with local state. CI is the clean-room test. |
-| "Auto-merge is fine, I trust the gates" | Trust but verify. Check merge state is MERGED, not just armed. |
-
-## Before Marking Done
-
-- [ ] PR created with meaningful title and description
-- [ ] CI passed (not just "running")
-- [ ] Review comments evaluated and addressed (not blindly resolved)
-- [ ] Merge state verified as MERGED (not just auto-merge armed)
-- [ ] Feature branch cleaned up

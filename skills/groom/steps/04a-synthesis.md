@@ -174,23 +174,3 @@ Wait for user response. Three valid outcomes:
 > (a) Switch to `--tier standard` for guided question-by-question scoping.
 > (b) Refine the topic and start fresh with `/pm:groom {new-topic} --tier agent`.
 > (c) Tell me explicitly what to fix — I'll override the synthesizer with your text."
-
----
-
-#### Done-when
-
-- `@synthesizer` dispatched and returned valid unified YAML
-- Iron Law gate passed (research cited + all cited paths exist on disk)
-- Q2 asked if both ambiguity signals fired (else skipped)
-- `synthesis:` block + `source_citations:` block written to state
-- Scope-lock checkpoint approved by user
-- `phase: scope-review`
-
----
-
-#### Red flags — self-check
-
-- **"The synthesizer's `iron_law_check.research_cited: true` is enough — skip fs.exists."** No. Self-report is not verification. Run the filesystem check every time.
-- **"Q2 ambiguity is borderline; I'll just pick one and move on."** No. The decision rule is mechanical. If both signals fire, ask. If either is false, skip.
-- **"User redirected once with a one-line comment; let me re-synthesize from scratch."** No. The user's redirect comment is incremental context — fold it into the next dispatch's `brief_answers`, don't discard prior synthesis.
-- **"Synthesis output is good enough; skip checkpoint."** No. Scope-lock is the user's only chance to redirect before drafting. Always present it.
