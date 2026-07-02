@@ -22,6 +22,7 @@ function makeCtx(overrides = {}) {
       rootDir: "/tmp/none",
       skills: [],
       personas: [],
+      agents: [],
       commands: [],
       manifests: {
         ".claude-plugin/plugin.json": { exists: false },
@@ -178,6 +179,31 @@ test("D1-TOOLS-001 fail: unknown tool rejected", () => {
   const out = byId.get("D1-TOOLS-001").check(ctx);
   assert.equal(out.length, 1);
   assert.match(out[0].message, /Nuke/);
+});
+
+test("D1-TOOLS-001 pass: known agent tools accepted", () => {
+  const ctx = makeCtx({
+    agents: [
+      {
+        name: "reviewer",
+        relPath: "agents/reviewer.md",
+        frontmatter: { tools: "Read, Grep, Glob, Bash" },
+      },
+    ],
+  });
+  assert.equal(byId.get("D1-TOOLS-001").check(ctx).length, 0);
+});
+
+test("D1-TOOLS-001 fail: unknown agent tool rejected", () => {
+  const ctx = makeCtx({
+    agents: [
+      { name: "reviewer", relPath: "agents/reviewer.md", frontmatter: { tools: "Read, Nuke" } },
+    ],
+  });
+  const out = byId.get("D1-TOOLS-001").check(ctx);
+  assert.equal(out.length, 1);
+  assert.match(out[0].message, /Nuke/);
+  assert.match(out[0].file, /agents\/reviewer\.md/);
 });
 
 // ---------------------------------------------------------------------------

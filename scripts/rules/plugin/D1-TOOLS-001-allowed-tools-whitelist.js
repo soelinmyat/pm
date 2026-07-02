@@ -1,7 +1,9 @@
 "use strict";
 
-// D1-TOOLS-001 — if `allowed-tools:` is set on a SKILL.md or step file,
-// every entry must be in the known-tools whitelist.
+// D1-TOOLS-001 — if `allowed-tools:` is set on a SKILL.md or step file, or
+// `tools:` is set on an agent (agents/*.md), every entry must be in the
+// known-tools whitelist. (Skills use `allowed-tools:`; agents use `tools:` —
+// the Claude Code frontmatter keys differ, the whitelist is shared.)
 
 const { ALLOWED_TOOLS_WHITELIST } = require("../../plugin-contract/constants.js");
 
@@ -24,9 +26,21 @@ function checkList(value) {
 module.exports = {
   id: "D1-TOOLS-001",
   severity: "error",
-  description: "Every entry in `allowed-tools:` must be in the known-tools whitelist",
+  description:
+    "Every entry in `allowed-tools:` (skills) or `tools:` (agents) must be in the known-tools whitelist",
   check(ctx) {
     const issues = [];
+    for (const agent of ctx.agents || []) {
+      const agentTools = checkList(agent.frontmatter && agent.frontmatter.tools);
+      for (const tool of agentTools) {
+        if (!ALLOWED_TOOLS_WHITELIST.includes(tool)) {
+          issues.push({
+            file: agent.relPath || `agents/${agent.name}.md`,
+            message: `unknown tool "${tool}" in tools; whitelist: ${ALLOWED_TOOLS_WHITELIST.join(", ")}`,
+          });
+        }
+      }
+    }
     for (const skill of ctx.skills) {
       const skillTools = checkList(skill.skillFm["allowed-tools"]);
       for (const tool of skillTools) {
