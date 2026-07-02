@@ -47,11 +47,12 @@ test("review absorbed the simplify lenses (v1.9)", () => {
   assert.match(skill, /category: reuse/);
   assert.match(skill, /category: quality/);
   assert.match(skill, /category: efficiency/);
-  // the standalone skill and its dev step are gone
-  assert.ok(
-    !fs.existsSync(path.join(repoRoot, "skills/simplify/SKILL.md")),
-    "skills/simplify must be deleted"
-  );
+  // the dev step is gone; the skill file survives only as a deprecation stub
+  // (the pre-push hook requires a SKILL.md for every configured command)
+  const stub = read("skills/simplify/SKILL.md");
+  assert.match(stub, /absorbed into `pm:review`/);
+  assert.match(stub, /skills\/review\/SKILL\.md/);
+  assert.ok(stub.length < 1000, "simplify stub must stay a pointer, not a workflow");
   assert.ok(
     !fs.existsSync(path.join(repoRoot, "skills/dev/steps/06-simplify.md")),
     "06-simplify step must be deleted"
