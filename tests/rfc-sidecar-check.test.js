@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -10,18 +11,29 @@ const path = require("node:path");
 const repoRoot = path.resolve(__dirname, "..");
 const checkScript = path.join(repoRoot, "scripts", "rfc-sidecar-check.js");
 
-const { validateRfcSidecar, parseArgs } = require("../scripts/rfc-sidecar-check.js");
+const {
+  validateRfcSidecar,
+  extractSidecarHash,
+  sha256Hex,
+  parseArgs,
+} = require("../scripts/rfc-sidecar-check.js");
 
 // ---------------------------------------------------------------------------
 // RFC sidecar validator (Phase D3)
 //
 // RFCs get a structured JSON sidecar at {pm_dir}/backlog/rfcs/{slug}.json so
 // machine consumers stop grepping the human-render HTML. These tests pin the
-// schema-v2 contract the validator enforces.
+// schema-v2 contract, the sidecar<->HTML hash binding, and the --slug cross-check.
 // ---------------------------------------------------------------------------
 
 function issueRow(overrides = {}) {
-  return { num: 1, title: "Add sidecar validator", size: "M", test_hooks: [], ...overrides };
+  return {
+    num: 1,
+    title: "Add sidecar validator",
+    size: "M",
+    test_hooks: ["Test levels in scope -> AC-1"],
+    ...overrides,
+  };
 }
 
 function testStrategy(overrides = {}) {
@@ -41,7 +53,6 @@ function sidecar(overrides = {}) {
     slug: "rfc-structured-artifacts",
     title: "RFC structured artifacts",
     size: "M",
-    status: "draft",
     issues: [issueRow()],
     test_strategy: testStrategy(),
     ...overrides,
@@ -57,6 +68,7 @@ function makeTmpSidecar(content) {
   const file = path.join(dir, "some-slug.json");
   fs.writeFileSync(file, JSON.stringify(content, null, 2));
   return {
+    dir,
     file,
     cleanup() {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -64,21 +76,25 @@ function makeTmpSidecar(content) {
   };
 }
 
+// --- schema happy path -----------------------------------------------------
+
 test("rfc sidecar checker accepts a well-formed schema-v2 sidecar", () => {
   const result = validateRfcSidecar(sidecar());
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
-test("rfc sidecar checker accepts every valid issue size", () => {
+test("rfc sidecar checker accepts every valid issue size and an empty test_hooks array", () => {
   const result = validateRfcSidecar(
     sidecar({
       issues: ["XS", "S", "M", "L", "XL"].map((size, index) =>
-        issueRow({ num: index + 1, title: `Issue ${index + 1}`, size })
+        issueRow({ num: index + 1, title: `Issue ${index + 1}`, size, test_hooks: [] })
       ),
     })
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
+
+// --- top-level shape -------------------------------------------------------
 
 test("rfc sidecar checker rejects a non-object sidecar", () => {
   for (const bad of [null, [], "str", 3]) {
@@ -93,6 +109,36 @@ test("rfc sidecar checker rejects a schema_version other than 2", () => {
   assert.equal(result.ok, false);
   assert.match(messages(result), /schema_version must equal 2/);
 });
+
+test("rfc sidecar checker rejects unknown top-level fields (status is gone in v2)", () => {
+  const withStatus = validateRfcSidecar(sidecar({ status: "draft" }));
+  assert.equal(withStatus.ok, false);
+  assert.match(messages(withStatus), /unknown field status/);
+
+  const withJunk = validateRfcSidecar(sidecar({ execution_contract: {} }));
+  assert.equal(withJunk.ok, false);
+  assert.match(messages(withJunk), /unknown field execution_contract/);
+});
+
+test("rfc sidecar checker requires non-empty slug and title", () => {
+  for (const field of ["slug", "title"]) {
+    for (const bad of ["", "   ", null, 5]) {
+      const result = validateRfcSidecar(sidecar({ [field]: bad }));
+      assert.equal(result.ok, false, `${field}=${JSON.stringify(bad)}`);
+      assert.match(messages(result), new RegExp(`${field} must be a non-empty string`));
+    }
+  }
+});
+
+test("rfc sidecar checker requires a canonical uppercase top-level size", () => {
+  for (const bad of ["m", "  M ", "Medium", "", 2]) {
+    const result = validateRfcSidecar(sidecar({ size: bad }));
+    assert.equal(result.ok, false, `size=${JSON.stringify(bad)}`);
+    assert.match(messages(result), /size must be one of/);
+  }
+});
+
+// --- issues ----------------------------------------------------------------
 
 test("rfc sidecar checker rejects a missing or empty issues array", () => {
   const empty = validateRfcSidecar(sidecar({ issues: [] }));
@@ -128,19 +174,46 @@ test("rfc sidecar checker rejects empty issue titles", () => {
   }
 });
 
-test("rfc sidecar checker rejects issue sizes outside XS/S/M/L/XL", () => {
-  for (const size of ["XXL", "medium", "", 2]) {
+test("rfc sidecar checker rejects issue titles with pipes, newlines, or control chars", () => {
+  const bad = [
+    "A | B",
+    "line" + String.fromCharCode(10) + "x",
+    "tab" + String.fromCharCode(9) + "x",
+    "cr" + String.fromCharCode(13) + "x",
+    "del" + String.fromCharCode(127) + "x",
+  ];
+  for (const title of bad) {
+    const result = validateRfcSidecar(sidecar({ issues: [issueRow({ title })] }));
+    assert.equal(result.ok, false, JSON.stringify(title));
+    assert.match(messages(result), /title must not contain/);
+  }
+});
+
+test("rfc sidecar checker rejects issue sizes outside canonical uppercase XS/S/M/L/XL", () => {
+  for (const size of ["XXL", "medium", "m", "  m ", "", 2]) {
     const result = validateRfcSidecar(sidecar({ issues: [issueRow({ size })] }));
     assert.equal(result.ok, false, `size=${JSON.stringify(size)}`);
     assert.match(messages(result), /size must be one of/);
   }
 });
 
-test("rfc sidecar checker rejects issue test_hooks that are not arrays", () => {
-  const result = validateRfcSidecar(sidecar({ issues: [issueRow({ test_hooks: "AC-1" })] }));
-  assert.equal(result.ok, false);
-  assert.match(messages(result), /test_hooks must be an array/);
+test("rfc sidecar checker rejects test_hooks that are not arrays of non-empty strings", () => {
+  const notArray = validateRfcSidecar(sidecar({ issues: [issueRow({ test_hooks: "AC-1" })] }));
+  assert.equal(notArray.ok, false);
+  assert.match(messages(notArray), /test_hooks must be an array/);
+
+  const missing = validateRfcSidecar(sidecar({ issues: [issueRow({ test_hooks: undefined })] }));
+  assert.equal(missing.ok, false);
+  assert.match(messages(missing), /test_hooks must be an array/);
+
+  for (const bad of [[""], ["   "], [123], [null]]) {
+    const result = validateRfcSidecar(sidecar({ issues: [issueRow({ test_hooks: bad })] }));
+    assert.equal(result.ok, false, `test_hooks=${JSON.stringify(bad)}`);
+    assert.match(messages(result), /test_hooks\[0\] must be a non-empty string/);
+  }
 });
+
+// --- test_strategy ---------------------------------------------------------
 
 test("rfc sidecar checker rejects a non-object test_strategy", () => {
   const result = validateRfcSidecar(sidecar({ test_strategy: "later" }));
@@ -175,19 +248,79 @@ test("rfc sidecar checker requires all five test_strategy fields to be non-empty
   }
 });
 
+test("rfc sidecar checker rejects unknown test_strategy fields", () => {
+  const result = validateRfcSidecar(sidecar({ test_strategy: testStrategy({ extra: "nope" }) }));
+  assert.equal(result.ok, false);
+  assert.match(messages(result), /unknown test_strategy field extra/);
+});
+
+// --- --slug cross-check ----------------------------------------------------
+
+test("rfc sidecar checker cross-checks the sidecar slug against an expected slug", () => {
+  const ok = validateRfcSidecar(sidecar(), "x.json", { expectedSlug: "rfc-structured-artifacts" });
+  assert.equal(ok.ok, true, JSON.stringify(ok.issues, null, 2));
+
+  const bad = validateRfcSidecar(sidecar(), "x.json", { expectedSlug: "some-other-slug" });
+  assert.equal(bad.ok, false);
+  assert.match(messages(bad), /slug must equal some-other-slug/);
+});
+
+// --- sidecar <-> HTML hash binding -----------------------------------------
+
+test("extractSidecarHash pulls the sha256 attribute from HTML, null when absent", () => {
+  const html = '<main class="content" data-schema-version="2" data-sidecar-hash="sha256:abc123">';
+  assert.equal(extractSidecarHash(html), "sha256:abc123");
+  assert.equal(extractSidecarHash('<main data-schema-version="2">'), null);
+});
+
+test("rfc sidecar checker flags a missing or mismatched data-sidecar-hash", () => {
+  const s = sidecar();
+  const hash = "sha256:" + sha256Hex(Buffer.from(JSON.stringify(s)));
+
+  const match = validateRfcSidecar(s, "x.json", {
+    htmlPath: "x.html",
+    storedHash: hash,
+    sidecarHash: hash,
+  });
+  assert.equal(match.ok, true, JSON.stringify(match.issues, null, 2));
+
+  const missing = validateRfcSidecar(s, "x.json", {
+    htmlPath: "x.html",
+    storedHash: null,
+    sidecarHash: hash,
+  });
+  assert.equal(missing.ok, false);
+  assert.match(messages(missing), /HTML is missing data-sidecar-hash/);
+
+  const mismatch = validateRfcSidecar(s, "x.json", {
+    htmlPath: "x.html",
+    storedHash: "sha256:deadbeef",
+    sidecarHash: hash,
+  });
+  assert.equal(mismatch.ok, false);
+  assert.match(messages(mismatch), /data-sidecar-hash mismatch/);
+});
+
+// --- reporting -------------------------------------------------------------
+
 test("rfc sidecar checker reports the sidecar path in issue locations", () => {
   const result = validateRfcSidecar(sidecar({ schema_version: 9 }), "pm/backlog/rfcs/x.json");
   assert.equal(result.issues[0].file, "pm/backlog/rfcs/x.json");
 });
 
-test("rfc sidecar checker CLI parses --sidecar and --json", () => {
-  const parsed = parseArgs(["--sidecar", "pm/backlog/rfcs/x.json", "--json"]);
-  assert.equal(parsed.sidecarPath, "pm/backlog/rfcs/x.json");
+// --- CLI -------------------------------------------------------------------
+
+test("rfc sidecar checker CLI parses --sidecar, --html, --slug, and --json", () => {
+  const parsed = parseArgs(["--sidecar", "a.json", "--html", "a.html", "--slug", "a", "--json"]);
+  assert.equal(parsed.sidecarPath, "a.json");
+  assert.equal(parsed.htmlPath, "a.html");
+  assert.equal(parsed.expectedSlug, "a");
   assert.equal(parsed.json, true);
 });
 
 test("rfc sidecar checker CLI rejects unknown arguments and missing values", () => {
   assert.throws(() => parseArgs(["--sidecar"]), /--sidecar requires a value/);
+  assert.throws(() => parseArgs(["--html"]), /--html requires a value/);
   assert.throws(() => parseArgs(["--bogus"]), /unknown argument --bogus/);
 });
 
@@ -216,6 +349,66 @@ test("rfc sidecar checker CLI exits non-zero on an invalid sidecar", () => {
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, false);
     assert.match(output.issues.map((i) => i.message).join("\n"), /schema_version must equal 2/);
+  } finally {
+    tmp.cleanup();
+  }
+});
+
+test("rfc sidecar checker CLI verifies the --html hash binding end-to-end", () => {
+  const tmp = makeTmpSidecar(sidecar());
+  try {
+    const hash =
+      "sha256:" + crypto.createHash("sha256").update(fs.readFileSync(tmp.file)).digest("hex");
+    const goodHtml = path.join(tmp.dir, "good.html");
+    fs.writeFileSync(
+      goodHtml,
+      `<main data-schema-version="2" data-sidecar-hash="${hash}">x</main>`
+    );
+    const badHtml = path.join(tmp.dir, "bad.html");
+    fs.writeFileSync(
+      badHtml,
+      '<main data-schema-version="2" data-sidecar-hash="sha256:0000">x</main>'
+    );
+
+    const good = spawnSync(
+      process.execPath,
+      [checkScript, "--sidecar", tmp.file, "--html", goodHtml, "--json"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.equal(good.status, 0, good.stdout + good.stderr);
+
+    const bad = spawnSync(
+      process.execPath,
+      [checkScript, "--sidecar", tmp.file, "--html", badHtml, "--json"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.notEqual(bad.status, 0);
+    assert.match(
+      JSON.parse(bad.stdout)
+        .issues.map((i) => i.message)
+        .join("\n"),
+      /mismatch/
+    );
+  } finally {
+    tmp.cleanup();
+  }
+});
+
+test("rfc sidecar checker CLI enforces --slug", () => {
+  const tmp = makeTmpSidecar(sidecar());
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [checkScript, "--sidecar", tmp.file, "--slug", "wrong-slug", "--json"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(
+      JSON.parse(result.stdout)
+        .issues.map((i) => i.message)
+        .join("\n"),
+      /slug must equal wrong-slug/
+    );
   } finally {
     tmp.cleanup();
   }

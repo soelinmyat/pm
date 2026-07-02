@@ -472,6 +472,12 @@ function usage() {
   ].join("\n");
 }
 
+// These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js
+// (where rfc-sidecar-check.js gets them). .githooks/pre-push runs THIS file as an
+// isolated `git show` copy in /tmp, so any repo-relative require() would resolve
+// against /tmp and fail — breaking every PM push. Keep dev-gate-check.js
+// dependency-free (node builtins only). Duplicating ~20 trivial lines is the
+// cheaper trade than teaching the hook to carry this file's dependency tree.
 function issue(file, message) {
   return { file: toRel(file), message };
 }
