@@ -264,15 +264,24 @@ function testRedGreen(events, needle) {
   return pass();
 }
 
-// A red run is a non-zero exit — or failure text in the captured output,
-// because pipelines (`npm test | tail`) report the tail's exit code, not
-// the test runner's.
-const RED_OUTPUT_RE = /\bnot ok\b|AssertionError|# fail [1-9]|\b[1-9]\d* fail(ing|ed|ures)?\b|✖|✗/;
+// A red run is a non-zero exit — or a RUNNER SUMMARY line reporting failures
+// in the captured output, because pipelines (`npm test | tail`) report the
+// tail's exit code, not the runner's. Patterns are anchored to summary
+// formats (tap/node:test, mocha, jest, pytest) so incidental failure-ish
+// text — a test NAMED "handles 3 failed retries", an error-path test's
+// AssertionError output — can neither fake a red nor poison a green.
+const RED_SUMMARY_PATTERNS = [
+  /^not ok \d/m, // tap / node:test result line
+  /^# fail [1-9]/m, // node:test summary
+  /^\s*[1-9]\d* failing\b/m, // mocha summary line
+  /Tests:\s+[^\n]*\b[1-9]\d* failed/, // jest summary
+  /=+[^\n]*\b[1-9]\d* failed[^\n]*=+/, // pytest summary bar
+];
 
 function isRedRun(event) {
   if (typeof event.exit_code === "number" && event.exit_code !== 0) return true;
   const snippet = String(event.result_snippet || (event.raw && event.raw.result_snippet) || "");
-  return RED_OUTPUT_RE.test(snippet);
+  return RED_SUMMARY_PATTERNS.some((pattern) => pattern.test(snippet));
 }
 
 function hasSkill(events, skill) {

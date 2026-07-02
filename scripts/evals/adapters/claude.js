@@ -114,7 +114,7 @@ function run({ scenarioId, paths }) {
   if (!sourceMarkerVerified(paths, prepared.marker)) {
     return { status: "indeterminate", reason: "wrong-source" };
   }
-  if (transcriptTouchesHostPlugin(events, prepared.pluginRoot)) {
+  if (transcriptTouchesHostPlugin(events)) {
     return { status: "indeterminate", reason: "wrong-source-host-plugin" };
   }
 
@@ -174,7 +174,11 @@ function normalizeClaudeStream(stdout) {
                 .map((c) => c.text)
                 .join(" ")
             : String(block.content || "");
-          if (text) event.result_snippet = text.slice(0, 400);
+          if (text) {
+            // Runner summaries print at the TAIL; keep both ends.
+            event.result_snippet =
+              text.length <= 600 ? text : `${text.slice(0, 200)} … ${text.slice(-400)}`;
+          }
         }
       }
     }

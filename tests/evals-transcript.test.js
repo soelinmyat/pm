@@ -224,6 +224,50 @@ test("skill-or-agent accepts either invocation or matching agent dispatch", () =
   );
 });
 
+test("incidental failure-ish text neither fakes red nor poisons green", () => {
+  // Passing suite whose output mentions a test NAMED with failure words:
+  const greenWithNoise = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | cat",
+      exit_code: 0,
+      result_snippet:
+        "ok 1 - handles 3 failed retries gracefully\nok 2 - x\n# tests 2\n# pass 2\n# fail 0",
+    },
+  ]);
+  // No real red anywhere → fail with "no failing test run", NOT a fake pass.
+  const res = checkTranscript(greenWithNoise, "test-red-green", "test");
+  assert.equal(res.status, "fail");
+  assert.match(res.reason, /no failing test run/);
+
+  // Jest and pytest summaries still count as red when masked by pipes:
+  for (const snippet of [
+    "Tests:       1 failed, 2 passed, 3 total",
+    "==================== 1 failed, 2 passed in 0.12s ====================",
+  ]) {
+    const events = normalizeEvents([
+      {
+        type: "tool",
+        name: "Bash",
+        command: "npm test | cat",
+        exit_code: 0,
+        result_snippet: snippet,
+      },
+      { type: "tool", name: "Edit", command: "src/x.js" },
+      {
+        type: "tool",
+        name: "Bash",
+        command: "npm test | cat",
+        exit_code: 0,
+        result_snippet: "# fail 0\n# pass 3",
+      },
+    ]);
+    assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass", snippet);
+  }
+});
+
 test("shell reads of SKILL.md do not count as skill compliance", () => {
   const events = normalizeEvents([
     { type: "tool", name: "functions.exec_command", command: "sed -n '1,80p' skills/dev/SKILL.md" },
