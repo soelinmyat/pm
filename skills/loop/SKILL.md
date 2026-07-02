@@ -46,6 +46,8 @@ Loop columns are derived from git-synced state under `pm/`:
 
 Local `.pm/*` sessions may be displayed as local-only context, but they are not cross-machine claim candidates until summarized into `pm/loop/session-snapshots/`.
 
+Epics use the existing card relations — no loop-specific fields: a card with open `children` is an umbrella and is never dispatched; a child with `parent` set is dispatched only when every earlier sibling in the parent's ordered `children` list is done. Each child still needs its own `implementation_approved` fields.
+
 ## Red Flags — Self-Check
 
 - **"The card looks ready, so I can start dev."** No. Check both gates: project autonomy and per-card implementation approval.
