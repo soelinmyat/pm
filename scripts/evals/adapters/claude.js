@@ -163,6 +163,15 @@ function normalizeClaudeStream(stdout) {
         const event = byToolUseId.get(block.tool_use_id);
         if (event && event.exit_code === undefined) {
           event.exit_code = block.is_error ? 1 : 0;
+          // Pipes mask exit codes (`npm test | tail` exits 0 on failure);
+          // capture result text so checks can detect failures textually.
+          const text = Array.isArray(block.content)
+            ? block.content
+                .filter((c) => c && c.type === "text")
+                .map((c) => c.text)
+                .join(" ")
+            : String(block.content || "");
+          if (text) event.result_snippet = text.slice(0, 400);
         }
       }
     }

@@ -171,6 +171,28 @@ test("test-red-green requires observed fail, edit, then pass", () => {
   assert.equal(noExitResult.reason, "test-runs-missing-exit-codes");
 });
 
+test("test-red-green detects red runs masked by pipelines via result text", () => {
+  const events = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | tail -30",
+      exit_code: 0,
+      result_snippet: "# tests 3\n# pass 2\n# fail 1\nnot ok 3 - slugify strips symbols",
+    },
+    { type: "tool", name: "Edit", command: "src/strings.js" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | tail -30",
+      exit_code: 0,
+      result_snippet: "# tests 3\n# pass 3\n# fail 0",
+    },
+  ]);
+  assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass");
+});
+
 test("shell reads of SKILL.md do not count as skill compliance", () => {
   const events = normalizeEvents([
     { type: "tool", name: "functions.exec_command", command: "sed -n '1,80p' skills/dev/SKILL.md" },

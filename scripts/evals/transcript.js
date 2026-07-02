@@ -227,7 +227,7 @@ function testRedGreen(events, needle) {
   ) {
     return { status: "indeterminate", reason: "test-runs-missing-exit-codes" };
   }
-  const red = runs.find((event) => typeof event.exit_code === "number" && event.exit_code !== 0);
+  const red = runs.find((event) => isRedRun(event));
   if (!red) return fail("no failing test run observed before implementation");
   const edit = events.find(
     (event) =>
@@ -236,9 +236,22 @@ function testRedGreen(events, needle) {
       (event.tool_class === "edit-file" || event.tool_class === "write-file")
   );
   if (!edit) return fail("no source edit observed after the failing test run");
-  const green = runs.find((event) => event.index > edit.index && event.exit_code === 0);
+  const green = runs.find(
+    (event) => event.index > edit.index && event.exit_code === 0 && !isRedRun(event)
+  );
   if (!green) return fail("no passing test run observed after the implementation edit");
   return pass();
+}
+
+// A red run is a non-zero exit — or failure text in the captured output,
+// because pipelines (`npm test | tail`) report the tail's exit code, not
+// the test runner's.
+const RED_OUTPUT_RE = /\bnot ok\b|AssertionError|# fail [1-9]|\b[1-9]\d* fail(ing|ed|ures)?\b|✖|✗/;
+
+function isRedRun(event) {
+  if (typeof event.exit_code === "number" && event.exit_code !== 0) return true;
+  const snippet = String(event.result_snippet || (event.raw && event.raw.result_snippet) || "");
+  return RED_OUTPUT_RE.test(snippet);
 }
 
 function hasSkill(events, skill) {

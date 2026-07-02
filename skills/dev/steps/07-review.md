@@ -293,4 +293,12 @@ If the checker reports a missing or stale gate, run the gate or record a valid s
 
 For M/L/XL, if human reviewers leave comments on the PR after creation, use `ship/references/handling-feedback.md` to process and respond to feedback.
 
-Once the size-appropriate review path has passed, UI gates are complete, verification has run, and `scripts/dev-gate-check.js` passes for HEAD, hand off to Ship (Step 8).
+**Gate evidence required before leaving this step** — each item is an observable action, not a judgment call:
+
+- [ ] Review ran: `pm:review` invoked (M+) or the inline code scan executed (XS/S), findings addressed.
+- [ ] UI impact → `pm:design-critique` was **invoked as a skill** (the invocation is the gate evidence); no UI impact → `design-critique` recorded as skipped with a concrete reason.
+- [ ] UI impact → QA ran (or recorded skipped/blocked per the rules above).
+- [ ] Verification: full test suite ran fresh at HEAD, output read.
+- [ ] `scripts/dev-gate-check.js` passes for HEAD.
+
+Then hand off to Ship (Step 8).
