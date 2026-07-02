@@ -171,6 +171,129 @@ test("test-red-green requires observed fail, edit, then pass", () => {
   assert.equal(noExitResult.reason, "test-runs-missing-exit-codes");
 });
 
+test("test-red-green detects red runs masked by pipelines via result text", () => {
+  const events = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | tail -30",
+      exit_code: 0,
+      result_snippet: "# tests 3\n# pass 2\n# fail 1\nnot ok 3 - slugify strips symbols",
+    },
+    { type: "tool", name: "Edit", command: "src/strings.js" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | tail -30",
+      exit_code: 0,
+      result_snippet: "# tests 3\n# pass 3\n# fail 0",
+    },
+  ]);
+  assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass");
+});
+
+test("gate-evidence accepts skill, agent dispatch, or observed activity — nothing else", () => {
+  const AGENT_RE = "pm:designer";
+  const ACT_RE = "playwright|screenshot";
+  const viaActivity = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npx playwright screenshot --viewport-size=375,812 page.html shot.png",
+      exit_code: 0,
+    },
+  ]);
+  assert.equal(
+    checkTranscript(viaActivity, "gate-evidence", "pm:design-critique", AGENT_RE, ACT_RE).status,
+    "pass"
+  );
+  const nothing = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Bash", command: "npm test", exit_code: 0 },
+  ]);
+  assert.equal(
+    checkTranscript(nothing, "gate-evidence", "pm:design-critique", AGENT_RE, ACT_RE).status,
+    "fail"
+  );
+});
+
+test("skill-or-agent accepts either invocation or matching agent dispatch", () => {
+  const viaSkill = normalizeEvents([{ type: "skill", name: "pm:design-critique" }]);
+  assert.equal(
+    checkTranscript(viaSkill, "skill-or-agent", "pm:design-critique", "designer").status,
+    "pass"
+  );
+
+  const viaAgent = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Task", command: "pm:designer Review the captured CLI output" },
+  ]);
+  assert.equal(
+    checkTranscript(
+      viaAgent,
+      "skill-or-agent",
+      "pm:design-critique",
+      "design.?critique|pm:designer"
+    ).status,
+    "pass"
+  );
+
+  const neither = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Bash", command: "echo done", exit_code: 0 },
+  ]);
+  assert.equal(
+    checkTranscript(neither, "skill-or-agent", "pm:design-critique", "pm:designer").status,
+    "fail"
+  );
+});
+
+test("incidental failure-ish text neither fakes red nor poisons green", () => {
+  // Passing suite whose output mentions a test NAMED with failure words:
+  const greenWithNoise = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "Bash",
+      command: "npm test 2>&1 | cat",
+      exit_code: 0,
+      result_snippet:
+        "ok 1 - handles 3 failed retries gracefully\nok 2 - x\n# tests 2\n# pass 2\n# fail 0",
+    },
+  ]);
+  // No real red anywhere → fail with "no failing test run", NOT a fake pass.
+  const res = checkTranscript(greenWithNoise, "test-red-green", "test");
+  assert.equal(res.status, "fail");
+  assert.match(res.reason, /no failing test run/);
+
+  // Jest and pytest summaries still count as red when masked by pipes:
+  for (const snippet of [
+    "Tests:       1 failed, 2 passed, 3 total",
+    "==================== 1 failed, 2 passed in 0.12s ====================",
+  ]) {
+    const events = normalizeEvents([
+      {
+        type: "tool",
+        name: "Bash",
+        command: "npm test | cat",
+        exit_code: 0,
+        result_snippet: snippet,
+      },
+      { type: "tool", name: "Edit", command: "src/x.js" },
+      {
+        type: "tool",
+        name: "Bash",
+        command: "npm test | cat",
+        exit_code: 0,
+        result_snippet: "# fail 0\n# pass 3",
+      },
+    ]);
+    assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass", snippet);
+  }
+});
+
 test("shell reads of SKILL.md do not count as skill compliance", () => {
   const events = normalizeEvents([
     { type: "tool", name: "functions.exec_command", command: "sed -n '1,80p' skills/dev/SKILL.md" },

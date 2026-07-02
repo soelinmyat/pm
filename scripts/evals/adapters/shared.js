@@ -19,7 +19,7 @@ function buildStoryPrompt({ scenarioId, paths, runtimeLabel }) {
     "",
     "Artifacts:",
     `- Write required scenario artifacts under the directory named by PM_EVAL_ARTIFACTS_DIR.`,
-    `- Write the PM source marker to ${MARKER_ARTIFACT}.`,
+    `- Write the PM source marker to ${MARKER_ARTIFACT} inside that same PM_EVAL_ARTIFACTS_DIR directory.`,
     "- The marker value is not in this prompt. Read it from the PM skill/runtime text you actually use.",
     ...artifactNames.map((name) => `- Scenario check expects artifact: ${name}`),
     "",
@@ -30,6 +30,42 @@ function buildStoryPrompt({ scenarioId, paths, runtimeLabel }) {
 function expectedArtifacts(scenarioStageDir) {
   const checks = fs.readFileSync(path.join(scenarioStageDir, "checks.sh"), "utf8");
   return [...checks.matchAll(/artifact-exists\s+([A-Za-z0-9._-]+)/g)].map((match) => match[1]);
+}
+
+// Skills reference ${CLAUDE_PLUGIN_ROOT}/${PM_PLUGIN_ROOT} in prose and shell
+// snippets. If those resolve empty inside the engine's skill context, the
+// engine goes hunting and can find the HOST-installed copy of the same plugin
+// (observed: reads from ~/.claude/plugins/cache/pm/...), silently testing the
+// wrong code. Bake the staged absolute path into every staged markdown file.
+function bakePluginRootPaths(runtimeDir) {
+  const stack = [runtimeDir];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile() && /\.(md|json)$/.test(entry.name)) {
+        const text = fs.readFileSync(full, "utf8");
+        if (text.includes("${CLAUDE_PLUGIN_ROOT}") || text.includes("${PM_PLUGIN_ROOT}")) {
+          fs.writeFileSync(
+            full,
+            text
+              .replaceAll("${CLAUDE_PLUGIN_ROOT}", runtimeDir)
+              .replaceAll("${PM_PLUGIN_ROOT}", runtimeDir)
+          );
+        }
+      }
+    }
+  }
+}
+
+// Post-run guard: any command or path touching a host plugin install means
+// the run exercised the wrong code, regardless of marker evidence.
+const HOST_PLUGIN_RE = /\.claude\/plugins\/(cache|repos|marketplaces)\b/;
+
+function transcriptTouchesHostPlugin(events) {
+  return events.some((event) => HOST_PLUGIN_RE.test(`${event.command || ""} ${event.name || ""}`));
 }
 
 function injectSourceMarker(runtimeDir, marker) {
@@ -45,13 +81,17 @@ function injectSourceMarker(runtimeDir, marker) {
 }
 
 function sourceMarkerVerified(paths, marker) {
-  const markerPath = path.join(paths.artifactsDir, MARKER_ARTIFACT);
-  try {
-    const text = fs.readFileSync(markerPath, "utf8").trim();
-    return text === marker;
-  } catch {
-    return false;
+  // The marker proves the agent read the staged runtime; its exact location
+  // is incidental. Accept the artifacts dir or the scenario workdir.
+  for (const dir of [paths.artifactsDir, paths.workdir]) {
+    try {
+      const text = fs.readFileSync(path.join(dir, MARKER_ARTIFACT), "utf8").trim();
+      if (text === marker) return true;
+    } catch {
+      // try next location
+    }
   }
+  return false;
 }
 
 function templateHasAuthMaterial(template) {
@@ -170,6 +210,8 @@ module.exports = {
   MARKER_ARTIFACT,
   AUTH_FILE_RE,
   assertUnderRunDir,
+  bakePluginRootPaths,
+  transcriptTouchesHostPlugin,
   buildStoryPrompt,
   copyAuthTemplate,
   enableWorkdirAnalytics,

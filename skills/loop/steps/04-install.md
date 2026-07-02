@@ -71,10 +71,4 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --instal
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.
 
-## Done-when
-
-Either the scheduler is installed and the user knows the interval, log path,
-and kill-switch command — or the user deliberately stopped at generate-only,
-and knows exactly what remains to enable unattended wakes.
-
-**Advance:** stop. The loop skill is complete for this invocation.
+Close by telling the user the interval, the log path, and the kill-switch command — or, if they stopped at generate-only, exactly what remains to enable unattended wakes.

@@ -30,6 +30,10 @@
   --wf-state-empty: #7a7a76;
   --wf-state-load:  #1971c2;
   --wf-state-error: #c92a2a;
+  /* Intentionally the same hex as --wf-state-load today — kept as a separate
+     token so a future change to the loading-state color doesn't also change
+     the keyboard focus ring, or vice versa. Do not merge these back. */
+  --wf-focus:       #1971c2;
 
   --wf-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --wf-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -236,6 +240,11 @@ body {
   color: var(--wf-ink);
   border: 1px solid var(--wf-rule);
 }
+.wf-button:focus-visible,
+.wf-button-secondary:focus-visible {
+  outline: 2px solid var(--wf-focus);
+  outline-offset: 2px;
+}
 .wf-input {
   display: block;
   width: 100%;
@@ -245,6 +254,10 @@ body {
   border-radius: 3px;
   font: inherit;
   color: var(--wf-ink);
+}
+.wf-input:focus-visible {
+  outline: 2px solid var(--wf-focus);
+  outline-offset: 2px;
 }
 .wf-row { display: flex; gap: 0.75rem; align-items: center; }
 .wf-stack { display: flex; flex-direction: column; gap: 0.75rem; }

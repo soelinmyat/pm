@@ -56,7 +56,3 @@ Write a single bug report to `{pm_dir}/backlog/{slug}.md` with `kind: bug` and a
    > `Captured: {pm_dir}/backlog/{slug}.md ({id}, kind=bug). Run /pm:dev {slug} when ready to fix.`
 
 8. **Offer enrichment.** If the user wants to refine priority/labels or fill in missing reproduction details, continue to Step 2 (Enrich). Otherwise end.
-
-## Done-when
-
-The backlog file exists at `{pm_dir}/backlog/{slug}.md`, contains the three body sections, passes `npm run validate`, and the user has seen the one-line confirmation.

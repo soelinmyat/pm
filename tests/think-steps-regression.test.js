@@ -2,112 +2,73 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
 const path = require("path");
 
-const { loadWorkflow, buildPrompt } = require("../scripts/step-loader");
-
 // ---------------------------------------------------------------------------
-// Integration regression test for PM-185 A-1
+// Regression test for pm:think (Phase C: steps/ collapsed into SKILL.md)
 //
-// Validates that extracting think SKILL.md flow into step files preserves all
-// critical instructions. The step loader reads the shipped defaults (no user
-// overrides) and builds a concatenated prompt. We assert that critical keywords
-// from the original flow appear in the output.
+// The 6-beat workflow no longer lives in steps/*.md — it was folded into a
+// single self-contained SKILL.md during the ceremony strip. These assertions
+// re-target the original step-file keyword coverage onto SKILL.md so the
+// judgment kernels stay pinned: the mandatory reframe, anti-sycophancy,
+// grounding scope caps, pressure-test dimensions, and the synthesize +
+// groom-promotion handoff.
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
 
-const fs = require("fs");
-const os = require("os");
-
-function makeFakePmDir() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "think-steps-regression-"));
-  const pmDir = path.join(tmp, "pm");
-  fs.mkdirSync(pmDir, { recursive: true });
-  return { pmDir, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+function readSkill() {
+  return fs.readFileSync(path.join(PLUGIN_ROOT, "skills", "think", "SKILL.md"), "utf8");
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 6 step files exist and load
+// The steps/ directory is gone — the workflow is inline in SKILL.md
 // ---------------------------------------------------------------------------
 
-test("think steps: all 6 step files load with correct order", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("think", pmDir, PLUGIN_ROOT);
+test("think: steps/ directory has been collapsed into SKILL.md", () => {
+  const stepsDir = path.join(PLUGIN_ROOT, "skills", "think", "steps");
+  assert.ok(!fs.existsSync(stepsDir), "think/steps/ should no longer exist");
+});
 
-    assert.equal(steps.length, 6, `Expected 6 steps, got ${steps.length}`);
-
-    // Verify each step has a valid order and non-empty body
-    for (let i = 0; i < steps.length; i++) {
-      assert.ok(steps[i].order > 0, `Step ${i} should have positive order`);
-      assert.ok(steps[i].body.trim().length > 0, `Step ${i} body should not be empty`);
-      assert.equal(steps[i].enabled, true, `Step ${i} should be enabled by default`);
-      assert.equal(steps[i].source, "default", `Step ${i} source should be "default"`);
-    }
-
-    // Verify order is strictly increasing
-    for (let i = 1; i < steps.length; i++) {
-      assert.ok(steps[i].order > steps[i - 1].order, `Steps should be in increasing order`);
-    }
-  } finally {
-    cleanup();
+test("think: the six beats are all named in SKILL.md", () => {
+  const skill = readSkill();
+  for (const beat of [
+    "Capture",
+    "Ground",
+    "Reframe",
+    "Explore approaches",
+    "Pressure-test",
+    "Synthesize",
+  ]) {
+    assert.ok(skill.includes(beat), `SKILL.md should name the "${beat}" beat`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// AC 2: Each step has valid frontmatter
-// ---------------------------------------------------------------------------
-
-test("think steps: each step has name, order, and description in frontmatter", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("think", pmDir, PLUGIN_ROOT);
-
-    for (const step of steps) {
-      // name should not be the raw filename stem (i.e. frontmatter name was set)
-      assert.ok(
-        !step.name.match(/^\d+-/),
-        `Step "${step.name}" should have a human-readable name from frontmatter, not filename`
-      );
-      assert.ok(step.description.length > 0, `Step "${step.name}" should have a description`);
-    }
-  } finally {
-    cleanup();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// AC 3: Critical keywords preserved in concatenated output
+// Critical instruction keywords preserved (re-targeted from the step files)
 // ---------------------------------------------------------------------------
 
 const CRITICAL_KEYWORDS = [
-  // Step 1: Capture
-  "capture",
+  // Capture
   "clarifying question",
-
-  // Step 2: Ground
-  "Ground",
-  "context check",
+  "slug",
+  // Ground
+  "context to reframe",
   "kb-search.md",
-
-  // Step 3: Reframe
-  "reframe",
+  "2 insight files",
+  // Reframe (the kernel: mandatory reframe + lenses)
+  "Never skip the reframe",
   "Jobs to Be Done",
   "Must-have test",
-
-  // Step 4: Explore Approaches
-  "explore",
-  "tradeoffs",
-  "distinct approaches",
-
-  // Step 5: Pressure-Test
-  "pressure-test",
-  "Demand risk",
-  "Feasibility risk",
-  "Dependencies",
-
-  // Step 6: Synthesize
+  // Explore approaches
+  "genuinely different",
+  "the catch",
+  // Pressure-test
+  "Pressure-test",
+  "feasibility",
+  "dependencies",
+  // Synthesize
   "Synthesize",
   "thinking artifact",
   "Did I capture it correctly",
@@ -118,48 +79,28 @@ const CRITICAL_KEYWORDS = [
   "{pm_dir}/thinking/",
 ];
 
-test("think steps: concatenated output contains all critical instruction keywords", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("think", pmDir, PLUGIN_ROOT);
-    const prompt = buildPrompt(steps);
-
-    const missing = [];
-    for (const keyword of CRITICAL_KEYWORDS) {
-      if (!prompt.includes(keyword)) {
-        missing.push(keyword);
-      }
-    }
-
-    assert.equal(
-      missing.length,
-      0,
-      `Missing critical keywords in concatenated output:\n  ${missing.join("\n  ")}`
-    );
-  } finally {
-    cleanup();
-  }
+test("think: SKILL.md contains all critical instruction keywords", () => {
+  const skill = readSkill();
+  const missing = CRITICAL_KEYWORDS.filter((k) => !skill.includes(k));
+  assert.equal(
+    missing.length,
+    0,
+    `Missing critical keywords in think/SKILL.md:\n  ${missing.join("\n  ")}`
+  );
 });
 
 // ---------------------------------------------------------------------------
-// AC 4: Step names map to the 6 beats
+// Anti-sycophancy + scope-discipline kernels stay explicit
 // ---------------------------------------------------------------------------
 
-test("think steps: step names match expected beats", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("think", pmDir, PLUGIN_ROOT);
-    const names = steps.map((s) => s.name);
+test("think: anti-sycophancy kernel is preserved", () => {
+  const skill = readSkill();
+  assert.match(skill, /disagree openly|push back|Challenge the framing/i);
+  assert.match(skill, /Verdicts first|recommendation, then explain/i);
+});
 
-    assert.deepEqual(names, [
-      "Capture",
-      "Ground",
-      "Reframe",
-      "Explore Approaches",
-      "Pressure-Test",
-      "Synthesize",
-    ]);
-  } finally {
-    cleanup();
-  }
+test("think: research escalation cap is preserved", () => {
+  const skill = readSkill();
+  assert.match(skill, /At most 2 insight files \+ 2 web searches/i);
+  assert.match(skill, /pm:research/);
 });

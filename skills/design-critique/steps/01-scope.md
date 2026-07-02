@@ -44,8 +44,4 @@ If skipped, write both records:
 
 Write or update the `design-critique` row inside `.pm/dev-sessions/{slug}.gates.json` using the schema from `skills/dev/references/state-schema.md`; do not delete any existing gate rows.
 
-## Done-when
-
-The gate is either explicitly skipped with a reason tied to the current commit, or the affected UI surfaces and states are listed for capture.
-
-If skipped, return the skip outcome to the caller. Otherwise, **Advance:** proceed to Step 2 (Capture).
+If skipped, return the skip outcome to the caller. Otherwise continue to capture.

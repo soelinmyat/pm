@@ -96,22 +96,3 @@ scope_review:
 Increment `citation_validity_sampled.sampled` for each citation a reviewer reads; increment `valid` only when the citation actually supports the claim.
 
 Advance `phase: draft-proposal`.
-
----
-
-#### Done-when
-
-- All four reviewers dispatched in parallel
-- Convergence reached (no blockers) within 2 iterations OR user-escalated outcome recorded
-- `scope_review:` block written to state
-- `iter_counts.scope_review` incremented to final value
-- `phase: draft-proposal`
-
----
-
-#### Red flags — self-check
-
-- **"3rd iteration is on the edge — let me try once more before escalating."** No. The cap is 2 for a reason — past iter 2, the reviewer-fix loop is converging on noise, not real issues. Escalate.
-- **"Only 1 reviewer flagged a blocker; I'll fix and re-dispatch only that reviewer."** No. Fixes can introduce new problems for other reviewers. Always re-dispatch all 4 on iter 2.
-- **"Adversarial reviewer is just noise; skip it."** No. Adversarial is the anti-collusion mechanism. The whole point is to surface the synthesizer's blind spots. Always dispatch.
-- **"This advisory looks important; let me promote it to blocking."** No. Reviewers decide blocking vs advisory. The orchestrator doesn't re-classify.

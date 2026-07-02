@@ -156,7 +156,3 @@ Instead:
 - keep quotes short and relevant
 - warn the user explicitly:
   > "Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction."
-
-**Done-when:** Normalized evidence records and manifest entries exist for every accepted import, skipped items have been reported with warnings, and committed references remain portable.
-
-**Advance:** proceed to Step 3 (Synthesize).

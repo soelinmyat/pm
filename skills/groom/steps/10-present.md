@@ -38,17 +38,9 @@ Additional guidance for the full-tier Present step:
 
 #### Step 3: Generate HTML proposal artifact and open in browser
 
-Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`. Use the reference template at `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` for structure and styling. The HTML must include:
+Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`.
 
-- Hero with proposal ID, status pill ("Proposed"), priority pill, title, and outcome summary
-- Sticky TOC linking to each section
-- All 12 proposal sections rendered with the section-card pattern from the reference template
-- Mermaid diagrams rendered via the mermaid.js CDN script (same as RFC)
-- Scope presented as in-scope / out-of-scope cards with 10x filter pill
-- Technical Feasibility as a verdict card
-- Review Summary as a pipeline visualization (including Team Review and Bar Raiser verdicts)
-- Resolved Questions with numbered Q&A items (answers resolved in Step 1)
-- Footer with proposal ID, date, and "Product Proposal" label
+`${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical render and sole authority for DOM shape and styling — match it exactly and use only its existing class names. Render all twelve sections (fixed names and anchors per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`) and keep the Mermaid CDN script + `mermaid.initialize` block intact. Full-tier specifics the content must carry: the Review Summary pipeline includes the Team Review and Bar Raiser verdicts, and Resolved Questions render as numbered Q&A (answers resolved in Step 1).
 
 After writing the HTML, open it in the browser:
 
@@ -79,4 +71,4 @@ proposal:
   proposal_html_path: {pm_dir}/backlog/proposals/{topic-slug}.html
 ```
 
-**Advance:** proceed to Step 11 (Link).
+Once approved, proceed to Step 11 (Link).

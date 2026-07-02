@@ -10,8 +10,6 @@ description: Push branch to remote, handle pre-push hook failures with diagnosis
 
 **Goal:** Push the branch to the remote, diagnosing and fixing any hook failures along the way.
 
-**Done-when:** `git push` exits 0 and the branch has a tracking upstream on origin.
-
 ### Pre-push hook preparation
 
 Read AGENTS.md for any pre-push hook setup commands the project requires. Common patterns:
@@ -78,4 +76,4 @@ NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 **If push fails for other reasons** (auth, network, etc.): Report the error and stop.
 
-**Advance:** proceed to Step 5 (Create or Detect PR).
+After `git push` exits 0 and the branch has an upstream tracking branch on origin, proceed to PR creation.

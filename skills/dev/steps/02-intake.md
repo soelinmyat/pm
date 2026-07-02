@@ -6,7 +6,7 @@ description: Load project memory, discover project context, classify size, creat
 
 ## Intake
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
+Document output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 ## Goal
 
@@ -167,9 +167,3 @@ When `kind` is `proposal` (or absent/null via `resolveKind`), the Stage Routing 
 | Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
 | Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |
 | Retro | Yes | Yes | Yes | Yes | Yes |
-
-## Done-when
-
-- Task context resolved (from backlog, MCP, or conversation)
-- Size classified and confirmed by user
-- State file created at `{source_dir}/.pm/dev-sessions/{slug}.md` with initial state

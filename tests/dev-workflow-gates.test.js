@@ -497,8 +497,10 @@ test("slug normalization docs cover codex branches and shared helper", () => {
   }
 });
 
-test("UI sentinel checks the PM-native design critique skill", () => {
+test("UI sentinel checks the PM-native design critique gate", () => {
   const checks = read("evals/scenarios/dev-ui-design-critique-required/checks.sh");
-  assert.match(checks, /skill-called pm:design-critique/);
-  assert.doesNotMatch(checks, /skill-called critique/);
+  // Gate evidence = pm:design-critique invocation OR designer-agent dispatch;
+  // the sentinel must name the PM-native skill either way.
+  assert.match(checks, /gate-evidence pm:design-critique/);
+  assert.doesNotMatch(checks, /skill-called critique\b/);
 });

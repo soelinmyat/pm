@@ -34,7 +34,7 @@ test("agent tier: 01a intake declares Q1 trigger (KB anchor check)", () => {
   // research index. If this prose disappears, the brief-exchange logic
   // silently broadens to "ask whenever".
   assert.ok(
-    /Q1[^\n]*KB anchor/i.test(body),
+    /Q(?:uestion)? ?1[^\n]*KB anchor/i.test(body),
     "01a-intake-agent.md must label Q1 as the 'KB anchor check'"
   );
   assert.ok(

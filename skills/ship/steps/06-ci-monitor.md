@@ -10,7 +10,7 @@ description: Monitor CI status, auto-fix failures, retry up to 3 rounds
 
 **Goal:** Monitor CI to green, auto-fixing failures up to 3 rounds.
 
-**Done-when:** CI conclusion is `success` on the latest run (proceed to merge loop), or 3 fix attempts exhausted and user has been asked for guidance.
+When CI concludes `success` on the latest run, proceed to the merge loop; if 3 fix attempts are exhausted, stop and ask the user for guidance.
 
 ### Watch CI run
 

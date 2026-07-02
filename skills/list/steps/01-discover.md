@@ -60,7 +60,7 @@ Run `scripts/start-status.js --format list-rows` against the current project dir
 
    Otherwise continue to step 02 (Render).
 
-## Before marking done
+## Exit criteria
 
 - The node script ran to completion with exit code 0.
 - stdout parsed as valid JSON matching the `ListRowsPayload` shape.

@@ -22,17 +22,16 @@ If it exists:
 
 If it does not exist, proceed directly to scanning.
 
-## Scanning Pipeline
+## Scanning
 
-### Pass 1: Structure Scan
+Scan the codebase in one pass — discover the files, read the high-signal ones, then translate what they do into user-facing features. Modern context windows make the old structure-first / read-later split unnecessary.
 
-Walk the file tree to build a directory map. Do not read file contents in this pass.
+### Discover files
 
-**File discovery:**
 - Use `git ls-files` to list tracked/unignored files.
 - **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering."
 
-**Identify key entry points:**
+Build a directory map (file counts per directory) and flag key entry points:
 - Package manifests: `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`
 - Route directories: `routes/`, `pages/`, `app/`, `api/`
 - Component directories: `components/`, `views/`, `screens/`
@@ -40,31 +39,15 @@ Walk the file tree to build a directory map. Do not read file contents in this p
 - Main entry files: `main.*`, `index.*`, `app.*`, `server.*`
 - README and documentation files
 
-**Output:** A structured directory map with file counts per directory and flagged key entry points.
+### Read the high-signal files
 
-### Pass 2: Key File Analysis
+Read the flagged entry points and their neighbors: route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
 
-Read high-signal files identified in Pass 1:
-- Route handlers and page components
-- Component directory indexes
-- Config and manifest files
-- README and API definitions
-- Model/schema files
+Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns.
 
-**Chunking strategy:** When total scannable files exceed 500, prioritize by file type:
-1. Route files, pages, API handlers (highest priority)
-2. Components and views
-3. Models, schemas, types
-4. Config files
-5. README, docs
+### Translate to features
 
-Batch into groups of 50–100 key files per chunk. Track files scanned vs total.
-
-**Output:** Extracted code artifacts — route definitions, component names, API endpoints, data models, configuration patterns.
-
-### Pass 3: AI Interpretation
-
-Using the structure map (Pass 1) and file contents (Pass 2), translate code artifacts into user-facing features grouped by product area.
+Using the directory map and file contents, translate code artifacts into user-facing features grouped by product area.
 
 **Writing principles:**
 
@@ -99,7 +82,7 @@ Do not split by internal architecture boundaries (plugin/server, frontend/backen
 
 ## User Review
 
-After Pass 3 completes, present the extracted features for user review before writing to disk.
+After the scan completes, present the extracted features for user review before writing to disk.
 
 ### Presentation Format
 
@@ -143,8 +126,8 @@ Write `pm/product/features.md` with this structure:
 ---
 generated: YYYY-MM-DD
 source_project: {project root directory name}
-files_scanned: {number of source files read in Pass 2}
-files_total: {total files in project, only when chunking occurs}
+files_scanned: {number of source files read}
+files_total: {total files in project, when not every file was read}
 feature_count: {total number of features}
 area_count: {number of product areas}
 tech_stack:

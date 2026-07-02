@@ -6,7 +6,6 @@ description: Targeted deep-dive research on a specific topic with evidence routi
 
 ## Topic Mode (`$pm-research {topic}`)
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
 Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol — use it for dedup checks.
 
 **Goal:** Produce (or update) a sourced evidence file for a specific topic, route findings into insight topics, and update all indexes — so the topic's knowledge is durable and discoverable by downstream skills.
@@ -102,6 +101,4 @@ What this research did NOT answer.
    - append the topic write to `{pm_dir}/evidence/research/log.md`
    - append the topic write to `{pm_dir}/evidence/log.md`
 
-**Done-when:** Evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with all template sections populated and sourced, insight routing completed (or explicitly skipped), and both evidence indexes and logs are updated.
-
-Say: "Research written to `{pm_dir}/evidence/research/{topic-slug}.md`. Run `/pm:groom {topic-slug}` to scope a feature from these findings, or `/pm:ideate` to mine the knowledge base for ideas. What would you like to do next?"
+Topic mode is complete once the evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with all template sections populated and sourced, insight routing has run (or been explicitly skipped), and both evidence indexes and logs are updated. Then say: "Research written to `{pm_dir}/evidence/research/{topic-slug}.md`. Run `/pm:groom {topic-slug}` to scope a feature from these findings, or `/pm:ideate` to mine the knowledge base for ideas. What would you like to do next?"

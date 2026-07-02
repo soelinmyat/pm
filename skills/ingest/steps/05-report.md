@@ -30,7 +30,5 @@ Then recommend **one** next step based on what the evidence revealed:
 
 Pick the strongest signal. If multiple apply, recommend the highest-impact one and mention the others as alternatives.
 
-**Done-when:** The report is printed and the user has a clear next action.
-
 Say: "Ingest complete. {N} items normalized and routed to `{pm_dir}/evidence/`.
 Ready to act on this evidence? (a) Groom a feature — `/pm:groom`, (b) Update strategy — `/pm:strategy`, (c) Done for now."

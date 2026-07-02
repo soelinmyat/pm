@@ -130,8 +130,4 @@ Create `{source_dir}/.pm/rfc-sessions/{slug}.md` following the template in `${CL
 
 Update `Stage` to `rfc-generation` when intake completes.
 
-## Done-when
-
-One of these is true:
-- **Stopped early:** User told to run `/pm:dev` (XS/S) or `/pm:groom` (no proposal) or informed RFC is already approved.
-- **Proceeding:** Session state file written with `Stage: rfc-generation`, product context extracted, proposal or Linear data loaded. Ready for RFC generation.
+Intake ends one of two ways: **stopped early** — the user was told to run `/pm:dev` (XS/S), `/pm:groom` (no proposal), or that the RFC is already approved; or **proceeding** — the session state file is written with `Stage: rfc-generation`, product context extracted, and proposal or Linear data loaded, ready for RFC generation.

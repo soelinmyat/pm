@@ -6,8 +6,6 @@ description: Industry landscape research — market overview, key players, keywo
 
 ## Landscape Mode (`$pm-research landscape`)
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
-
 **Goal:** Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
 
 ### When to Use
@@ -123,6 +121,4 @@ If no other insight domains exist and no `{pm_dir}/strategy.md` exists, skip thi
 
 When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `last_updated:` in frontmatter.
 
-**Done-when:** `{pm_dir}/insights/business/landscape.md` exists with all template sections populated, user has validated findings, insight routing completed (or explicitly skipped), and indexes/logs are updated. For updates: `updated:` date is bumped and the user confirmed the diff.
-
-**Advance:** proceed to Step 4 (Competitor Mode).
+Landscape mode is complete once `{pm_dir}/insights/business/landscape.md` has all template sections populated, the user has validated the findings, insight routing has run (or been explicitly skipped), and indexes/logs are updated — for updates, the `updated:` date is bumped and the user confirmed the diff. If competitor profiling is the next selected mode, proceed to Step 4 (Competitor Mode).

@@ -46,6 +46,4 @@ After execution, show what changed:
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
 
-**Done-when:** The user has a complete refresh summary covering updated, synthesized, unchanged, and skipped items, plus any edge cases that affected the run.
-
 Say: "Refresh complete. {N} files updated, {M} unchanged. Run `/pm:groom` or `/pm:ideate` to use the refreshed evidence. What would you like to do next?"

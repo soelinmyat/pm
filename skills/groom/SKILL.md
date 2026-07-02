@@ -13,13 +13,16 @@ Groom produces a **proposal** — the product-level artifact with scope, design,
 
 Research gates grooming — even quick tier requires an inline assessment. Strategy gates scoping for standard and full tiers.
 
-## Iron Law
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. The functional reference `capability-gates.md` is loaded by the steps that need it.
 
-**NEVER DRAFT A PROPOSAL WITHOUT RESEARCH.** Even for quick tier, the inline assessment counts — but skipping research entirely produces proposals built on assumptions instead of evidence. If research yields "nothing relevant," that's a valid finding. Never looking is not.
+## Hard rules
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, custom instructions, and interaction pacing.
-
-References `capability-gates.md` and `writing.md` are loaded by the steps that need them — not here. Do not read them at skill load.
+- **Never draft a proposal without research.** Even quick tier requires the inline assessment; skipping research entirely produces proposals built on assumptions instead of evidence. "Nothing relevant" is a valid finding — never looking is not. "No prior art" is itself a finding worth documenting: flag the uncharted-territory risk, don't erase it.
+- **Tier controls ceremony depth — never skip gates within a tier.** If the user wants less, downgrade the tier; don't silently skip a tier's gates. Tier is set by uncertainty, not size — small features with unclear competitive context still need standard tier.
+- **Scope is never "obvious."** Run the 10x filter and impact/effort quadrant (5 minutes) — they catch scope creep every time. Same for design: mockups catch layout issues even when the design seems obvious. Infra with configuration UX, CLI output, or developer-facing APIs still deserves design attention.
+- **Re-run all reviewers after a scope-changing fix.** Fixes can introduce new problems; if you changed scope to address a blocking issue, re-run every reviewer, not just the one that flagged it.
+- **Check the template, not the length.** Length is not completeness — verify the section template against what you actually wrote; missing sections are invisible until someone reads the proposal expecting them.
+- **Verify freshness before relying on it.** Stale research or strategy is worse than none — always check `updated:` dates.
 
 ## Setup Detection
 
@@ -119,17 +122,6 @@ Each grooming session has its own state file under `{source_dir}/.pm/groom-sessi
 
 ---
 
-## Red Flags — Self-Check
-
-If you catch yourself thinking any of these, you're drifting off-skill:
-
-- **"The scope is obvious, I'll skip straight to drafting."** Obvious scope is unexamined scope. The 10x filter and impact/effort quadrant take 5 minutes and catch scope creep every time.
-- **"Research found nothing, so there's nothing to cite."** "No prior art" is itself a finding worth documenting. It means the user is entering uncharted territory — flag that risk, don't erase it.
-- **"The user seems impatient, I'll collapse the review steps."** Tier controls ceremony depth. If the user wants less, downgrade the tier — don't silently skip gates within a tier.
-- **"This reviewer concern is minor, I'll fix it without re-running reviews."** Fixes can introduce new problems. If you changed scope to address a blocking issue, re-run all reviewers — not just the one that flagged it.
-- **"The proposal is long enough, it must be complete."** Length is not quality. Check the 11-section template against what you actually wrote. Missing sections are invisible until someone reads the proposal expecting them.
-- **"This is infrastructure, design step doesn't apply."** The design step says to skip for backend/infra. But if the infra has configuration UX, CLI output, or developer-facing APIs, those deserve design attention.
-
 ## Escalation Paths
 
 - **Idea isn't ready for grooming:** "This needs more exploration first. Want to run `/pm:think` to challenge the framing before we scope it?"
@@ -138,21 +130,9 @@ If you catch yourself thinking any of these, you're drifting off-skill:
 - **Scope keeps expanding across iterations:** "Scope has grown through {N} iterations. Consider splitting into two proposals — a focused first phase and a follow-on."
 - **User wants engineering issues, not a PRD:** "Groom produces the product proposal. To get the technical RFC, run `/pm:rfc {slug}`. To implement, run `/pm:dev {slug}` after the RFC is approved."
 
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "Scope is obvious, skip strategy check" | Strategy check catches 30% of scope creep. Fast for obvious features — that's different from skipping. |
-| "Feature is small, quick tier is enough" | Tier is set by uncertainty, not size. Small features with unclear competitive context need standard tier. |
-| "Research exists, no need to check it" | Stale research is worse than no research. Always verify dates. |
-| "User seems decided, skip scope review" | Users commit to scope after review, not before. Decided users still benefit from competitive pressure-test. |
-| "Design is obvious, skip mockups" | "Obvious" means unexamined. Mockups take 5 minutes and catch layout issues every time. |
-
 ---
 
 ## Error Handling
-
-Things go wrong. Here's how to recover without making it worse.
 
 **Corrupted state file.** If the YAML won't parse or required fields are missing, ask the user: "Show me the file so I can fix it, or start fresh?" Don't guess at repairs — corrupted state produces corrupted output.
 
@@ -167,11 +147,3 @@ Things go wrong. Here's how to recover without making it worse.
 ## Proposal Format (Backlog Entry)
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` for the full proposal template, frontmatter schema, ID assignment rules, and status lifecycle.
-
-## Before Marking Done
-
-- [ ] Proposal written to `{pm_dir}/backlog/{slug}.md` with valid frontmatter
-- [ ] All review gates passed per tier (scope review, team review, bar raiser)
-- [ ] Research refs linked in proposal frontmatter (for standard/full tiers; quick tier uses inline assessment — `research_refs` may be empty)
-- [ ] State file updated or cleaned up
-- [ ] User confirmed the proposal captures their intent

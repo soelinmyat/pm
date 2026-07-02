@@ -57,8 +57,6 @@ Print and **stop** — do not ask a question:
 
 Log: `RFC: blocked-needs-rfc`.
 
-There is no bypass flag. If the RFC cost feels disproportionate to the work, the task is probably S — downscope first, then proceed with inline scoping.
-
 ### Step 1.5: Linear-sourced dev-ready shortcut
 
 If `linear_readiness` is `dev-ready` in the session state AND no `{pm_dir}/backlog/{slug}.md` exists:
@@ -101,8 +99,6 @@ Print and **stop** — do not ask a question:
 
 Log: `groom: blocked-needs-proposal`.
 
-There is no bypass flag. If the groom cost feels disproportionate, the task is probably XS/S — reclassify and proceed with inline scoping.
-
 Time estimates by tier:
 
 | Tier | Estimate |
@@ -115,8 +111,3 @@ Log the decision in `.pm/dev-sessions/{slug}.md`:
 ```
 - RFC check: approved (path: {rfc_path}) | blocked-needs-rfc | blocked-needs-proposal | incomplete-groom (status not proposed/planned/in-progress) | skipped-xs | conversational-s
 ```
-
-## Done-when
-
-- RFC status determined: `approved` (skip to implementation), `blocked-needs-rfc`, `blocked-needs-proposal`, `skipped-xs`, or `conversational-s`
-- Decision logged in `.pm/dev-sessions/{slug}.md`

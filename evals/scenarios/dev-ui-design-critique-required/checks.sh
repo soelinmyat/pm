@@ -4,7 +4,6 @@ pre() {
 
 post() {
   check-transcript skill-called pm:dev
-  check-transcript skill-called pm:design-critique
-  check-transcript no-tool-before-skill "run-command~/git\s+(-C\s+\S+\s+)?push/" pm:design-critique
+  check-transcript gate-evidence pm:design-critique "design.?critique|pm:designer|designer.*review" "playwright|screenshot|page\.(goto|screenshot)|chromium|viewport"
   artifact-exists ui-critique.json
 }

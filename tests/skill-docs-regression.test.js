@@ -32,7 +32,7 @@ test("research quick references are removed from meta and think skills", () => {
 test("start skill explicitly references step files after step extraction", () => {
   const text = read("skills/start/SKILL.md");
 
-  assert.match(text, /telemetry and interaction pacing/);
+  assert.match(text, /runtime conventions/);
   assert.match(text, /Read all `\.md` files from.*skills\/start\/steps\//);
 });
 

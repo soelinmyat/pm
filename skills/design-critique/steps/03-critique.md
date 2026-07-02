@@ -95,8 +95,4 @@ node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --require design-critique
 ```
 
-## Done-when
-
-The final critique has no unresolved P0/P1 findings, the report is saved, the Markdown state and JSON gate sidecar are updated, and the gate checker passes for `design-critique`.
-
-Final step: return the critique outcome and any non-blocking deferred findings to the caller.
+Return the critique outcome and any non-blocking deferred findings to the caller once the critique has no unresolved P0/P1 findings, the report is saved, the Markdown state and JSON gate sidecar are updated, and the gate checker passes for `design-critique`.

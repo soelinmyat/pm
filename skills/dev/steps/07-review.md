@@ -50,7 +50,7 @@ If a gate is skipped, the row status is `skipped`, the `commit` is current HEAD,
 
 **When compulsory:** Any task that changes UI files or user-visible interaction (`tsx`, `jsx`, `css`, `scss`, static HTML such as `public/index.html`, server-rendered templates such as `templates/base.html`, mobile screens, design-system files, UI config such as `tailwind.config.*`, design-token/theme data such as `tokens/*.json`, page/layout files, copy that affects interface flow). Check the diff and the RFC scope, not just file extensions.
 
-This is PM-native. Invoke `pm:design-critique`; do not depend on an external `/design-critique` skill being discoverable. If delegation is unavailable, read and execute `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/SKILL.md` inline.
+This is PM-native. **Invoke `pm:design-critique` — the skill invocation itself is the gate evidence; performing a critique inline without invoking it does not satisfy the gate** — and do not depend on an external `/design-critique` skill being discoverable. Only when the runtime has no Skill tool at all (e.g. Codex without delegation) read and execute `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/SKILL.md` inline.
 
 | Size | Design critique |
 |------|----------------|
@@ -293,8 +293,12 @@ If the checker reports a missing or stale gate, run the gate or record a valid s
 
 For M/L/XL, if human reviewers leave comments on the PR after creation, use `ship/references/handling-feedback.md` to process and respond to feedback.
 
-## Done-when
+**Gate evidence required before leaving this step** — each item is an observable action, not a judgment call:
 
-The size-appropriate review path has passed, all required QA/design gates for UI work are complete, final verification has run, `.pm/dev-sessions/{slug}.gates.json` is current for HEAD, and `scripts/dev-gate-check.js` passes before handing off to ship.
+- [ ] Review ran: `pm:review` invoked (M+) or the inline code scan executed (XS/S), findings addressed.
+- [ ] UI impact → `pm:design-critique` was **invoked as a skill** (the invocation is the gate evidence); no UI impact → `design-critique` recorded as skipped with a concrete reason.
+- [ ] UI impact → QA ran (or recorded skipped/blocked per the rules above).
+- [ ] Verification: full test suite ran fresh at HEAD, output read.
+- [ ] `scripts/dev-gate-check.js` passes for HEAD.
 
-**Advance:** proceed to Step 8 (Ship).
+Then hand off to Ship (Step 8).

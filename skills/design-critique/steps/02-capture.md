@@ -22,8 +22,4 @@ For the affected surface from Step 1:
 
 Do a visual self-check before moving on. Fix obvious broken states, re-run relevant tests, and recapture before critique.
 
-## Done-when
-
-Artifacts and a manifest exist for each affected UI state, or the gate is recorded as blocked with a concrete environment reason.
-
-If blocked, return the blocked outcome to the caller. Otherwise, **Advance:** proceed to Step 3 (Critique).
+If blocked, return the blocked outcome to the caller. Otherwise continue to critique.

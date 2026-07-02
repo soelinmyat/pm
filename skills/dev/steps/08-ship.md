@@ -8,8 +8,6 @@ description: Push branch, create PR, merge via merge-loop, clean up worktrees, u
 
 ## Ship
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any document output.
-
 **Multi-task skip:** If `task_count > 1` in the session state, per-task agents in Step 05 handled push/PR/merge for each task. Skip the PR creation and merge-loop sections below. **However**, the parent-level status updates MUST still run — jump directly to "Status Updates" to mark the parent backlog item and parent Linear issue as done. Verify all Linear children are actually done before closing the parent (see Step 3 below).
 
 ## Goal
@@ -192,9 +190,4 @@ When task_count > 1, announce progress at every stage transition and after each 
 Do NOT append "Approve to proceed?" or any equivalent question. After RFC approval, ship is autonomous. The only stops are the structured Blocked escalations from the merge loop (`references/merge-loop.md` — Escalation format section).
 </HARD-RULE>
 
-## Done-when
-
-- PR merged and merge confirmed (not just auto-merge armed — verify PR state is MERGED)
-- Worktrees cleaned up (no leftover worktrees from this session)
-- All status updates complete: local backlog → done, Linear → Done (if available)
-- State file updated with merge SHA and completion details
+Ship is done only when the PR is confirmed **MERGED** (verify PR state — not just auto-merge armed), worktrees are cleaned up, all status updates are complete (local backlog → done, Linear → Done if available), and the state file records the merge SHA. Then proceed to retro.

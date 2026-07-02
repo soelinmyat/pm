@@ -37,7 +37,3 @@ test -d pm/.git && git -C pm remote get-url origin 2>/dev/null && echo "OK" || e
 If `MISSING`: "pm/ is not set up as a git repo. Run `/pm:sync setup` to configure." and stop.
 
 If `OK`: proceed to the selected subcommand step.
-
-## Done-when
-
-Either the backend is confirmed ready, or the skill has stopped with a clear setup instruction.

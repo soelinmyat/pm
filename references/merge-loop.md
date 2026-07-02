@@ -57,7 +57,7 @@ Check in this order (most common first):
 2. New review comments since last check
 3. Missing review approval
 4. Failed or pending CI checks
-Do NOT guess — query each one. The most common blocker is unresolved conversations, not missing approval.
+Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, not missing approval, is the usual cause.)
 </HARD-GATE>
 
 ---
@@ -243,20 +243,6 @@ Use `gh pr checks --watch` (background) or `gh run watch [run-id] --exit-status`
 Tight polling wastes tokens, floods the terminal, and provides no benefit over `--watch`.
 </HARD-GATE>
 
-#### Wake-up cadence (when no tool provides blocking watch)
-
-Some runtimes can't background `gh pr checks --watch`. Use diminishing wake-ups instead of guessing one interval:
-
-| Iteration | Wait before next check |
-|-----------|-----------------------|
-| 1 (right after push) | 0 — check immediately |
-| 2 | 2 min |
-| 3 | 5 min |
-| 4 | 10 min |
-| 5+ | 20 min |
-
-Resets if new work happened (push, new comment). This adapts to both fast (2-min) and slow (20-min) CI without hardcoding either. Stop waiting entirely if the agent detects actionable work between wake-ups.
-
 ### Gate status report
 
 After each iteration, print:
@@ -361,12 +347,8 @@ If state is still `"OPEN"` after polling: auto-merge is armed but blocked. **Loo
 gh pr view --json mergeStateStatus --jq .mergeStateStatus
 # Must be CLEAN or UNSTABLE (not DIRTY or BLOCKED)
 
-# If BLOCKED: diagnose WHY before looping back to Step 3
-# Common causes (check in order):
-#   1. Unresolved conversations — most frequent, check thread count first
-#   2. New review comments arrived since last gate check
-#   3. Missing review approval
-#   4. Failed/pending CI checks
+# If BLOCKED: diagnose WHY before looping back to Step 3 — unresolved conversations
+# are the usual cause (check thread count first), then new comments, approval, or CI.
 
 # Merge
 gh pr merge --squash --delete-branch

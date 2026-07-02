@@ -31,6 +31,17 @@ test("deriveShortId returns bare Linear ID when linear_id is set", () => {
   );
 });
 
+test("deriveShortId uppercases a lowercase linear_id", () => {
+  assert.equal(
+    deriveShortId("dev", { linear_id: "pm-45" }, "/tmp/repo/.pm/dev-sessions/epic-list.md"),
+    "PM-45"
+  );
+  assert.equal(
+    deriveShortId("groom", { linear_id: "eng-1234" }, "/tmp/repo/.pm/groom-sessions/foo.md"),
+    "ENG-1234"
+  );
+});
+
 test("deriveShortId trims and ignores blank linear_id", () => {
   assert.equal(
     deriveShortId("groom", { linear_id: "  " }, "/tmp/repo/.pm/groom-sessions/foo.md"),

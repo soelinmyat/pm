@@ -82,21 +82,3 @@ team_review:
 Continue updating `citation_validity_sampled` from the synthesizer's citations as reviewers flag.
 
 Advance `phase: proposal-ready` and proceed to `11-link.md` (which presents the proposal-ready checkpoint and finalizes).
-
----
-
-#### Done-when
-
-- 4 reviewers dispatched (5 with `@designer` if visual artifacts exist)
-- Convergence reached within 2 iterations OR escalation outcome recorded
-- `team_review:` block written to state
-- Proposal markdown + HTML reflect any iter-2 fixes
-- `phase: proposal-ready`
-
----
-
-#### Red flags — self-check
-
-- **"The proposal is well-written; let me skip team review."** No. Agent tier's two-checkpoint model relies on the second checkpoint being meaningful. Team review IS the substance behind the proposal-ready checkpoint.
-- **"Designer is conditional; let me dispatch it just to be safe."** No. If there are no visual artifacts, the designer has nothing to review and just adds noise. Skip cleanly.
-- **"Adversarial found nothing; their dispatch was a waste."** No. "No issue found" is a valuable signal. The opposite (skipping adversarial) is the anti-collusion failure mode iter-1 fell into.

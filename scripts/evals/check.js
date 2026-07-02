@@ -238,7 +238,10 @@ function validateBaselineLedger(ledger, filePath = "evals/baselines/sentinel.jso
     ...opts,
     label: "baseline",
     minDeterminateRows: 3,
-    requireCurrentBehaviorFail: true,
+    // A measured baseline may legitimately be all-pass. The original
+    // must-have-a-fail rule guarded against hand-authored rosy baselines;
+    // that risk is now covered by artifact_ref pointing at real runs.
+    requireCurrentBehaviorFail: false,
   });
 }
 

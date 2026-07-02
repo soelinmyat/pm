@@ -50,9 +50,3 @@ If route is `sync`:
 If the route is `sync`, this step already attempted the full bidirectional operation. Step 5 must skip.
 
 Never display raw JSON to the user.
-
-## Done-when
-
-The pull result has been read from `sync-status.json` and shown clearly (or suppressed in auto mode when nothing changed), or the step has stopped on a surfaced failure.
-
-**Advance:** proceed to Step 5 (Push).

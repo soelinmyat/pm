@@ -40,8 +40,4 @@ When summarizing JSON:
 - `blocked` means a policy or sync precondition stopped the wake.
 - `claimed` means the machine owns the lease and a future worker could run.
 
-## Done-when
-
-The wake result has been summarized with selected card, skipped candidates, mode, dry-run/mutation status, and the next safe action. If implementation was skipped because `autonomy.start_dev` is false or `implementation_approved` is missing, say that explicitly.
-
-**Advance:** stop after this step unless the user asked for another subcommand.
+Summarize the wake result with the selected card, skipped candidates, mode, dry-run/mutation status, and the next safe action. If implementation was skipped because `autonomy.start_dev` is false or `implementation_approved` is missing, say that explicitly.

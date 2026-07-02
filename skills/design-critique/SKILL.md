@@ -11,13 +11,7 @@ PM-native post-implementation design critique gate. It captures real visual arti
 
 This skill replaces any dependency on external `/design-critique` availability inside PM workflows. It can use project tooling and PM references directly in every runtime.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
-
-**NEVER PASS A UI GATE WITHOUT VISUAL ARTIFACTS.** A design critique must inspect screenshots, captures, or an explicit blocked/skipped reason tied to the current commit.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 ## When NOT to use
 
@@ -44,33 +38,16 @@ Use `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` for the gate m
 | `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md` | Seed data conventions and edge-state checklist |
 | `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` | Markdown state and JSON gate sidecar schema |
 
-## Red Flags - Self-Check
+## Hard rules
 
-- **"The UI change is small, screenshots are overkill."** Small UI changes still break layout, contrast, and responsive behavior. Capture at least the affected state or record a valid skip.
-- **"I can infer it from the diff."** Design quality is visual and interactional. Diffs are input, not evidence.
-- **"The app will not start, so I will mark it passed."** Environment failure is blocked or skipped with a reason, never passed.
-- **"An external design skill is unavailable, so the gate is unavailable."** This is the PM-native gate. Run the steps inline.
-- **"P1 findings can be noted for later."** P0/P1 findings block the gate unless the user makes a product/design call to defer them.
+- Never pass a UI gate without visual artifacts — a critique must inspect screenshots/captures of the changed UI, or record an explicit blocked/skipped reason tied to the current commit. A diff is input, not evidence, and small UI changes still break layout, contrast, and responsive behavior.
+- Environment failure (the app won't start or render) is `blocked` or `skipped` with a reason — never `passed`.
+- P0/P1 findings block the gate until fixed, re-captured, and re-reviewed — or the user makes an explicit product/design call to defer them.
+- Record the outcome in `.pm/dev-sessions/{slug}.md` and a `design-critique` row in `.pm/dev-sessions/{slug}.gates.json` tied to the current commit.
+- This is the PM-native gate — run the steps inline; external design skills are optional, never required. Never record artifacts that expose private data; sanitize with seed data first.
 
 ## Escalation Paths
 
 - **App cannot be rendered:** "Design critique blocked: I could not run or capture the changed UI because {reason}. Want me to fix the environment, accept a documented skip, or pause?"
 - **P0/P1 design findings need product judgment:** "Design critique found blocking product/design tradeoffs: {summary}. Which direction should I take?"
 - **Artifacts cannot be sanitized:** "Design critique blocked: the available screenshots expose private data. I need sanitized seed data before I can record artifacts."
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|---|---|
-| "Tests cover it" | Tests do not prove layout, hierarchy, contrast, or visual state quality. |
-| "No external critique skill exists" | PM owns this gate directly; external skills are optional, not required. |
-| "I looked at the component code" | The gate requires rendered evidence or an explicit reason it cannot be rendered. |
-| "Only low-risk UI changed" | Low risk still needs a lite capture and gate record. |
-
-## Before Marking Done
-
-- [ ] Visual artifacts or a valid blocked/skipped reason are saved.
-- [ ] P0/P1 findings are fixed, re-captured, and re-reviewed, or escalated.
-- [ ] `.pm/dev-sessions/{slug}.md` records the design critique outcome.
-- [ ] `.pm/dev-sessions/{slug}.gates.json` has a `design-critique` row tied to the current commit.
-- [ ] The user confirmed the final outcome or received a clear handoff with remaining non-blocking findings.

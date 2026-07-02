@@ -11,11 +11,9 @@ Post-implementation code simplification gate. Reviews the current diff for reuse
 
 This is the single simplify entrypoint for all PM workflows. One code path, every runtime, no external dependency.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
+## Hard rules
 
 **NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code or runtime-source changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
 
@@ -49,8 +47,6 @@ Before dispatching agents:
 3. If no code/runtime-source files changed: log `Simplify: skipped (no code changes)` in `.pm/dev-sessions/{slug}.md` (if present), write `simplify: skipped` with reason `no code changes` to `.pm/dev-sessions/{slug}.gates.json`, and return.
 
 ## 3 Parallel Review Agents
-
-Before first dispatch, run `ToolSearch({ query: "select:TeamCreate,SendMessage" })` to load deferred tools (Claude Code only — skip in other runtimes).
 
 Dispatch all 3 agents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 

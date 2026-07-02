@@ -9,13 +9,7 @@ description: "Use when the user asks for loop engineering, AI development loop o
 
 Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker (`/pm:loop work`).
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
-
-**NEVER START REAL IMPLEMENTATION UNLESS BOTH GATES ARE TRUE.** `autonomy.start_dev: true` in `pm/loop/config.json` and `implementation_approved: true` on the specific backlog card are both required before loop may pick up implementation work.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
 ## When NOT to use
 
@@ -50,13 +44,13 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 
 `autonomy.merge_pr` decides the worker's terminal state: `false` (default) stops at an open PR for human review; `true` ships each child through the merge loop when all gates and CI are green and marks the card done, so an approved epic runs child-by-child to completion without human stops. The kill switch and daily budget still apply to every wake.
 
-## Red Flags — Self-Check
+## Hard rules
 
-- **"The card looks ready, so I can start dev."** No. Check both gates: project autonomy and per-card implementation approval.
-- **"I can use `.pm/dev-sessions` to decide cross-machine work."** No. `.pm` is local runtime state; durable eligibility comes from `pm/`.
-- **"Dry-run selected a card, so the machine owns it."** No. A card is owned only after a lease commit is pushed.
-- **"The loop can parse `/pm:dev` transcript output."** No. Loop workers must be script-like and machine-readable.
-- **"A push failure is probably fine; continue anyway."** No. Failed claim means no ownership, no dispatch.
+- Never start real implementation unless both gates are true — `autonomy.start_dev: true` in `pm/loop/config.json` AND `implementation_approved: true` on the specific backlog card. Verbal approval in chat is not durable cross-machine state.
+- Durable eligibility comes from git-synced `pm/`; local `.pm/*` is runtime state only, never a cross-machine claim candidate. A card is owned only after a lease commit is pushed — a failed claim means no ownership and no dispatch.
+- Loop workers must be script-like and machine-readable — never parse `/pm:dev` transcript output.
+- v1 is git-self-sufficient: don't introduce Linear into the loop path. Schedulers only wake the loop; PM owns board state, leases, and checkpoints. The kill switch and daily budget apply to every wake.
+- Report every wake as dry-run, claimed, blocked, or idle, and keep durable `pm/` state distinct from local `.pm/` state in the summary.
 
 ## Escalation Paths
 
@@ -64,20 +58,3 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 - **Autonomy disabled:** "Project-level loop implementation is disabled. Set `autonomy.start_dev: true` in `pm/loop/config.json` only if unattended pickup is acceptable."
 - **No git remote/upstream:** "Mutating loop wakes require git sync. Configure `/pm:sync` first or use dry-run status only."
 - **User wants a direct build:** "Use `/pm:dev <id>` for immediate hands-on implementation."
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|---|---|
-| "The user said 'sounds good,' so implementation is approved." | Verbal approval in chat is not durable cross-machine state. The backlog card needs explicit approval fields. |
-| "Linear can track this later." | v1 is intentionally self-sufficient with git. Do not introduce Linear into the loop path. |
-| "A single JSONL event log is simpler." | Per-run event logs avoid append conflicts across machines. |
-| "Cron/OpenClaw can own state." | Schedulers wake the loop; PM owns board state, leases, and checkpoints. |
-
-## Before Marking Done
-
-- [ ] The selected subcommand ran through its matching step.
-- [ ] The response distinguishes durable `pm/` state from local `.pm/` state.
-- [ ] Any wake result reports whether it was dry-run, claimed, blocked, or idle.
-- [ ] Real implementation was not started unless both gates were true.
-- [ ] The user-facing summary includes the next concrete command or file to inspect.

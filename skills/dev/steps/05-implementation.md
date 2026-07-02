@@ -312,8 +312,4 @@ Multi-task: For each task in order, fresh developer agent dispatched as a subpro
 Orchestrator runs Step 09 (retro) once after all tasks complete.
 ```
 
-## Done-when
-
-**Single-task:** Code and tests committed on the feature branch, test suite passes, session file updated. Implementation agent has returned — orchestrator proceeds to Step 06.
-
-**Multi-task:** All per-task subprocesses have written `result.json` with `status: merged` or `status: blocked`. Each task's branch is merged (or marked failed) and its worktree cleaned up. Session file `## Tasks` table reflects final status. Orchestrator proceeds to Step 09 (retro) — Steps 06–08 are skipped since per-task subprocesses handled them.
+**Single-task** hands off to Step 06 with code and tests committed on the feature branch, the suite passing, and the session file updated. **Multi-task** subprocesses each own implement→merge and write `result.json` (`status: merged` or `blocked`); the orchestrator checkpoints the `## Tasks` table, then proceeds straight to Step 09 (retro) — Steps 06–08 are skipped because the subprocesses handled them.

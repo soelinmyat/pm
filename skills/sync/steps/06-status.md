@@ -55,8 +55,4 @@ Status:    {ok ? "OK" : "Failed"}
 
 Never show raw JSON to the user.
 
-## Done-when
-
-The user has a readable sync status report, or a clear instruction to run setup.
-
 Say: "What would you like to do next?"

@@ -2,109 +2,60 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
 const path = require("path");
 
-const { loadWorkflow, buildPrompt } = require("../scripts/step-loader");
-
 // ---------------------------------------------------------------------------
-// Integration regression test for PM-185 A-2
+// Regression test for pm:strategy (Phase C: steps/ collapsed into SKILL.md)
 //
-// Validates that extracting strategy SKILL.md flow into step files preserves
-// all critical instructions. The step loader reads the shipped defaults (no
-// user overrides) and builds a concatenated prompt. We assert that critical
-// keywords from the original flow appear in the output.
+// The 4-beat strategy flow was folded from steps/*.md into a single
+// self-contained SKILL.md during the ceremony strip. These assertions
+// re-target the original step-file keyword coverage onto SKILL.md so the
+// judgment kernels stay pinned: the grounding iron law, existing-doc
+// detection + surgical update flow, the interview-guide pointer, and the
+// full strategy-document structure.
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
 
-const fs = require("fs");
-const os = require("os");
-
-function makeFakePmDir() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "strategy-steps-regression-"));
-  const pmDir = path.join(tmp, "pm");
-  fs.mkdirSync(pmDir, { recursive: true });
-  return { pmDir, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+function readSkill() {
+  return fs.readFileSync(path.join(PLUGIN_ROOT, "skills", "strategy", "SKILL.md"), "utf8");
 }
 
-// ---------------------------------------------------------------------------
-// AC 1: All 4 step files exist and load
-// ---------------------------------------------------------------------------
-
-test("strategy steps: all 4 step files load with correct order", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("strategy", pmDir, PLUGIN_ROOT);
-
-    assert.equal(steps.length, 4, `Expected 4 steps, got ${steps.length}`);
-
-    // Verify each step has a valid order and non-empty body
-    for (let i = 0; i < steps.length; i++) {
-      assert.ok(steps[i].order > 0, `Step ${i} should have positive order`);
-      assert.ok(steps[i].body.trim().length > 0, `Step ${i} body should not be empty`);
-      assert.equal(steps[i].enabled, true, `Step ${i} should be enabled by default`);
-      assert.equal(steps[i].source, "default", `Step ${i} source should be "default"`);
-    }
-
-    // Verify order is strictly increasing
-    for (let i = 1; i < steps.length; i++) {
-      assert.ok(steps[i].order > steps[i - 1].order, `Steps should be in increasing order`);
-    }
-  } finally {
-    cleanup();
-  }
+test("strategy: steps/ directory has been collapsed into SKILL.md", () => {
+  const stepsDir = path.join(PLUGIN_ROOT, "skills", "strategy", "steps");
+  assert.ok(!fs.existsSync(stepsDir), "strategy/steps/ should no longer exist");
 });
 
-// ---------------------------------------------------------------------------
-// AC 2: Each step has valid frontmatter
-// ---------------------------------------------------------------------------
-
-test("strategy steps: each step has name, order, and description in frontmatter", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("strategy", pmDir, PLUGIN_ROOT);
-
-    for (const step of steps) {
-      // name should not be the raw filename stem (i.e. frontmatter name was set)
-      assert.ok(
-        !step.name.match(/^\d+-/),
-        `Step "${step.name}" should have a human-readable name from frontmatter, not filename`
-      );
-      assert.ok(step.description.length > 0, `Step "${step.name}" should have a description`);
-    }
-  } finally {
-    cleanup();
+test("strategy: the four beats are all named in SKILL.md", () => {
+  const skill = readSkill();
+  for (const beat of [
+    "Prerequisite check",
+    "Detect existing strategy",
+    "Interview",
+    "Write strategy",
+  ]) {
+    assert.ok(skill.includes(beat), `SKILL.md should name the "${beat}" beat`);
   }
 });
-
-// ---------------------------------------------------------------------------
-// AC 3: Critical keywords preserved in concatenated output
-// ---------------------------------------------------------------------------
 
 const CRITICAL_KEYWORDS = [
-  // Step 1: Prerequisite Check
-  "Prerequisite Check",
+  // Prerequisite check
   "landscape.md",
   "landscape",
-
-  // Step 2: Detect Existing Strategy
-  "existing strategy",
+  // Detect existing strategy
   "STRATEGY.md",
   "PRODUCT.md",
   "PRD.md",
   "adopt",
   "start fresh",
-  "Update Flow",
+  "Update flow",
   "Surgical updates",
-
-  // Step 3: Interview
-  "interview",
+  // Interview
   "interview-guide.md",
   "One question at a time",
-  "landscape",
   "competitors",
-
-  // Step 4: Write Strategy
+  // Write strategy (document structure)
   "strategy.md",
   "ICP",
   "non-goals",
@@ -116,46 +67,23 @@ const CRITICAL_KEYWORDS = [
   "Non-Goals",
 ];
 
-test("strategy steps: concatenated output contains all critical instruction keywords", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("strategy", pmDir, PLUGIN_ROOT);
-    const prompt = buildPrompt(steps);
-
-    const missing = [];
-    for (const keyword of CRITICAL_KEYWORDS) {
-      if (!prompt.includes(keyword)) {
-        missing.push(keyword);
-      }
-    }
-
-    assert.equal(
-      missing.length,
-      0,
-      `Missing critical keywords in concatenated output:\n  ${missing.join("\n  ")}`
-    );
-  } finally {
-    cleanup();
-  }
+test("strategy: SKILL.md contains all critical instruction keywords", () => {
+  const skill = readSkill();
+  const missing = CRITICAL_KEYWORDS.filter((k) => !skill.includes(k));
+  assert.equal(
+    missing.length,
+    0,
+    `Missing critical keywords in strategy/SKILL.md:\n  ${missing.join("\n  ")}`
+  );
 });
 
-// ---------------------------------------------------------------------------
-// AC 4: Step names map to the 4 beats
-// ---------------------------------------------------------------------------
+test("strategy: grounding iron law is preserved", () => {
+  const skill = readSkill();
+  assert.match(skill, /Never write strategy from thin air/i);
+  assert.match(skill, /grounded in explicit answers/i);
+});
 
-test("strategy steps: step names match expected beats", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("strategy", pmDir, PLUGIN_ROOT);
-    const names = steps.map((s) => s.name);
-
-    assert.deepEqual(names, [
-      "Prerequisite Check",
-      "Detect Existing Strategy",
-      "Interview",
-      "Write Strategy",
-    ]);
-  } finally {
-    cleanup();
-  }
+test("strategy: the interview guide reference file still exists", () => {
+  const guide = path.join(PLUGIN_ROOT, "skills", "strategy", "references", "interview-guide.md");
+  assert.ok(fs.existsSync(guide), "interview-guide.md must remain the interview authority");
 });

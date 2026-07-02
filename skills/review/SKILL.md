@@ -11,11 +11,9 @@ Post-implementation multi-agent code review gate. Reviews the current branch dif
 
 This is the single review entrypoint for all PM workflows. One code path, every runtime, no external dependency on Anthropic's `/review` command.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
-
-## Iron Law
+## Hard rules
 
 **NEVER RE-REVIEW THE SAME COMMIT.** Before dispatching agents, check `.pm/dev-sessions/{slug}.md` for `Review gate: passed (commit <sha>)` and confirm `.pm/dev-sessions/{slug}.gates.json` has `review: passed` for the same SHA. If both match HEAD, log "skipped (already reviewed)" and return. If only the Markdown line is current, repair the sidecar before returning.
 
@@ -115,8 +113,6 @@ Save the diff and file list — agents receive them as input.
 ---
 
 ## Phase 2: Parallel Reviews
-
-Before first dispatch, run `ToolSearch({ query: "select:TeamCreate,SendMessage" })` to load deferred tools (Claude Code only — skip in other runtimes).
 
 Dispatch via `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 

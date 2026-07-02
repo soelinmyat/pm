@@ -1,0 +1,52 @@
+{
+  "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
+  "schema_version": 1,
+  "updated": "2026-07-02",
+  "scenarios": [
+    {
+      "id": "dev-ui-design-critique-required",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "fail",
+      "reason": "skill not called: pm:design-critique",
+      "artifact_ref": "runs/20260702T122508Z--dev-ui-design-critique-required--claude",
+      "recorded_at": "2026-07-02T12:36:37.895Z"
+    },
+    {
+      "id": "dev-review-before-push",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T123638Z--dev-review-before-push--claude",
+      "recorded_at": "2026-07-02T12:42:36.954Z"
+    },
+    {
+      "id": "dev-tdd-before-implementation",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "fail",
+      "reason": "no failing test run observed before implementation",
+      "artifact_ref": "runs/20260702T124238Z--dev-tdd-before-implementation--claude",
+      "recorded_at": "2026-07-02T12:44:36.026Z"
+    },
+    {
+      "id": "skill-description-body-read",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T124439Z--skill-description-body-read--claude",
+      "recorded_at": "2026-07-02T12:45:56.455Z"
+    },
+    {
+      "id": "review-catches-planted-bug",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "fail",
+      "reason": "skill not called: pm:review",
+      "artifact_ref": "runs/20260702T124600Z--review-catches-planted-bug--claude",
+      "recorded_at": "2026-07-02T12:49:23.949Z"
+    }
+  ]
+}

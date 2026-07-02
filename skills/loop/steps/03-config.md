@@ -30,9 +30,3 @@ Highlight these fields when explaining the output:
 - `budgets.lease_ttl_minutes` controls lease expiry.
 
 Do not modify `implementation_approved`, `approved_by`, or `approved_at` on backlog cards from this step.
-
-## Done-when
-
-The config path and the relevant autonomy/sync gates have been shown. If the user asked to initialize config, `pm/loop/config.json` exists with conservative defaults.
-
-**Advance:** stop after this step unless the user asked for another subcommand.
