@@ -46,12 +46,14 @@ Load the task context, classify the work correctly, and create the initial dev s
 
    **Layered RFC preference.** If the RFC contains `id="execution-contract"`, read that section first and store a compact summary in the session state under `## Execution Contract`. This is the default agent handoff. It should contain scope, non-goals, files, dependencies, AC summary, Test hooks, verification commands, and open implementation questions.
 
-   **Legacy fallback.** Whether or not an Execution Contract exists, parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards remain the task-discovery contract for both new layered RFCs and legacy RFCs. For each, extract:
+   **Structured sidecar (preferred issue source).** Check for the JSON sidecar next to the RFC — the `rfc:` value with `.html` swapped for `.json` (e.g. `{pm_dir}/backlog/rfcs/{slug}.json`). If it exists, read the task list directly from its `issues[]` array — each entry gives `num`, `title`, and `size`. No HTML parsing is needed; the sidecar is the machine contract. Validate it first with `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {sidecar_path}` — if it fails, treat the sidecar as absent and use the fallback below.
+
+   **Legacy fallback (`.issue-detail` parse).** When no sidecar exists (pre-sidecar RFCs are grandfathered) or the sidecar failed validation, parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards remain the task-discovery contract for legacy RFCs and the HTML render of every RFC. For each, extract:
    - Issue number from `.issue-detail-num`
    - Title from `.issue-detail-title`
    - Size from `.issue-detail-size`
 
-   Set `task_count` to the number of parsed issues. If the RFC exists but **zero issues are parsed**, **hard-abort**: "RFC found but no Issue sections parsed — check RFC HTML structure for `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
+   Set `task_count` to the number of issues discovered (from the sidecar `issues[]` when present, otherwise the parsed `.issue-detail` cards). If the RFC exists but **zero issues are discovered by either path**, **hard-abort**: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
 
    Store the task list in the session state under `## Tasks` (not `## Sub-Issues`):
    ```
@@ -113,6 +115,7 @@ After RFC issue discovery (step 4), validate that the RFC contains a well-formed
 
 ### Gate logic
 
+0. **Prefer the JSON sidecar.** If the RFC's sidecar (`{pm_dir}/backlog/rfcs/{slug}.json`) exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {sidecar_path}`. A clean exit means all five `test_strategy` fields are present and non-empty — the gate **passes** without any HTML parsing. A non-zero exit is a **halt** (schema-v2 sidecar with a malformed or empty Test Strategy — route to `/pm:rfc` for regeneration). Only when no sidecar exists (pre-sidecar RFCs) fall through to the HTML checks below.
 1. **Check for `id="test-strategy"` section** in the RFC HTML.
 2. **Check for `data-schema-version="2"`** on any element in the RFC.
 3. **Apply grandfather clause (pre-rollout):**

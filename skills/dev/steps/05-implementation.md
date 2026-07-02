@@ -52,7 +52,7 @@ handled by the orchestrator after you return.
 Lifecycle:
 1. cd {WORKTREE_PATH}
 2. Install deps (read AGENTS.md), verify clean test baseline
-3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation
+3. Read the RFC Execution Contract first (`id="execution-contract"` when present), then read Issue cards, Test Strategy, and appendix detail needed for implementation. For issue metadata (num/title/size/test_hooks), prefer the RFC JSON sidecar (`{slug}.json`) when present; the HTML Issue cards are the fallback.
 4. Use TDD: run the targeted failing test before implementation, then make it pass
 5. Run the project test suite — all tests must pass
 6. Commit implementation and test changes
@@ -129,7 +129,7 @@ or you write a blocked result. Do not exit until one of those happens.
 Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
 implementation lifecycle, then execute it.
 
-Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
+Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. For issue metadata (num/title/size/test_hooks), prefer the RFC JSON sidecar (`{parent_slug}.json`) when present; the HTML Issue cards are the fallback. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
 
 Lifecycle tracking: before each step, write your current stage to a tracking file:
   echo "{stage}" > .dev-lifecycle-stage

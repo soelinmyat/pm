@@ -150,7 +150,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
       - **Create a parent issue** in Linear with the RFC title and a summary description linking to the backlog entry.
       - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
       - Capture the parent Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the parent Linear identifier.
-      - **Create child issues** for each RFC Issue section (from the `## Tasks` table in the session state or parsed from `.issue-detail` cards in the RFC HTML). For each child:
+      - **Create child issues** for each RFC issue. Read the issue list from the JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when it exists; fall back to the `## Tasks` table in the session state or the `.issue-detail` cards in the RFC HTML. For each child:
         - Title: the issue title from the RFC
         - Description: a brief summary from the RFC issue section
         - Parent: the parent issue ID created above
@@ -171,9 +171,11 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     a. **Ensure local child cards exist** for multi-issue RFCs: one backlog card
        per RFC issue with `parent: "{slug}"`, and the parent card's `children:`
-       list set to the RFC implementation order. If the cards already exist
-       (created during groom), verify the `children:` order matches the RFC and
-       fix drift. The loop dispatches children strictly in this order.
+       list set to the RFC implementation order. Read the RFC issue list from the
+       JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when present;
+       fall back to the session `## Tasks` table or the `.issue-detail` cards. If
+       the cards already exist (created during groom), verify the `children:` order
+       matches the RFC and fix drift. The loop dispatches children strictly in this order.
 
     b. Ask exactly one question:
 

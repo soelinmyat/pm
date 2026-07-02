@@ -34,7 +34,7 @@ Minimum coverage for `subagent-dev`:
 
 ## The Process
 
-**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite.
+**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite. When the plan is an RFC, prefer its JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json`) as the issue source — `issues[]` gives `num`, `title`, `size`, and `test_hooks` without HTML parsing. Fall back to the `.issue-detail` cards for pre-sidecar RFCs.
 
 **Per task (repeat until all tasks complete):**
 
@@ -115,7 +115,7 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Read RFC Execution Contract first: {pm_dir}/backlog/rfcs/feature-plan.html#execution-contract]
-[Extract all 5 tasks from .issue-detail cards with full text and context]
+[Extract all 5 tasks from the JSON sidecar issues[] (feature-plan.json); fall back to .issue-detail cards if no sidecar]
 [Create TodoWrite with all tasks]
 
 Task 1: Hook installation script
