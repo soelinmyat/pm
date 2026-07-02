@@ -13,6 +13,11 @@ Route session-start behavior and teach the runtime how to use PM skills. **Never
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
+## Hard rules
+
+- **When work matches a skill in the tables below, invoke that skill — never perform its workflow inline without invoking it.** The skill invocation is the auditable unit: gates, state, and review evidence all key off it. Reviewing code without invoking `pm:review`, or critiquing UI without `pm:design-critique`, leaves no gate evidence and does not count.
+- **Never force a PM workflow onto a direct question or an explicit user instruction** — routing discipline cuts both ways.
+
 **Workflow:** `using-pm`
 
 ## Session Start

@@ -50,7 +50,7 @@ If a gate is skipped, the row status is `skipped`, the `commit` is current HEAD,
 
 **When compulsory:** Any task that changes UI files or user-visible interaction (`tsx`, `jsx`, `css`, `scss`, static HTML such as `public/index.html`, server-rendered templates such as `templates/base.html`, mobile screens, design-system files, UI config such as `tailwind.config.*`, design-token/theme data such as `tokens/*.json`, page/layout files, copy that affects interface flow). Check the diff and the RFC scope, not just file extensions.
 
-This is PM-native. Invoke `pm:design-critique`; do not depend on an external `/design-critique` skill being discoverable. If delegation is unavailable, read and execute `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/SKILL.md` inline.
+This is PM-native. **Invoke `pm:design-critique` — the skill invocation itself is the gate evidence; performing a critique inline without invoking it does not satisfy the gate.** Only when the runtime has no Skill tool at all (e.g. Codex without delegation) read and execute `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/SKILL.md` inline.
 
 | Size | Design critique |
 |------|----------------|

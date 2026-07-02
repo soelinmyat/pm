@@ -13,7 +13,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## Hard rules
 
-- **NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR, written before the implementation (TDD). "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
+- **NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR, written before the implementation (TDD): write the failing test, **run it and observe it fail**, then implement until it passes. An unrun test proves nothing. "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
 - **M+ work requires a completed RFC.** Dev halts with a direct /rfc instruction if it's missing. Don't start coding to figure out the plan as you go — the RFC is 15 minutes; the wrong direction is hours. If the RFC feels like overhead, simplify it, don't skip it.
 - **Use a worktree for S+ work.** A wrong-branch commit on a dirty main blocks everything downstream. XS Express is the only worktree-free path, and it branches explicitly.
 - **Debugging is not optional on "known" fixes.** A known fix is a guess until confirmed; the debugging reference prevents shipping the wrong fix to the right symptom.
