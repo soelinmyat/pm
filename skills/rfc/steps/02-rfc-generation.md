@@ -112,7 +112,6 @@ Alongside the HTML, write a JSON sidecar to {pm_dir}/backlog/rfcs/{slug}.json. T
       "slug": "{slug}",
       "title": "{RFC title}",
       "size": "{XS|S|M|L|XL}",
-      "status": "draft",
       "issues": [
         {
           "num": 1,
@@ -130,12 +129,14 @@ Alongside the HTML, write a JSON sidecar to {pm_dir}/backlog/rfcs/{slug}.json. T
       }
     }
 
-Rules the sidecar must satisfy: schema_version is 2; issues is a non-empty array with unique positive nums, non-empty titles, and sizes in XS/S/M/L/XL; each test_hooks mirrors that issue's .hooks-badge; all five test_strategy fields are non-empty strings mirroring the .test-strategy-block bodies. Do not add fields beyond this schema.
+Rules the sidecar must satisfy: schema_version is 2; slug and title are non-empty and slug equals the RFC slug; the top-level size and every issue size are canonical uppercase XS/S/M/L/XL (no lowercase, no padding); issues is a non-empty array with unique positive nums and non-empty titles that contain no '|', newlines, or control characters; each test_hooks is an array of non-empty strings mirroring that issue's .hooks-badge; all five test_strategy fields are non-empty strings mirroring the .test-strategy-block bodies. The schema is exactly these fields — no others, and NO status field (RFC lifecycle lives in the RFC frontmatter, not the sidecar).
+
+Bind the sidecar to the HTML: after writing {slug}.json, compute its SHA-256 (e.g. `shasum -a 256 {pm_dir}/backlog/rfcs/{slug}.json`, or `sha256sum`) and write it onto the HTML root element next to data-schema-version, as data-sidecar-hash="sha256:{hex}". This binds the two artifacts so a later HTML edit that forgets to regenerate the sidecar is caught, never silently shipped.
 
 Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN). Write the JSON sidecar to {pm_dir}/backlog/rfcs/{slug}.json.
 
-Before committing, validate the sidecar and fix anything it reports:
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json
+Before committing, validate the sidecar (schema + slug + HTML hash binding) and fix anything it reports:
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json --html {pm_dir}/backlog/rfcs/{slug}.html --slug {slug}
 
 Commit the RFC and its JSON sidecar together, then end your response with:
 
@@ -153,12 +154,21 @@ Stop after sending the summary. A separate agent will handle implementation afte
 Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
 
 After receiving `RFC_COMPLETE`:
-1. **Validate the JSON sidecar** — completion gate. Run:
+1. **Validate the sidecar — completion gate.** Run the validator with the HTML binding and slug cross-check:
    ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js \
+     --sidecar {pm_dir}/backlog/rfcs/{slug}.json \
+     --html {pm_dir}/backlog/rfcs/{slug}.html \
+     --slug {slug}
    ```
-   If it exits non-zero (missing sidecar, wrong `schema_version`, malformed issues, or empty `test_strategy` fields), re-dispatch the writer to fix the sidecar and revalidate. Do not proceed to RFC Review until it passes. The HTML render remains the human artifact; the sidecar is the machine handoff.
-2. Record `task_count: {N}` in the session state (from `issues: {N}`).
+   Then cross-check that the HTML and the sidecar agree on the issue count:
+   ```bash
+   sidecar_n=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).issues.length))" {pm_dir}/backlog/rfcs/{slug}.json)
+   html_n=$(grep -c 'class="issue-detail"' {pm_dir}/backlog/rfcs/{slug}.html)
+   [ "$sidecar_n" = "$html_n" ] || echo "issue-count drift: sidecar=$sidecar_n html=$html_n"
+   ```
+   The RFC is NOT done if the validator exits non-zero (missing sidecar, wrong `schema_version`, malformed issues, empty `test_strategy` fields, slug mismatch, or a `data-sidecar-hash` that does not match the sidecar bytes), OR the two issue counts differ, OR the `RFC_COMPLETE` payload `issues: {N}` disagrees with the validated `issues[].length`. Re-dispatch the writer to fix it and revalidate. **Cap at 2 re-dispatches**, then halt and surface the validator output to the user (mirrors the review-loop cap). Do not proceed to RFC Review until the gate passes. The HTML render remains the human artifact; the sidecar is the machine handoff.
+2. Set `task_count` from the **validated sidecar's** `issues[].length` — never the `RFC_COMPLETE` payload (a payload/sidecar mismatch is a gate failure caught in step 1). Record it in the session state.
 3. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
 4. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
 5. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata

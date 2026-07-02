@@ -81,7 +81,10 @@
 </nav>
 
 <!-- ═══════════ MAIN ═══════════ -->
-<main class="content" data-schema-version="2">
+<!-- data-sidecar-hash binds this render to its JSON sidecar ({slug}.json): the
+     value is sha256 of the sidecar file bytes, prefixed "sha256:". Regenerate it
+     whenever the sidecar changes. The 64-zero value below is a template placeholder. -->
+<main class="content" data-schema-version="2" data-sidecar-hash="sha256:0000000000000000000000000000000000000000000000000000000000000000">
 
   <!-- DECISION BRIEF -->
   <section class="section" id="brief">

@@ -149,23 +149,33 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
-## Structured Artifact Contract
+## JSON Sidecar Contract
+
+This is the single source for how the **JSON sidecar** works. Consumers point here rather than restating the rule; keep the policy in this one place.
 
 Every RFC is written as **two paired artifacts**:
 
 - `{pm_dir}/backlog/rfcs/{slug}.html` — the human render. Reviewers and approvers read this.
-- `{pm_dir}/backlog/rfcs/{slug}.json` — the machine-readable sidecar (`schema_version: 2`). Machine consumers (dev intake, groom re-discovery, RFC review child-card creation) read this **first**, so they stop grepping HTML anchors.
+- `{pm_dir}/backlog/rfcs/{slug}.json` — the machine-readable JSON sidecar (`schema_version: 2`). Machine consumers (dev intake, groom re-discovery, RFC review child-card creation) read this **first**, so they stop grepping HTML anchors.
 
-The sidecar is a projection of the render, not a second source of truth: it carries the same content as the HTML's `.issue-detail` cards and `.test-strategy-block` bodies. Schema:
+The sidecar is a projection of the render, not a second source of truth: it carries the same content as the HTML's `.issue-detail` cards and `.test-strategy-block` bodies. Schema (exactly these fields — no `status`; RFC lifecycle lives in the RFC frontmatter):
 
 | Field | Content |
 |-------|---------|
 | `schema_version` | Always `2` |
-| `slug`, `title`, `size`, `status` | RFC identity and lifecycle |
+| `slug`, `title`, `size` | RFC identity — `slug` equals the RFC slug; `size` is canonical uppercase XS/S/M/L/XL |
 | `issues[]` | `{ num, title, size, test_hooks[] }` per issue — mirrors the `.issue-detail` cards |
 | `test_strategy` | `{ test_levels, new_infrastructure, regression_surface, verification_commands, open_questions }` — mirrors the `.test-strategy-block` bodies |
 
-The RFC generation step validates the sidecar with `scripts/rfc-sidecar-check.js` before RFC review. Consumers **prefer the sidecar and fall back to the HTML contract below** when a sidecar is absent — pre-sidecar RFCs are grandfathered and keep working through the fallback.
+**Sidecar↔HTML binding.** The HTML root carries `data-sidecar-hash="sha256:{hash-of-json-bytes}"`. This ties the render to its sidecar so drift is detectable. `scripts/rfc-sidecar-check.js --html` verifies the attribute matches the sidecar bytes; `--slug` verifies `slug`.
+
+**Canonical consumer rule (the one halt policy):**
+
+- **Sidecar present and valid** (`rfc-sidecar-check.js` exits clean) → it is the source of truth: read `issues[]` and `test_strategy` from it, no HTML parsing.
+- **Sidecar present but invalid** (non-zero exit — bad schema, slug mismatch, or `data-sidecar-hash` mismatch) → **HALT** and route to `/pm:rfc` to regenerate. Never fall back to the HTML for a present-but-broken sidecar.
+- **Sidecar absent** → legacy/pre-sidecar RFC. Fall back to the HTML `.issue-detail` / `.test-strategy-block` parse below.
+
+**Era detection.** If the HTML has `data-sidecar-hash` but the sidecar is missing or mismatched, the sidecar was deleted or drifted → **HALT** (do not treat as legacy). Only HTML that lacks `data-sidecar-hash` is a genuine pre-sidecar RFC eligible for the HTML fallback.
 
 ## Issue Section HTML Contract (legacy fallback)
 
