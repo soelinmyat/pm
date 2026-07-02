@@ -271,7 +271,8 @@ prompt: |
   written code. Check imports and existing modules before flagging —
   only flag when you can name the specific existing code to reuse.
 
-  Max 5 findings.
+  Safety ceiling: 5 findings. If you hit the ceiling, include a note
+  that the diff likely needs to be split.
 
   ## Project Context
   {PROJECT_CONTEXT}
@@ -295,7 +296,8 @@ prompt: |
   parameter sprawl, copy-paste patterns, dead code paths, overly complex
   conditionals, unnecessary abstractions, naming inconsistencies.
 
-  Max 5 findings.
+  Safety ceiling: 5 findings. If you hit the ceiling, include a note
+  that the diff likely needs to be split.
 
   ## Project Context
   {PROJECT_CONTEXT}
@@ -319,7 +321,8 @@ prompt: |
   (redundant fetches, re-renders, recomputation), missed concurrency,
   hot-path bloat, N+1 query patterns, unnecessary synchronous waits.
 
-  Max 5 findings.
+  Safety ceiling: 5 findings. If you hit the ceiling, include a note
+  that the diff likely needs to be split.
 
   ## Project Context
   {PROJECT_CONTEXT}

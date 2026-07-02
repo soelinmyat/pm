@@ -129,7 +129,9 @@ function checkGateManifest(manifest, opts = {}) {
     }
   }
 
-  validateReviewLenses(byName.get("review"), manifestPath, sessionContext, issues);
+  if (requiredGates.includes("review")) {
+    validateReviewLenses(byName.get("review"), manifestPath, sessionContext, issues);
+  }
 
   return { ok: issues.length === 0, issues };
 }

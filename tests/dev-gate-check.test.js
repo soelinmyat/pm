@@ -985,3 +985,13 @@ test("XS/S and unsized manifests do not require review lenses", () => {
     assert.equal(result.ok, true, `size=${size}: ${JSON.stringify(result.issues)}`);
   }
 });
+
+test("single-gate --require checks do not enforce review lenses on an unrelated preserved review row", () => {
+  // Mirrors skills/design-critique/steps/03-critique.md, which runs
+  // `--require design-critique` while preserving any existing `review` row untouched.
+  const result = checkGateManifest(
+    manifest([gate("design-critique"), gate("review")], { size: "M" }),
+    { currentCommit: "abc123", requiredGates: ["design-critique"] }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
