@@ -978,7 +978,7 @@ test("real pm/ directory passes validation", (t) => {
 // PM-170 Issue 3: Plugin registration — commands, agents, stale references
 // ---------------------------------------------------------------------------
 
-test("PM-170: plugin.config.json has expected commands (no merge, has loop, features, sync, note, ideate, rfc, simplify, list, review, task, bug, design-critique)", () => {
+test("PM-170: plugin.config.json has expected commands (no merge, no loop, has features, sync, note, ideate, rfc, simplify, list, review, task, bug, design-critique)", () => {
   const configPath = path.join(__dirname, "..", "plugin.config.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
@@ -991,7 +991,6 @@ test("PM-170: plugin.config.json has expected commands (no merge, has loop, feat
     "ideate",
     "ingest",
     "list",
-    "loop",
     "note",
     "refresh",
     "research",
@@ -1018,7 +1017,7 @@ test("PM-170: plugin.config.json has expected commands (no merge, has loop, feat
   assert.ok(config.commands.includes("sync"), "sync command must be present");
   assert.ok(config.commands.includes("note"), "note command must be present");
   assert.ok(config.commands.includes("list"), "list command must be present");
-  assert.ok(config.commands.includes("loop"), "loop command must be present");
+  assert.ok(!config.commands.includes("loop"), "loop command must be removed");
   assert.ok(config.commands.includes("review"), "review command must be present");
   assert.ok(config.commands.includes("task"), "task command must be present");
   assert.ok(config.commands.includes("bug"), "bug command must be present");
