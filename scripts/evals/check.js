@@ -27,6 +27,7 @@ const REQUIRED_SENTINEL_IDS = [
   "dev-tdd-before-implementation",
   "skill-description-body-read",
   "review-catches-planted-bug",
+  "groom-quick-from-backlog",
 ];
 const ARTIFACT_REF_PATTERN =
   /^runs\/[0-9]{8}T[0-9]{6}Z--[a-z0-9][a-z0-9-]{0,80}--[a-z0-9][a-z0-9-]{0,40}$/;
@@ -80,8 +81,11 @@ function validateEvalTree(rootDir = process.cwd()) {
       }
       try {
         issues.push(
+          // Historical results are point-in-time artifacts: rows must be known
+          // sentinels, but ledgers recorded before a scenario existed may omit it.
           ...validateResultLedger(JSON.parse(fs.readFileSync(resultPath, "utf8")), resultPath, {
             requiredScenarioIds: REQUIRED_SENTINEL_IDS,
+            allowMissing: true,
           }).issues
         );
       } catch (err) {
@@ -285,9 +289,11 @@ function validateLedger(ledger, filePath, opts = {}) {
         issues.push(issue(where, `unknown ${label} row ${row.id}`));
       }
     }
-    for (const id of opts.requiredScenarioIds || []) {
-      if (!ids.has(id)) {
-        issues.push(issue(filePath, `missing ${label} row for ${id}`));
+    if (!opts.allowMissing) {
+      for (const id of opts.requiredScenarioIds || []) {
+        if (!ids.has(id)) {
+          issues.push(issue(filePath, `missing ${label} row for ${id}`));
+        }
       }
     }
     const determinate = ledger.scenarios.filter(

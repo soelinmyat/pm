@@ -52,7 +52,7 @@ Refusal points the user at `/pm:strategy`, `/pm:research`, or `/pm:ingest` for f
 
 Refusal logic lives in Step `01a-intake-agent.md`. Codex runtime = refuse with the directive above.
 
-**Step coverage.** Agent tier runs a different sub-set of steps than co-pilot tiers — realised through dedicated `*-agent.md` step files, not inline conditionals:
+**Step coverage.** Agent tier runs a different sub-set of steps than co-pilot tiers — intake and synthesis have dedicated `*-agent.md` variant files (01a, 04a), while the review gates (05, 08) are shared steps whose in-body agent-tier parameter blocks tighten caps and add the adversarial reviewer:
 
 | Agent step file | Replaces co-pilot step | Notes |
 |---|---|---|
@@ -67,10 +67,24 @@ Steps NOT in the agent path: `02-strategy-check.md`, `03-research.md`, `04-scope
 
 **Iter-cap mechanism.** Cap value is **literal** in the agent-variant files:
 
-- `05-scope-review.md` body says "Maximum 3 iterations" (unchanged) — `applies_to: [quick, standard, full]`
 - `05-scope-review.md` and `08-team-review.md` declare cap 3 with an agent-tier parameter block dropping it to 2 — `applies_to: [standard, full, agent]` / `[full, agent]`
 
-No `if groom_tier == "agent"` conditionals inside step bodies. The runtime's `applies_to` dispatcher selects the right file per tier.
+## Agent-tier review escalation
+
+When a review gate hits its agent-tier iteration cap with blocking issues remaining, escalate to the user (this is an exceptional checkpoint, allowed beyond the two standing ones):
+
+> "{Gate name} didn't converge after 2 iterations. Blocking issues remaining:
+>
+> {list of blocking issues, each tagged with reviewer role}
+>
+> Options:
+> (a) Approve as-is — proceed with these as known limitations
+> (b) Redirect — go back to the prior checkpoint with the reviewer feedback as guidance
+> (c) Abort — stop the session"
+
+Append the outcome to `checkpoints[]` with `name: scope-review-escalation` or `name: team-review-escalation` and the user's choice.
+
+The runtime's `applies_to` dispatcher selects steps per tier. Intake/synthesis variants are separate files; the review gates carry an explicit agent-tier parameter block in-body (the one sanctioned form of tier branching, since the gate loop itself is shared).
 
 ## Step Loading Rules
 

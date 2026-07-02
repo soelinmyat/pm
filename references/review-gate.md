@@ -16,7 +16,7 @@ A review gate is fully described by its parameters:
 | Dispatch | One parallel wave via `skills/dev/references/agent-runtime.md`; inline-sequential fallback when delegation is unavailable |
 | Independence | `none` (default) · `fresh-eyes` (reviewer must not read other findings — dispatch it in the same wave so they don't exist yet) · `anti-collusion` (headless agent tier: verbatim prepend from the brief library) |
 | Iteration cap | Max fix loops before escalation (default 3; headless agent tiers use 2) |
-| Verdicts | Per-reviewer enums, owned by the gate (do not homogenize vocabularies across gates) |
+| Verdicts | Per-reviewer enums, owned by the gate (do not homogenize vocabularies across gates). The step's parameter table is the canonical listing; state YAML persists slugified forms; briefs quote the display forms. |
 | Blocking fix | What "fix" means for this artifact |
 | Escalation | What happens at the cap or on a stop-verdict |
 
@@ -26,14 +26,14 @@ Every gate runs the same loop:
 1. Dispatch ALL reviewers in one parallel wave
 2. Collect verdicts; merge + deduplicate team findings (independent reviewers stay separate signals)
 3. Split blocking vs advisory
-4. Blocking → fix the artifact → re-dispatch the WHOLE wave (fixes can introduce new problems)
+4. Blocking → fix the artifact → re-dispatch the whole wave. `fresh-eyes` reviewers always get a fresh agent; `Independence: none` reviewers may be re-engaged with fix context (see Sequential dispatch). Fixes can introduce new problems — re-checks cover the whole artifact, not just the fixes.
 5. Repeat up to the iteration cap
 6. Cap reached or stop-verdict → escalate to the human
 ```
 
 Shared gate rules (every review gate, verbatim intent):
-- All declared reviews are required. Do NOT skip based on feature type, perceived quality, or time pressure. If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking.
-- Read `skills/dev/references/agent-runtime.md` before dispatching. If delegation is unavailable, run the same briefs inline before merging findings.
+- All declared reviews are required. Do NOT skip based on feature type, perceived quality, or time pressure. If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking. (Steps quote this rule verbatim inside their HARD-GATE for prompt salience — edit here first, then propagate.)
+- Read `skills/dev/references/agent-runtime.md` before dispatching — it owns the persona registry and the inline fallback when delegation is unavailable.
 - Advisory items are surfaced later, never fixed inside the loop.
 
 ---
@@ -74,11 +74,11 @@ When dispatching 2+ reviewers on the same artifact:
 - Dispatch all reviewers simultaneously
 - Wait for all to complete before processing results
 
-### Sequential dispatch
+### Sequential dispatch (re-dispatch waves, `Independence: none` reviewers only)
 
-When the artifact changes between reviews (fix → re-review):
-- Dispatch the original reviewer again (not a new one — use `SendMessage` if possible)
-- Provide the fix context: what changed and why
+When the artifact changes between iterations (fix → re-check):
+- Re-engage the original reviewer with the fix context (what changed and why) — `SendMessage` if possible
+- `fresh-eyes` reviewers are never re-engaged this way; they always get a fresh dispatch so prior context can't leak
 
 ---
 
@@ -111,16 +111,7 @@ List only blocking items as bullets. Advisory items after user acknowledges bloc
 
 ## Fix Loop
 
-### Rules
-
-1. **Same agent fixes.** The agent that wrote the artifact fixes it (preserves context).
-2. **One round of fixes at a time.** Fix all blocking issues, then re-dispatch reviewers.
-3. **Max iterations:** Default 3 (configurable per gate). After max:
-   - Stop the loop
-   - Report: what was fixed, what remains, why it's not converging
-   - Surface to human for guidance
-4. **Don't fix advisory items** during the loop. Only blocking issues.
-5. **Re-dispatch checks the whole artifact**, not just the fixes. Fixes can introduce new issues.
+**Same agent fixes.** The agent that wrote the artifact fixes it (preserves context). One wave of fixes at a time. Everything else about the loop — caps, advisory handling, whole-artifact re-checks — is defined once in The primitive above.
 
 ### Fix commit convention
 
@@ -138,7 +129,7 @@ When to stop the loop and ask the human:
 
 | Signal | Action |
 |--------|--------|
-| Max iterations reached | Report status, ask for guidance |
+| Iteration cap reached (see The primitive) | Report what was fixed, what remains, why it's not converging; ask for guidance |
 | Reviewer and author disagree | Present both arguments, let human decide |
 | Issue requires design decision | Don't guess — ask |
 | Fix makes artifact worse | Stop, report the regression |

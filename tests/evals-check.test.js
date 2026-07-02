@@ -25,6 +25,7 @@ const requiredSentinelIds = [
   "dev-tdd-before-implementation",
   "skill-description-body-read",
   "review-catches-planted-bug",
+  "groom-quick-from-backlog",
 ];
 
 function makeTmp() {
@@ -237,7 +238,7 @@ test("result ledger can require named sentinel rows", () => {
   assert.equal(result.ok, false);
   assert.match(
     result.issues.map((i) => i.message).join("\n"),
-    /missing result row for review-catches-planted-bug/
+    /missing result row for groom-quick-from-backlog/
   );
 });
 

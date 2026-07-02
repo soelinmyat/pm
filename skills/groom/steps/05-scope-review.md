@@ -30,12 +30,12 @@ This catches strategic misalignment, competitive blind spots, and technical risk
 
 **Step-specific behavior on top of the canonical loop:**
 
-1. **Interactive EM checkpoint.** After the EM agent completes, present its findings conversationally to the user — invite follow-up questions or pushback before proceeding:
+1. **Interactive EM checkpoint (co-pilot tiers only — never in the agent tier).** After the EM agent completes, present its findings conversationally to the user — invite follow-up questions or pushback before proceeding:
    > "The EM reviewed the codebase. Here are the findings: {summary}. Any questions or concerns before we proceed to proposal drafting?"
    Wait for user confirmation. Capture the EM's key findings for the `## Technical Feasibility` section of the proposal.
 2. **Opportunity capture.** For each non-blocking **Opportunity** from the Competitive Review (and any non-blocking opportunity from PM Review), call `writeNote(pmDir, body, 'groom-opportunity', inferredTags)` via `scripts/note-helpers.js`. Skip if a backlog item with a matching slug already exists in `{pm_dir}/backlog/`. Log: "Captured N opportunities as notes." If zero opportunities were surfaced, skip silently.
 
-**Agent tier (headless):** same gate, tighter parameters — the artifact is the synthesis YAML from Step 4a, the anti-collusion prepend from `team-reviewers.md` § Agent-tier is prepended to every brief, a fourth `@adversarial-reviewer` joins the wave, the iteration cap is 2, and escalation follows the agent-tier checkpoint rules in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md`. Record `adversarial_verdict` and `citation_validity_sampled` in state.
+**Agent tier (headless):** same gate, tighter parameters — the artifact is the synthesis YAML from Step 4a, the anti-collusion prepend from `team-reviewers.md` § Agent-tier is prepended to every brief, a fourth `@adversarial-reviewer` joins the wave (its `likely-mistake` verdict is blocking), the iteration cap is 2, and the interactive EM checkpoint is skipped (opportunity capture still runs — it is autonomous-safe). Increment `iter_counts.scope_review` per iteration; record `adversarial_verdict` and `citation_validity_sampled` in state. At the cap with blocking issues, run the escalation checkpoint in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` § Agent-tier review escalation (`name: scope-review-escalation`).
 
 **State update:**
 

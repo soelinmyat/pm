@@ -107,7 +107,7 @@ The following reference files provide detailed guidance for specific groom capab
 |-----------|---------|
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` | Tier selection, step-skipping rules, research routing |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/style-guide.md` | Groom-specific formatting supplement |
-| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md` | Team review persona prompts (Step 8) |
+| `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/team-reviewers.md` | Groom reviewer prompt library — scope review (Step 5), team review + bar raiser (Step 8), agent-tier variants (Step 8) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/scope-validation.md` | Scope validation methodology for Step 4 |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/state-schema.md` | Session state file YAML schema |
 | `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` | Proposal template, frontmatter schema, ID assignment, status lifecycle |
