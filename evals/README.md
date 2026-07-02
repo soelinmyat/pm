@@ -56,6 +56,8 @@ Codex home template that contains auth/session material only:
 PM_EVAL_CODEX_LIVE=1 \
 PM_EVAL_CODEX_ALLOW_UNCONTAINED_NETWORK=1 \
 PM_EVAL_CODEX_HOME_TEMPLATE=/path/to/isolated-codex-home \
+PM_EVAL_CODEX_MODEL=gpt-5.5 \
+PM_EVAL_CODEX_REASONING_EFFORT=xhigh \
 npm run eval:score -- --agent codex --write /tmp/pm-codex-live.json
 ```
 
@@ -63,6 +65,19 @@ The adapter copies only allowlisted auth/session material from the template,
 stages PM into run-owned Codex and `.agents` discovery paths, ignores user
 config/rules, and requires marker evidence that Codex loaded the staged PM
 runtime. Missing marker evidence is `indeterminate: wrong-source`.
+
+Optional live tuning:
+
+- `PM_EVAL_CODEX_MODEL` adds `-m <model>` to `codex exec`.
+- `PM_EVAL_CODEX_REASONING_EFFORT` adds
+  `-c model_reasoning_effort="<value>"`.
+- `PM_EVAL_CODEX_TIMEOUT_MS` overrides the per-scenario adapter timeout. Invalid
+  values fall back to the default timeout.
+
+Codex JSONL has no native PM skill-call event: the adapter prompt asks Codex to
+declare skill usage in agent messages (e.g. "Using `pm:dev`"), and the
+transcript normalizer extracts declared skills plus `command_execution` /
+`file_change` items into typed events with exit codes.
 
 ## Claude Adapter
 

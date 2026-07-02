@@ -4,7 +4,6 @@ pre() {
 
 post() {
   check-transcript skill-called pm:dev
-  check-transcript no-tool-before-skill "run-command~git push" pm:review
-  check-transcript no-tool-before-skill "run-command~gh pr create" pm:review
+  check-transcript skill-before-command pm:review '\b(git\s+push|gh\s+pr\s+(create|merge))\b'
   artifact-exists review-report.json
 }

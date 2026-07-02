@@ -10,7 +10,6 @@ const { parseJsonl } = require("../transcript.js");
 const {
   MARKER_ARTIFACT,
   assertUnderRunDir,
-  buildStoryPrompt,
   copyAuthTemplate,
   enableWorkdirAnalytics,
   injectSourceMarker,
@@ -23,6 +22,7 @@ const {
 
 const ADAPTER_TIMEOUT_MS = 600_000;
 const OUTPUT_MAX_BUFFER = 2 * 1024 * 1024;
+const MAX_SYNC_ARTIFACT_BYTES = 1024 * 1024;
 
 function preflight() {
   if (!liveEnabled()) return skipNetworkPolicy();
@@ -44,40 +44,32 @@ function run({ scenarioId, paths }) {
 
   enableWorkdirAnalytics(paths.workdir);
 
-  const prompt = buildStoryPrompt({ scenarioId, paths, runtimeLabel: "Codex" });
-  const argv = [
-    "exec",
-    "--full-auto",
-    "--ephemeral",
-    "--ignore-user-config",
-    "--ignore-rules",
-    "--skip-git-repo-check",
-    "--json",
-    "-C",
-    paths.workdir,
-    "-o",
-    path.join(paths.metadataDir, "codex.last-message.txt"),
-    "-",
-  ];
+  const writableArtifactsDir = codexWritableArtifactsDir(paths);
+  fs.mkdirSync(writableArtifactsDir, { recursive: true });
+
+  const prompt = buildPrompt({ scenarioId, paths });
+  const argv = buildCodexArgv({ paths });
+  const timeoutMs = adapterTimeoutMs();
 
   writeJson(path.join(paths.metadataDir, "codex_command.json"), {
     command: codexBin,
     argv,
+    timeout_ms: timeoutMs,
     env: {
       HOME: paths.homeDir,
       CODEX_HOME: prepared.codexHome,
       PM_PLUGIN_ROOT: prepared.pmPluginRoot,
       CLAUDE_PLUGIN_ROOT: prepared.pmPluginRoot,
-      PM_EVAL_ARTIFACTS_DIR: paths.artifactsDir,
+      PM_EVAL_ARTIFACTS_DIR: writableArtifactsDir,
     },
   });
 
   const result = spawnSync(codexBin, argv, {
     cwd: paths.workdir,
     input: prompt,
-    env: codexEnv({ paths, prepared }),
+    env: codexEnv({ paths, prepared, artifactsDir: writableArtifactsDir }),
     encoding: "utf8",
-    timeout: ADAPTER_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxBuffer: OUTPUT_MAX_BUFFER,
   });
 
@@ -87,6 +79,7 @@ function run({ scenarioId, paths }) {
   fs.writeFileSync(path.join(paths.metadataDir, "codex.stderr.log"), stderr);
   fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "codex.stdout.jsonl"), stdout);
   fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "codex.stderr.log"), stderr);
+  syncCodexArtifacts({ paths, sourceDir: writableArtifactsDir });
 
   if (result.error && result.error.code === "ETIMEDOUT") {
     return { status: "indeterminate", reason: "codex-timeout" };
@@ -131,6 +124,43 @@ function skipNetworkPolicy() {
 
 function skip(reason) {
   return { status: "skip", reason };
+}
+
+function buildCodexArgv({ paths }) {
+  const argv = ["exec"];
+  const model = envString("PM_EVAL_CODEX_MODEL");
+  const reasoningEffort = envString("PM_EVAL_CODEX_REASONING_EFFORT");
+  if (model) argv.push("-m", model);
+  if (reasoningEffort) {
+    argv.push("-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
+  }
+  argv.push(
+    "--full-auto",
+    "--ephemeral",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--skip-git-repo-check",
+    "--json",
+    "-C",
+    paths.workdir,
+    "-o",
+    path.join(paths.metadataDir, "codex.last-message.txt"),
+    "-"
+  );
+  return argv;
+}
+
+function adapterTimeoutMs() {
+  const raw = envString("PM_EVAL_CODEX_TIMEOUT_MS");
+  if (!raw) return ADAPTER_TIMEOUT_MS;
+  if (!/^[0-9]+$/.test(raw)) return ADAPTER_TIMEOUT_MS;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 1000 ? value : ADAPTER_TIMEOUT_MS;
+}
+
+function envString(name) {
+  const value = process.env[name];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function prepareCodexRuntime({ paths }) {
@@ -192,7 +222,66 @@ function stageSkillAliases(sourceSkillsDir, destSkillsDir) {
   }
 }
 
-function codexEnv({ paths, prepared }) {
+function buildPrompt({ scenarioId, paths }) {
+  const story = fs.readFileSync(path.join(paths.scenarioStageDir, "story.md"), "utf8");
+  const artifactNames = expectedArtifacts(paths.scenarioStageDir);
+  return [
+    "You are running a PM behavioral eval scenario against the staged PM plugin.",
+    "Use the PM workflow skills exposed in this isolated Codex environment.",
+    "Do not read host paths, credentials, user caches, or eval-results outside the provided run paths.",
+    `Scenario id: ${scenarioId}`,
+    "",
+    story.trim(),
+    "",
+    "Skill telemetry:",
+    "- Codex JSONL has no native PM skill-call event.",
+    "- Before you use any PM skill or PM workflow, emit a short agent message that includes the exact skill name, such as: Using `pm:dev`.",
+    "- Emit the skill message before running commands or taking actions that depend on that skill.",
+    "",
+    "Artifacts:",
+    "- Write required scenario artifacts under the directory named by PM_EVAL_ARTIFACTS_DIR.",
+    "- PM_EVAL_ARTIFACTS_DIR is inside the writable scenario workdir; do not substitute another directory.",
+    `- Write the PM source marker to ${MARKER_ARTIFACT}.`,
+    "- The marker value is not in this prompt. Read it from the PM skill/runtime text you actually use.",
+    ...artifactNames.map((name) => `- Scenario check expects artifact: ${name}`),
+    "",
+    "Stop when the scenario stop condition is satisfied.",
+  ].join("\n");
+}
+
+function expectedArtifacts(scenarioStageDir) {
+  const checks = fs.readFileSync(path.join(scenarioStageDir, "checks.sh"), "utf8");
+  return [...checks.matchAll(/artifact-exists\s+([A-Za-z0-9._-]+)/g)].map((match) => match[1]);
+}
+
+function codexWritableArtifactsDir(paths) {
+  return path.join(paths.workdir, ".pm-eval-artifacts");
+}
+
+function syncCodexArtifacts({ paths, sourceDir }) {
+  if (!fs.existsSync(sourceDir)) return;
+  for (const entry of fs.readdirSync(sourceDir)) {
+    if (entry === "raw-output") continue;
+    if (!/^[A-Za-z0-9._-]+$/.test(entry)) continue;
+
+    const source = path.join(sourceDir, entry);
+    const dest = path.join(paths.artifactsDir, entry);
+    let stat;
+    try {
+      stat = fs.lstatSync(source);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile() || stat.isSymbolicLink()) continue;
+    if (stat.size > MAX_SYNC_ARTIFACT_BYTES) continue;
+    if (fs.existsSync(dest)) continue;
+
+    fs.copyFileSync(source, dest, fs.constants.COPYFILE_EXCL);
+    fs.chmodSync(dest, stat.mode & 0o666);
+  }
+}
+
+function codexEnv({ paths, prepared, artifactsDir }) {
   return {
     PATH: process.env.PATH || "/usr/bin:/bin",
     HOME: paths.homeDir,
@@ -203,7 +292,7 @@ function codexEnv({ paths, prepared }) {
     XDG_DATA_HOME: paths.xdgDataDir,
     PM_PLUGIN_ROOT: prepared.pmPluginRoot,
     CLAUDE_PLUGIN_ROOT: prepared.pmPluginRoot,
-    PM_EVAL_ARTIFACTS_DIR: paths.artifactsDir,
+    PM_EVAL_ARTIFACTS_DIR: artifactsDir,
     PM_EVAL_SOURCE_MARKER_ARTIFACT: MARKER_ARTIFACT,
     PM_EVAL_SCENARIO_ID: paths.scenarioId,
   };
@@ -224,8 +313,12 @@ module.exports = {
   preflight,
   run,
   _private: {
-    buildPrompt: buildStoryPrompt,
+    adapterTimeoutMs,
+    buildCodexArgv,
+    buildPrompt,
+    codexWritableArtifactsDir,
     copyAuthTemplate,
     resolveCodexBin,
+    syncCodexArtifacts,
   },
 };

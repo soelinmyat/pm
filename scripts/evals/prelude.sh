@@ -82,6 +82,22 @@ artifact-exists() {
   return 0
 }
 
+artifact-contains() {
+  local name="$1"
+  local needle="$2"
+  local artifacts_dir="${PM_EVAL_ARTIFACTS_DIR:-../artifacts}"
+  local target="$artifacts_dir/$name"
+
+  if [ ! -f "$target" ]; then
+    __pm_eval_emit "artifact-contains" "fail" "missing artifact: $name"
+  elif grep -Fq -- "$needle" "$target"; then
+    __pm_eval_emit "artifact-contains" "pass"
+  else
+    __pm_eval_emit "artifact-contains" "fail" "missing text in artifact: $name"
+  fi
+  return 0
+}
+
 command-succeeds() {
   local command="$1"
   local output
