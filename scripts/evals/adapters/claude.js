@@ -224,7 +224,9 @@ function skipNetworkPolicy() {
     status: "skip",
     reason: "network-policy",
     detail:
-      "claude live adapter requires explicit local opt-in and uncontained network acknowledgement",
+      "claude live adapter requires explicit local opt-in and uncontained network acknowledgement; " +
+      "live runs execute the agent with permission checks bypassed on this host (isolation is " +
+      "HOME/XDG redirection only) — prefer a disposable machine or container",
   };
 }
 

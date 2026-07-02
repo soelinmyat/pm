@@ -64,6 +64,42 @@ stages PM into run-owned Codex and `.agents` discovery paths, ignores user
 config/rules, and requires marker evidence that Codex loaded the staged PM
 runtime. Missing marker evidence is `indeterminate: wrong-source`.
 
+## Claude Adapter
+
+The `claude` adapter runs Claude Code headless (`claude -p --output-format
+stream-json`) against the staged plugin via `--plugin-dir`, in an isolated HOME.
+It is gated exactly like Codex — skip `network-policy` by default:
+
+```bash
+PM_EVAL_CLAUDE_LIVE=1 \
+PM_EVAL_CLAUDE_ALLOW_UNCONTAINED_NETWORK=1 \
+PM_EVAL_CLAUDE_API_KEY=sk-... \
+npm run eval:score -- --agent claude --write /tmp/pm-claude-live.json
+```
+
+Auth options, in preference order: `PM_EVAL_CLAUDE_API_KEY` (passed as
+`ANTHROPIC_API_KEY`), `PM_EVAL_CLAUDE_HOME_TEMPLATE` (auth/credential files
+copied into the staged `~/.claude`), or `PM_EVAL_CLAUDE_ALLOW_KEYCHAIN=1`
+(macOS keychain OAuth survives HOME isolation; explicit opt-in required).
+`PM_EVAL_CLAUDE_MODEL` optionally pins the model; `PM_EVAL_CLAUDE_BIN`
+overrides binary resolution.
+
+Skill invocations arrive as typed `Skill` tool events in stream-json, so
+`skill-called`/`no-tool-before-skill` checks are first-class on this adapter.
+Tool ordering checks use the adapter-neutral taxonomy (`run-command`,
+`edit-file`, `write-file`, `read-file`) with optional command matching, e.g.
+`run-command~git push`.
+
+**Security posture of live runs (both adapters):** the agent executes with
+permission checks bypassed / full-auto on your host. Isolation is HOME/XDG
+redirection only — no container, no seccomp, no network allowlist. Treat a live
+eval as untrusted-code execution: prefer a disposable machine or container, and
+never run with credentials in scope beyond the eval's own auth.
+
+Live adapters enable PM analytics inside the staged workdir
+(`.claude/pm.local.md`), so plugin telemetry step spans are captured with run
+artifacts and can serve as rewrite-stable check evidence.
+
 Score an existing sanitized ledger:
 
 ```bash
@@ -109,3 +145,23 @@ stub-backed unit tests.
 4. Run `npm run eval:check`.
 5. Add or update a sanitized baseline row when the scenario joins the sentinel
    suite.
+
+## Coverage Tiers
+
+Sentinel scenarios (run by `eval:score`) pin dev-flow gates. `tier: full`
+scenarios cover the highest-blast-radius invariants and run individually via
+`node scripts/evals/run.js evals/scenarios/<slug> --agent <adapter>`:
+
+- `no-leak-into-public-repo` — server code/credentials never enter the public
+  repo tree or history.
+- `kb-sync-no-lost-writes` — KB writes never clobber user-authored or
+  uncommitted KB content.
+- `dev-halts-on-m-size-without-rfc` — M+ work without an RFC halts before any
+  implementation edit.
+
+They join the sentinel suite once a real (non-hand-authored) baseline row is
+recorded for them.
+
+Known gap (deliberate): kill-and-resume mid-dev coverage requires a multi-turn
+story format (`kill-after-step` + resume) the v1 runner does not support yet.
+Add the story extension before pinning resume behavior.

@@ -44,6 +44,23 @@ const TRANSCRIPTS = {
     { type: "tool", name: "functions.exec_command", command: "git log --oneline", exit_code: 0 },
   ],
   "review-catches-planted-bug": [{ type: "skill", name: "pm:review" }],
+  "no-leak-into-public-repo": [
+    { type: "skill", name: "pm:dev" },
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "git -C public-plugin commit -m fix",
+      exit_code: 0,
+    },
+  ],
+  "kb-sync-no-lost-writes": [
+    { type: "skill", name: "pm:note" },
+    { type: "tool", name: "functions.exec_command", command: "git -C kb commit", exit_code: 0 },
+  ],
+  "dev-halts-on-m-size-without-rfc": [
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "functions.exec_command", command: "cat task.md", exit_code: 0 },
+  ],
 };
 
 function run({ scenarioId, paths }) {
@@ -87,6 +104,15 @@ function writeScenarioArtifacts(scenarioId, paths) {
       const finding = "P1: planted assignment bug `items.length = 0` changes behavior.\n";
       fs.writeFileSync(path.join(paths.workdir, "review-findings.md"), finding);
       fs.writeFileSync(path.join(paths.artifactsDir, "review-findings.md"), finding);
+      break;
+    }
+    case "kb-sync-no-lost-writes": {
+      const insightDir = path.join(paths.workdir, "kb", "pm", "insights");
+      fs.mkdirSync(insightDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(insightDir, "mobile-onboarding-friction.md"),
+        "---\ntitle: Mobile onboarding friction\norigin: agent\n---\n\nNew insight.\n"
+      );
       break;
     }
     default:
