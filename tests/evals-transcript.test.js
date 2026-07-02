@@ -193,6 +193,37 @@ test("test-red-green detects red runs masked by pipelines via result text", () =
   assert.equal(checkTranscript(events, "test-red-green", "test").status, "pass");
 });
 
+test("skill-or-agent accepts either invocation or matching agent dispatch", () => {
+  const viaSkill = normalizeEvents([{ type: "skill", name: "pm:design-critique" }]);
+  assert.equal(
+    checkTranscript(viaSkill, "skill-or-agent", "pm:design-critique", "designer").status,
+    "pass"
+  );
+
+  const viaAgent = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Task", command: "pm:designer Review the captured CLI output" },
+  ]);
+  assert.equal(
+    checkTranscript(
+      viaAgent,
+      "skill-or-agent",
+      "pm:design-critique",
+      "design.?critique|pm:designer"
+    ).status,
+    "pass"
+  );
+
+  const neither = normalizeEvents([
+    { type: "skill", name: "pm:dev" },
+    { type: "tool", name: "Bash", command: "echo done", exit_code: 0 },
+  ]);
+  assert.equal(
+    checkTranscript(neither, "skill-or-agent", "pm:design-critique", "pm:designer").status,
+    "fail"
+  );
+});
+
 test("shell reads of SKILL.md do not count as skill compliance", () => {
   const events = normalizeEvents([
     { type: "tool", name: "functions.exec_command", command: "sed -n '1,80p' skills/dev/SKILL.md" },

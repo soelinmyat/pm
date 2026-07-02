@@ -14,7 +14,7 @@ const KIND_PREFIX = Object.freeze({
 function normalizeLinearId(value) {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
-  return trimmed;
+  return trimmed.toUpperCase();
 }
 
 function baseSlug(kind, filePath) {

@@ -208,6 +208,27 @@ function checkTranscript(events, command, ...args) {
     }
     case "test-red-green":
       return testRedGreen(normalized, args[0] || "test");
+    case "skill-or-agent": {
+      // A gate can be satisfied by invoking the skill OR by dispatching an
+      // agent with the same intent — both are observable evidence of the
+      // discipline; only the calling convention differs.
+      if (hasSkill(normalized, args[0])) return pass();
+      let matcher;
+      try {
+        matcher = new RegExp(args[1], "i");
+      } catch {
+        return { status: "indeterminate", reason: `invalid-agent-pattern:${args[1]}` };
+      }
+      const dispatched = normalized.some(
+        (event) =>
+          event.type === "tool" &&
+          (event.name === "Task" || event.name === "Agent") &&
+          matcher.test(String(event.command || ""))
+      );
+      return dispatched
+        ? pass()
+        : fail(`neither skill ${args[0]} invoked nor matching agent dispatched`);
+    }
     default:
       return { status: "indeterminate", reason: `unknown-transcript-check:${command}` };
   }

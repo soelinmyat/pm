@@ -149,11 +149,14 @@ function normalizeClaudeStream(stdout) {
           events.push({ type: "skill", name: String(input.skill || "").trim() });
           continue;
         }
-        const event = {
-          type: "tool",
-          name: String(block.name || "").trim(),
-          command: String(input.command || input.file_path || input.path || ""),
-        };
+        const name = String(block.name || "").trim();
+        const command =
+          name === "Task" || name === "Agent"
+            ? [input.subagent_type, input.description, String(input.prompt || "").slice(0, 200)]
+                .filter(Boolean)
+                .join(" ")
+            : String(input.command || input.file_path || input.path || "");
+        const event = { type: "tool", name, command };
         events.push(event);
         if (block.id) byToolUseId.set(block.id, event);
       }
