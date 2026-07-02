@@ -84,12 +84,11 @@ function checkGateManifest(manifest, opts = {}) {
   }
   const sessionContext = readSessionContext(manifest, opts);
 
-  const requiredSet = new Set(requiredGates);
+  const legacySimplifyTolerated = !requiredGates.includes("simplify");
   const byName = new Map();
   manifest.gates.forEach((gate, index) => {
     const where = `${manifestPath}#gates[${index}]`;
-    const legacyRow =
-      gate && typeof gate === "object" && gate.name === "simplify" && !requiredSet.has("simplify");
+    const legacyRow = legacySimplifyTolerated && gate?.name === "simplify";
     validateGateRow(gate, where, issues, { artifactRoot, skipArtifactExistence: legacyRow });
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) return;
     if (byName.has(gate.name)) {
@@ -142,7 +141,7 @@ const LENSED_SIZES = new Set(["m", "l", "xl"]);
 
 function validateReviewLenses(reviewGate, manifestPath, sessionContext, issues) {
   if (!reviewGate || reviewGate.status !== "passed") return;
-  if (!LENSED_SIZES.has(String(sessionContext.sessionSize || "").toLowerCase())) return;
+  if (!LENSED_SIZES.has(sessionContext.sessionSize)) return;
   if (!Array.isArray(reviewGate.lenses)) {
     issues.push(
       issue(
@@ -152,7 +151,7 @@ function validateReviewLenses(reviewGate, manifestPath, sessionContext, issues) 
     );
     return;
   }
-  const have = new Set(reviewGate.lenses.map((l) => String(l).toLowerCase()));
+  const have = new Set(reviewGate.lenses.map(normalizeContextValue));
   if (!ABSORBED_REVIEW_LENSES.every((l) => have.has(l))) {
     issues.push(issue(manifestPath, "review lenses must include reuse, quality, efficiency"));
   }

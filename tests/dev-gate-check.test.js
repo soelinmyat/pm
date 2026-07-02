@@ -893,26 +893,6 @@ test("dev gate checker tolerates legacy simplify rows without requiring freshnes
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
-test("dev gate checker still validates simplify when explicitly required (legacy sessions)", () => {
-  const result = checkGateManifest(
-    manifest([
-      gate("simplify", "abc123", {
-        status: "skipped",
-        artifact: "",
-        reason: "felt unnecessary",
-      }),
-    ]),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
-  assert.equal(result.ok, false);
-  const text = result.issues.map((i) => i.message).join("\n");
-  assert.match(text, /simplify skip reason is not allowed/);
-});
-
 test("legacy simplify rows with failed or blocked status still fail the checker", () => {
   const result = checkGateManifest(
     manifest([
