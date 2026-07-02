@@ -49,7 +49,7 @@ When the task is classified XS (one-line fix, typo, config tweak) and the user c
 
 1. **Branch** — `git checkout -b fix/{slug} origin/{DEFAULT_BRANCH}`. No worktree. No state file.
 2. **Gate sidecar** — Create `.pm/dev-sessions/{slug}.gates.json` with `schema_version: 1`, `size: "XS"`, and an empty `gates` array even though the full Markdown state file is skipped.
-3. **Implement + test** — Write or update a failing test first. Write the fix. Run the project test suite. All tests must pass.
+3. **Implement + test** — Write the failing test first, **run it, and observe it fail** — before writing any implementation. Then write the fix and re-run: the same test passes, and the full project suite passes. The observed red run is the tdd gate evidence.
 4. **Commit implementation** — Commit the source and test changes before recording gate rows. If `git diff {DEFAULT_BRANCH}...HEAD --quiet` would show no committed diff after this commit, stop; do not push an empty branch. Record the failing command and final passing command as the `tdd` gate artifact tied to this committed HEAD.
 5. **Simplify skip row** — Record `simplify` as `skipped` with reason `XS size`.
 6. **Design critique if UI** — If the diff touches UI/UX files or user-visible interaction, invoke `pm:design-critique`, commit any fixes, and record the gate against the resulting HEAD. If there is no visual impact, record `design-critique` as `skipped` with a concrete reason.
