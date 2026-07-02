@@ -398,6 +398,73 @@ test("ship-stage worker checks out the existing branch and runs one cycle", () =
   }
 });
 
+test("ship-stage branch values are validated as refs, not passed to git argv", () => {
+  const { isSafeBranchRef } = require("../scripts/loop-worker.js");
+  assert.equal(isSafeBranchRef("loop/pm-9-202607021200"), true);
+  assert.equal(isSafeBranchRef("feat/thing_2.x"), true);
+  assert.equal(isSafeBranchRef("--upload-pack=evil"), false);
+  assert.equal(isSafeBranchRef("-b"), false);
+  assert.equal(isSafeBranchRef("a..b"), false);
+  assert.equal(isSafeBranchRef("branch.lock"), false);
+  assert.equal(isSafeBranchRef(""), false);
+
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      [
+        "---",
+        'id: "PM-T1"',
+        'title: "Test card"',
+        "kind: task",
+        "status: shipping",
+        'branch: "--upload-pack=evil"',
+        "---",
+        "",
+        "Ship it.",
+      ].join("\n") + "\n"
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "injected branch"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(result.status, "bootstrap-failed", JSON.stringify(result));
+    assert.equal(result.reason, "ship-branch-invalid");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("ship-stage dispatch with a well-formed but nonexistent branch fails closed", () => {
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      [
+        "---",
+        'id: "PM-T1"',
+        'title: "Test card"',
+        "kind: task",
+        "status: shipping",
+        'branch: "loop/never-created"',
+        "---",
+        "",
+        "Ship it.",
+      ].join("\n") + "\n"
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "ghost branch"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    assert.equal(result.status, "bootstrap-failed", JSON.stringify(result));
+    assert.equal(result.reason, "ship-branch-not-found");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("ship-stage dispatch without a recorded branch fails closed", () => {
   const fixture = makeProjectFixture();
   try {

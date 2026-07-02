@@ -141,6 +141,23 @@ function buildPrompt(plan, config = {}) {
   ].join("\n");
 }
 
+function isSafeBranchRef(branch) {
+  if (branch.includes("..") || branch.endsWith(".lock") || branch.endsWith("/")) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(branch);
+}
+
+function branchRefExists(gitRoot, branch) {
+  for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+    try {
+      runGit(["rev-parse", "--verify", "--quiet", ref], gitRoot);
+      return true;
+    } catch {
+      // try the next ref namespace
+    }
+  }
+  return false;
+}
+
 function defaultBranch(gitRoot) {
   try {
     const ref = runGit(["symbolic-ref", "refs/remotes/origin/HEAD"], gitRoot);
@@ -160,8 +177,16 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     .slice(0, 12);
   const shipStage = plan.selected.stage === "ship" || plan.selected.stage === "review";
   const existingBranch = String(plan.selected.branch || "");
-  if (shipStage && !existingBranch) {
-    return { ok: false, reason: "ship-branch-missing" };
+  if (shipStage) {
+    // branch comes from git-synced card frontmatter — same injection surface
+    // as the command field. Validate shape, then verify the ref exists.
+    if (!existingBranch) return { ok: false, reason: "ship-branch-missing" };
+    if (!isSafeBranchRef(existingBranch)) {
+      return { ok: false, reason: "ship-branch-invalid" };
+    }
+    if (!branchRefExists(gitRoot, existingBranch)) {
+      return { ok: false, reason: "ship-branch-not-found" };
+    }
   }
   const branch = shipStage ? existingBranch : `loop/${slug}-${stamp}`;
   const workspacePath = path.join(gitRoot, ".worktrees", `loop-${slug}-${stamp}`);
@@ -462,6 +487,7 @@ function main() {
 
 module.exports = {
   buildPrompt,
+  isSafeBranchRef,
   countRunsToday,
   engineCommand,
   isDispatchableCommand,
