@@ -26,7 +26,13 @@ function parseJsonl(text) {
 }
 
 function normalizeEvents(rawEvents) {
-  return rawEvents.map((event, index) => normalizeEvent(event, index)).filter(Boolean);
+  return rawEvents
+    .flatMap((event, index) => {
+      const normalized = normalizeEvent(event, index);
+      if (!normalized) return [];
+      return Array.isArray(normalized) ? normalized : [normalized];
+    })
+    .filter(Boolean);
 }
 
 function normalizeEvent(event, index) {
@@ -35,6 +41,29 @@ function normalizeEvent(event, index) {
   const type = String(event.type || event.kind || "").toLowerCase();
   const name = String(event.name || event.skill || event.tool || event.command || "").trim();
   const command = String(event.command || event.input || "");
+  const item = event.item && typeof event.item === "object" ? event.item : null;
+
+  if (item && item.type === "command_execution") {
+    return {
+      index,
+      type: "tool",
+      name: "functions.exec_command",
+      command: String(item.command || ""),
+      raw: event,
+    };
+  }
+
+  if (item && item.type === "agent_message") {
+    const skills = extractDeclaredPmSkills(String(item.text || ""));
+    if (skills.length > 0) {
+      return skills.map((skill) => ({
+        index,
+        type: "skill",
+        name: skill,
+        raw: event,
+      }));
+    }
+  }
 
   if (type === "tool" || event.tool) {
     return {
@@ -64,6 +93,32 @@ function normalizeEvent(event, index) {
   };
 }
 
+function extractDeclaredPmSkills(text) {
+  const found = [];
+  const seen = new Set();
+  const re = /`?(pm:[a-z][a-z0-9-]*)`?/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const skill = match[1];
+    if (seen.has(skill)) continue;
+    if (!looksLikeSkillUse(text, match.index)) continue;
+    seen.add(skill);
+    found.push(skill);
+  }
+  return found;
+}
+
+function looksLikeSkillUse(text, index) {
+  const before = text.slice(Math.max(0, index - 220), index).toLowerCase();
+  const action =
+    "(?:use|using|used|invoke|invoking|invoked|run|running|ran|call|calling|called|load|loading|loaded|follow|following|followed|apply|applying|applied|execute|executing|executed)";
+  const negative = new RegExp(
+    `(?:do not|don't|dont|won't|will not|without|skip|skipping|not)\\s+(?:\\w+\\s+){0,8}${action}\\b`
+  );
+  if (negative.test(before)) return false;
+  return new RegExp(`${action}\\b[\\s\\S]{0,220}$`).test(before);
+}
+
 function checkTranscript(events, command, ...args) {
   const normalized = normalizeEvents(events);
   if (normalized.length === 0) {
@@ -81,6 +136,8 @@ function checkTranscript(events, command, ...args) {
         findToolIndex(normalized, args[1]),
         `skill ${args[0]} did not precede tool ${args[1]}`
       );
+    case "skill-before-command":
+      return skillBeforeCommand(normalized, args[0], args[1]);
     case "no-tool-before-skill": {
       const toolIndex = findToolIndex(normalized, args[0]);
       const skillIndex = findSkillIndex(normalized, args[1]);
@@ -100,6 +157,26 @@ function hasSkill(events, skill) {
 
 function hasTool(events, tool) {
   return findToolIndex(events, tool) !== -1;
+}
+
+function skillBeforeCommand(events, skill, commandPattern) {
+  const skillIndex = findSkillIndex(events, skill);
+  if (skillIndex === -1) return fail(`skill not called: ${skill}`);
+
+  let matcher;
+  try {
+    matcher = new RegExp(commandPattern);
+  } catch {
+    return { status: "indeterminate", reason: `invalid-command-pattern:${commandPattern}` };
+  }
+
+  const commandIndex = events.findIndex(
+    (event) => event.type === "tool" && matcher.test(String(event.command || ""))
+  );
+  if (commandIndex === -1) return pass();
+  return commandIndex > skillIndex
+    ? pass()
+    : fail(`command matched before skill ${skill}: ${commandPattern}`);
 }
 
 function findSkillIndex(events, skill) {
