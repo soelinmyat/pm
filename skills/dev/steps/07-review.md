@@ -179,7 +179,7 @@ Also update `.pm/dev-sessions/{slug}.gates.json`:
 
 #### Kind override: force pm:review for task/bug
 
-If session state has `kind: task` or `kind: bug`, run the **full `pm:review`** path below regardless of size. Do NOT fall to the XS code-scan path or the S skip path — task/bug items forfeit the simplify gate (Step 06 skipped them), so review is the single code-quality gate and must always run. Log: `Review gate: forced-kind-{kind}`.
+If session state has `kind: task` or `kind: bug`, run the **full `pm:review`** path below regardless of size. Do NOT fall to the XS code-scan path or the S skip path — task/bug items skip grooming and the RFC, so the full review fan-out is their single quality gate and must always run. Log: `Review gate: forced-kind-{kind}`.
 
 For `kind: proposal` (or absent/null via `resolveKind`), the normal size-based routing below applies.
 
@@ -187,15 +187,16 @@ For `kind: proposal` (or absent/null via `resolveKind`), the normal size-based r
 
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST invoke `pm:review` on the branch.
-This runs up to 3 review agents (conditionally skipping Design when upstream gate passed). This gate is NOT optional. Do NOT skip it.
+This runs the 6-lens review fan-out (conditionally skipping the Design lens when the upstream gate passed). This gate is NOT optional. Do NOT skip it.
 If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed (commit <sha>)` for the current HEAD, or `.pm/dev-sessions/{slug}.gates.json` does not have a current `review` row,
 STOP and run the review first.
 </HARD-GATE>
 
-**Auto-fix all high-confidence findings.** `pm:review` runs up to 3 agents and tiers output by confidence (see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`):
-1. **Code Reviewer** — genuine bugs in the diff. Runtime-uniform dispatch via `agent-runtime.md`.
-2. **Design Reviewer** — design system compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed and no contract drift detected.
-3. **Input Edge-Case Reviewer** — untested edge cases and adversarial inputs.
+**Auto-fix all high-confidence findings.** `pm:review` runs a parallel 6-lens fan-out and tiers output by confidence (see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`):
+1. **Bugs** — genuine bugs in the diff. Runtime-uniform dispatch via `agent-runtime.md`.
+2. **Design system** — compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed and no contract drift detected.
+3. **Input edge cases** — untested edge cases and adversarial inputs.
+4. **Reuse / quality / efficiency** — the simplification lenses (absorbed from the former simplify gate): missed reuse of existing code, quality issues, unnecessary work.
 
 High-confidence findings (80+) are auto-fixed and committed. Worth-checking findings (50–79) are surfaced for human judgment. Noisy findings (<50) are listed last for visibility only.
 
@@ -219,7 +220,11 @@ This catches bugs that tests alone miss: silent no-ops, swallowed errors, race c
 Dispatch reviewer persona `@staff-engineer` using `agent-runtime.md`. If delegation is unavailable, run the same brief inline.
 
 ```text
-Scan for genuine bugs in this diff. Max 5 findings.
+Scan this diff for genuine bugs AND simplification wins. Max 5 findings
+of each. Bugs: silent no-ops, swallowed errors, races, missing error
+feedback. Simplification: existing project code that could replace new
+code, dead paths, redundant work — only flag when you can name the
+specific existing code or the specific unnecessary work.
 
 **Diff:** {git diff {DEFAULT_BRANCH}...HEAD}
 **Changed files:** {list}
@@ -259,7 +264,6 @@ For each required gate row in `.pm/dev-sessions/{slug}.gates.json`:
 1. If the row is `failed` or `blocked`, stop and resolve that gate first.
 2. If `commit` already equals `git rev-parse HEAD`, leave it unchanged.
 3. If later commits changed the gate's relevant surface, rerun the gate instead of recertifying:
-   - `simplify`: rerun `pm:simplify` when code or PM runtime files changed after the simplify evidence commit.
    - `design-critique`: rerun `pm:design-critique` when UI, static HTML, server-rendered template, design-system, design-token/theme data, copy-flow, responsive, or user-visible interaction files changed after the design evidence commit.
    - `qa`: rerun QA when UI/user-visible files changed after the QA evidence commit. If the environment cannot run, record `qa: blocked`; do not skip.
    - `review`: rerun `pm:review` or the XS/S code scan when any reviewable source/runtime file changed after the review evidence commit.
@@ -271,7 +275,7 @@ Append a short state note:
 ```markdown
 ## Gate Recertification
 - Final HEAD: <sha>
-- Recertified: tdd, simplify, design-critique, qa, review
+- Recertified: tdd, design-critique, qa, review
 - Rerun gates: <none | list>
 ```
 

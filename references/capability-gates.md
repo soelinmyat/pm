@@ -18,8 +18,7 @@ Shared classification for optional tools, skills, and runtime features used by P
 | `delegation` | `runtime-specific` | Required only when a workflow explicitly chooses delegated execution. Inline execution must remain available in Codex. |
 | `persistent_workers` | `runtime-specific` | Required only for resumable delegated worker flows. Claude normally has this. Codex only has it when delegation is enabled. |
 | `gh` for PR creation/merge | `required` when the chosen path creates or merges a PR | Detect early and stop only on PR-required paths. |
-| `pm:review` | built-in | Always available. In-house multi-agent review via `agent-runtime.md` (3 agents: code, design, input edge-case). Runtime-uniform — no external command dependency. No availability check needed. |
-| `pm:simplify` | built-in | Always available. In Claude Code, delegates to Anthropic's official simplify internally. No availability check needed. |
+| `pm:review` | built-in | Always available. In-house multi-agent review via `agent-runtime.md` (6 lenses: bugs, design, input edge-case, reuse, quality, efficiency — the last three absorbed from the former `pm:simplify` in v1.9). Runtime-uniform — no external command dependency. No availability check needed. |
 | `design-critique` | `preferred` unless the project explicitly treats it as mandatory | If unavailable, log the downgrade and continue to the next gate. |
 | `Playwright MCP` | `preferred` for QA and design critique on web | If absent, QA may degrade or block depending on whether browser testing is central to the task. |
 | `Maestro MCP` | `preferred` for mobile QA/design critique | Same rule as Playwright, but mobile-specific. |

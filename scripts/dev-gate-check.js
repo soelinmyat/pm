@@ -6,15 +6,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
-const DEFAULT_REQUIRED_GATES = [
-  "tdd",
-  "simplify",
-  "design-critique",
-  "qa",
-  "review",
-  "verification",
-];
-const VALID_GATE_NAMES = new Set(DEFAULT_REQUIRED_GATES);
+const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
+// "simplify" was absorbed into review in v1.9; legacy sidecars still carry its
+// rows and legacy sessions may still --require it, so the name stays valid.
+const VALID_GATE_NAMES = new Set([...DEFAULT_REQUIRED_GATES, "simplify"]);
 const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
 const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
 const NEVER_SKIPPABLE_GATES = new Set(["review", "verification"]);

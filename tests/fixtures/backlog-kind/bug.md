@@ -2,7 +2,7 @@
 type: backlog
 id: PM-902
 title: Fixture — bug item
-outcome: Test fixture for dev routing — kind=bug skips groom/RFC/simplify and forces review
+outcome: Test fixture for dev routing — kind=bug skips groom/RFC and forces review
 kind: bug
 status: proposed
 priority: high

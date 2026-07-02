@@ -30,15 +30,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 9 step files exist and load
+// AC 1: All 8 step files exist and load (06-simplify absorbed into review, v1.9)
 // ---------------------------------------------------------------------------
 
-test("dev steps: all 9 step files load with correct order", () => {
+test("dev steps: all 8 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 9, `Expected 9 steps, got ${steps.length}`);
+    assert.equal(steps.length, 8, `Expected 8 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -106,7 +106,6 @@ const CRITICAL_KEYWORDS = [
   "Worktree",
   "RFC check",
   "RFC generation",
-  "Simplify",
   "Design critique",
   "Verification gate",
 
@@ -124,7 +123,7 @@ const CRITICAL_KEYWORDS = [
 
   // Stage 5: Implementation
   "implementation-flow.md",
-  "pm:simplify",
+  "pm:review",
   "dev/references/tdd.md",
   "merge-loop",
 
@@ -205,7 +204,7 @@ test("dev steps: sub-skill invocations use Invoke pm:{skill} syntax", () => {
     const prompt = buildPrompt(steps);
 
     // These sub-skill references must be preserved
-    const subSkills = ["pm:groom", "pm:simplify"];
+    const subSkills = ["pm:groom", "pm:review"];
     for (const skill of subSkills) {
       assert.ok(prompt.includes(skill), `Sub-skill reference "${skill}" should be in output`);
     }

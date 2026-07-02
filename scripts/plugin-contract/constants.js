@@ -27,7 +27,6 @@ const PRIORITY_SURFACES = [
   "skills/dev/steps/04-groom-readiness.md",
   "skills/ship/steps/07-merge-loop.md",
   "skills/review/SKILL.md",
-  "skills/simplify/SKILL.md",
 ];
 
 // Whitelist of tool names that may appear in an `allowed-tools:` frontmatter

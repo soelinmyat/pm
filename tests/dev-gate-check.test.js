@@ -857,3 +857,58 @@ test("dev gate checker CLI exits non-zero on stale gate state", () => {
     tmp.cleanup();
   }
 });
+
+test("dev gate checker does not require simplify by default (absorbed into review, v1.9)", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("tdd"),
+      gate("design-critique"),
+      gate("qa"),
+      gate("review"),
+      gate("verification"),
+    ]),
+    {
+      currentCommit: "abc123",
+      manifestPath: ".pm/dev-sessions/current.gates.json",
+    }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
+
+test("dev gate checker tolerates legacy simplify rows without requiring freshness", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("tdd"),
+      gate("simplify", "old-stale-sha"),
+      gate("design-critique"),
+      gate("qa"),
+      gate("review"),
+      gate("verification"),
+    ]),
+    {
+      currentCommit: "abc123",
+      manifestPath: ".pm/dev-sessions/current.gates.json",
+    }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+});
+
+test("dev gate checker still validates simplify when explicitly required (legacy sessions)", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("simplify", "abc123", {
+        status: "skipped",
+        artifact: "",
+        reason: "felt unnecessary",
+      }),
+    ]),
+    {
+      currentCommit: "abc123",
+      requiredGates: ["simplify"],
+      manifestPath: ".pm/dev-sessions/current.gates.json",
+    }
+  );
+  assert.equal(result.ok, false);
+  const text = result.issues.map((i) => i.message).join("\n");
+  assert.match(text, /simplify skip reason is not allowed/);
+});

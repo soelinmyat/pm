@@ -5,7 +5,7 @@ description: "Use when the user wants a lightweight capture that skips groom/RFC
 
 # pm:task
 
-Capture a lightweight chore or todo into the backlog in one pass — no grooming, no RFC. The item gets `kind: task` and `pm:dev` picks it up on a lean path (skips groom/RFC/simplify, still runs `pm:review`). Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions, and `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for the `capture-backlog.js` contract and task-vs-bug-vs-groom routing. Extract the title (ask if missing) and a one-sentence outcome (fall back to the title if the user declines), run the helper with `--kind task`, confirm with slug + id + a `/pm:dev {slug}` hint, then offer optional priority/label enrichment.
+Capture a lightweight chore or todo into the backlog in one pass — no grooming, no RFC. The item gets `kind: task` and `pm:dev` picks it up on a lean path (skips groom/RFC, still runs `pm:review`). Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions, and `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for the `capture-backlog.js` contract and task-vs-bug-vs-groom routing. Extract the title (ask if missing) and a one-sentence outcome (fall back to the title if the user declines), run the helper with `--kind task`, confirm with slug + id + a `/pm:dev {slug}` hint, then offer optional priority/label enrichment.
 
 **Workflow:** `task`
 

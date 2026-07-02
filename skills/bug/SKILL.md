@@ -7,7 +7,7 @@ description: "Use when something broke, a regression, unexpected behavior, or 't
 
 ## Purpose
 
-Capture a bug report into the backlog in one pass — no grooming, no RFC. The resulting item has `kind: bug` and is picked up by `pm:dev` on a lean path (skips groom/RFC/simplify, still runs `pm:review`). Use this when something is broken and the fix should go through implementation directly.
+Capture a bug report into the backlog in one pass — no grooming, no RFC. The resulting item has `kind: bug` and is picked up by `pm:dev` on a lean path (skips groom/RFC, still runs `pm:review`). Use this when something is broken and the fix should go through implementation directly.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 

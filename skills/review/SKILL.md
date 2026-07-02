@@ -1,15 +1,15 @@
 ---
 name: review
-description: "Use after implementation completes to run multi-agent code review on the current branch diff. Runs 3 parallel agents (code, design, input edge-cases) with tiered confidence output, auto-fixes findings, and commits. Mandatory M/L/XL gate inside pm:dev and ship; also usable standalone on any branch with a diff."
+description: "Use after implementation completes to run multi-agent code review on the current branch diff. Runs a parallel 6-lens fan-out (bugs, design, input edge-cases, reuse, quality, efficiency) with one structured finding schema, tiered confidence output, auto-fixes findings, and commits. Absorbs the former pm:simplify gate. Mandatory M/L/XL gate inside pm:dev and ship; also usable standalone on any branch with a diff."
 ---
 
 # pm:review
 
 ## Purpose
 
-Post-implementation multi-agent code review gate. Reviews the current branch diff for genuine bugs, design-system violations, and untested input edge cases using 3 parallel agents, then auto-fixes findings and commits them.
+Post-implementation multi-agent review gate. Reviews the current branch diff across six lenses — genuine bugs, design-system violations, untested input edge cases, missed reuse, code quality, and efficiency — as one parallel fan-out, then auto-fixes findings and commits them.
 
-This is the single review entrypoint for all PM workflows. One code path, every runtime, no external dependency on Anthropic's `/review` command.
+This is the single review entrypoint for all PM workflows, and since v1.9 it includes the simplification lenses that previously lived in `pm:simplify`. One code path, every runtime, no external dependency on Anthropic's `/review` command.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
@@ -23,23 +23,23 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## When to use
 
-- Called by `pm:dev` Step 07 for M/L/XL tasks, after simplify / design critique / QA.
+- Called by `pm:dev` Step 07 for M/L/XL tasks, after design critique / QA.
 - Called by `pm:ship` Step 03 as the pre-push gate on any branch, including standalone ship invocations.
 - Standalone: any branch where you want a multi-agent review pass on the current diff vs `{DEFAULT_BRANCH}`.
 
 ## When NOT to use
 
 - Before implementation is committed — review scans committed diffs, not uncommitted edits.
-- XS/S-sized work inside `pm:dev` when the current dev gate sidecar already records the lightweight code scan for HEAD.
+- XS/S-sized work inside `pm:dev` when the current dev gate sidecar already records the lightweight code scan for HEAD (the XS/S scan brief includes the simplification checks inline).
 - Standalone `pm:ship` still calls `pm:review` unless a current `review` gate already exists.
 - Docs-only, config-only, or lockfile-only changes — skip via the scan below.
-- Same-SHA re-review — see Iron Law.
+- Same-SHA re-review — see Hard rules.
 
 ## State file convention
 
 The session state file is `.pm/dev-sessions/{slug}.md` where `{slug}` comes from the current branch name using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` (`deriveSessionSlug` in `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js`). Examples: `feat/add-auth` -> `add-auth`; `codex/pm-dev-workflow-proposal` -> `pm-dev-workflow-proposal`. If no state file matches, proceed without upstream-gate data — all agents run.
 
-The machine-checkable gate sidecar is `.pm/dev-sessions/{slug}.gates.json`. When review passes or is explicitly skipped, write/update the `review` row with `status`, `commit`, `artifact`, `reason`, and `checked_at` using the schema in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`. A stale or missing sidecar row means downstream push/ship gates re-run review.
+The machine-checkable gate sidecar is `.pm/dev-sessions/{slug}.gates.json`. When review passes or is explicitly skipped, write/update the `review` row with `status`, `commit`, `artifact`, `reason`, and `checked_at` using the schema in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`. A stale or missing sidecar row means downstream push/ship gates re-run review. (Legacy sidecars from pre-v1.9 sessions may contain a separate `simplify` row — leave it in place; the checker tolerates it.)
 
 ## Default branch detection
 
@@ -112,30 +112,52 @@ Save the diff and file list — agents receive them as input.
 
 ---
 
-## Phase 2: Parallel Reviews
+## Phase 2: Parallel 6-Lens Fan-Out
 
-Dispatch via `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
+Six lenses, dispatched in one parallel wave via `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`:
 
-- **Claude Code:** parallel `Agent` calls with the matching plugin agent:
-  - Agent 1 (Code Reviewer) → `subagent_type: pm:staff-engineer`
-  - Agent 2 (Design Reviewer) → `subagent_type: pm:designer`
-  - Agent 3 (Input Edge-Case Reviewer) → `subagent_type: pm:tester`
-- **Codex with delegation:** parallel `spawn_agent` calls, `wait_agent` all (no plugin agents — inline the `@persona` body as before)
-- **Codex inline / other runtimes:** run review briefs sequentially, merge findings
+| # | Lens | Persona | Cap |
+|---|------|---------|-----|
+| 1 | Bugs | `pm:staff-engineer` | 20 |
+| 2 | Design system | `pm:designer` | 20 |
+| 3 | Input edge cases | `pm:tester` | 20 |
+| 4 | Code reuse | `pm:staff-engineer` | 5 |
+| 5 | Code quality | `pm:staff-engineer` | 5 |
+| 6 | Efficiency | `pm:staff-engineer` | 5 |
 
-Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine which reviewers to skip.
+- **Claude Code:** parallel `Agent` calls with the matching plugin agent (`subagent_type` per table).
+- **Codex with delegation:** parallel `spawn_agent` calls, `wait_agent` all (no plugin agents — inline the `@persona` body as before).
+- **Codex inline / other runtimes:** run the lens briefs sequentially, merge findings.
 
-### Contract Drift Check (before skipping any agent)
+Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine whether the design lens skips.
 
-Before skipping any agent based on an upstream-gate pass, verify the implementation stayed within approved scope:
+### Finding schema (all lenses)
+
+Every lens returns findings in one schema:
+
+```
+- category: bug | design | edge | reuse | quality | efficiency
+- confidence: 0-100
+- severity: low | medium | high | critical
+- file: path/to/file
+- line: N
+- issue: one-line description of the broken behavior / missed opportunity
+- fix: one-line suggested fix
+```
+
+Only report issues you can name the specific broken behavior, violated convention, untested path, or existing-code alternative for. No taste calls, stylistic preferences, or hypothetical scenarios.
+
+### Contract Drift Check (before skipping any lens)
+
+Before skipping any lens based on an upstream-gate pass, verify the implementation stayed within approved scope:
 
 1. Read `.pm/dev-sessions/{slug}.md` and extract the plan's **Files in scope** list (from the Contract section, if present).
 2. Compare against the actual changed files in the diff (Phase 1).
 3. **All changed files within scope:** skip is safe.
-4. **Files outside scope** (new files not listed, files in different modules/apps): log `Contract drift detected — {N} files outside approved scope` and **do not skip** any agent.
+4. **Files outside scope** (new files not listed, files in different modules/apps): log `Contract drift detected — {N} files outside approved scope` and **do not skip** any lens.
 5. **No plan scope available** (legacy plans, XS/S tasks): fall back to upstream-gate-pass = skip.
 
-### Agent 1: Code Reviewer (`@staff-engineer`)
+### Lens 1: Bugs (`@staff-engineer`)
 
 Finds genuine bugs in the diff. Scope is **changes only** — do not flag pre-existing issues outside the diff.
 
@@ -166,20 +188,14 @@ prompt: |
 
   **Slug:** {slug}
 
-  Return each finding as:
-  - confidence: 0-100
-  - severity: low | medium | high | critical
-  - file: path/to/file
-  - line: N
-  - issue: one-line description of the broken behavior
-  - fix: one-line suggested fix
+  Return each finding using the shared schema with category: bug.
 ```
 
-### Agent 2: Design Reviewer (`@designer`)
+### Lens 2: Design system (`@designer`)
 
 Design-system compliance, component reuse, visual consistency.
 
-**Conditional skip:** If `.pm/dev-sessions/{slug}.md` contains `Design critique: passed` or `Design critique: completed` **and** the Contract Drift Check passed, skip this agent. Log: `Design review: skipped (Design Critique passed upstream, no drift)`.
+**Conditional skip:** If `.pm/dev-sessions/{slug}.md` contains `Design critique: passed` or `Design critique: completed` **and** the Contract Drift Check passed, skip this lens. Log: `Design review: skipped (Design Critique passed upstream, no drift)`.
 
 **Scope:** UI files only (`tsx`/`jsx`/`css`/`scss` in diff). If none, return no findings.
 
@@ -205,10 +221,10 @@ prompt: |
 
   **Slug:** {slug}
 
-  Return each finding with the same schema as Agent 1.
+  Return each finding using the shared schema with category: design.
 ```
 
-### Agent 3: Input Edge-Case Reviewer (`@tester`)
+### Lens 3: Input edge cases (`@tester`)
 
 Untested input boundaries, error paths, concurrent access patterns, adversarial inputs. In Claude, prefer `model: "opus"` or the strongest available review model.
 
@@ -241,18 +257,91 @@ prompt: |
 
   **Slug:** {slug}
 
-  Return each finding with the same schema as Agent 1.
+  Return each finding using the shared schema with category: edge.
+```
+
+### Lens 4: Code reuse (`@staff-engineer`)
+
+Finds existing project utilities, helpers, shared components, or established patterns that could replace newly written code.
+
+```
+prompt: |
+  Review this diff for code reuse opportunities. Find existing project
+  utilities, helpers, components, or patterns that could replace newly
+  written code. Check imports and existing modules before flagging —
+  only flag when you can name the specific existing code to reuse.
+
+  Max 5 findings.
+
+  ## Project Context
+  {PROJECT_CONTEXT}
+
+  **Diff:**
+  {diff}
+
+  **Changed files:**
+  {files}
+
+  Return each finding using the shared schema with category: reuse.
+```
+
+### Lens 5: Code quality (`@staff-engineer`)
+
+Redundant state, parameter sprawl, copy-paste patterns, dead code, overly complex conditionals, unnecessary abstractions, naming inconsistencies.
+
+```
+prompt: |
+  Review this diff for code quality issues. Look for: redundant state,
+  parameter sprawl, copy-paste patterns, dead code paths, overly complex
+  conditionals, unnecessary abstractions, naming inconsistencies.
+
+  Max 5 findings.
+
+  ## Project Context
+  {PROJECT_CONTEXT}
+
+  **Diff:**
+  {diff}
+
+  **Changed files:**
+  {files}
+
+  Return each finding using the shared schema with category: quality.
+```
+
+### Lens 6: Efficiency (`@staff-engineer`)
+
+Unnecessary work (redundant fetches, re-renders, recomputation), missed concurrency opportunities, hot-path bloat, N+1 patterns.
+
+```
+prompt: |
+  Review this diff for efficiency issues. Look for: unnecessary work
+  (redundant fetches, re-renders, recomputation), missed concurrency,
+  hot-path bloat, N+1 query patterns, unnecessary synchronous waits.
+
+  Max 5 findings.
+
+  ## Project Context
+  {PROJECT_CONTEXT}
+
+  **Diff:**
+  {diff}
+
+  **Changed files:**
+  {files}
+
+  Return each finding using the shared schema with category: efficiency.
 ```
 
 ---
 
 ## Phase 3: Merge & Tier Findings
 
-After all active agents return:
+After all active lenses return:
 
-1. Collect findings from all active agents (2 if design skipped, else 3).
-2. Deduplicate: same file + same line range + same issue = one finding, keep the highest confidence.
-3. Quick sanity check: if a finding references code or a pattern that doesn't exist, discard it (a 15-second grep is enough).
+1. Collect findings from all active lenses (5 if design skipped, else 6).
+2. Deduplicate across lenses: same file + same line range + same issue = one finding, keep the highest confidence. A reuse finding and a quality finding pointing at the same code are one finding — keep the more actionable `fix`.
+3. Quick sanity check: if a finding references code, a utility, or a pattern that doesn't exist, discard it (a 15-second grep is enough).
 4. **Tier by confidence** — show every surviving finding, grouped:
 
 | Tier | Range | Treatment |
@@ -262,13 +351,14 @@ After all active agents return:
 | **Noisy** | <50 | List last for visibility; do not auto-fix |
 
 5. Within each tier, sort by severity (critical → high → medium → low).
+6. Findings that require a design call (e.g. "should this be a hook or a context?") are never auto-fixed regardless of confidence — surface them to the caller.
 
 Present the merged list:
 
 ```
 ## Review Complete
 
-### Code Review Findings
+### Bug Findings
 High confidence:
 - [critical/high/medium/low] {issue} — {file}:{line}
 
@@ -282,6 +372,9 @@ Noisy:
 [findings by tier / Skipped (Design Critique passed upstream, no drift)]
 
 ### Input Edge-Case Findings
+[findings by tier]
+
+### Simplification Findings (reuse / quality / efficiency)
 [findings by tier]
 
 ### Auto-fixing [N] high-confidence findings...
@@ -303,6 +396,8 @@ For each high-confidence finding (critical → high → medium → low within th
 
 **Noisy tier:** never auto-fix. Report only.
 
+**Scope discipline:** fix only what the lenses flagged; don't refactor surrounding code.
+
 ---
 
 ## Phase 5: Commit & Report
@@ -315,16 +410,17 @@ Run `git branch --show-current` and confirm you are NOT on `{DEFAULT_BRANCH}`.
 
 ```bash
 git add -A
-git commit -m "fix: address review feedback
+git commit -m "fix: address review findings
 
-- [summary of Code fixes]
-- [summary of Design fixes, if agent ran]
-- [summary of Input edge-case fixes/tests]"
+- [summary of Bug fixes]
+- [summary of Design fixes, if lens ran]
+- [summary of Input edge-case fixes/tests]
+- [summary of Simplification fixes (reuse/quality/efficiency)]"
 ```
 
 ### Report summary
 
-- Agents run: [list; note any skipped with reason]
+- Lenses run: [list; note any skipped with reason]
 - Findings by tier: High confidence: N, Worth checking: N, Noisy: N
 - Auto-fixed: N
 - Deferred for human: N (worth-checking items left unfixed)
@@ -380,11 +476,11 @@ Review passed — no reviewable source changes.
 
 ## Guardrails
 
-- **Safety ceiling of 20 findings per agent** catches runaway agent output — not a quality filter. Normal diffs produce 0–10.
+- **Safety ceilings** (20 per bug/design/edge lens, 5 per reuse/quality/efficiency lens) catch runaway agent output — not a quality filter. Normal diffs produce 0–10 findings total.
 - **Tiered output, no hard confidence gate** — the 50-79 band is informational, not silenced. The human decides what's real.
-- Agents must name specific broken behavior, not taste calls — the brief enforces this.
+- Lenses must name specific broken behavior or the specific existing code to reuse — the briefs enforce this.
 - Never pause between Phases 1–5 — run end-to-end.
-- Never skip Phase 1 context gathering — agents need the full diff and AGENTS.md.
+- Never skip Phase 1 context gathering — lenses need the full diff and AGENTS.md.
 - Never bypass pre-commit hooks on fix commits.
 - If no findings above the noisy tier, report clean and stop (no empty commit).
 - Run tests after EVERY fix, not just at the end.

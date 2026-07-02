@@ -5,7 +5,7 @@ Shared implementation lifecycle for all dev work. Everything from "plan approved
 **Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how persona intents map to Claude and Codex.
 
 **Context:** This flow is invoked by fresh agents dispatched from Step 05 (Implementation):
-- **Single-task:** A fresh @developer agent reads Steps 1–2 for setup and implementation. Steps 3+ (simplify, review, ship) are handled by the orchestrator via dev steps 06–09.
+- **Single-task:** A fresh @developer agent reads Steps 1–2 for setup and implementation. Steps 4+ (design critique, review, ship) are handled by the orchestrator via dev steps 07–09.
 - **Multi-task:** A fresh agent follows the full lifecycle (Steps 1–8) for each task. The agent owns implement through merge and returns "Merged" or "Blocked."
 
 ## Agent Scope
@@ -17,14 +17,14 @@ The dispatching brief in Step 05 always specifies scope. This note is a cross-ch
 | Single-task | Steps 1–2 only | Orchestrator (dev steps 06–09) |
 | Multi-task | Steps 1–8 (full lifecycle) | Agent is self-contained |
 
-If you're a single-task agent and you've reached Step 3, **stop** — return "Implementation complete" and let the orchestrator proceed.
+If you're a single-task agent and you've finished Step 2, **stop** — return "Implementation complete" and let the orchestrator proceed.
 
 ---
 
 ## Lifecycle
 
 ```
-Setup -> Implement -> Simplify (S+, skip XS) -> Design Critique (if UI) ->
+Setup -> Implement -> Design Critique (if UI) ->
   QA (if UI, iterates on Fail) ->
   Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Gate Check -> Push + PR ->
   Merge -> Cleanup -> Done
@@ -226,11 +226,7 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
      The authoritative source for ship/status logic is skills/dev/steps/08-ship.md.
      This file only adds multi-task-specific orchestration on top. -->
 
-## Step 3: Simplify — `pm:simplify`
-
-Follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/06-simplify.md`. Same logic applies to multi-task agents.
-
----
+<!-- Step 3 (Simplify) was absorbed into the review fan-out in v1.9; numbering keeps the gap so external Step-N references stay valid. -->
 
 ## Step 4: Design Critique + Step 5: QA + Step 6: Review + Verification
 

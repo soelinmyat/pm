@@ -38,27 +38,28 @@ test("dev review step records gate sidecar rows and runs the checker", () => {
   assert.match(text, /verification: passed/);
 });
 
-test("dev simplify step records a sidecar row for pass and skip paths", () => {
-  const devStep = read("skills/dev/steps/06-simplify.md");
-  const skill = read("skills/simplify/SKILL.md");
-  assert.match(devStep, /simplify: skipped/);
-  assert.match(devStep, /simplify: passed/);
-  assert.match(devStep, /scripts\/dev-gate-check\.js/);
-  assert.match(skill, /write `simplify: skipped`/);
-  assert.match(skill, /without deleting any existing gate rows/);
-  assert.match(skill, /"schema_version": 1/);
-  assert.match(skill, /"gates": \[/);
-  assert.match(skill, /"name": "simplify"/);
-});
-
-test("simplify treats PM plugin Markdown as runtime source", () => {
-  const skill = read("skills/simplify/SKILL.md");
-  assert.match(skill, /PM plugin exception/);
-  assert.match(
-    skill,
-    /`commands\/`, `skills\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
+test("review absorbed the simplify lenses (v1.9)", () => {
+  const skill = read("skills/review/SKILL.md");
+  assert.match(skill, /category: bug \| design \| edge \| reuse \| quality \| efficiency/);
+  assert.match(skill, /Lens 4: Code reuse/);
+  assert.match(skill, /Lens 5: Code quality/);
+  assert.match(skill, /Lens 6: Efficiency/);
+  assert.match(skill, /category: reuse/);
+  assert.match(skill, /category: quality/);
+  assert.match(skill, /category: efficiency/);
+  // the standalone skill and its dev step are gone
+  assert.ok(
+    !fs.existsSync(path.join(repoRoot, "skills/simplify/SKILL.md")),
+    "skills/simplify must be deleted"
   );
-  assert.match(skill, /do not treat them as docs-only\/config-only/);
+  assert.ok(
+    !fs.existsSync(path.join(repoRoot, "skills/dev/steps/06-simplify.md")),
+    "06-simplify step must be deleted"
+  );
+  // the command shim survives for muscle memory and routes to review
+  const shim = read("commands/simplify.md");
+  assert.match(shim, /absorbed into `pm:review`/);
+  assert.match(shim, /skills\/review\/SKILL\.md/);
 });
 
 test("design critique step examples use the full sidecar schema", () => {
@@ -124,7 +125,7 @@ test("XS Express records every default gate before push", () => {
   assert.match(block[0], /size: "XS"/);
   assert.match(block[0], /Commit implementation/);
   assert.match(block[0], /do not push an empty branch/);
-  assert.match(block[0], /simplify` as `skipped` with reason `XS size`/);
+  assert.doesNotMatch(block[0], /Simplify skip row/);
   assert.match(block[0], /commit any fixes/);
   assert.match(block[0], /record `qa` as `passed`/);
   assert.match(block[0], /record `qa` as `skipped` with a concrete reason/);
@@ -169,7 +170,6 @@ test("runtime shell snippets use PM_PLUGIN_ROOT with CLAUDE fallback", () => {
     "references/skill-runtime.md",
     "skills/dev/SKILL.md",
     "skills/dev/steps/05-implementation.md",
-    "skills/dev/steps/06-simplify.md",
     "skills/dev/steps/07-review.md",
     "skills/dev/references/implementation-flow.md",
     "skills/dev/references/state-schema.md",
@@ -194,15 +194,13 @@ test("dev review step blocks QA environment failures instead of skipping them", 
   assert.match(text, /no `skipped` row for environment, server, DB, auth, or seed failures/);
 });
 
-test("simplify contextual skip rows record matching sidecar context", () => {
-  const step = read("skills/dev/steps/06-simplify.md");
+test("state schema treats simplify as tolerated legacy, not a required gate", () => {
   const schema = read("skills/dev/references/state-schema.md");
-  assert.match(step, /top-level `kind: "\{kind\}"`/);
-  assert.match(step, /top-level `size: "XS"`/);
   assert.match(schema, /"size": "M"/);
   assert.match(schema, /"kind": "proposal"/);
-  assert.match(schema, /reason `XS size` requires top-level `size: "XS"`/);
-  assert.match(schema, /reason `kind task uses review gate instead`/);
+  assert.match(schema, /tolerated legacy name/);
+  assert.match(schema, /never required, never validated for freshness/);
+  assert.doesNotMatch(schema, /Required before push:.*simplify/);
 });
 
 test("dev QA gate dispatch points workers at the QA reference, not a missing skill", () => {

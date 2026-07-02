@@ -32,7 +32,7 @@ Loop columns are derived from git-synced state under `pm/`:
 |---|---|
 | `ready_for_dev` | A card is approved for implementation and has no active lease |
 | `implementing` | A card has an active dev lease or synced implementation snapshot |
-| `reviewing` | Simplify, QA, or review state is active |
+| `reviewing` | QA or review state is active (legacy `simplify` statuses map here too) |
 | `shipping` | PR, CI, review comment, or merge-watch work is active |
 | `needs_human` | Missing approval, unclear acceptance criteria, or an operator decision blocks work |
 | `needs_rfc` | Proposal needs technical design before implementation |
