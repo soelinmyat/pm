@@ -1,6 +1,7 @@
 ---
 name: product-manager
 description: Strategic product perspective — evaluates ICP fit, prioritization, execution readiness, scope coverage, and produces structured backlog issues
+tools: Read, Grep, Glob, Bash
 ---
 
 # Product Manager

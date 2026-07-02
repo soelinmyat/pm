@@ -1,6 +1,7 @@
 ---
 name: tester
 description: QA specialist covering testing strategy, edge case analysis, manual-style test case writing, design QA, and resilience verification
+tools: Read, Grep, Glob, Bash
 ---
 
 # Tester

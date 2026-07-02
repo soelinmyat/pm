@@ -1,6 +1,7 @@
 ---
 name: developer
 description: Implementation specialist — plans, builds, and tests features with TDD discipline and pragmatic engineering
+tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
 # Developer

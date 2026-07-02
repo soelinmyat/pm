@@ -1,6 +1,7 @@
 ---
 name: staff-engineer
 description: Senior engineer reviewing for long-term maintainability, architecture soundness, integration contracts, and code quality
+tools: Read, Grep, Glob, Bash
 ---
 
 # Staff Engineer

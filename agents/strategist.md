@@ -1,6 +1,7 @@
 ---
 name: strategist
 description: Competitive strategist and intelligence researcher — evaluates differentiation, switching motivation, competitive response risk, and market positioning
+tools: Read, Grep, Glob, Bash
 ---
 
 # Strategist

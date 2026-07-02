@@ -1,6 +1,7 @@
 ---
 name: adversarial-engineer
 description: Senior engineer with adversarial mindset for architecture and risk review — finds the problems that blow up during implementation
+tools: Read, Grep, Glob, Bash
 ---
 
 # Adversarial Engineer

@@ -1,6 +1,7 @@
 ---
 name: designer
 description: Design reviewer covering visual hierarchy, accessibility, design system compliance, information architecture, and interaction resilience
+tools: Read, Grep, Glob, Bash
 ---
 
 # Designer
