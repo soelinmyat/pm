@@ -108,7 +108,14 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 3. Fix all **Blocking issues** in the RFC (orchestrator edits directly).
 4. Collect all **Advisory items** (non-blocking) from every reviewer. Write them into the RFC's **Advisory Notes** section. Each note includes the reviewer role tag (e.g., `@adversarial-engineer`) and the specific advice. Omit the section if no advisory items were raised.
 5. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
-6. Commit RFC updates.
+6. **Re-sync the JSON sidecar to the edited HTML, then commit both.** The blocking fixes above edited the HTML, so the sidecar and its `data-sidecar-hash` are now stale. Regenerate `{pm_dir}/backlog/rfcs/{slug}.json` from the edited HTML (its `.issue-detail` cards and `.test-strategy-block` bodies), recompute the sidecar's SHA-256, update `data-sidecar-hash` on the HTML root, then revalidate:
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js \
+     --sidecar {pm_dir}/backlog/rfcs/{slug}.json \
+     --html {pm_dir}/backlog/rfcs/{slug}.html \
+     --slug {slug}
+   ```
+   Commit the RFC HTML and its JSON sidecar together. If nothing was edited (no blocking fixes), the sidecar is already in sync — still run the validator once to confirm before approval.
 7. Update RFC frontmatter to `status: approved`.
 8. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
 9. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
@@ -150,7 +157,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
       - **Create a parent issue** in Linear with the RFC title and a summary description linking to the backlog entry.
       - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
       - Capture the parent Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the parent Linear identifier.
-      - **Create child issues** for each RFC Issue section (from the `## Tasks` table in the session state or parsed from `.issue-detail` cards in the RFC HTML). For each child:
+      - **Create child issues** for each RFC issue. Take the issue **list and order** (num, title, size) from the JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when present; the sidecar carries no prose, so pull each child's **description summary from that issue's RFC HTML section**. Fall back to the `## Tasks` table or the `.issue-detail` cards when there is no sidecar. For each child:
         - Title: the issue title from the RFC
         - Description: a brief summary from the RFC issue section
         - Parent: the parent issue ID created above
@@ -171,9 +178,11 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
 
     a. **Ensure local child cards exist** for multi-issue RFCs: one backlog card
        per RFC issue with `parent: "{slug}"`, and the parent card's `children:`
-       list set to the RFC implementation order. If the cards already exist
-       (created during groom), verify the `children:` order matches the RFC and
-       fix drift. The loop dispatches children strictly in this order.
+       list set to the RFC implementation order. Read the RFC issue list from the
+       JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when present;
+       fall back to the session `## Tasks` table or the `.issue-detail` cards. If
+       the cards already exist (created during groom), verify the `children:` order
+       matches the RFC and fix drift. The loop dispatches children strictly in this order.
 
     b. Ask exactly one question:
 

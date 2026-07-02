@@ -46,12 +46,25 @@ Load the task context, classify the work correctly, and create the initial dev s
 
    **Layered RFC preference.** If the RFC contains `id="execution-contract"`, read that section first and store a compact summary in the session state under `## Execution Contract`. This is the default agent handoff. It should contain scope, non-goals, files, dependencies, AC summary, Test hooks, verification commands, and open implementation questions.
 
-   **Legacy fallback.** Whether or not an Execution Contract exists, parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards remain the task-discovery contract for both new layered RFCs and legacy RFCs. For each, extract:
+   **JSON sidecar (preferred issue source).** Follow the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. The sidecar path is the `rfc:` value with `.html` swapped for `.json` (e.g. `{pm_dir}/backlog/rfcs/{slug}.json`). Run the validator **once** here and record the outcome in the session state as `sidecar_validation: pass | halt | absent` — the Test Strategy gate below reuses it, so do not run the validator a second time:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js \
+     --sidecar {pm_dir}/backlog/rfcs/{slug}.json \
+     --html {pm_dir}/backlog/rfcs/{slug}.html \
+     --slug {slug}
+   ```
+
+   - **Sidecar present and valid** (exit 0) → read the task list from its `issues[]`; each entry carries `num`, `title`, `size`, and `test_hooks` (the last is the implementer handoff). No HTML parsing. Record `sidecar_validation: pass`.
+   - **Sidecar present but invalid** (non-zero exit) → **hard-abort**: "Schema-v2 sidecar present but failed rfc-sidecar-check — route to /pm:rfc." Record `sidecar_validation: halt`. Do NOT fall back to the HTML for a broken sidecar.
+   - **Sidecar absent** → record `sidecar_validation: absent` and use the legacy fallback below (era detection: an HTML with `data-sidecar-hash` but no/mismatched sidecar is a `halt`, not `absent`).
+
+   **Legacy fallback (`.issue-detail` parse).** Only when the sidecar is absent (pre-sidecar RFCs are grandfathered), parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards are the task-discovery contract for legacy RFCs. For each, extract:
    - Issue number from `.issue-detail-num`
    - Title from `.issue-detail-title`
    - Size from `.issue-detail-size`
 
-   Set `task_count` to the number of parsed issues. If the RFC exists but **zero issues are parsed**, **hard-abort**: "RFC found but no Issue sections parsed — check RFC HTML structure for `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
+   Set `task_count` to the number of issues discovered (sidecar `issues[]` when valid, otherwise the parsed `.issue-detail` cards). If the RFC exists but **zero issues are discovered**, **hard-abort**: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
 
    Store the task list in the session state under `## Tasks` (not `## Sub-Issues`):
    ```
@@ -113,6 +126,10 @@ After RFC issue discovery (step 4), validate that the RFC contains a well-formed
 
 ### Gate logic
 
+0. **Reuse the discovery-step validation — do not re-run the validator.** Read `sidecar_validation` recorded during RFC issue discovery (step 4):
+   - `pass` → the sidecar validated, so all five `test_strategy` fields are present and non-empty. The gate **passes** without HTML parsing. As a structural sanity check, still confirm the schema-v2 HTML has an `id="test-strategy"` section; a v2 render missing it is malformed — **halt** to `/pm:rfc`.
+   - `halt` → a present sidecar failed `rfc-sidecar-check`. A non-zero exit can be any schema problem (empty `test_strategy` fields, bad issues, slug or `data-sidecar-hash` mismatch), not just Test Strategy. **Halt** and route to `/pm:rfc` for regeneration.
+   - `absent` → pre-sidecar RFC. Fall through to the HTML checks below.
 1. **Check for `id="test-strategy"` section** in the RFC HTML.
 2. **Check for `data-schema-version="2"`** on any element in the RFC.
 3. **Apply grandfather clause (pre-rollout):**

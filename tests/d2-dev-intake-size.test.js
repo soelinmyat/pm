@@ -8,8 +8,8 @@
  * bucket or dropped a row, the failure is the spike working as intended:
  * downstream skills (RFC sizing, dev routing) assume these exact labels.
  *
- * adjudicated: prose_reference VERIFIED, EM: implicit (spike-owner), PM: implicit (spike-owner), date: 2026-04-18, step-file-path: skills/dev/steps/02-intake.md, line-range: 65-71
- * prose_reference: "Classify size" decision table at skills/dev/steps/02-intake.md:65-71 (XS/S/M/L/XL rows)
+ * adjudicated: prose_reference VERIFIED, EM: implicit (spike-owner), PM: implicit (spike-owner), date: 2026-04-18, step-file-path: skills/dev/steps/02-intake.md, line-range: 84-90
+ * prose_reference: "Classify size" decision table at skills/dev/steps/02-intake.md:84-90 (XS/S/M/L/XL rows)
  * stub_boundaries: []  (reads step file via real fs; no stubs needed — strictly within the ≤4 cap of {agent-dispatch, fs, git, tool-registry})
  * additive_cost: 0  (a second branch test — e.g. asserting "Confirm size" step ordering — can reuse the loadStepBody() helper and the same real-fs read; no new stubs required)
  */
@@ -69,9 +69,9 @@ test("dev/02-intake declares XS/S/M/L/XL size rows with the canonical labels", (
   }
 });
 
-test("dev/02-intake size table appears in the documented line range (65-71)", () => {
+test("dev/02-intake size table appears in the documented line range (84-90)", () => {
   const lines = loadStepBody().split("\n");
-  // The manifest above pins line-range 65-71. We assert the table header is
+  // The manifest above pins line-range 84-90. We assert the table header is
   // within that window so rewrites that shift the table far from the pinned
   // range get caught by the spike instead of silently drifting.
   const headerIdx = lines.findIndex((line) =>
@@ -84,7 +84,7 @@ test("dev/02-intake size table appears in the documented line range (65-71)", ()
   );
   const headerLineNumber = headerIdx + 1; // 1-indexed, to match line-range semantics
   assert.ok(
-    headerLineNumber >= 60 && headerLineNumber <= 80,
-    `expected size table header near lines 65-71, found at line ${headerLineNumber} — update the manifest line-range if the shift is intentional`
+    headerLineNumber >= 78 && headerLineNumber <= 96,
+    `expected size table header near lines 84-90, found at line ${headerLineNumber} — update the manifest line-range if the shift is intentional`
   );
 });

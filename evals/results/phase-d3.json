@@ -1,0 +1,61 @@
+{
+  "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
+  "schema_version": 1,
+  "updated": "2026-07-02",
+  "scenarios": [
+    {
+      "id": "dev-ui-design-critique-required",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T200534Z--dev-ui-design-critique-required--claude",
+      "recorded_at": "2026-07-02T20:16:53.377Z"
+    },
+    {
+      "id": "dev-review-before-push",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T204000Z--dev-review-before-push--claude",
+      "recorded_at": "2026-07-02T20:42:36.934Z"
+    },
+    {
+      "id": "dev-tdd-before-implementation",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T202151Z--dev-tdd-before-implementation--claude",
+      "recorded_at": "2026-07-02T20:26:12.389Z"
+    },
+    {
+      "id": "skill-description-body-read",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T202615Z--skill-description-body-read--claude",
+      "recorded_at": "2026-07-02T20:27:03.458Z"
+    },
+    {
+      "id": "review-catches-planted-bug",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T202707Z--review-catches-planted-bug--claude",
+      "recorded_at": "2026-07-02T20:28:44.541Z"
+    },
+    {
+      "id": "groom-quick-from-backlog",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T202849Z--groom-quick-from-backlog--claude",
+      "recorded_at": "2026-07-02T20:36:07.696Z"
+    }
+  ]
+}

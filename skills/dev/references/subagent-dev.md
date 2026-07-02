@@ -34,7 +34,7 @@ Minimum coverage for `subagent-dev`:
 
 ## The Process
 
-**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite.
+**Setup:** Read plan, extract all tasks with full text, note context, create TodoWrite. When the plan is an RFC, the controller extracts issues from the validated JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`: `num`, `title`, `size`, `test_hooks`) per `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract, and injects each issue's hooks into its implementer prompt. Pre-sidecar RFCs fall back to the `.issue-detail` cards.
 
 **Per task (repeat until all tasks complete):**
 
@@ -68,6 +68,7 @@ Always include in every implementer subagent prompt:
 - `**Branch:** {feature branch name}`
 - `**App:** {app path(s) from AGENTS.md or project structure}`
 - `**Test command:** {app-specific test command from AGENTS.md}`
+- `**Test hooks:** {this issue's test_hooks from the validated RFC sidecar}` — inject them pre-parsed; the implementer does not read the sidecar itself.
 - `**Core rules:** {project-specific rules from AGENTS.md — e.g., token usage, codegen, locale requirements}`
 
 **Git hygiene rules (include in every implementer prompt):**
@@ -115,7 +116,7 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Read RFC Execution Contract first: {pm_dir}/backlog/rfcs/feature-plan.html#execution-contract]
-[Extract all 5 tasks from .issue-detail cards with full text and context]
+[Extract all 5 tasks from the JSON sidecar issues[] (feature-plan.json); fall back to .issue-detail cards if no sidecar]
 [Create TodoWrite with all tasks]
 
 Task 1: Hook installation script
