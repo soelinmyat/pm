@@ -22,6 +22,7 @@ const RUNTIME_PATHS = [
   "references",
   "agents",
   "templates",
+  "plugin.config.json",
   ".claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
   ".codex/INSTALL.md",
@@ -155,6 +156,18 @@ function runEval(opts) {
       startedAt,
       status: "skip",
       reason: adapterResult.reason,
+    });
+    writeJson(path.join(runDir, "verdict.json"), verdict);
+    return verdict;
+  }
+  if (adapterResult.status === "indeterminate") {
+    const verdict = makeVerdict({
+      scenarioId,
+      agent,
+      runId,
+      startedAt,
+      status: "indeterminate",
+      reason: adapterResult.reason || "adapter-indeterminate",
     });
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
