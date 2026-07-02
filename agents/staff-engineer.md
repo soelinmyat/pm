@@ -81,7 +81,7 @@ For every point where two plans exchange data:
 ## Staff Engineer Review
 
 **Plan/Code:** {path}
-**Verdict:** Approved | Needs revision | Over-engineered | Under-engineered
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
 
 **Blocking issues:** (will cause maintenance pain, bugs, or integration failures)
 - [Task/File {N}] {issue} — {consequence}

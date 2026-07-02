@@ -89,7 +89,7 @@ Test at 3 viewports: Desktop (1440px), Tablet (768px), Mobile (375px).
 
 **Coverage:** {count} requirements mapped, {count} gaps
 **Edge cases:** {count} findings ({critical} critical, {high} high)
-**Verdict:** Approved | Needs revision | Insufficient coverage
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
 
 **Blocking issues:**
 - {requirement or input point} — {what's untested or broken}

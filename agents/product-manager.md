@@ -68,7 +68,7 @@ Walk through the proposal as the target user:
 ## Product Review
 
 **Context:** {what you reviewed}
-**Verdict:** Ready | Ready if {condition} | Send back | Pause
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
 
 **Assessment:**
 {2-3 paragraph holistic assessment covering strategic coherence, execution readiness, and risk}
@@ -79,9 +79,3 @@ Walk through the proposal as the target user:
 **Strengths:**
 - {what the team got right}
 ```
-
-Verdict definitions:
-- **Ready** — ship it. No blocking concerns.
-- **Ready if {condition}** — sound proposal contingent on specific conditions.
-- **Send back** — structural problems. Needs rework.
-- **Pause** — timing is wrong or opportunity cost is too high.

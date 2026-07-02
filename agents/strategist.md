@@ -51,7 +51,7 @@ Quality standards:
 ## Competitive Review
 
 **Context:** {what you reviewed}
-**Verdict:** Strengthens position | Strengthens if {condition} | Neutral | Weakens focus
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
 
 **Blocking issues:** (strategic misalignment)
 - {issue} — {competitive risk}
@@ -59,9 +59,3 @@ Quality standards:
 **Opportunities:** (ways to sharpen competitive edge)
 - {opportunity} — {why it matters, which competitor it targets}
 ```
-
-Verdict definitions:
-- **Strengthens position** — widens the moat or creates switching motivation
-- **Strengthens if {condition}** — competitive advantage is real but contingent
-- **Neutral** — table stakes, worth building for parity but won't move the needle alone
-- **Weakens focus** — pulls toward a non-goal or dilutes positioning
