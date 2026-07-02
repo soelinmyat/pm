@@ -104,8 +104,40 @@ The RFC must include a complete Test Strategy section between Risks and Issues. 
 **Stable HTML contract:**
 Preserve `id="brief"`, `id="execution-contract"`, `id="appendix"`, `id="test-strategy"`, `data-schema-version="2"`, `.issue-detail`, `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size`, `.test-strategy`, `.test-strategy-block`, and `.hooks-badge`. Dev intake depends on these hooks.
 
-Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN).
-Commit the RFC, then end your response with:
+**Structured JSON sidecar (machine-readable twin):**
+Alongside the HTML, write a JSON sidecar to {pm_dir}/backlog/rfcs/{slug}.json. The HTML stays the human render; the sidecar is the machine source that downstream consumers (dev intake, groom re-discovery, RFC review child cards) read instead of grepping HTML anchors. It carries the same content as the .issue-detail cards and .test-strategy-block bodies you write into the HTML — do not invent new facts. Schema (schema_version 2), written as plain JSON:
+
+    {
+      "schema_version": 2,
+      "slug": "{slug}",
+      "title": "{RFC title}",
+      "size": "{XS|S|M|L|XL}",
+      "status": "draft",
+      "issues": [
+        {
+          "num": 1,
+          "title": "{issue title, same as .issue-detail-title}",
+          "size": "{XS|S|M|L|XL, same as .issue-detail-size}",
+          "test_hooks": ["{Test Strategy subsection -> AC, same as the issue .hooks-badge}"]
+        }
+      ],
+      "test_strategy": {
+        "test_levels": "{Test levels in scope block body}",
+        "new_infrastructure": "{New test infrastructure block body}",
+        "regression_surface": "{Regression surface block body}",
+        "verification_commands": "{Verification commands block body}",
+        "open_questions": "{Open test questions block body}"
+      }
+    }
+
+Rules the sidecar must satisfy: schema_version is 2; issues is a non-empty array with unique positive nums, non-empty titles, and sizes in XS/S/M/L/XL; each test_hooks mirrors that issue's .hooks-badge; all five test_strategy fields are non-empty strings mirroring the .test-strategy-block bodies. Do not add fields beyond this schema.
+
+Write the RFC as a self-contained HTML file to {pm_dir}/backlog/rfcs/{slug}.html (match the reference template's structure, styling, and quality — inline CSS, no external deps except fonts and mermaid.js CDN). Write the JSON sidecar to {pm_dir}/backlog/rfcs/{slug}.json.
+
+Before committing, validate the sidecar and fix anything it reports:
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json
+
+Commit the RFC and its JSON sidecar together, then end your response with:
 
 RFC_COMPLETE
 - slug: {slug}
@@ -121,8 +153,13 @@ Stop after sending the summary. A separate agent will handle implementation afte
 Wait for the worker to return and capture only the `RFC_COMPLETE` payload. If RFC generation ran inline, produce the same payload yourself.
 
 After receiving `RFC_COMPLETE`:
-1. Record `task_count: {N}` in the session state (from `issues: {N}`).
-2. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
-3. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
-4. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
-5. Proceed to RFC Review.
+1. **Validate the JSON sidecar** — completion gate. Run:
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json
+   ```
+   If it exits non-zero (missing sidecar, wrong `schema_version`, malformed issues, or empty `test_strategy` fields), re-dispatch the writer to fix the sidecar and revalidate. Do not proceed to RFC Review until it passes. The HTML render remains the human artifact; the sidecar is the machine handoff.
+2. Record `task_count: {N}` in the session state (from `issues: {N}`).
+3. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
+4. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
+5. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
+6. Proceed to RFC Review.
