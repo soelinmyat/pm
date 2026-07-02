@@ -212,15 +212,13 @@ test("baseline ledger can require named sentinel rows", () => {
   );
 });
 
-test("baseline ledger keeps current-behavior fail requirement", () => {
+test("baseline ledger accepts an all-pass measured baseline", () => {
+  // Measured baselines may legitimately be all-pass; provenance comes from
+  // artifact_ref rows pointing at real runs, not from a mandatory fail row.
   const result = validateBaselineLedger(sentinelLedger(), "evals/baselines/sentinel.json", {
     requiredScenarioIds: requiredSentinelIds,
   });
-  assert.equal(result.ok, false);
-  assert.match(
-    result.issues.map((i) => i.message).join("\n"),
-    /at least one baseline row must be a current-behavior fail/
-  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("result ledger allows all sentinel rows to pass", () => {
