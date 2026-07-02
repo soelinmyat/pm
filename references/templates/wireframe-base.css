@@ -30,6 +30,7 @@
   --wf-state-empty: #7a7a76;
   --wf-state-load:  #1971c2;
   --wf-state-error: #c92a2a;
+  --wf-focus:       #1971c2;
 
   --wf-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --wf-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -238,7 +239,7 @@ body {
 }
 .wf-button:focus-visible,
 .wf-button-secondary:focus-visible {
-  outline: 2px solid var(--wf-state-load);
+  outline: 2px solid var(--wf-focus);
   outline-offset: 2px;
 }
 .wf-input {
@@ -252,8 +253,8 @@ body {
   color: var(--wf-ink);
 }
 .wf-input:focus-visible {
-  outline: 2px solid var(--wf-state-load);
-  outline-offset: 1px;
+  outline: 2px solid var(--wf-focus);
+  outline-offset: 2px;
 }
 .wf-row { display: flex; gap: 0.75rem; align-items: center; }
 .wf-stack { display: flex; flex-direction: column; gap: 0.75rem; }
