@@ -9,5 +9,5 @@ post() {
   # The groom state machine ran: the session dir exists. The session FILE is
   # deliberately deleted by step 11 cleanup on full completion, so its absence
   # is success evidence, not failure — do not assert on the file.
-  command-succeeds test -d .pm/groom-sessions
+  command-succeeds "test -d .pm/groom-sessions"
 }
