@@ -11,7 +11,7 @@ Structured product thinking before commitment. Explore ideas, challenge assumpti
 
 Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues. Think is the whiteboard conversation; groom is the meeting that produces action items.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `think`
 

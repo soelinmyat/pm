@@ -122,7 +122,7 @@ For cross-reference (the emitter already populates `resumeHint`; do not reinvent
 
 Concrete examples of the `ListRowsPayload` shape live in `tests/fixtures/list-rows/*.json` — these six fixtures (`empty-repo.json`, `single-section.json`, `all-sections.json`, `over-cap.json`, `separate-repo.json`, `missing-frontmatter.json`) are the authoritative contract. When emitting JSON (intent 3), match that shape.
 
-## Before marking done
+## Exit criteria
 
 - Sections rendered in the order above (or the user's requested filter).
 - Every rendered row has the full spec line (no missing fields except linkage when null).

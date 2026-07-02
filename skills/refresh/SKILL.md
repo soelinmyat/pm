@@ -13,7 +13,7 @@ Refresh patches. Research creates. Don't confuse them.
 
 **When NOT to use:** Creating new research from scratch (use research). Manual edits to a specific file. Quick factual lookups that don't need artifact updates.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `refresh`
 

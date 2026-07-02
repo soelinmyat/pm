@@ -9,7 +9,7 @@ description: "Use when importing customer evidence from files or folders: suppor
 
 Import customer evidence into PM.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **When NOT to use:** Single quick observations (use note). Non-evidence files. Data that isn't customer feedback, interviews, support signals, or sales notes.
 

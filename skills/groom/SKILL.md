@@ -13,7 +13,7 @@ Groom produces a **proposal** — the product-level artifact with scope, design,
 
 Research gates grooming — even quick tier requires an inline assessment. Strategy gates scoping for standard and full tiers.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. The functional reference `capability-gates.md` is loaded by the steps that need it.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. The functional reference `capability-gates.md` is loaded by the steps that need it.
 
 ## Hard rules
 

@@ -11,9 +11,11 @@ Generate a technical RFC from a groomed product proposal. The RFC translates pro
 
 RFC is the bridge between product (proposal) and engineering (implementation). No proposal means no product context means a garbage RFC.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification, and `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification, and `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `rfc`
+
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/` in numeric filename order. If `.pm/workflows/rfc/` exists, same-named files there override defaults.
 
 ## Hard rules
 

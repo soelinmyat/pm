@@ -148,7 +148,11 @@ test("no step file reintroduces Advance footers or Done-when headings", () => {
     for (const file of fs.readdirSync(stepsDir)) {
       if (!file.endsWith(".md")) continue;
       const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
-      if (/\*\*Advance:\*\*/.test(text) || /^## Done-when/m.test(text)) {
+      if (
+        /\*\*Advance:\*\*/.test(text) ||
+        /^## Done-when/m.test(text) ||
+        /^## Before marking done/im.test(text)
+      ) {
         offenders.push(`${skill}/steps/${file}`);
       }
     }

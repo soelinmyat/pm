@@ -11,9 +11,11 @@ Build and maintain the product knowledge base with durable, sourced research art
 
 Three modes: **landscape** (market overview and positioning map), **competitors** (discovery, profiling, and synthesis), **topic** (targeted deep dives). Only one mode runs per invocation.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
 
 **Workflow:** `research`
+
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults.
 
 ## Hard rules
 

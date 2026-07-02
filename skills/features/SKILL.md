@@ -11,7 +11,7 @@ description: "Scan the codebase, extract user-facing features, and write a struc
 
 The primary consumer is PM itself. Groom intake reads the inventory so scope review starts from what the product already does today, not from memory.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `features`
 

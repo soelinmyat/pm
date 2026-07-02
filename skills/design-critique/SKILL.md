@@ -11,7 +11,7 @@ PM-native post-implementation design critique gate. It captures real visual arti
 
 This skill replaces any dependency on external `/design-critique` availability inside PM workflows. It can use project tooling and PM references directly in every runtime.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 ## When NOT to use
 

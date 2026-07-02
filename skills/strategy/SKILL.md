@@ -9,7 +9,7 @@ description: "Use when creating or maintaining a product strategy document. Cove
 
 The strategy doc is the alignment filter for all grooming decisions. Every feature idea gets evaluated against it. Without one, grooming drifts.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 **Workflow:** `strategy`
 

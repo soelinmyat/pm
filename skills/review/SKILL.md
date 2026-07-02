@@ -13,7 +13,7 @@ This is the single review entrypoint for all PM workflows. One code path, every 
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-## Iron Law
+## Hard rules
 
 **NEVER RE-REVIEW THE SAME COMMIT.** Before dispatching agents, check `.pm/dev-sessions/{slug}.md` for `Review gate: passed (commit <sha>)` and confirm `.pm/dev-sessions/{slug}.gates.json` has `review: passed` for the same SHA. If both match HEAD, log "skipped (already reviewed)" and return. If only the Markdown line is current, repair the sidecar before returning.
 

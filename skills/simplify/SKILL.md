@@ -13,7 +13,7 @@ This is the single simplify entrypoint for all PM workflows. One code path, ever
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-## Iron Law
+## Hard rules
 
 **NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code or runtime-source changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
 
