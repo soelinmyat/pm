@@ -156,6 +156,28 @@ function normalizeClaudeStream(stdout) {
   return events;
 }
 
+// Claude Code only consults the macOS keychain when ~/.claude.json carries
+// login state. Stage the minimal auth-relevant keys — never the host's full
+// config (projects map, caches) — into the isolated HOME.
+const LOGIN_STATE_KEYS = ["oauthAccount", "userID", "hasCompletedOnboarding", "installMethod"];
+
+function stageKeychainLoginState(stagedHomeDir) {
+  const hostFile = path.join(process.env.HOME || "", ".claude.json");
+  let host;
+  try {
+    host = JSON.parse(fs.readFileSync(hostFile, "utf8"));
+  } catch {
+    return false;
+  }
+  const staged = {};
+  for (const key of LOGIN_STATE_KEYS) {
+    if (key in host) staged[key] = host[key];
+  }
+  if (!staged.oauthAccount) return false;
+  fs.writeFileSync(path.join(stagedHomeDir, ".claude.json"), JSON.stringify(staged, null, 2));
+  return true;
+}
+
 function prepareClaudeRuntime({ paths }) {
   const template = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE
     ? path.resolve(process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE)
@@ -165,6 +187,14 @@ function prepareClaudeRuntime({ paths }) {
   const marker = `pm-eval-source:${paths.runId}:${crypto.randomBytes(12).toString("hex")}`;
 
   if (template && !copyAuthTemplate(template, claudeHome)) {
+    return skip("claude-auth-missing");
+  }
+  if (
+    !template &&
+    !process.env.PM_EVAL_CLAUDE_API_KEY &&
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1" &&
+    !stageKeychainLoginState(paths.homeDir)
+  ) {
     return skip("claude-auth-missing");
   }
 
@@ -200,11 +230,16 @@ function claudeEnv({ paths, prepared }) {
   if (process.env.PM_EVAL_CLAUDE_API_KEY) {
     env.ANTHROPIC_API_KEY = process.env.PM_EVAL_CLAUDE_API_KEY;
   }
+  // Subscription-backed headless auth: token minted once via `claude setup-token`.
+  if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  }
   return env;
 }
 
 function hasAuthPath() {
   if (process.env.PM_EVAL_CLAUDE_API_KEY) return true;
+  if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) return true;
   if (templateHasAuthMaterial(process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE)) return true;
   // macOS keychain OAuth survives HOME isolation; require explicit opt-in.
   if (process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1") return true;
@@ -247,5 +282,8 @@ module.exports = {
   _private: {
     normalizeClaudeStream,
     prepareClaudeRuntime,
+    stageKeychainLoginState,
+    hasAuthPath,
+    claudeEnv,
   },
 };
