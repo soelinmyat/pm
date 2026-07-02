@@ -45,9 +45,24 @@ Run the current Codex adapter when you want to see live-adapter eligibility:
 npm run eval:score -- --agent codex --write /tmp/pm-codex-current.json
 ```
 
-Codex currently reports `skip: network-policy` until live network allowlisting is
-implemented. That is an honest score state. It should be read as "not
-comparable" rather than as a pass or fail.
+Codex reports `skip: network-policy` by default. That is an honest score state.
+It should be read as "not comparable" rather than as a pass or fail.
+
+Live Codex runs are local and explicitly opt-in. They do not run in public CI
+and do not claim RFC-grade container network allowlisting. Use a maintainer-owned
+Codex home template that contains auth/session material only:
+
+```bash
+PM_EVAL_CODEX_LIVE=1 \
+PM_EVAL_CODEX_ALLOW_UNCONTAINED_NETWORK=1 \
+PM_EVAL_CODEX_HOME_TEMPLATE=/path/to/isolated-codex-home \
+npm run eval:score -- --agent codex --write /tmp/pm-codex-live.json
+```
+
+The adapter copies only allowlisted auth/session material from the template,
+stages PM into run-owned Codex and `.agents` discovery paths, ignores user
+config/rules, and requires marker evidence that Codex loaded the staged PM
+runtime. Missing marker evidence is `indeterminate: wrong-source`.
 
 Score an existing sanitized ledger:
 
