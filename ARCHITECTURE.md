@@ -112,8 +112,6 @@ references/                    # Shared across all skills
   memory-cap.md                # 50-entry cap enforcement
   memory-recall.md             # Recency-with-diversity retrieval
   telemetry.md                 # Analytics contract
-  design-system.md             # CSS tokens for HTML output
-  component-catalog.md         # HTML components for generated pages
   templates/                   # HTML reference templates (RFC)
 
 skills/{name}/references/      # Skill-scoped

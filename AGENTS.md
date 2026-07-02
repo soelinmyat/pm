@@ -159,10 +159,7 @@ Public product promise lives in:
 - `README.md`
 - platform install guides such as `.codex/INSTALL.md`
 
-Planning notes live in:
-- `docs/plans/`
-
-`.planning/` is committed and reviewable, but it is not runtime behavior.
+Planning notes are maintained privately outside this repository.
 
 ## Change Rules
 
@@ -239,9 +236,7 @@ git push origin v{version}
 
 ## Planning Notes
 
-- Prefer dated filenames in `docs/plans/`.
-- Delete or archive stale planning notes once implemented.
-- Do not confuse `docs/` files with runtime plugin instructions.
+- Planning docs are maintained privately outside this repository; do not commit plans to this repo.
 
 ## Step Authoring Rules
 
