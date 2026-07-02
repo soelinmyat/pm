@@ -162,7 +162,6 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:rfc <feature-slug>` | Generate a technical RFC from a groomed proposal |
 | `/pm:dev [ticket]` | Auto-detects scope, invokes RFC for M/L/XL work, implements with TDD |
 | `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |
-| `/pm:loop status` | Show the git-backed loop board, dry-run wake selection, and scheduler-safe orchestration state |
 
 ### Knowledge base management
 
