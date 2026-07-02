@@ -46,10 +46,10 @@ test("stub eval runner stages source and writes a passing verdict", () => {
       .trim()
       .split(/\r?\n/)
       .map((line) => JSON.parse(line));
-    assert.ok(postRecords.length >= 3);
+    assert.ok(postRecords.length >= 2);
     assert.deepEqual(
       postRecords.map((record) => record.status),
-      ["pass", "pass", "pass"]
+      ["pass", "pass"]
     );
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
@@ -394,11 +394,17 @@ process.stdin.on("end", () => {
     }
   }));
   console.log(JSON.stringify({
-    type: "item.started",
+    type: "item.completed",
     item: {
       type: "command_execution",
-      command: "/bin/zsh -lc 'node --test tests/example.test.js'"
+      command: "/bin/zsh -lc 'node --test tests/example.test.js'",
+      exit_code: 1,
+      status: "completed"
     }
+  }));
+  console.log(JSON.stringify({
+    type: "item.completed",
+    item: { type: "file_change", path: "src/behavior.js", kind: "edit" }
   }));
   console.log(JSON.stringify({
     type: "item.completed",

@@ -21,7 +21,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER OVERWRITE USER-WRITTEN RESEARCH DURING REFRESH.** Refresh patches stale or incomplete sections in place. If you are about to replace or delete existing analysis wholesale, you are doing research, not refresh.
 
-**Workflow:** `refresh` | **Telemetry steps:** `audit`, `cost-guardrail`, `seo-refresh`, `landscape-refresh`, `topic-refresh`, `competitor-refresh`, `synthesis-updates`.
+**Workflow:** `refresh`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/refresh/steps/` in numeric filename order. If `.pm/workflows/refresh/` exists, same-named files there override defaults. Execute each step in order. Mode routing (Step 1) determines which subsequent steps run — `consolidate` mode skips Steps 2-3 and jumps directly to Step 4.
 

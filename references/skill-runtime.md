@@ -57,7 +57,7 @@ Each skill's workflow is defined by `.md` files in its `steps/` directory:
 3. Sort by numeric filename prefix (e.g., `01-intake.md` before `02-normalize.md`).
 4. Execute each step in order. Each step contains its own instructions.
 
-Persona references (`@persona`) in step files resolve from `.pm/personas/` (user overrides) then `${CLAUDE_PLUGIN_ROOT}/personas/` (defaults).
+Persona references (`@persona`) in step files resolve from `.pm/personas/` (user overrides) then `${CLAUDE_PLUGIN_ROOT}/agents/` (defaults — the same files that register as callable `pm:<name>` agents).
 
 ---
 

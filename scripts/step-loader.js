@@ -61,7 +61,7 @@ function collectStepFiles(dir) {
 
 /**
  * Load a persona's body content by name.
- * Resolution order: user personas (.pm/personas/) then default (pluginRoot/personas/).
+ * Resolution order: user personas (.pm/personas/) then default (pluginRoot/agents/).
  * Returns the body string or null if not found.
  */
 function resolvePersonaBody(personaName, userPersonaDir, defaultPersonaDir) {
@@ -142,7 +142,7 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   const projectRoot = path.dirname(pmDir);
   const defaultStepDir = path.join(pluginRoot, "skills", command, "steps");
   const userStepDir = path.join(projectRoot, ".pm", "workflows", command);
-  const defaultPersonaDir = path.join(pluginRoot, "personas");
+  const defaultPersonaDir = path.join(pluginRoot, "agents");
   const userPersonaDir = path.join(projectRoot, ".pm", "personas");
 
   // Collect step files from both sources
@@ -228,7 +228,7 @@ function buildPrompt(steps, options) {
  */
 function loadPersonas(pmDir, pluginRoot) {
   const projectRoot = path.dirname(pmDir);
-  const defaultPersonaDir = path.join(pluginRoot, "personas");
+  const defaultPersonaDir = path.join(pluginRoot, "agents");
   const userPersonaDir = path.join(projectRoot, ".pm", "personas");
 
   const defaultFiles = collectStepFiles(defaultPersonaDir);

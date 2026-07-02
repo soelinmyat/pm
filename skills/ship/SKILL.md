@@ -13,11 +13,19 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 
 **NEVER MERGE WITHOUT READING THE DIFF.** Every merge must be preceded by a review that read the actual changes — not just checked status labels. If review was skipped, CI was green, and auto-merge is armed, that's a pipeline that shipped unreviewed code. Stop and review before merging.
 
+## Loop Worker Mode (headless)
+
+When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=ship` (or `review`), this run is ONE bounded ship cycle dispatched unattended by the PM loop:
+
+- Assess CI status and new review comments, fix what is actionable now, push, then stop. Do not poll or wait on CI — if external state is pending, report and exit; the next scheduled wake runs the next cycle.
+- Merge only if the loop granted it (the dispatch prompt says so) AND every gate and check is green; after a verified merge, update the backlog card `status: done`. Without the merge grant, when the PR is green and threads are resolved, set the card `status: needs-human` and report it is ready for human merge.
+- Non-interactive: never wait for user input; stop and report when a decision requires a human.
+
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and interaction pacing.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `ship` | **Telemetry steps:** `pre-flight`, `conflict-check`, `review`, `push`, `create-or-detect-pr`, `ci-monitor`, `merge-monitor`.
+**Workflow:** `ship`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/` in numeric filename order. If `.pm/workflows/ship/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

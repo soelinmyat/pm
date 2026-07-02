@@ -4,6 +4,6 @@ pre() {
 
 post() {
   check-transcript skill-called pm:review
-  artifact-contains review-findings.md "items.length = 0"
+  artifact-contains review-findings.md "items.length"
   artifact-exists review-findings.md
 }

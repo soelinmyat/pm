@@ -151,6 +151,8 @@ function readBacklogCards(pmDir, sourceDir) {
         priority: data.priority || "",
         rfc: data.rfc || "",
         branch: data.branch || "",
+        parent: typeof data.parent === "string" ? data.parent : null,
+        childrenSlugs: Array.isArray(data.children) ? data.children.map(String) : [],
         implementationApproved,
         updatedEpoch: updatedEpoch(filePath, data),
         sourcePath: filePath,
@@ -178,6 +180,53 @@ function readBacklogCards(pmDir, sourceDir) {
     });
 }
 
+// Epic rules derived from the existing groom/RFC card relations: `parent`
+// (child → epic) and the parent's ordered `children` list (= implementation
+// order). Umbrella cards are never dispatchable; a child is dispatchable only
+// when every earlier sibling is done. A referenced sibling with no card file
+// counts as done — completed cards are deleted at retro close-out.
+function applyFamilyRules(cards) {
+  const DISPATCHABLE = new Set(["ready_for_dev", "needs_rfc", "needs_research", "inbox"]);
+  const bySlug = new Map(
+    cards.filter((card) => card.origin === "backlog").map((card) => [card.slug, card])
+  );
+  const isDone = (slug) => {
+    const card = bySlug.get(slug);
+    return !card || card.column === "done";
+  };
+
+  for (const card of cards) {
+    if (card.lease || card.column === "done") continue;
+
+    if (Array.isArray(card.childrenSlugs) && card.childrenSlugs.length > 0) {
+      const doneCount = card.childrenSlugs.filter(isDone).length;
+      if (doneCount < card.childrenSlugs.length) {
+        card.column = "blocked";
+        card.blocker = `epic umbrella: waiting on children (${doneCount}/${card.childrenSlugs.length} done)`;
+      } else {
+        card.column = "needs_human";
+        card.blocker = "all children done — close out the epic parent";
+      }
+      card.command = "";
+      continue;
+    }
+
+    if (card.parent && DISPATCHABLE.has(card.column)) {
+      const parent = bySlug.get(card.parent);
+      const siblings = parent && Array.isArray(parent.childrenSlugs) ? parent.childrenSlugs : [];
+      const index = siblings.indexOf(card.slug);
+      if (index > 0) {
+        const pending = siblings.slice(0, index).filter((slug) => !isDone(slug));
+        if (pending.length > 0) {
+          card.column = "blocked";
+          card.blocker = `waiting on earlier sibling(s): ${pending.join(", ")}`;
+          card.command = "";
+        }
+      }
+    }
+  }
+}
+
 function blockDuplicateIds(cards) {
   const counts = new Map();
   for (const card of cards) {
@@ -195,8 +244,9 @@ function blockDuplicateIds(cards) {
 
 function commandFor(card, column) {
   if (column === "ready_for_dev" || column === "implementing") return `/pm:dev ${card.id}`;
+  if (column === "shipping" || column === "reviewing") return `/pm:ship ${card.id}`;
   if (column === "needs_rfc") return `/pm:rfc ${card.id}`;
-  if (column === "needs_research") return `/pm:research ${card.title}`;
+  if (column === "needs_research") return `/pm:research ${card.id}`;
   if (column === "inbox") return `/pm:groom ${card.id}`;
   return "";
 }
@@ -305,6 +355,7 @@ function buildLoopBoard(projectDir, options = {}) {
   cards.push(...readSnapshotCards(pmDir, byId, sourceDir));
   const leases = attachLeases(cards, pmDir, now);
   blockDuplicateIds(cards);
+  applyFamilyRules(cards);
 
   const columns = emptyColumns();
   for (const card of sortCards(cards)) {
@@ -395,6 +446,7 @@ function main() {
 
 module.exports = {
   COLUMN_ORDER,
+  applyFamilyRules,
   asBool,
   buildLoopBoard,
   hasImplementationApproval,

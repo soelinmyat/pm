@@ -24,7 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER GUESS PM PATHS.** `pm:start` exists to resolve `pm_dir`, `pm_state_dir`, and `source_dir` correctly before any other skill starts reading or writing. If path resolution is uncertain, stop and resolve it here first.
 
-**Workflow:** `start` | **Telemetry steps:** `detect-situation`, `bootstrap`, `resume`, `pulse`.
+**Workflow:** `start`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/start/steps/` in numeric filename order. If `.pm/workflows/start/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

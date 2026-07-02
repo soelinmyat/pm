@@ -36,7 +36,7 @@ User types /pm:dev
        │  Steps dispatch agents with persona overlays
        ▼
 ┌─────────────┐
-│  personas/   │  Role overlays (adversarial-engineer, product-manager, etc.).
+│  agents/     │  Role overlays (adversarial-engineer, product-manager, etc.).
 │              │  Injected into agent prompts to shape review perspective.
 └─────────────┘
 ```
@@ -112,8 +112,6 @@ references/                    # Shared across all skills
   memory-cap.md                # 50-entry cap enforcement
   memory-recall.md             # Recency-with-diversity retrieval
   telemetry.md                 # Analytics contract
-  design-system.md             # CSS tokens for HTML output
-  component-catalog.md         # HTML components for generated pages
   templates/                   # HTML reference templates (RFC)
 
 skills/{name}/references/      # Skill-scoped
@@ -142,7 +140,7 @@ HTML reference templates live in `references/templates/`. Skills read these befo
 
 ### Personas
 
-Seven role overlays in `personas/`:
+Seven role overlays in `agents/`:
 
 | Persona | Used by |
 |---------|---------|

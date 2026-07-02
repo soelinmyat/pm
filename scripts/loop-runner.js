@@ -28,7 +28,7 @@ function commandForCard(card, column) {
   if (card.command) return card.command;
   if (column === "ready_for_dev" || column === "implementing") return `/pm:dev ${card.id}`;
   if (column === "needs_rfc") return `/pm:rfc ${card.id}`;
-  if (column === "needs_research") return `/pm:research ${card.title}`;
+  if (column === "needs_research") return `/pm:research ${card.id}`;
   return "";
 }
 
@@ -171,6 +171,7 @@ function runLoop(projectDir, options = {}) {
           column: selected.column,
           stage: selected.stage,
           command: selected.command,
+          branch: selected.card.branch || "",
           sourcePath: selected.card.sourcePath,
         }
       : null,
@@ -185,7 +186,8 @@ function runLoop(projectDir, options = {}) {
     return {
       ...plan,
       status: "blocked",
-      reason: "worker dispatch is not enabled; rerun with --dry-run or --claim-only",
+      reason:
+        "loop-runner selects and claims only; use scripts/loop-worker.js to execute, or rerun with --dry-run or --claim-only",
     };
   }
 

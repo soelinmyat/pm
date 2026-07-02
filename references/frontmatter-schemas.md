@@ -45,6 +45,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `thinking` | string\|null | optional | — | Path to thinking artifact |
 | `branch` | string\|null | optional | — | Git branch name when in progress |
 | `parent` | string\|null | optional | — | Slug of parent backlog item (for child issues) |
+| `children` | string[] | optional | — | Ordered child-item slugs. Order = implementation order: the loop dispatches a child only when every earlier sibling is done, and never dispatches a card that has open children (epic umbrella). A referenced slug with no card file counts as done (completed cards are deleted at retro close-out). |
 | `prs` | string[] | optional | — | PR references (e.g., `"#188"`) |
 | `research_refs` | string[] | optional | — | KB paths to research evidence |
 | `evidence_strength` | enum\|null | optional | `"strong"` \| `"moderate"` \| `"weak"` | Strength of supporting evidence |

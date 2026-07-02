@@ -30,7 +30,7 @@ const TDD_SKIP_REASON =
 const SIMPLIFY_SKIP_REASON =
   /(xs size|kind (task|bug) uses review gate|no code changes|no runtime-source changes|no reviewable source)/i;
 const PM_RUNTIME_PATH_RE =
-  /^(commands|skills|personas|templates|hooks|scripts|tests|references|agents|\.githooks)\//;
+  /^(commands|skills|templates|hooks|scripts|tests|references|agents|\.githooks)\//;
 const PM_RUNTIME_FILE_RE = /^(plugin\.config\.json|\.claude-plugin\/|\.codex-plugin\/)/;
 const UI_PATH_RE =
   /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte)$/i;
@@ -252,7 +252,14 @@ function hasUiImpact(changedFiles) {
   return changedFiles.some(isUiImpactPath);
 }
 
+const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
+
 function isUiImpactPath(file) {
+  // pm/ (and .pm/) hold PM knowledge-base documents — generated RFC/proposal
+  // HTML included. They are read as documents, not shipped as app UI; without
+  // this exemption every branch carrying an RFC HTML would force the
+  // design-critique gate.
+  if (KB_ARTIFACT_PATH_RE.test(file)) return false;
   if (UI_PATH_RE.test(file)) return true;
   if (UI_TOKEN_DATA_RE.test(file)) return true;
   if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;

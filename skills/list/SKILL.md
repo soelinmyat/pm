@@ -31,7 +31,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - User wants to resume a specific session (use the per-skill resume command directly).
 - User is asking a question that has nothing to do with surveying in-flight work.
 
-**Workflow:** `list` | **Telemetry steps:** `discover`, `render`.
+**Workflow:** `list`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/list/steps/` in numeric filename order. If `.pm/workflows/list/` exists, same-named files there override defaults. Execute each step in order — step 01 gathers data via the node script, step 02 is a prompt file that governs rendering and follow-up interpretation.
 

@@ -17,7 +17,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 **When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
 
-**Workflow:** `dev` | **Telemetry steps:** `resume-detection`, `tool-check`, `intake`, `workspace`, `groom-readiness`, `implementation`, `simplify`, `review`, `ship`, `retro`.
+## Loop Worker Mode (headless)
+
+When `PM_LOOP_WORKER=1` is set, this run was dispatched unattended by the PM loop. Two contract changes, all gates unchanged:
+
+1. **Implement-only terminal.** With `PM_LOOP_STAGE=dev`, stop after the review gates pass and the PR is opened — do NOT run ship or merge. Before finishing, update the backlog card frontmatter: `status: shipping`, `branch`, `prs`, `updated`. Subsequent loop wakes run the ship cycles.
+2. **Non-interactive.** There is no user. At any point that would ask a question: take the documented default when one exists and it is safe; otherwise stop and print a report stating exactly what decision or input is needed (the loop parks the card as needs-human). Never wait for input; never treat silence as approval; never skip a gate to avoid asking.
+
+**Workflow:** `dev`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

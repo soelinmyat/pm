@@ -28,9 +28,21 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
   },
   budgets: {
     max_runs_per_day: 12,
-    max_runtime_seconds_per_run: 2400,
+    max_ship_cycles_per_day: 24,
+    max_runtime_seconds_per_run: 5400,
+    max_runtime_seconds_per_ship_cycle: 1800,
     lease_ttl_minutes: 45,
     max_attempts_per_stage: 3,
+  },
+  scheduler_interval_minutes: 30,
+  worker: {
+    engine: "",
+    engine_bin: "",
+    engine_args: [],
+    claude_permission_mode: "acceptEdits",
+    bootstrap_files: [],
+    bootstrap_command: "",
+    keep_workspace: false,
   },
 });
 
@@ -78,7 +90,7 @@ function loadLoopConfig(pmDir) {
 
 function normalizeLoopConfig(config) {
   const normalized = deepMerge(DEFAULT_LOOP_CONFIG, config);
-  for (const key of ["wip_limits", "autonomy", "budgets"]) {
+  for (const key of ["wip_limits", "autonomy", "budgets", "worker"]) {
     if (!isPlainObject(normalized[key])) {
       normalized[key] = clone(DEFAULT_LOOP_CONFIG[key]);
     } else {

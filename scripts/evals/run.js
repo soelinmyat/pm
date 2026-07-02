@@ -16,7 +16,6 @@ const { composeVerdict } = require("./verdict.js");
 const RUNTIME_PATHS = [
   "commands",
   "skills",
-  "personas",
   "scripts",
   "hooks",
   "references",

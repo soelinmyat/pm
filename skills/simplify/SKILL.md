@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **NEVER SKIP THE DIFF SCAN.** Before dispatching review agents, always compute the actual changed files. If there are zero code or runtime-source changes, log "skipped (no code changes)" and return — do not fabricate findings to justify running.
 
-**Workflow:** `simplify` | **Telemetry steps:** `scan`, `review`, `merge`, `fix`.
+**Workflow:** `simplify`
 
 ## When to use
 
@@ -45,7 +45,7 @@ Cleaning up code before design critique and QA means those stages see cleaner co
 Before dispatching agents:
 
 1. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only` and filter to code/runtime-source files. Exclude ordinary docs, static config, env files, lockfiles, and generated files. UI-impacting markup/data such as App Router `app/page.mdx`, `src/app/**/page.md`, static HTML, server-rendered templates, design-token JSON/YAML/TOML, and theme/token config are runtime source, not docs-only/config-only.
-2. **PM plugin exception:** files under `commands/`, `skills/`, `personas/`, `templates/`, `hooks/`, `scripts/`, `tests/`, `references/`, `agents/`, `.githooks/`, `.claude-plugin/`, `.codex-plugin/`, and `plugin.config.json` are runtime/source files even when they are Markdown, JSON, or shell; do not treat them as docs-only/config-only.
+2. **PM plugin exception:** files under `commands/`, `skills/`, `templates/`, `hooks/`, `scripts/`, `tests/`, `references/`, `agents/`, `.githooks/`, `.claude-plugin/`, `.codex-plugin/`, and `plugin.config.json` are runtime/source files even when they are Markdown, JSON, or shell; do not treat them as docs-only/config-only.
 3. If no code/runtime-source files changed: log `Simplify: skipped (no code changes)` in `.pm/dev-sessions/{slug}.md` (if present), write `simplify: skipped` with reason `no code changes` to `.pm/dev-sessions/{slug}.gates.json`, and return.
 
 ## 3 Parallel Review Agents

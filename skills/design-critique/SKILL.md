@@ -27,7 +27,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Workflow
 
-**Workflow:** `design-critique` | **Telemetry steps:** `scope`, `capture`, `critique`.
+**Workflow:** `design-critique`
 
 ## Steps
 

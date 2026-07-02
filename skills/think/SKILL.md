@@ -53,7 +53,7 @@ Active when `one_off_mode = true` (no workspace, user chose option B above).
 
 **NEVER SKIP REFRAME EVALUATION.** Every idea must be tested against at least one reframing lens before approaches are explored — no exceptions. The conclusion may be "the current framing holds," but that must be an explicit conclusion, not a shortcut. If you catch yourself jumping from capture straight to "here are three approaches," stop and evaluate the framing first.
 
-**Workflow:** `think` | **Telemetry steps:** `capture`, `ground`, `reframe`, `explore-approaches`, `pressure-test`, `synthesize`.
+**Workflow:** `think`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/think/steps/` in numeric filename order. If `.pm/workflows/think/` exists, same-named files there override defaults. Execute each step in order — they're conversational beats, not phases. Follow the natural rhythm without announcing them or tracking state.
 

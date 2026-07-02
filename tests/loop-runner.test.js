@@ -252,7 +252,7 @@ test("loop runner non-dry-run blocks before dispatch unless claim-only is explic
   });
 
   assert.equal(result.status, "blocked");
-  assert.match(result.reason, /worker dispatch is not enabled/);
+  assert.match(result.reason, /loop-runner selects and claims only/);
 });
 
 test("loop runner claim-only commits a lease without leaving uncommitted event files", (t) => {

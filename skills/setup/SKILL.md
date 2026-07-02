@@ -17,7 +17,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 **NEVER HAND-EDIT PM CONFIG WHEN SETUP CAN DO IT.** `pm:setup` owns config shape, integration toggles, and separate-repo linkage. Bypassing it creates silent drift that other skills have to recover from later.
 
-**Workflow:** `setup` | **Telemetry steps:** `parse-args`, `update-config`, `confirm`.
+**Workflow:** `setup`
 
 **When NOT to use:** Quick config checks ("is Linear enabled?") — just read `.pm/config.json`. When PM isn't bootstrapped yet — use `pm:start` first. When the user wants to change writing style or terminology — edit `{pm_dir}/instructions.md` directly.
 

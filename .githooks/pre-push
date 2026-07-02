@@ -151,7 +151,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     echo "Fetch origin/main, then retry the push."
     exit 1
   fi
-  changed_pm_runtime_files=$(git diff --name-only "origin/main...$local_oid" -- commands skills scripts hooks personas templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
+  changed_pm_runtime_files=$(git diff --name-only "origin/main...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
   if [[ "$?" -ne 0 ]]; then
     echo "ERROR: unable to diff origin/main...$local_oid for PM dev gate checks."
     exit 1

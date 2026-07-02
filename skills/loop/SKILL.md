@@ -1,13 +1,13 @@
 ---
 name: loop
-description: "Use when the user asks for loop engineering, AI development loop orchestration, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, OpenClaw loop jobs, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`."
+description: "Use when the user asks for loop engineering, AI development loop orchestration, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, unattended workers, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`, `/pm:loop work`."
 ---
 
 # pm:loop
 
 ## Purpose
 
-Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, and prepares scheduler setup while existing PM skills still own the actual work.
+Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker (`/pm:loop work`).
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 
@@ -24,7 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - The user wants a one-time active-work list without orchestration policy — use `/pm:list`.
 - The user wants to create or groom new work — use `/pm:task`, `/pm:bug`, `/pm:groom`, or `/pm:rfc`.
 
-**Workflow:** `loop` | **Telemetry steps:** `status`, `wake`, `config`, `install`.
+**Workflow:** `loop`
 
 ## Steps
 
@@ -45,6 +45,10 @@ Loop columns are derived from git-synced state under `pm/`:
 | `done` | Work is complete |
 
 Local `.pm/*` sessions may be displayed as local-only context, but they are not cross-machine claim candidates until summarized into `pm/loop/session-snapshots/`.
+
+Epics use the existing card relations — no loop-specific fields: a card with open `children` is an umbrella and is never dispatched; a child with `parent` set is dispatched only when every earlier sibling in the parent's ordered `children` list is done. Each child still needs its own `implementation_approved` fields (the RFC approval step can write them for the whole epic in one question).
+
+`autonomy.merge_pr` decides the worker's terminal state: `false` (default) stops at an open PR for human review; `true` ships each child through the merge loop when all gates and CI are green and marks the card done, so an approved epic runs child-by-child to completion without human stops. The kill switch and daily budget still apply to every wake.
 
 ## Red Flags — Self-Check
 

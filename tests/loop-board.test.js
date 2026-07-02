@@ -43,6 +43,108 @@ function ids(rows) {
   return rows.map((row) => row.id);
 }
 
+function approvedCard(id, title, extra = "") {
+  return [
+    "---",
+    "type: backlog",
+    `id: "${id}"`,
+    `title: "${title}"`,
+    "kind: task",
+    "status: planned",
+    "implementation_approved: true",
+    "approved_by: soelinmyat",
+    "approved_at: 2026-06-23",
+    extra,
+    "---",
+    "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+test("epic parent with open children is never dispatchable; children run in order", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/currency.md",
+    approvedCard(
+      "PM-100",
+      "Epic: currency",
+      ["children:", '  - "currency-api"', '  - "currency-ui"'].join("\n")
+    )
+  );
+  project.write(
+    "pm/backlog/currency-api.md",
+    approvedCard("PM-101", "API slice", 'parent: "currency"')
+  );
+  project.write(
+    "pm/backlog/currency-ui.md",
+    approvedCard("PM-102", "UI slice", 'parent: "currency"')
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  // Parent is an umbrella — blocked, not ready, despite full approval.
+  const blocked = board.columns.blocked;
+  assert.ok(ids(blocked).includes("PM-100"), JSON.stringify(board.columns));
+  assert.match(blocked.find((c) => c.id === "PM-100").blocker, /epic umbrella/);
+
+  // First child is dispatchable; second waits on its earlier sibling.
+  assert.ok(ids(board.columns.ready_for_dev).includes("PM-101"));
+  assert.ok(ids(blocked).includes("PM-102"));
+  assert.match(blocked.find((c) => c.id === "PM-102").blocker, /earlier sibling.*currency-api/);
+});
+
+test("child becomes dispatchable when earlier sibling is done or its card is deleted", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/epic.md",
+    approvedCard(
+      "PM-200",
+      "Epic",
+      ["children:", '  - "epic-a"', '  - "epic-b"', '  - "epic-c"'].join("\n")
+    )
+  );
+  // epic-a: done via status; epic-b: card deleted at retro close-out (absent);
+  // epic-c should therefore be dispatchable.
+  project.write(
+    "pm/backlog/epic-a.md",
+    [
+      "---",
+      "type: backlog",
+      'id: "PM-201"',
+      'title: "A"',
+      "kind: task",
+      "status: done",
+      'parent: "epic"',
+      "---",
+      "",
+    ].join("\n")
+  );
+  project.write("pm/backlog/epic-c.md", approvedCard("PM-203", "C", 'parent: "epic"'));
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+  assert.ok(ids(board.columns.ready_for_dev).includes("PM-203"), JSON.stringify(board.columns));
+});
+
+test("parent with all children done lands in needs_human for close-out", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/epic.md",
+    approvedCard("PM-300", "Epic", ["children:", '  - "epic-gone"'].join("\n"))
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+  const row = board.columns.needs_human.find((c) => c.id === "PM-300");
+  assert.ok(row, JSON.stringify(board.columns));
+  assert.match(row.blocker, /close out the epic parent/);
+});
+
 test("loop board classifies backlog cards by durable git-backed fields", (t) => {
   const project = createProject();
   t.after(project.cleanup);

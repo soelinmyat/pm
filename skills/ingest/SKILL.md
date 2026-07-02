@@ -19,7 +19,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **When NOT to use:** Single quick observations (use note). Non-evidence files. Data that isn't customer feedback, interviews, support signals, or sales notes.
 
-**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route-insights`, `report`.
+**Workflow:** `ingest`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ingest/steps/` in numeric filename order. If `.pm/workflows/ingest/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 

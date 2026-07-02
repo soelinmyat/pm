@@ -21,7 +21,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, te
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `rfc` | **Telemetry steps:** `intake`, `rfc-generation`, `rfc-review`, `approved`.
+**Workflow:** `rfc`
 
 **When NOT to use:** XS/S work that doesn't need an RFC. Quick fixes, typo corrections, or config changes. When the user wants product discovery or scoping, use `pm:groom` instead. When the user wants to jump straight to implementation, use `pm:dev`.
 

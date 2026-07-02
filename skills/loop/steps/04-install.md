@@ -1,42 +1,80 @@
 ---
 name: Install
 order: 4
-description: Explain scheduler installation state and the safe manual wake contract
+description: First-time scheduler setup — wire launchd/cron to the loop worker for this project
 ---
 
 ## Goal
 
-Prepare the user to wire a scheduler to the same `pm:loop wake` contract without creating hidden state in cron or OpenClaw.
+Set up unattended wakes for a project: verify config and gates, generate the
+scheduler asset (launchd on macOS, cron elsewhere), and install it only with
+explicit user confirmation.
 
 ## How
 
-First run config inspection:
+1. Initialize loop config if missing, then show it:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js "$PWD")"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js "$PWD")" --init
 ```
 
-Then explain the current implementation boundary:
+2. Walk the user through the pre-install checklist. Do not install until each
+   item is confirmed:
 
-- Scheduler adapters are intentionally thin. They should wake PM and let `pm/loop` state decide.
-- The implemented safe wake command is dry-run by default:
+- **Gates:** unattended implementation requires `autonomy.start_dev: true`
+  (project-level) and `implementation_approved: true` + `approved_by` +
+  `approved_at` on each card (per-item). Leaving `start_dev: false` means
+  scheduled wakes stay observation-only — a valid first configuration.
+- **Engine:** `worker.engine` (`codex` | `claude`) or `worker.engine_bin` must
+  name a CLI that is installed, authenticated, and on PATH.
+- **Engine permissions:** the claude engine defaults to
+  `worker.claude_permission_mode: "acceptEdits"`, under which unattended shell
+  commands are denied and runs fail loudly. Fully unattended implementation
+  requires the operator to explicitly set it to `"bypassPermissions"` — treat
+  that as granting the engine full control of the machine during runs; prefer
+  a dedicated user account or container for the scheduler. Codex runs keep
+  codex's own workspace-write sandbox under `--full-auto`. The worker also
+  refuses any card whose `command` is not a `/pm:dev|rfc|research <id>` shape,
+  so git-synced card frontmatter cannot inject arbitrary instructions.
+- **Worktree bootstrap:** list the project's gitignored-but-required files
+  (env files, generated specs) in `worker.bootstrap_files`; use
+  `worker.bootstrap_command` for install steps. Fresh-worktree test failures
+  are the most common unattended-run failure.
+- **Merge autonomy:** `autonomy.merge_pr: false` (default) means every child
+  stops at an open PR for your review. Setting it to `true` grants full
+  epic autonomy: implement → test → merge to main → next child, with no human
+  stop between children. Only the workflow's own gates (TDD, review,
+  verification, green CI) stand between the engine and main — confirm the
+  user wants that before enabling.
+- **Budgets:** review `budgets.max_runs_per_day` and
+  `max_runtime_seconds_per_run`. Every engine run costs real money.
+- **Kill switch:** show how to halt everything:
 
-  ```bash
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-runner.js --project-dir "$PWD" --dry-run --mode dev
-  ```
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --stop    # halt (commits + pushes)
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --resume  # resume
+```
 
-- Explicit lease claiming is available for operator testing:
+3. Generate the scheduler asset and show it to the user before installing:
 
-  ```bash
-  node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-runner.js --project-dir "$PWD" --mode dev --no-dry-run --claim-only
-  ```
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD"
+```
 
-- Real worker dispatch is not enabled in this slice. Do not install a cron/OpenClaw job that assumes unattended coding is live.
+4. Only after the user confirms, install (macOS writes the LaunchAgent and
+   loads it; Linux users add the printed line via `crontab -e`):
 
-If the user specifically asks for OpenClaw, give the intended job names from the RFC (`pm-loop-status-daily`, `pm-loop-ship-watch`, `pm-loop-bug-poll`) and say they should call the same runner contract once the worker slice lands.
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --install
+```
+
+The interval comes from `scheduler_interval_minutes` (default 30) or
+`--interval <minutes>`.
 
 ## Done-when
 
-The user understands what can be scheduled today (`status` and dry-run/claim-only wake) and what must wait for the worker slice (ship-watch and real implementation dispatch).
+Either the scheduler is installed and the user knows the interval, log path,
+and kill-switch command — or the user deliberately stopped at generate-only,
+and knows exactly what remains to enable unattended wakes.
 
 **Advance:** stop. The loop skill is complete for this invocation.
