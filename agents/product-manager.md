@@ -69,7 +69,7 @@ Walk through the proposal as the target user:
 ## Product Review
 
 **Context:** {what you reviewed}
-**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Issues Found}
 
 **Assessment:**
 {2-3 paragraph holistic assessment covering strategic coherence, execution readiness, and risk}

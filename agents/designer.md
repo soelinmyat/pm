@@ -79,7 +79,7 @@ Check for these anti-patterns: purple/blue gradient text, 3-column feature card 
 ```
 ## Design Review
 
-**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Issues Found}
 
 ### What's Working
 {3-5 specific positives with evidence}

@@ -119,6 +119,7 @@ ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md.
 **DEFAULT_BRANCH:** {DEFAULT_BRANCH}
 
 Run full QA (Phase 0-6). Report your verdict.
+Verdict must be one of: Pass | Pass with concerns | Fail | Blocked.
 ```
 
 #### Gate behavior

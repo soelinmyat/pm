@@ -52,7 +52,7 @@ Quality standards:
 ## Competitive Review
 
 **Context:** {what you reviewed}
-**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Needs revision}
+**Verdict:** {the verdict enum belongs to the dispatching gate — use the taxonomy from your dispatch brief; if dispatched without one, use Approved | Issues Found}
 
 **Blocking issues:** (strategic misalignment)
 - {issue} — {competitive risk}

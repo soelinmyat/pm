@@ -20,7 +20,7 @@ A review gate is fully described by its parameters:
 | Blocking fix | What "fix" means for this artifact |
 | Escalation | What happens at the cap or on a stop-verdict |
 
-**Verdict ownership.** The dispatching gate owns the verdict enum — its step parameter table (the `Verdicts` row) is the canonical listing. Agent base files (`agents/*.md`) must NOT declare a competing verdict enum in their Output Format; they defer to the taxonomy their dispatch brief supplies, and briefs quote the gate's display forms. A reviewer dispatched without a gate taxonomy defaults to `Approved | Needs revision`. This keeps one role from emitting different vocabularies at different entry points.
+**Verdict ownership.** The dispatching gate owns the verdict enum — its step parameter table (the `Verdicts` row) is the canonical listing. Agent base files (`agents/*.md`) must NOT declare a competing verdict enum in their Output Format; they defer to the taxonomy their dispatch brief supplies, and briefs quote the gate's display forms. A reviewer dispatched without a gate taxonomy defaults to `Approved | Issues Found`. This keeps one role from emitting different vocabularies at different entry points.
 
 Every gate runs the same loop:
 
