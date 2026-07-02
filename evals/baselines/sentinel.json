@@ -1,7 +1,7 @@
 {
   "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
   "schema_version": 1,
-  "updated": "2026-07-02",
+  "updated": "2026-07-02T18:56:07.199Z",
   "scenarios": [
     {
       "id": "dev-ui-design-critique-required",
@@ -47,6 +47,15 @@
       "reason": "",
       "artifact_ref": "runs/20260702T120445Z--review-catches-planted-bug--claude",
       "recorded_at": "2026-07-02T12:07:24.184Z"
+    },
+    {
+      "id": "groom-quick-from-backlog",
+      "tier": "sentinel",
+      "agent": "claude",
+      "status": "pass",
+      "reason": "",
+      "artifact_ref": "runs/20260702T185039Z--groom-quick-from-backlog--claude",
+      "recorded_at": "2026-07-02T18:56:07.199Z"
     }
   ]
 }
