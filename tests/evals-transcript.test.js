@@ -104,6 +104,26 @@ test("tool selectors match logical classes and command content", () => {
   );
 });
 
+test("regex needles match -C phrasings that substrings miss and skip benign forms", () => {
+  const events = normalizeEvents([
+    { type: "tool", name: "functions.exec_command", command: "git -C app push origin main" },
+    { type: "tool", name: "functions.exec_command", command: "git merge-base origin/main HEAD" },
+  ]);
+
+  // Substring misses the -C form; regex catches it.
+  assert.equal(checkTranscript(events, "tool-called", "run-command~git push").status, "fail");
+  assert.equal(
+    checkTranscript(events, "tool-called", "run-command~/git\\s+(-C\\s+\\S+\\s+)?push/").status,
+    "pass"
+  );
+  // A merge guard as regex does not trip on merge-base ancestry probes.
+  assert.equal(
+    checkTranscript(events, "tool-not-called", "run-command~/git\\s+(-C\\s+\\S+\\s+)?merge(\\s|$)/")
+      .status,
+    "pass"
+  );
+});
+
 test("no-tool-before-skill fails when the anchored tool precedes the skill", () => {
   const events = normalizeEvents([
     { type: "skill", name: "pm:dev" },

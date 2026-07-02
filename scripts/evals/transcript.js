@@ -277,19 +277,32 @@ function findToolIndex(events, selector) {
   return events.findIndex((event) => matchesToolSelector(event, selector));
 }
 
-// Selector grammar: "<name-or-class>" or "<name-or-class>~<command substring>".
-// The name part matches the raw tool name or its logical class; "*" matches any.
+// Selector grammar: "<name-or-class>" or "<name-or-class>~<command needle>".
+// The name part matches the raw tool name or its logical class; "*" matches
+// any. A needle wrapped in slashes (~/git\s+push/) is a case-insensitive
+// regex — required for safety gates, where plain substrings both false-fail
+// on benign phrasings and miss `-C`-style invocations.
 function parseToolSelector(selector) {
   const text = String(selector || "");
   const sep = text.indexOf("~");
   if (sep === -1) return { name: text, needle: "" };
-  return { name: text.slice(0, sep), needle: text.slice(sep + 1) };
+  const rawNeedle = text.slice(sep + 1);
+  let regex = null;
+  if (rawNeedle.length > 2 && rawNeedle.startsWith("/") && rawNeedle.endsWith("/")) {
+    try {
+      regex = new RegExp(rawNeedle.slice(1, -1), "i");
+    } catch {
+      regex = null; // malformed regex falls back to substring on the raw text
+    }
+  }
+  return { name: text.slice(0, sep), needle: rawNeedle, regex };
 }
 
 function matchesToolSelector(event, selector) {
   if (!event || event.type !== "tool") return false;
-  const { name, needle } = parseToolSelector(selector);
+  const { name, needle, regex } = parseToolSelector(selector);
   if (name && name !== "*" && event.name !== name && event.tool_class !== name) return false;
+  if (regex) return regex.test(String(event.command || ""));
   if (needle) {
     const command = String(event.command || "").toLowerCase();
     if (!command.includes(needle.toLowerCase())) return false;

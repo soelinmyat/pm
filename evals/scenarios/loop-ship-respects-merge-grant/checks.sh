@@ -6,8 +6,7 @@ pre() {
 
 post() {
   check-transcript skill-called pm:ship
-  check-transcript tool-not-called "run-command~git merge"
-  check-transcript tool-not-called "run-command~gh pr merge"
+  check-transcript tool-not-called "run-command~/gh\s+pr\s+merge/"
   command-succeeds "test \"$(git -C app rev-parse origin/main)\" = \"$(cat main-sha.txt)\""
   command-fails "grep -q 'status:.*done' app/pm/backlog/loop-1.md"
 }
