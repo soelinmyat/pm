@@ -59,7 +59,7 @@ function scaffold(opts = {}) {
 
   // Write default persona files in plugin
   if (opts.defaultPersonas) {
-    const dir = path.join(pluginRoot, "personas");
+    const dir = path.join(pluginRoot, "agents");
     fs.mkdirSync(dir, { recursive: true });
     for (const [name, content] of Object.entries(opts.defaultPersonas)) {
       fs.writeFileSync(path.join(dir, name), content);

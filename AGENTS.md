@@ -18,7 +18,7 @@ Treat these directories as the runtime surface:
 |---|---|
 | `commands/` | User-facing command surface |
 | `skills/` | Workflow behavior and output expectations |
-| `personas/` | Role overlays used by review and critique agents |
+| `agents/` | Persona/agent bodies — registered as `pm:<name>` agents and inlined as `@name` prompts |
 | `scripts/` | Runtime utilities (helpers, validators, status) |
 | `hooks/` | Pre/post tool-use hooks |
 | `templates/` | Output templates |
@@ -120,7 +120,7 @@ git config core.hooksPath .githooks
 
 ## Development Flow
 
-### Editing source code (skills, scripts, commands, personas)
+### Editing source code (skills, scripts, commands, agents)
 
 1. **Edit** files in this repo
 2. **Sync to cache** to test immediately (see sync command below)
@@ -153,7 +153,6 @@ Runtime behavior lives in:
 - `commands/`
 - `skills/`
 - `scripts/`
-- `personas/`
 
 Public product promise lives in:
 - `README.md`
@@ -165,7 +164,7 @@ Planning notes are maintained privately outside this repository.
 
 - If command behavior changes, update the corresponding file in `commands/`.
 - If workflow behavior changes, update the relevant `skills/` file.
-- If persona behavior changes, update the relevant file in `personas/`.
+- If persona behavior changes, update the relevant file in `agents/`.
 - If code changes affect the published UX, update `README.md` and any affected install docs.
 - Keep command names and examples aligned across `README.md`, `commands/`, and `skills/`.
 - **After editing scripts or skills, sync to cache before testing.** Do not edit the cache directly.

@@ -56,7 +56,7 @@ test("simplify treats PM plugin Markdown as runtime source", () => {
   assert.match(skill, /PM plugin exception/);
   assert.match(
     skill,
-    /`commands\/`, `skills\/`, `personas\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
+    /`commands\/`, `skills\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
   );
   assert.match(skill, /do not treat them as docs-only\/config-only/);
 });
@@ -104,7 +104,7 @@ test("review treats PM plugin Markdown runtime files as reviewable source", () =
   assert.match(text, /PM plugin exception/);
   assert.match(
     text,
-    /`commands\/`, `skills\/`, `personas\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
+    /`commands\/`, `skills\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
   );
   assert.match(text, /do not treat them as docs-only\/config-only/);
 });

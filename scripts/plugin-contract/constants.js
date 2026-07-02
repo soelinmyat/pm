@@ -15,7 +15,6 @@ const MANIFEST_FILES = [
 // rule-pack walker. Relative to plugin root.
 const PLUGIN_SOURCE_GLOBS = [
   "skills/**",
-  "personas/**",
   "commands/**",
   ".claude-plugin/",
   ".codex-plugin/",

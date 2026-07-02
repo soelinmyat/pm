@@ -9,7 +9,7 @@ const path = require("path");
 // PM-170 Issue 3: Validate shipped persona files
 // ---------------------------------------------------------------------------
 
-const PERSONAS_DIR = path.join(__dirname, "..", "personas");
+const PERSONAS_DIR = path.join(__dirname, "..", "agents");
 
 const EXPECTED_PERSONAS = [
   "adversarial-engineer",

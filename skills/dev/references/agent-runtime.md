@@ -51,7 +51,7 @@ Flow docs use `@persona` references to indicate which persona perspective to app
 | `@product-manager` | `pm:product-manager` | scope validation, JTBD clarity, outcome coverage |
 | `@strategist` | `pm:strategist` | competitive intelligence, positioning, differentiation |
 
-Plugin agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`. Reference docs (longer guidance and methodology) live at `${CLAUDE_PLUGIN_ROOT}/personas/<name>.md` and are injected into prompts via the step loader when the runtime can't dispatch to a plugin agent.
+Persona bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md` — a single source that both registers as callable `pm:<name>` plugin agents AND is injected inline as `@name` prompts via the step loader when the runtime can't dispatch to a plugin agent. User overrides live at `.pm/personas/<name>.md`.
 
 ## Claude Adapter
 

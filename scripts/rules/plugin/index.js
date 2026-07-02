@@ -86,7 +86,7 @@ function buildContext(rootDir) {
 
   // Personas
   const personas = [];
-  const personasDir = path.join(rootDir, "personas");
+  const personasDir = path.join(rootDir, "agents");
   for (const filePath of walkMarkdownFiles(personasDir)) {
     personas.push(path.basename(filePath).replace(/\.md$/, ""));
   }
