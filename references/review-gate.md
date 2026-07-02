@@ -1,20 +1,40 @@
-# Review Gate Pattern
+# Review Gate Pattern — the review() primitive
 
-Shared pattern for all multi-reviewer quality gates. Skills reference this instead of reimplementing the dispatch-collect-fix loop.
+Shared pattern for all multi-reviewer quality gates. A step that IS a review gate declares parameters and runs this loop — it does not reimplement dispatch-collect-fix mechanics. (Groom steps 5 and 8 are the reference implementations of this shape.)
 
 ---
 
-## The Pattern
+## The primitive
 
-Every review gate follows the same loop:
+A review gate is fully described by its parameters:
+
+| Parameter | Meaning |
+|-----------|---------|
+| Artifact | What is being reviewed (a file, a state block, a diff) |
+| Reviewers | Persona list, each with an angle; conditional members state their condition |
+| Briefs | Where the reviewer prompts live (a prompt library file — never duplicated inline in the step) |
+| Dispatch | One parallel wave via `skills/dev/references/agent-runtime.md`; inline-sequential fallback when delegation is unavailable |
+| Independence | `none` (default) · `fresh-eyes` (reviewer must not read other findings — dispatch it in the same wave so they don't exist yet) · `anti-collusion` (headless agent tier: verbatim prepend from the brief library) |
+| Iteration cap | Max fix loops before escalation (default 3; headless agent tiers use 2) |
+| Verdicts | Per-reviewer enums, owned by the gate (do not homogenize vocabularies across gates) |
+| Blocking fix | What "fix" means for this artifact |
+| Escalation | What happens at the cap or on a stop-verdict |
+
+Every gate runs the same loop:
 
 ```
-1. Dispatch N reviewers (parallel or sequential)
-2. Collect verdicts
-3. If blocking issues found → fix → re-dispatch (up to max iterations)
-4. If approved → proceed
-5. If max iterations exceeded → surface to human
+1. Dispatch ALL reviewers in one parallel wave
+2. Collect verdicts; merge + deduplicate team findings (independent reviewers stay separate signals)
+3. Split blocking vs advisory
+4. Blocking → fix the artifact → re-dispatch the WHOLE wave (fixes can introduce new problems)
+5. Repeat up to the iteration cap
+6. Cap reached or stop-verdict → escalate to the human
 ```
+
+Shared gate rules (every review gate, verbatim intent):
+- All declared reviews are required. Do NOT skip based on feature type, perceived quality, or time pressure. If a reviewer's angle doesn't apply, the reviewer will say so — that is different from never asking.
+- Read `skills/dev/references/agent-runtime.md` before dispatching. If delegation is unavailable, run the same briefs inline before merging findings.
+- Advisory items are surfaced later, never fixed inside the loop.
 
 ---
 
@@ -131,11 +151,9 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 
 | Gate | Called by | Reviewers | Prompt locations |
 |------|----------|-----------|-----------------|
-| Spec review | groom step 05 | 1 (spec-document-reviewer) | `skills/groom/references/spec-reviewer.md` |
 | Plan review | rfc (review step) | 1 (plan-document-reviewer) | `skills/dev/references/plan-reviewer.md` |
-| Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/steps/05-scope-review.md` |
-| Team review | groom step 08 | 3-4 (PM, Competitive, EM, Design) | `skills/groom/steps/08-team-review.md` |
-| Bar raiser | groom step 09 | 1 (Product Director) | `skills/groom/steps/09-bar-raiser.md` |
+| Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/references/team-reviewers.md` § Scope Review |
+| Team review + bar raiser | groom step 08 (one concurrent wave) | 4-5 (PM, Competitive, EM, Design cond., Product Director fresh-eyes) | `skills/groom/references/team-reviewers.md` |
 | Code review | review | 6 lenses (bugs, design, input edge-case, reuse, quality, efficiency) | `skills/review/SKILL.md` |
 | Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer.md` |
 | Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer.md` |
