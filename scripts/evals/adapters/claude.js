@@ -9,7 +9,9 @@ const { safeCopyTree } = require("../stage.js");
 const {
   MARKER_ARTIFACT,
   assertUnderRunDir,
+  bakePluginRootPaths,
   buildStoryPrompt,
+  transcriptTouchesHostPlugin,
   copyAuthTemplate,
   enableWorkdirAnalytics,
   injectSourceMarker,
@@ -111,6 +113,9 @@ function run({ scenarioId, paths }) {
 
   if (!sourceMarkerVerified(paths, prepared.marker)) {
     return { status: "indeterminate", reason: "wrong-source" };
+  }
+  if (transcriptTouchesHostPlugin(events, prepared.pluginRoot)) {
+    return { status: "indeterminate", reason: "wrong-source-host-plugin" };
   }
 
   return { status: "pass" };
@@ -221,6 +226,7 @@ function prepareClaudeRuntime({ paths }) {
   }
 
   safeCopyTree(paths.runtimeDir, pluginRoot);
+  bakePluginRootPaths(pluginRoot);
   injectSourceMarker(pluginRoot, marker);
 
   for (const exposedRoot of [claudeHome, pluginRoot]) {
