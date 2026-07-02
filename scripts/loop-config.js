@@ -32,6 +32,15 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     lease_ttl_minutes: 45,
     max_attempts_per_stage: 3,
   },
+  scheduler_interval_minutes: 30,
+  worker: {
+    engine: "",
+    engine_bin: "",
+    engine_args: [],
+    bootstrap_files: [],
+    bootstrap_command: "",
+    keep_workspace: false,
+  },
 });
 
 function isPlainObject(value) {
@@ -78,7 +87,7 @@ function loadLoopConfig(pmDir) {
 
 function normalizeLoopConfig(config) {
   const normalized = deepMerge(DEFAULT_LOOP_CONFIG, config);
-  for (const key of ["wip_limits", "autonomy", "budgets"]) {
+  for (const key of ["wip_limits", "autonomy", "budgets", "worker"]) {
     if (!isPlainObject(normalized[key])) {
       normalized[key] = clone(DEFAULT_LOOP_CONFIG[key]);
     } else {

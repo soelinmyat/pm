@@ -31,7 +31,7 @@ For explicit claim-only, run:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-runner.js --project-dir "$PWD" --mode <mode> --no-dry-run --claim-only
 ```
 
-Claim-only writes and commits a lease when git sync requirements pass. It still does not dispatch `/pm:dev`, `/pm:ship`, or any worker. If the JSON result says `blocked`, report the `reason` directly and do not retry blindly.
+Claim-only writes and commits a lease when git sync requirements pass; it never executes work. Execution belongs to the worker (`/pm:loop work`, `scripts/loop-worker.js`), which claims and dispatches in one cycle. If the JSON result says `blocked`, report the `reason` directly and do not retry blindly.
 
 When summarizing JSON:
 

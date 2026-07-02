@@ -1,13 +1,13 @@
 ---
 name: loop
-description: "Use when the user asks for loop engineering, AI development loop orchestration, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, OpenClaw loop jobs, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`."
+description: "Use when the user asks for loop engineering, AI development loop orchestration, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, unattended workers, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`, `/pm:loop work`."
 ---
 
 # pm:loop
 
 ## Purpose
 
-Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, and prepares scheduler setup while existing PM skills still own the actual work.
+Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker (`/pm:loop work`).
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 

@@ -185,7 +185,8 @@ function runLoop(projectDir, options = {}) {
     return {
       ...plan,
       status: "blocked",
-      reason: "worker dispatch is not enabled; rerun with --dry-run or --claim-only",
+      reason:
+        "loop-runner selects and claims only; use scripts/loop-worker.js to execute, or rerun with --dry-run or --claim-only",
     };
   }
 
