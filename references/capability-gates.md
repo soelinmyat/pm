@@ -15,7 +15,7 @@ Shared classification for optional tools, skills, and runtime features used by P
 
 | Capability | Class | Notes |
 |------------|-------|-------|
-| `delegation` | `runtime-specific` | Required only when a workflow explicitly chooses delegated execution. Inline execution must remain available in Codex. |
+| `delegation` | `runtime-specific` | Required only when a workflow explicitly chooses delegated execution. Inline execution must remain available in Codex. **Scoped default-on:** for short-lived read-only review waves (the `pm:review` 6-lens fan-out and groom's scope/team review waves), Codex uses `spawn_agent`/`wait_agent` parallel dispatch by default — inline-sequential only when `spawn_agent` is genuinely unavailable. Stays default-off for mutating/implementation agents. |
 | `persistent_workers` | `runtime-specific` | Required only for resumable delegated worker flows. Claude normally has this. Codex only has it when delegation is enabled. |
 | `gh` for PR creation/merge | `required` when the chosen path creates or merges a PR | Detect early and stop only on PR-required paths. |
 | `pm:review` | built-in | Always available. In-house multi-agent review via `agent-runtime.md` (6 lenses: bugs, design, input edge-case, reuse, quality, efficiency — the last three absorbed from the former `pm:simplify` in v1.9). Runtime-uniform — no external command dependency. No availability check needed. |
@@ -30,3 +30,4 @@ Shared classification for optional tools, skills, and runtime features used by P
 2. Check preferred capabilities once, log the result, and avoid repeating the same warning.
 3. Do not upgrade a preferred capability into a blocker in one flow while treating it as optional in another.
 4. In Codex, lack of delegation must never block the workflow if inline execution is still possible.
+5. Read-only review waves are the scoped exception to default-off delegation: on Codex, dispatch them with parallel `spawn_agent`/`wait_agent` by default and fall back to inline-sequential only when `spawn_agent` is genuinely unavailable. This never applies to mutating/implementation agents or subprocess dispatch.

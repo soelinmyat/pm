@@ -1,0 +1,420 @@
+#!/usr/bin/env node
+"use strict";
+
+// PreToolUse hook (Bash matcher, async:false) — the RUNTIME ENFORCEMENT GATE for
+// the PM dev push gate. It fires before EVERY Bash tool call, including loop
+// workers running `claude -p`.
+//
+// Why this is the gate, not a git hook: PM deliberately does NOT install a git
+// pre-push hook into user repos. So in a user repo this PreToolUse hook is the
+// ONLY thing standing between a `git push` and the remote — there is no
+// downstream backstop. (In PM's own repo it also sits in front of
+// .githooks/pre-push, but it must never rely on that existing.)
+//
+// Threat model: a COOPERATING agent (e.g. a loop worker) that reflexively runs
+// `git push` and would skip the gate by accident. It is NOT a sandbox against a
+// determined agent actively evading its OWN gate.
+//   FAIL-CLOSED on uncertainty: once a push to the session branch is detected
+//   and a gate manifest exists, if the checker cannot be run to a clean verdict
+//   we BLOCK — a checker you couldn't run is not evidence the gate passed.
+//   FAIL-OPEN only for genuinely out-of-scope cases: not a push, not the session
+//   branch (tag/delete/cross-branch), no manifest, or a non-PM repo.
+//
+// ceiling (documented, NOT chased): deliberately-obfuscated evasions —
+// `eval "git push"`, an `alias git=...` indirection, base64'd commands — are out
+// of scope. Defeating them requires an agent actively evading its own gate, which
+// is outside the cooperating-worker threat model. Hardening the parser against
+// natural agent-emitted forms (below) is where the value is; chasing obfuscation
+// is not. If hard enforcement against a determined agent is ever required, the
+// answer is to also install the git pre-push hook in user repos — a separate call.
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const PM_PLUGIN_ROOT =
+  process.env.PM_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
+
+const CHECKER = path.join(PM_PLUGIN_ROOT, "scripts", "dev-gate-check.js");
+
+// The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
+// under fail-open silently allowed the push. Give the checker plenty of room; if
+// it still overflows, fail-closed catches it (result.error is set → block).
+const MAX_BUFFER = 64 * 1024 * 1024;
+
+// allow / emit never call process.exit(): a bare `process.exit(0)` after a stdout
+// write can truncate a large deny JSON on a pipe (Node exits before the async
+// write drains). We set exitCode 0 and return; the process exits cleanly once the
+// event loop drains stdout. Callers use `return allow()` / `return emitDeny()`.
+function allow() {
+  process.exitCode = 0;
+}
+
+function emitDeny(reason) {
+  process.exitCode = 0;
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    })
+  );
+}
+
+// Gate ran and reported a failing/stale verdict.
+function blockFailingGate(branch, manifestRel, checkerOutput) {
+  emitDeny(
+    [
+      `PM dev gate blocked this push. Branch "${branch}" has an incomplete or stale quality gate:`,
+      "",
+      checkerOutput.trim(),
+      "",
+      `Run the missing/failing gates, refresh ${manifestRel} for HEAD, then retry the push.`,
+    ].join("\n")
+  );
+}
+
+// Fail-closed: a push to the session branch was detected and a gate manifest
+// exists, but the checker could not be run to a clean verdict.
+function blockUnverified(branch, manifestRel, detail) {
+  emitDeny(
+    [
+      `PM dev gate could not verify this push for branch "${branch}".`,
+      "",
+      `The gate checker for ${manifestRel} did not produce a clean verdict${
+        detail ? ` (${detail})` : ""
+      }.`,
+      "",
+      `The gate cannot be assumed passed when it can't be evaluated. Fix the checker/environment, ` +
+        `confirm ${manifestRel} is current for HEAD, then retry.`,
+    ].join("\n")
+  );
+}
+
+// --- git command detection -------------------------------------------------
+
+const SEGMENT_SPLIT = /(?:&&|\|\||[;\n|&])/;
+const LEADING_WRAPPERS = new Set([
+  "env",
+  "sudo",
+  "command",
+  "nice",
+  "time",
+  "builtin",
+  "exec",
+  "then",
+  "do",
+]);
+// git GLOBAL options (before the subcommand) that consume the next token.
+const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);
+// `git push` options that consume the next token (so their value isn't mistaken
+// for a remote/refspec positional).
+const PUSH_VALUE_OPTS = new Set(["-o", "--push-option", "--receive-pack", "--exec", "--repo"]);
+
+// Strip surrounding quotes/backticks/parens an agent may wrap a token in, so
+// `(git push)` and `git "push"` are recognized. ponytail: this covers natural
+// quoting only — `eval`/`alias`/base64 indirection is the documented ceiling.
+function stripToken(token) {
+  return token.replace(/^[('"`]+/, "").replace(/[)'"`]+$/, "");
+}
+
+// Parse one shell segment. Returns { isGit, isPush, dir, gitDir, workTree, args }
+// when the segment invokes git, else null. dir/gitDir/workTree come from git's
+// global -C / --git-dir / --work-tree options; args are the tokens after `push`.
+function parseSegment(segment) {
+  const tokens = segment
+    .trim()
+    .replace(/^[({]\s*/, "")
+    .split(/\s+/)
+    .map(stripToken)
+    .filter(Boolean);
+  let i = 0;
+  // Skip leading `VAR=value` assignments and common command wrappers.
+  while (
+    i < tokens.length &&
+    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || LEADING_WRAPPERS.has(tokens[i]))
+  ) {
+    i += 1;
+  }
+  if (i >= tokens.length) return null;
+  if (path.basename(tokens[i]) !== "git") return null;
+  i += 1;
+
+  let dir = null;
+  let gitDir = null;
+  let workTree = null;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (!token.startsWith("-")) {
+      const isPush = token === "push";
+      return {
+        isGit: true,
+        isPush,
+        dir,
+        gitDir,
+        workTree,
+        args: isPush ? tokens.slice(i + 1) : [],
+      };
+    }
+    if (token === "-C" && i + 1 < tokens.length) {
+      dir = tokens[i + 1];
+      i += 2;
+    } else if (token.startsWith("--git-dir=")) {
+      gitDir = token.slice("--git-dir=".length);
+      i += 1;
+    } else if (token === "--git-dir" && i + 1 < tokens.length) {
+      gitDir = tokens[i + 1];
+      i += 2;
+    } else if (token.startsWith("--work-tree=")) {
+      workTree = token.slice("--work-tree=".length);
+      i += 1;
+    } else if (token === "--work-tree" && i + 1 < tokens.length) {
+      workTree = tokens[i + 1];
+      i += 2;
+    } else if (GIT_VALUE_OPTS.has(token)) {
+      i += 2;
+    } else {
+      i += 1;
+    }
+  }
+  return null;
+}
+
+// Scan a full command string for a `git push`. Backslash-newline is a shell
+// CONTINUATION — join it first so a wrapped push stays one command (bare newlines
+// remain genuine separators, so a push on a later line is never missed). Tracks a
+// leading `cd <dir>` so `cd repo && git push` gates the right repo.
+function detectGitPush(command) {
+  const joined = command.replace(/\\\r?\n/g, " ");
+  let cwdOverride = null;
+  for (const segment of joined.split(SEGMENT_SPLIT)) {
+    const trimmed = segment.trim();
+    const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
+    if (cd) {
+      cwdOverride = cd[2];
+      continue;
+    }
+    const parsed = parseSegment(trimmed);
+    if (parsed && parsed.isPush) {
+      return {
+        dir: parsed.dir,
+        gitDir: parsed.gitDir,
+        workTree: parsed.workTree,
+        cwdOverride,
+        args: parsed.args,
+      };
+    }
+  }
+  return null;
+}
+
+// Destination branch a refspec writes to, or a sentinel for delete/tag/none.
+function refspecDest(spec) {
+  let s = spec.startsWith("+") ? spec.slice(1) : spec;
+  if (s.startsWith(":")) return { kind: "delete" };
+  const colon = s.indexOf(":");
+  let dst = colon >= 0 ? s.slice(colon + 1) : s;
+  if (dst === "") return { kind: "delete" };
+  if (dst.startsWith("refs/tags/")) return { kind: "tag" };
+  if (dst.startsWith("refs/heads/")) dst = dst.slice("refs/heads/".length);
+  return { kind: "branch", dst };
+}
+
+// Does this `git push` update the SESSION BRANCH's ref? Only those pushes are
+// gated. Tag pushes, deletions, and cross-branch pushes are out of scope.
+function pushUpdatesSessionBranch(args, sessionBranch) {
+  const positionals = [];
+  let sawDelete = false;
+  let sawTags = false;
+  let sawAllOrMirror = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i];
+    if (token.startsWith("-")) {
+      if (token === "--delete" || token === "-d") sawDelete = true;
+      else if (token === "--tags") sawTags = true;
+      else if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
+      else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
+      // else: a no-value flag (-u, -f, --force, --force-with-lease[=...], -v, …)
+      continue;
+    }
+    positionals.push(token);
+  }
+
+  if (sawAllOrMirror) return true; // pushes the session branch among others
+  if (sawDelete) return false; // deletion, not an update to the branch tip
+
+  // positionals: [remote?, refspec...] — the first positional is the remote.
+  const refspecs = positionals.slice(1);
+  if (refspecs.length === 0) {
+    // `git push` / `git push origin` → pushes the current (session) branch,
+    // unless it was a `--tags`-only push (tags out of scope).
+    return !sawTags;
+  }
+  for (const spec of refspecs) {
+    const dest = refspecDest(spec);
+    if (dest.kind !== "branch") continue; // delete/tag refspec → skip
+    if (dest.dst === "HEAD" || dest.dst === sessionBranch) return true;
+  }
+  return false;
+}
+
+// --- git helpers -----------------------------------------------------------
+
+function gitCapture(repoDir, args) {
+  const result = spawnSync("git", ["-C", repoDir, ...args], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!result || result.status !== 0) return "";
+  return (result.stdout || "").trim();
+}
+
+function currentBranch(repoDir) {
+  const shown = gitCapture(repoDir, ["branch", "--show-current"]);
+  if (shown) return shown;
+  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  return abbrev && abbrev !== "HEAD" ? abbrev : "";
+}
+
+function resolveDefaultBranch(repoDir) {
+  const ref = gitCapture(repoDir, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+  if (ref) return ref.replace(/^refs\/remotes\/origin\//, "");
+  return "main";
+}
+
+function refExists(repoDir, ref) {
+  const result = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "--quiet", ref], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  return !!result && result.status === 0;
+}
+
+// deriveSessionSlug is the single source of truth for branch -> manifest-name
+// normalization, shared with skills/hooks and .githooks/pre-push.
+function loadDeriveSessionSlug() {
+  return require(CHECKER).deriveSessionSlug;
+}
+
+// Resolve the working-tree directory the push targets, honoring cd / -C /
+// --work-tree / --git-dir. --work-tree is authoritative; otherwise derive the
+// work tree from --git-dir (its parent when it ends in `.git`).
+function resolveRepoDir(baseCwd, push) {
+  let repoDir = baseCwd;
+  if (push.cwdOverride) repoDir = path.resolve(repoDir, push.cwdOverride);
+  if (push.dir) repoDir = path.resolve(repoDir, push.dir);
+  if (push.workTree) {
+    repoDir = path.resolve(repoDir, push.workTree);
+  } else if (push.gitDir) {
+    const gd = path.resolve(repoDir, push.gitDir);
+    repoDir = path.basename(gd) === ".git" ? path.dirname(gd) : gd;
+  }
+  return repoDir;
+}
+
+function main() {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(0, "utf8");
+  } catch {
+    return allow();
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return allow();
+  }
+
+  const command =
+    payload && payload.tool_input && typeof payload.tool_input.command === "string"
+      ? payload.tool_input.command
+      : "";
+
+  // Cheap pre-filter: the vast majority of Bash calls are not pushes.
+  if (!command || !command.includes("push")) return allow();
+
+  const push = detectGitPush(command);
+  if (!push) return allow();
+
+  const baseCwd =
+    (payload && typeof payload.cwd === "string" && payload.cwd) ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+  const repoDir = resolveRepoDir(baseCwd, push);
+
+  const branch = currentBranch(repoDir);
+  if (!branch) return allow(); // detached HEAD or not a git repo — can't identify a session.
+
+  // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
+  // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
+  if (!pushUpdatesSessionBranch(push.args, branch)) return allow();
+
+  let slug;
+  try {
+    slug = loadDeriveSessionSlug()(branch);
+  } catch {
+    return allow(); // can't compute the manifest name → can't tell a session exists.
+  }
+
+  const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
+  let manifestPath = path.join(sessionsDir, `${slug}.gates.json`);
+  if (!fs.existsSync(manifestPath)) {
+    const currentPath = path.join(sessionsDir, "current.gates.json");
+    if (fs.existsSync(currentPath)) {
+      manifestPath = currentPath;
+    } else {
+      return allow(); // no PM dev session for this branch — no-op.
+    }
+  }
+  // Name the manifest that was actually checked (current.gates.json when that
+  // fallback was used), not the slug manifest that may not exist.
+  const manifestRel = `.pm/dev-sessions/${path.basename(manifestPath)}`;
+
+  // VERIFICATION REGION. A push to the session branch is being gated against a
+  // real manifest. Fail CLOSED on anything that stops a clean verdict — including
+  // an unexpected throw in here: an error is not proof the gate passed.
+  try {
+    const headSha = gitCapture(repoDir, ["rev-parse", "HEAD"]);
+    if (!headSha) return blockUnverified(branch, manifestRel, "unable to resolve HEAD");
+
+    const checkerArgs = ["--manifest", manifestPath, "--commit", headSha];
+    // Prefer the diff-aware check; degrade gracefully (drop --base) when the base
+    // isn't fetched so a missing remote ref never false-blocks. The core status /
+    // staleness checks still run without it.
+    const defaultBranch = resolveDefaultBranch(repoDir);
+    if (refExists(repoDir, `origin/${defaultBranch}`)) {
+      checkerArgs.push("--base", `origin/${defaultBranch}`);
+    }
+
+    const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
+      cwd: repoDir,
+      encoding: "utf8",
+      maxBuffer: MAX_BUFFER,
+    });
+
+    // Couldn't spawn, killed by signal, or non-numeric exit → the gate could not
+    // be evaluated, so it is not evidence the gate passed → BLOCK.
+    if (!result || result.error || typeof result.status !== "number") {
+      const detail =
+        result && result.error ? result.error.code || result.error.message : "no verdict";
+      return blockUnverified(branch, manifestRel, detail);
+    }
+    if (result.status === 0) return allow();
+    return blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
+  } catch (err) {
+    return blockUnverified(branch, manifestRel, (err && err.message) || "hook error");
+  }
+}
+
+try {
+  main();
+} catch {
+  // Detection-phase safety net. A bug BEFORE we confirm a gated push must not
+  // wedge Bash for innocent commands — fail OPEN here. (The verification region
+  // above owns its own fail-CLOSED handling once a gated push is confirmed.)
+  allow();
+}

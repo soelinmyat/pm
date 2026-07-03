@@ -126,8 +126,7 @@ Six lenses, dispatched in one parallel wave via `${CLAUDE_PLUGIN_ROOT}/skills/de
 | 6 | Efficiency | `pm:staff-engineer` | 5 |
 
 - **Claude Code:** parallel `Agent` calls with the matching plugin agent (`subagent_type` per table).
-- **Codex with delegation:** parallel `spawn_agent` calls, `wait_agent` all (no plugin agents — inline the `@persona` body as before).
-- **Codex inline / other runtimes:** run the lens briefs sequentially, merge findings.
+- **Codex:** parallel `spawn_agent` calls for the read-only review wave, then `wait_agent` all (no plugin agents — inline the `@persona` body). This wave defaults to parallel dispatch **regardless of the session's global `delegation` flag** — it is the scoped read-only exception in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Capability Flags. Sequential (run the lens briefs one at a time, merge findings) only when `spawn_agent` is genuinely unavailable.
 
 Check `.pm/dev-sessions/{slug}.md` (if it exists) to determine whether the design lens skips.
 
