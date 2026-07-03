@@ -256,6 +256,39 @@ function toggleLoop(pmDir) {
 
 // --- HTTP server ---------------------------------------------------------
 
+// A 127.0.0.1 bind is still reachable from any page in the user's browser, so
+// the mutating endpoint must defend against drive-by CSRF and DNS rebinding:
+//   - Host header hostname must be loopback (a rebound attacker domain is not),
+//   - any Origin present must also be loopback (blocks cross-site fetch/form),
+//   - a custom header is required, which forces a CORS preflight the server
+//     never satisfies — closing the gap where a browser omits Origin.
+// Non-browser clients (curl, the test suite) simply send the header and a
+// loopback Host, so they are unaffected.
+const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const BOARD_HEADER = "x-pm-board";
+
+function hostnameOf(hostHeader) {
+  const value = String(hostHeader || "").trim();
+  if (!value) return "";
+  if (value.startsWith("[")) return value.slice(1, value.indexOf("]")); // [::1]:port
+  return value.split(":")[0];
+}
+
+function isTrustedLocalRequest(req) {
+  if (!LOCAL_HOSTS.has(hostnameOf(req.headers.host))) return false;
+  const origin = req.headers.origin;
+  if (origin) {
+    let originHost;
+    try {
+      originHost = new URL(origin).hostname;
+    } catch {
+      return false;
+    }
+    if (!LOCAL_HOSTS.has(originHost)) return false;
+  }
+  return req.headers[BOARD_HEADER] === "1";
+}
+
 function sendJson(res, status, value) {
   const body = JSON.stringify(value);
   res.writeHead(status, {
@@ -302,6 +335,12 @@ function createServer(serverOptions = {}) {
     }
 
     if (req.method === "POST" && url === "/api/loop/toggle") {
+      if (!isTrustedLocalRequest(req)) {
+        sendJson(res, 403, {
+          error: "Forbidden: the loop toggle only accepts same-origin local requests.",
+        });
+        return;
+      }
       // Drain the request body (may be empty) before acting.
       req.on("data", () => {});
       req.on("end", () => {
@@ -579,7 +618,7 @@ function renderPage() {
     if (busy) return;
     busy = true;
     toggleBtn.disabled = true;
-    fetch("/api/loop/toggle", { method: "POST" })
+    fetch("/api/loop/toggle", { method: "POST", headers: { "x-pm-board": "1" } })
       .then(function (r) { return r.json(); })
       .then(function () { busy = false; refresh(); })
       .catch(function () { busy = false; refresh(); });
@@ -641,6 +680,7 @@ module.exports = {
   createServer,
   displayColumnOrder,
   enrichCard,
+  isTrustedLocalRequest,
   parseGitHubRemote,
   prHref,
   renderPage,

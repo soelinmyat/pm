@@ -57,9 +57,10 @@ function columnCards(payload, name) {
 }
 
 // Fire an HTTP request against a server already listening on 127.0.0.1.
-function request(port, method, reqPath, body) {
+function request(port, method, reqPath, headers, body) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, method, path: reqPath }, (res) => {
+    const options = { host: "127.0.0.1", port, method, path: reqPath, headers: headers || {} };
+    const req = http.request(options, (res) => {
       let data = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => (data += chunk));
@@ -78,6 +79,10 @@ function request(port, method, reqPath, body) {
     req.end();
   });
 }
+
+// Same-origin browser fetch and CLI clients both send this header; a cross-site
+// page cannot set it without a CORS preflight the server never approves.
+const TRUSTED = { "x-pm-board": "1" };
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -277,19 +282,50 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
   const before = await request(port, "GET", "/api/board");
   assert.equal(before.json.loop.paused, false);
 
-  const toggled = await request(port, "POST", "/api/loop/toggle");
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(toggled.json.paused, true);
   assert.ok(fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   const paused = await request(port, "GET", "/api/board");
   assert.equal(paused.json.loop.paused, true);
 
-  const resumed = await request(port, "POST", "/api/loop/toggle");
+  const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(resumed.json.paused, false);
   assert.ok(!fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   const active = await request(port, "GET", "/api/board");
   assert.equal(active.json.loop.paused, false);
+
+  server.close();
+  project.cleanup();
+});
+
+test("POST /api/loop/toggle rejects cross-origin and header-less requests (CSRF)", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  // No custom header → rejected (a simple cross-site POST cannot set it).
+  const bare = await request(port, "POST", "/api/loop/toggle");
+  assert.equal(bare.status, 403);
+
+  // Cross-origin browser fetch → rejected even with the header.
+  const crossOrigin = await request(port, "POST", "/api/loop/toggle", {
+    "x-pm-board": "1",
+    origin: "http://evil.example.com",
+  });
+  assert.equal(crossOrigin.status, 403);
+
+  // A rebound attacker Host (not loopback) → rejected.
+  const rebind = await request(port, "POST", "/api/loop/toggle", {
+    "x-pm-board": "1",
+    host: "evil.example.com",
+  });
+  assert.equal(rebind.status, 403);
+
+  // The kill switch was never written by any rejected request.
+  assert.ok(!fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   server.close();
   project.cleanup();
