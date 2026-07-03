@@ -112,8 +112,18 @@ function installLaunchd(plist, label) {
   return target;
 }
 
-function setKillSwitch(pmDir, stopped) {
-  const stopPath = path.join(pmDir, "loop", "STOP");
+// The kill switch has two halves so callers on a request path can flip the
+// local state instantly and push in the background:
+//   writeKillSwitchFile — synchronous fs write/remove (fast, local truth)
+//   pushKillSwitch      — the git commit+push that halts every machine (slow,
+//                         networked; bounded by options.timeout so a hung push
+//                         cannot freeze the caller).
+function killSwitchFilePath(pmDir) {
+  return path.join(pmDir, "loop", "STOP");
+}
+
+function writeKillSwitchFile(pmDir, stopped) {
+  const stopPath = killSwitchFilePath(pmDir);
   if (stopped) {
     fs.mkdirSync(path.dirname(stopPath), { recursive: true });
     fs.writeFileSync(
@@ -123,23 +133,40 @@ function setKillSwitch(pmDir, stopped) {
   } else if (fs.existsSync(stopPath)) {
     fs.rmSync(stopPath);
   }
+  return { stopPath, stopped };
+}
 
+function pushKillSwitch(pmDir, stopped, options = {}) {
+  const stopPath = killSwitchFilePath(pmDir);
   const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) return { committed: false, pushed: false, reason: "no-git-root" };
+
+  const timeout = options.timeout;
   let committed = false;
-  if (gitRoot) {
-    try {
-      const rel = gitRelativePath(gitRoot, stopPath);
-      runGit(["add", "-A", "--", rel], gitRoot);
-      runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
-      committed = true;
-    } catch {
-      committed = false;
-    }
+  try {
+    const rel = gitRelativePath(gitRoot, stopPath);
+    runGit(["add", "-A", "--", rel], gitRoot, { timeout });
+    runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout,
+    });
+    committed = true;
+    runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"], timeout });
+    return { committed: true, pushed: true };
+  } catch (err) {
+    // Surface the failure — the "halt every machine" guarantee must fail loudly.
+    return {
+      committed,
+      pushed: false,
+      error: String((err && (err.stderr || err.message)) || err).slice(0, 500),
+    };
   }
-  return { stopPath, stopped, committed };
+}
+
+function setKillSwitch(pmDir, stopped, options = {}) {
+  const file = writeKillSwitchFile(pmDir, stopped);
+  const push = pushKillSwitch(pmDir, stopped, options);
+  return { stopPath: file.stopPath, stopped, ...push, committed: push.committed };
 }
 
 function generate(opts) {
@@ -241,7 +268,9 @@ module.exports = {
   generate,
   launchdLabel,
   projectSlug,
+  pushKillSwitch,
   setKillSwitch,
+  writeKillSwitchFile,
 };
 
 if (require.main === module) {

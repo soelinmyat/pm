@@ -19,16 +19,20 @@ const fs = require("fs");
 const path = require("path");
 
 const { buildLoopBoard, COLUMN_ORDER } = require("./loop-board.js");
-const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { loadLoopConfig, configPath } = require("./loop-config.js");
 const { parseCliArgs } = require("./loop-args.js");
 const { findGitRoot, runGit } = require("./loop-git.js");
-const { setKillSwitch } = require("./loop-install.js");
-const { isStopped, readLedgers, runsDirFor, countRunsToday } = require("./loop-worker.js");
+const { writeKillSwitchFile, pushKillSwitch } = require("./loop-install.js");
+const { isStopped, readLedgers, runsDirFor, countRunsInLedgers } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
 const POLL_MS = 5000;
 const MAX_RUNS_SHOWN = 10;
+// git that runs off the request path (kill-switch push, background fetch) is
+// bounded so a hang can never freeze the single-threaded server.
+const PUSH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 20000;
+const FETCH_INTERVAL_MS = 30000;
 
 // Left-to-right pipeline order for display. Any column the model adds later
 // that we don't list here is appended so the board never silently drops one.
@@ -94,17 +98,32 @@ function prHref(raw, remote) {
 
 // --- Card enrichment -----------------------------------------------------
 
-// `size` and `prs` are display-only fields the base board model does not carry,
-// so read them straight from the card's own frontmatter (never re-derive the
-// column). Returns {} when the source file is absent or unparseable.
-function readDisplayFrontmatter(card) {
-  if (!card.sourcePath || !card.sourcePath.endsWith(".md")) return {};
-  try {
-    const { data } = parseFrontmatter(fs.readFileSync(card.sourcePath, "utf8"));
-    return data || {};
-  } catch {
-    return {};
-  }
+// Routine "waiting on the pipeline" states are working-as-designed and must not
+// wear the same red alarm as real problems (failed runs, missing approval, hard
+// blocks). The board data already distinguishes them.
+function blockerLevel(card) {
+  if (!card.blocker) return null;
+  if (/waiting on (earlier sibling|children)/i.test(card.blocker)) return "wait";
+  return "problem";
+}
+
+// Humanize blocker copy at the source so the UI never shows raw `key: value`.
+function humanizeBlocker(raw) {
+  if (!raw) return null;
+  const direct = [
+    [/implementation_approved.*required/i, "Needs approval before dev can start"],
+    [/proposal requires an rfc/i, "Needs an RFC before dev can start"],
+    [/all children done.*close out/i, "All children done — close out the epic"],
+  ];
+  for (const [pattern, text] of direct) if (pattern.test(raw)) return text;
+
+  let m = raw.match(/waiting on children \((\d+)\/(\d+) done\)/i);
+  if (m) return `Waiting on children — ${m[1]}/${m[2]} done`;
+  m = raw.match(/waiting on earlier sibling\(s\):\s*(.+)/i);
+  if (m) return `Waiting on earlier work: ${m[1]}`;
+  m = raw.match(/duplicate card id "?([^"]+?)"?$/i);
+  if (m) return `Duplicate card id: ${m[1]}`;
+  return raw;
 }
 
 function leaseView(lease, now) {
@@ -124,14 +143,14 @@ function leaseView(lease, now) {
 }
 
 function enrichCard(card, remote, now) {
-  const fm = readDisplayFrontmatter(card);
-  const prs = normalizePrs(fm.prs);
+  // size/prs are carried on the card model now (loop-board), no re-parse.
+  const prs = normalizePrs(card.prs);
   return {
     id: card.id,
     slug: card.slug,
     title: card.title,
     kind: card.kind || null,
-    size: typeof fm.size === "string" ? fm.size : fm.size ? String(fm.size) : null,
+    size: card.size || null,
     status: card.status || null,
     priority: card.priority || null,
     parent: card.parent || null,
@@ -140,7 +159,8 @@ function enrichCard(card, remote, now) {
     prs,
     prLinks: prs.map((raw) => ({ raw, href: prHref(raw, remote) })),
     column: card.column,
-    blocker: card.blocker || null,
+    blocker: humanizeBlocker(card.blocker),
+    blocker_level: blockerLevel(card),
     command: card.command || null,
     origin: card.origin || null,
     updated_epoch: card.updatedEpoch || 0,
@@ -158,8 +178,8 @@ function ledgerDuration(record) {
   return Math.max(0, Math.round((end - start) / 1000));
 }
 
-function recentRuns(runsDir) {
-  return readLedgers(runsDir)
+function recentRuns(ledgers) {
+  return ledgers
     .filter((record) => record.run_id || record.started_at)
     .sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")))
     .slice(0, MAX_RUNS_SHOWN)
@@ -175,22 +195,36 @@ function recentRuns(runsDir) {
     }));
 }
 
-function loopSummary(pmDir, pmStateDir, now) {
-  const installed = fs.existsSync(configPath(pmDir));
-  const config = loadLoopConfig(pmDir);
-  const runsDir = runsDirFor({ pmStateDir });
-  const budgets = config.budgets || {};
-  return {
-    installed,
+function loopSummary(pmDir, pmStateDir, now, sync) {
+  const summary = {
+    installed: fs.existsSync(configPath(pmDir)),
     paused: isStopped(pmDir),
-    runs: recentRuns(runsDir),
+    runs: [],
     budgets: {
-      runs_today: countRunsToday(runsDir, now),
-      max_runs_per_day: Number(budgets.max_runs_per_day) || 12,
-      ship_cycles_today: countRunsToday(runsDir, now, { stage: "ship" }),
-      max_ship_cycles_per_day: Number(budgets.max_ship_cycles_per_day) || 24,
+      runs_today: 0,
+      max_runs_per_day: 12,
+      ship_cycles_today: 0,
+      max_ship_cycles_per_day: 24,
     },
+    sync: sync || null,
   };
+
+  // A malformed pm/loop/config.json must degrade the loop section, never crash
+  // the server (the /api/board contract is "never throws").
+  try {
+    const budgets = loadLoopConfig(pmDir).budgets || {};
+    summary.budgets.max_runs_per_day = Number(budgets.max_runs_per_day) || 12;
+    summary.budgets.max_ship_cycles_per_day = Number(budgets.max_ship_cycles_per_day) || 24;
+  } catch (err) {
+    summary.error = `loop config unreadable: ${err.message}`;
+  }
+
+  // C2: read the ledger directory ONCE; derive runs + both budget counters.
+  const ledgers = readLedgers(runsDirFor({ pmStateDir }));
+  summary.runs = recentRuns(ledgers);
+  summary.budgets.runs_today = countRunsInLedgers(ledgers, now);
+  summary.budgets.ship_cycles_today = countRunsInLedgers(ledgers, now, { stage: "ship" });
+  return summary;
 }
 
 // --- Board payload -------------------------------------------------------
@@ -233,25 +267,54 @@ function buildBoardPayload(options = {}) {
     cards: (board.columns[name] || []).map((card) => card.id),
   }));
 
+  // Belt-and-suspenders: loopSummary already degrades a bad config internally,
+  // but anything unexpected here still degrades the loop section, never throws.
+  let loop;
+  try {
+    loop = loopSummary(pmDir, pmStateDir, now, options.killSwitchSync);
+  } catch (err) {
+    loop = {
+      installed: false,
+      paused: false,
+      runs: [],
+      budgets: {
+        runs_today: 0,
+        max_runs_per_day: 12,
+        ship_cycles_today: 0,
+        max_ship_cycles_per_day: 24,
+      },
+      sync: options.killSwitchSync || null,
+      error: `loop status unavailable: ${err.message}`,
+    };
+  }
+
   return {
     generated_at: board.meta.generatedAt,
     pm_dir: pmDir,
     columns,
     cards,
-    loop: loopSummary(pmDir, pmStateDir, now),
+    loop,
+    git: options.git || null,
   };
 }
 
 // --- Toggle (the only mutation) ------------------------------------------
 
-function toggleLoop(pmDir) {
+// Flip the LOCAL kill-switch file synchronously and return immediately. The
+// commit+push (the "halt every machine" half) is done off the request path by
+// the caller so a hung push can never freeze the server; its result is surfaced
+// on the next board poll via loop.sync.
+function toggleLoop(pmDir, at) {
   const resolved = path.resolve(pmDir);
   if (!fs.existsSync(resolved)) {
     return { error: `No pm/ directory found at ${resolved}.` };
   }
   const nextStopped = !isStopped(resolved);
-  const result = setKillSwitch(resolved, nextStopped);
-  return { paused: nextStopped, stop_path: result.stopPath, committed: result.committed };
+  writeKillSwitchFile(resolved, nextStopped);
+  return {
+    paused: nextStopped,
+    sync: { state: "pending", stopped: nextStopped, at: at || new Date().toISOString() },
+  };
 }
 
 // --- HTTP server ---------------------------------------------------------
@@ -298,11 +361,67 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
+// Cross-machine freshness: the board reads the LOCAL working tree, so another
+// machine's pushed leases/cards are invisible until git syncs. A read-only
+// `git fetch` (never pull/reset — never mutate the working tree under a running
+// worker) updates remote-tracking refs; we then report how far behind origin
+// the current branch is. Throttled + bounded + async so it never blocks a poll.
+function makeGitFreshness(pmDir) {
+  let status = null; // {available, branch, behind, fetched_at, error}
+  let fetching = false;
+  let lastAttempt = 0;
+
+  function refresh() {
+    const nowMs = Date.now();
+    if (fetching || nowMs - lastAttempt < FETCH_INTERVAL_MS) return;
+    fetching = true;
+    lastAttempt = nowMs;
+    setImmediate(() => {
+      const opts = { timeout: FETCH_TIMEOUT_MS };
+      try {
+        const gitRoot = findGitRoot(pmDir);
+        if (!gitRoot) {
+          status = { available: false };
+          return;
+        }
+        const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], gitRoot, opts);
+        runGit(["fetch", "--quiet"], gitRoot, opts); // read-only: refs only
+        let behind = null;
+        try {
+          const upstream = runGit(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            gitRoot,
+            opts
+          );
+          behind = Number(runGit(["rev-list", "--count", `HEAD..${upstream}`], gitRoot, opts)) || 0;
+        } catch {
+          behind = null; // no upstream configured
+        }
+        status = { available: true, branch, behind, fetched_at: new Date().toISOString() };
+      } catch (err) {
+        status = { available: false, error: String((err && err.message) || err).slice(0, 300) };
+      } finally {
+        fetching = false;
+      }
+    });
+  }
+
+  return {
+    get: () => status,
+    refresh,
+  };
+}
+
 function createServer(serverOptions = {}) {
   const pmDir = path.resolve(serverOptions.pmDir || path.join(process.cwd(), "pm"));
   const sourceDir = serverOptions.sourceDir;
   const pmStateDir = serverOptions.pmStateDir || stateDirFor(pmDir, sourceDir);
   const page = renderPage();
+  const gitFreshness = makeGitFreshness(pmDir);
+
+  // Last kill-switch sync result, surfaced on the board so a failed push shows
+  // "paused locally — push failed" instead of a silent false guarantee.
+  let killSwitchSync = null;
 
   // Resolve the origin remote once per process: it does not change while the
   // server runs, and this keeps the 5s poll from shelling out to git each time.
@@ -317,19 +436,40 @@ function createServer(serverOptions = {}) {
   }
 
   return http.createServer((req, res) => {
+    // A1: reject any non-loopback Host on EVERY route (defeats DNS rebinding
+    // reads of the whole board, not just the mutating endpoint).
+    if (!LOCAL_HOSTS.has(hostnameOf(req.headers.host))) {
+      sendJson(res, 403, { error: "Forbidden: non-loopback Host header." });
+      return;
+    }
+
     const url = (req.url || "/").split("?")[0];
 
     if (req.method === "GET" && (url === "/" || url === "/index.html")) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
+        // A2: this page can flip the kill switch via same-origin fetch, so it
+        // must never be framed (clickjacking) — deny all ancestors.
+        "x-frame-options": "DENY",
+        "content-security-policy":
+          "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
+          "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
       });
       res.end(page);
       return;
     }
 
     if (req.method === "GET" && url === "/api/board") {
-      const payload = buildBoardPayload({ pmDir, sourceDir, pmStateDir, remote: getRemote() });
+      gitFreshness.refresh();
+      const payload = buildBoardPayload({
+        pmDir,
+        sourceDir,
+        pmStateDir,
+        remote: getRemote(),
+        git: gitFreshness.get(),
+        killSwitchSync,
+      });
       sendJson(res, 200, payload);
       return;
     }
@@ -341,14 +481,30 @@ function createServer(serverOptions = {}) {
         });
         return;
       }
-      // Drain the request body (may be empty) before acting.
-      req.on("data", () => {});
-      req.on("end", () => {
+      req.resume(); // drain any body
+      let result;
+      try {
+        result = toggleLoop(pmDir);
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+        return;
+      }
+      if (result.error) {
+        sendJson(res, 200, result);
+        return;
+      }
+      // Respond immediately with the local flip; push in the background.
+      killSwitchSync = result.sync;
+      const stopped = result.paused;
+      sendJson(res, 200, result);
+      setImmediate(() => {
+        let push;
         try {
-          sendJson(res, 200, toggleLoop(pmDir));
+          push = pushKillSwitch(pmDir, stopped, { timeout: PUSH_TIMEOUT_MS });
         } catch (err) {
-          sendJson(res, 500, { error: err.message });
+          push = { committed: false, pushed: false, error: String((err && err.message) || err) };
         }
+        killSwitchSync = { state: "done", stopped, at: new Date().toISOString(), ...push };
       });
       return;
     }
@@ -393,6 +549,12 @@ function renderPage() {
       --text: #1c2128;
       --muted: #5b6470;
       --chip: #eaedf2;
+      /* Status hues re-tuned for >=4.5:1 on the DARKEST light surface (the
+         #eaedf2 badge chip), not just pure white — verified via WCAG contrast. */
+      --accent: #0a58ca;
+      --ok: #0f7331;
+      --warn: #805800;
+      --bad: #b8342f;
     }
   }
   * { box-sizing: border-box; }
@@ -409,6 +571,9 @@ function renderPage() {
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .2px; }
   header .spacer { flex: 1; }
+  .note { font-size: 12px; color: var(--muted); }
+  .note.ok { color: var(--ok); }
+  .note.bad { color: var(--bad); }
   .pill {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 3px 9px; border-radius: 999px; font-size: 12px;
@@ -424,16 +589,41 @@ function renderPage() {
   }
   button:hover { border-color: var(--accent); }
   button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  main { display: block; }
   #strip {
-    display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+    display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start;
     padding: 8px 16px; border-bottom: 1px solid var(--border);
     background: var(--panel); color: var(--muted); font-size: 12px;
   }
+  .strip-group { display: flex; flex-direction: column; gap: 3px; }
+  .strip-group.budgets { flex-direction: row; gap: 16px; align-items: center; }
+  .strip-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); opacity: .8;
+  }
   #strip b { color: var(--text); font-weight: 600; }
-  .board { display: flex; gap: 12px; padding: 16px; overflow-x: auto; align-items: flex-start; }
+  .runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .run { font-size: 11.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .run-when { color: var(--text); }
+  .run-outcome.completed { color: var(--ok); }
+  .run-outcome.failed, .run-outcome.timeout, .run-outcome.rejected,
+  .run-outcome.bootstrap-failed, .run-outcome.attempts-exhausted { color: var(--bad); }
+  .board {
+    list-style: none; margin: 0;
+    display: flex; gap: 12px; padding: 16px; overflow-x: auto; align-items: stretch;
+  }
   .col {
     flex: 0 0 272px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; display: flex; flex-direction: column; max-height: calc(100vh - 150px);
+    border-radius: 10px; display: flex; flex-direction: column; max-height: calc(100vh - 170px);
+  }
+  .col.collapsed {
+    flex: 0 0 34px; align-items: center; justify-content: center; padding: 8px 0;
+  }
+  .col.collapsed .rail-label {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    text-transform: uppercase; letter-spacing: .6px; font-size: 11px; color: var(--muted); white-space: nowrap;
   }
   .col > h2 {
     margin: 0; padding: 10px 12px; font-size: 12px; text-transform: uppercase;
@@ -441,9 +631,10 @@ function renderPage() {
     display: flex; justify-content: space-between; position: sticky; top: 0; background: var(--panel);
   }
   .col .count { color: var(--text); }
-  .cards { padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .cards { list-style: none; margin: 0; padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
   .card {
-    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-left-width: 3px; border-radius: 8px;
     padding: 10px; display: flex; flex-direction: column; gap: 7px;
   }
   .card .top { display: flex; gap: 8px; align-items: baseline; }
@@ -456,16 +647,13 @@ function renderPage() {
   }
   .badge.kind { color: var(--accent); }
   .badge.running { color: var(--ok); border-color: var(--ok); }
-  .badge.parent { color: var(--warn); }
   .meta { font-size: 11.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; }
   .branch { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .prs a, .prs span { color: var(--accent); text-decoration: none; margin-right: 6px; }
   .prs a:hover { text-decoration: underline; }
-  .blocker { font-size: 11.5px; color: var(--bad); }
-  .runs { display: flex; flex-direction: column; gap: 3px; }
-  .run { font-size: 11.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .run .completed { color: var(--ok); }
-  .run .failed, .run .timeout, .run .rejected { color: var(--bad); }
+  .blocker { font-size: 11.5px; }
+  .blocker.problem { color: var(--bad); }
+  .blocker.wait { color: var(--muted); }
   .empty { color: var(--muted); padding: 8px 4px; font-size: 12px; }
   #error { display: none; margin: 16px; padding: 14px 16px; border-radius: 8px;
     background: var(--panel); border: 1px solid var(--bad); color: var(--text); }
@@ -475,22 +663,32 @@ function renderPage() {
 <body>
 <header>
   <h1>PM Board</h1>
-  <span id="loopState" class="pill"><span class="dot"></span><span>loop</span></span>
+  <span id="loopState" class="pill" aria-live="polite"><span class="dot"></span><span>loop</span></span>
   <button id="toggle" disabled>Toggle loop</button>
+  <span id="syncNote" class="note"></span>
   <span class="spacer"></span>
+  <span id="git" class="note"></span>
   <span id="refreshed" class="pill">—</span>
 </header>
-<div id="strip"></div>
-<div id="error"></div>
-<div id="board" class="board"></div>
+<main>
+  <section id="strip" aria-label="loop status">
+    <div id="budgets" class="strip-group budgets"></div>
+    <div id="runlog" class="strip-group" aria-live="polite" aria-label="recent loop runs"></div>
+  </section>
+  <div id="error" role="alert"></div>
+  <ul id="board" class="board"></ul>
+</main>
 <!-- pm:board — read-only Kanban over the git-backed loop board. -->
 <script>
 (function () {
   var POLL_MS = ${POLL_MS};
   var boardEl = document.getElementById("board");
-  var stripEl = document.getElementById("strip");
+  var budgetsEl = document.getElementById("budgets");
+  var runlogEl = document.getElementById("runlog");
   var errorEl = document.getElementById("error");
   var loopStateEl = document.getElementById("loopState");
+  var syncEl = document.getElementById("syncNote");
+  var gitEl = document.getElementById("git");
   var refreshedEl = document.getElementById("refreshed");
   var toggleBtn = document.getElementById("toggle");
   var paused = false;
@@ -515,15 +713,32 @@ function renderPage() {
     if (isNaN(then)) return "";
     return ago(Math.round((Date.now() - then) / 1000)) + " ago";
   }
+  // Stable per-epic hue so a family reads as one group across lanes.
+  function hashHue(str) {
+    var h = 0;
+    for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+  function familyColor(card) {
+    var key = card.children && card.children.length ? card.slug : card.parent;
+    return key ? "hsl(" + hashHue(String(key)) + " 68% 52%)" : null;
+  }
 
   function cardHtml(card) {
+    var color = familyColor(card);
     var badges = [];
     if (card.kind) badges.push('<span class="badge kind">' + esc(card.kind) + "</span>");
-    if (card.size) badges.push('<span class="badge">' + esc(card.size) + "</span>");
+    if (card.size) badges.push('<span class="badge">size ' + esc(card.size) + "</span>");
     if (card.lease) {
-      badges.push('<span class="badge running">running ' + esc(ago(card.lease.age_seconds)) + "</span>");
+      var L = card.lease, rp = ["running"];
+      if (L.holder) rp.push(esc(L.holder));
+      if (L.runtime) rp.push(esc(L.runtime));
+      if (L.age_seconds != null) rp.push(esc(ago(L.age_seconds)));
+      badges.push('<span class="badge running">' + rp.join(" · ") + "</span>");
     }
-    if (card.parent) badges.push('<span class="badge parent">↳ ' + esc(card.parent) + "</span>");
+    if (card.parent && color) {
+      badges.push('<span class="badge" style="color:' + color + ';border-color:' + color + '">↳ ' + esc(card.parent) + "</span>");
+    }
 
     var meta = [];
     if (card.branch) meta.push('<span class="branch">' + esc(card.branch) + "</span>");
@@ -538,14 +753,75 @@ function renderPage() {
       }).join("") + "</div>";
     }
 
-    return '<div class="card">' +
+    var blocker = "";
+    if (card.blocker) {
+      var problem = card.blocker_level === "problem";
+      blocker = '<div class="blocker ' + (problem ? "problem" : "wait") + '">' +
+        (problem ? "⚠ " : "⏳ ") + esc(card.blocker) + "</div>";
+    }
+
+    var style = color ? ' style="border-left-color:' + color + '"' : "";
+    return '<li class="card"' + style + ">" +
       '<div class="top"><span class="id">' + esc(card.id) + "</span></div>" +
       '<div class="title">' + esc(card.title) + "</div>" +
       (badges.length ? '<div class="badges">' + badges.join("") + "</div>" : "") +
       (meta.length ? '<div class="meta">' + meta.join("") + "</div>" : "") +
-      prs +
-      (card.blocker ? '<div class="blocker">⚠ ' + esc(card.blocker) + "</div>" : "") +
-      "</div>";
+      prs + blocker +
+      "</li>";
+  }
+
+  function renderBoard(data, byId) {
+    boardEl.innerHTML = (data.columns || []).map(function (col) {
+      var cards = (col.cards || []).map(function (id) { return byId[id]; }).filter(Boolean);
+      var label = esc(col.name.replace(/_/g, " "));
+      if (!cards.length) {
+        return '<li class="col collapsed"><span class="rail-label">' + label + " · 0</span></li>";
+      }
+      return '<li class="col"><h2><span>' + label +
+        '</span><span class="count">' + cards.length + "</span></h2>" +
+        '<ul class="cards">' + cards.map(cardHtml).join("") + "</ul></li>";
+    }).join("");
+  }
+
+  function renderStrip(loop) {
+    var b = loop.budgets || {};
+    budgetsEl.innerHTML = '<span class="strip-label">budget</span>' +
+      "<span>runs <b>" + (b.runs_today || 0) + " / " + (b.max_runs_per_day || 0) + "</b></span>" +
+      "<span>ship <b>" + (b.ship_cycles_today || 0) + " / " + (b.max_ship_cycles_per_day || 0) + "</b></span>";
+
+    var runs = loop.runs || [];
+    var rows = runs.length
+      ? '<ul class="runs">' + runs.map(function (r) {
+          var when = relAge(r.started_at);
+          var dur = r.duration_seconds != null ? " (" + ago(r.duration_seconds) + ")" : "";
+          return '<li class="run"><span class="run-when">' + esc(when || "—") + "</span> · " +
+            esc(r.card_id || "?") + " · " + esc(r.stage || "?") + " · " +
+            '<span class="run-outcome ' + esc(r.outcome || "") + '">' + esc(r.outcome || "?") + "</span>" +
+            esc(dur) + "</li>";
+        }).join("") + "</ul>"
+      : '<span class="run">no runs recorded yet</span>';
+    runlogEl.innerHTML = '<span class="strip-label">recent runs</span>' + rows;
+  }
+
+  function renderSync(loop) {
+    var s = loop.sync;
+    if (!s) { syncEl.textContent = ""; syncEl.className = "note"; return; }
+    if (s.state === "pending") { syncEl.textContent = "syncing…"; syncEl.className = "note"; }
+    else if (s.pushed) { syncEl.textContent = "synced to origin"; syncEl.className = "note ok"; }
+    else if (s.error) { syncEl.textContent = "push failed — change is local only"; syncEl.className = "note bad"; }
+    else { syncEl.textContent = ""; syncEl.className = "note"; }
+  }
+
+  function renderGit(git) {
+    if (git && git.available) {
+      var when = git.fetched_at ? relAge(git.fetched_at) : "just now";
+      var behind = git.behind == null ? "" : (git.behind > 0 ? " · " + git.behind + " behind origin" : " · up to date");
+      gitEl.textContent = "synced " + when + behind + (git.branch ? " · " + git.branch : "");
+    } else if (git && git.error) {
+      gitEl.textContent = "git unavailable";
+    } else {
+      gitEl.textContent = "";
+    }
   }
 
   function render(data) {
@@ -553,7 +829,8 @@ function renderPage() {
       errorEl.textContent = data.error;
       errorEl.className = "show";
       boardEl.innerHTML = "";
-      stripEl.innerHTML = "";
+      budgetsEl.innerHTML = "";
+      runlogEl.innerHTML = "";
       loopStateEl.style.display = "none";
       toggleBtn.disabled = true;
       return;
@@ -563,16 +840,7 @@ function renderPage() {
 
     var byId = {};
     (data.cards || []).forEach(function (c) { byId[c.id] = c; });
-
-    boardEl.innerHTML = (data.columns || []).map(function (col) {
-      var cards = (col.cards || []).map(function (id) { return byId[id]; }).filter(Boolean);
-      var body = cards.length
-        ? cards.map(cardHtml).join("")
-        : '<div class="empty">—</div>';
-      return '<div class="col"><h2><span>' + esc(col.name.replace(/_/g, " ")) +
-        '</span><span class="count">' + cards.length + "</span></h2>" +
-        '<div class="cards">' + body + "</div></div>";
-    }).join("");
+    renderBoard(data, byId);
 
     var loop = data.loop || {};
     paused = !!loop.paused;
@@ -582,22 +850,9 @@ function renderPage() {
     toggleBtn.disabled = busy;
     toggleBtn.textContent = paused ? "Resume loop" : "Pause loop";
 
-    var b = loop.budgets || {};
-    var stripParts = [
-      "<span>runs today <b>" + (b.runs_today || 0) + " / " + (b.max_runs_per_day || 0) + "</b></span>",
-      "<span>ship cycles <b>" + (b.ship_cycles_today || 0) + " / " + (b.max_ship_cycles_per_day || 0) + "</b></span>",
-    ];
-    var runs = loop.runs || [];
-    if (runs.length) {
-      stripParts.push('<span class="runs">' + runs.map(function (r) {
-        var dur = r.duration_seconds != null ? " " + ago(r.duration_seconds) : "";
-        return '<span class="run">' + esc(r.card_id || "?") + " · " + esc(r.stage || "?") +
-          ' · <span class="' + esc(r.outcome || "") + '">' + esc(r.outcome || "?") + "</span>" + esc(dur) + "</span>";
-      }).join("") + "</span>");
-    } else {
-      stripParts.push('<span class="run">no runs recorded yet</span>');
-    }
-    stripEl.innerHTML = stripParts.join("");
+    renderStrip(loop);
+    renderSync(loop);
+    renderGit(data.git);
   }
 
   function refresh() {
@@ -676,10 +931,12 @@ function main() {
 }
 
 module.exports = {
+  blockerLevel,
   buildBoardPayload,
   createServer,
   displayColumnOrder,
   enrichCard,
+  humanizeBlocker,
   isTrustedLocalRequest,
   parseGitHubRemote,
   prHref,

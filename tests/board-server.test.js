@@ -6,9 +6,40 @@ const http = require("http");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
-const { buildBoardPayload, renderPage, createServer } = require("../scripts/board-server.js");
-const { writeJsonAtomic } = require("../scripts/loop-git.js");
+const {
+  buildBoardPayload,
+  renderPage,
+  createServer,
+  humanizeBlocker,
+  blockerLevel,
+} = require("../scripts/board-server.js");
+const { writeJsonAtomic, cleanGitEnv } = require("../scripts/loop-git.js");
+
+function git(cwd, args) {
+  return execFileSync("git", args, {
+    cwd,
+    env: cleanGitEnv(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+// Turn a project into a git repo with a bare origin, main pushed and tracked.
+function initGitWithRemote(project) {
+  git(project.root, ["init", "-q"]);
+  git(project.root, ["config", "user.name", "PM Test"]);
+  git(project.root, ["config", "user.email", "pm-test@example.com"]);
+  git(project.root, ["add", "-A"]);
+  git(project.root, ["commit", "-q", "-m", "init"]);
+  git(project.root, ["branch", "-M", "main"]);
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "pm-board-remote-"));
+  git(project.root, ["init", "--bare", "-q", remote]);
+  git(project.root, ["remote", "add", "origin", remote]);
+  git(project.root, ["push", "-q", "-u", "origin", "main"]);
+  return remote;
+}
 
 const FIXED_NOW = new Date("2026-06-23T00:00:00Z");
 
@@ -90,6 +121,16 @@ function listen(server) {
   });
 }
 
+// Poll an async predicate a bounded number of times (for background work like
+// the off-request-path kill-switch push).
+async function until(fn, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    if (await fn()) return true;
+    await new Promise((r) => setTimeout(r, 15));
+  }
+  return false;
+}
+
 test("GET /api/board payload shape: columns, cards, parent grouping, lease detection", () => {
   const project = createProject();
 
@@ -161,16 +202,19 @@ test("GET /api/board payload shape: columns, cards, parent grouping, lease detec
   assert.equal(byId.get("PM-101").size, "M");
   assert.deepEqual(byId.get("PM-101").prLinks, [{ raw: "#42", href: null }]);
 
-  // Lease detection with age.
+  // Lease detection with age + holder/runtime (E1: "which machine/engine").
   const leased = byId.get("PM-101");
   assert.ok(leased.lease, "expected an active lease on PM-101");
   assert.equal(leased.lease.holder, "machine-a");
+  assert.equal(leased.lease.runtime, "codex");
   assert.equal(leased.lease.stage, "dev");
   assert.equal(leased.lease.age_seconds, 1800);
 
   // Loop strip present and honest about an uninstalled loop.
   assert.equal(payload.loop.paused, false);
   assert.equal(payload.loop.installed, false);
+  assert.equal(payload.loop.sync, null);
+  assert.ok("git" in payload);
   assert.ok(typeof payload.generated_at === "string");
 });
 
@@ -284,10 +328,20 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
 
   const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(toggled.json.paused, true);
+  // A3: local STOP file is written synchronously; the push runs off-request.
+  assert.equal(toggled.json.sync.state, "pending");
   assert.ok(fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   const paused = await request(port, "GET", "/api/board");
   assert.equal(paused.json.loop.paused, true);
+
+  // The background push settles and its result is surfaced (no git here → not
+  // pushed, but reported honestly rather than hanging the request).
+  const settled = await until(async () => {
+    const r = await request(port, "GET", "/api/board");
+    return r.json.loop.sync && r.json.loop.sync.state === "done";
+  });
+  assert.ok(settled, "kill-switch sync should settle to done");
 
   const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(resumed.json.paused, false);
@@ -337,4 +391,147 @@ test("renderPage output is inert HTML with no external references", () => {
   assert.doesNotMatch(html, /https?:\/\//);
   assert.doesNotMatch(html, /<script\s+src=/i);
   assert.doesNotMatch(html, /<link\b/i);
+});
+
+test("A1: a non-loopback Host is rejected on ALL routes (not just the toggle)", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  // Loopback default Host works.
+  assert.equal((await request(port, "GET", "/api/board")).status, 200);
+
+  // DNS-rebind: attacker Host must not read the board or the page.
+  const board = await request(port, "GET", "/api/board", { host: "attacker.example" });
+  const page = await request(port, "GET", "/", { host: "attacker.example" });
+  assert.equal(board.status, 403);
+  assert.equal(page.status, 403);
+
+  server.close();
+  project.cleanup();
+});
+
+test("A2: GET / carries anti-clickjacking headers", async () => {
+  const project = createProject();
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  const res = await request(port, "GET", "/");
+  server.close();
+  project.cleanup();
+
+  assert.equal(res.headers["x-frame-options"], "DENY");
+  assert.match(res.headers["content-security-policy"] || "", /frame-ancestors 'none'/);
+});
+
+test("B1: a malformed pm/loop/config.json degrades the loop section, never crashes", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  project.write("pm/loop/config.json", "{ this is not valid json ");
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  const first = await request(port, "GET", "/api/board");
+  assert.equal(first.status, 200);
+  assert.equal(first.json.error, undefined, "board still renders");
+  assert.equal(typeof first.json.loop.error, "string", "loop section reports the bad config");
+  assert.deepEqual(columnCards(first.json, "ready_for_dev"), ["PM-001"]);
+
+  // Server is still alive after the bad-config request.
+  const second = await request(port, "GET", "/api/board");
+  assert.equal(second.status, 200);
+
+  server.close();
+  project.cleanup();
+});
+
+test("E2: git freshness reports how far behind origin the branch is (read-only fetch)", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  const remote = initGitWithRemote(project);
+
+  // Another machine pushes ahead of us via a second clone.
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), "pm-board-clone-"));
+  git(clone, ["clone", "-q", remote, clone]);
+  git(clone, ["config", "user.name", "PM Other"]);
+  git(clone, ["config", "user.email", "other@example.com"]);
+  fs.writeFileSync(path.join(clone, "pm", "backlog", "task2.md"), approvedCard("PM-002", "Task 2"));
+  git(clone, ["add", "-A"]);
+  git(clone, ["commit", "-q", "-m", "remote work"]);
+  git(clone, ["push", "-q"]);
+
+  const headBefore = git(project.root, ["rev-parse", "HEAD"]);
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  const ok = await until(async () => {
+    const r = await request(port, "GET", "/api/board");
+    return r.json.git && r.json.git.available && r.json.git.behind === 1;
+  });
+
+  server.close();
+  const headAfter = git(project.root, ["rev-parse", "HEAD"]);
+  fs.rmSync(clone, { recursive: true, force: true });
+  fs.rmSync(remote, { recursive: true, force: true });
+  project.cleanup();
+
+  assert.ok(ok, "board should report 1 commit behind origin after the background fetch");
+  // Fetch is READ-ONLY: the working tree / HEAD must be untouched.
+  assert.equal(headAfter, headBefore, "git fetch must not move HEAD or mutate the working tree");
+});
+
+test("A3: toggle pushes the kill switch to origin and surfaces the push result", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  const remote = initGitWithRemote(project);
+
+  const server = createServer({ pmDir: project.pmDir });
+  const { port } = await listen(server);
+
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
+  assert.equal(toggled.json.paused, true);
+  assert.equal(toggled.json.sync.state, "pending");
+
+  const pushed = await until(async () => {
+    const r = await request(port, "GET", "/api/board");
+    return (
+      r.json.loop.sync && r.json.loop.sync.state === "done" && r.json.loop.sync.pushed === true
+    );
+  });
+
+  server.close();
+  // The kill switch actually reached origin — the "halt every machine" guarantee.
+  const tree = git(project.root, ["ls-tree", "-r", "--name-only", "origin/main"]);
+  fs.rmSync(remote, { recursive: true, force: true });
+  project.cleanup();
+
+  assert.ok(pushed, "toggle push should settle to done+pushed");
+  assert.match(tree, /pm\/loop\/STOP/);
+});
+
+test("D3/D8: blocker copy is humanized and levelled at the source", () => {
+  // Routine pipeline waits are levelled "wait" and read as prose.
+  assert.equal(blockerLevel({ blocker: "waiting on earlier sibling(s): currency-api" }), "wait");
+  assert.equal(
+    humanizeBlocker("waiting on earlier sibling(s): currency-api"),
+    "Waiting on earlier work: currency-api"
+  );
+  assert.equal(blockerLevel({ blocker: "epic umbrella: waiting on children (1/3 done)" }), "wait");
+  assert.equal(
+    humanizeBlocker("epic umbrella: waiting on children (1/3 done)"),
+    "Waiting on children — 1/3 done"
+  );
+
+  // Real problems keep the alarm level and drop raw key:value copy.
+  assert.equal(
+    blockerLevel({ blocker: "implementation_approved: true required before loop can start dev" }),
+    "problem"
+  );
+  assert.equal(
+    humanizeBlocker("implementation_approved: true required before loop can start dev"),
+    "Needs approval before dev can start"
+  );
+  assert.equal(blockerLevel({ blocker: null }), null);
+  assert.equal(humanizeBlocker(null), null);
 });

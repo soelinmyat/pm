@@ -33,6 +33,9 @@ function runGit(args, cwd, options = {}) {
     encoding: "utf8",
     stdio: options.stdio || ["ignore", "pipe", "pipe"],
     env: cleanGitEnv(),
+    // Bounds callers that run git off a request path (e.g. the board's async
+    // kill-switch push / fetch); undefined leaves execFileSync unbounded.
+    timeout: options.timeout,
   }).trim();
 }
 
