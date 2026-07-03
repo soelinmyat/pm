@@ -153,7 +153,9 @@ test("single-task implementation brief records TDD after committing implementati
 });
 
 test("multi-task implementation prompt uses branch slug for gate sidecar", () => {
-  const text = read("skills/dev/steps/05-implementation.md");
+  // The per-issue prompt template moved from 05 into the multi-task reference
+  // (loaded only on the multi-task branch); the assertions are unchanged.
+  const text = read("skills/dev/references/multi-task-dispatch.md");
   const prompt = text.match(/Build the per-issue prompt[\s\S]*?4\. \*\*Dispatch as subprocess/);
   assert.ok(prompt, "multi-task per-issue prompt must exist");
   assert.match(prompt[0], /\*\*Branch:\*\* feat\/\{task-slug\}/);
@@ -170,7 +172,9 @@ test("runtime shell snippets use PM_PLUGIN_ROOT with CLAUDE fallback", () => {
   const files = [
     "references/skill-runtime.md",
     "skills/dev/SKILL.md",
-    "skills/dev/steps/05-implementation.md",
+    // The runtime dispatch/wait shell snippets moved from 05 into the
+    // multi-task reference; the PM_PLUGIN_ROOT fallback must live with them.
+    "skills/dev/references/multi-task-dispatch.md",
     "skills/dev/steps/07-review.md",
     "skills/dev/references/implementation-flow.md",
     "skills/dev/references/state-schema.md",

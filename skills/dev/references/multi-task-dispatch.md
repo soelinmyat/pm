@@ -1,0 +1,198 @@
+# Multi-task dispatch (task_count > 1)
+
+Loaded by Step 05 (`skills/dev/steps/05-implementation.md`) **only** when `task_count > 1`. Sequential implementation, one task at a time. Each task gets a fresh @developer agent in its own worktree, dispatched as a **subprocess** (`scripts/dispatch-issue.sh`) that owns the full lifecycle implement → design-critique → QA → review → ship → merge. The orchestrator coordinates: create worktree, build prompt, background-dispatch, wait via `scripts/dispatch-wait.sh`, checkpoint, sync main, next.
+
+See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch for the dispatch/wait machinery — the pid/result contract, placeholder resolution, and the `dispatch-wait.sh` branch table are defined canonically there.
+
+**Non-interactive discipline.** This runs under Step 05's Continuous Execution HARD-RULE: once the RFC is approved, the orchestrator proceeds through every task without pausing for user input — no "Ready to execute?" prompts, no confirmation dialogs, no options menus. Never pause for confirmation, never treat silence as approval, never skip a gate to avoid asking. The only stops are the ones Step 05 enumerates (test failures unresolved after 3 attempts, QA verdict **Blocked**, or a per-task subprocess that returns `blocked`). In headless Loop Worker Mode there is no user at all — take the documented default when one exists and it is safe, otherwise park the card as needs-human.
+
+## Environment readiness check
+
+Before dispatching the first implementation agent, check whether any task touches mobile code (React Native/Expo). If so, ensure Metro is running:
+
+```bash
+# Only needed when tasks include mobile changes
+pgrep -f 'expo.*start' > /dev/null || (cd apps/mobile && npx expo start --dev-client &)
+sleep 3
+```
+
+Skip if no task touches mobile code. Log in the state file whether Metro was started.
+
+## Skip fully-implemented tasks
+
+If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with tests), mark it as "Already implemented" in the state file and skip to the next one.
+
+## Claude subscription usage note
+
+Multi-task dispatch spawns a background `claude -p` subprocess per task. Anthropic paused the previously announced 2026-06-15 Agent SDK credit split: for now, `claude -p` still draws from the user's normal Claude subscription usage limits, and the separate monthly Agent SDK credit is not active. See `dev/references/agent-runtime.md` § "Claude subscription behavior".
+
+Do not pause for a special subprocess cost opt-in, and do not require `PM_ALLOW_SUBPROCESS`. The approved RFC is the execution consent. If a subprocess hits a normal usage limit, usage-credit limit, quota, or rate limit, `dispatch-issue.sh` writes a `blocked` result and the orchestrator follows the branch table below.
+
+## Sequential execution
+
+For each task (Issue section) in dependency order from the RFC:
+
+1. **Create worktree:**
+   ```bash
+   git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
+   ```
+
+2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID).
+   Follow retry pattern in `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md`. If the call fails after retries, log the failure and proceed — do not block implementation on Linear:
+   ```
+   mcp__plugin_linear_linear__save_issue({ id: "{SUB_ISSUE_ID}", state: "In Progress" })
+   ```
+
+3. **Build the per-issue prompt** at `${pm_state_dir}/runs/issue-{N}/prompt.txt`:
+
+```text
+Implement and ship the approved RFC task. You are running as a top-level subprocess —
+there is no parent to return to. You own the full lifecycle until the issue is merged
+or you write a blocked result. Do not exit until one of those happens.
+
+**CWD:** {TASK_WORKTREE_PATH}
+**Branch:** feat/{task-slug}
+**RFC:** {pm_dir}/backlog/rfcs/{parent_slug}.html
+**Parent RFC slug:** {parent_slug}
+**Task/session slug:** {task-slug}
+**Your issue:** Issue {N} — {ISSUE_TITLE}
+**Test hooks:** {TEST_HOOKS}
+**DEFAULT_BRANCH:** {DEFAULT_BRANCH}
+**PM directory:** {pm_dir}
+**PM state directory:** {pm_state_dir}
+**Source directory:** {source_dir}
+**Result file:** ${RESULT_FILE}
+
+Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full
+implementation lifecycle, then execute it.
+
+Read the RFC Execution Contract first (`id="execution-contract"` when present). Then focus on Issue {N} ({ISSUE_TITLE}) — that is your scope. Your `Test hooks` (above) come pre-parsed from the validated RFC sidecar — you do not need to read the sidecar yourself. The RFC also contains shared architecture and data model appendix sections that apply to your issue.
+
+Lifecycle tracking: before each step, write your current stage to a tracking file:
+  echo "{stage}" > .dev-lifecycle-stage
+Valid stages: setup, implement, design-critique, qa, review, ship, cleanup.
+This file is NOT committed — it's for recovery if you fail mid-lifecycle.
+
+Lifecycle:
+1. cd {TASK_WORKTREE_PATH}
+2. Install deps (read AGENTS.md), verify clean test baseline
+3. Read the RFC Execution Contract, focus on Issue {N}, implement its tasks
+4. Run the project test suite — all tests must pass
+5. Commit implementation changes
+6. Record TDD evidence in `.pm/dev-sessions/{task-slug}.gates.json` as `tdd` tied to the commit, or `skipped` with reason for docs/config/generated-only work
+7. If UI changes: invoke pm:design-critique. If no visual impact, record `design-critique` as `skipped` with a concrete reason
+8. If UI changes: dispatch QA agent per implementation-flow.md and record the `qa` gate
+9. If SIZE is M/L/XL: invoke pm:review on the branch (6-lens fan-out incl. the simplification lenses), fix all high-confidence findings, commit
+    If SIZE is XS/S: run code scan (single reviewer per implementation-flow.md)
+10. Run full test suite as final verification and record the `verification` gate
+11. Run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed after their evidence commit, or write `verified_commit` / `verified_at` only when existing evidence still applies to current HEAD
+12. Run the gate checker and fix any missing/stale gates before push:
+    ```bash
+    PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+    node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
+      --manifest .pm/dev-sessions/{task-slug}.gates.json \
+      --commit "$(git rev-parse HEAD)" \
+      --base origin/{DEFAULT_BRANCH}
+    ```
+13. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
+14. **Before exiting**, write your structured result to ${RESULT_FILE}:
+    On success:
+      {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
+    On block:
+      {"status":"blocked","issue_id":"{ISSUE_ID}","reason":"<one-line reason>"}
+
+Do NOT pause for confirmation — the RFC is the contract. Execute it.
+Do NOT exit before writing the result file. The orchestrator reads it to advance the plan.
+```
+
+**Placeholder contract for `prompt.txt`:** `{...}` placeholders (`{N}`, `{ISSUE_TITLE}`, `{TEST_HOOKS}`, `{TASK_WORKTREE_PATH}`, `{pm_state_dir}`, `{parent_slug}`, `{task-slug}`, …) are substituted by **you, the orchestrator**, as you write the file. `{TEST_HOOKS}` is this issue's `test_hooks` array from the validated RFC sidecar — the worker receives them pre-parsed and never reads the sidecar itself. In multi-task prompts, `{parent_slug}` is only for the RFC path and parent session context; `.pm/dev-sessions/*.gates.json` paths must use `{task-slug}` because the pre-push hook derives the required manifest from `feat/{task-slug}`. `${PM_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_ROOT}`, and `${RESULT_FILE}` are left **literal** — `dispatch-issue.sh` resolves them to absolute paths before the subprocess runs (the subprocess has no plugin-root env var, and a relative result path written from inside the worktree resolves where the orchestrator never looks). Do not hand-expand or escape these three.
+
+4. **Dispatch as subprocess in the background.** Per-issue subprocesses run for hours (CI watches, multi-round review fixes). Synchronous Bash invocations will hit the harness timeout (Bash tool sync max is ~10 min in Claude Code) and kill the subprocess prematurely. Always background-dispatch.
+
+   **Claude runtime:**
+   ```text
+   Bash(
+     command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh\" \\
+       --runtime claude \\
+       --worktree {TASK_WORKTREE_PATH} \\
+       --prompt-file {pm_state_dir}/runs/issue-{N}/prompt.txt \\
+       --result-file {pm_state_dir}/runs/issue-{N}/result.json \\
+       --log-file {pm_state_dir}/runs/issue-{N}/log.txt",
+     run_in_background: true
+   )
+   ```
+   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage-limit, usage-credit, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
+
+   **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
+
+5. **Wait via `scripts/dispatch-wait.sh`.** The wait can take hours. Do NOT hand-roll the poll loop — the tested helper runs it (`kill -0 $(cat dispatch.pid)` liveness + result-file read) under a hard **900s ceiling per invocation** and prints exactly one JSON line. See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch for the machinery.
+
+   **Claude runtime** — run the helper under Monitor so the ≤900s wait survives the Bash sync timeout:
+   ```text
+   Monitor(
+     command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh\" --result-file {pm_state_dir}/runs/issue-{N}/result.json"
+   )
+   ```
+
+   **Codex runtime / fallback:** same `dispatch-wait.sh` invocation in a foreground shell.
+
+6. **Branch on `.state`.** Read the single JSON line the helper printed and execute exactly one row of the contract:
+
+   | `.state` | Next action |
+   |---|---|
+   | `done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
+   | `crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
+   | `running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
+
+   `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
+
+7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
+
+   **Event extraction (for retro):** Per-task subprocesses handle QA/review/ship internally and don't write event data to the shared state file. After each subprocess returns merged, extract key events from the PR so retro can learn from them:
+   ```bash
+   # Get review iteration count
+   gh pr view {PR_NUMBER} --json reviews --jq '.reviews | length'
+   # Get CI run count (multiple runs = CI failures fixed)
+   gh pr view {PR_NUMBER} --json statusCheckRollup --jq '.statusCheckRollup | length'
+   # Check if merge had conflicts (commits with "merge" or "conflict" in message)
+   gh pr view {PR_NUMBER} --json commits --jq '[.commits[].messageHeadline | select(test("merge|conflict"; "i"))] | length'
+   ```
+   Append to the session state under `## Per-Task Events`:
+   ```
+   - Task {N}: reviews={count}, CI runs={count}, conflict commits={count}, verdict={Merged|Blocked}
+   ```
+
+8. **Sync main** before the next task:
+   ```bash
+   git checkout -B {DEFAULT_BRANCH} origin/{DEFAULT_BRANCH}
+   ```
+
+9. **Announce progress:**
+   > **Task {N} of {TOTAL} complete.** Next: {ISSUE_TITLE}. Proceeding.
+
+10. Proceed to next task.
+
+## Per-task lifecycle tracking
+
+Each per-task agent must track its lifecycle progress so recovery agents know where to resume. Before starting each lifecycle step, the agent writes its current stage to a tracking file in the worktree:
+
+```bash
+echo "{stage}" > {TASK_WORKTREE_PATH}/.dev-lifecycle-stage
+# Valid values: setup, implement, design-critique, qa, review, ship, cleanup
+```
+
+This file is NOT committed — it's a transient marker for recovery. It lives in the worktree and is removed during cleanup.
+
+## Agent failure recovery
+
+If an implementation agent fails (API overload, timeout, 529 errors):
+
+1. Check git state in the worktree: `git log --oneline -5`, `git status`, `git diff --stat`
+2. **Read lifecycle stage:** `cat {TASK_WORKTREE_PATH}/.dev-lifecycle-stage 2>/dev/null || echo "unknown"`. This tells you which lifecycle step the previous agent was executing when it failed.
+3. Update state file with failure and last known lifecycle stage
+4. Dispatch a fresh recovery agent with the RFC path, git state, last lifecycle stage, and instruction to resume from that stage (not from the beginning). Include: "Previous agent reached stage: {stage}. Resume from there. Do not re-run earlier stages."
+5. Max 3 total attempts per task. After 3 failures, mark as "Failed" and continue to next.
+
+Track retry count and last lifecycle stage per task in the state file.
+
+When every task is merged, control returns to Step 05, which proceeds to Step 09 (retro) — Steps 07–08 are handled inside each subprocess.

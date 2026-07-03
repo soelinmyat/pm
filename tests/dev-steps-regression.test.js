@@ -157,9 +157,11 @@ const CRITICAL_KEYWORDS = [
   "Continuous Execution",
   "HARD-RULE",
 
-  // Multi-task
+  // Multi-task (routing lives in the always-loaded step; the sequential-execution
+  // machinery itself moved to references/multi-task-dispatch.md and is pinned by
+  // tests/multi-task-dispatch-reference.test.js — see that file for the relocated
+  // "Sequential execution" guard).
   "task_count",
-  "Sequential execution",
 
   // RFC-based task discovery (PM-231)
   ".issue-detail",
