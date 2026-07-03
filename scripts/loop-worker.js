@@ -69,15 +69,19 @@ function isShipLedger(record) {
 // Ship cycles poll external state and get their own budget so a slow PR
 // cannot starve dev dispatch (and vice versa). Stage-less legacy ledgers
 // count toward the main budget: fail closed.
-function countRunsToday(runsDir, now = new Date(), opts = {}) {
+function countRunsInLedgers(ledgers, now = new Date(), opts = {}) {
   const today = now.toISOString().slice(0, 10);
-  return readLedgers(runsDir).filter((record) => {
+  return ledgers.filter((record) => {
     const sameDay =
       String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
     if (!sameDay) return false;
     if (opts.stage === "ship") return isShipLedger(record);
     return !isShipLedger(record);
   }).length;
+}
+
+function countRunsToday(runsDir, now = new Date(), opts = {}) {
+  return countRunsInLedgers(readLedgers(runsDir), now, opts);
 }
 
 // Attempts per card+stage: every non-completed ledger counts. Backstop for
@@ -581,13 +585,16 @@ module.exports = {
   buildPrompt,
   isSafeBranchRef,
   countCardAttempts,
+  countRunsInLedgers,
   countRunsToday,
   engineCommand,
   isDispatchableCommand,
   isStopped,
   killSwitchPath,
   prepareWorkspace,
+  readLedgers,
   releaseLease,
+  runsDirFor,
   runWorker,
 };
 

@@ -369,6 +369,26 @@ test("loop board skips backlog index and blocks invalid card files", (t) => {
   assert.match(board.columns.needs_human[0].blocker, /missing backlog frontmatter/);
 });
 
+test("loop board carries display-only size and prs on the card model", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/sized.md",
+    approvedCard("PM-060", "Sized", ['size: "M"', 'prs: ["#42", "#43"]'].join("\n"))
+  );
+  project.write("pm/backlog/plain.md", approvedCard("PM-061", "Plain"));
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+  const byId = new Map(board.cards.map((card) => [card.id, card]));
+
+  assert.equal(byId.get("PM-060").size, "M");
+  assert.deepEqual(byId.get("PM-060").prs, ["#42", "#43"]);
+  // Parity: unspecified fields default, never undefined.
+  assert.equal(byId.get("PM-061").size, "");
+  assert.deepEqual(byId.get("PM-061").prs, []);
+});
+
 test("loop board blocks all cards with duplicate ids after overlays", (t) => {
   const project = createProject();
   t.after(project.cleanup);
