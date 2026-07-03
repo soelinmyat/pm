@@ -83,10 +83,7 @@ What this research did NOT answer.
 - https://example.com/article — accessed YYYY-MM-DD
 ```
 
-   Mixed-origin write rules:
-   - If the topic file already exists with `source_origin: internal`, switch it to `mixed`
-   - Append external `sources` entries and `[external]` findings without deleting internal evidence
-   - Rewrite shared sections (`Summary`, `Strategic Relevance`, `Implications`) so they reflect both internal and external evidence
+   **Mixed-origin write rules:** if the topic file already exists with internal evidence (`source_origin: internal` or `mixed`), do not overwrite it — read and follow `${CLAUDE_PLUGIN_ROOT}/references/mixed-origin.md` for the full ownership and merge protocol (switch `internal` → `mixed`, append `[external]` findings and external sources without deleting internal evidence, rewrite only the shared sections).
 
 6. **Route findings to insight topics.**
    Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
