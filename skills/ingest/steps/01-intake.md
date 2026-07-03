@@ -33,7 +33,7 @@ description: Parse input path, detect source types, validate files, and check im
    - Probe transcription dependencies in two tiers (mirrors `transcribe.py`'s own checks — the base transcriber needs `faster_whisper` **and** `torch`, diarization additionally needs `pyannote.audio` and an `HF_TOKEN`):
      ```bash
      python3 -c "import faster_whisper, torch" 2>/dev/null && echo BASE_OK
-     python3 -c "import pyannote.audio" 2>/dev/null && [ -n "$HF_TOKEN" ] && echo DIARIZE_OK
+     python3 -c "import pyannote.audio, os, sys; sys.exit(0 if os.environ.get('HF_TOKEN') else 1)" 2>/dev/null && echo DIARIZE_OK
      ```
    - **Base missing** (no `BASE_OK`): warn and skip audio files. Do not block text imports.
      > "Skipping N audio file(s) — transcription deps not installed. Run: pip install -r ${CLAUDE_PLUGIN_ROOT}/scripts/requirements.txt"
