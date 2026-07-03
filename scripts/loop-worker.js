@@ -587,7 +587,9 @@ module.exports = {
   isStopped,
   killSwitchPath,
   prepareWorkspace,
+  readLedgers,
   releaseLease,
+  runsDirFor,
   runWorker,
 };
 
