@@ -983,6 +983,7 @@ test("PM-170: plugin.config.json has expected commands (no merge, has loop, feat
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
   const expected = [
+    "board",
     "bug",
     "design-critique",
     "dev",

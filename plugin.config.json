@@ -24,6 +24,7 @@
     "workflow"
   ],
   "commands": [
+    "board",
     "bug",
     "design-critique",
     "dev",
@@ -58,6 +59,7 @@
         "ideate",
         "think",
         "ingest",
+        "board",
         "list",
         "loop",
         "note",
