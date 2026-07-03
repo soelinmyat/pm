@@ -175,7 +175,6 @@ test("resource breaches normalize to resource-limit hazards", () => {
 
 const RUN_DIR = "/runs/eval-r1";
 const WORKDIR = "/runs/eval-r1/workdir";
-const REPO_ROOT = path.resolve(__dirname, "..");
 // Must exist, sit outside RUN_DIR, and NEVER fall under the guard's temp-root
 // allowlist — REPO_ROOT fails that last condition when the suite runs from a
 // pre-push temp worktree under $TMPDIR (/var/folders/...), so use the home dir.
