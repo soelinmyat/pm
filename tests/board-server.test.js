@@ -38,6 +38,11 @@ function initGitWithRemote(project) {
   git(project.root, ["init", "--bare", "-q", remote]);
   git(project.root, ["remote", "add", "origin", remote]);
   git(project.root, ["push", "-q", "-u", "origin", "main"]);
+  // Pin the bare remote's default branch to main. Without this, a runner whose
+  // git defaults init.defaultBranch=master (unset default; GitHub ubuntu runners)
+  // leaves the bare HEAD pointing at the never-pushed `master`, so `git clone`
+  // checks out no branch and produces an empty working tree.
+  git(remote, ["symbolic-ref", "HEAD", "refs/heads/main"]);
   return remote;
 }
 
