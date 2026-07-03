@@ -1,7 +1,7 @@
 {
   "$schema": "https://pm-plugin.local/evals/baseline.schema.json",
   "schema_version": 1,
-  "updated": "2026-07-03T00:56:48.590Z",
+  "updated": "2026-07-03",
   "scenarios": [
     {
       "id": "dev-ui-design-critique-required",
