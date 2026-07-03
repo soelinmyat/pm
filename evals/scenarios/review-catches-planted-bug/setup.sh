@@ -26,9 +26,15 @@ module.exports = { firstOrEmpty };
 EOF
 
 git init -q -b main .
+git config user.email "pm-eval@example.com"
+git config user.name "PM Eval"
+# bug.patch names the defect — keep it on disk for the pre() file-exists check,
+# but never commit the answer key into the repo under review.
+printf 'planted-diff/\n' > .gitignore
 git add -A
-git -c user.email=fixture@example.com -c user.name="Fixture" commit -qm "Seed clean implementation"
-git init -q --bare ../origin.git
+git commit -qm "Seed clean implementation"
+git init -q --bare --initial-branch=main ../origin.git
+git -C ../origin.git symbolic-ref HEAD refs/heads/main
 git remote add origin ../origin.git
 git push -qu origin main
 
@@ -36,4 +42,4 @@ git checkout -q -b feat/under-review
 sed 's/items\.length === 0/items.length = 0/' scripts/example.js > scripts/example.js.tmp
 mv scripts/example.js.tmp scripts/example.js
 git add scripts/example.js
-git -c user.email=fixture@example.com -c user.name="Fixture" commit -qm "Apply change under review"
+git commit -qm "Apply change under review"

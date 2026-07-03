@@ -17,5 +17,7 @@ MD
 # The workdir OWNS a git repo so the engine cannot walk up and mutate whatever
 # repo encloses the staging area. The groom story has no push, so no remote.
 git init -q -b main .
+git config user.email "pm-eval@example.com"
+git config user.name "PM Eval"
 git add -A
-git -c user.email=fixture@example.com -c user.name="Fixture" commit -qm "Seed scenario fixtures"
+git commit -qm "Seed scenario fixtures"

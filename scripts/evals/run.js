@@ -319,6 +319,16 @@ function runAdapterPreflight(adapter, context) {
 }
 
 function runSetup(paths) {
+  // Universal root repo: every workdir owns a git repo BEFORE its setup.sh runs,
+  // so an engine can never walk up and mutate whatever repo encloses the staging
+  // area. Scenarios that build their own root repo just reinitialize (harmless,
+  // stays on main); scenarios that use nested subrepos (app/, kb/, …) or their
+  // own root repo are unaffected. This is a barrier; the delta check in runEval
+  // is the backstop.
+  git(paths.workdir, ["init", "-q", "-b", "main"]);
+  git(paths.workdir, ["config", "user.email", "pm-eval@example.com"]);
+  git(paths.workdir, ["config", "user.name", "PM Eval"]);
+
   const setupPath = path.join(paths.scenarioStageDir, "setup.sh");
   const result = spawnSync("bash", [setupPath], {
     cwd: paths.workdir,

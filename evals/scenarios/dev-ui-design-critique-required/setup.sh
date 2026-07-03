@@ -12,8 +12,11 @@ mkdir -p artifacts-seed
 # branch + commit + push. Without a local repo the engine walks up and operates
 # on whatever repo encloses the staging area. See dev-review-before-push.
 git init -q -b main .
+git config user.email "pm-eval@example.com"
+git config user.name "PM Eval"
 git add -A
-git -c user.email=fixture@example.com -c user.name="Fixture" commit -qm "Seed scenario fixtures"
-git init -q --bare ../origin.git
+git commit -qm "Seed scenario fixtures"
+git init -q --bare --initial-branch=main ../origin.git
+git -C ../origin.git symbolic-ref HEAD refs/heads/main
 git remote add origin ../origin.git
 git push -qu origin main
