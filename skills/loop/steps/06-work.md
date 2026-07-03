@@ -1,6 +1,6 @@
 ---
 name: Work
-order: 5
+order: 6
 description: Execute one unit of loop work — claim, bootstrap a worktree, run the engine, release
 ---
 

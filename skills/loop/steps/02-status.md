@@ -1,6 +1,6 @@
 ---
 name: Status
-order: 1
+order: 2
 description: Render the git-backed loop board without mutating state
 ---
 
