@@ -162,7 +162,7 @@ Orchestrator handling:
 
 ### Dispatch shape
 
-Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude's Bash tool sync max ≈ 10 min) and would kill the subprocess prematurely. **Always background-dispatch and wait via notification on the result file.**
+Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude's Bash tool sync max ≈ 10 min) and would kill the subprocess prematurely. **Always background-dispatch, then wait with the crash-safe helper `scripts/dispatch-wait.sh`.**
 
 **Step 1 — background dispatch:**
 
@@ -181,38 +181,30 @@ Bash(
 
 Codex runtime: detach via shell (`nohup ... &`, capture PID) — same `dispatch-issue.sh` call with `--runtime codex`.
 
-**Step 2 — wait via a bounded heartbeat with a forced state sentinel:**
+**Step 2 — wait via the crash-safe helper `scripts/dispatch-wait.sh`:**
 
-The Claude Code harness does not guarantee Monitor notifications fire on long runs — `claude -p` subprocesses span hours and Monitor has been observed to silently stall. Cap each Monitor invocation at 900s. The Monitor command itself prints a `DISPATCH_STATE=` sentinel on its final stdout line — that sentinel is the orchestrator's branch instruction for the next turn.
+The wait loop is a tested script, not hand-copied shell. `dispatch-wait.sh` runs the poll — `kill -0 $(cat dispatch.pid)` liveness OR-ed with the result-file read — inside a hard **900s ceiling per invocation**, and prints **exactly one JSON line**. It reads the pid/result contract that `dispatch-issue.sh` owns (result file plus the sibling `dispatch.pid`); it never writes `result.json` and never touches the EXIT trap.
 
-Claude runtime:
+The orchestrator's only job is to invoke it and branch on `.state`:
+
+| `.state` | Meaning | Orchestrator action |
+|---|---|---|
+| `done` | `result.json` exists and parses; `.result` carries it | Parse `.result` — advance on `status=merged`, halt + surface `reason` on `status=blocked` |
+| `crashed` | dispatcher PID dead with no result (SIGKILL bypassed the EXIT trap), OR `result.json` is malformed | Halt epic and escalate — point at `log.txt` |
+| `running` | 900s elapsed, subprocess still alive | Re-invoke the exact same helper call — this is the heartbeat |
+
+Claude runtime — run the helper under Monitor so the ≤900s wait survives the Bash sync timeout:
 ```text
 Monitor(
-  command: "PID_FILE=.pm/runs/issue-$N/dispatch.pid; RESULT=.pm/runs/issue-$N/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done; if [ -f \"$RESULT\" ]; then echo DISPATCH_STATE=done; cat \"$RESULT\"; elif [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then echo DISPATCH_STATE=crashed; else echo DISPATCH_STATE=tick; fi"
+  command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh\" --result-file .pm/runs/issue-$N/result.json"
 )
 ```
 
-Monitor's final stdout line is one of:
-- `DISPATCH_STATE=done` (followed by result.json contents) → parse status, advance on `merged`, halt on `blocked`
-- `DISPATCH_STATE=crashed` → dispatcher PID dead with no result file (SIGKILL bypassed EXIT trap); halt and escalate
-- `DISPATCH_STATE=tick` → 900s elapsed, subprocess still running; re-arm the same Monitor command
+Read the single JSON line and branch on `.state` per the table. `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. A 3-hour subprocess produces ~12 `running` returns before terminating in `done` or `crashed` — bounded and predictable, vs. unbounded idle wedging on a dropped notification. On `done`, `.result` already holds the parsed `result.json` (schema above) — there is no separate read step.
 
-**Critical orchestrator discipline:** after every Monitor return, the orchestrator MUST locate the `DISPATCH_STATE=` sentinel and branch on it BEFORE any other action. Re-firing Monitor without reading the sentinel — the natural failure mode if Monitor is mentally tagged as a "wait" primitive — burns 15 min per tick and learns nothing. The sentinel exists precisely because pseudocode like `if file_exists then advance else re-arm` is too easily skipped by an orchestrator under context pressure.
+Codex runtime / fallback: run the same `dispatch-wait.sh` invocation in a foreground shell and branch on `.state`.
 
-A 3-hour subprocess produces ~12 ticks; each is a cheap state check. Bounded and predictable, vs. unbounded idle wedging on a dropped notification.
-
-Codex runtime / fallback: same command in a foreground shell.
-
-**Step 3 — read result:**
-
-```bash
-[ -f .pm/runs/issue-$N/result.json ] || {
-  echo "Subprocess crashed without result; treat as blocked"; exit 1;
-}
-jq -r '.status' .pm/runs/issue-$N/result.json
-```
-
-The orchestrator builds the prompt (per-issue brief: RFC path, issue scope, lifecycle instructions, **including the path the agent must write `result.json` to**), writes it to `prompt.txt`, background-dispatches via Bash, waits via Monitor, and reads `result.json`. Full transcript stays in `log.txt` for inspection.
+The orchestrator builds the prompt (per-issue brief: RFC path, issue scope, lifecycle instructions, **including the path the agent must write `result.json` to**), writes it to `prompt.txt`, background-dispatches via Bash, then waits via `dispatch-wait.sh` and branches on `.state`. Full transcript stays in `log.txt` for inspection.
 
 ### When to use subprocess dispatch
 

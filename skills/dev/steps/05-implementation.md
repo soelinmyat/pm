@@ -190,41 +190,26 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
-5. **Wait via a bounded heartbeat — the Monitor command emits a sentinel you MUST read.** The wait can take hours, but the Claude Code harness does not guarantee a single Monitor invocation will fire its notification. Cap each Monitor call at **15 minutes (900s)**. The Monitor command itself does the state check and prints a `DISPATCH_STATE=<done|crashed|tick>` sentinel on its final line — that sentinel is the orchestrator's instruction for what to do next.
+5. **Wait via `scripts/dispatch-wait.sh`.** The wait can take hours. Do NOT hand-roll the poll loop — the tested helper runs it (`kill -0 $(cat dispatch.pid)` liveness + result-file read) under a hard **900s ceiling per invocation** and prints exactly one JSON line. See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch for the machinery.
 
-   **Claude runtime — primary wait:**
+   **Claude runtime** — run the helper under Monitor so the ≤900s wait survives the Bash sync timeout:
    ```text
    Monitor(
-     command: "PID_FILE={pm_state_dir}/runs/issue-{N}/dispatch.pid; RESULT={pm_state_dir}/runs/issue-{N}/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done; if [ -f \"$RESULT\" ]; then echo DISPATCH_STATE=done; cat \"$RESULT\"; elif [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then echo DISPATCH_STATE=crashed; else echo DISPATCH_STATE=tick; fi"
+     command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh\" --result-file {pm_state_dir}/runs/issue-{N}/result.json"
    )
    ```
 
-   Monitor's final stdout line is one of:
-   - `DISPATCH_STATE=done` — followed by the contents of result.json
-   - `DISPATCH_STATE=crashed` — dispatcher PID dead with no result (SIGKILL bypassed EXIT trap)
-   - `DISPATCH_STATE=tick` — 15 min elapsed, subprocess still running
+   **Codex runtime / fallback:** same `dispatch-wait.sh` invocation in a foreground shell.
 
-   **Codex runtime / fallback:** same command in a foreground shell.
+6. **Branch on `.state`.** Read the single JSON line the helper printed and execute exactly one row of the contract:
 
-6. **Read DISPATCH_STATE and act. This is non-negotiable.**
+   | `.state` | Next action |
+   |---|---|
+   | `done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
+   | `crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
+   | `running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
 
-<HARD-RULE>
-After every Monitor return, your VERY NEXT ACTION is to locate the `DISPATCH_STATE=` line in Monitor's output and branch on it. Do NOT re-fire Monitor without first identifying which state was reached.
-
-**The failure mode this rule exists to prevent:** the orchestrator treats Monitor as a "wait" primitive and reflexively re-fires it after each return, burning 15 min per tick and learning nothing. If you catch yourself about to type `Monitor(...)` right after a Monitor return without first reading the `DISPATCH_STATE=` sentinel — STOP. That is the bug.
-
-Branch table — execute exactly one of these based on the sentinel:
-
-| DISPATCH_STATE | Next action |
-|---|---|
-| `done` | Parse result.json (emitted on the line after the sentinel). On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
-| `crashed` | Halt epic. Escalate: "subprocess crashed without writing result — see `{log-file}`". |
-| `tick` | Re-arm: re-issue the exact same Monitor command from Step 5. Heartbeats are uncapped — a 6-hour subprocess = ~24 ticks, all expected. |
-
-A `tick` is the **only** state in which re-firing Monitor is correct. Any other path that ends in another Monitor call is the bug. The cost of the heartbeat is one cache-miss orchestrator wake per 15 min while a subprocess runs — bounded, predictable, and cheaper than the hours of idle wedging that prompted this design.
-</HARD-RULE>
-
-Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via notification, read result, advance plan.
+   `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
 
 7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
 
