@@ -35,6 +35,8 @@ capabilities:
 | `claude` | true |
 | `codex` | false by default, true when delegation is allowed for the session |
 
+**Scoped exception — short-lived read-only review waves.** The default-off rule above governs mutating/implementation agents. For a wave of **short-lived, read-only reviewers** — the `pm:review` 6-lens fan-out and groom's scope/team review waves — Codex uses `spawn_agent`/`wait_agent` **parallel dispatch by default** (delegation-on for this class), not the inline-sequential fallback. These agents only read the diff/artifact and return findings, so parallelizing them is safe and recovers the ~6× wall-time the inline path loses. Keep delegation default-off for anything that mutates files or owns a lifecycle (implementation, subprocess dispatch). Inline-sequential remains the fallback only when `spawn_agent` is genuinely unavailable.
+
 For additional tool/skill requirements, read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md`.
 
 ## Persona Intent Labels
@@ -95,6 +97,8 @@ Use this when `capabilities.delegation = true`.
 
 Use `spawn_agent(...)` for each dispatch. Collect results with `wait_agent(...)`.
 Each agent is short-lived — no agent reuse across phases.
+
+**Read-only review waves default here.** For the `pm:review` 6-lens fan-out and groom's scope/team review waves (see the scoped exception under Capability Flags), Codex dispatches the whole wave with parallel `spawn_agent` calls and `wait_agent`s all of them — by default, regardless of the session's global `delegation` flag. Send every `spawn_agent(...)` for the wave before any `wait_agent(...)` so the reviewers run concurrently. Drop to inline-sequential (Codex inline execution) only when `spawn_agent` is genuinely unavailable — never as the default for a read-only review wave.
 
 ## Subprocess Dispatch
 

@@ -13,7 +13,7 @@ A review gate is fully described by its parameters:
 | Artifact | What is being reviewed (a file, a state block, a diff) |
 | Reviewers | Persona list, each with an angle; conditional members state their condition |
 | Briefs | Where the reviewer prompts live (a prompt library file — never duplicated inline in the step) |
-| Dispatch | One parallel wave via `skills/dev/references/agent-runtime.md`; inline-sequential fallback when delegation is unavailable |
+| Dispatch | One parallel wave via `skills/dev/references/agent-runtime.md`. These are short-lived read-only reviewers, so **Codex uses parallel `spawn_agent` for the wave by default** (the scoped read-only exception to default-off delegation); sequential only when `spawn_agent` is genuinely unavailable |
 | Independence | `none` (default) · `fresh-eyes` (reviewer must not read other findings — dispatch it in the same wave so they don't exist yet) · `anti-collusion` (headless agent tier: verbatim prepend from the brief library) |
 | Iteration cap | Max fix loops before escalation (default 3; headless agent tiers use 2) |
 | Verdicts | Per-reviewer enums, owned by the gate (do not homogenize vocabularies across gates). The step's parameter table is the canonical listing; state YAML persists slugified forms; briefs quote the display forms. |
