@@ -21,16 +21,36 @@ function runWait(args, opts = {}) {
   return JSON.parse(lines[0]);
 }
 
+// A live process whose command line contains "dispatch-issue" — i.e. it looks
+// like the real dispatcher to the helper's ps-identity check.
+function spawnOursAlive() {
+  return spawn(
+    process.execPath,
+    ["-e", "setTimeout(() => {}, 60000)", "dispatch-issue-heartbeat"],
+    { stdio: "ignore" }
+  );
+}
+
+// A live process that is NOT the dispatcher (stands in for a recycled PID
+// the OS handed to an unrelated program).
+function spawnUnrelatedAlive() {
+  return spawn("sleep", ["60"], { stdio: "ignore" });
+}
+
+// A pid that is guaranteed dead: spawnSync returns only after the child exits.
+function deadPid() {
+  const d = spawnSync(process.execPath, ["-e", ""]);
+  assert.ok(d.pid, "expected a pid for the throwaway process");
+  return d.pid;
+}
+
 describe("dispatch-wait.sh", () => {
   it("script exists and is syntactically valid bash", () => {
     assert.ok(fs.existsSync(scriptPath), "scripts/dispatch-wait.sh must exist");
-    // `bash -n` parses without executing; throws on syntax error.
     execFileSync("bash", ["-n", scriptPath]);
   });
 
-  // DONE: the subprocess wrote a well-formed result.json. The helper must
-  // report state=done and nest the parsed result so the orchestrator reads
-  // .result.status without a second file read.
+  // DONE: valid result.json → state=done with the parsed result nested.
   it("reports done and nests the result when result.json exists and is valid", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-done-"));
     try {
@@ -39,85 +59,275 @@ describe("dispatch-wait.sh", () => {
         status: "merged",
         issue_id: "PM-1.1",
         pr: 1067,
-        merge_sha: "abc123",
+        merge_sha: "abc",
         files_changed: 31,
       };
       fs.writeFileSync(resultFile, JSON.stringify(result) + "\n");
-      // A stale live pid must not override a present result — result wins.
       fs.writeFileSync(path.join(tmp, "dispatch.pid"), String(process.pid) + "\n");
 
-      const parsed = runWait(["--result-file", resultFile, "--timeout", "1", "--interval", "1"]);
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
       assert.equal(parsed.state, "done");
-      assert.deepEqual(parsed.result, result, "done state must nest the parsed result.json");
+      assert.deepEqual(parsed.result, result, "done must nest the parsed result.json");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  // CRASHED: dispatch.pid points at a dead process and no result.json exists.
-  // This is the SIGKILL / trap-bypass case — the EXIT-trap stub never got
-  // written. The helper must fail closed as crashed so the orchestrator halts
-  // instead of waiting forever.
+  // CRASHED: dead pid + no result = SIGKILL/trap-bypass.
   it("reports crashed when the pid is dead and no result was written", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-crash-"));
     try {
       const resultFile = path.join(tmp, "result.json");
-      const pidFile = path.join(tmp, "dispatch.pid");
-
-      // Spawn a process that exits immediately; spawnSync returns after it has
-      // exited, so its pid is now dead (kill -0 => ESRCH).
-      const dead = spawnSync(process.execPath, ["-e", ""]);
-      assert.ok(dead.pid, "expected a pid for the throwaway process");
-      fs.writeFileSync(pidFile, String(dead.pid) + "\n");
+      fs.writeFileSync(path.join(tmp, "dispatch.pid"), String(deadPid()) + "\n");
       assert.ok(!fs.existsSync(resultFile), "precondition: no result file");
 
-      const parsed = runWait(["--result-file", resultFile, "--timeout", "5", "--interval", "1"]);
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "5",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
       assert.equal(parsed.state, "crashed");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  // RUNNING: the subprocess is still alive and has not written a result when
-  // the per-invocation ceiling elapses. The helper must report running so the
-  // orchestrator re-invokes it (the heartbeat), NOT halt.
-  it("reports running when the pid is alive and the timeout elapses with no result", () => {
+  // RUNNING: alive dispatcher (identity matches), no result, ceiling elapsed.
+  it("reports running when an actual dispatcher is alive and the ceiling elapses", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-run-"));
-    // Long-lived child stands in for a busy subprocess.
-    const child = spawn("sleep", ["30"], { stdio: "ignore" });
+    const child = spawnOursAlive();
     try {
       const resultFile = path.join(tmp, "result.json");
       fs.writeFileSync(path.join(tmp, "dispatch.pid"), String(child.pid) + "\n");
 
-      const parsed = runWait(["--result-file", resultFile, "--timeout", "1", "--interval", "1"]);
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
       assert.equal(parsed.state, "running");
-      assert.ok(!fs.existsSync(resultFile), "running state must not fabricate a result");
+      assert.ok(!fs.existsSync(resultFile), "running must not fabricate a result");
     } finally {
       child.kill("SIGKILL");
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  // MALFORMED: result.json exists but is not valid JSON. Fail closed as
-  // crashed — a garbage result is worse than no result, and advancing on it
-  // would corrupt the plan.
+  // Fix 1 — empty result.json (the mid-write race window) must fail closed as
+  // crashed, NOT parse as done, on BOTH validators.
+  it("reports crashed for an empty result.json under jq and node (fail closed)", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-empty-"));
+    try {
+      const resultFile = path.join(tmp, "result.json");
+      fs.writeFileSync(resultFile, "");
+      for (const tool of ["jq", "node", "auto"]) {
+        const parsed = runWait([
+          "--result-file",
+          resultFile,
+          "--timeout",
+          "1",
+          "--interval",
+          "1",
+          "--reparse-delay",
+          "0",
+          "--json-tool",
+          tool,
+        ]);
+        assert.equal(
+          parsed.state,
+          "crashed",
+          `empty result.json must be crashed under --json-tool ${tool}`
+        );
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Fix 1 — multiple JSON docs concatenated must fail closed on BOTH validators
+  // (the old jq `.` printed two lines and one doc slipped through as done).
+  it("reports crashed for a multi-document result.json under jq and node", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-multi-"));
+    try {
+      const resultFile = path.join(tmp, "result.json");
+      fs.writeFileSync(resultFile, '{"a":1}\n{"b":2}\n');
+      for (const tool of ["jq", "node", "auto"]) {
+        const parsed = runWait([
+          "--result-file",
+          resultFile,
+          "--timeout",
+          "1",
+          "--interval",
+          "1",
+          "--reparse-delay",
+          "0",
+          "--json-tool",
+          tool,
+        ]);
+        assert.equal(
+          parsed.state,
+          "crashed",
+          `multi-doc result.json must be crashed under --json-tool ${tool}`
+        );
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Existing malformed case still fails closed.
   it("reports crashed when result.json exists but is malformed (fail closed)", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-malformed-"));
     try {
       const resultFile = path.join(tmp, "result.json");
       fs.writeFileSync(resultFile, "{ status: not json, truncated");
-
-      const parsed = runWait(["--result-file", resultFile, "--timeout", "1", "--interval", "1"]);
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
       assert.equal(parsed.state, "crashed");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  // The default per-invocation ceiling is 900s. Pin it so a refactor cannot
-  // silently drop the hard bound the whole heartbeat design depends on.
-  it("documents a hard 900s default ceiling", () => {
+  // Fix 2 — dispatch never started (bad args / CLI-not-found exit before the
+  // pid file is written). Missing pid file after a FULL ceiling must be crashed,
+  // not an infinite "running" heartbeat.
+  it("reports crashed when the pid file never appears after a full ceiling", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-nostart-"));
+    try {
+      const resultFile = path.join(tmp, "result.json");
+      // No dispatch.pid, no result.json.
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
+      assert.equal(parsed.state, "crashed");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Fix 3 — an empty/incomplete pid file (transient write) must NOT spuriously
+  // crash; it is indeterminate, so keep waiting (running).
+  it("reports running (not crashed) for an empty pid file with no result", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-emptypid-"));
+    try {
+      const resultFile = path.join(tmp, "result.json");
+      fs.writeFileSync(path.join(tmp, "dispatch.pid"), "");
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
+      assert.equal(parsed.state, "running");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Fix 3 — a recycled PID: the pid file points at a live process that is NOT
+  // the dispatcher. kill -0 succeeds but identity fails → crashed, not a forever
+  // "running".
+  it("reports crashed when the pid was recycled to an unrelated live process", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-recycled-"));
+    const child = spawnUnrelatedAlive();
+    try {
+      const resultFile = path.join(tmp, "result.json");
+      fs.writeFileSync(path.join(tmp, "dispatch.pid"), String(child.pid) + "\n");
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "1",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "0",
+      ]);
+      assert.equal(parsed.state, "crashed");
+    } finally {
+      child.kill("SIGKILL");
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Fix 4 — a result.json caught mid-write must not halt the epic: on parse
+  // failure the helper waits --reparse-delay and re-parses once. Here the writer
+  // completes the file within the window, so the verdict is done.
+  it("re-parses once after a mid-write and reports done when the write completes", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-wait-midwrite-"));
+    const resultFile = path.join(tmp, "result.json");
+    // Starts malformed (a partial write), completed by a delayed writer.
+    fs.writeFileSync(resultFile, '{"status":"mer');
+    const writer = spawn(
+      process.execPath,
+      [
+        "-e",
+        `setTimeout(() => require("fs").writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({status:"merged",pr:9})), 800)`,
+      ],
+      { stdio: "ignore" }
+    );
+    try {
+      const parsed = runWait([
+        "--result-file",
+        resultFile,
+        "--timeout",
+        "2",
+        "--interval",
+        "1",
+        "--reparse-delay",
+        "2",
+      ]);
+      assert.equal(parsed.state, "done");
+      assert.equal(parsed.result.status, "merged");
+    } finally {
+      writer.kill("SIGKILL");
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Fix 6 — pin the DEFAULT ceiling on the actual assignment, not the usage text
+  // (which would keep a stale /\b900\b/ green if the default changed).
+  it("pins the 900s default on the TIMEOUT assignment", () => {
     const src = fs.readFileSync(scriptPath, "utf8");
-    assert.match(src, /\b900\b/, "helper must carry the 900s default ceiling");
+    assert.match(src, /^TIMEOUT=900$/m, "helper's default ceiling must be TIMEOUT=900");
   });
 });

@@ -187,11 +187,13 @@ The wait loop is a tested script, not hand-copied shell. `dispatch-wait.sh` runs
 
 The orchestrator's only job is to invoke it and branch on `.state`:
 
-| `.state` | Meaning | Orchestrator action |
+| Helper output | Meaning | Orchestrator action |
 |---|---|---|
-| `done` | `result.json` exists and parses; `.result` carries it | Parse `.result` — advance on `status=merged`, halt + surface `reason` on `status=blocked` |
-| `crashed` | dispatcher PID dead with no result (SIGKILL bypassed the EXIT trap), OR `result.json` is malformed | Halt epic and escalate — point at `log.txt` |
-| `running` | 900s elapsed, subprocess still alive | Re-invoke the exact same helper call — this is the heartbeat |
+| `state=done` | `result.json` is exactly one valid JSON doc; `.result` carries it | Parse `.result` — advance on `status=merged`, halt + surface `reason` on `status=blocked` |
+| `state=crashed` | dispatcher PID dead with no result (SIGKILL bypassed the EXIT trap), never started, recycled to an unrelated PID, or an unparseable result | Halt epic and escalate — point at `log.txt` |
+| `state=running` | 900s elapsed, subprocess still alive | Re-invoke the exact same helper call — this is the heartbeat |
+| output missing or unparseable (no JSON line) | the helper itself failed to print a verdict — should not happen | Treat as `crashed` — halt and escalate |
+| `done` but `.result.status` ∉ {`merged`, `blocked`} | subprocess wrote an out-of-contract status | Treat as `blocked` — halt and surface the raw result |
 
 Claude runtime — run the helper under Monitor so the ≤900s wait survives the Bash sync timeout:
 ```text
@@ -200,7 +202,11 @@ Monitor(
 )
 ```
 
-Read the single JSON line and branch on `.state` per the table. `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. A 3-hour subprocess produces ~12 `running` returns before terminating in `done` or `crashed` — bounded and predictable, vs. unbounded idle wedging on a dropped notification. On `done`, `.result` already holds the parsed `result.json` (schema above) — there is no separate read step.
+<HARD-RULE>
+After every helper return, read `.state` and branch on it BEFORE doing anything else. `running` is the **only** state that re-invokes — never reflexively re-fire the helper without first reading `.state`. Re-firing on `done`/`crashed` (or without looking) burns a full ceiling and learns nothing. The sentinel moved from a grepped string to a JSON field, but the model failure it guards — mentally tagging the wait as a fire-and-forget "wait" primitive and re-firing on reflex — did not go away with it.
+</HARD-RULE>
+
+`done` and `crashed` are terminal for the wait. A 3-hour subprocess produces ~12 `running` returns before terminating in `done` or `crashed` — bounded and predictable, vs. unbounded idle wedging on a dropped notification. On `done`, `.result` already holds the parsed `result.json` (schema above) — there is no separate read step.
 
 Codex runtime / fallback: run the same `dispatch-wait.sh` invocation in a foreground shell and branch on `.state`.
 
@@ -267,18 +273,34 @@ Branch: feat/qr-issue-1
 Read ${PM_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
 Own everything from impl through merged PR. Do NOT exit until merged or blocked.
 
-Before exiting, write your result JSON to ${RESULT_FILE} (schema in agent-runtime.md).
+Before exiting, write your result JSON: write ${RESULT_FILE}.tmp then mv it onto
+${RESULT_FILE} (atomic — the orchestrator's wait must never read a half-written file).
+Schema in agent-runtime.md.
 EOF
 
-# Dispatch (orchestrator). Claude paused the separate Agent SDK credit split,
-# so `claude -p` currently draws from normal subscription usage limits.
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+
+# Dispatch in the BACKGROUND — subprocesses run for hours, so a synchronous call
+# would hit the Bash sync timeout and kill the subprocess. Claude paused the
+# separate Agent SDK credit split, so `claude -p` currently draws from normal
+# subscription usage limits. (Claude runtime: Bash(..., run_in_background: true).)
 bash "$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh" \
   --runtime claude \
   --worktree .worktrees/qr-issue-1 \
   --prompt-file .pm/runs/issue-1/prompt.txt \
-  --result-file .pm/runs/issue-1/result.json
+  --result-file .pm/runs/issue-1/result.json &
 
-# Read result (orchestrator)
-jq -r '.status' .pm/runs/issue-1/result.json
+# Wait via the crash-safe helper and branch on .state — never read result.json
+# directly; the helper validates it and classifies done/crashed/running.
+# (Claude runtime: run each dispatch-wait call under Monitor so the ≤900s wait
+# survives the Bash sync timeout.)
+while :; do
+  verdict="$(bash "$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh" \
+    --result-file .pm/runs/issue-1/result.json)"
+  case "$(printf '%s' "$verdict" | jq -r '.state')" in
+    running) continue ;;                                    # heartbeat — re-invoke
+    done)    printf '%s' "$verdict" | jq '.result'; break ;; # parse .result, advance
+    crashed) echo "subprocess crashed — halt, see log"; break ;;
+  esac
+done
 ```

@@ -4,7 +4,7 @@ Loaded by Step 05 (`skills/dev/steps/05-implementation.md`) **only** when `task_
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch for the dispatch/wait machinery — the pid/result contract, placeholder resolution, and the `dispatch-wait.sh` branch table are defined canonically there.
 
-**Non-interactive discipline.** This runs under Step 05's Continuous Execution HARD-RULE: once the RFC is approved, the orchestrator proceeds through every task without pausing for user input — no "Ready to execute?" prompts, no confirmation dialogs, no options menus. Never pause for confirmation, never treat silence as approval, never skip a gate to avoid asking. The only stops are the ones Step 05 enumerates (test failures unresolved after 3 attempts, QA verdict **Blocked**, or a per-task subprocess that returns `blocked`). In headless Loop Worker Mode there is no user at all — take the documented default when one exists and it is safe, otherwise park the card as needs-human.
+**Non-interactive discipline.** This runs under Step 05's Continuous Execution HARD-RULE: once the RFC is approved, the orchestrator proceeds through every task without pausing for user input — no "Ready to execute?" prompts, no confirmation dialogs, no options menus. Never pause for confirmation, never treat silence as approval, never skip a gate to avoid asking. The only stops are the ones Step 05 enumerates that apply here (test failures unresolved after 3 attempts, QA verdict **Blocked**, or a per-task subprocess that returns `blocked`) — Step 08-class stops (merge conflicts, CI failures, human review feedback) are handled inside each subprocess, not by the orchestrator. In headless Loop Worker Mode there is no user at all — take the documented default when one exists and it is safe, otherwise park the card as needs-human.
 
 ## Environment readiness check
 
@@ -95,7 +95,9 @@ Lifecycle:
       --base origin/{DEFAULT_BRANCH}
     ```
 13. Push branch, create PR, squash merge via merge-loop, cleanup worktree and branch
-14. **Before exiting**, write your structured result to ${RESULT_FILE}:
+14. **Before exiting**, write your structured result to ${RESULT_FILE}. Write it
+    atomically — write ${RESULT_FILE}.tmp then `mv` it onto ${RESULT_FILE} — so the
+    orchestrator's wait never reads a half-written file:
     On success:
       {"status":"merged","issue_id":"{ISSUE_ID}","pr":<N>,"merge_sha":"<sha>","files_changed":<N>}
     On block:
@@ -136,13 +138,15 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
 
    **Codex runtime / fallback:** same `dispatch-wait.sh` invocation in a foreground shell.
 
-6. **Branch on `.state`.** Read the single JSON line the helper printed and execute exactly one row of the contract:
+6. **Branch on `.state` BEFORE anything else.** Read the single JSON line the helper printed and execute exactly one row of the contract. Never reflexively re-invoke the helper without first reading `.state` — `running` is the only state that re-invokes; re-firing on `done`/`crashed` (or without looking) burns a full ceiling and learns nothing (see `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch HARD-RULE).
 
-   | `.state` | Next action |
+   | Helper output | Next action |
    |---|---|
-   | `done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
-   | `crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
-   | `running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
+   | `state=done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
+   | `state=crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
+   | `state=running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
+   | output missing or unparseable (no JSON line) | Treat as `crashed` — halt and escalate. |
+   | `done` but `.result.status` ∉ {`merged`, `blocked`} | Treat as `blocked` — halt, surface the raw result. |
 
    `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
 

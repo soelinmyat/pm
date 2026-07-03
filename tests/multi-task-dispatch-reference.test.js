@@ -72,16 +72,41 @@ test("reference carries the per-issue prompt template with its lifecycle", () =>
   assert.match(text, /scripts\/dispatch-wait\.sh/);
 });
 
-test("reference keeps the dispatch-wait branch table (done/crashed/running)", () => {
+test("reference keeps the dispatch-wait branch table (done/crashed/running + edges)", () => {
   const text = read(REFERENCE);
-  const table = text.match(/\| `\.state` \|[\s\S]*?running[\s\S]*?\n\n/);
-  assert.ok(table, "the .state branch table must be present in the reference");
-  assert.match(table[0], /`done`/);
-  assert.match(table[0], /`crashed`/);
-  assert.match(table[0], /`running`/);
+  const table = text.match(/\| Helper output \|[\s\S]*?blocked`\}[\s\S]*?\n\n/);
+  assert.ok(table, "the helper-output branch table must be present in the reference");
+  assert.match(table[0], /state=done/);
+  assert.match(table[0], /state=crashed/);
+  assert.match(table[0], /state=running/);
   // done nests the parsed result; crashed halts; running re-invokes (heartbeat).
   assert.match(table[0], /halt epic/i);
   assert.match(table[0], /Re-invoke/i);
+  // The two review-added edge rows: unparseable output and out-of-contract status.
+  assert.match(table[0], /output missing or unparseable[\s\S]*Treat as `crashed`/);
+  assert.match(table[0], /status` ∉ \{`merged`, `blocked`\}[\s\S]*Treat as `blocked`/);
+});
+
+test("reference restores the branch-before-refire discipline", () => {
+  const text = read(REFERENCE);
+  assert.match(text, /Branch on `\.state` BEFORE anything else/);
+  assert.match(text, /Never reflexively re-invoke/i);
+  assert.match(text, /agent-runtime\.md` § Subprocess Dispatch HARD-RULE/);
+});
+
+test("reference prompt template requires an atomic result write (tmp then mv)", () => {
+  const text = read(REFERENCE);
+  assert.match(text, /\$\{RESULT_FILE\}\.tmp then `mv`/);
+  assert.match(text, /never reads a half-written file/);
+});
+
+test("reference stop-list scopes out Step 08-class stops", () => {
+  const text = read(REFERENCE);
+  assert.match(text, /the ones Step 05 enumerates that apply here/);
+  assert.match(
+    text,
+    /Step 08-class stops \(merge conflicts, CI failures, human review feedback\) are handled inside each subprocess/
+  );
 });
 
 test("reference points at agent-runtime.md as the canonical machinery source", () => {
