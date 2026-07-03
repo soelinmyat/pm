@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+"use strict";
+
+// PreToolUse hook (Bash matcher, async:false) — makes the PM dev push gate
+// unskippable at runtime. It fires before EVERY Bash tool call, including loop
+// workers running `claude -p`, without installing git hooks into user repos.
+//
+// Behaviour:
+//   - Not a `git push`                         -> allow (silent, cheap exit)
+//   - A push with no PM gate manifest           -> allow (non-PM repo / no session)
+//   - A push whose gate manifest PASSES for HEAD -> allow
+//   - A push whose gate manifest FAILS/STALE     -> BLOCK (PreToolUse deny)
+//
+// This complements .githooks/pre-push (defense in depth) — it does NOT replace
+// it. The two run at different layers: this fires on the model's `git push`
+// Bash call (pre-flight), the git hook fires inside git during the push itself.
+// The git hook's own internal git commands run in a subprocess, never as a Bash
+// tool call, so they are never intercepted here.
+//
+// Non-interference is the contract: any parse/spawn/unexpected error falls
+// through to `allow` so a bug here can never wedge Bash in any project. The git
+// pre-push hook remains the authoritative backstop.
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const PM_PLUGIN_ROOT =
+  process.env.PM_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
+
+const CHECKER = path.join(PM_PLUGIN_ROOT, "scripts", "dev-gate-check.js");
+
+// allow / block never call process.exit(): a bare `process.exit(0)` after a
+// stdout write can truncate a large deny JSON on a pipe (Node exits before the
+// async write drains). Instead we set exitCode 0 and return; the process exits
+// cleanly once the event loop drains stdout. Callers use `return allow()` /
+// `return block()` to stop execution.
+function allow() {
+  process.exitCode = 0;
+}
+
+function block(branch, slug, checkerOutput) {
+  const reason = [
+    `PM dev gate blocked this push. Branch "${branch}" has an incomplete or stale quality gate:`,
+    "",
+    checkerOutput.trim(),
+    "",
+    `Run the missing/failing gates, refresh .pm/dev-sessions/${slug}.gates.json for HEAD, then retry the push.`,
+  ].join("\n");
+  process.exitCode = 0;
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    })
+  );
+}
+
+// --- git command detection -------------------------------------------------
+
+const SEGMENT_SPLIT = /(?:&&|\|\||[;\n|&])/;
+const LEADING_WRAPPERS = new Set([
+  "env",
+  "sudo",
+  "command",
+  "nice",
+  "time",
+  "builtin",
+  "exec",
+  "then",
+  "do",
+]);
+// git global options that consume the following token as a value.
+const GIT_VALUE_OPTS = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--super-prefix",
+  "--exec-path",
+]);
+
+// Parse one shell segment. Returns { isGit, isPush, dir } when the segment
+// invokes git, else null. `dir` is the value of a `-C <dir>` global option.
+function parseSegment(segment) {
+  const stripped = segment.trim().replace(/^[({]\s*/, "");
+  const tokens = stripped.split(/\s+/).filter(Boolean);
+  let i = 0;
+  // Skip leading `VAR=value` assignments and common command wrappers.
+  while (
+    i < tokens.length &&
+    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || LEADING_WRAPPERS.has(tokens[i]))
+  ) {
+    i += 1;
+  }
+  if (i >= tokens.length) return null;
+  if (path.basename(tokens[i]) !== "git") return null;
+  i += 1;
+  let dir = null;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token.startsWith("-")) {
+      if (token === "-C" && i + 1 < tokens.length) {
+        dir = tokens[i + 1];
+        i += 2;
+        continue;
+      }
+      if (token.startsWith("--git-dir=")) {
+        i += 1;
+        continue;
+      }
+      if (GIT_VALUE_OPTS.has(token)) {
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    // First non-option token is the git subcommand.
+    return { isGit: true, isPush: token === "push", dir };
+  }
+  return null;
+}
+
+// Scan a full command string for a `git push`. Tracks a leading `cd <dir>` so
+// `cd repo && git push` gates against the right repo. Returns { dir, cwdOverride }
+// or null when no push is present.
+function detectGitPush(command) {
+  let cwdOverride = null;
+  for (const segment of command.split(SEGMENT_SPLIT)) {
+    const trimmed = segment.trim();
+    const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
+    if (cd) {
+      cwdOverride = cd[2];
+      continue;
+    }
+    const parsed = parseSegment(trimmed);
+    if (parsed && parsed.isPush) {
+      return { dir: parsed.dir, cwdOverride };
+    }
+  }
+  return null;
+}
+
+// --- git helpers -----------------------------------------------------------
+
+function gitCapture(repoDir, args) {
+  const result = spawnSync("git", ["-C", repoDir, ...args], { encoding: "utf8" });
+  if (!result || result.status !== 0) return "";
+  return (result.stdout || "").trim();
+}
+
+function currentBranch(repoDir) {
+  const shown = gitCapture(repoDir, ["branch", "--show-current"]);
+  if (shown) return shown;
+  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  return abbrev && abbrev !== "HEAD" ? abbrev : "";
+}
+
+function resolveDefaultBranch(repoDir) {
+  const ref = gitCapture(repoDir, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+  if (ref) return ref.replace(/^refs\/remotes\/origin\//, "");
+  return "main";
+}
+
+function refExists(repoDir, ref) {
+  const result = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "--quiet", ref], {
+    encoding: "utf8",
+  });
+  return !!result && result.status === 0;
+}
+
+// deriveSessionSlug is the single source of truth for branch -> manifest-name
+// normalization, shared with skills/hooks and .githooks/pre-push.
+function loadDeriveSessionSlug() {
+  return require(CHECKER).deriveSessionSlug;
+}
+
+function main() {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(0, "utf8");
+  } catch {
+    return allow();
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return allow();
+  }
+
+  const command =
+    payload && payload.tool_input && typeof payload.tool_input.command === "string"
+      ? payload.tool_input.command
+      : "";
+
+  // Cheap pre-filter: the vast majority of Bash calls are not pushes.
+  if (!command || !command.includes("push")) return allow();
+
+  const push = detectGitPush(command);
+  if (!push) return allow();
+
+  const baseCwd =
+    (payload && typeof payload.cwd === "string" && payload.cwd) ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+
+  let repoDir = baseCwd;
+  if (push.cwdOverride) repoDir = path.resolve(baseCwd, push.cwdOverride);
+  if (push.dir) repoDir = path.resolve(repoDir, push.dir);
+
+  const branch = currentBranch(repoDir);
+  if (!branch) return allow(); // detached HEAD or not a git repo — git hook covers it.
+
+  let slug;
+  try {
+    slug = loadDeriveSessionSlug()(branch);
+  } catch {
+    return allow();
+  }
+
+  const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
+  let manifestPath = path.join(sessionsDir, `${slug}.gates.json`);
+  if (!fs.existsSync(manifestPath)) {
+    const currentPath = path.join(sessionsDir, "current.gates.json");
+    if (fs.existsSync(currentPath)) {
+      manifestPath = currentPath;
+    } else {
+      return allow(); // no PM dev session for this branch — no-op.
+    }
+  }
+
+  const headSha = gitCapture(repoDir, ["rev-parse", "HEAD"]);
+  if (!headSha) return allow();
+
+  const checkerArgs = ["--manifest", manifestPath, "--commit", headSha];
+  // Prefer the diff-aware check; degrade gracefully when the base isn't fetched
+  // so a missing remote ref never false-blocks. The git pre-push hook enforces
+  // the base-present requirement authoritatively.
+  const defaultBranch = resolveDefaultBranch(repoDir);
+  if (refExists(repoDir, `origin/${defaultBranch}`)) {
+    checkerArgs.push("--base", `origin/${defaultBranch}`);
+  }
+
+  const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
+    cwd: repoDir,
+    encoding: "utf8",
+  });
+
+  // Couldn't run the checker at all — fall through to the git hook backstop.
+  if (!result || result.error || typeof result.status !== "number") return allow();
+  if (result.status === 0) return allow();
+
+  return block(branch, slug, `${result.stdout || ""}${result.stderr || ""}`);
+}
+
+try {
+  main();
+} catch {
+  // Any unexpected failure must not wedge Bash — allow and let the git hook gate.
+  allow();
+}
