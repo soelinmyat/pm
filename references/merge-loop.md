@@ -17,9 +17,44 @@ If either check fails, tell the user and stop. The merge loop cannot function wi
 
 ---
 
+## Transient failure retry (`gh`)
+
+GitHub's API intermittently returns 5xx / Bad Gateway / gateway-timeout errors. A single unlucky `gh api` or `gh pr` call should not abort the loop. Define this helper once at the top of the loop and wrap every `gh` call below that hits the network:
+
+```bash
+gh_retry() {
+  # Retry `gh ...` up to 3x on transient 5xx / gateway / timeout errors.
+  # Non-transient failures (auth, 404, 422) fail fast. Prints stdout on success.
+  local attempt=1 out rc err_file
+  err_file="$(mktemp)"
+  while :; do
+    out="$("$@" 2>"$err_file")"; rc=$?
+    if [ "$rc" -eq 0 ]; then rm -f "$err_file"; printf '%s\n' "$out"; return 0; fi
+    if [ "$attempt" -ge 3 ] || ! grep -qiE \
+        'HTTP 5[0-9][0-9]|Bad Gateway|Gateway Time-?out|Service Unavailable|timed? ?out|timeout|connection reset' \
+        "$err_file"; then
+      cat "$err_file" >&2; rm -f "$err_file"; return "$rc"
+    fi
+    sleep $((attempt * 2)); attempt=$((attempt + 1))
+  done
+}
+```
+
+Apply it to the network calls throughout this loop, for example:
+
+```bash
+gh_retry gh pr view --json number,url,state,mergeStateStatus,statusCheckRollup,reviewDecision
+gh_retry gh api graphql -f query='...'
+gh_retry gh pr checks --json name,state,conclusion
+```
+
+The rule is the same one `scripts/pr-state.js` enforces in code for hooks: retry only transient 5xx / gateway / timeout failures; let auth, 404, and 422 fail fast.
+
+---
+
 ## Step 1: Orient
 
-Detect the PR and assess current state.
+Detect the PR and assess current state. Wrap these and every later network `gh` call with `gh_retry` (see "Transient failure retry" above).
 
 ```bash
 # Find PR from current branch (or from arg)

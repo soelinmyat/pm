@@ -34,6 +34,13 @@ For each task (Issue section) in dependency order from the RFC:
    ```bash
    git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
    ```
+   Then prime it with the loop bootstrap helper — copies gitignored-but-required env/spec files and runs `worker.bootstrap_command`, reusing the same `pm/loop/config.json` keys as the loop worker (a silent no-op when the repo has no loop config):
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-bootstrap.js \
+     --git-root "$(git rev-parse --show-toplevel)" \
+     --worktree "$(git rev-parse --show-toplevel)/.worktrees/{task-slug}" \
+     --pm-dir {pm_dir}
+   ```
 
 2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID).
    Follow retry pattern in `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md`. If the call fails after retries, log the failure and proceed — do not block implementation on Linear:
@@ -141,12 +148,21 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
    | Helper output | Next action |
    |---|---|
    | `state=done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
-   | `state=crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
+   | `state=crashed` | **Reconcile with GitHub before halting** (see "Crash reconciliation" below): if the task's PR already merged, treat as done and advance; otherwise halt epic and escalate: "subprocess crashed without a valid result — see `{log-file}`". |
    | `state=running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
    | output missing or unparseable (no JSON line) | Treat as `crashed` — halt and escalate. |
    | `done` but `.result.status` ∉ {`merged`, `blocked`} | Treat as `blocked` — halt, surface the raw result. |
 
    `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
+
+   **Crash reconciliation (GitHub state).** A `crashed` state means the subprocess exited without a valid `result.json` — but the work may already be merged (an agent can complete the PR and then die before writing its result). Before halting the epic, reconcile with GitHub using the same check `hooks/reconcile-merged` uses, wrapped with retry so a transient 5xx does not force a false halt:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/pr-state.js --branch feat/{task-slug}
+   ```
+
+   - `MERGED` → the task is actually **done**. Synthesize the missing result — write `{pm_state_dir}/runs/issue-{N}/result.json` as `{"status":"merged","issue_id":"{ISSUE_ID}","pr":"{pr-number-or-url}"}` — then checkpoint the task complete, sync main, and advance to the next task, exactly as the `status=merged` row does.
+   - `OPEN`, `NONE`, or `UNKNOWN` (no merged PR, or GitHub unreachable after retries) → **halt the epic** and escalate as before. Never treat `UNKNOWN` as merged.
 
 7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
 

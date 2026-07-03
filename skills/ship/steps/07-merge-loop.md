@@ -23,7 +23,7 @@ Before arming auto-merge or invoking `gh pr merge`, re-verify the gate attestati
 
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure — including its "Transient failure retry (`gh`)" convention: wrap every network `gh api` / `gh pr` call in the loop with `gh_retry` so a transient 5xx / gateway / timeout does not abort the merge.
 
 **Ship-specific additions** (on top of the shared merge loop):
 

@@ -19,6 +19,7 @@ const { spawnSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
 const { loadLoopConfig } = require("./loop-config.js");
+const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
   findGitRoot,
   gitRelativePath,
@@ -31,7 +32,6 @@ const { runLoop } = require("./loop-runner.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
-const BOOTSTRAP_TIMEOUT_MS = 10 * 60 * 1000;
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -252,36 +252,16 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
   }
 
   // Fresh worktrees miss gitignored-but-required files (env files, generated
-  // specs) — the top recurring field failure. Copy them from the main checkout.
-  const copied = [];
-  for (const rel of worker.bootstrap_files || []) {
-    const source = path.join(gitRoot, rel);
-    if (!fs.existsSync(source)) continue;
-    const dest = path.join(workspacePath, rel);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.cpSync(source, dest, { recursive: true });
-    copied.push(rel);
+  // specs) — the top recurring field failure. Copy them from the main checkout
+  // and run the bootstrap command. Shared with the dev worktree path via
+  // scripts/worktree-bootstrap.js so both honor the same worker.bootstrap_*
+  // config keys.
+  const boot = bootstrapWorktree(gitRoot, workspacePath, worker);
+  if (!boot.ok) {
+    return { ok: false, reason: boot.reason, workspacePath, branch, error: boot.error };
   }
 
-  if (worker.bootstrap_command) {
-    const result = spawnSync("bash", ["-c", worker.bootstrap_command], {
-      cwd: workspacePath,
-      encoding: "utf8",
-      timeout: BOOTSTRAP_TIMEOUT_MS,
-      maxBuffer: ENGINE_MAX_BUFFER,
-    });
-    if (result.status !== 0) {
-      return {
-        ok: false,
-        reason: "bootstrap-command-failed",
-        workspacePath,
-        branch,
-        error: (result.stderr || result.error?.message || "").slice(0, 2000),
-      };
-    }
-  }
-
-  return { ok: true, workspacePath, branch, bootstrapFiles: copied };
+  return { ok: true, workspacePath, branch, bootstrapFiles: boot.copied };
 }
 
 function removeWorkspace(gitRoot, workspacePath) {

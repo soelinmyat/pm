@@ -7,6 +7,8 @@
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+# Absolute plugin root, resolved before any cd so it survives the chdir below.
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Only run if the project has Linear integration
 CONFIG="$PROJECT_DIR/.pm/config.json"
@@ -44,8 +46,12 @@ if [ -d "$SESSION_DIR" ]; then
       | sed 's/.*[Bb]ranch:[[:space:]]*\*\{0,2\}//' | sed 's/\*//g' | tr -d ' ' | head -1)
     [ -z "$BRANCH" ] && continue
 
-    # Check if this branch's PR was merged
-    PR_STATE=$(gh pr view "$BRANCH" --json state --jq .state 2>/dev/null) || continue
+    # Check if this branch's PR was merged. pr-state.js wraps the same
+    # `gh pr view <branch> --json state` query with retry on transient 5xx /
+    # gateway / timeout failures, so a flaky API call no longer silently drops
+    # a merged PR from reconciliation. UNKNOWN (persistent failure) is treated
+    # as not-merged — fail safe.
+    PR_STATE=$(node "$PLUGIN_ROOT/scripts/pr-state.js" --branch "$BRANCH" 2>/dev/null) || continue
     if [ "$PR_STATE" = "MERGED" ]; then
       STALE_ISSUES="${STALE_ISSUES}  - ${ISSUE_ID} (branch: ${BRANCH}, session: $(basename "$session"))\n"
     fi
