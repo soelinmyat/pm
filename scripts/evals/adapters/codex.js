@@ -82,6 +82,15 @@ function run({ scenarioId, paths }) {
   fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "codex.stderr.log"), stderr);
   syncCodexArtifacts({ paths, sourceDir: writableArtifactsDir });
 
+  const parsed = parseJsonl(stdout);
+
+  // Escape evidence is valid regardless of marker trust or a crashed/timed-out
+  // run — check it FIRST so an escape-then-crash records as a hard fail, not
+  // retryable indeterminate noise.
+  if (transcriptEscapesRunDir(parsed.events, paths.runDir, paths.workdir)) {
+    return { status: "fail", reason: "containment-escape" };
+  }
+
   if (result.error && result.error.code === "ETIMEDOUT") {
     return { status: "indeterminate", reason: "codex-timeout" };
   }
@@ -89,7 +98,6 @@ function run({ scenarioId, paths }) {
     return { status: "indeterminate", reason: "codex-exec-failed" };
   }
 
-  const parsed = parseJsonl(stdout);
   if (parsed.status !== "pass") {
     return { status: "indeterminate", reason: parsed.reason || "empty-transcript" };
   }
@@ -101,9 +109,6 @@ function run({ scenarioId, paths }) {
 
   if (!sourceMarkerVerified(paths, prepared.marker)) {
     return { status: "indeterminate", reason: "wrong-source" };
-  }
-  if (transcriptEscapesRunDir(parsed.events, paths.runDir)) {
-    return { status: "fail", reason: "containment-escape" };
   }
 
   return { status: "pass" };

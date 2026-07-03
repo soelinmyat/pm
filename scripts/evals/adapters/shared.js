@@ -3,8 +3,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { classifyTool } = require("../transcript.js");
-
 const MARKER_ARTIFACT = "pm-source-marker.txt";
 const AUTH_FILE_RE = /(auth|credential|session|token)/i;
 
@@ -70,20 +68,32 @@ function transcriptTouchesHostPlugin(events) {
   return events.some((event) => HOST_PLUGIN_RE.test(`${event.command || ""} ${event.name || ""}`));
 }
 
-// Post-run guard: flag MUTATING activity outside the run directory. Reads and
-// mentions of outside paths (the staged plugin under home/, /etc lookups) are
-// legitimate and never flagged — only file writes/edits to, and shell commands
-// directed at, absolute paths outside runDir. Works on both adapter event
-// shapes (codex carries tool_class; claude tool names classify via classifyTool).
-function transcriptEscapesRunDir(items, runDir) {
+// Post-run tripwire: flag MUTATING activity aimed OUTSIDE the run directory.
+// The caught set is deliberately narrow:
+//   (a) file write/edit whose resolved target is an absolute path outside runDir
+//       (relative targets resolve against the workdir — codex apply_patch paths
+//       are workdir-relative, so `../../evil` would otherwise be invisible);
+//   (b) a shell command that directs git/rm at an absolute outside path — cd or
+//       pushd, git -C, --git-dir=, or git push/commit/rm -rf combined with an
+//       outside path that actually EXISTS.
+// Everything else passes: reads, mentions of outside paths, OS-temp writes
+// (/tmp, /var/folders) and /dev. Both adapters set tool_class (codex natively,
+// claude via classifyTool in normalizeClaudeStream), so classification is
+// single-sourced. This is an early, attributable signal; the host-repo delta
+// check in run.js is the backstop for walk-ups and relative/symlink bypasses the
+// transcript cannot show.
+function transcriptEscapesRunDir(items, runDir, workdir) {
   if (!runDir) return false;
   const root = path.resolve(runDir);
+  const base = workdir ? path.resolve(workdir) : root;
   for (const event of items || []) {
     if (!event || event.type === "skill") continue;
-    const toolClass = event.tool_class ? String(event.tool_class) : classifyTool(event.name);
+    const toolClass = String(event.tool_class || "");
     const command = String(event.command || "");
     if (toolClass === "edit-file" || toolClass === "write-file") {
-      if (isAbsOutside(command, root)) return true;
+      if (!command) continue;
+      const target = path.isAbsolute(command) ? command : path.resolve(base, command);
+      if (isAbsOutside(target, root)) return true;
     } else if (toolClass === "run-command") {
       if (commandEscapesRunDir(command, root)) return true;
     }
@@ -91,15 +101,21 @@ function transcriptEscapesRunDir(items, runDir) {
   return false;
 }
 
+// OS temp roots and /dev are always allowed — a literal Write to /tmp is
+// behaviorally fine and TMPDIR steering does not cover it.
+const ALLOWED_OUTSIDE_RE = /^\/(?:tmp|private\/tmp|private\/var\/folders|var\/folders|dev)(?:\/|$)/;
+
 function isAbsOutside(candidate, root) {
   const value = String(candidate || "").trim();
   if (!value || !path.isAbsolute(value)) return false;
   const normalized = path.normalize(value);
-  return normalized !== root && !normalized.startsWith(`${root}${path.sep}`);
+  if (normalized === root || normalized.startsWith(`${root}${path.sep}`)) return false;
+  if (ALLOWED_OUTSIDE_RE.test(normalized)) return false;
+  return true;
 }
 
 function commandEscapesRunDir(command, root) {
-  // Commands explicitly directed at an absolute outside path.
+  // Positional forms directed at an absolute outside path — scanned on RAW text.
   const directed = [
     /\b(?:cd|pushd)\s+(["']?)(\/[^\s"';&|)]+)\1/g,
     /--git-dir[=\s]+(["']?)(\/[^\s"';&|)]+)\1/g,
@@ -118,18 +134,27 @@ function commandEscapesRunDir(command, root) {
       if (isAbsOutside(match[2], root)) return true;
     }
   }
-  // Mutating verbs (git push/commit, rm -rf) combined with any absolute outside
-  // path elsewhere in the command. The preceding-char guard keeps URLs
-  // (https://…) from reading as bare absolute paths.
+  // Mutating verbs (git push/commit, rm -rf) combined with an outside path that
+  // actually EXISTS. Quoted segments are stripped first so a path inside a commit
+  // message or heredoc-style arg is not read as a target, and the existence check
+  // keeps message fragments like "/api/users" from tripping the guard.
   const mutating =
     (/\bgit\b/.test(command) && /\b(?:push|commit)\b/.test(command)) ||
     /\brm\b[^\n]*\s-[a-z]*[rf]/.test(command);
   if (mutating) {
-    for (const match of command.matchAll(/(?:^|[\s"'=(])(\/[^\s"';&|)]+)/g)) {
-      if (isAbsOutside(match[1], root)) return true;
+    const scannable = stripQuotedSegments(command);
+    for (const match of scannable.matchAll(/(?:^|[\s"'=(])(\/[^\s"';&|)]+)/g)) {
+      const candidate = match[1];
+      if (isAbsOutside(candidate, root) && fs.existsSync(candidate)) return true;
     }
   }
   return false;
+}
+
+function stripQuotedSegments(command) {
+  return String(command)
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'[^']*'/g, "''");
 }
 
 function injectSourceMarker(runtimeDir, marker) {

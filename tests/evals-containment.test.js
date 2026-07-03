@@ -166,39 +166,88 @@ test("resource breaches normalize to resource-limit hazards", () => {
 });
 
 // ---------------------------------------------------------------------------
-// transcriptEscapesRunDir — post-run guard for mutating activity outside runDir
+// transcriptEscapesRunDir — post-run tripwire for mutating activity outside runDir
+// (adapters set tool_class on every tool event: codex natively, claude via
+// classifyTool in normalizeClaudeStream).
 // ---------------------------------------------------------------------------
 
 const RUN_DIR = "/runs/eval-r1";
+const WORKDIR = "/runs/eval-r1/workdir";
+const REPO_ROOT = path.resolve(__dirname, "..");
+const EXISTING_OUTSIDE = path.join(REPO_ROOT, "package.json"); // exists, not temp, not under RUN_DIR
 
-test("escape guard: write to an absolute path outside runDir fails (claude shape)", () => {
+function tool(toolClass, command, extra = {}) {
+  return { type: "tool", tool_class: toolClass, command, ...extra };
+}
+
+test("escape guard: write/edit to an absolute path outside runDir fails", () => {
   assert.equal(
-    transcriptEscapesRunDir([{ type: "tool", name: "Write", command: "/etc/evil.txt" }], RUN_DIR),
+    transcriptEscapesRunDir([tool("write-file", "/etc/evil.txt")], RUN_DIR, WORKDIR),
+    true
+  );
+  assert.equal(
+    transcriptEscapesRunDir([tool("edit-file", "/etc/evil.txt")], RUN_DIR, WORKDIR),
     true
   );
 });
 
-test("escape guard: cd to an outside abs path then git commit fails", () => {
+test("escape guard: a relative edit/write target escaping the workdir fails", () => {
+  // codex apply_patch paths are workdir-relative — ../../evil resolves outside runDir.
   assert.equal(
-    transcriptEscapesRunDir(
-      [{ type: "tool", name: "Bash", command: "cd /Users/harness/pm_plugin && git commit -am x" }],
-      RUN_DIR
-    ),
+    transcriptEscapesRunDir([tool("edit-file", "../../evil.txt")], RUN_DIR, WORKDIR),
     true
+  );
+  // A relative target that stays in the workdir is fine.
+  assert.equal(
+    transcriptEscapesRunDir([tool("write-file", "src/foo.js")], RUN_DIR, WORKDIR),
+    false
   );
 });
 
-test("escape guard: git -C, --git-dir=, and rm -rf against outside abs paths fail", () => {
+test("escape guard: positional cd/git -C/--git-dir at an outside abs path fails", () => {
   const cases = [
+    "cd /Users/harness/pm_plugin && git commit -am x",
     "git -C /Users/harness/repo commit -am x",
     "git --git-dir=/Users/harness/repo/.git add .",
-    "rm -rf /Users/harness/pm_plugin/scripts",
   ];
   for (const command of cases) {
     assert.equal(
-      transcriptEscapesRunDir([{ type: "tool", name: "Bash", command }], RUN_DIR),
+      transcriptEscapesRunDir([tool("run-command", command)], RUN_DIR, WORKDIR),
       true,
       command
+    );
+  }
+});
+
+test("escape guard: rm -rf against an EXISTING outside path fails", () => {
+  assert.equal(
+    transcriptEscapesRunDir([tool("run-command", `rm -rf ${EXISTING_OUTSIDE}`)], RUN_DIR, WORKDIR),
+    true
+  );
+});
+
+test("escape guard: mutating-verb false positives stay clean (commit message, /dev/null)", () => {
+  const clean = [
+    'git commit -m "fix /api/users 500 and /var/log path"',
+    "git commit -am x > /dev/null 2>&1",
+    "git push -qu origin main",
+    "git init -q -b main . && git add -A && git commit -qm seed",
+  ];
+  for (const command of clean) {
+    assert.equal(
+      transcriptEscapesRunDir([tool("run-command", command)], RUN_DIR, WORKDIR),
+      false,
+      command
+    );
+  }
+});
+
+test("escape guard: writes to OS temp roots and /dev are allowed", () => {
+  for (const target of ["/tmp/scratch.txt", "/private/var/folders/x/y/z.txt", "/dev/null"]) {
+    assert.equal(
+      transcriptEscapesRunDir([tool("write-file", target)], RUN_DIR, WORKDIR),
+      false,
+      target
     );
   }
 });
@@ -206,63 +255,44 @@ test("escape guard: git -C, --git-dir=, and rm -rf against outside abs paths fai
 test("escape guard: codex-shape events (tool_class) escaping outside fail", () => {
   assert.equal(
     transcriptEscapesRunDir(
-      [
-        {
-          type: "tool",
-          name: "functions.apply_patch",
-          tool_class: "edit-file",
-          command: "/etc/passwd",
-        },
-      ],
-      RUN_DIR
+      [tool("edit-file", "/etc/passwd", { name: "functions.apply_patch" })],
+      RUN_DIR,
+      WORKDIR
     ),
     true
   );
   assert.equal(
     transcriptEscapesRunDir(
       [
-        {
-          type: "tool",
+        tool("run-command", "cd /Users/harness/pm && git push origin main", {
           name: "functions.exec_command",
-          tool_class: "run-command",
-          command: "cd /Users/harness/pm && git push origin main",
-        },
+        }),
       ],
-      RUN_DIR
+      RUN_DIR,
+      WORKDIR
     ),
     true
   );
 });
 
-test("escape guard: a legitimate run stays inside runDir and reads outside are allowed", () => {
+test("escape guard: a legitimate run stays inside runDir; outside reads pass", () => {
   const events = [
     { type: "skill", name: "pm:dev" },
-    { type: "tool", name: "Write", command: "/runs/eval-r1/workdir/src/foo.js" },
-    { type: "tool", name: "Edit", command: "src/bar.js" },
-    {
-      type: "tool",
-      name: "Bash",
-      command: "git init -q -b main . && git add -A && git commit -qm seed",
-    },
-    { type: "tool", name: "Bash", command: "git push -qu origin main" },
-    {
-      type: "tool",
-      name: "Read",
-      command: "/runs/eval-r1/home/.claude/plugins/cache/pm/pm/1.9.0/skills/dev/SKILL.md",
-    },
+    tool("write-file", "/runs/eval-r1/workdir/src/foo.js"),
+    tool("edit-file", "src/bar.js"),
+    tool("run-command", "git init -q -b main . && git add -A && git commit -qm seed"),
+    tool("run-command", "git push -qu origin main"),
+    tool("read-file", "/runs/eval-r1/home/.claude/plugins/cache/pm/pm/1.9.0/skills/dev/SKILL.md"),
     // Reading an outside absolute path is legitimate — only mutations are flagged.
-    { type: "tool", name: "Read", command: "/etc/hosts" },
+    tool("read-file", "/etc/hosts"),
   ];
-  assert.equal(transcriptEscapesRunDir(events, RUN_DIR), false);
+  assert.equal(transcriptEscapesRunDir(events, RUN_DIR, WORKDIR), false);
 });
 
 test("escape guard: writes inside runDir and empty input pass", () => {
   assert.equal(
-    transcriptEscapesRunDir(
-      [{ type: "tool", name: "Edit", command: "/runs/eval-r1/workdir/x.js" }],
-      RUN_DIR
-    ),
+    transcriptEscapesRunDir([tool("edit-file", "/runs/eval-r1/workdir/x.js")], RUN_DIR, WORKDIR),
     false
   );
-  assert.equal(transcriptEscapesRunDir([], RUN_DIR), false);
+  assert.equal(transcriptEscapesRunDir([], RUN_DIR, WORKDIR), false);
 });
