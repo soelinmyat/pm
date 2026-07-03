@@ -61,6 +61,23 @@ test("agent-runtime.md: Codex delegated section defaults review waves to paralle
   assert.match(text, /regardless of the session's global `delegation` flag/);
 });
 
+test("agent-runtime.md: Codex inline section cross-points to the review-wave exception (discoverability)", () => {
+  // A delegation=false session routes to the inline section — it must surface
+  // the override there, not only under the delegated section it never reads.
+  const text = read("skills/dev/references/agent-runtime.md");
+  const inlineStart = text.indexOf("### Codex inline execution");
+  const delegatedStart = text.indexOf("### Codex delegated execution");
+  assert.ok(inlineStart >= 0 && delegatedStart > inlineStart, "expected both Codex subsections");
+  const inlineSection = text.slice(inlineStart, delegatedStart);
+  assert.match(inlineSection, /read-only review waves do NOT run inline/i);
+  assert.match(inlineSection, /spawn_agent/);
+});
+
+test("agent-runtime.md: an explicit delegation:false opt-out is still honored", () => {
+  const text = read("skills/dev/references/agent-runtime.md");
+  assert.match(text, /explicitly.{0,40}`delegation: false`|deliberate opt-out/i);
+});
+
 test("review SKILL Phase 2: Codex defaults to parallel spawn_agent for the read-only wave", () => {
   const text = read("skills/review/SKILL.md");
   // The Codex bullet defaults to parallel spawn_agent regardless of the global flag.
