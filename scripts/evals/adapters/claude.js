@@ -6,12 +6,14 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const { safeCopyTree } = require("../stage.js");
+const { classifyTool } = require("../transcript.js");
 const {
   MARKER_ARTIFACT,
   assertUnderRunDir,
   bakePluginRootPaths,
   buildStoryPrompt,
   transcriptTouchesHostPlugin,
+  transcriptEscapesRunDir,
   copyAuthTemplate,
   enableWorkdirAnalytics,
   injectSourceMarker,
@@ -95,6 +97,15 @@ function run({ scenarioId, paths }) {
   fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "claude.stdout.jsonl"), stdout);
   fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "claude.stderr.log"), stderr);
 
+  const events = normalizeClaudeStream(stdout);
+
+  // Escape evidence is valid regardless of marker trust or a crashed/timed-out
+  // run — check it FIRST so an escape-then-crash records as a hard fail, not
+  // retryable indeterminate noise.
+  if (transcriptEscapesRunDir(events, paths.runDir, paths.workdir)) {
+    return { status: "fail", reason: "containment-escape" };
+  }
+
   if (result.error && result.error.code === "ETIMEDOUT") {
     return { status: "indeterminate", reason: "claude-timeout" };
   }
@@ -102,7 +113,6 @@ function run({ scenarioId, paths }) {
     return { status: "indeterminate", reason: "claude-exec-failed" };
   }
 
-  const events = normalizeClaudeStream(stdout);
   if (events.length === 0) {
     return { status: "indeterminate", reason: "empty-transcript" };
   }
@@ -156,7 +166,7 @@ function normalizeClaudeStream(stdout) {
                 .filter(Boolean)
                 .join(" ")
             : String(input.command || input.file_path || input.path || "");
-        const event = { type: "tool", name, command };
+        const event = { type: "tool", name, command, tool_class: classifyTool(name) };
         events.push(event);
         if (block.id) byToolUseId.set(block.id, event);
       }

@@ -6,6 +6,8 @@ set -euo pipefail
 # Without one, engines walk up and operate on whatever repo encloses the
 # staging area (observed: a run committed into the harness's own worktree).
 git init -q -b main .
+git config user.email "pm-eval@example.com"
+git config user.name "PM Eval"
 mkdir -p docs
 cat > docs/workflow.md <<'MD'
 # PM workflow notes
@@ -14,8 +16,9 @@ The ship handoff language in this document is verbose and repeats the
 gate list three times. Tighten it.
 MD
 git add -A
-git -c user.email=fixture@example.com -c user.name="Fixture" commit -qm "Seed workflow docs"
-git init -q --bare ../origin.git
+git commit -qm "Seed workflow docs"
+git init -q --bare --initial-branch=main ../origin.git
+git -C ../origin.git symbolic-ref HEAD refs/heads/main
 git remote add origin ../origin.git
 git push -qu origin main
 

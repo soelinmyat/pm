@@ -68,6 +68,95 @@ function transcriptTouchesHostPlugin(events) {
   return events.some((event) => HOST_PLUGIN_RE.test(`${event.command || ""} ${event.name || ""}`));
 }
 
+// Post-run tripwire: flag MUTATING activity aimed OUTSIDE the run directory.
+// The caught set is deliberately narrow:
+//   (a) file write/edit whose resolved target is an absolute path outside runDir
+//       (relative targets resolve against the workdir — codex apply_patch paths
+//       are workdir-relative, so `../../evil` would otherwise be invisible);
+//   (b) a shell command that directs git/rm at an absolute outside path — cd or
+//       pushd, git -C, --git-dir=, or git push/commit/rm -rf combined with an
+//       outside path that actually EXISTS.
+// Everything else passes: reads, mentions of outside paths, OS-temp writes
+// (/tmp, /var/folders) and /dev. Both adapters set tool_class (codex natively,
+// claude via classifyTool in normalizeClaudeStream), so classification is
+// single-sourced. This is an early, attributable signal; the host-repo delta
+// check in run.js is the backstop for walk-ups and relative/symlink bypasses the
+// transcript cannot show.
+function transcriptEscapesRunDir(items, runDir, workdir) {
+  if (!runDir) return false;
+  const root = path.resolve(runDir);
+  const base = workdir ? path.resolve(workdir) : root;
+  for (const event of items || []) {
+    if (!event || event.type === "skill") continue;
+    const toolClass = String(event.tool_class || "");
+    const command = String(event.command || "");
+    if (toolClass === "edit-file" || toolClass === "write-file") {
+      if (!command) continue;
+      const target = path.isAbsolute(command) ? command : path.resolve(base, command);
+      if (isAbsOutside(target, root)) return true;
+    } else if (toolClass === "run-command") {
+      if (commandEscapesRunDir(command, root)) return true;
+    }
+  }
+  return false;
+}
+
+// OS temp roots and /dev are always allowed — a literal Write to /tmp is
+// behaviorally fine and TMPDIR steering does not cover it.
+const ALLOWED_OUTSIDE_RE = /^\/(?:tmp|private\/tmp|private\/var\/folders|var\/folders|dev)(?:\/|$)/;
+
+function isAbsOutside(candidate, root) {
+  const value = String(candidate || "").trim();
+  if (!value || !path.isAbsolute(value)) return false;
+  const normalized = path.normalize(value);
+  if (normalized === root || normalized.startsWith(`${root}${path.sep}`)) return false;
+  if (ALLOWED_OUTSIDE_RE.test(normalized)) return false;
+  return true;
+}
+
+function commandEscapesRunDir(command, root) {
+  // Positional forms directed at an absolute outside path — scanned on RAW text.
+  const directed = [
+    /\b(?:cd|pushd)\s+(["']?)(\/[^\s"';&|)]+)\1/g,
+    /--git-dir[=\s]+(["']?)(\/[^\s"';&|)]+)\1/g,
+  ];
+  for (const re of directed) {
+    let match;
+    while ((match = re.exec(command)) !== null) {
+      if (isAbsOutside(match[2], root)) return true;
+    }
+  }
+  // `git -C <abs>` — only meaningful on a git invocation.
+  if (/\bgit\b/.test(command)) {
+    const gitC = /-C\s+(["']?)(\/[^\s"';&|)]+)\1/g;
+    let match;
+    while ((match = gitC.exec(command)) !== null) {
+      if (isAbsOutside(match[2], root)) return true;
+    }
+  }
+  // Mutating verbs (git push/commit, rm -rf) combined with an outside path that
+  // actually EXISTS. Quoted segments are stripped first so a path inside a commit
+  // message or heredoc-style arg is not read as a target, and the existence check
+  // keeps message fragments like "/api/users" from tripping the guard.
+  const mutating =
+    (/\bgit\b/.test(command) && /\b(?:push|commit)\b/.test(command)) ||
+    /\brm\b[^\n]*\s-[a-z]*[rf]/.test(command);
+  if (mutating) {
+    const scannable = stripQuotedSegments(command);
+    for (const match of scannable.matchAll(/(?:^|[\s"'=(])(\/[^\s"';&|)]+)/g)) {
+      const candidate = match[1];
+      if (isAbsOutside(candidate, root) && fs.existsSync(candidate)) return true;
+    }
+  }
+  return false;
+}
+
+function stripQuotedSegments(command) {
+  return String(command)
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'[^']*'/g, "''");
+}
+
 function injectSourceMarker(runtimeDir, marker) {
   const skillsDir = path.join(runtimeDir, "skills");
   let injected = 0;
@@ -212,6 +301,7 @@ module.exports = {
   assertUnderRunDir,
   bakePluginRootPaths,
   transcriptTouchesHostPlugin,
+  transcriptEscapesRunDir,
   buildStoryPrompt,
   copyAuthTemplate,
   enableWorkdirAnalytics,
