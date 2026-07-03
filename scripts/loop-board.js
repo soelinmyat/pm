@@ -47,6 +47,19 @@ function cardIdFor(filePath, data) {
   return data.id || data.linear_id || path.basename(filePath, ".md");
 }
 
+// Display-only fields carried on the card so surfaces (e.g. the board) need not
+// re-read and re-parse the same frontmatter. Never affects column mapping.
+function normalizeSize(value) {
+  if (typeof value === "string") return value;
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function normalizePrs(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
 function isIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -151,6 +164,8 @@ function readBacklogCards(pmDir, sourceDir) {
         priority: data.priority || "",
         rfc: data.rfc || "",
         branch: data.branch || "",
+        size: normalizeSize(data.size),
+        prs: normalizePrs(data.prs),
         parent: typeof data.parent === "string" ? data.parent : null,
         childrenSlugs: Array.isArray(data.children) ? data.children.map(String) : [],
         implementationApproved,
@@ -288,6 +303,8 @@ function readSnapshotCards(pmDir, existingById, sourceDir) {
       priority: snapshot.priority || "",
       rfc: snapshot.rfc || "",
       branch: snapshot.branch || "",
+      size: normalizeSize(snapshot.size),
+      prs: normalizePrs(snapshot.prs),
       implementationApproved: hasImplementationApproval(snapshot),
       updatedEpoch:
         Math.floor(Date.parse(snapshot.updated_at || snapshot.updatedAt || "") / 1000) || 0,
