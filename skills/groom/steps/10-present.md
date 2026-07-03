@@ -42,10 +42,12 @@ Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/bac
 
 `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical render and sole authority for DOM shape and styling — match it exactly and use only its existing class names. Render all twelve sections (fixed names and anchors per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`) and keep the Mermaid CDN script + `mermaid.initialize` block intact. Full-tier specifics the content must carry: the Review Summary pipeline includes the Team Review and Bar Raiser verdicts, and Resolved Questions render as numbered Q&A (answers resolved in Step 1).
 
-After writing the HTML, open it in the browser:
+After writing the HTML, open it in the browser (portable across macOS/Linux; falls back to printing the path):
 
 ```bash
-open {pm_dir}/backlog/proposals/{topic-slug}.html
+open {pm_dir}/backlog/proposals/{topic-slug}.html 2>/dev/null \
+  || xdg-open {pm_dir}/backlog/proposals/{topic-slug}.html 2>/dev/null \
+  || echo "View: {pm_dir}/backlog/proposals/{topic-slug}.html"
 ```
 
 #### Step 4: Notify the user

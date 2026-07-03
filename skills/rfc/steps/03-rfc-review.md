@@ -126,10 +126,12 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    - Commit the updated RFC.
 10. **Open RFC in browser.**
 
-   The RFC is already HTML (written in RFC Generation). After resolving questions and updating the Change Log, open it directly:
+   The RFC is already HTML (written in RFC Generation). After resolving questions and updating the Change Log, open it directly (portable across macOS/Linux; falls back to printing the path):
 
    ```bash
-   open {pm_dir}/backlog/rfcs/{slug}.html
+   open {pm_dir}/backlog/rfcs/{slug}.html 2>/dev/null \
+     || xdg-open {pm_dir}/backlog/rfcs/{slug}.html 2>/dev/null \
+     || echo "View: {pm_dir}/backlog/rfcs/{slug}.html"
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."

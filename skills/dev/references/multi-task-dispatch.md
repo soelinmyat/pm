@@ -24,9 +24,7 @@ If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with te
 
 ## Claude subscription usage note
 
-Multi-task dispatch spawns a background `claude -p` subprocess per task. Anthropic paused the previously announced 2026-06-15 Agent SDK credit split: for now, `claude -p` still draws from the user's normal Claude subscription usage limits, and the separate monthly Agent SDK credit is not active. See `dev/references/agent-runtime.md` § "Claude subscription behavior".
-
-Do not pause for a special subprocess cost opt-in, and do not require `PM_ALLOW_SUBPROCESS`. The approved RFC is the execution consent. If a subprocess hits a normal usage limit, usage-credit limit, quota, or rate limit, `dispatch-issue.sh` writes a `blocked` result and the orchestrator follows the branch table below.
+Each task spawns a background `claude -p` subprocess that draws from the account's normal Claude usage limits — see `dev/references/agent-runtime.md` § Subprocess Dispatch (Model and billing) for the canonical statement. Do not pause for a subprocess cost opt-in and do not require `PM_ALLOW_SUBPROCESS`: the approved RFC is the execution consent. If a subprocess hits a usage, quota, or rate limit, `dispatch-issue.sh` writes a `blocked` result and the orchestrator follows the branch table below.
 
 ## Sequential execution
 
@@ -123,7 +121,7 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
      run_in_background: true
    )
    ```
-   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage-limit, usage-credit, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
+   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 

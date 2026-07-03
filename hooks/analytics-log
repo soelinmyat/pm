@@ -1,22 +1,11 @@
 #!/usr/bin/env bash
 # PostToolUse hook — logs pm: skill invocations when analytics is enabled.
-# Fires after every Skill tool call. Checks the analytics flag, extracts
-# the skill name from stdin JSON, and delegates to pm-log.sh.
-#
-# Top-level vs nested detection:
-#   The hook fires on every Skill tool call — including sub-skill calls
-#   (ship invoking pm:review, groom invoking pm:research). Without
-#   distinguishing them, every nested call would (a) falsely abandon the
-#   parent run, and (b) inflate skill-transition counts. We use the
-#   UserPromptSubmit hook timestamp as the signal: a Skill firing after a
-#   newer UserPromptSubmit is user-initiated (top-level); a Skill firing
-#   without a fresh user prompt is a nested call from inside another skill.
-#
-# Top-level: close any active previous run as abandoned, start a fresh run,
-#   take over .current-run/.current-skill for step attribution.
-# Nested: record the started/completed activity with parent_run_id; do NOT
-#   touch .current-run (the parent retains step attribution so sub-skill
-#   agent dispatches roll up under the parent workflow's cost).
+# Fires after every Skill tool call. Checks the analytics flag, extracts the
+# skill name from stdin JSON, delegates the `invoked` event to pm-log.sh, and
+# starts a run — writing .current-run/.current-skill so the steps pipeline
+# (hooks/agent-step, scripts/state-telemetry.js) can correlate spans to it.
+# Run closing lives elsewhere: state-telemetry closes a run on explicit
+# completion, and session-end closes any run still open at session end.
 
 set -euo pipefail
 
@@ -58,65 +47,17 @@ cd "$PROJECT_DIR"
 # Legacy invoked event (backward compatible)
 "$PLUGIN_ROOT/scripts/pm-log.sh" "$SKILL_SHORT" "invoked" "${ARGS:+args=$ARGS}"
 
-# --- Run lifecycle tracking ---
+# --- Start a run for step correlation ---
+# .current-run / .current-skill let the steps pipeline (hooks/agent-step,
+# scripts/state-telemetry.js) attribute spans to this run. The run is closed
+# later by state-telemetry (on completion) or session-end (if still open).
 ANALYTICS_DIR="$PROJECT_DIR/.pm/analytics"
 CURRENT_RUN_FILE="$ANALYTICS_DIR/.current-run"
 CURRENT_SKILL_FILE="$ANALYTICS_DIR/.current-skill"
-CURRENT_RUN_TS_FILE="$ANALYTICS_DIR/.current-run-ts"
-LAST_USER_PROMPT_FILE="$ANALYTICS_DIR/.last-user-prompt-ts"
 
-# Detect nested vs top-level: compare the timestamps of the user-prompt
-# signal and the current-run signal. If the user prompted after the current
-# run started, this Skill is user-initiated. Otherwise it's a sub-skill call
-# from inside the active run's body.
-IS_NESTED="false"
-if [ -f "$CURRENT_RUN_FILE" ] && [ -f "$CURRENT_RUN_TS_FILE" ]; then
-  CURRENT_RUN_TS=$(cat "$CURRENT_RUN_TS_FILE" 2>/dev/null || true)
-  LAST_USER_TS=$(cat "$LAST_USER_PROMPT_FILE" 2>/dev/null || true)
-  if [ -n "$CURRENT_RUN_TS" ]; then
-    # Lexicographic ISO timestamp comparison works because they share format
-    if [ -z "$LAST_USER_TS" ] || [ "$LAST_USER_TS" \< "$CURRENT_RUN_TS" ]; then
-      IS_NESTED="true"
-    fi
-  fi
-fi
-
-if [ "$IS_NESTED" = "true" ]; then
-  # Nested sub-skill call — record activity with parent_run_id but do not
-  # change .current-run. Parent retains step attribution.
-  PARENT_RUN_ID=$(cat "$CURRENT_RUN_FILE" 2>/dev/null || true)
-  if [ -n "$PARENT_RUN_ID" ]; then
-    "$PLUGIN_ROOT/scripts/pm-log.sh" run-start \
-      --skill "$SKILL_SHORT" \
-      --parent-run-id "$PARENT_RUN_ID" \
-      ${ARGS:+--args "$ARGS"} > /dev/null || true
-  fi
-  exit 0
-fi
-
-# Top-level invocation: close previous run if one was active
-if [ -f "$CURRENT_RUN_FILE" ]; then
-  PREV_RUN_ID=$(cat "$CURRENT_RUN_FILE" 2>/dev/null)
-  PREV_SKILL=$(cat "$CURRENT_SKILL_FILE" 2>/dev/null || true)
-  if [ -z "$PREV_SKILL" ]; then
-    PREV_SKILL=$(printf '%s' "$PREV_RUN_ID" | sed 's/-.*//')
-  fi
-  if [ -n "$PREV_RUN_ID" ] && [ -n "$PREV_SKILL" ]; then
-    # User started a new top-level skill before finishing the previous run.
-    # The previous run was abandoned, not completed.
-    "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close --status abandoned 2>/dev/null || true
-    "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
-      --skill "$PREV_SKILL" \
-      --run-id "$PREV_RUN_ID" \
-      --status abandoned 2>/dev/null || true
-  fi
-fi
-
-# Start new run and write run_id for agent-step correlation
 RUN_ID=$("$PLUGIN_ROOT/scripts/pm-log.sh" run-start --skill "$SKILL_SHORT" ${ARGS:+--args "$ARGS"}) || true
 if [ -n "$RUN_ID" ]; then
   mkdir -p "$ANALYTICS_DIR"
   printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
   printf '%s' "$SKILL_SHORT" > "$CURRENT_SKILL_FILE"
-  node -e 'process.stdout.write(new Date().toISOString())' > "$CURRENT_RUN_TS_FILE"
 fi

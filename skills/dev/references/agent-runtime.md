@@ -109,11 +109,9 @@ Both runtimes support this via their non-interactive CLI:
 | `claude` | `claude -p --model opus --dangerously-skip-permissions` (reads prompt from stdin) |
 | `codex`  | `codex exec --full-auto -C <worktree> -` (reads prompt from stdin) |
 
-**Model pinning:** the `claude` subprocess pins `--model opus`. A spawned subprocess does not inherit the orchestrator's model selection — without `--model` it resolves the config default (often Sonnet), silently downgrading implementation quality. The `opus` alias tracks the latest Opus **only on the direct Anthropic API** (Opus 4.8 as of mid-2026); on Bedrock/Vertex/Foundry it pins an older Opus, and on Claude-on-AWS it pins 4.7. Opus 4.8 is also no longer the single most capable model (Fable 5 sits above it), so this pin is a deliberate cost/latency choice, not "the strongest model available."
+**Model and billing (canonical — other docs point here).** The `claude` subprocess pins `--model opus`: a spawned subprocess does not inherit the orchestrator's model, so without `--model` it resolves the config default (often Sonnet) and silently downgrades implementation quality. The `opus` alias resolves to whatever Opus the account/provider maps it to — the pin is a cost/latency choice, not a claim to the single most capable model available.
 
-**Claude subscription behavior.** Anthropic paused the previously announced 2026-06-15 Agent SDK credit split. For now, Claude Agent SDK usage, `claude -p`, and third-party Agent SDK app usage still draw from the user's normal Claude subscription usage limits; the separate monthly Agent SDK credit is not active. On an API key, pay-as-you-go billing continues as before.
-
-Because the separate credit is paused, subprocess dispatch is **not** gated by `PM_ALLOW_SUBPROCESS`. `dispatch-issue.sh` starts the Claude subprocess directly. The dispatcher still detects normal usage-limit, usage-credit, quota, and rate-limit rejections in the subprocess log and emits a clear `blocked` result instead of an opaque crash.
+Subprocess dispatch uses the account's normal model and subscription: `claude -p` draws from the account's usual Claude usage limits, so dispatch is **not** gated by `PM_ALLOW_SUBPROCESS` — the approved RFC is the execution consent. `dispatch-issue.sh` starts the subprocess directly and detects usage-limit, quota, and rate-limit stops in the subprocess log, emitting a structured `blocked` result instead of an opaque crash.
 
 The orchestrator dispatches via `scripts/dispatch-issue.sh`, using `PM_PLUGIN_ROOT` as the runtime-neutral plugin root and `CLAUDE_PLUGIN_ROOT` as a legacy fallback alias. The script abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
 
@@ -281,9 +279,8 @@ EOF
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 
 # Dispatch in the BACKGROUND — subprocesses run for hours, so a synchronous call
-# would hit the Bash sync timeout and kill the subprocess. Claude paused the
-# separate Agent SDK credit split, so `claude -p` currently draws from normal
-# subscription usage limits. (Claude runtime: Bash(..., run_in_background: true).)
+# would hit the Bash sync timeout and kill the subprocess.
+# (Claude runtime: Bash(..., run_in_background: true).)
 bash "$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh" \
   --runtime claude \
   --worktree .worktrees/qr-issue-1 \

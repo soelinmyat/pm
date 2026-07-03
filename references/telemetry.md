@@ -34,8 +34,10 @@ crept in historically. Readers should fold all `activity-*.jsonl` /
 
 ## What the hooks capture
 
-- **Run lifecycle** — each `pm:` skill invocation emits `run-start` and closes
-  the previous run (PostToolUse `analytics-log`). No manual calls needed.
+- **Run lifecycle** — each `pm:` skill invocation emits `run-start` (PostToolUse
+  `analytics-log`), recording `.current-run`/`.current-skill` for span
+  correlation. The run is closed on explicit completion (`state-telemetry`) or
+  at session end (`session-end`). No manual calls needed.
 - **Agent dispatches** — every Agent tool call logs a step span
   (`hooks/agent-step`): `actor: agent:{persona}`, prompt/result character
   counts, correlated to the active run. Estimates reflect orchestrator I/O
@@ -62,13 +64,3 @@ stage_started_at: YYYY-MM-DDTHH:MM:SSZ   # dev/review/ship
 
 For rare substeps not represented in a state file, `scripts/pm-log.sh step`
 still accepts manual spans — see its `--help`.
-
-## Baseline generation
-
-After telemetry exists, generate a maintainer summary with:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/pm-baseline.js \
-  --project-dir "$PWD" \
-  --output {pm_dir}/research/tracking-dogfooding/baseline.md
-```
