@@ -266,3 +266,58 @@ test("reconcile does NOT advance without a dispatch time (cannot verify recency)
   });
   assert.equal(res.advance, false);
 });
+
+test("getPrInfo surfaces headRefOid for a MERGED, branch-deleted PR (gh retains it)", () => {
+  // The entire stale-slug scenario has the old head branch already deleted.
+  // Real `gh pr view --json headRefOid` still returns the recorded OID on the
+  // merged PR object after deletion. Pin the shape here so a future gh change
+  // that drops the field can't silently disable the identity gate.
+  const info = getPrInfo("feat/x", {
+    runGh: ghInfo({
+      state: "MERGED",
+      mergedAt: AFTER,
+      number: 7,
+      headRefOid: "old-branch-tip-sha",
+    }),
+    sleep: noSleep,
+  });
+  assert.equal(info.headRefOid, "old-branch-tip-sha", "headRefOid must survive branch deletion");
+  assert.ok(info.headRefOid, "the identity gate depends on a non-null headRefOid");
+});
+
+test("reconcile halts a reused slug whose deleted-branch PR head != current HEAD", () => {
+  // Old PR for the reused slug merged after this task's dispatch (recency
+  // passes) but its recorded headRefOid is the OLD, now-deleted branch tip —
+  // not this worktree's new commits. Identity mismatch → halt, do not advance.
+  const res = reconcileCrashedTask({
+    branch: "feat/x",
+    worktree: "/wt",
+    dispatchedAt: DISPATCH,
+    runGh: ghInfo({
+      state: "MERGED",
+      mergedAt: AFTER,
+      number: 7,
+      headRefOid: "old-branch-tip-sha",
+    }),
+    runGit: fakeGit("our-new-head-sha"),
+    sleep: noSleep,
+  });
+  assert.equal(res.advance, false, "a stale merged PR must never advance past this work");
+  assert.match(res.reason, /not-this-work/);
+});
+
+test("reconcile halts when worktree HEAD is AHEAD of the merged PR's headRefOid", () => {
+  // The subprocess pushed a tip, that PR merged, then it committed MORE locally
+  // and crashed. headRefOid (pushed tip) != HEAD (pushed + extra) → conservative
+  // halt: we cannot prove the extra commits merged, so do not advance.
+  const res = reconcileCrashedTask({
+    branch: "feat/x",
+    worktree: "/wt",
+    dispatchedAt: DISPATCH,
+    runGh: ghInfo({ state: "MERGED", mergedAt: AFTER, number: 9, headRefOid: "pushed-tip-sha" }),
+    runGit: fakeGit("pushed-tip-sha-plus-extra-commits"),
+    sleep: noSleep,
+  });
+  assert.equal(res.advance, false, "HEAD ahead of the merged tip must halt, not advance");
+  assert.match(res.reason, /not-this-work/);
+});
