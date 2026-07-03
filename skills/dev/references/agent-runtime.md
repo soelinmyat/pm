@@ -162,7 +162,7 @@ Orchestrator handling:
 
 ### Dispatch shape
 
-Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude's Bash tool sync max ≈ 10 min) and would kill the subprocess prematurely. **Always background-dispatch and wait via notification on the result file.**
+Subprocesses run for hours. Synchronous Bash calls hit harness timeouts (Claude's Bash tool sync max ≈ 10 min) and would kill the subprocess prematurely. **Always background-dispatch, then wait with the crash-safe helper `scripts/dispatch-wait.sh`.**
 
 **Step 1 — background dispatch:**
 
@@ -181,38 +181,36 @@ Bash(
 
 Codex runtime: detach via shell (`nohup ... &`, capture PID) — same `dispatch-issue.sh` call with `--runtime codex`.
 
-**Step 2 — wait via a bounded heartbeat with a forced state sentinel:**
+**Step 2 — wait via the crash-safe helper `scripts/dispatch-wait.sh`:**
 
-The Claude Code harness does not guarantee Monitor notifications fire on long runs — `claude -p` subprocesses span hours and Monitor has been observed to silently stall. Cap each Monitor invocation at 900s. The Monitor command itself prints a `DISPATCH_STATE=` sentinel on its final stdout line — that sentinel is the orchestrator's branch instruction for the next turn.
+The wait loop is a tested script, not hand-copied shell. `dispatch-wait.sh` runs the poll — `kill -0 $(cat dispatch.pid)` liveness OR-ed with the result-file read — inside a hard **900s ceiling per invocation**, and prints **exactly one JSON line**. It reads the pid/result contract that `dispatch-issue.sh` owns (result file plus the sibling `dispatch.pid`); it never writes `result.json` and never touches the EXIT trap.
 
-Claude runtime:
+The orchestrator's only job is to invoke it and branch on `.state`:
+
+| Helper output | Meaning | Orchestrator action |
+|---|---|---|
+| `state=done` | `result.json` is exactly one valid JSON doc; `.result` carries it | Parse `.result` — advance on `status=merged`, halt + surface `reason` on `status=blocked` |
+| `state=crashed` | dispatcher PID dead with no result (SIGKILL bypassed the EXIT trap), never started, recycled to an unrelated PID, or an unparseable result | Halt epic and escalate — point at `log.txt` |
+| `state=running` | 900s elapsed, subprocess still alive | Re-invoke the exact same helper call — this is the heartbeat |
+| output missing or unparseable (no JSON line) | the helper itself failed to print a verdict — should not happen | Treat as `crashed` — halt and escalate |
+| `done` but `.result.status` ∉ {`merged`, `blocked`} | subprocess wrote an out-of-contract status | Treat as `blocked` — halt and surface the raw result |
+
+Claude runtime — run the helper under Monitor so the ≤900s wait survives the Bash sync timeout:
 ```text
 Monitor(
-  command: "PID_FILE=.pm/runs/issue-$N/dispatch.pid; RESULT=.pm/runs/issue-$N/result.json; end=$(($(date +%s) + 900)); until [ -f \"$RESULT\" ] || { [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; } || [ $(date +%s) -ge $end ]; do sleep 30; done; if [ -f \"$RESULT\" ]; then echo DISPATCH_STATE=done; cat \"$RESULT\"; elif [ -f \"$PID_FILE\" ] && ! kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then echo DISPATCH_STATE=crashed; else echo DISPATCH_STATE=tick; fi"
+  command: "PM_PLUGIN_ROOT=\"${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}\"; bash \"$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh\" --result-file .pm/runs/issue-$N/result.json"
 )
 ```
 
-Monitor's final stdout line is one of:
-- `DISPATCH_STATE=done` (followed by result.json contents) → parse status, advance on `merged`, halt on `blocked`
-- `DISPATCH_STATE=crashed` → dispatcher PID dead with no result file (SIGKILL bypassed EXIT trap); halt and escalate
-- `DISPATCH_STATE=tick` → 900s elapsed, subprocess still running; re-arm the same Monitor command
+<HARD-RULE>
+After every helper return, read `.state` and branch on it BEFORE doing anything else. `running` is the **only** state that re-invokes — never reflexively re-fire the helper without first reading `.state`. Re-firing on `done`/`crashed` (or without looking) burns a full ceiling and learns nothing. The sentinel moved from a grepped string to a JSON field, but the model failure it guards — mentally tagging the wait as a fire-and-forget "wait" primitive and re-firing on reflex — did not go away with it.
+</HARD-RULE>
 
-**Critical orchestrator discipline:** after every Monitor return, the orchestrator MUST locate the `DISPATCH_STATE=` sentinel and branch on it BEFORE any other action. Re-firing Monitor without reading the sentinel — the natural failure mode if Monitor is mentally tagged as a "wait" primitive — burns 15 min per tick and learns nothing. The sentinel exists precisely because pseudocode like `if file_exists then advance else re-arm` is too easily skipped by an orchestrator under context pressure.
+`done` and `crashed` are terminal for the wait. A 3-hour subprocess produces ~12 `running` returns before terminating in `done` or `crashed` — bounded and predictable, vs. unbounded idle wedging on a dropped notification. On `done`, `.result` already holds the parsed `result.json` (schema above) — there is no separate read step.
 
-A 3-hour subprocess produces ~12 ticks; each is a cheap state check. Bounded and predictable, vs. unbounded idle wedging on a dropped notification.
+Codex runtime / fallback: run the same `dispatch-wait.sh` invocation in a foreground shell and branch on `.state`.
 
-Codex runtime / fallback: same command in a foreground shell.
-
-**Step 3 — read result:**
-
-```bash
-[ -f .pm/runs/issue-$N/result.json ] || {
-  echo "Subprocess crashed without result; treat as blocked"; exit 1;
-}
-jq -r '.status' .pm/runs/issue-$N/result.json
-```
-
-The orchestrator builds the prompt (per-issue brief: RFC path, issue scope, lifecycle instructions, **including the path the agent must write `result.json` to**), writes it to `prompt.txt`, background-dispatches via Bash, waits via Monitor, and reads `result.json`. Full transcript stays in `log.txt` for inspection.
+The orchestrator builds the prompt (per-issue brief: RFC path, issue scope, lifecycle instructions, **including the path the agent must write `result.json` to**), writes it to `prompt.txt`, background-dispatches via Bash, then waits via `dispatch-wait.sh` and branches on `.state`. Full transcript stays in `log.txt` for inspection.
 
 ### When to use subprocess dispatch
 
@@ -275,18 +273,34 @@ Branch: feat/qr-issue-1
 Read ${PM_PLUGIN_ROOT}/skills/dev/references/implementation-flow.md for the full lifecycle.
 Own everything from impl through merged PR. Do NOT exit until merged or blocked.
 
-Before exiting, write your result JSON to ${RESULT_FILE} (schema in agent-runtime.md).
+Before exiting, write your result JSON: write ${RESULT_FILE}.tmp then mv it onto
+${RESULT_FILE} (atomic — the orchestrator's wait must never read a half-written file).
+Schema in agent-runtime.md.
 EOF
 
-# Dispatch (orchestrator). Claude paused the separate Agent SDK credit split,
-# so `claude -p` currently draws from normal subscription usage limits.
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
+
+# Dispatch in the BACKGROUND — subprocesses run for hours, so a synchronous call
+# would hit the Bash sync timeout and kill the subprocess. Claude paused the
+# separate Agent SDK credit split, so `claude -p` currently draws from normal
+# subscription usage limits. (Claude runtime: Bash(..., run_in_background: true).)
 bash "$PM_PLUGIN_ROOT/scripts/dispatch-issue.sh" \
   --runtime claude \
   --worktree .worktrees/qr-issue-1 \
   --prompt-file .pm/runs/issue-1/prompt.txt \
-  --result-file .pm/runs/issue-1/result.json
+  --result-file .pm/runs/issue-1/result.json &
 
-# Read result (orchestrator)
-jq -r '.status' .pm/runs/issue-1/result.json
+# Wait via the crash-safe helper and branch on .state — never read result.json
+# directly; the helper validates it and classifies done/crashed/running.
+# (Claude runtime: run each dispatch-wait call under Monitor so the ≤900s wait
+# survives the Bash sync timeout.)
+while :; do
+  verdict="$(bash "$PM_PLUGIN_ROOT/scripts/dispatch-wait.sh" \
+    --result-file .pm/runs/issue-1/result.json)"
+  case "$(printf '%s' "$verdict" | jq -r '.state')" in
+    running) continue ;;                                    # heartbeat — re-invoke
+    done)    printf '%s' "$verdict" | jq '.result'; break ;; # parse .result, advance
+    crashed) echo "subprocess crashed — halt, see log"; break ;;
+  esac
+done
 ```
