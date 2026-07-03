@@ -130,6 +130,11 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
    ```
    Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
 
+   Immediately record the dispatch time — crash reconciliation uses it to reject a stale (pre-dispatch) merge of a reused slug:
+   ```bash
+   date -u +%Y-%m-%dT%H:%M:%SZ > {pm_state_dir}/runs/issue-{N}/dispatched-at
+   ```
+
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
 5. **Wait via `scripts/dispatch-wait.sh`.** The wait can take hours. Do NOT hand-roll the poll loop — the tested helper runs it (`kill -0 $(cat dispatch.pid)` liveness + result-file read) under a hard **900s ceiling per invocation** and prints exactly one JSON line. See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` § Subprocess Dispatch for the machinery.
@@ -155,14 +160,19 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
 
    `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
 
-   **Crash reconciliation (GitHub state).** A `crashed` state means the subprocess exited without a valid `result.json` — but the work may already be merged (an agent can complete the PR and then die before writing its result). Before halting the epic, reconcile with GitHub using the same check `hooks/reconcile-merged` uses, wrapped with retry so a transient 5xx does not force a false halt:
+   **Crash reconciliation (GitHub state).** A `crashed` state means the subprocess exited without a valid `result.json` — but the work may already be merged (an agent can complete the PR and then die before writing its result). Do **not** trust `state=MERGED` alone: `gh pr view <branch>` resolves by head-ref *name*, so a reused slug can surface a PRIOR PR that was squash-merged and its branch deleted. Run the reconciliation gate, which advances only when the merge is provably **this** task's work — merged strictly after dispatch **and** the merged PR's head OID equals this worktree's HEAD:
 
    ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/pr-state.js --branch feat/{task-slug}
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/pr-state.js reconcile \
+     --branch feat/{task-slug} \
+     --worktree {TASK_WORKTREE_PATH} \
+     --dispatched-at "$(cat {pm_state_dir}/runs/issue-{N}/dispatched-at)"
    ```
 
-   - `MERGED` → the task is actually **done**. Synthesize the missing result — write `{pm_state_dir}/runs/issue-{N}/result.json` as `{"status":"merged","issue_id":"{ISSUE_ID}","pr":"{pr-number-or-url}"}` — then checkpoint the task complete, sync main, and advance to the next task, exactly as the `status=merged` row does.
-   - `OPEN`, `NONE`, or `UNKNOWN` (no merged PR, or GitHub unreachable after retries) → **halt the epic** and escalate as before. Never treat `UNKNOWN` as merged.
+   It prints a JSON decision (with retry on transient 5xx / gateway / timeout built in):
+
+   - `{"advance":true,"prNumber":N,…}` → the task is actually **done**. Synthesize the missing result — write `{pm_state_dir}/runs/issue-{N}/result.json` as `{"status":"merged","issue_id":"{ISSUE_ID}","pr":N}` using the returned `prNumber` (so the later event-extraction `gh pr view {PR_NUMBER}` resolves) — then checkpoint the task complete, sync main, and advance to the next task, exactly as the `status=merged` row does.
+   - `{"advance":false,"reason":…}` (not merged, merge predates dispatch, head-OID mismatch, or GitHub unreachable) → **halt the epic** and escalate as before. Never advance on a non-`advance` result — `UNKNOWN`/unreachable is never merged.
 
 7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
 

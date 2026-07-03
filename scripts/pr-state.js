@@ -3,17 +3,20 @@
 
 // pr-state.js — resolve a branch's GitHub pull-request state with a retry
 // wrapper around `gh`, hardened against the transient 5xx / gateway / timeout
-// failures that intermittently break field commands.
+// failures that intermittently break field commands, plus a crash-recovery
+// reconciliation gate that will only treat a crashed task as "done" when the
+// merged PR is provably THIS task's work.
 //
-// Shared by:
-//   - hooks/reconcile-merged (SessionStart stale-issue reconciliation)
-//   - skills/dev/references/multi-task-dispatch.md crash recovery (a crashed
-//     subprocess whose PR already merged on GitHub should be treated as done)
+// Used by:
+//   - hooks/reconcile-merged (SessionStart stale-issue reconciliation) → state
+//   - skills/dev/references/multi-task-dispatch.md crash recovery → reconcile
 //
-// Prints one of MERGED | OPEN | CLOSED | NONE | UNKNOWN to stdout and exits 0.
-// Callers MUST fail safe: treat anything other than MERGED as "not merged".
+// Callers MUST fail safe: treat anything other than a positive result as "not
+// merged" / "do not advance". UNKNOWN is never merged.
 
 const childProcess = require("node:child_process");
+
+const GH_TIMEOUT_MS = 30_000;
 
 // Transient failures worth retrying: 5xx, gateway errors, timeouts, dropped
 // connections. Deliberately excludes 4xx (auth, not-found) — those are stable.
@@ -24,18 +27,25 @@ function isTransientGhError(stderr) {
   return TRANSIENT.test(String(stderr || ""));
 }
 
-function defaultRunGh(args) {
+function defaultRunGh(args, timeoutMs = GH_TIMEOUT_MS) {
   try {
     const stdout = childProcess.execFileSync("gh", args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
     });
     return { code: 0, stdout: String(stdout).trim(), stderr: "" };
   } catch (err) {
+    // A timeout surfaces as killed / SIGTERM / ETIMEDOUT. Without mapping it to
+    // a transient stderr the retry wrapper is useless against a hang — so map
+    // it explicitly so it retries, then falls through to UNKNOWN.
+    const timedOut = err.killed === true || err.code === "ETIMEDOUT" || err.signal === "SIGTERM";
     return {
       code: typeof err.status === "number" ? err.status : 1,
       stdout: String(err.stdout || "").trim(),
-      stderr: String(err.stderr || err.message || ""),
+      stderr: timedOut
+        ? `gh timed out after ${timeoutMs}ms (${err.signal || err.code || "timeout"})`
+        : String(err.stderr || err.message || ""),
     };
   }
 }
@@ -51,7 +61,13 @@ function defaultSleep(ms) {
 // failures. Non-transient failures return immediately (no point retrying auth
 // or 404). Returns the final { code, stdout, stderr }.
 function runGhWithRetry(args, options = {}) {
-  const { runGh = defaultRunGh, retries = 3, backoffMs = 1000, sleep = defaultSleep } = options;
+  const {
+    retries = 3,
+    backoffMs = 1000,
+    sleep = defaultSleep,
+    timeoutMs = GH_TIMEOUT_MS,
+  } = options;
+  const runGh = options.runGh || ((a) => defaultRunGh(a, timeoutMs));
   let last = { code: 1, stdout: "", stderr: "no attempt made" };
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     last = runGh(args);
@@ -65,45 +81,171 @@ function runGhWithRetry(args, options = {}) {
 // "no pull requests found" is a normal answer, not an error.
 const NO_PR = /no pull requests found|Could not resolve to a PullRequest|no open pull requests/i;
 
+// Lean state-only query (used by reconcile-merged's advisory check).
 function getPrState(branch, options = {}) {
   const res = runGhWithRetry(["pr", "view", branch, "--json", "state", "--jq", ".state"], options);
   if (res.code === 0) {
-    const state = String(res.stdout || "").trim();
-    return state || "NONE";
+    return String(res.stdout || "").trim() || "NONE";
   }
   if (NO_PR.test(res.stderr)) {
     return "NONE";
   }
-  // Auth error, persistent 5xx, or anything else we could not resolve — fail
-  // safe. Callers must never treat UNKNOWN as merged.
+  // Auth error, persistent 5xx/timeout, or anything else we could not resolve
+  // — fail safe. Callers must never treat UNKNOWN as merged.
   return "UNKNOWN";
+}
+
+const EMPTY_INFO = { state: "UNKNOWN", mergedAt: null, number: null, headRefOid: null };
+
+// Rich query: everything the crash-recovery gate needs to prove identity and
+// recency of a merge.
+function getPrInfo(branch, options = {}) {
+  const res = runGhWithRetry(
+    ["pr", "view", branch, "--json", "state,mergedAt,number,headRefOid"],
+    options
+  );
+  if (res.code === 0) {
+    try {
+      const obj = JSON.parse(res.stdout || "{}");
+      return {
+        state: obj.state || "NONE",
+        mergedAt: obj.mergedAt || null,
+        number: obj.number ?? null,
+        headRefOid: obj.headRefOid || null,
+      };
+    } catch {
+      return { ...EMPTY_INFO };
+    }
+  }
+  if (NO_PR.test(res.stderr)) {
+    return { state: "NONE", mergedAt: null, number: null, headRefOid: null };
+  }
+  return { ...EMPTY_INFO };
+}
+
+function defaultRunGit(args, cwd) {
+  try {
+    const stdout = childProcess.execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: GH_TIMEOUT_MS,
+    });
+    return { code: 0, stdout: String(stdout).trim(), stderr: "" };
+  } catch (err) {
+    return {
+      code: typeof err.status === "number" ? err.status : 1,
+      stdout: String(err.stdout || "").trim(),
+      stderr: String(err.stderr || err.message || ""),
+    };
+  }
+}
+
+// Decide whether a crashed subprocess's task is actually DONE. A crash leaves
+// no result.json, but the PR may have merged before the process died. The
+// danger: `gh pr view <branch>` resolves by head-ref NAME, so a reused slug can
+// surface a PRIOR PR that was squash-merged and branch-deleted. Advancing on
+// state=MERGED alone would skip real, unmerged work.
+//
+// Advance ONLY when ALL hold:
+//   - state == MERGED
+//   - mergedAt is strictly AFTER this task's dispatch time (rules out an older
+//     PR for a reused slug)
+//   - the merged PR's headRefOid equals this worktree's HEAD (proves the merge
+//     is THIS task's exact commits — squash-safe, unlike an ancestor check,
+//     since a squash discards the branch-tip commit from the default branch)
+// Any failure → do not advance (caller halts the epic as crashed).
+function reconcileCrashedTask(opts = {}) {
+  const { branch, worktree, dispatchedAt } = opts;
+  const runGit = opts.runGit || defaultRunGit;
+
+  const info = getPrInfo(branch, opts);
+  if (info.state !== "MERGED") {
+    return { advance: false, reason: `pr-not-merged:${info.state}` };
+  }
+
+  const mergedMs = Date.parse(info.mergedAt);
+  const dispatchedMs = Date.parse(dispatchedAt);
+  if (!Number.isFinite(mergedMs) || !Number.isFinite(dispatchedMs) || mergedMs <= dispatchedMs) {
+    return { advance: false, reason: "merge-predates-dispatch", mergedAt: info.mergedAt };
+  }
+
+  const head = runGit(["rev-parse", "HEAD"], worktree);
+  const headSha = head.code === 0 ? head.stdout.trim() : "";
+  if (!headSha || !info.headRefOid || info.headRefOid !== headSha) {
+    return {
+      advance: false,
+      reason: "merged-pr-not-this-work",
+      headRefOid: info.headRefOid,
+      headSha,
+    };
+  }
+
+  return { advance: true, prNumber: info.number, mergedAt: info.mergedAt };
 }
 
 function parseArgs(argv) {
   const options = {};
+  const positionals = [];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--branch") {
       options.branch = argv[i + 1];
       i += 1;
+    } else if (token === "--worktree") {
+      options.worktree = argv[i + 1];
+      i += 1;
+    } else if (token === "--dispatched-at") {
+      options.dispatchedAt = argv[i + 1];
+      i += 1;
+    } else if (token.startsWith("--")) {
+      // Unknown flag with a value — skip both to stay forgiving.
+      if (argv[i + 1] && !argv[i + 1].startsWith("--")) i += 1;
+    } else {
+      positionals.push(token);
     }
   }
-  return options;
+  return { options, positionals };
+}
+
+// Retry/timeout are overridable via env so tests can exercise the slow paths.
+function envOverrides() {
+  const out = {};
+  const backoffMs = Number(process.env.PM_PR_STATE_BACKOFF_MS);
+  if (Number.isFinite(backoffMs) && backoffMs >= 0) out.backoffMs = backoffMs;
+  const timeoutMs = Number(process.env.PM_GH_TIMEOUT_MS);
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) out.timeoutMs = timeoutMs;
+  return out;
 }
 
 function main() {
-  const { branch } = parseArgs(process.argv.slice(2));
-  if (!branch) {
+  const { options, positionals } = parseArgs(process.argv.slice(2));
+  const overrides = envOverrides();
+
+  if (positionals[0] === "reconcile") {
+    if (!options.branch || !options.worktree) {
+      process.stderr.write("pr-state reconcile: --branch and --worktree are required\n");
+      process.exit(2);
+    }
+    const result = reconcileCrashedTask({ ...options, ...overrides });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+
+  if (!options.branch) {
     process.stderr.write("pr-state: --branch <branch> is required\n");
     process.exit(2);
   }
-  // Retry backoff is overridable so tests can exercise the retry path quickly.
-  const backoffMs = Number(process.env.PM_PR_STATE_BACKOFF_MS);
-  const options = Number.isFinite(backoffMs) && backoffMs >= 0 ? { backoffMs } : {};
-  process.stdout.write(`${getPrState(branch, options)}\n`);
+  process.stdout.write(`${getPrState(options.branch, overrides)}\n`);
 }
 
-module.exports = { getPrState, runGhWithRetry, isTransientGhError };
+module.exports = {
+  getPrState,
+  getPrInfo,
+  reconcileCrashedTask,
+  runGhWithRetry,
+  isTransientGhError,
+};
 
 if (require.main === module) {
   main();

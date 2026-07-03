@@ -48,7 +48,7 @@ gh_retry gh api graphql -f query='...'
 gh_retry gh pr checks --json name,state,conclusion
 ```
 
-The rule is the same one `scripts/pr-state.js` enforces in code for hooks: retry only transient 5xx / gateway / timeout failures; let auth, 404, and 422 fail fast.
+This bash helper is an independently-maintained copy of the same *idea* the hooks use in code (`scripts/pr-state.js`) — not the same implementation. Both retry only transient 5xx / gateway / timeout failures and let auth / 404 / 422 fail fast, but their exact transient patterns and backoff differ; keep the intent aligned, don't assume byte-identical behavior.
 
 ---
 

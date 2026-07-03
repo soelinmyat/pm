@@ -31,11 +31,28 @@ function bootstrapWorktree(gitRoot, worktree, worker = {}, options = {}) {
 
   const copied = [];
   for (const rel of worker.bootstrap_files || []) {
+    const dest = path.join(worktree, rel);
+    // Refuse anything that would write outside the worktree (e.g. "../x").
+    const relToWorktree = path.relative(worktree, dest);
+    if (relToWorktree.startsWith("..") || path.isAbsolute(relToWorktree)) {
+      return {
+        ok: false,
+        reason: "bootstrap-file-outside-worktree",
+        error: `refusing to write outside the worktree: ${rel}`,
+      };
+    }
     const source = path.join(gitRoot, rel);
     if (!fs.existsSync(source)) continue;
-    const dest = path.join(worktree, rel);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.cpSync(source, dest, { recursive: true });
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.cpSync(source, dest, { recursive: true });
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "bootstrap-copy-failed",
+        error: String(err.message || err).slice(0, 2000),
+      };
+    }
     copied.push(rel);
   }
 

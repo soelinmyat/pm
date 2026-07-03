@@ -20,9 +20,11 @@ command -v gh >/dev/null 2>&1 || exit 0
 
 cd "$PROJECT_DIR"
 
-# Get PRs merged in the last 48 hours that reference issue IDs
+# Gate: did anything merge in the last 48h at all? Only mergedAt is needed —
+# this is just a cheap "worth scanning sessions?" check. The authoritative
+# per-branch state comes from pr-state.js below (fresh, with retry).
 MERGED_PRS=$(gh pr list --state merged --limit 20 \
-  --json number,title,headRefName,mergedAt \
+  --json mergedAt \
   --jq '[.[] | select(.mergedAt > (now - 172800 | todate))] | .[]' 2>/dev/null) || exit 0
 
 [ -z "$MERGED_PRS" ] && exit 0

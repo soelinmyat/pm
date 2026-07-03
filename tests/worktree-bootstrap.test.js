@@ -88,6 +88,38 @@ test("returns bootstrap-command-failed with error text on non-zero exit", () => 
   }
 });
 
+test("rejects a bootstrap_files entry whose dest escapes the worktree", () => {
+  const { gitRoot, worktree, cleanup } = makeDirs();
+  try {
+    fs.writeFileSync(path.join(gitRoot, "local.env"), "x\n");
+    const res = bootstrapWorktree(gitRoot, worktree, {
+      bootstrap_files: ["../evil"],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "bootstrap-file-outside-worktree");
+    assert.ok(
+      !fs.existsSync(path.join(worktree, "..", "evil")),
+      "nothing written outside worktree"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("wraps a cpSync throw (same src/dest) as bootstrap-copy-failed, not an uncaught crash", () => {
+  const { gitRoot, cleanup } = makeDirs();
+  try {
+    fs.writeFileSync(path.join(gitRoot, "self.env"), "x\n");
+    // worktree === gitRoot makes src and dest the same path → fs.cpSync throws.
+    const res = bootstrapWorktree(gitRoot, gitRoot, { bootstrap_files: ["self.env"] });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "bootstrap-copy-failed");
+    assert.ok(res.error, "carries the underlying error text");
+  } finally {
+    cleanup();
+  }
+});
+
 test("no-ops cleanly when worker defines no bootstrap files or command", () => {
   const { gitRoot, worktree, cleanup } = makeDirs();
   try {

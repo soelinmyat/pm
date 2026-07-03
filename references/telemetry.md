@@ -47,6 +47,29 @@ crept in historically. Readers should fold all `activity-*.jsonl` /
   the previous phase/stage span automatically. The final open span closes when
   the run changes or the session ends.
 
+## Known limitations — run attribution
+
+`analytics-log` records `.current-run`/`.current-skill` on every `pm:`
+invocation and does not distinguish a user-initiated top-level skill from a
+nested sub-skill call. As a result:
+
+- **Nested attribution** — when a skill invokes another (`ship` → `pm:review`,
+  `groom` → `pm:research`), the sub-skill overwrites `.current-run`, so agent
+  dispatch spans emitted during the sub-skill attribute to the **sub-skill's**
+  run rather than rolling up under the parent.
+- **Abandoned runs** — a top-level run left unfinished (a new skill started
+  before the previous completed) is **not** closed eagerly; it closes at
+  `session-end`.
+
+This is analytics-integrity only and is a deliberate simplification: the signal
+that once separated the two cases (a per-prompt `UserPromptSubmit` timestamp)
+was removed along with its hook because nothing else read it, and an
+existence-only guard would merely trade nested mis-attribution for
+abandoned-run mis-attribution. **Per-workflow step evidence is unaffected** —
+`state-telemetry` correlates step spans off each state file's own `run_id`
+frontmatter, not `.current-run`, so evals and per-run rollups keyed on the
+state file stay correct.
+
 ## State-file contract
 
 The automatic layer depends on stateful workflows keeping these fields current:
