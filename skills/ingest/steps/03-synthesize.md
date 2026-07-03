@@ -161,7 +161,7 @@ What this research still does not answer.
 
 ### Mixed-origin write contract
 
-When a topic already exists from `pm:research`, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ingest/references/mixed-origin-rules.md` for the full ownership and merge protocol.
+When a topic already exists from `pm:research`, read and follow `${CLAUDE_PLUGIN_ROOT}/references/mixed-origin.md` for the full ownership and merge protocol.
 
 ### Post-write Validation
 

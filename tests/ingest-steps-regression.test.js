@@ -180,26 +180,20 @@ test("ingest steps: audio-pipeline reference is referenced from step content", (
   }
 });
 
-test("ingest steps: mixed-origin-rules reference is referenced from step content", () => {
+test("ingest steps: mixed-origin contract is referenced from step content", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("ingest", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps);
 
-    // The synthesize step should reference the mixed-origin-rules reference file
+    // The synthesize step should reference the shared mixed-origin contract
     assert.ok(
-      prompt.includes("mixed-origin-rules.md"),
-      "Step content should reference mixed-origin-rules.md"
+      prompt.includes("references/mixed-origin.md"),
+      "Step content should reference the shared references/mixed-origin.md contract"
     );
 
-    // Verify the reference file actually exists
-    const refPath = path.join(
-      PLUGIN_ROOT,
-      "skills",
-      "ingest",
-      "references",
-      "mixed-origin-rules.md"
-    );
+    // Verify the shared reference file actually exists
+    const refPath = path.join(PLUGIN_ROOT, "references", "mixed-origin.md");
     assert.ok(fs.existsSync(refPath), `Reference file should exist at ${refPath}`);
   } finally {
     cleanup();

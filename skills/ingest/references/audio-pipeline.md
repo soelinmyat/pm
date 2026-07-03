@@ -4,7 +4,9 @@ For each transcribed audio file, after the raw transcript is available in `.pm/e
 
 ## 1. Speaker Role Inference
 
-Read the diarized transcript. In a single LLM pass:
+**If the transcript was produced without diarization** (intake fell back to `--no-diarize` because pyannote/HF_TOKEN were missing), there are no speaker turns to attribute — skip role inference, leave `speakers` empty in the frontmatter, and treat the transcript as unattributed customer evidence. Note the limitation in the import summary. Continue with PII redaction (§2) as normal.
+
+Otherwise, read the diarized transcript. In a single LLM pass:
 - Infer who is the interviewer and who is the customer from conversational patterns (who asks questions vs. who describes problems).
 - Assign roles: `interviewer`, `customer`, `unknown`. For 3+ speakers, assign `customer-a`, `customer-b`, etc.
 - Confirm with the user:
