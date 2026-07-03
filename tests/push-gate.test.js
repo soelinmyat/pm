@@ -70,7 +70,7 @@ function passingManifest(dir, slug, sha) {
   };
 }
 
-function runHook(command, payloadOverrides = {}) {
+function runHook(command, payloadOverrides = {}, envOverrides = {}) {
   const payload = JSON.stringify({
     tool_name: "Bash",
     tool_input: { command },
@@ -79,8 +79,19 @@ function runHook(command, payloadOverrides = {}) {
   return spawnSync(HOOK, {
     input: payload,
     encoding: "utf8",
-    env: { ...process.env, PM_PLUGIN_ROOT: ROOT },
+    env: { ...process.env, PM_PLUGIN_ROOT: ROOT, ...envOverrides },
   });
+}
+
+// A failing manifest for `slug` tied to HEAD, with `gateName` marked failed.
+function writeFailingGates(dir, slug, gateName = "verification") {
+  const sha = headSha(dir);
+  const m = passingManifest(dir, slug, sha);
+  const g = m.gates.find((row) => row.name === gateName);
+  g.status = "failed";
+  g.reason = `${gateName} not run`;
+  writeGates(dir, slug, m);
+  return m;
 }
 
 function decisionOf(result) {
@@ -318,4 +329,213 @@ test("hooks.json registers push-gate as a synchronous PreToolUse Bash hook", () 
 test("push-gate hook file is executable", () => {
   const stat = fs.statSync(HOOK);
   assert.ok(stat.mode & 0o111, "hooks/push-gate must be executable");
+});
+
+// ---------------------------------------------------------------------------
+// FAIL-CLOSED (BLOCKING #1). In user repos no git pre-push hook is installed —
+// this PreToolUse hook is the ONLY gate downstream. So when a push IS detected
+// and a gate manifest IS present, but the checker cannot be run to a clean
+// verdict (spawn error / signal / non-numeric exit / ENOBUFS), we BLOCK. A
+// checker you couldn't run is not evidence the gate passed. Fail-OPEN survives
+// only for genuinely out-of-scope cases (not a push / no manifest / non-PM).
+// ---------------------------------------------------------------------------
+
+test("checker that cannot produce a clean verdict blocks (fail-closed), even with a passing manifest", () => {
+  const dir = makeRepo();
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-failroot-"));
+  try {
+    // A stand-in dev-gate-check.js: re-exports the REAL deriveSessionSlug (so the
+    // manifest is still located correctly) but self-terminates by signal when run
+    // as a subprocess — spawnSync then returns a null status (no clean verdict).
+    fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
+    const realChecker = path.join(ROOT, "scripts", "dev-gate-check.js");
+    fs.writeFileSync(
+      path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+      `"use strict";\n` +
+        `module.exports = require(${JSON.stringify(realChecker)});\n` +
+        `if (require.main === module) { process.kill(process.pid, "SIGKILL"); }\n`
+    );
+    // A PASSING manifest — proves an unverifiable checker still blocks.
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+
+    const result = runHook("git push origin HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot });
+    assertBlock(result, /could not verify|couldn'?t verify/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// REFSPEC SCOPING (BLOCKING #3). Only pushes that UPDATE THE SESSION BRANCH's
+// ref are gated. Tag pushes, deletions, and cross-branch pushes are legit
+// mid-session ops and must not be blocked with a nonsense "incomplete gate".
+// ---------------------------------------------------------------------------
+
+test("--tags push is out of scope → allow (even with a failing session manifest)", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git push origin --tags", { cwd: dir }));
+    assertAllow(runHook("git push --tags", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit tag refspec is out of scope → allow", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git push origin refs/tags/v1.0.0", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("branch deletion (--delete and :ref) is out of scope → allow", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git push origin --delete feat/old", { cwd: dir }));
+    assertAllow(runHook("git push origin :feat/old", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cross-branch push (dst is not the session branch) is out of scope → allow", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git push origin main", { cwd: dir }));
+    assertAllow(runHook("git push origin feat/x:feat/y", { cwd: dir }));
+    assertAllow(runHook("git push origin HEAD:refs/heads/other", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit push of the session branch is still gated → block", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertBlock(runHook("git push origin feat/x", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }), /verification/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PARSER ROBUSTNESS FOR NATURAL FORMS (BLOCKING #4). Quotes/parens stripped,
+// backslash-newline treated as a continuation (joined), wrappers honored.
+// ---------------------------------------------------------------------------
+
+test("subshell and quoted push forms are detected → block", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertBlock(runHook("(git push)", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook('git "push"', { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("backslash-newline continuation is joined, not split, so refspec scoping sees the whole command", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    // Continuation → one command `git push origin HEAD` → gated → block.
+    assertBlock(runHook("git push \\\norigin HEAD", { cwd: dir }), /verification is failed/);
+    // Continuation of a cross-branch push → still one command → out of scope → allow.
+    assertAllow(runHook("git push \\\norigin main", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertBlock(runHook("sudo git push", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("VAR=1 git push", { cwd: dir }), /verification is failed/);
+    assertBlock(
+      runHook("env FOO=bar git push origin HEAD", { cwd: dir }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a non-push subcommand whose name merely contains 'push' is allowed (substring guard)", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git pushx origin HEAD", { cwd: dir }));
+    assertAllow(runHook("git push-mirror origin", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// --git-dir / --work-tree targeting (BLOCKING #4/#6): honor the value when
+// resolving which repo to gate (today --git-dir= drops the target).
+// ---------------------------------------------------------------------------
+
+test("--git-dir= value resolves the target repo for gating", () => {
+  const repo = makeRepo();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-gitdir-"));
+  try {
+    writeFailingGates(repo, "x", "review");
+    const result = runHook(`git --git-dir=${repo}/.git --work-tree=${repo} push origin HEAD`, {
+      cwd: elsewhere,
+    });
+    assertBlock(result, /review is failed/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEGRADE PATH (BLOCKING #1 partner): a failing manifest with no origin/DEFAULT
+// fetched still blocks — the checker runs without --base and the core gate
+// checks catch the failure. (makeRepo has no origin remote.)
+// ---------------------------------------------------------------------------
+
+test("failing manifest blocks even when origin/DEFAULT_BRANCH is not present", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    assertBlock(runHook("git push", { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// MINOR #5: the block message names the manifest that was actually checked
+// (current.gates.json when it was the fallback), not the slug manifest.
+// ---------------------------------------------------------------------------
+
+test("block message names current.gates.json when that fallback was the one checked", () => {
+  const dir = makeRepo();
+  try {
+    const m = passingManifest(dir, "x", headSha(dir));
+    m.gates.find((g) => g.name === "verification").status = "failed";
+    m.gates.find((g) => g.name === "verification").reason = "tests failed";
+    writeGates(dir, "current", m);
+
+    const result = runHook("git push", { cwd: dir });
+    assertBlock(result, /current\.gates\.json/);
+    // and must NOT misname the non-existent slug manifest
+    assert.doesNotMatch(decisionOf(result).permissionDecisionReason, /x\.gates\.json/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
