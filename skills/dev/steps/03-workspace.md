@@ -50,6 +50,17 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
 
 After worktree creation, prep the environment based on what the project needs.
 
+**Prime the worktree (loop bootstrap parity).** Fresh worktrees miss gitignored-but-required files (env files, generated specs) — the top recurring field failure. If `{pm_dir}/loop/config.json` defines `worker.bootstrap_files` / `worker.bootstrap_command`, copy/run them into the new worktree with the same helper the loop worker uses, before installing dependencies:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-bootstrap.js \
+  --git-root "$REPO_ROOT" \
+  --worktree "$REPO_ROOT/.worktrees/<slug>" \
+  --pm-dir {pm_dir}
+```
+
+Repos without a loop config are a silent no-op (no `worker.bootstrap_*` keys → nothing copied). This reuses the loop's `worker.bootstrap_files`/`bootstrap_command` keys — do not introduce a second set.
+
 **Read AGENTS.md** (and any app-specific AGENTS.md) for workspace setup commands. Common patterns:
 
 | Pattern | Detection | Action |

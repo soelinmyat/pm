@@ -107,10 +107,12 @@ Behavior depends on the current `groom_tier` from session state.
 
    **Hero prototype:** include `<figure class="hero-prototype">` between the title block and TL;DR only when a UI prototype exists (`{pm_dir}/backlog/wireframes/{slug}.html` or `{pm_dir}/backlog/wireframes/{slug}/index.html`). Read the metadata and render the figure per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6 (metadata) and §8 (embedding — fidelity modifier class, iframe height, screens caption, fidelity note). If metadata is missing or malformed, fall back to a generic "View prototype" caption and log a warning — do not crash the render. When there is no UI prototype, omit the figure entirely.
 
-   After writing the HTML, open it in the browser:
+   After writing the HTML, open it in the browser (portable across macOS/Linux; falls back to printing the path):
 
    ```bash
-   open {pm_dir}/backlog/proposals/{topic-slug}.html
+   open {pm_dir}/backlog/proposals/{topic-slug}.html 2>/dev/null \
+     || xdg-open {pm_dir}/backlog/proposals/{topic-slug}.html 2>/dev/null \
+     || echo "View: {pm_dir}/backlog/proposals/{topic-slug}.html"
    ```
 
    Notify the user: "Proposal finalized. Opening in browser."

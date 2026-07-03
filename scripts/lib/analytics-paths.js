@@ -99,7 +99,7 @@ function stateBeforeDir(projectRoot) {
 
 // List all per-host JSONL files for a given stream ("activity" | "steps").
 // Returns absolute paths, sorted. Used by readers that need to fold multiple
-// hosts together (pm-baseline, list-rows, etc.).
+// hosts together across machines.
 function listHostFiles(projectRoot, stream) {
   const dir = analyticsDir(projectRoot);
   let entries;

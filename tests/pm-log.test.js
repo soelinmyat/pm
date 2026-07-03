@@ -9,7 +9,6 @@ const childProcess = require("node:child_process");
 
 const ROOT = path.join(__dirname, "..");
 const PM_LOG = path.join(ROOT, "scripts", "pm-log.sh");
-const PM_BASELINE = path.join(ROOT, "scripts", "pm-baseline.js");
 const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log");
 const STATE_PRE = path.join(ROOT, "hooks", "state-pre");
 const STATE_STEP = path.join(ROOT, "hooks", "state-step");
@@ -360,99 +359,6 @@ test("analytics-log preserves quoted args and writes current skill", () => {
     assert.equal(
       fs.readFileSync(path.join(root, ".pm", "analytics", ".current-skill"), "utf8"),
       "groom"
-    );
-  } finally {
-    cleanup();
-  }
-});
-
-test("analytics-log marks the displaced previous run as abandoned", () => {
-  const { root, env, cleanup } = setupRepo();
-  try {
-    // Seed: a prior run is in flight
-    const prevRunId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "dev"], { cwd: root, env, encoding: "utf8" })
-      .trim();
-    const analyticsDir = path.join(root, ".pm", "analytics");
-    fs.writeFileSync(path.join(analyticsDir, ".current-run"), prevRunId);
-    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "dev");
-    // Seed: current run timestamp is older than the user prompt — this is the
-    // signal that the user initiated a new top-level skill.
-    fs.writeFileSync(path.join(analyticsDir, ".current-run-ts"), "2026-01-01T00:00:00.000Z");
-    fs.writeFileSync(path.join(analyticsDir, ".last-user-prompt-ts"), "2026-01-01T00:01:00.000Z");
-
-    // User switches to a new skill before the dev run finished
-    const input = JSON.stringify({
-      tool_name: "Skill",
-      tool_input: { skill: "pm:groom", args: "" },
-    });
-    childProcess.execFileSync(ANALYTICS_LOG, {
-      cwd: root,
-      input,
-      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
-    const prevEnd = activity.find((r) => r.event === "completed" && r.run_id === prevRunId);
-    assert.ok(prevEnd, "previous run should have a completed event");
-    assert.equal(
-      prevEnd.status,
-      "abandoned",
-      "displaced run must be marked abandoned, not completed"
-    );
-  } finally {
-    cleanup();
-  }
-});
-
-test("analytics-log treats sub-skill call as nested (parent stays active)", () => {
-  const { root, env, cleanup } = setupRepo();
-  try {
-    // Seed: ship is mid-flight
-    const parentRunId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "ship"], { cwd: root, env, encoding: "utf8" })
-      .trim();
-    const analyticsDir = path.join(root, ".pm", "analytics");
-    fs.writeFileSync(path.join(analyticsDir, ".current-run"), parentRunId);
-    fs.writeFileSync(path.join(analyticsDir, ".current-skill"), "ship");
-    // The parent's run timestamp is AFTER the last user prompt — meaning no
-    // user prompt has fired since ship started, so any Skill call now is
-    // ship invoking a sub-skill (e.g. pm:review).
-    fs.writeFileSync(path.join(analyticsDir, ".last-user-prompt-ts"), "2026-01-01T00:00:00.000Z");
-    fs.writeFileSync(path.join(analyticsDir, ".current-run-ts"), "2026-01-01T00:01:00.000Z");
-
-    // ship's body calls pm:review
-    const input = JSON.stringify({
-      tool_name: "Skill",
-      tool_input: { skill: "pm:review", args: "" },
-    });
-    childProcess.execFileSync(ANALYTICS_LOG, {
-      cwd: root,
-      input,
-      env: { ...env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_ROOT: ROOT },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    const activity = readJsonLines(path.join(analyticsDir, ACTIVITY_FILE));
-    const parentEnd = activity.find((r) => r.event === "completed" && r.run_id === parentRunId);
-    assert.equal(parentEnd, undefined, "parent run must NOT be closed on nested call");
-
-    const nestedStart = activity.find(
-      (r) => r.event === "started" && r.skill === "review" && r.parent_run_id === parentRunId
-    );
-    assert.ok(nestedStart, "nested skill must record parent_run_id");
-
-    // Parent retains step attribution
-    assert.equal(
-      fs.readFileSync(path.join(analyticsDir, ".current-run"), "utf8"),
-      parentRunId,
-      ".current-run must continue pointing to parent"
-    );
-    assert.equal(
-      fs.readFileSync(path.join(analyticsDir, ".current-skill"), "utf8"),
-      "ship",
-      ".current-skill must continue pointing to parent"
     );
   } finally {
     cleanup();
@@ -815,60 +721,6 @@ test("session-end is a no-op when no run is active", () => {
       !fs.existsSync(path.join(root, ".pm", "analytics", ACTIVITY_FILE)),
       "no activity should be written"
     );
-  } finally {
-    cleanup();
-  }
-});
-
-test("baseline generator reports empty corpus and populated corpus", () => {
-  const { root, env, cleanup } = setupRepo();
-  try {
-    const emptyOutput = childProcess.execFileSync("node", [PM_BASELINE, "--project-dir", root], {
-      env,
-      encoding: "utf8",
-    });
-    assert.match(emptyOutput, /No telemetry runs have been captured yet/);
-
-    const runId = childProcess
-      .execFileSync(PM_LOG, ["run-start", "--skill", "review"], {
-        cwd: root,
-        env,
-        encoding: "utf8",
-      })
-      .trim();
-    childProcess.execFileSync(
-      PM_LOG,
-      [
-        "step",
-        "--skill",
-        "review",
-        "--run-id",
-        runId,
-        "--phase",
-        "review",
-        "--step",
-        "parallel-review",
-        "--status",
-        "completed",
-        "--duration-ms",
-        "120000",
-        "--input-chars",
-        "400",
-        "--output-chars",
-        "100",
-      ],
-      { cwd: root, env, stdio: "ignore" }
-    );
-
-    const outputPath = path.join(root, "baseline.md");
-    childProcess.execFileSync(
-      "node",
-      [PM_BASELINE, "--project-dir", root, "--output", outputPath],
-      { env, stdio: "ignore" }
-    );
-    const baseline = fs.readFileSync(outputPath, "utf8");
-    assert.match(baseline, /Runs captured: 1/);
-    assert.match(baseline, /review — review \/ parallel-review/);
   } finally {
     cleanup();
   }

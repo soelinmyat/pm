@@ -24,9 +24,7 @@ If the RFC reported 0 tasks for a sub-issue (all ACs already implemented with te
 
 ## Claude subscription usage note
 
-Multi-task dispatch spawns a background `claude -p` subprocess per task. Anthropic paused the previously announced 2026-06-15 Agent SDK credit split: for now, `claude -p` still draws from the user's normal Claude subscription usage limits, and the separate monthly Agent SDK credit is not active. See `dev/references/agent-runtime.md` § "Claude subscription behavior".
-
-Do not pause for a special subprocess cost opt-in, and do not require `PM_ALLOW_SUBPROCESS`. The approved RFC is the execution consent. If a subprocess hits a normal usage limit, usage-credit limit, quota, or rate limit, `dispatch-issue.sh` writes a `blocked` result and the orchestrator follows the branch table below.
+Each task spawns a background `claude -p` subprocess that draws from the account's normal Claude usage limits — see `dev/references/agent-runtime.md` § Subprocess Dispatch (Model and billing) for the canonical statement. Do not pause for a subprocess cost opt-in and do not require `PM_ALLOW_SUBPROCESS`: the approved RFC is the execution consent. If a subprocess hits a usage, quota, or rate limit, `dispatch-issue.sh` writes a `blocked` result and the orchestrator follows the branch table below.
 
 ## Sequential execution
 
@@ -35,6 +33,13 @@ For each task (Issue section) in dependency order from the RFC:
 1. **Create worktree:**
    ```bash
    git worktree add .worktrees/{task-slug} -b feat/{task-slug} origin/{DEFAULT_BRANCH}
+   ```
+   Then prime it with the loop bootstrap helper — copies gitignored-but-required env/spec files and runs `worker.bootstrap_command`, reusing the same `pm/loop/config.json` keys as the loop worker (a silent no-op when the repo has no loop config):
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-bootstrap.js \
+     --git-root "$(git rev-parse --show-toplevel)" \
+     --worktree "$(git rev-parse --show-toplevel)/.worktrees/{task-slug}" \
+     --pm-dir {pm_dir}
    ```
 
 2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID).
@@ -123,7 +128,12 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
      run_in_background: true
    )
    ```
-   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage-limit, usage-credit, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
+   Returns a shell ID immediately. The subprocess runs uninterrupted in user context. If Claude reports a usage, quota, or rate-limit stop, the dispatcher writes a blocked result for the orchestrator to surface.
+
+   Immediately record the dispatch time — crash reconciliation uses it to reject a stale (pre-dispatch) merge of a reused slug:
+   ```bash
+   date -u +%Y-%m-%dT%H:%M:%SZ > {pm_state_dir}/runs/issue-{N}/dispatched-at
+   ```
 
    **Codex runtime:** detach the process via shell (`nohup ... &` or equivalent) and capture the PID. Same `dispatch-issue.sh` invocation, just `--runtime codex`.
 
@@ -143,12 +153,26 @@ Do NOT exit before writing the result file. The orchestrator reads it to advance
    | Helper output | Next action |
    |---|---|
    | `state=done` | `.result` carries the parsed `result.json`. On `status=merged`: checkpoint, sync main, advance to next task. On `status=blocked`: halt epic, surface `reason` to user. |
-   | `state=crashed` | Halt epic. Escalate: "subprocess crashed without a valid result — see `{log-file}`". |
+   | `state=crashed` | **Reconcile with GitHub before halting** (see "Crash reconciliation" below): if the task's PR already merged, treat as done and advance; otherwise halt epic and escalate: "subprocess crashed without a valid result — see `{log-file}`". |
    | `state=running` | Re-invoke the exact same helper call. The heartbeat is uncapped — a 6-hour subprocess ≈ 24 re-invocations, all expected. |
    | output missing or unparseable (no JSON line) | Treat as `crashed` — halt and escalate. |
    | `done` but `.result.status` ∉ {`merged`, `blocked`} | Treat as `blocked` — halt, surface the raw result. |
 
    `running` is the **only** state that re-invokes; `done` and `crashed` are terminal for the wait. Each per-task subprocess owns the full lifecycle for its task — implement through merge — without bailing to the orchestrator. The orchestrator's role is reduced to: build prompt, background-dispatch, wait via the helper, branch, advance plan.
+
+   **Crash reconciliation (GitHub state).** A `crashed` state means the subprocess exited without a valid `result.json` — but the work may already be merged (an agent can complete the PR and then die before writing its result). Do **not** trust `state=MERGED` alone: `gh pr view <branch>` resolves by head-ref *name*, so a reused slug can surface a PRIOR PR that was squash-merged and its branch deleted. Run the reconciliation gate, which advances only when the merge is provably **this** task's work — merged strictly after dispatch **and** the merged PR's head OID equals this worktree's HEAD:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/pr-state.js reconcile \
+     --branch feat/{task-slug} \
+     --worktree {TASK_WORKTREE_PATH} \
+     --dispatched-at "$(cat {pm_state_dir}/runs/issue-{N}/dispatched-at)"
+   ```
+
+   It prints a JSON decision (with retry on transient 5xx / gateway / timeout built in):
+
+   - `{"advance":true,"prNumber":N,…}` → the task is actually **done**. Synthesize the missing result — write `{pm_state_dir}/runs/issue-{N}/result.json` as `{"status":"merged","issue_id":"{ISSUE_ID}","pr":N}` using the returned `prNumber` (so the later event-extraction `gh pr view {PR_NUMBER}` resolves) — then checkpoint the task complete, sync main, and advance to the next task, exactly as the `status=merged` row does.
+   - `{"advance":false,"reason":…}` (not merged, merge predates dispatch, head-OID mismatch, or GitHub unreachable) → **halt the epic** and escalate as before. Never advance on a non-`advance` result — `UNKNOWN`/unreachable is never merged.
 
 7. **Checkpoint** — update state file `## Tasks` table immediately (backward-compat: also check for `## Sub-Issues` header in older session files). Update `## Implementation Progress`.
 

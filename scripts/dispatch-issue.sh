@@ -134,21 +134,15 @@ printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"
 case "$RUNTIME" in
   claude)
     command -v claude >/dev/null 2>&1 || { echo "claude CLI not in PATH" >&2; exit 3; }
-    # Claude paused the previously announced Agent SDK credit split. For now,
-    # `claude -p` still draws from the user's normal Claude subscription usage
-    # limits, so PM does not require a separate opt-in env var before spawning.
-    # Long subprocess runs can still hit normal plan limits or usage-credit
-    # limits; those are surfaced below as structured blocked results.
+    # `claude -p` draws from the account's normal Claude usage limits, so PM
+    # needs no opt-in env var; usage/quota/rate stops are surfaced as blocked
+    # results below. Canonical: dev/references/agent-runtime.md § Subprocess Dispatch.
     (
       cd "$WORKTREE"
-      # Pin Opus. A spawned subprocess does NOT inherit the orchestrator's
-      # model — without --model it falls back to the config default (often
-      # Sonnet), silently degrading implementation quality.
-      # `opus` resolves to the newest Opus only on the direct Anthropic API
-      # (Opus 4.8 as of mid-2026); on Bedrock/Vertex/Foundry it pins an older
-      # Opus and on Claude-on-AWS it pins 4.7 — provider-dependent, not always
-      # newest. Opus 4.8 is also no longer top-tier (Fable 5 is), so this pin
-      # is a cost/latency choice, not "the strongest model".
+      # Pin Opus: a spawned subprocess does NOT inherit the orchestrator's model
+      # and without --model falls back to the config default (often Sonnet),
+      # silently degrading implementation quality. `opus` resolves to whatever
+      # Opus the account/provider maps it to — a cost/latency choice.
       claude -p \
         --model opus \
         --dangerously-skip-permissions \
