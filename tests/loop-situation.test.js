@@ -159,3 +159,99 @@ test("CLI: --json emits a parseable situation object; bare emits the state word"
     cleanup();
   }
 });
+
+test("malformed config: invalid JSON → unconfigured, configured:true, note", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, { config: { autonomy: {} } });
+    fs.writeFileSync(path.join(dir, "pm", "loop", "config.json"), "{ not json");
+    const s = assessSituation(dir);
+    assert.equal(s.state, "unconfigured");
+    assert.equal(s.configured, true);
+    assert.match(s.note, /unreadable/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("wrong-type config (array) is rejected, not coerced to permissive defaults", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, { config: { autonomy: {} } });
+    fs.writeFileSync(path.join(dir, "pm", "loop", "config.json"), "[]");
+    const s = assessSituation(dir);
+    assert.equal(s.state, "unconfigured");
+    assert.equal(s.configured, true);
+    assert.match(s.note, /unreadable|object/i);
+  } finally {
+    cleanup();
+  }
+});
+
+test("installed-idle: injected installed probe true + ready cards → installed-idle", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, { config: { autonomy: {} }, cards: [approved("alpha")] });
+    const s = assessSituation(dir, { installedProbe: () => true });
+    assert.equal(s.state, "installed-idle");
+    assert.equal(s.installed, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("engine reflects default_runtime when worker.engine is unset", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, {
+      config: { autonomy: {}, default_runtime: "codex", worker: {} },
+      cards: [approved("a")],
+    });
+    const s = assessSituation(dir);
+    assert.equal(s.config.engine, "codex");
+  } finally {
+    cleanup();
+  }
+});
+
+test("in-progress lease surfaces cardExists=false for an orphaned lease", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, {
+      config: { autonomy: {} },
+      leases: [{ card_id: "ZOMBIE", stage: "dev", holder: "m", runtime: "claude" }],
+    });
+    const s = assessSituation(dir);
+    assert.equal(s.state, "in-progress");
+    assert.equal(s.board.activeLeases[0].cardExists, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("separate-repo: pm.config.json pointing at a sibling KB resolves correctly", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    // code repo <dir> with .pm/config.json → pm lives in ../kb/pm
+    const kb = path.join(dir, "kb");
+    fs.mkdirSync(path.join(kb, "pm", "backlog"), { recursive: true });
+    fs.mkdirSync(path.join(kb, "pm", "loop"), { recursive: true });
+    fs.writeFileSync(path.join(kb, "pm", "loop", "config.json"), JSON.stringify({ autonomy: {} }));
+    fs.mkdirSync(path.join(dir, ".pm"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pm", "config.json"),
+      JSON.stringify({ pm_repo: { type: "local", path: "../kb" } })
+    );
+    const c = approved("beta");
+    const fm = Object.entries(c)
+      .filter(([k]) => k !== "slug")
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+    fs.writeFileSync(path.join(kb, "pm", "backlog", "beta.md"), `---\n${fm}\n---\n`);
+    const s = assessSituation(dir);
+    assert.ok(["ready-not-run", "no-work"].includes(s.state), `resolved state=${s.state}`);
+    assert.equal(s.configured, true);
+  } finally {
+    cleanup();
+  }
+});
