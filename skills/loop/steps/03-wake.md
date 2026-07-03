@@ -1,6 +1,6 @@
 ---
 name: Wake
-order: 2
+order: 3
 description: Plan one loop wake cycle and optionally claim one lease without dispatching a worker
 ---
 

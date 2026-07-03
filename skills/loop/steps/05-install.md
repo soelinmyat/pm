@@ -1,6 +1,6 @@
 ---
 name: Install
-order: 4
+order: 5
 description: First-time scheduler setup — wire launchd/cron to the loop worker for this project
 ---
 

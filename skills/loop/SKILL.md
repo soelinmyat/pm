@@ -7,7 +7,7 @@ description: "Use when the user asks for loop engineering, AI development loop o
 
 ## Purpose
 
-Coordinate PM's git-backed loop layer. `/pm:loop` shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker (`/pm:loop work`).
+Coordinate PM's git-backed loop layer. **Bare `/pm:loop` is a single-command front door**: it reads the current situation (configured? scheduled? paused? cards ready? a wake in progress?) and offers only the next action that fits — so the operator drives the whole loop by running `/pm:loop` and answering. Under the hood it still shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker. The `status`/`wake`/`config`/`install`/`work` subcommands remain for direct use.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
@@ -22,7 +22,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## Steps
 
-Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/loop/steps/` in numeric filename order. If `.pm/workflows/loop/` exists, same-named files there override defaults. Execute the single step that matches the selected subcommand; if no subcommand is present, run `status`.
+Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/loop/steps/` in numeric filename order. If `.pm/workflows/loop/` exists, same-named files there override defaults. Execute the single step that matches the selected subcommand. **If no subcommand is present, run the router (step 01-route)** — it assesses the situation and routes to the one action that fits, so the operator never needs to remember which subcommand to use.
 
 ## Status Definitions
 

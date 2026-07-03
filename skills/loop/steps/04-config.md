@@ -1,6 +1,6 @@
 ---
 name: Config
-order: 3
+order: 4
 description: Inspect or initialize conservative loop configuration
 ---
 

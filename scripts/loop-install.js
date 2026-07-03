@@ -267,6 +267,7 @@ module.exports = {
   buildLaunchdPlist,
   generate,
   launchdLabel,
+  plistInstallPath,
   projectSlug,
   pushKillSwitch,
   setKillSwitch,

@@ -85,6 +85,14 @@ function loadLoopConfig(pmDir) {
     throw new Error(`Invalid loop config JSON at ${filePath}: ${err.message}`);
   }
 
+  // Well-formed JSON of the wrong type (array / number / string / bool) would
+  // otherwise deep-merge to permissive DEFAULTS silently — replacing an
+  // operator's conservative caps with the wide-open ones. Reject it so every
+  // caller (worker, install, the situation router) sees a real error.
+  if (!isPlainObject(userConfig)) {
+    throw new Error(`Loop config at ${filePath} must be a JSON object`);
+  }
+
   return normalizeLoopConfig(deepMerge(DEFAULT_LOOP_CONFIG, userConfig));
 }
 
