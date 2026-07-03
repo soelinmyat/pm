@@ -33,28 +33,22 @@ The goal is to find **genuinely close competitors** — not just well-known play
 
 **5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. If any is missing, re-run only that section of research before proceeding.
 
-Determine dispatch strategy based on candidate count and environment:
+Determine dispatch strategy based on candidate count and runtime capability. Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for the runtime-neutral dispatch mechanics — do not hardcode any one runtime's dispatch syntax.
 
 **1 competitor:** Profile inline. Read the methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`, create the five files, then run the completeness check before Phase 3.
 
-**2+ competitors, subagents available (Claude Code, Codex):**
-Dispatch one researcher agent per competitor in parallel. Use this syntax for each:
+**2+ competitors:** Profile each competitor with a fresh, single-competitor agent. The task for each agent:
 
-```
-Agent tool: name="researcher-{slug}", prompt="Profile {Company Name} in the {space} space.
-Slug: {slug}. Follow the methodology in ${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md exactly.
-Write all output files to {pm_dir}/evidence/competitors/{slug}/.
-Do NOT write to {pm_dir}/evidence/competitors/index.md — that is owned by the parent skill."
-```
+> Profile {Company Name} ({slug}) in the {space} space. Follow the methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md` exactly. Write all output files to `{pm_dir}/evidence/competitors/{slug}/` and nowhere else — do NOT touch `{pm_dir}/evidence/competitors/index.md` (the parent skill owns it).
 
-Wait for all agents to complete, then run the 5-file completeness check for each competitor before Phase 3.
+Competitor profiling mutates files, but each agent writes only its own `{slug}/` directory — the outputs are **disjoint**, so parallel dispatch is safe wherever the runtime supports delegated execution. This is an explicit delegated-execution choice, not the read-only-review-wave default. Follow `agent-runtime.md`:
 
-**2+ competitors, no subagents (Gemini, OpenCode, Cursor):**
-Profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
+- **Claude, or Codex with delegation enabled:** dispatch all per-competitor agents together, then collect results.
+- **Codex without delegation, or any runtime without subagents:** profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
 
-**Subagent detection:** Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for runtime capability classification. If the current runtime supports subagents, dispatch in parallel. If not, fall back to sequential inline profiling automatically.
+Never emit dispatch syntax the current runtime can't execute — resolve the mechanism through `agent-runtime.md` and fall back to sequential inline automatically when subagents are unavailable. Once all competitors are profiled, run the 5-file completeness check for each before Phase 3.
 
-**Index ownership:** Researcher agents write only to `{pm_dir}/evidence/competitors/{slug}/`. The parent skill owns `{pm_dir}/evidence/competitors/index.md`. Never delegate index writes to subagents.
+**Index ownership:** Per-competitor agents write only to `{pm_dir}/evidence/competitors/{slug}/`. The parent skill owns `{pm_dir}/evidence/competitors/index.md`. Never delegate index writes to subagents.
 
 ### Phase 3: Synthesize
 

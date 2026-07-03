@@ -20,7 +20,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 ## Hard rules
 
 - **Check existing KB before searching.** Every mode reads current `{pm_dir}/` state first. Update stale knowledge in place — never create parallel or duplicate files for the same topic.
-- **Three sources make a finding; one is an anecdote.** Follow threads until convergence or explicit contradiction — no artificial depth limit. Research older than 90 days is a starting point, not an answer: check the `updated:` date before citing.
+- **Three sources make a finding; one is an anecdote.** Follow threads until convergence or explicit contradiction — no artificial depth limit. Check the `updated:` date before citing — staleness thresholds vary by data type (SEO ages fastest at 30 days, profiles/sentiment 60, landscape/topic 90); see `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for the canonical table.
 - **Separate facts from inferences.** Save findings with full source URLs and access dates; label inferences `Hypothesis:`. When a source contradicts existing knowledge, note the conflict explicitly — don't silently overwrite.
 - **Use SEO tools when the provider is configured.** Web search shows what's loud; SEO shows what users actually search for.
 - **Synthesis is not optional.** Raw profiles are data; synthesis is what makes them usable by strategy, ideate, and groom — enforced by the competitor-mode HARD-GATE.

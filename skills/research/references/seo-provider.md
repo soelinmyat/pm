@@ -10,6 +10,8 @@ Use the Ahrefs MCP tools directly. These are available as MCP tool calls when th
 
 Always call `mcp__ahrefs__doc` with the specific tool name before first use to get the correct input schema.
 
+**Monetary values are returned in USD cents, not dollars.** Every money field Ahrefs returns — `traffic_value`, CPC (`value`), `org_cost`, `paid_cost`, and similar — is an integer count of cents. **Divide by 100 before writing any dollar figure** into `seo.md`, topic findings, or the landscape. (Organic *traffic* counts — visits, keyword counts — are not monetary; leave those as-is. This applies only to money fields.) Skipping the conversion records values 100× too large.
+
 ### Tool inventory by use case
 
 **Keyword research:**
