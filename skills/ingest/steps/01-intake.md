@@ -30,15 +30,21 @@ description: Parse input path, detect source types, validate files, and check im
    - ask for confirmation before importing
    - cache the confirmed mapping in the import manifest for repeat imports of the same schema
 7. **For audio files** (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.webm`):
-   - Check if transcription dependencies are available:
+   - Probe transcription dependencies in two tiers (mirrors `transcribe.py`'s own checks — the base transcriber needs `faster_whisper` **and** `torch`, diarization additionally needs `pyannote.audio` and an `HF_TOKEN`):
      ```bash
-     python3 -c "import faster_whisper" 2>/dev/null
+     python3 -c "import faster_whisper, torch" 2>/dev/null && echo BASE_OK
+     python3 -c "import pyannote.audio" 2>/dev/null && [ -n "$HF_TOKEN" ] && echo DIARIZE_OK
      ```
-   - If **not installed**: warn and skip audio files. Do not block text imports.
-     > "Skipping N audio file(s) — faster-whisper not installed. Run: pip install -r ${CLAUDE_PLUGIN_ROOT}/scripts/requirements.txt"
-   - If **installed**: transcribe each audio file:
+   - **Base missing** (no `BASE_OK`): warn and skip audio files. Do not block text imports.
+     > "Skipping N audio file(s) — transcription deps not installed. Run: pip install -r ${CLAUDE_PLUGIN_ROOT}/scripts/requirements.txt"
+   - **Base + diarization present** (`BASE_OK` and `DIARIZE_OK`): transcribe with speaker diarization (default):
      ```bash
      python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --output ".pm/evidence/transcripts/<slug>.txt"
+     ```
+   - **Base present, diarization missing** (`BASE_OK` but no `DIARIZE_OK`): transcribe **without** speaker separation rather than skip — you still get the transcript, just no per-speaker labels. Warn once, then pass `--no-diarize`:
+     > "Transcribing N audio file(s) without speaker diarization — pyannote.audio or HF_TOKEN missing. Speaker roles will be unavailable. To enable: pip install pyannote.audio and set HF_TOKEN (see scripts/requirements.txt)."
+     ```bash
+     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --no-diarize --output ".pm/evidence/transcripts/<slug>.txt"
      ```
    - If transcription fails for a single file (corrupt, too long, OOM), warn and skip that file — continue with the rest.
    - Default `source_type` for audio: `interview` (override if filename suggests otherwise, e.g., `sales-call-*` → `sales`).
