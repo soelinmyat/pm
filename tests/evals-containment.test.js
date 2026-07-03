@@ -20,6 +20,8 @@ const {
 } = require("../scripts/evals/containment.js");
 const { composeVerdict } = require("../scripts/evals/verdict.js");
 const { transcriptEscapesRunDir } = require("../scripts/evals/adapters/shared.js");
+const { hostRepoSnapshot, hostRepoEscaped } = require("../scripts/evals/run.js");
+const { spawnSync } = require("node:child_process");
 
 function makeTmp() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-evals-containment-"));
@@ -295,4 +297,39 @@ test("escape guard: writes inside runDir and empty input pass", () => {
     false
   );
   assert.equal(transcriptEscapesRunDir([], RUN_DIR, WORKDIR), false);
+});
+
+// ---------------------------------------------------------------------------
+// hostRepoEscaped — the host-repo delta backstop (run.js)
+// ---------------------------------------------------------------------------
+
+test("host-repo delta backstop: detects new dirt and HEAD moves outside the run dir", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-hostrepo-"));
+  const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+  try {
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@e.com");
+    git("config", "user.name", "T");
+    fs.writeFileSync(path.join(dir, "a.txt"), "one\n");
+    git("add", "-A");
+    git("commit", "-qm", "seed");
+
+    const before = hostRepoSnapshot(dir);
+    assert.equal(hostRepoEscaped(dir, before), false);
+
+    // A new untracked file (dirty outside the run dir) is an escape.
+    fs.writeFileSync(path.join(dir, "escape.txt"), "planted\n");
+    assert.equal(hostRepoEscaped(dir, before), true);
+
+    // Back to clean, then a walked-up commit moves HEAD → escape.
+    fs.rmSync(path.join(dir, "escape.txt"));
+    const clean = hostRepoSnapshot(dir);
+    assert.equal(hostRepoEscaped(dir, clean), false);
+    fs.writeFileSync(path.join(dir, "b.txt"), "two\n");
+    git("add", "-A");
+    git("commit", "-qm", "walked-up commit");
+    assert.equal(hostRepoEscaped(dir, clean), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
