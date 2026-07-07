@@ -101,10 +101,45 @@ function writeFakeEngine(root, { exitCode = 0, marker = "engine-ran" } = {}) {
   return binPath;
 }
 
+function writeDevCompleteEngine(root, { marker = "engine-ran" } = {}) {
+  const binPath = path.join(root, "fake-dev-complete-engine");
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      'const path = require("node:path");',
+      'let input = "";',
+      'process.stdin.setEncoding("utf8");',
+      'process.stdin.on("data", (c) => { input += c; });',
+      'process.stdin.on("end", () => {',
+      `  fs.writeFileSync("${marker}.txt", input);`,
+      '  fs.writeFileSync("engine-env.json", JSON.stringify({ worker: process.env.PM_LOOP_WORKER, stage: process.env.PM_LOOP_STAGE, card: process.env.PM_LOOP_CARD_ID }));',
+      '  const cardPath = path.join(process.cwd(), "pm", "backlog", "pm-t1.md");',
+      '  const body = ["---", "id: PM-T1", "title: Test card", "kind: task", "status: shipping", "implementation_approved: true", "approved_by: PM Test", "approved_at: 2026-07-01", "branch: loop/pm-t1", "prs:", "  - \\"#123\\"", "---", "", "Do the thing.", ""].join("\\n");',
+      "  fs.writeFileSync(cardPath, body);",
+      '  console.log("fake dev engine done");',
+      "});",
+      "",
+    ].join("\n")
+  );
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
+}
+
 test("engineCommand maps engines and honors custom bin override", () => {
   const codex = engineCommand({ default_runtime: "codex", worker: {} }, "p");
   assert.equal(codex.bin, "codex");
   assert.ok(codex.args.includes("exec"));
+  assert.ok(codex.args.includes("--sandbox"));
+  assert.ok(codex.args.includes("workspace-write"));
+  assert.ok(!codex.args.includes("--full-auto"));
+
+  const codexDanger = engineCommand(
+    { default_runtime: "codex", worker: { codex_sandbox: "danger-full-access" } },
+    "p"
+  );
+  assert.ok(codexDanger.args.includes("danger-full-access"));
 
   const claude = engineCommand({ default_runtime: "codex", worker: { engine: "claude" } }, "p");
   assert.equal(claude.bin, "claude");
@@ -193,7 +228,7 @@ test("dry-run previews selection and engine command without claiming", () => {
 test("worker executes the engine in a bootstrapped worktree and releases the lease", () => {
   const fixture = makeProjectFixture();
   try {
-    const engineBin = writeFakeEngine(fixture.root);
+    const engineBin = writeDevCompleteEngine(fixture.root);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify(
@@ -247,6 +282,41 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
   }
 });
 
+test("dev-stage exit 0 without shipping metadata is blocked, not completed", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeFakeEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify(
+        {
+          autonomy: { start_dev: true },
+          worker: {
+            engine_bin: engineBin,
+            keep_workspace: true,
+          },
+        },
+        null,
+        2
+      )
+    );
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "config"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.exit_code, 0);
+    assert.equal(result.status, "blocked", JSON.stringify(result));
+    assert.match(result.reason, /dev completion contract/);
+
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.status, "blocked");
+    assert.match(ledger.reason, /status=shipping/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("engine failure records a failed ledger and still releases the lease", () => {
   const fixture = makeProjectFixture();
   try {
@@ -273,7 +343,7 @@ test("engine failure records a failed ledger and still releases the lease", () =
 test("crash recovery: expired lease from a dead worker is re-dispatchable", () => {
   const fixture = makeProjectFixture();
   try {
-    const engineBin = writeFakeEngine(fixture.root);
+    const engineBin = writeDevCompleteEngine(fixture.root);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify(

@@ -17,6 +17,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseCliArgs } = require("./loop-args.js");
 const { loadLoopConfig } = require("./loop-config.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
@@ -32,6 +33,7 @@ const { runLoop } = require("./loop-runner.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
+const CODEX_SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -104,7 +106,60 @@ function isDispatchableCommand(command) {
   return DISPATCHABLE_COMMAND.test(String(command || ""));
 }
 
-function engineCommand(config, prompt) {
+function realpathForExisting(targetPath) {
+  try {
+    return fs.realpathSync(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
+function isPathInside(parent, child) {
+  if (!parent || !child) return false;
+  const rel = path.relative(realpathForExisting(parent), realpathForExisting(child));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function uniqueExistingDirs(values) {
+  const seen = new Set();
+  const dirs = [];
+  for (const value of values) {
+    if (!value || typeof value !== "string") continue;
+    const resolved = path.resolve(value);
+    if (seen.has(resolved)) continue;
+    if (!fs.existsSync(resolved)) continue;
+    seen.add(resolved);
+    dirs.push(resolved);
+  }
+  return dirs;
+}
+
+function codexSandbox(worker = {}) {
+  const requested = String(worker.codex_sandbox || "workspace-write").trim();
+  return CODEX_SANDBOXES.has(requested) ? requested : "workspace-write";
+}
+
+function codexWritableDirs(worker = {}, context = {}) {
+  const dirs = [];
+  const configured = Array.isArray(worker.codex_add_dirs) ? worker.codex_add_dirs : [];
+  dirs.push(...configured);
+
+  if (context.projectGitRoot) {
+    if (context.pmDir && !isPathInside(context.projectGitRoot, context.pmDir)) {
+      dirs.push(context.pmDir);
+    }
+    if (context.pmStateDir && !isPathInside(context.projectGitRoot, context.pmStateDir)) {
+      dirs.push(context.pmStateDir);
+    }
+  }
+
+  if (context.workspacePath) {
+    return uniqueExistingDirs(dirs).filter((dir) => !isPathInside(context.workspacePath, dir));
+  }
+  return uniqueExistingDirs(dirs);
+}
+
+function engineCommand(config, prompt, context = {}) {
   const worker = config.worker || {};
   const extraArgs = Array.isArray(worker.engine_args) ? worker.engine_args : [];
   if (worker.engine_bin) {
@@ -123,11 +178,75 @@ function engineCommand(config, prompt) {
       input: prompt,
     };
   }
-  // codex --full-auto keeps its OS-level workspace-write sandbox.
+  const args = ["exec", "--sandbox", codexSandbox(worker), "--skip-git-repo-check"];
+  for (const dir of codexWritableDirs(worker, context)) {
+    args.push("--add-dir", dir);
+  }
+  args.push(...extraArgs, "-");
   return {
     bin: "codex",
-    args: ["exec", "--full-auto", "--skip-git-repo-check", ...extraArgs, "-"],
+    args,
     input: prompt,
+  };
+}
+
+function normalizeStatus(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/_/g, "-");
+}
+
+function normalizePrs(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+function terminalCardPath(projectGitRoot, workspacePath, sourcePath) {
+  if (!sourcePath) return "";
+  if (projectGitRoot && workspacePath && isPathInside(projectGitRoot, sourcePath)) {
+    return path.join(
+      workspacePath,
+      path.relative(realpathForExisting(projectGitRoot), realpathForExisting(sourcePath))
+    );
+  }
+  return sourcePath;
+}
+
+function validateStageCompletion(stage, plan, workspace, projectGitRoot) {
+  if (stage !== "dev") return { ok: true, skipped: true };
+
+  const cardPath = terminalCardPath(
+    projectGitRoot,
+    workspace.workspacePath,
+    plan.selected.sourcePath
+  );
+  if (!cardPath || !fs.existsSync(cardPath)) {
+    return {
+      ok: false,
+      reason: `dev completion contract not met: backlog card not found at ${cardPath || "<unknown>"}`,
+    };
+  }
+
+  const parsed = parseFrontmatter(fs.readFileSync(cardPath, "utf8"));
+  const status = normalizeStatus(parsed.data.status);
+  const branch = String(parsed.data.branch || "").trim();
+  const prs = normalizePrs(parsed.data.prs);
+  if (status === "shipping" && branch && prs.length > 0) {
+    return { ok: true, cardPath, status, branch, prs };
+  }
+
+  return {
+    ok: false,
+    cardPath,
+    status,
+    branch,
+    prs,
+    reason:
+      `dev completion contract not met: expected status=shipping, branch, and prs on ${cardPath}; ` +
+      `got status=${status || "<empty>"}, branch=${branch || "<empty>"}, prs=${prs.length}`,
   };
 }
 
@@ -338,7 +457,11 @@ function runWorker(projectDir, options = {}) {
       dryRun: true,
     });
     if (!preview.selected) return preview;
-    const command = engineCommand(config, buildPrompt(preview, config));
+    const command = engineCommand(config, buildPrompt(preview, config), {
+      pmDir: paths.pmDir,
+      pmStateDir: paths.pmStateDir,
+      projectGitRoot: findGitRoot(projectDir),
+    });
     return {
       ...preview,
       status: "dry-run",
@@ -438,7 +561,12 @@ function runWorker(projectDir, options = {}) {
       status = "bootstrap-failed";
       reason = workspace.reason;
     } else {
-      const command = engineCommand(config, buildPrompt(plan, config));
+      const command = engineCommand(config, buildPrompt(plan, config), {
+        pmDir: paths.pmDir,
+        pmStateDir: paths.pmStateDir,
+        projectGitRoot,
+        workspacePath: workspace.workspacePath,
+      });
       const timeoutSeconds = shipStage
         ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
         : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
@@ -473,8 +601,19 @@ function runWorker(projectDir, options = {}) {
         reason = result.error.message;
       } else {
         exitCode = result.status;
-        status = result.status === 0 ? "completed" : "failed";
-        if (status === "failed") reason = `engine exited ${result.status}`;
+        if (result.status === 0) {
+          const stageContract = validateStageCompletion(stage, plan, workspace, projectGitRoot);
+          ledger.stage_contract = stageContract;
+          if (stageContract.ok) {
+            status = "completed";
+          } else {
+            status = "blocked";
+            reason = stageContract.reason;
+          }
+        } else {
+          status = "failed";
+          reason = `engine exited ${result.status}`;
+        }
       }
     }
   } finally {

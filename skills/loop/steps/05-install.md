@@ -32,10 +32,14 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUG
   commands are denied and runs fail loudly. Fully unattended implementation
   requires the operator to explicitly set it to `"bypassPermissions"` — treat
   that as granting the engine full control of the machine during runs; prefer
-  a dedicated user account or container for the scheduler. Codex runs keep
-  codex's own workspace-write sandbox under `--full-auto`. The worker also
-  refuses any card whose `command` is not a `/pm:dev|rfc|research <id>` shape,
-  so git-synced card frontmatter cannot inject arbitrary instructions.
+  a dedicated user account or container for the scheduler. Codex loop runs
+  default to `worker.codex_sandbox: "workspace-write"` and can opt into
+  `"danger-full-access"` only when local test dependencies require it. Add
+  extra writable roots in `worker.codex_add_dirs`; when the PM knowledge base
+  lives outside the project repo, the worker automatically passes that PM dir
+  via `--add-dir`. The worker also refuses any card whose `command` is not a
+  `/pm:dev|rfc|research <id>` shape, so git-synced card frontmatter cannot
+  inject arbitrary instructions.
 - **Worktree bootstrap:** list the project's gitignored-but-required files
   (env files, generated specs) in `worker.bootstrap_files`; use
   `worker.bootstrap_command` for install steps. Fresh-worktree test failures

@@ -113,13 +113,15 @@ Both runtimes support this via their non-interactive CLI:
 | Runtime | Command |
 |---------|---------|
 | `claude` | `claude -p --model opus --dangerously-skip-permissions` (reads prompt from stdin) |
-| `codex`  | `codex exec --full-auto -C <worktree> -` (reads prompt from stdin) |
+| `codex`  | `codex exec --sandbox danger-full-access -C <worktree> --add-dir <result-dir> -` (reads prompt from stdin) |
 
 **Model and billing (canonical — other docs point here).** The `claude` subprocess pins `--model opus`: a spawned subprocess does not inherit the orchestrator's model, so without `--model` it resolves the config default (often Sonnet) and silently downgrades implementation quality. The `opus` alias resolves to whatever Opus the account/provider maps it to — the pin is a cost/latency choice, not a claim to the single most capable model available.
 
 Subprocess dispatch uses the account's normal model and subscription: `claude -p` draws from the account's usual Claude usage limits, so dispatch is **not** gated by `PM_ALLOW_SUBPROCESS` — the approved RFC is the execution consent. `dispatch-issue.sh` starts the subprocess directly and detects usage-limit, quota, and rate-limit stops in the subprocess log, emitting a structured `blocked` result instead of an opaque crash.
 
 The orchestrator dispatches via `scripts/dispatch-issue.sh`, using `PM_PLUGIN_ROOT` as the runtime-neutral plugin root and `CLAUDE_PLUGIN_ROOT` as a legacy fallback alias. The script abstracts the runtime. The agent writes its final structured result to a JSON file the orchestrator reads after the subprocess exits.
+
+Codex subprocesses default to `danger-full-access` for parity with the Claude implementation subprocess: PM dev tasks often need local API servers, databases, package caches, or other test dependencies that Codex's workspace sandbox blocks. Set `PM_CODEX_SANDBOX=workspace-write` or `read-only` only for tasks that do not need those local dependencies. The dispatcher always adds the result-file directory with `--add-dir` so the subprocess can write its structured result even when the result path lives outside the worktree.
 
 ### Placeholder resolution
 

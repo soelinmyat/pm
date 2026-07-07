@@ -163,9 +163,19 @@ EOF
 
   codex)
     command -v codex >/dev/null 2>&1 || { echo "codex CLI not in PATH" >&2; exit 3; }
+    CODEX_SANDBOX="${PM_CODEX_SANDBOX:-danger-full-access}"
+    case "$CODEX_SANDBOX" in
+      read-only|workspace-write|danger-full-access) ;;
+      *)
+        echo "Invalid PM_CODEX_SANDBOX: $CODEX_SANDBOX (expected read-only, workspace-write, or danger-full-access)" >&2
+        exit 1
+        ;;
+    esac
+    RESULT_DIR="$(dirname "$RESULT_FILE")"
     codex exec \
-      --full-auto \
+      --sandbox "$CODEX_SANDBOX" \
       -C "$WORKTREE" \
+      --add-dir "$RESULT_DIR" \
       -o "${LOG_FILE%.log}.last-message.txt" \
       - \
       < "$RESOLVED_PROMPT" \

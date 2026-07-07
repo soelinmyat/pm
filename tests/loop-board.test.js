@@ -249,6 +249,67 @@ test("loop board treats pm/loop leases as durable state and .pm sessions as loca
   assert.equal(board.localOnly[0].topic, "local");
 });
 
+test("loop board blocks in-progress cards that have no lease or PR metadata", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/ambiguous.md",
+    fm({
+      type: "backlog",
+      id: "PM-011",
+      title: "Ambiguous active card",
+      kind: "task",
+      status: "in-progress",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+      updated: "2026-06-22",
+    }) + "body"
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.deepEqual(ids(board.columns.implementing), []);
+  assert.deepEqual(ids(board.columns.blocked), ["PM-011"]);
+  assert.match(board.columns.blocked[0].blocker, /in-progress without active lease or PR/);
+  assert.equal(board.columns.blocked[0].command, "");
+});
+
+test("loop board keeps in-progress leased cards in implementing", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/active.md",
+    fm({
+      type: "backlog",
+      id: "PM-012",
+      title: "Actively leased card",
+      kind: "task",
+      status: "in-progress",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+      updated: "2026-06-22",
+    }) + "body"
+  );
+  writeJsonAtomic(path.join(project.pmDir, "loop", "leases", "dev-pm-012.json"), {
+    version: 1,
+    card_id: "PM-012",
+    stage: "dev",
+    holder: "machine-a",
+    runtime: "codex",
+    claimed_at: "2026-06-22T23:30:00Z",
+    expires_at: "2026-06-23T00:30:00Z",
+  });
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+
+  assert.deepEqual(ids(board.columns.implementing), ["PM-012"]);
+  assert.deepEqual(ids(board.columns.blocked), []);
+});
+
 test("loop board overlays git-synced session snapshots without reading .pm for eligibility", (t) => {
   const project = createProject();
   t.after(project.cleanup);
