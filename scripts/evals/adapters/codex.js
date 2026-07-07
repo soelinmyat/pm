@@ -144,7 +144,8 @@ function buildCodexArgv({ paths }) {
     argv.push("-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
   }
   argv.push(
-    "--full-auto",
+    "--sandbox",
+    codexSandbox(),
     "--ephemeral",
     "--ignore-user-config",
     "--ignore-rules",
@@ -157,6 +158,13 @@ function buildCodexArgv({ paths }) {
     "-"
   );
   return argv;
+}
+
+function codexSandbox() {
+  const requested = envString("PM_EVAL_CODEX_SANDBOX") || "workspace-write";
+  return ["read-only", "workspace-write", "danger-full-access"].includes(requested)
+    ? requested
+    : "workspace-write";
 }
 
 function adapterTimeoutMs() {

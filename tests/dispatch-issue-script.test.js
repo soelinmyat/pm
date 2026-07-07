@@ -380,4 +380,74 @@ describe("dispatch-issue.sh", () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("codex subprocess uses explicit sandbox args and writable result directory", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-codex-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      const resultDir = path.join(tmp, "external-pm-state", "runs", "issue-1");
+      fs.mkdirSync(worktree, { recursive: true });
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(resultDir, { recursive: true });
+
+      const argvDump = path.join(tmp, "codex-argv.json");
+      const stdinDump = path.join(tmp, "codex-stdin.txt");
+      const resultFile = path.join(resultDir, "result.json");
+
+      const stub = [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        `fs.writeFileSync(${JSON.stringify(argvDump)}, JSON.stringify(process.argv.slice(2)));`,
+        'let input = "";',
+        'process.stdin.setEncoding("utf8");',
+        'process.stdin.on("data", (c) => { input += c; });',
+        'process.stdin.on("end", () => {',
+        `  fs.writeFileSync(${JSON.stringify(stdinDump)}, input);`,
+        `  fs.writeFileSync(${JSON.stringify(resultFile)}, '{"status":"merged","issue_id":"X","pr":1,"merge_sha":"a","files_changed":0}\\n');`,
+        "});",
+      ].join("\n");
+      const stubPath = path.join(binDir, "codex");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "RESULT_PATH=${RESULT_FILE}\n");
+
+      const out = execFileSync(
+        "bash",
+        [
+          scriptPath,
+          "--runtime",
+          "codex",
+          "--worktree",
+          worktree,
+          "--prompt-file",
+          promptFile,
+          "--result-file",
+          resultFile,
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          },
+          encoding: "utf8",
+        }
+      );
+
+      assert.match(out, /"status"\s*:\s*"merged"/);
+      const argv = JSON.parse(fs.readFileSync(argvDump, "utf8"));
+      assert.deepEqual(argv.slice(0, 2), ["exec", "--sandbox"]);
+      assert.ok(argv.includes("danger-full-access"));
+      assert.ok(!argv.includes("--full-auto"));
+      assert.ok(argv.includes("--add-dir"));
+      assert.ok(argv.includes(resultDir));
+      assert.ok(argv.includes("-C"));
+      assert.ok(argv.includes(worktree));
+      assert.ok(fs.readFileSync(stdinDump, "utf8").includes(`RESULT_PATH=${resultFile}`));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

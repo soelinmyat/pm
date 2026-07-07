@@ -161,10 +161,13 @@ test("codex live adapter stages isolated runtime and captures transcript", () =>
       "-c",
       'model_reasoning_effort="xhigh"',
     ]);
+    assert.ok(command.argv.includes("--sandbox"));
+    assert.ok(command.argv.includes("workspace-write"));
+    assert.ok(!command.argv.includes("--full-auto"));
     assert.ok(command.argv.includes("--ignore-user-config"));
     assert.ok(command.argv.includes("--ignore-rules"));
     assert.ok(command.argv.includes("--json"));
-    assert.equal(command.timeout_ms, 1234);
+    assert.equal(command.timeout_ms, 10000);
     assert.equal(command.env.PM_EVAL_ARTIFACTS_DIR, writableArtifactsDir);
 
     const fakeLog = JSON.parse(fs.readFileSync(logPath, "utf8"));
@@ -338,7 +341,7 @@ function liveCodexEnv({ template, binDir }) {
     PM_EVAL_CODEX_HOME_TEMPLATE: template,
     PM_EVAL_CODEX_MODEL: "gpt-5.5",
     PM_EVAL_CODEX_REASONING_EFFORT: "xhigh",
-    PM_EVAL_CODEX_TIMEOUT_MS: "1234",
+    PM_EVAL_CODEX_TIMEOUT_MS: "10000",
   };
 }
 

@@ -257,6 +257,19 @@ function blockDuplicateIds(cards) {
   }
 }
 
+function blockAmbiguousInProgress(cards) {
+  for (const card of cards) {
+    if (card.lease || card.origin !== "backlog") continue;
+    const status = normalizeStatus(card.status);
+    if (!["in-progress", "implementing", "implementation", "dev"].includes(status)) continue;
+    if (card.branch && card.prs.length > 0) continue;
+
+    card.column = "blocked";
+    card.blocker = "in-progress without active lease or PR metadata";
+    card.command = "";
+  }
+}
+
 function commandFor(card, column) {
   if (column === "ready_for_dev" || column === "implementing") return `/pm:dev ${card.id}`;
   if (column === "shipping" || column === "reviewing") return `/pm:ship ${card.id}`;
@@ -371,6 +384,7 @@ function buildLoopBoard(projectDir, options = {}) {
   const byId = new Map(cards.map((card) => [card.id, card]));
   cards.push(...readSnapshotCards(pmDir, byId, sourceDir));
   const leases = attachLeases(cards, pmDir, now);
+  blockAmbiguousInProgress(cards);
   blockDuplicateIds(cards);
   applyFamilyRules(cards);
 
@@ -466,6 +480,7 @@ module.exports = {
   applyFamilyRules,
   asBool,
   buildLoopBoard,
+  blockAmbiguousInProgress,
   hasImplementationApproval,
   classifyBacklogCard,
   formatSummary,

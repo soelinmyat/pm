@@ -40,6 +40,8 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     engine_bin: "",
     engine_args: [],
     claude_permission_mode: "acceptEdits",
+    codex_sandbox: "workspace-write",
+    codex_add_dirs: [],
     bootstrap_files: [],
     bootstrap_command: "",
     keep_workspace: false,
