@@ -9,7 +9,7 @@ const {
   CANONICAL_CARD_STATUSES,
   buildContractFailureResult,
   buildStageTransition,
-  isDispatchableStatus,
+  isNeedsHumanStatus,
 } = require("../scripts/loop-card-state.js");
 
 const RUN_ID = "loop-123e4567-e89b-42d3-a456-426614174000";
@@ -83,9 +83,9 @@ function frontmatter(mapped) {
 
 test("needs-human is canonical and explicitly non-dispatchable", () => {
   assert.ok(CANONICAL_CARD_STATUSES.includes("needs-human"));
-  assert.equal(isDispatchableStatus("needs-human"), false);
-  assert.equal(isDispatchableStatus("planned"), true);
-  assert.equal(isDispatchableStatus("shipping"), true);
+  assert.equal(isNeedsHumanStatus("needs-human"), true);
+  assert.equal(isNeedsHumanStatus("planned"), false);
+  assert.equal(isNeedsHumanStatus("shipping"), false);
 });
 
 test("dev shipped maps only verified PR metadata into shipping", () => {
@@ -192,6 +192,14 @@ test("RFC and research artifacts copy only to worker-selected allowlisted destin
   assert.deepEqual(rfc.allowedArtifactPaths, ["pm/backlog/rfcs/pm-108.html"]);
   assert.equal(rfc.transition.artifact_writes[0].content, "<h1>RFC</h1>");
 
+  const hostileName = transition(
+    result("rfc", "needs-approval", {
+      artifacts: { ...document, relative_path: "artifacts/existing-approved-rfc.html" },
+    }),
+    { verifiedArtifact: { content: Buffer.from("<h1>RFC</h1>"), sha256: document.sha256 } }
+  );
+  assert.equal(frontmatter(hostileName).artifact_path, "pm/backlog/rfcs/pm-108.html");
+
   const researchArtifact = {
     ...document,
     kind: "research",
@@ -203,7 +211,7 @@ test("RFC and research artifacts copy only to worker-selected allowlisted destin
     { verifiedArtifact: { content: Buffer.from("# Findings\n"), sha256: document.sha256 } }
   );
   assert.equal(frontmatter(research).blocker_code, "research-review-required");
-  assert.equal(frontmatter(research).artifact_path, "pm/evidence/research/findings.md");
+  assert.equal(frontmatter(research).artifact_path, "pm/evidence/research/pm-108.md");
 });
 
 test("failed-contract creates a non-dispatchable transition with bounded evidence", () => {
@@ -222,4 +230,46 @@ test("failed-contract creates a non-dispatchable transition with bounded evidenc
   assert.equal(data.blocker_code, "failed-contract");
   assert.match(data.blocker_reason, /result-missing/);
   assert.equal(mapped.event.status, "failed-contract");
+});
+
+test("ship contract failures preserve durable PR identity for remediation", () => {
+  const shippingCard = CARD.replace(
+    "status: planned",
+    [
+      "status: shipping",
+      'branch: "loop/pm-108"',
+      "prs:",
+      '  - "#342"',
+      'pr_dispatch_at: "2026-07-10T09:00:00Z"',
+    ].join("\n")
+  );
+  const contractResult = buildContractFailureResult({
+    runId: RUN_ID,
+    cardId: "PM-108",
+    stage: "ship",
+    code: "gate-verification-failed",
+    reason: "Gate evidence was stale",
+  });
+  const mapped = transition(contractResult, { cardContent: shippingCard });
+  const data = frontmatter(mapped);
+  assert.equal(data.branch, "loop/pm-108");
+  assert.deepEqual(data.prs, ["#342"]);
+  assert.equal(data.pr_dispatch_at, "2026-07-10T09:00:00Z");
+});
+
+test("document hash comparison accepts canonical uppercase hex input", () => {
+  const digest = "C".repeat(64);
+  const mapped = transition(
+    result("rfc", "needs-approval", {
+      artifacts: {
+        type: "document",
+        kind: "rfc",
+        relative_path: "artifacts/pm-108.html",
+        sha256: digest,
+        media_type: "text/html",
+      },
+    }),
+    { verifiedArtifact: { content: Buffer.from("<h1>RFC</h1>"), sha256: digest.toLowerCase() } }
+  );
+  assert.equal(mapped.ok, true, JSON.stringify(mapped));
 });

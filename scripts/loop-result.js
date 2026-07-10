@@ -2,7 +2,6 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { TextDecoder } = require("node:util");
@@ -13,6 +12,8 @@ const {
   loadChangedFilesFromGit,
 } = require("./dev-gate-check.js");
 const { RUN_ID_PATTERN } = require("./loop-pm-transaction.js");
+const { runGit } = require("./loop-git.js");
+const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
@@ -66,7 +67,18 @@ function isBoundedString(value, max, { allowEmpty = false } = {}) {
 }
 
 function isIso(value) {
-  return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
+  if (typeof value !== "string" || value.length > 40) return false;
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-](\d{2}):(\d{2}))$/
+  );
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second, zone, offsetHour, offsetMinute] = match;
+  const numeric = [year, month, day, hour, minute, second].map(Number);
+  const [y, m, d, h, min, sec] = numeric;
+  if (m < 1 || m > 12 || d < 1 || d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return false;
+  if (h > 23 || min > 59 || sec > 59) return false;
+  if (zone !== "Z" && (Number(offsetHour) > 23 || Number(offsetMinute) > 59)) return false;
+  return Number.isFinite(Date.parse(value));
 }
 
 function isSafeRelativePath(value) {
@@ -178,6 +190,7 @@ function validateDocumentArtifact(artifact, stage) {
   if (!isObject(artifact) || artifact.type !== "document") {
     return `${stage} artifact result requires a document artifact`;
   }
+  if (stage !== "rfc" && stage !== "research") return "document artifact kind is unsupported";
   const allowed = new Set(["type", "kind", "relative_path", "sha256", "media_type"]);
   if (Object.keys(artifact).some((key) => !allowed.has(key))) {
     return "document artifact contains an unexpected field";
@@ -190,6 +203,14 @@ function validateDocumentArtifact(artifact, stage) {
     return "document artifact sha256 is invalid";
   }
   if (!MEDIA_TYPES.has(artifact.media_type)) return "document artifact media_type is invalid";
+  const expectedMediaType = stage === "rfc" ? "text/html" : "text/markdown";
+  const expectedExtension = stage === "rfc" ? ".html" : ".md";
+  if (
+    artifact.media_type !== expectedMediaType ||
+    path.posix.extname(artifact.relative_path.toLowerCase()) !== expectedExtension
+  ) {
+    return `document artifact media_type and extension do not match ${stage}`;
+  }
   return "";
 }
 
@@ -238,7 +259,18 @@ function validateStageResult(candidate, context = {}) {
     return failed("result-blocker", `blocker is not allowed for status ${candidate.status}`);
   }
 
-  if (PR_REQUIRED.has(candidate.status)) {
+  if (candidate.status === "blocked") {
+    if (!["ship", "review"].includes(candidate.stage) && candidate.artifacts !== undefined) {
+      return failed(
+        "result-artifact",
+        `artifacts are not allowed for ${candidate.stage} blocked results`
+      );
+    }
+    if (candidate.artifacts !== undefined) {
+      const artifactError = validatePrArtifact(candidate.artifacts, candidate.status);
+      if (artifactError) return failed("result-artifact", artifactError);
+    }
+  } else if (PR_REQUIRED.has(candidate.status)) {
     const artifactError = validatePrArtifact(candidate.artifacts, candidate.status);
     if (artifactError) return failed("result-artifact", artifactError);
   } else if (DOCUMENT_REQUIRED.has(candidate.status)) {
@@ -247,8 +279,7 @@ function validateStageResult(candidate, context = {}) {
   } else if (NO_ARTIFACT.has(candidate.status) && candidate.artifacts !== undefined) {
     return failed("result-artifact", `artifacts are not allowed for status ${candidate.status}`);
   } else if (candidate.artifacts !== undefined) {
-    const artifactError = validatePrArtifact(candidate.artifacts, candidate.status);
-    if (artifactError) return failed("result-artifact", artifactError);
+    return failed("result-artifact", `artifacts are not allowed for status ${candidate.status}`);
   }
 
   if (candidate.status === "waiting") {
@@ -321,11 +352,22 @@ function readBoundedRegularFile(filePath, maxBytes, kind, options = {}) {
     }
     if (stat.size > maxBytes)
       return failed(`${kind}-too-large`, `${kind} exceeds ${maxBytes} bytes`);
-    const content = fs.readFileSync(fd);
-    if (content.length > maxBytes) {
+    if (options.readContent === false) return { ok: true, bytes: stat.size };
+    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesRead = fs.readSync(fd, buffer, offset, buffer.length - offset, null);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > maxBytes) {
       return failed(`${kind}-too-large`, `${kind} exceeds ${maxBytes} bytes`);
     }
-    return { ok: true, content };
+    const after = fs.fstatSync(fd);
+    if (after.dev !== stat.dev || after.ino !== stat.ino || after.size !== offset) {
+      return failed(`${kind}-unsafe-path`, `${kind} changed while it was being read`);
+    }
+    return { ok: true, content: buffer.subarray(0, offset) };
   } catch (err) {
     if (err && err.code === "ENOENT") return failed(`${kind}-missing`, `${kind} file is missing`);
     if (err && err.code === "ELOOP") return failed(`${kind}-unsafe-path`, `${kind} is a symlink`);
@@ -333,26 +375,6 @@ function readBoundedRegularFile(filePath, maxBytes, kind, options = {}) {
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
   }
-}
-
-function hasSymlinkComponent(root, target) {
-  const absoluteRoot = path.resolve(root);
-  const absoluteTarget = path.resolve(target);
-  const relative = path.relative(absoluteRoot, absoluteTarget);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return true;
-  let current = absoluteRoot;
-  for (const part of relative.split(path.sep).filter(Boolean)) {
-    current = path.join(current, part);
-    let stat;
-    try {
-      stat = fs.lstatSync(current);
-    } catch (err) {
-      if (err.code === "ENOENT") return false;
-      return true;
-    }
-    if (stat.isSymbolicLink()) return true;
-  }
-  return false;
 }
 
 function readStageResult(filePath, context) {
@@ -426,7 +448,7 @@ function verifyDocumentArtifact(runDir, artifact) {
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     return failed("artifact-unsafe-path", "artifact path escapes the result directory");
   }
-  if (hasSymlinkComponent(runDir, filePath)) {
+  if (pathChainHasSymlink(runDir, filePath)) {
     return failed("artifact-unsafe-path", "artifact path contains a symlink component");
   }
   const read = readBoundedRegularFile(filePath, MAX_DOCUMENT_BYTES, "artifact");
@@ -446,21 +468,10 @@ function verifyDocumentArtifact(runDir, artifact) {
   return { ok: true, filePath, content: read.content, sha256, bytes: read.content.length };
 }
 
-function gitOutput(args, cwd) {
-  return childProcess
-    .execFileSync("git", args, {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
-    })
-    .trim();
-}
-
 function verifyCommittedGateSidecar(workspace, options = {}) {
   let actualHead;
   try {
-    actualHead = gitOutput(["rev-parse", "HEAD"], workspace);
+    actualHead = runGit(["rev-parse", "HEAD"], workspace, { timeout: 30_000 });
   } catch (err) {
     return failed("source-head-unreadable", `source HEAD could not be read: ${err.message}`);
   }
@@ -468,7 +479,9 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
     return failed("source-head-mismatch", "workspace HEAD does not match the result head OID");
   }
   try {
-    const branchHead = gitOutput(["rev-parse", "--verify", options.expectedHead], workspace);
+    const branchHead = runGit(["rev-parse", "--verify", options.expectedHead], workspace, {
+      timeout: 30_000,
+    });
     if (branchHead !== options.expectedHeadOid) {
       return failed(
         "source-head-mismatch",
@@ -501,7 +514,7 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
   const slug = deriveSessionSlug(options.expectedHead);
   const sessionRoot = path.join(workspace, ".pm", "dev-sessions");
   const manifestPath = options.manifestPath || path.join(sessionRoot, `${slug}.gates.json`);
-  if (hasSymlinkComponent(workspace, manifestPath)) {
+  if (pathChainHasSymlink(workspace, manifestPath)) {
     return failed("gate-sidecar-unsafe", "gate sidecar must be a bounded regular file");
   }
   const manifestRead = readBoundedRegularFile(manifestPath, MAX_RESULT_BYTES * 2, "gate-sidecar", {
@@ -514,6 +527,13 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
   } catch (err) {
     return failed("gate-sidecar-malformed", `gate sidecar is malformed: ${err.message}`);
   }
+  if (!Array.isArray(manifest.gates) || manifest.gates.length > MAX_GATE_COUNT) {
+    return failed(
+      "gate-sidecar-invalid",
+      `gate sidecar must contain at most ${MAX_GATE_COUNT} gate rows`
+    );
+  }
+  const inspectedArtifacts = new Set();
   for (const gate of Array.isArray(manifest.gates) ? manifest.gates : []) {
     const raw = String(gate && gate.artifact ? gate.artifact : "")
       .split("#")[0]
@@ -527,17 +547,23 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
       !relativeArtifact ||
       relativeArtifact.startsWith("..") ||
       path.isAbsolute(relativeArtifact) ||
-      hasSymlinkComponent(workspace, artifactPath)
+      pathChainHasSymlink(workspace, artifactPath)
     ) {
       return failed(
         "gate-artifact-unsafe",
         "gate artifacts must be relative regular files under .pm/dev-sessions"
       );
     }
-    const artifactRead = readBoundedRegularFile(artifactPath, MAX_DOCUMENT_BYTES, "gate-artifact", {
-      requirePrivate: false,
-    });
-    if (!artifactRead.ok) return artifactRead;
+    if (!inspectedArtifacts.has(artifactPath)) {
+      inspectedArtifacts.add(artifactPath);
+      const artifactRead = readBoundedRegularFile(
+        artifactPath,
+        MAX_DOCUMENT_BYTES,
+        "gate-artifact",
+        { requirePrivate: false, readContent: false }
+      );
+      if (!artifactRead.ok) return artifactRead;
+    }
   }
   const checked = checkGateManifest(manifest, {
     currentCommit: options.expectedHeadOid,

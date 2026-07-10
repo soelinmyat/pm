@@ -11,6 +11,7 @@ const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-conf
 
 const {
   buildPrompt,
+  countCardAttempts,
   countRunsToday,
   engineCommand,
   isDispatchableCommand,
@@ -601,6 +602,32 @@ test("execution worktree is promoted from the fingerprinted source base instead 
   }
 });
 
+test("bootstrap failure cleans a partially-created execution worktree and dev branch", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const baseOid = git(["rev-parse", "HEAD"], fixture.project);
+    const config = loadLoopConfig(fixture.pmDir);
+    config.worker = { bootstrap_command: "exit 7" };
+    const result = prepareWorkspace(
+      fixture.project,
+      {
+        source_base_oid: baseOid,
+        pmDir: fixture.pmDir,
+        selected: { id: "PM-T1", stage: "dev", sourcePath: "pm/backlog/pm-t1.md" },
+      },
+      config,
+      { now: new Date("2026-07-10T10:00:00Z") }
+    );
+    assert.equal(result.ok, false);
+    assert.equal(fs.existsSync(result.workspacePath), false);
+    assert.throws(() =>
+      git(["show-ref", "--verify", `refs/heads/${result.branch}`], fixture.project)
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("countRunsToday counts only same-day ledgers and fails closed on bad JSON", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-runs-"));
   try {
@@ -615,6 +642,26 @@ test("countRunsToday counts only same-day ledgers and fails closed on bad JSON",
     );
     fs.writeFileSync(path.join(dir, "c.json"), "{broken");
     assert.equal(countRunsToday(dir, now), 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("normal waiting ship cycles do not consume failure attempts", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-attempts-"));
+  try {
+    for (const [name, status] of [
+      ["a", "waiting"],
+      ["b", "waiting"],
+      ["c", "failed"],
+      ["d", "noop"],
+    ]) {
+      fs.writeFileSync(
+        path.join(dir, `${name}.json`),
+        JSON.stringify({ card: { id: "PM-WAIT" }, stage: "ship", status })
+      );
+    }
+    assert.equal(countCardAttempts(dir, "PM-WAIT", "ship"), 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -876,6 +923,9 @@ test("RFC artifact result is verified, copied, and parked for human approval", (
     const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
     assert.equal(event.status, "artifact-ready");
     assert.equal(event.outcome, "rfc-artifact-ready");
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.artifact_verification.artifact.content, undefined);
+    assert.equal(ledger.finalization.transition, undefined);
   } finally {
     fixture.cleanup();
   }
@@ -932,8 +982,8 @@ test("worker exit/result matrix handles blocked, nonzero success, malformed, mis
   }
 });
 
-test("exit 0 with failed or UNKNOWN PR/gate verification becomes failed-contract", async (t) => {
-  for (const verification of ["pr", "gate"]) {
+test("exit 0 with failed, UNKNOWN, or thrown PR/gate verification becomes failed-contract", async (t) => {
+  for (const verification of ["pr", "gate", "throw"]) {
     await t.test(verification, () => {
       const fixture = makeProjectFixture();
       try {
@@ -952,10 +1002,12 @@ test("exit 0 with failed or UNKNOWN PR/gate verification becomes failed-contract
 
         const result = runWorker(fixture.project, {
           pmDir: fixture.pmDir,
-          verifyPullRequest: () =>
-            verification === "pr"
+          verifyPullRequest: () => {
+            if (verification === "throw") throw new Error("worktree Git metadata missing");
+            return verification === "pr"
               ? { ok: false, state: "UNKNOWN", reason: "GitHub unavailable" }
-              : { ok: true, state: "OPEN" },
+              : { ok: true, state: "OPEN" };
+          },
           verifyGateSidecar: () =>
             verification === "gate"
               ? { ok: false, code: "gate-verification-failed", reason: "stale gate" }
@@ -1132,6 +1184,16 @@ test("worker fails closed when finalization CAS is not durable", () => {
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "finalization-blocked");
     assert.equal(ledger.finalization.finalized.reason, "push-race");
+
+    const recovered = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(recovered.status, "completed", JSON.stringify(recovered));
+    assert.equal(recovered.recovered, true);
+    assert.equal(recovered.run_id, result.run_id);
+    git(["fetch", "origin"], fixture.project);
+    assert.throws(
+      () => git(["show", `origin/main:pm/loop/recovery/${result.run_id}.json`], fixture.project),
+      /path .* does not exist|exists on disk/i
+    );
   } finally {
     fixture.cleanup();
   }
@@ -1148,7 +1210,6 @@ test("dev-stage exit 0 without a structured result is failed-contract", () => {
           autonomy: { start_dev: true },
           worker: {
             engine_bin: engineBin,
-            keep_workspace: true,
           },
         },
         null,
@@ -1167,6 +1228,7 @@ test("dev-stage exit 0 without a structured result is failed-contract", () => {
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "failed-contract");
     assert.equal(ledger.stage_result.code, "result-missing");
+    assert.equal(fs.existsSync(result.workspace), true, "contract evidence workspace must remain");
   } finally {
     fixture.cleanup();
   }

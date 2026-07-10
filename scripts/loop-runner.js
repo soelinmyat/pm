@@ -380,6 +380,8 @@ function runLoop(projectDir, options = {}) {
           stage: selected.stage,
           command: selected.command,
           branch: selected.card.branch || "",
+          prs: selected.card.prs || [],
+          prDispatchAt: selected.card.prDispatchAt || "",
           sourcePath: selected.card.sourcePath,
         }
       : null,

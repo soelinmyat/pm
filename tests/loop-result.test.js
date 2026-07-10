@@ -102,6 +102,7 @@ test("result validation rejects missing, mismatched, overlong, and stage-invalid
     [result({ gates: Array.from({ length: 17 }, (_, i) => `g${i}`) }), /gates.*bound/i],
     [result({ gates: ["x".repeat(65)] }), /gates.*bound/i],
     [result({ unexpected: true }), /unexpected field/],
+    [result({ artifacts: prArtifact({ created_at: "July 10, 2027" }) }), /created_at.*ISO/i],
   ];
 
   for (const [candidate, expected] of cases) {
@@ -146,9 +147,34 @@ test("stage terminal and discriminated artifact tables reject invalid combinatio
       /document.*kind|relative_path|sha256/i,
     ],
     [
+      result({
+        stage: "rfc",
+        status: "artifact-ready",
+        artifacts: {
+          type: "document",
+          kind: "rfc",
+          relative_path: "artifacts/rfc.md",
+          sha256: "c".repeat(64),
+          media_type: "text/markdown",
+        },
+      }),
+      { ...CONTEXT, stage: "rfc" },
+      /media_type.*rfc/i,
+    ],
+    [
       result({ stage: "research", status: "needs-approval" }),
       { ...CONTEXT, stage: "research" },
       /status.*not allowed/i,
+    ],
+    [
+      result({
+        stage: "rfc",
+        status: "blocked",
+        blocker: { code: "input-needed", reason: "Need input", remediation: "Provide input" },
+        artifacts: prArtifact(),
+      }),
+      { ...CONTEXT, stage: "rfc" },
+      /artifacts.*not allowed|document-only/i,
     ],
   ];
 
@@ -411,4 +437,22 @@ test("gate verification rejects artifacts outside the source session directory",
   });
   assert.equal(checked.ok, false);
   assert.equal(checked.code, "gate-artifact-unsafe");
+});
+
+test("gate verification bounds the manifest gate table before artifact inspection", (t) => {
+  const fixture = makeGateFixture(t);
+  const manifest = JSON.parse(fs.readFileSync(fixture.manifestPath, "utf8"));
+  manifest.gates = Array.from({ length: 17 }, (_, index) => ({
+    ...manifest.gates[0],
+    name: `gate-${index}`,
+  }));
+  fs.writeFileSync(fixture.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+
+  const checked = verifyCommittedGateSidecar(fixture.root, {
+    expectedHeadOid: fixture.headOid,
+    expectedHead: "loop/pm-108",
+    baseRef: fixture.baseOid,
+  });
+  assert.equal(checked.ok, false);
+  assert.equal(checked.code, "gate-sidecar-invalid");
 });

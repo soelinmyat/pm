@@ -2,6 +2,7 @@
 "use strict";
 
 const path = require("node:path");
+const { parseFrontmatter } = require("./kb-frontmatter.js");
 
 const CANONICAL_CARD_STATUSES = Object.freeze([
   "idea",
@@ -39,8 +40,8 @@ function normalizeStatus(value) {
     .replace(/\s+/g, "-");
 }
 
-function isDispatchableStatus(value) {
-  return normalizeStatus(value) !== "needs-human";
+function isNeedsHumanStatus(value) {
+  return normalizeStatus(value) === "needs-human";
 }
 
 function bounded(value, max) {
@@ -106,6 +107,24 @@ function prFields(artifact, dispatchAt) {
   return fields;
 }
 
+function durablePrFields(input) {
+  const data = parseFrontmatter(input.cardContent).data || {};
+  const fields = {};
+  if (typeof data.branch === "string" && data.branch.trim()) {
+    fields.branch = bounded(data.branch, 201);
+  }
+  const prs = Array.isArray(data.prs)
+    ? data.prs.map(String).filter(Boolean)
+    : typeof data.prs === "string" && data.prs.trim()
+      ? [data.prs.trim()]
+      : [];
+  if (prs.length > 0) fields.prs = prs.slice(0, 16).map((value) => bounded(value, 32));
+  if (typeof data.pr_dispatch_at === "string" && data.pr_dispatch_at.trim()) {
+    fields.pr_dispatch_at = bounded(data.pr_dispatch_at, 40);
+  }
+  return fields;
+}
+
 function blockerFields(blocker) {
   return {
     blocker_code: bounded(blocker.code, 80),
@@ -160,11 +179,11 @@ function unchangedResult(input, stage, status) {
   };
 }
 
-function documentDestination(pmRelative, stage, relativePath) {
-  const name = path.posix.basename(String(relativePath || ""));
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)) return "";
+function documentDestination(pmRelative, stage, cardRelativePath) {
+  const cardName = path.posix.basename(String(cardRelativePath || ""), ".md");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(cardName)) return "";
   const root = stage === "rfc" ? "backlog/rfcs" : "evidence/research";
-  return path.posix.join(pmRelative, root, name);
+  return path.posix.join(pmRelative, root, `${cardName}${stage === "rfc" ? ".html" : ".md"}`);
 }
 
 function buildStageTransition(input) {
@@ -181,9 +200,14 @@ function buildStageTransition(input) {
       reason: `${bounded(result.failure_code, 80)}: ${bounded(result.summary, 1900)}`,
       remediation: bounded(result.remediation, 4000),
     };
+    const preservedPr = ["ship", "review"].includes(stage) ? durablePrFields(input) : {};
     return transitionResult(
       input,
-      { ...baseFields(input, "needs-human", "failed-contract"), ...blockerFields(blocker) },
+      {
+        ...baseFields(input, "needs-human", "failed-contract"),
+        ...preservedPr,
+        ...blockerFields(blocker),
+      },
       { status: "failed-contract", outcome: "failed-contract", summary: blocker.reason }
     );
   }
@@ -191,11 +215,9 @@ function buildStageTransition(input) {
   if (status === "blocked") {
     const fields = {
       ...baseFields(input, "needs-human", `${stage}-blocked`),
+      ...(["ship", "review"].includes(stage) ? durablePrFields(input) : {}),
       ...blockerFields(result.blocker),
     };
-    if (result.artifacts && result.artifacts.type === "pull-request") {
-      Object.assign(fields, prFields(result.artifacts));
-    }
     return transitionResult(input, fields, {
       status: "blocked",
       outcome: `${stage}-blocked`,
@@ -270,18 +292,14 @@ function buildStageTransition(input) {
   }
 
   if (
-    (stage === "rfc" || stage === "research") &&
-    ["artifact-ready", "needs-approval"].includes(status)
+    (stage === "rfc" && ["artifact-ready", "needs-approval"].includes(status)) ||
+    (stage === "research" && status === "artifact-ready")
   ) {
-    const destination = documentDestination(
-      input.pmRelative,
-      stage,
-      result.artifacts.relative_path
-    );
+    const destination = documentDestination(input.pmRelative, stage, input.cardRelativePath);
     if (!destination || !input.verifiedArtifact || !input.verifiedArtifact.content) {
       return { ok: false, reason: "verified document artifact is required" };
     }
-    if (input.verifiedArtifact.sha256 !== result.artifacts.sha256) {
+    if (input.verifiedArtifact.sha256.toLowerCase() !== result.artifacts.sha256.toLowerCase()) {
       return { ok: false, reason: "verified document artifact hash mismatch" };
     }
     const code = stage === "rfc" ? "rfc-approval-required" : "research-review-required";
@@ -343,7 +361,7 @@ module.exports = {
   CANONICAL_CARD_STATUSES,
   buildContractFailureResult,
   buildStageTransition,
-  isDispatchableStatus,
+  isNeedsHumanStatus,
   normalizeStatus,
   rewriteFrontmatter,
 };

@@ -13,13 +13,17 @@
 // queue, leases, state — is git + node.
 
 const fs = require("fs");
-const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
-const { DEFAULT_LOOP_CONFIG, loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
+const {
+  DEFAULT_LOOP_CONFIG,
+  loadLoopConfig,
+  loadTrustedLoopConfig,
+  sha256,
+} = require("./loop-config.js");
 const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
@@ -106,15 +110,22 @@ function countRunsToday(runsDir, now = new Date(), opts = {}) {
   return countRunsInLedgers(readLedgers(runsDir), now, opts);
 }
 
-// Attempts per card+stage: every non-completed ledger counts. Backstop for
-// cards that fail or get rejected every wake (budgets.max_attempts_per_stage).
+// Normal waiting/blocked/success terminals do not consume failure attempts.
+// Unknown legacy statuses still count so unreadable or old failures fail closed.
 function countCardAttempts(runsDir, cardId, stage) {
+  const nonFailures = new Set([
+    "completed",
+    "waiting",
+    "artifact-ready",
+    "ready-for-human",
+    "blocked",
+  ]);
   return readLedgers(runsDir).filter(
     (record) =>
       record.card &&
       record.card.id === cardId &&
       (record.stage || "dev") === stage &&
-      record.status !== "completed"
+      !nonFailures.has(record.status)
   ).length;
 }
 
@@ -269,7 +280,22 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     timeoutMs: bootstrapTimeout,
   });
   if (!boot.ok) {
-    return { ok: false, reason: boot.reason, workspacePath, branch, error: boot.error };
+    const workspaceRemoved = removeWorkspace(gitRoot, workspacePath, { timeout: cleanupTimeout });
+    if (!shipStage && workspaceRemoved) {
+      try {
+        runGit(["branch", "-D", branch], gitRoot, { timeout: cleanupTimeout });
+      } catch {
+        // The worktree removal may already have removed the new branch.
+      }
+    }
+    return {
+      ok: false,
+      reason: boot.reason,
+      workspacePath,
+      branch,
+      error: boot.error,
+      workspaceRemoved,
+    };
   }
 
   const readContext = copyReadContext(plan.pmDir, workspacePath, plan);
@@ -387,7 +413,63 @@ function contractFailure(plan, code, reason) {
   });
 }
 
-function verifyResultArtifacts(input) {
+function resultHashFor(result) {
+  return sha256(JSON.stringify(result));
+}
+
+function compactArtifactVerification(verification) {
+  if (!verification || typeof verification !== "object") return verification;
+  const compact = { ok: verification.ok === true };
+  for (const key of ["code", "reason"]) {
+    if (verification[key]) compact[key] = String(verification[key]).slice(0, 2000);
+  }
+  if (verification.pr) {
+    compact.pr = {
+      ok: verification.pr.ok === true,
+      state: verification.pr.state || verification.pr.pr?.state || "",
+      reason: String(verification.pr.reason || "").slice(0, 2000),
+    };
+  }
+  if (verification.gates) {
+    compact.gates = {
+      ok: verification.gates.ok === true,
+      code: verification.gates.code || "",
+      reason: String(verification.gates.reason || "").slice(0, 2000),
+      headOid: verification.gates.headOid || "",
+    };
+  }
+  if (verification.artifact) {
+    compact.artifact = {
+      ok: verification.artifact.ok === true,
+      filePath: verification.artifact.filePath || "",
+      sha256: verification.artifact.sha256 || "",
+      bytes: verification.artifact.bytes || 0,
+    };
+  }
+  return compact;
+}
+
+function compactFinalization(finalization) {
+  if (!finalization || typeof finalization !== "object") return finalization;
+  const compactTransaction = (transaction) =>
+    transaction && typeof transaction === "object"
+      ? {
+          ok: transaction.ok === true,
+          pushed: transaction.pushed === true,
+          reason: transaction.reason || "",
+          commit: transaction.commit || transaction.commitOid || "",
+        }
+      : transaction;
+  return {
+    ok: finalization.ok === true,
+    status: finalization.status || "",
+    reason: finalization.reason || "",
+    checkpoint: compactTransaction(finalization.checkpoint),
+    finalized: compactTransaction(finalization.finalized),
+  };
+}
+
+function verifyResultArtifactsUnchecked(input) {
   const { result, workspace, projectGitRoot, dispatchRecord, options, resultDir, plan } = input;
   const prStatus = new Set(["shipped", "merged", "ready-for-human", "waiting"]);
   if (prStatus.has(result.status)) {
@@ -399,6 +481,7 @@ function verifyResultArtifacts(input) {
       return { ok: false, code: "repository-unresolved", reason: "source repository is unknown" };
     }
     const verifyPr = options.verifyPullRequest || verifyPullRequest;
+    const expectedBase = defaultBranchName(projectGitRoot);
     const dispatchedAt = dispatchRecord.event && dispatchRecord.event.dispatched_at;
     const originalDispatchAt =
       result.stage === "dev" ? dispatchedAt : plan.selected.prDispatchAt || dispatchedAt;
@@ -417,7 +500,7 @@ function verifyResultArtifacts(input) {
     const pr = verifyPr(result.artifacts, {
       requiredState: result.status === "merged" ? "MERGED" : "OPEN",
       expectedRepo,
-      expectedBase: defaultBranchName(projectGitRoot),
+      expectedBase,
       expectedHead: workspace.branch,
       expectedHeadOid: headOid,
       dispatchedAt,
@@ -436,7 +519,7 @@ function verifyResultArtifacts(input) {
     const gates = verifyGates(workspace.workspacePath, {
       expectedHeadOid: headOid,
       expectedHead: workspace.branch,
-      baseRef: `origin/${defaultBranchName(projectGitRoot)}`,
+      baseRef: `origin/${expectedBase}`,
     });
     if (!gates.ok) {
       return {
@@ -455,6 +538,18 @@ function verifyResultArtifacts(input) {
       : { ok: false, code: artifact.code, reason: artifact.reason, artifact };
   }
   return { ok: true };
+}
+
+function verifyResultArtifacts(input) {
+  try {
+    return verifyResultArtifactsUnchecked(input);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "artifact-verification-threw",
+      reason: String(err && err.message ? err.message : err).slice(0, 2000),
+    };
+  }
 }
 
 function finalizeStageOutcome(input) {
@@ -489,6 +584,7 @@ function finalizeStageOutcome(input) {
     maxAttempts: config.claim_envelope.cas_attempts,
     timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
   };
+  const terminalEvent = { ...mapped.event, process };
   const checkpoint = (options.checkpointRecovery || checkpointRecovery)(
     paths.pmDir,
     {
@@ -498,6 +594,7 @@ function finalizeStageOutcome(input) {
       resultHash,
       artifactHashes: mapped.artifactHashes,
       transition: mapped.transition,
+      terminalEvent,
     },
     txOptions
   );
@@ -515,7 +612,7 @@ function finalizeStageOutcome(input) {
       runId: plan.run_id,
       cardId: plan.lease.card_id,
       stage: plan.lease.stage,
-      event: { ...mapped.event, process },
+      event: terminalEvent,
       allowedArtifactPaths: mapped.allowedArtifactPaths,
     },
     txOptions
@@ -584,6 +681,39 @@ function runWorker(projectDir, options = {}) {
       status: "dry-run",
       engine: { bin: command.bin, args: command.args },
     };
+  }
+
+  if (preview.status === "recovery-required" && preview.recovery?.state === "recovery-ready") {
+    const recovery = preview.recovery.recovery;
+    const terminalEvent = recovery && recovery.terminal_event;
+    if (terminalEvent && terminalEvent.terminal === true) {
+      const recoveredFinalization = (options.finalizeRun || finalizeRun)(
+        paths.pmDir,
+        {
+          runId: recovery.run_id,
+          cardId: recovery.card_id,
+          stage: recovery.stage,
+          event: terminalEvent,
+          allowedArtifactPaths: (recovery.transition?.artifact_writes || []).map(
+            (artifact) => artifact.relative_path
+          ),
+        },
+        {
+          maxAttempts: config.claim_envelope.cas_attempts,
+          timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+        }
+      );
+      return {
+        ...preview,
+        run_id: recovery.run_id,
+        status: recoveredFinalization.ok ? terminalEvent.status : "finalization-blocked",
+        reason: recoveredFinalization.ok
+          ? undefined
+          : recoveredFinalization.reason || "recovery finalization was not durably confirmed",
+        recovered: recoveredFinalization.ok,
+        finalization: compactFinalization(recoveredFinalization),
+      };
+    }
   }
 
   if (!preview.selected) return preview;
@@ -839,10 +969,7 @@ function runWorker(projectDir, options = {}) {
             ? `engine stopped with ${processInfo.signal}`
             : `engine exited ${processInfo.exit_code === null ? "without a code" : processInfo.exit_code}`;
         stageResult = contractFailure(plan, read.code, `${processDescription}; ${read.reason}`);
-        resultHash = `sha256:${crypto
-          .createHash("sha256")
-          .update(JSON.stringify(stageResult))
-          .digest("hex")}`;
+        resultHash = resultHashFor(stageResult);
       } else if (
         RESULT_SUCCESSES.has(read.result.status) &&
         (processInfo.exit_code !== 0 ||
@@ -855,10 +982,7 @@ function runWorker(projectDir, options = {}) {
           "process-result-mismatch",
           `engine process did not exit 0 for successful result ${read.result.status}`
         );
-        resultHash = `sha256:${crypto
-          .createHash("sha256")
-          .update(JSON.stringify(stageResult))
-          .digest("hex")}`;
+        resultHash = resultHashFor(stageResult);
       } else {
         stageResult = read.result;
         resultHash = `sha256:${read.sha256}`;
@@ -875,17 +999,14 @@ function runWorker(projectDir, options = {}) {
           resultDir,
           plan,
         });
-        ledger.artifact_verification = artifactVerification;
+        ledger.artifact_verification = compactArtifactVerification(artifactVerification);
         if (!artifactVerification.ok) {
           stageResult = contractFailure(
             plan,
             artifactVerification.code || "artifact-verification-failed",
             artifactVerification.reason || "result artifacts could not be verified"
           );
-          resultHash = `sha256:${crypto
-            .createHash("sha256")
-            .update(JSON.stringify(stageResult))
-            .digest("hex")}`;
+          resultHash = resultHashFor(stageResult);
         }
       }
 
@@ -903,10 +1024,7 @@ function runWorker(projectDir, options = {}) {
       });
       if (!finalized.ok && finalized.status === "failed-contract") {
         stageResult = contractFailure(plan, "transition-invalid", finalized.reason);
-        resultHash = `sha256:${crypto
-          .createHash("sha256")
-          .update(JSON.stringify(stageResult))
-          .digest("hex")}`;
+        resultHash = resultHashFor(stageResult);
         finalized = finalizeStageOutcome({
           paths,
           plan,
@@ -920,7 +1038,7 @@ function runWorker(projectDir, options = {}) {
           dispatchRecord,
         });
       }
-      ledger.finalization = finalized;
+      ledger.finalization = compactFinalization(finalized);
       status = finalized.status;
       reason = finalized.reason || "";
     }
@@ -934,7 +1052,8 @@ function runWorker(projectDir, options = {}) {
   writeJsonAtomic(ledgerPath, ledger);
 
   const keepWorkspace = Boolean(config.worker && config.worker.keep_workspace);
-  if (!keepWorkspace && workspace && workspace.ok) {
+  const preserveEvidence = status === "failed-contract" || status === "finalization-blocked";
+  if (!keepWorkspace && !preserveEvidence && workspace && workspace.ok) {
     ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath, {
       timeout: Number(config.claim_envelope.workspace_cleanup_seconds) * 1000,
     });

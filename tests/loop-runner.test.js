@@ -231,6 +231,35 @@ test("loop runner skips a shipping card until its bounded retry_after wake", () 
   assert.equal(eligible.command, "/pm:ship PM-WAIT");
 });
 
+test("ship plans retain durable PR identity and original dispatch recency", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/shipping.md",
+    fm({
+      type: "backlog",
+      id: "PM-SHIP",
+      title: "Ship safely",
+      kind: "task",
+      status: "shipping",
+      branch: "loop/pm-ship",
+      prs: '["#42"]',
+      pr_dispatch_at: "2026-06-22T23:50:00Z",
+    }) + "body"
+  );
+
+  const planned = runLoop(project.root, {
+    pmDir: project.pmDir,
+    now: FIXED_NOW,
+    mode: "ship",
+    dryRun: true,
+    sourceBaseOid: "a".repeat(40),
+    config: config(),
+  });
+  assert.deepEqual(planned.selected.prs, ["#42"]);
+  assert.equal(planned.selected.prDispatchAt, "2026-06-22T23:50:00Z");
+});
+
 test("loop runner dry-run does not write events or leases", (t) => {
   const project = createProject();
   t.after(project.cleanup);
