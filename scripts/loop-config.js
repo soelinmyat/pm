@@ -132,6 +132,23 @@ function normalizeLoopConfig(config) {
   return normalized;
 }
 
+function assertCanonicalEngineArgs(extraArgs) {
+  for (const arg of extraArgs) {
+    const text = String(arg);
+    if (
+      text === "--sandbox" ||
+      text.startsWith("--sandbox=") ||
+      text === "-s" ||
+      text.startsWith("-s=")
+    ) {
+      throw new Error("worker.engine_args must not contain --sandbox; use worker.codex_sandbox");
+    }
+    if (text === "--add-dir" || text.startsWith("--add-dir=")) {
+      throw new Error("worker.engine_args must not contain --add-dir; use worker.codex_add_dirs");
+    }
+  }
+}
+
 function validateLoopConfig(config) {
   if (![1, 2].includes(config.version)) {
     throw new Error(
@@ -142,21 +159,7 @@ function validateLoopConfig(config) {
   if (!Array.isArray(config.worker.engine_args)) {
     throw new Error("worker.engine_args must be an array");
   }
-  const args = config.worker.engine_args.map(String);
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (
-      arg === "--sandbox" ||
-      arg.startsWith("--sandbox=") ||
-      arg === "-s" ||
-      arg.startsWith("-s=")
-    ) {
-      throw new Error("worker.engine_args must not contain --sandbox; use worker.codex_sandbox");
-    }
-    if (arg === "--add-dir" || arg.startsWith("--add-dir=")) {
-      throw new Error("worker.engine_args must not contain --add-dir; use worker.codex_add_dirs");
-    }
-  }
+  assertCanonicalEngineArgs(config.worker.engine_args);
 
   if (
     !["read-only", "workspace-write", "danger-full-access"].includes(config.worker.codex_sandbox)
@@ -347,6 +350,7 @@ function main() {
 module.exports = {
   DEFAULT_LOOP_CONFIG,
   approveExecutionConfig,
+  assertCanonicalEngineArgs,
   configPath,
   deepMerge,
   ensureLoopDirs,

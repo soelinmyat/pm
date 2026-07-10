@@ -15,6 +15,7 @@ const {
   removeWorkspace,
   runGit,
   sanitizeId,
+  writeJsonAtomic,
 } = require("./loop-git.js");
 const { bootstrapWorktree, isInside, pathChainHasSymlink } = require("./worktree-bootstrap.js");
 
@@ -43,15 +44,11 @@ function quarantinePath(pmStateDir, fingerprint) {
 
 function writePrivateJson(filePath, value) {
   privateDir(path.dirname(filePath));
-  const tempPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.tmp`
-  );
-  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
-    flag: "wx",
-    mode: 0o600,
+  writeJsonAtomic(filePath, value, {
+    directoryMode: 0o700,
+    fileMode: 0o600,
+    exclusiveTemp: true,
   });
-  fs.renameSync(tempPath, filePath);
 }
 
 function recordQuarantine(pmStateDir, plan, failure, config, options = {}) {

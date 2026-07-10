@@ -178,6 +178,10 @@ test("engineCommand maps engines and honors custom bin override", () => {
   );
   assert.equal(custom.bin, "/x/bin");
   assert.deepEqual(custom.args, ["--a"]);
+  assert.throws(
+    () => engineCommand({ worker: { engine_args: ["-s", "danger-full-access"] } }, "p"),
+    /must not contain --sandbox/
+  );
 });
 
 test("codex engine capability adds only explicit dirs and the private result directory", (t) => {

@@ -3,6 +3,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { assertCanonicalEngineArgs } = require("./loop-config.js");
 
 const CODEX_SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
@@ -32,23 +33,6 @@ function codexWritableDirs(worker = {}, context = {}) {
   // PM content/state roots are deliberately absent. The engine receives copied
   // read context in its disposable worktree and one private result capability.
   return uniqueExistingDirs([...configured, context.resultDir]);
-}
-
-function assertCanonicalEngineArgs(extraArgs) {
-  for (const arg of extraArgs) {
-    const text = String(arg);
-    if (
-      text === "--sandbox" ||
-      text.startsWith("--sandbox=") ||
-      text === "-s" ||
-      text.startsWith("-s=")
-    ) {
-      throw new Error("worker.engine_args must not contain --sandbox; use worker.codex_sandbox");
-    }
-    if (text === "--add-dir" || text.startsWith("--add-dir=")) {
-      throw new Error("worker.engine_args must not contain --add-dir; use worker.codex_add_dirs");
-    }
-  }
 }
 
 function engineCommand(config, prompt, context = {}) {

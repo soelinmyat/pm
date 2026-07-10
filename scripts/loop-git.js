@@ -121,13 +121,20 @@ function readJsonFile(filePath) {
   }
 }
 
-function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+function writeJsonAtomic(filePath, value, options = {}) {
+  fs.mkdirSync(path.dirname(filePath), {
+    recursive: true,
+    mode: options.directoryMode,
+  });
   const tempPath = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.${process.pid}.tmp`
   );
-  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
+  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
+    flag: options.exclusiveTemp ? "wx" : "w",
+    mode: options.fileMode,
+  });
+  if (options.fileMode !== undefined) fs.chmodSync(tempPath, options.fileMode);
   fs.renameSync(tempPath, filePath);
 }
 
