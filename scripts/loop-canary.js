@@ -317,17 +317,31 @@ function readCanaryEvidence(pmStateDir, options = {}) {
     if (invalid.length < 10) invalid.push(value);
   };
   if (!fs.existsSync(root)) return { records, invalid, invalid_count: invalidCount };
+  const rootStat = fs.lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    recordInvalid({ file: root, reason: "canary evidence root is not a real directory" });
+    return { records, invalid, invalid_count: invalidCount };
+  }
   for (const runEntry of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) continue;
+    if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) {
+      recordInvalid({ file: path.join(root, runEntry.name), reason: "invalid canary run entry" });
+      continue;
+    }
     const runDir = path.join(root, runEntry.name);
     for (const caseEntry of fs.readdirSync(runDir, { withFileTypes: true })) {
       if (!caseEntry.isFile() || caseEntry.isSymbolicLink() || !caseEntry.name.endsWith(".json")) {
+        recordInvalid({
+          file: path.join(runDir, caseEntry.name),
+          reason: "invalid canary case entry",
+        });
         continue;
       }
       const filePath = path.join(runDir, caseEntry.name);
       const caseName = caseEntry.name.slice(0, -5);
+      let fd = null;
       try {
-        const record = JSON.parse(fs.readFileSync(filePath, "utf8"));
+        fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+        const record = JSON.parse(fs.readFileSync(fd, "utf8"));
         const error = validateEvidenceRecord(record, caseName, options);
         if (error) recordInvalid({ file: filePath, reason: error });
         else {
@@ -343,6 +357,8 @@ function readCanaryEvidence(pmStateDir, options = {}) {
         }
       } catch (error) {
         recordInvalid({ file: filePath, reason: error.message });
+      } finally {
+        if (fd !== null) fs.closeSync(fd);
       }
     }
   }

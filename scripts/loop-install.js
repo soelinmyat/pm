@@ -88,6 +88,14 @@ function buildLaunchdPlist(opts) {
   ].join("\n");
 }
 
+function cronShellQuote(value) {
+  // cron parses percent signs before handing the command to the shell, even
+  // inside shell quotes. Escape them for cron, then quote the entire value for
+  // the POSIX shell used to execute the resulting command.
+  const cronSafe = String(value).replace(/%/g, "\\%");
+  return `'${cronSafe.split("'").join("'\"'\"'")}'`;
+}
+
 function buildCronLine(opts) {
   const interval = Number(opts.intervalMinutes) || 30;
   const nodeBin = opts.nodeBin || process.execPath;
@@ -97,8 +105,9 @@ function buildCronLine(opts) {
     interval >= 60 ? `0 */${Math.round(interval / 60)} * * *` : `*/${interval} * * * *`;
   const pathEnv = opts.pathEnv || process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
   return (
-    `${schedule} PATH=${pathEnv} ${nodeBin} ${opts.workerScript} ` +
-    `--project-dir ${opts.projectDir} --mode ${opts.mode || "default"} --scheduled >> ${logPath} 2>&1`
+    `${schedule} PATH=${cronShellQuote(pathEnv)} ${cronShellQuote(nodeBin)} ` +
+    `${cronShellQuote(opts.workerScript)} --project-dir ${cronShellQuote(opts.projectDir)} ` +
+    `--mode ${cronShellQuote(opts.mode || "default")} --scheduled >> ${cronShellQuote(logPath)} 2>&1`
   );
 }
 
@@ -206,6 +215,9 @@ function generate(opts) {
     workerScript,
     mode: opts.mode,
     intervalMinutes: opts.intervalMinutes,
+    logPath: opts.logPath,
+    nodeBin: opts.nodeBin,
+    pathEnv: opts.pathEnv,
   };
   const exposure = opts.config ? buildInstallExposure(opts.config) : null;
   const exposureText = formatConfigExposure(exposure);
@@ -224,9 +236,12 @@ function generate(opts) {
       ].join("\n"),
     };
   }
+  const logPath =
+    shared.logPath || path.join(os.homedir(), ".pm-loop", `${projectSlug(opts.projectDir)}.log`);
   return {
     kind: "cron",
-    content: buildCronLine(shared),
+    content: buildCronLine({ ...shared, logPath }),
+    logPath,
     exposure,
     instructions: [
       "Preview only — do not add this line to crontab manually.",
@@ -281,6 +296,10 @@ function installGenerated(generated, intervalMinutes, options = {}) {
       .filter(Boolean)
       .join("\n") + "\n"
   );
+  if (generated.kind === "cron") {
+    if (!generated.logPath) throw new Error("cron activation requires a log path");
+    fs.mkdirSync(path.dirname(generated.logPath), { recursive: true, mode: 0o700 });
+  }
   const installed = install(generated.content, generated.label);
   const result = {
     installed: true,
@@ -289,7 +308,10 @@ function installGenerated(generated, intervalMinutes, options = {}) {
     exposure: generated.exposure,
   };
   if (generated.kind === "launchd") result.plist = installed;
-  else result.crontab = installed;
+  else {
+    result.crontab = installed;
+    result.log_path = generated.logPath;
+  }
   return result;
 }
 

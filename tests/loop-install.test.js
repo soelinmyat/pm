@@ -191,7 +191,7 @@ test("cron line uses */N for sub-hour and hourly schedule above 60m", () => {
   assert.match(line30, /^\*\/30 \* \* \* \* /);
   assert.match(
     line30,
-    /--project-dir \/work\/proj --mode default --scheduled >> \/tmp\/loop\.log 2>&1$/
+    /--project-dir '\/work\/proj' --mode 'default' --scheduled >> '\/tmp\/loop\.log' 2>&1$/
   );
 
   const line120 = buildCronLine({
@@ -200,6 +200,24 @@ test("cron line uses */N for sub-hour and hourly schedule above 60m", () => {
     intervalMinutes: 120,
   });
   assert.match(line120, /^0 \*\/2 \* \* \* /);
+});
+
+test("cron line shell-quotes paths, modes, PATH, apostrophes, and percent signs", () => {
+  const line = buildCronLine({
+    projectDir: "/work/My App; touch /tmp/not-run",
+    workerScript: "/plugin/worker's.js",
+    nodeBin: "/opt/Node Bin/node",
+    mode: "ship $(touch /tmp/not-run)",
+    intervalMinutes: 30,
+    logPath: "/tmp/Loop Logs/worker%1.log",
+    pathEnv: "/opt/Node Bin:/usr/bin",
+  });
+  assert.match(line, /PATH='\/opt\/Node Bin:\/usr\/bin'/);
+  assert.match(line, /'\/opt\/Node Bin\/node'/);
+  assert.match(line, /'\/plugin\/worker'"'"'s\.js'/);
+  assert.match(line, /--project-dir '\/work\/My App; touch \/tmp\/not-run'/);
+  assert.match(line, /--mode 'ship \$\(touch \/tmp\/not-run\)'/);
+  assert.match(line, />> '\/tmp\/Loop Logs\/worker\\%1\.log' 2>&1$/);
 });
 
 test("generate picks launchd on darwin format and cron otherwise", () => {
@@ -315,6 +333,32 @@ test("direct launchd install emits exposure warnings before enabling the schedul
   assert.equal(result.installed, true);
 });
 
+test("cron activation creates its private log directory before installing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-cron-log-"));
+  try {
+    const logPath = path.join(root, "fresh logs", "loop.log");
+    const generated = generate({
+      projectDir: "/p",
+      mode: "dev",
+      intervalMinutes: 30,
+      format: "cron",
+      logPath,
+      config: normalizeLoopConfig({}),
+    });
+    const result = installGenerated(generated, 30, {
+      install() {
+        assert.equal(fs.statSync(path.dirname(logPath)).isDirectory(), true);
+        return "crontab";
+      },
+      writeError() {},
+    });
+    assert.equal(result.crontab, "crontab");
+    assert.equal(result.log_path, logPath);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("canary release gate requires fresh same-identity evidence for all three cases", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-gate-"));
   try {
@@ -334,6 +378,35 @@ test("canary release gate requires fresh same-identity evidence for all three ca
     });
     assert.equal(passing.passed, true, JSON.stringify(passing));
     assert.deepEqual(passing.cases.sort(), cases.sort());
+
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-external-"));
+    try {
+      fs.symlinkSync(external, path.join(root, "loop-canary", "symlinked-run"));
+      assert.match(
+        evaluateCanaryReleaseGate(root, expectedIdentity, {
+          now: new Date("2026-07-10T02:00:00.000Z"),
+          maxAgeSeconds: 7200,
+        }).reason,
+        /invalid canary evidence/i
+      );
+      fs.rmSync(path.join(root, "loop-canary", "symlinked-run"));
+
+      const linkedCase = path.join(root, "loop-canary", "loop-canary-0", "linked.json");
+      fs.symlinkSync(
+        path.join(root, "loop-canary", "loop-canary-0", "preflight-failure.json"),
+        linkedCase
+      );
+      assert.match(
+        evaluateCanaryReleaseGate(root, expectedIdentity, {
+          now: new Date("2026-07-10T02:00:00.000Z"),
+          maxAgeSeconds: 7200,
+        }).reason,
+        /invalid canary evidence/i
+      );
+      fs.rmSync(linkedCase);
+    } finally {
+      fs.rmSync(external, { recursive: true, force: true });
+    }
 
     fs.rmSync(path.join(root, "loop-canary", "loop-canary-2", "verified-pr.json"));
     assert.equal(
@@ -372,6 +445,23 @@ test("canary release gate requires fresh same-identity evidence for all three ca
     assert.match(staleGate.reason, /stale/i);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("symlinked canary evidence root fails closed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-root-link-"));
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-root-target-"));
+  try {
+    fs.symlinkSync(external, path.join(root, "loop-canary"));
+    const gate = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+      maxAgeSeconds: 7200,
+    });
+    assert.equal(gate.passed, false);
+    assert.match(gate.reason, /not a real directory/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(external, { recursive: true, force: true });
   }
 });
 
