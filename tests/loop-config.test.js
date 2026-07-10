@@ -69,6 +69,18 @@ test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
       );
     }
   }
+  for (const value of [0, -1, 1.5, "thirty", 7, 45, 90, 1500]) {
+    assert.throws(
+      () => normalizeLoopConfig({ scheduler_interval_minutes: value }),
+      /scheduler_interval_minutes.*exact cron interval/i
+    );
+  }
+  for (const value of [1, 5, 30, 60, 120, 360, 720, 1440]) {
+    assert.equal(
+      normalizeLoopConfig({ scheduler_interval_minutes: value }).scheduler_interval_minutes,
+      value
+    );
+  }
 });
 
 test("legacy minute TTLs migrate explicitly and the old 45-minute value fails closed", () => {

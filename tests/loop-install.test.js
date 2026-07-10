@@ -14,6 +14,7 @@ const {
   installGenerated,
   installCron,
   launchdLabel,
+  parseArgs,
   projectSlug,
   resumeScheduler,
   setKillSwitch,
@@ -201,6 +202,29 @@ test("cron line uses */N for sub-hour and hourly schedule above 60m", () => {
     intervalMinutes: 120,
   });
   assert.match(line120, /^0 \*\/2 \* \* \* /);
+  assert.match(
+    buildCronLine({
+      projectDir: "/work/proj",
+      workerScript: "/plugin/scripts/loop-worker.js",
+      intervalMinutes: 1440,
+    }),
+    /^0 0 \* \* \* /
+  );
+  assert.throws(
+    () =>
+      buildCronLine({
+        projectDir: "/work/proj",
+        workerScript: "/plugin/scripts/loop-worker.js",
+        intervalMinutes: 45,
+      }),
+    /exact cron interval/i
+  );
+});
+
+test("install CLI rejects unsupported interval overrides", () => {
+  assert.throws(() => parseArgs(["--interval", "45"]), /exact cron interval/i);
+  assert.throws(() => parseArgs(["--interval", "0"]), /exact cron interval/i);
+  assert.equal(parseArgs(["--interval", "120"]).intervalMinutes, 120);
 });
 
 test("cron line shell-quotes paths, modes, PATH, apostrophes, and percent signs", () => {

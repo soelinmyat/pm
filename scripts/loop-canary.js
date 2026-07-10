@@ -206,21 +206,28 @@ function evidenceIdentity(record) {
   };
 }
 
-function validInventory(value) {
+function validInventory(value, kind) {
+  const records = Array.isArray(value?.records) ? value.records : [];
+  const paths = records.map((entry) => entry?.path);
+  const prefix = `pm/loop/${kind}/`;
   return (
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Number.isSafeInteger(value.count) &&
     value.count >= 0 &&
+    records.length <= value.count &&
     SHA256.test(String(value.sha256 || "")) &&
-    Array.isArray(value.records) &&
-    value.records.every(
+    new Set(paths).size === paths.length &&
+    records.every(
       (entry) =>
         entry &&
         typeof entry === "object" &&
         typeof entry.path === "string" &&
-        entry.path.length > 0 &&
+        entry.path.startsWith(prefix) &&
+        entry.path.slice(prefix.length).length > 0 &&
+        !entry.path.slice(prefix.length).includes("/") &&
+        path.posix.normalize(entry.path) === entry.path &&
         SHA256.test(String(entry.sha256 || ""))
     )
   );
@@ -237,9 +244,9 @@ function validState(value) {
     value.card.relative_path.length > 0 &&
     SHA256.test(String(value.card.sha256 || "")) &&
     typeof value.card.status === "string" &&
-    validInventory(value.leases) &&
-    validInventory(value.recovery) &&
-    validInventory(value.events)
+    validInventory(value.leases, "leases") &&
+    validInventory(value.recovery, "recovery") &&
+    validInventory(value.events, "events")
   );
 }
 

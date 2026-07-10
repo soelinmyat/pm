@@ -168,6 +168,44 @@ test("canary evidence validation rejects empty, false, reversed, and future evid
   const missingRuntimeHash = completeRecord("verified-pr");
   delete missingRuntimeHash.runtime_source_hash;
   assert.match(validateEvidenceRecord(missingRuntimeHash, "verified-pr"), /runtime source/i);
+
+  const impossibleInventory = completeRecord("verified-pr");
+  impossibleInventory.before.events = {
+    count: 0,
+    sha256: `sha256:${"6".repeat(64)}`,
+    records: [
+      {
+        path: "pm/loop/events/loop-12345678-1234-4123-8123-123456789abc.json",
+        sha256: `sha256:${"5".repeat(64)}`,
+      },
+    ],
+  };
+  assert.match(validateEvidenceRecord(impossibleInventory, "verified-pr"), /before state/i);
+
+  const duplicateInventory = completeRecord("verified-pr");
+  const duplicate = {
+    path: "pm/loop/events/loop-12345678-1234-4123-8123-123456789abc.json",
+    sha256: `sha256:${"5".repeat(64)}`,
+  };
+  duplicateInventory.before.events = {
+    count: 2,
+    sha256: `sha256:${"6".repeat(64)}`,
+    records: [duplicate, duplicate],
+  };
+  assert.match(validateEvidenceRecord(duplicateInventory, "verified-pr"), /before state/i);
+
+  const wrongInventoryPath = completeRecord("verified-pr");
+  wrongInventoryPath.before.events = {
+    count: 1,
+    sha256: `sha256:${"6".repeat(64)}`,
+    records: [
+      {
+        path: "pm/loop/leases/dev-pm-404.json",
+        sha256: `sha256:${"5".repeat(64)}`,
+      },
+    ],
+  };
+  assert.match(validateEvidenceRecord(wrongInventoryPath, "verified-pr"), /before state/i);
 });
 
 test("canary identity preserves the approved execution hash", () => {

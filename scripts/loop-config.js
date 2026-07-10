@@ -199,6 +199,21 @@ function positiveInteger(value, label) {
   return value;
 }
 
+function exactCronIntervalMinutes(value, label = "scheduler_interval_minutes") {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer exact cron interval`);
+  }
+  const subHourly = value <= 60 && 60 % value === 0;
+  const hourly =
+    value > 60 && value % 60 === 0 && value <= 1440 && (value === 1440 || 24 % (value / 60) === 0);
+  if (!subHourly && !hourly) {
+    throw new Error(
+      `${label} must be an exact cron interval that divides an hour or a 24-hour day`
+    );
+  }
+  return value;
+}
+
 function leaseTtlSeconds(config) {
   const budgets = isPlainObject(config && config.budgets) ? config.budgets : {};
   if (Number.isFinite(Number(budgets.lease_ttl_seconds))) {
@@ -335,6 +350,7 @@ function validateLoopConfig(config) {
     "budgets.max_identical_no_progress"
   );
   positiveInteger(Number(config.canary.evidence_ttl_seconds), "canary.evidence_ttl_seconds");
+  exactCronIntervalMinutes(config.scheduler_interval_minutes);
   const devEnvelope = claimEnvelopeSeconds(config, "dev");
   const shipEnvelope = claimEnvelopeSeconds(config, "ship");
   const envelope = Math.max(devEnvelope, shipEnvelope);
@@ -525,6 +541,7 @@ module.exports = {
   configPath,
   deepMerge,
   ensureLoopDirs,
+  exactCronIntervalMinutes,
   executionConfig,
   executionConfigHash,
   formatConfigExposure,

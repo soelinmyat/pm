@@ -17,6 +17,7 @@ const { execFileSync } = require("child_process");
 const { parseCliArgs } = require("./loop-args.js");
 const {
   configExposure,
+  exactCronIntervalMinutes,
   formatConfigExposure,
   loadLoopConfig,
   loadTrustedLoopConfig,
@@ -97,12 +98,18 @@ function cronShellQuote(value) {
 }
 
 function buildCronLine(opts) {
-  const interval = Number(opts.intervalMinutes) || 30;
+  const interval = exactCronIntervalMinutes(
+    opts.intervalMinutes === undefined ? 30 : Number(opts.intervalMinutes)
+  );
   const nodeBin = opts.nodeBin || process.execPath;
   const logPath =
     opts.logPath || path.join(os.homedir(), ".pm-loop", `${projectSlug(opts.projectDir)}.log`);
   const schedule =
-    interval >= 60 ? `0 */${Math.round(interval / 60)} * * *` : `*/${interval} * * * *`;
+    interval === 1440
+      ? "0 0 * * *"
+      : interval >= 60
+        ? `0 */${interval / 60} * * *`
+        : `*/${interval} * * * *`;
   const pathEnv = opts.pathEnv || process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
   return (
     `${schedule} PATH=${cronShellQuote(pathEnv)} ${cronShellQuote(nodeBin)} ` +
@@ -258,7 +265,7 @@ function parseArgs(argv) {
     projectDir: process.cwd(),
     pmDir: "",
     mode: "default",
-    intervalMinutes: 0,
+    intervalMinutes: "",
     format: "auto",
     install: false,
     stop: false,
@@ -281,7 +288,10 @@ function parseArgs(argv) {
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
-  args.intervalMinutes = Number(args.intervalMinutes) || 0;
+  args.intervalMinutes =
+    args.intervalMinutes === ""
+      ? 0
+      : exactCronIntervalMinutes(Number(args.intervalMinutes), "--interval");
   return args;
 }
 
@@ -378,6 +388,7 @@ module.exports = {
   installGenerated,
   installCron,
   launchdLabel,
+  parseArgs,
   plistInstallPath,
   projectSlug,
   pushKillSwitch,
