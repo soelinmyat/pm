@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const { defaultBranchName } = require("../scripts/source-identity.js");
+const { defaultBranchName, sourceRepository } = require("../scripts/source-identity.js");
 
 function git(cwd, args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -32,4 +32,7 @@ test("default branch resolution uses the authoritative remote HEAD and fails clo
 
   git(origin, ["symbolic-ref", "HEAD", "refs/heads/missing"]);
   assert.equal(defaultBranchName(project), "");
+
+  git(project, ["remote", "set-url", "origin", "https://evil.test/github.com/openai/pm.git"]);
+  assert.equal(sourceRepository(project), "");
 });

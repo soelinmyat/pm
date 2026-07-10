@@ -295,6 +295,38 @@ test("repository-pinned verification rejects a rename from a protected path", ()
   assert.deepEqual(checked.protectedPaths, ["pm/backlog/pm-108.md"]);
 });
 
+test("repository-pinned verification rejects metadata/file-list TOCTOU", () => {
+  const first = remotePr();
+  const moved = remotePr({ headRefOid: "b".repeat(40) });
+  let calls = 0;
+  const checked = inspectPullRequest(resultPr(), {
+    expectedRepo: "openai/pm",
+    expectedBase: "main",
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    sleep: noSleep,
+    runGh(args) {
+      calls += 1;
+      if (args[0] === "api") return ghInfo(first)(args);
+      return { code: 0, stdout: JSON.stringify(calls === 1 ? first : moved), stderr: "" };
+    },
+  });
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.match(checked.reason, /changed during verification|UNKNOWN/i);
+  assert.equal(calls, 3);
+});
+
+test("repository-pinned verification requires an authoritative expected base", () => {
+  const checked = inspectPullRequest(resultPr(), {
+    expectedRepo: "openai/pm",
+    expectedBase: "",
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    runGh: ghInfo(remotePr()),
+    sleep: noSleep,
+  });
+  assert.equal(checked.ok, false);
+  assert.match(checked.reason, /base.*unresolved/i);
+});
+
 test("reconcile inspection accepts only repository-pinned OPEN or MERGED identity and returns merge evidence", () => {
   const stored = resultPr();
   const open = inspectPullRequest(stored, {

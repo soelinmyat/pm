@@ -532,6 +532,13 @@ function verifyResultArtifactsUnchecked(input) {
     }
     const verifyPr = options.verifyPullRequest || verifyPullRequest;
     const expectedBase = defaultBranchName(projectGitRoot);
+    if (!expectedBase) {
+      return {
+        ok: false,
+        code: "default-branch-unresolved",
+        reason: "source default branch could not be verified from the remote HEAD",
+      };
+    }
     const dispatchedAt = dispatchRecord.event && dispatchRecord.event.dispatched_at;
     const originalDispatchAt =
       result.stage === "dev" ? dispatchedAt : plan.selected.prDispatchAt || dispatchedAt;

@@ -1054,17 +1054,19 @@ function findLeaseByRunId(pmDir, runId) {
   const leaseDir = path.join(pmDir, "loop", "leases");
   if (!fs.existsSync(leaseDir)) return { lease: null, invalid: [] };
   const invalid = [];
+  const matches = [];
   for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     try {
       const lease = JSON.parse(fs.readFileSync(path.join(leaseDir, entry.name), "utf8"));
-      if (lease.run_id === runId) return { lease, invalid };
+      if (lease.run_id === runId) matches.push(lease);
       if (!lease.run_id) invalid.push(entry.name);
     } catch {
       invalid.push(entry.name);
     }
   }
-  return { lease: null, invalid };
+  if (matches.length > 1) invalid.push(`duplicate lease ownership for ${runId}`);
+  return { lease: matches.length === 1 ? matches[0] : null, invalid };
 }
 
 function inspectSnapshotRunState(pmDir, runId, options = {}) {
@@ -1097,7 +1099,11 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
       typeof record.card_id === "string" &&
       record.card_id.trim().length > 0);
   if (parseError || leaseLookup.invalid.length > 0) {
-    return { ...base, state: "ambiguous", reason: parseError || "invalid orphan lease" };
+    return {
+      ...base,
+      state: "ambiguous",
+      reason: parseError || leaseLookup.invalid.join(", ") || "invalid orphan lease",
+    };
   }
   if (!ownsRun(event) || !ownsRun(recovery) || !ownsRun(lease)) {
     return { ...base, state: "ambiguous", reason: "durable record ownership is missing" };
@@ -1193,6 +1199,15 @@ function listRunIds(pmDir, options = {}) {
         const runId = entry.name.slice(0, -5);
         try {
           const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+          if (
+            child === "events" &&
+            options.includeFinalized !== true &&
+            record.run_id === runId &&
+            record.terminal === true &&
+            record.card_id
+          ) {
+            continue;
+          }
           if (!record.card_id || record.run_id !== runId || relevant(record, runId)) ids.add(runId);
         } catch {
           ids.add(runId);

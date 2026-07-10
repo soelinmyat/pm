@@ -12,6 +12,7 @@ const {
   ensureGitSyncReady,
   findGitRoot,
   gitRelativePath,
+  leaseFileName,
   listLeases,
   runGit,
   writeJsonAtomic,
@@ -310,6 +311,75 @@ function fieldChange(field, before, after) {
   };
 }
 
+function recoveryMutationManifest(recovery, pmRelative) {
+  try {
+    const transition = recovery?.transition;
+    if (!transition?.card_write || !Array.isArray(transition.artifact_writes)) return null;
+    const mutations = [
+      {
+        operation: "write",
+        path: safeRelativePath(transition.card_write.relative_path),
+        expected_revision: String(transition.card_write.expected_revision || "").slice(0, 80),
+        content_sha256: sha256(transition.card_write.content),
+      },
+    ];
+    for (const artifact of transition.artifact_writes) {
+      mutations.push({
+        operation: "write",
+        path: safeRelativePath(artifact.relative_path),
+        content_sha256: sha256(artifact.content),
+      });
+    }
+    mutations.push(
+      {
+        operation: "write",
+        path: safeRelativePath(
+          path.posix.join(pmRelative, "loop", "events", `${recovery.run_id}.json`)
+        ),
+        content_sha256: String(recovery.terminal_event_hash || "").slice(0, 80),
+      },
+      {
+        operation: "delete",
+        path: safeRelativePath(
+          path.posix.join(
+            pmRelative,
+            "loop",
+            "leases",
+            leaseFileName(recovery.card_id, recovery.stage)
+          )
+        ),
+      },
+      {
+        operation: "delete",
+        path: safeRelativePath(
+          path.posix.join(pmRelative, "loop", "recovery", `${recovery.run_id}.json`)
+        ),
+      }
+    );
+    return mutations;
+  } catch {
+    return null;
+  }
+}
+
+function publicRecoveryEvidence(recovery, mutations) {
+  const evidence = {};
+  for (const field of [
+    "run_id",
+    "card_id",
+    "stage",
+    "expected_card_revision",
+    "config_fingerprint",
+    "result_hash",
+    "transition_hash",
+    "terminal_event_hash",
+  ]) {
+    if (recovery[field] !== undefined) evidence[field] = String(recovery[field]).slice(0, 200);
+  }
+  evidence.mutations = mutations;
+  return evidence;
+}
+
 function proposalFor(card, classification) {
   if (classification.operation === "none") return null;
   if (classification.operation === "resume-finalization") {
@@ -320,7 +390,7 @@ function proposalFor(card, classification) {
       operation: classification.operation,
       run_id: classification.run_id,
       expected_revision: card.revision,
-      changes: [{ field: "recovery", before: "ready-to-finalize", after: "finalized" }],
+      changes: classification.recovery.mutations,
     };
   }
 
@@ -379,6 +449,16 @@ function buildPlan(projectDir, options = {}) {
   const snapshot = (options.withRemoteSnapshot || withRemoteSnapshot)(
     pmDir,
     (remote) => {
+      if (!remote.workspace) throw new Error("authoritative PM snapshot workspace is missing");
+      for (const relativePath of [
+        remote.pmRelative,
+        path.posix.join(remote.pmRelative, "backlog"),
+        path.posix.join(remote.pmRelative, "loop", "leases"),
+        path.posix.join(remote.pmRelative, "loop", "events"),
+        path.posix.join(remote.pmRelative, "loop", "recovery"),
+      ]) {
+        assertNoSymlinkPath(remote.workspace, safeRelativePath(relativePath));
+      }
       const cards = readCards(remote.pmDir, remote.pmRelative);
       const leases = listLeases(remote.pmDir, { now }).map((lease) => ({
         ...lease,
@@ -386,8 +466,10 @@ function buildPlan(projectDir, options = {}) {
           path.posix.join(remote.pmRelative, "loop", "leases", path.basename(lease.filePath))
         ),
       }));
-      const transactions = scanSnapshotTransactions(remote.pmDir, {
+      const scanTransactions = options.scanSnapshotTransactions || scanSnapshotTransactions;
+      const transactions = scanTransactions(remote.pmDir, {
         now,
+        includeFinalized: true,
         cardIds: cards.map((card) => card.id),
         runIds: cards.map((card) => String(card.data.loop_run_id || "")).filter(Boolean),
       });
@@ -397,7 +479,7 @@ function buildPlan(projectDir, options = {}) {
       const classifications = [];
       const proposed = [];
       for (const card of cards) {
-        const classified =
+        let classified =
           counts.get(card.id) > 1
             ? noAction(
                 "duplicate-card-id",
@@ -408,6 +490,26 @@ function buildPlan(projectDir, options = {}) {
                 expectedRepository,
                 expectedBase,
               });
+        if (classified.recovery) {
+          const privateRecovery = classified.recovery;
+          const mutations = recoveryMutationManifest(privateRecovery, remote.pmRelative);
+          if (!mutations) {
+            classified = noAction(
+              "recovery-ambiguous",
+              "Recovery mutation metadata is invalid; repair the same run without redispatching it.",
+              { run_id: classified.run_id }
+            );
+          } else {
+            const executionKey = `${card.relativePath}\0${classified.run_id || ""}`;
+            if (options.executionMap instanceof Map) {
+              options.executionMap.set(executionKey, privateRecovery);
+            }
+            classified = {
+              ...classified,
+              recovery: publicRecoveryEvidence(privateRecovery, mutations),
+            };
+          }
+        }
         const classification = {
           card_id: card.id,
           card_path: card.relativePath,
@@ -584,7 +686,8 @@ function applyFailureReason(result, fallback) {
 
 function runReconcile(projectDir, options = {}) {
   const pmDir = options.pmDir || resolvePmPaths(projectDir).pmDir;
-  const plan = buildPlan(projectDir, { ...options, pmDir });
+  const executionMap = new Map();
+  const plan = buildPlan(projectDir, { ...options, pmDir, executionMap });
   const base = {
     ...plan,
     mode: options.apply === true ? "apply" : "dry-run",
@@ -606,12 +709,9 @@ function runReconcile(projectDir, options = {}) {
   const recoveries = plan.proposed_changes.filter(
     (change) => change.operation === "resume-finalization"
   );
-  const classifications = new Map(
-    plan.classifications.map((entry) => [`${entry.card_path}\0${entry.run_id || ""}`, entry])
-  );
   for (const change of recoveries) {
-    const classification = classifications.get(`${change.card_path}\0${change.run_id || ""}`);
-    const result = resumeRecovery(pmDir, change, classification?.recovery, {
+    const recovery = executionMap.get(`${change.card_path}\0${change.run_id || ""}`);
+    const result = resumeRecovery(pmDir, change, recovery, {
       ...options,
       expectedHeadOid,
     });
@@ -723,6 +823,7 @@ module.exports = {
   buildPlan,
   classifyStaleCard,
   parseArgs,
+  recoveryMutationManifest,
   resumeRecovery,
   runReconcile,
 };

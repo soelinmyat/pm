@@ -156,27 +156,38 @@ function getPinnedPrFiles(repo, number, options = {}) {
   }
 }
 
+function parsePinnedMetadata(stdout) {
+  const obj = JSON.parse(stdout || "{}");
+  return {
+    state: obj.state || "UNKNOWN",
+    createdAt: obj.createdAt || null,
+    mergedAt: obj.mergedAt || null,
+    mergeSha: obj.mergeCommit && obj.mergeCommit.oid ? obj.mergeCommit.oid : null,
+    number: obj.number ?? null,
+    url: obj.url || null,
+    baseRefName: obj.baseRefName || null,
+    headRefName: obj.headRefName || null,
+    headRefOid: obj.headRefOid || null,
+    changedFiles: Number.isSafeInteger(obj.changedFiles) ? obj.changedFiles : null,
+  };
+}
+
 function getPinnedPrInfo(repo, number, options = {}) {
-  const res = runGhWithRetry(
-    ["pr", "view", String(number), "--repo", repo, "--json", PINNED_FIELDS],
-    options
-  );
+  const args = ["pr", "view", String(number), "--repo", repo, "--json", PINNED_FIELDS];
+  const res = runGhWithRetry(args, options);
   if (res.code === 0) {
     try {
-      const obj = JSON.parse(res.stdout || "{}");
+      const before = parsePinnedMetadata(res.stdout);
       const changed = getPinnedPrFiles(repo, number, options);
       if (!changed.ok) return { state: "UNKNOWN" };
+      const confirmed = runGhWithRetry(args, options);
+      if (confirmed.code !== 0) return { state: "UNKNOWN" };
+      const after = parsePinnedMetadata(confirmed.stdout);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        return { state: "UNKNOWN", reason: "pull request changed during verification" };
+      }
       return {
-        state: obj.state || "UNKNOWN",
-        createdAt: obj.createdAt || null,
-        mergedAt: obj.mergedAt || null,
-        mergeSha: obj.mergeCommit && obj.mergeCommit.oid ? obj.mergeCommit.oid : null,
-        number: obj.number ?? null,
-        url: obj.url || null,
-        baseRefName: obj.baseRefName || null,
-        headRefName: obj.headRefName || null,
-        headRefOid: obj.headRefOid || null,
-        changedFiles: Number.isSafeInteger(obj.changedFiles) ? obj.changedFiles : null,
+        ...after,
         fileCount: changed.count,
         files: changed.paths,
       };
@@ -200,6 +211,9 @@ function inspectPullRequest(artifact, options = {}) {
   if (!Number.isSafeInteger(artifact.number) || artifact.number < 1) {
     return failedVerification("pull request number is invalid");
   }
+  if (typeof options.expectedBase !== "string" || !options.expectedBase) {
+    return failedVerification("pull request base is unresolved");
+  }
   const info = getPinnedPrInfo(expectedRepo, artifact.number, options);
   if (info.state === "NONE" || info.state === "UNKNOWN") {
     return failedVerification(`pull request verification returned ${info.state}`, info.state, info);
@@ -219,7 +233,7 @@ function inspectPullRequest(artifact, options = {}) {
   if (info.url !== artifact.url) {
     return failedVerification("pull request URL mismatch", info.state, info);
   }
-  const expectedBase = options.expectedBase || artifact.base;
+  const expectedBase = options.expectedBase;
   const expectedHead = options.expectedHead || artifact.head;
   const expectedHeadOid = options.expectedHeadOid || artifact.head_oid;
   if (info.baseRefName !== artifact.base || info.baseRefName !== expectedBase) {

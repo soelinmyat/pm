@@ -10,10 +10,19 @@ function sourceRepository(gitRoot) {
   } catch {
     return "";
   }
-  const match = String(remote).match(
-    /(?:github\.com[/:]|^[^/]+\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
+  const text = String(remote).trim();
+  const scp = text.match(
+    /^(?:[^@\s]+@)?github\.com:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i
   );
-  return match ? match[1].replace(/\.git$/, "") : "";
+  if (scp) return scp[1].replace(/\.git$/, "");
+  try {
+    const parsed = new URL(text);
+    if (parsed.hostname.toLowerCase() !== "github.com") return "";
+    const match = parsed.pathname.match(/^\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/);
+    return match ? match[1].replace(/\.git$/, "") : "";
+  } catch {
+    return "";
+  }
 }
 
 function defaultBranchName(gitRoot) {

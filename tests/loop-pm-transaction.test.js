@@ -35,7 +35,8 @@ test("snapshot transaction scanning includes finalized durable events through th
       status: "failed",
     })
   );
-  const states = scanSnapshotTransactions(root, { now: FIXED_NOW });
+  assert.deepEqual(scanSnapshotTransactions(root, { now: FIXED_NOW }), []);
+  const states = scanSnapshotTransactions(root, { now: FIXED_NOW, includeFinalized: true });
   assert.deepEqual(
     states.map((entry) => [entry.run_id, entry.state]),
     [[runId, "finalized"]]
@@ -59,6 +60,26 @@ test("scoped transaction scanning retains structurally unowned durable records a
   assert.equal(states.length, 1);
   assert.equal(states[0].run_id, runId);
   assert.equal(states[0].state, "ambiguous");
+});
+
+test("duplicate leases claiming one run ID are explicitly ambiguous", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-duplicate-lease-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runId = "loop-62345678-1234-4123-8123-123456789abc";
+  const leaseDir = path.join(root, "loop", "leases");
+  fs.mkdirSync(leaseDir, { recursive: true });
+  const lease = {
+    run_id: runId,
+    card_id: "PM-404",
+    stage: "dev",
+    phase: "claimed",
+    expires_at: "2026-07-10T01:00:00Z",
+  };
+  fs.writeFileSync(path.join(leaseDir, "dev-pm-404.json"), JSON.stringify(lease));
+  fs.writeFileSync(path.join(leaseDir, "duplicate.json"), JSON.stringify(lease));
+  const [state] = scanSnapshotTransactions(root, { now: FIXED_NOW, runIds: [runId] });
+  assert.equal(state.state, "ambiguous");
+  assert.match(state.reason, /duplicate.*lease/i);
 });
 
 const FIXED_NOW = new Date("2026-07-10T00:00:00.000Z");

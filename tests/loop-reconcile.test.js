@@ -421,6 +421,60 @@ test("planning reads finalized durable outcome events, not only incomplete trans
   assert.ok(result.proposed_changes.some((entry) => entry.card_id === "PM-405"));
 });
 
+test("recovery plans expose bounded exact mutations without durable contents", (t) => {
+  const fixture = makeFixture(t);
+  const executionMap = new Map();
+  const recovery = {
+    run_id: RUN_ID,
+    card_id: "PM-404",
+    stage: "dev",
+    expected_card_revision: "sha256:" + "a".repeat(64),
+    config_fingerprint: "sha256:" + "b".repeat(64),
+    result_hash: "sha256:" + "c".repeat(64),
+    transition_hash: "sha256:" + "d".repeat(64),
+    terminal_event_hash: "sha256:" + "e".repeat(64),
+    terminal_event: { terminal: true, status: "completed", summary: "SECRET EVENT" },
+    transition: {
+      card_write: {
+        relative_path: "pm/backlog/stale.md",
+        expected_revision: "sha256:" + "a".repeat(64),
+        content: "SECRET CARD CONTENT",
+      },
+      artifact_writes: [{ relative_path: "pm/evidence/recovered.md", content: "SECRET ARTIFACT" }],
+    },
+  };
+  const plan = buildPlan(fixture.project, {
+    pmDir: fixture.pmDir,
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    executionMap,
+    scanSnapshotTransactions: () => [
+      {
+        run_id: RUN_ID,
+        state: "recovery-ready",
+        recovery,
+        event: null,
+        lease: { run_id: RUN_ID, card_id: "PM-404", stage: "dev" },
+      },
+    ],
+  });
+  assert.equal(plan.classifications[0].classification, "recovery-ready");
+  assert.equal(plan.classifications[0].recovery.transition, undefined);
+  assert.equal(executionMap.get(`pm/backlog/stale.md\0${RUN_ID}`), recovery);
+  assert.deepEqual(
+    plan.proposed_changes[0].changes.map((entry) => `${entry.operation}:${entry.path}`),
+    [
+      "write:pm/backlog/stale.md",
+      "write:pm/evidence/recovered.md",
+      `write:pm/loop/events/${RUN_ID}.json`,
+      `delete:pm/loop/leases/dev-pm-404.json`,
+      `delete:pm/loop/recovery/${RUN_ID}.json`,
+    ]
+  );
+  assert.doesNotMatch(JSON.stringify(plan), /SECRET/);
+});
+
 test("apply requires Git readiness, uses isolated PM transactions, and reports exact applied changes", (t) => {
   const fixture = makeFixture(t);
   const blocked = runReconcile(fixture.project, {
@@ -501,18 +555,31 @@ test("apply rejects symlink chains for card, lease, and event mutations", (t) =>
   git(fixture.project, ["commit", "-m", "symlinked event path"]);
   git(fixture.project, ["push"]);
 
-  const result = runReconcile(fixture.project, {
-    pmDir: fixture.pmDir,
-    now: NOW,
-    apply: true,
-    expectedRepository: "openai/pm",
-    expectedBase: "main",
-    inspectPullRequest: mergedInspector,
-    checkGitReady: () => ({ ok: true }),
-  });
-  assert.equal(result.ok, false, JSON.stringify(result));
-  assert.equal(result.code, "apply-failed");
-  assert.match(result.reason, /symlink/i);
+  assert.throws(
+    () =>
+      runReconcile(fixture.project, {
+        pmDir: fixture.pmDir,
+        now: NOW,
+        expectedRepository: "openai/pm",
+        expectedBase: "main",
+        inspectPullRequest: mergedInspector,
+      }),
+    /symlink/i
+  );
+
+  assert.throws(
+    () =>
+      runReconcile(fixture.project, {
+        pmDir: fixture.pmDir,
+        now: NOW,
+        apply: true,
+        expectedRepository: "openai/pm",
+        expectedBase: "main",
+        inspectPullRequest: mergedInspector,
+        checkGitReady: () => ({ ok: true }),
+      }),
+    /symlink/i
+  );
   assert.deepEqual(fs.readdirSync(escape), []);
 });
 
