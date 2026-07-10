@@ -130,6 +130,16 @@ function readJsonNoFollowIfExists(filePath) {
   return readJsonNoFollow(filePath);
 }
 
+function* directoryEntries(dirPath) {
+  const directory = fs.opendirSync(dirPath);
+  try {
+    let entry;
+    while ((entry = directory.readSync()) !== null) yield entry;
+  } finally {
+    directory.closeSync();
+  }
+}
+
 function timeoutValue(timeout) {
   return typeof timeout === "function" ? timeout() : timeout;
 }
@@ -1354,12 +1364,13 @@ function scanSnapshotFinalizedEvents(pmDir, options = {}) {
     throw new Error(`lease evidence is invalid: ${leaseIndex.invalid[0]}`);
   }
   const events = [];
-  const entries = fs.readdirSync(eventDir, { withFileTypes: true });
   const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
-  if (entries.filter((entry) => entry.name.endsWith(".json")).length > maxEntries) {
-    throw new Error(`finalized event scan limit exceeded (${maxEntries})`);
-  }
-  for (const entry of entries) {
+  let scannedEntries = 0;
+  for (const entry of directoryEntries(eventDir)) {
+    scannedEntries += 1;
+    if (scannedEntries > maxEntries) {
+      throw new Error(`finalized event scan limit exceeded (${maxEntries})`);
+    }
     if (!entry.name.endsWith(".json")) continue;
     if (!entry.isFile() || entry.isSymbolicLink()) {
       throw new Error(`invalid finalized event evidence entry: ${entry.name}`);

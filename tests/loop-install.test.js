@@ -499,6 +499,23 @@ test("symlinked canary evidence root fails closed", () => {
   }
 });
 
+test("empty canary run directories count against the evidence scan bound", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-empty-bound-"));
+  try {
+    for (const name of ["run-a", "run-b", "run-c"]) {
+      fs.mkdirSync(path.join(root, "loop-canary", name), { recursive: true });
+    }
+    const gate = evaluateCanaryReleaseGate(root, null, {
+      maxEvidenceEntries: 2,
+      now: new Date("2026-07-10T02:00:00.000Z"),
+    });
+    assert.equal(gate.passed, false);
+    assert.match(gate.reason, /scan limit/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("setKillSwitch writes and removes the STOP file", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-install-"));
   const pmDir = path.join(root, "pm");

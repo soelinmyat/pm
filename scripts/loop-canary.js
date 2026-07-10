@@ -88,6 +88,16 @@ function hashFile(filePath) {
   return sha256(fs.readFileSync(filePath));
 }
 
+function* directoryEntries(dirPath) {
+  const directory = fs.opendirSync(dirPath);
+  try {
+    let entry;
+    while ((entry = directory.readSync()) !== null) yield entry;
+  } finally {
+    directory.closeSync();
+  }
+}
+
 function stableEqual(left, right) {
   return JSON.stringify(stableValue(left)) === JSON.stringify(stableValue(right));
 }
@@ -379,13 +389,18 @@ function readCanaryEvidence(pmStateDir, options = {}) {
     recordInvalid({ file: root, reason: "canary evidence root is not a real directory" });
     return { records, invalid, invalid_count: invalidCount };
   }
-  evidence: for (const runEntry of fs.readdirSync(root, { withFileTypes: true })) {
+  evidence: for (const runEntry of directoryEntries(root)) {
+    scannedEntries += 1;
+    if (scannedEntries > maxEntries) {
+      recordInvalid({ file: root, reason: `canary evidence scan limit exceeded (${maxEntries})` });
+      break;
+    }
     if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) {
       recordInvalid({ file: path.join(root, runEntry.name), reason: "invalid canary run entry" });
       continue;
     }
     const runDir = path.join(root, runEntry.name);
-    for (const caseEntry of fs.readdirSync(runDir, { withFileTypes: true })) {
+    for (const caseEntry of directoryEntries(runDir)) {
       scannedEntries += 1;
       if (scannedEntries > maxEntries) {
         recordInvalid({

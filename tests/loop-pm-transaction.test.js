@@ -49,15 +49,8 @@ test("finalized event scans fail closed at the configured bound", (t) => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const eventDir = path.join(root, "loop", "events");
   fs.mkdirSync(eventDir, { recursive: true });
-  for (const runId of [
-    "loop-82345678-1234-4123-8123-123456789abc",
-    "loop-92345678-1234-4123-8123-123456789abc",
-  ]) {
-    fs.writeFileSync(
-      path.join(eventDir, `${runId}.json`),
-      JSON.stringify({ run_id: runId, card_id: "PM-404", stage: "dev", terminal: true })
-    );
-  }
+  fs.writeFileSync(path.join(eventDir, "unexpected-a.txt"), "a\n");
+  fs.writeFileSync(path.join(eventDir, "unexpected-b.txt"), "b\n");
   assert.throws(() => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }), /event scan limit/i);
 });
 
