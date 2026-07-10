@@ -9,6 +9,7 @@ const { execFileSync } = require("node:child_process");
 
 const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
 const {
+  buildPlan,
   classifyStaleCard,
   parseArgs,
   resumeRecovery,
@@ -175,7 +176,7 @@ test("classification uses recovery, durable outcomes, verified PRs, and lease ev
 
   const expired = classifyStaleCard(
     card({ loop_run_id: "" }),
-    { leases: [{ run_id: RUN_ID, expired: true }], transactions: [] },
+    { leases: [{ run_id: RUN_ID, card_id: "PM-404", expired: true }], transactions: [] },
     {}
   );
   assert.equal(expired.classification, "expired-lease");
@@ -193,6 +194,87 @@ test("classification uses recovery, durable outcomes, verified PRs, and lease ev
   assert.equal(unknown.classification, "unverified");
   assert.equal(unknown.operation, "none");
   assert.match(unknown.remediation, /retry.*GitHub/i);
+});
+
+test("a unique same-card recovery outranks stale run identity and ambiguous evidence fails closed", () => {
+  const newerRecovery = transaction({
+    run_id: RUN_ID_2,
+    state: "recovery-ready",
+    recovery: {
+      run_id: RUN_ID_2,
+      card_id: "PM-404",
+      stage: "dev",
+      terminal_event: { terminal: true, status: "completed" },
+    },
+  });
+  const selected = classifyStaleCard(
+    card({ loop_run_id: RUN_ID }),
+    {
+      leases: [{ run_id: RUN_ID_2, card_id: "PM-404", expired: true }],
+      transactions: [transaction(), newerRecovery],
+    },
+    {}
+  );
+  assert.equal(selected.classification, "recovery-ready");
+  assert.equal(selected.run_id, RUN_ID_2);
+
+  const multiple = classifyStaleCard(
+    card(),
+    {
+      leases: [],
+      transactions: [
+        newerRecovery,
+        transaction({
+          state: "recovery-ready",
+          recovery: { run_id: RUN_ID, card_id: "PM-404", stage: "dev" },
+        }),
+      ],
+    },
+    {}
+  );
+  assert.equal(multiple.classification, "recovery-ambiguous");
+  assert.equal(multiple.operation, "none");
+
+  const malformed = classifyStaleCard(
+    card(),
+    {
+      leases: [{ run_id: RUN_ID, card_id: "PM-404", expired: true }],
+      transactions: [transaction({ state: "ambiguous", recovery: null })],
+    },
+    {}
+  );
+  assert.equal(malformed.classification, "recovery-ambiguous");
+  assert.equal(malformed.operation, "none");
+});
+
+test("durable history without an exact card run ID cannot authorize a mutation", () => {
+  const result = classifyStaleCard(
+    card({ loop_run_id: "" }),
+    { leases: [], transactions: [transaction()] },
+    {}
+  );
+  assert.equal(result.classification, "unverified");
+  assert.equal(result.operation, "none");
+});
+
+test("invalid stored pull-request artifacts fail closed before remote inspection", () => {
+  let inspected = false;
+  const invalid = storedPr();
+  invalid.data.branch = "../unsafe";
+  const rejected = classifyStaleCard(
+    invalid,
+    { leases: [], transactions: [] },
+    {
+      expectedRepository: "openai/pm",
+      expectedBase: "main",
+      inspectPullRequest() {
+        inspected = true;
+        return { ok: true, state: "MERGED" };
+      },
+    }
+  );
+  assert.equal(rejected.classification, "unverified");
+  assert.equal(inspected, false);
 });
 
 function makeFixture(t) {
@@ -351,7 +433,11 @@ test("apply requires Git readiness, uses isolated PM transactions, and reports e
   assert.equal(applied.ok, true, JSON.stringify(applied));
   assert.equal(applied.mode, "apply");
   assert.equal(transactions, 1);
-  assert.deepEqual(applied.applied_changes, applied.proposed_changes);
+  assert.equal(applied.applied_changes.length, 1);
+  assert.deepEqual(applied.applied_changes[0].changes, applied.proposed_changes[0].changes);
+  assert.match(applied.applied_changes[0].commit_oid, /^[a-f0-9]{40}$/);
+  assert.ok(applied.applied_changes[0].paths.includes("pm/backlog/stale.md"));
+  assert.ok(applied.applied_changes[0].paths.some((entry) => entry.includes("/loop/events/")));
 
   git(fixture.project, ["fetch", "origin"]);
   const remoteCard = git(fixture.project, ["show", "origin/main:pm/backlog/stale.md"]);
@@ -362,9 +448,91 @@ test("apply requires Git readiness, uses isolated PM transactions, and reports e
   assert.match(git(fixture.project, ["log", "-1", "--format=%s", "origin/main"]), /reconcile/i);
 });
 
+test("apply pins the planned PM head and aborts when durable evidence changes", (t) => {
+  const fixture = makeFixture(t);
+  const result = runReconcile(fixture.project, {
+    pmDir: fixture.pmDir,
+    now: NOW,
+    apply: true,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    checkGitReady() {
+      fs.writeFileSync(path.join(fixture.project, "README.md"), "concurrent durable change\n");
+      git(fixture.project, ["add", "README.md"]);
+      git(fixture.project, ["commit", "-m", "concurrent PM evidence"]);
+      git(fixture.project, ["push"]);
+      return { ok: true };
+    },
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.code, "apply-failed");
+  assert.match(result.reason, /upstream|plan|conflict/i);
+  assert.deepEqual(result.applied_changes, []);
+  const remoteCard = git(fixture.project, ["show", "origin/main:pm/backlog/stale.md"]);
+  assert.equal(parseFrontmatter(remoteCard).data.status, "shipping");
+});
+
+test("ordinary card repairs are batched into one isolated PM transaction", (t) => {
+  const fixture = makeFixture(t);
+  const second = fs
+    .readFileSync(path.join(fixture.pmDir, "backlog", "stale.md"), "utf8")
+    .replace(/PM-404/g, "PM-406")
+    .replace(/#42/g, "#43")
+    .replace(/pull\/42/g, "pull/43")
+    .replace('pr_number: "42"', 'pr_number: "43"');
+  fs.writeFileSync(path.join(fixture.pmDir, "backlog", "second.md"), second);
+  git(fixture.project, ["add", "pm/backlog/second.md"]);
+  git(fixture.project, ["commit", "-m", "second stale card"]);
+  git(fixture.project, ["push"]);
+
+  let transactions = 0;
+  const result = runReconcile(fixture.project, {
+    pmDir: fixture.pmDir,
+    now: NOW,
+    apply: true,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    onTransaction() {
+      transactions += 1;
+    },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.proposed_changes.length, 2);
+  assert.equal(result.applied_changes.length, 2);
+  assert.equal(transactions, 1);
+  assert.equal(result.applied_changes[0].commit_oid, result.applied_changes[1].commit_oid);
+});
+
+test("duplicate card IDs are classified as ambiguous and never proposed", (t) => {
+  const fixture = makeFixture(t);
+  const duplicate = fs
+    .readFileSync(path.join(fixture.pmDir, "backlog", "stale.md"), "utf8")
+    .replace('title: "Stale card"', 'title: "Duplicate stale card"')
+    .replace('branch: "loop/pm-404"', 'branch: "loop/duplicate"');
+  fs.writeFileSync(path.join(fixture.pmDir, "backlog", "duplicate.md"), duplicate);
+  git(fixture.project, ["add", "pm/backlog/duplicate.md"]);
+  git(fixture.project, ["commit", "-m", "duplicate card id"]);
+  git(fixture.project, ["push"]);
+
+  const plan = buildPlan(fixture.project, {
+    pmDir: fixture.pmDir,
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+  });
+  assert.equal(plan.proposed_changes.length, 0);
+  assert.equal(plan.classifications.length, 2);
+  assert.ok(plan.classifications.every((entry) => entry.classification === "duplicate-card-id"));
+});
+
 test("CLI parsing keeps dry-run as the default and requires an explicit apply flag", () => {
   assert.equal(parseArgs([]).apply, false);
+  assert.equal(parseArgs(["--dry-run"]).apply, false);
   assert.equal(parseArgs(["--apply"]).apply, true);
+  assert.throws(() => parseArgs(["--apply", "--dry-run"]), /mutually exclusive/i);
   assert.throws(() => parseArgs(["--apply", "surprise"]), /Unexpected argument/);
 });
 
@@ -376,10 +544,13 @@ test("apply-mode recovery resumes the exact durable run instead of executing the
     terminal_event: { terminal: true, status: "completed", outcome: "dev-shipped" },
     transition: { artifact_writes: [] },
   };
-  const change = { operation: "resume-finalization" };
-  Object.defineProperty(change, "_recovery", { value: recovery });
+  const change = {
+    operation: "resume-finalization",
+    run_id: RUN_ID,
+    card_id: "PM-404",
+  };
   let observed;
-  const result = resumeRecovery("/unused/pm", change, {
+  const result = resumeRecovery("/unused/pm", change, recovery, {
     finalizeRun(pmDir, input) {
       observed = { pmDir, input };
       return { ok: true, pushed: true };

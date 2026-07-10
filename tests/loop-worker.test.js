@@ -951,12 +951,19 @@ test("post-run PM comparison permits only the expected source branch refs in sam
       `refs/remotes/origin/loop/pm-404:${"c".repeat(40)}`,
     ].join("\n"),
   };
-  assert.equal(protectedPmStateUnchanged(before, sourceOnly, "loop/pm-404"), true);
+  assert.equal(protectedPmStateUnchanged(before, sourceOnly, "loop/pm-404", "/repo"), true);
+  assert.equal(
+    protectedPmStateUnchanged(before, sourceOnly, "loop/pm-404", "/source-repo"),
+    false,
+    "a source-named ref in a separate PM repository must remain protected"
+  );
+  assert.equal(protectedPmStateUnchanged({}, {}, "loop/pm-404", "/repo"), false);
   assert.equal(
     protectedPmStateUnchanged(
       before,
       { ...sourceOnly, protected_status: " M pm/backlog/x.md" },
-      "loop/pm-404"
+      "loop/pm-404",
+      "/repo"
     ),
     false
   );
@@ -970,7 +977,8 @@ test("post-run PM comparison permits only the expected source branch refs in sam
           "refs/heads/main:" + "d".repeat(40)
         ),
       },
-      "loop/pm-404"
+      "loop/pm-404",
+      "/repo"
     ),
     false
   );

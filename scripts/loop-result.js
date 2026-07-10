@@ -591,6 +591,7 @@ module.exports = {
   STAGE_STATUSES,
   createRunResultCapability,
   readStageResult,
+  validatePrArtifact,
   validateStageResult,
   verifyCommittedGateSidecar,
   verifyDocumentArtifact,

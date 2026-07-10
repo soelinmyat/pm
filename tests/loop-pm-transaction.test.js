@@ -17,7 +17,30 @@ const {
   markRunDispatched,
   releaseClaim,
   runIsolatedTransaction,
+  scanSnapshotTransactions,
 } = require("../scripts/loop-pm-transaction.js");
+
+test("snapshot transaction scanning includes finalized durable events through the canonical inspector", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-finalized-scan-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runId = "loop-32345678-1234-4123-8123-123456789abc";
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "loop", "events", `${runId}.json`),
+    JSON.stringify({
+      run_id: runId,
+      card_id: "PM-404",
+      stage: "dev",
+      terminal: true,
+      status: "failed",
+    })
+  );
+  const states = scanSnapshotTransactions(root, { now: FIXED_NOW });
+  assert.deepEqual(
+    states.map((entry) => [entry.run_id, entry.state]),
+    [[runId, "finalized"]]
+  );
+});
 
 const FIXED_NOW = new Date("2026-07-10T00:00:00.000Z");
 const GIT_ENV_KEYS_TO_CLEAR = [

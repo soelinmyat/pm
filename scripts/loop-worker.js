@@ -57,6 +57,7 @@ const {
 } = require("./loop-result.js");
 const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -351,30 +352,6 @@ const RESULT_SUCCESSES = new Set([
   "needs-approval",
 ]);
 
-function sourceRepository(gitRoot) {
-  let remote;
-  try {
-    remote = runGit(["remote", "get-url", "origin"], gitRoot);
-  } catch {
-    return "";
-  }
-  const match = String(remote).match(
-    /(?:github\.com[/:]|^[^/]+\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
-  );
-  return match ? match[1].replace(/\.git$/, "") : "";
-}
-
-function defaultBranchName(gitRoot) {
-  try {
-    return runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], gitRoot).replace(
-      /^origin\//,
-      ""
-    );
-  } catch {
-    return "main";
-  }
-}
-
 function claimedCardSnapshot(pmDir, lease, options = {}) {
   return withRemoteSnapshot(
     pmDir,
@@ -428,13 +405,33 @@ function parseRefSnapshot(value) {
   return refs;
 }
 
-function protectedPmStateUnchanged(before, after, sourceBranch = "") {
-  if (!before || !after) return false;
-  for (const field of ["git_root", "head", "tree_hash", "protected_status"]) {
-    if (String(before[field] || "") !== String(after[field] || "")) return false;
+function validProtectedPmSnapshot(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (typeof value.git_root !== "string") return false;
+  if (value.git_root) {
+    return (
+      typeof value.head === "string" &&
+      value.head.length > 0 &&
+      typeof value.refs === "string" &&
+      value.refs.length > 0 &&
+      typeof value.protected_status === "string"
+    );
   }
+  return typeof value.tree_hash === "string" && value.tree_hash.length > 0;
+}
+
+function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRoot = "") {
+  if (!validProtectedPmSnapshot(before) || !validProtectedPmSnapshot(after)) return false;
+  if (before.git_root !== after.git_root) return false;
+  if (!before.git_root) return before.tree_hash === after.tree_hash;
+  if (before.head !== after.head || before.protected_status !== after.protected_status)
+    return false;
+  const sameRepository =
+    sourceGitRoot && path.resolve(before.git_root) === path.resolve(sourceGitRoot);
   const allowed = new Set(
-    sourceBranch ? [`refs/heads/${sourceBranch}`, `refs/remotes/origin/${sourceBranch}`] : []
+    sourceBranch && sameRepository
+      ? [`refs/heads/${sourceBranch}`, `refs/remotes/origin/${sourceBranch}`]
+      : []
   );
   const left = parseRefSnapshot(before.refs);
   const right = parseRefSnapshot(after.refs);
@@ -1013,7 +1010,12 @@ function runWorker(projectDir, options = {}) {
       const protectedPmChanged =
         !protectedBeforeError &&
         !protectedAfterError &&
-        !protectedPmStateUnchanged(protectedBefore, protectedAfter, workspace.branch);
+        !protectedPmStateUnchanged(
+          protectedBefore,
+          protectedAfter,
+          workspace.branch,
+          projectGitRoot
+        );
       const protectedPmVerification = {
         ok: !protectedBeforeError && !protectedAfterError && !protectedPmChanged,
         code: protectedBeforeError

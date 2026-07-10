@@ -806,6 +806,8 @@ function finalizeRun(pmDir, input, options = {}) {
     pmDir,
     {
       commitMessage: `pm loop finalize ${input.cardId || input.card_id} ${input.stage}`,
+      expectedUpstreamOid: options.expectedHeadOid || input.expectedHeadOid || "",
+      upstreamMismatchReason: "recovery-plan-stale",
       maxAttempts: options.maxAttempts || input.maxAttempts || 3,
       mutate(context) {
         const paths = transactionPaths(
@@ -930,6 +932,9 @@ function finalizeRun(pmDir, input, options = {}) {
           transition,
           card_path: cardRelative,
           artifact_paths: transition.artifact_writes.map((entry) => entry.relative_path),
+          event_path: paths.event,
+          recovery_path: paths.recovery,
+          lease_path: paths.lease,
         };
       },
       allowedPaths(context, result) {
@@ -1145,8 +1150,15 @@ function inspectRemoteRunState(pmDir, runId, options = {}) {
   return state;
 }
 
-function listRunIds(pmDir) {
+function listRunIds(pmDir, options = {}) {
   const ids = new Set();
+  const requestedRuns = new Set(
+    (options.runIds || []).filter((entry) => RUN_ID_PATTERN.test(entry))
+  );
+  const requestedCards = new Set((options.cardIds || []).map(String).filter(Boolean));
+  const scoped = requestedRuns.size > 0 || requestedCards.size > 0;
+  const relevant = (record, runId) =>
+    !scoped || requestedRuns.has(runId) || requestedCards.has(String(record?.card_id || ""));
   for (const child of ["events", "recovery", "leases"]) {
     const dir = path.join(pmDir, "loop", child);
     if (!fs.existsSync(dir)) continue;
@@ -1155,21 +1167,22 @@ function listRunIds(pmDir) {
       if (child === "leases") {
         try {
           const lease = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
-          if (lease.run_id) ids.add(lease.run_id);
-          else ids.add(`ambiguous:${entry.name}`);
+          if (lease.run_id) {
+            if (relevant(lease, lease.run_id)) ids.add(lease.run_id);
+          } else {
+            ids.add(`ambiguous:${entry.name}`);
+          }
         } catch {
           ids.add(`ambiguous:${entry.name}`);
         }
-      } else if (child === "events") {
+      } else {
         const runId = entry.name.slice(0, -5);
         try {
-          const event = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
-          if (event.terminal !== true || event.run_id !== runId) ids.add(runId);
+          const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+          if (relevant(record, runId)) ids.add(runId);
         } catch {
           ids.add(runId);
         }
-      } else {
-        ids.add(entry.name.slice(0, -5));
       }
     }
   }
@@ -1177,7 +1190,7 @@ function listRunIds(pmDir) {
 }
 
 function scanSnapshotTransactions(pmDir, options = {}) {
-  return listRunIds(pmDir).map((runId) => {
+  return listRunIds(pmDir, options).map((runId) => {
     if (!RUN_ID_PATTERN.test(runId)) {
       return { run_id: runId, state: "ambiguous", redispatch: false };
     }

@@ -26,6 +26,8 @@ const {
 } = require("./loop-pm-transaction.js");
 const { inspectPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { validatePrArtifact } = require("./loop-result.js");
+const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 
 const STALE_STATUSES = new Set([
   "in-progress",
@@ -65,37 +67,69 @@ function pullRequestArtifact(data) {
     head_oid: String(data.pr_head_oid || ""),
     created_at: String(data.pr_created_at || ""),
   };
-  if (
-    !artifact.repo ||
-    !Number.isSafeInteger(number) ||
-    number < 1 ||
-    !artifact.url ||
-    !artifact.base ||
-    !artifact.head ||
-    !/^[a-f0-9]{40,64}$/i.test(artifact.head_oid) ||
-    !Number.isFinite(Date.parse(artifact.created_at))
-  ) {
-    return null;
-  }
-  return artifact;
+  return validatePrArtifact(artifact, "shipped") ? null : artifact;
 }
 
-function transactionForCard(card, transactions) {
+function evidenceCardId(entry) {
+  return entry.recovery?.card_id || entry.lease?.card_id || entry.event?.card_id || "";
+}
+
+function transactionsForCard(card, transactions) {
   const runId = String(card.data.loop_run_id || "");
-  const candidates = (transactions || []).filter((entry) => {
-    const cardId = entry.recovery?.card_id || entry.lease?.card_id || entry.event?.card_id;
-    return cardId ? cardId === card.id : entry.run_id === runId;
+  return (transactions || []).filter((entry) => {
+    const cardId = evidenceCardId(entry);
+    return cardId ? cardId === card.id : Boolean(runId && entry.run_id === runId);
   });
-  return candidates.find((entry) => entry.run_id === runId) || candidates[0] || null;
 }
 
 function leasesForCard(card, leases) {
   const runId = String(card.data.loop_run_id || "");
   return (leases || []).filter(
     (lease) =>
-      (!lease.card_id || lease.card_id === card.id) &&
-      (!runId || !lease.run_id || lease.run_id === runId)
+      (lease.card_id && lease.card_id === card.id) ||
+      (!lease.card_id && runId && lease.run_id === runId)
   );
+}
+
+function appendIndex(index, key, value) {
+  if (!key) return;
+  const current = index.get(key) || [];
+  current.push(value);
+  index.set(key, current);
+}
+
+function indexEvidence(leases, transactions) {
+  const transactionByCard = new Map();
+  const transactionByRun = new Map();
+  const globalAmbiguous = [];
+  for (const transaction of transactions || []) {
+    appendIndex(transactionByRun, transaction.run_id, transaction);
+    const cardId = evidenceCardId(transaction);
+    appendIndex(transactionByCard, cardId, transaction);
+    if (!cardId && transaction.state === "ambiguous") globalAmbiguous.push(transaction);
+  }
+  const leaseByCard = new Map();
+  const leaseByRun = new Map();
+  for (const lease of leases || []) {
+    appendIndex(leaseByCard, lease.card_id, lease);
+    appendIndex(leaseByRun, lease.run_id, lease);
+  }
+  return { transactionByCard, transactionByRun, globalAmbiguous, leaseByCard, leaseByRun };
+}
+
+function evidenceForCard(card, index) {
+  const runId = String(card.data.loop_run_id || "");
+  return {
+    transactions: [
+      ...(index.transactionByCard.get(card.id) || []),
+      ...(index.transactionByRun.get(runId) || []),
+      ...index.globalAmbiguous,
+    ].filter((entry, position, entries) => entries.indexOf(entry) === position),
+    leases: [
+      ...(index.leaseByCard.get(card.id) || []),
+      ...(index.leaseByRun.get(runId) || []),
+    ].filter((entry, position, entries) => entries.indexOf(entry) === position),
+  };
 }
 
 function noAction(classification, remediation, extra = {}) {
@@ -121,11 +155,14 @@ function needsHuman(classification, reason, remediation, runId, extra = {}) {
 }
 
 function classifyStaleCard(card, evidence = {}, options = {}) {
-  const transaction = transactionForCard(card, evidence.transactions);
+  const runId = String(card.data.loop_run_id || "");
+  const candidates = transactionsForCard(card, evidence.transactions);
+  const recoveries = candidates.filter((entry) => entry.recovery);
   const cardLeases = leasesForCard(card, evidence.leases);
 
-  if (transaction && transaction.recovery) {
-    if (transaction.state === "recovery-ready") {
+  if (recoveries.length > 0) {
+    if (recoveries.length === 1 && recoveries[0].state === "recovery-ready") {
+      const transaction = recoveries[0];
       return {
         classification: "recovery-ready",
         operation: "resume-finalization",
@@ -133,12 +170,26 @@ function classifyStaleCard(card, evidence = {}, options = {}) {
         recovery: transaction.recovery,
       };
     }
+    const transaction = recoveries[0];
     return noAction(
       "recovery-ambiguous",
-      "Repair the same-run recovery ownership/hash mismatch; do not dispatch the card again.",
+      recoveries.length > 1
+        ? "Multiple recovery records claim this card; resolve ownership without redispatching it."
+        : "Repair the same-run recovery ownership/hash mismatch; do not dispatch the card again.",
       { run_id: transaction.run_id, recovery: transaction.recovery }
     );
   }
+
+  const ambiguous = candidates.find((entry) => entry.state === "ambiguous");
+  if (ambiguous) {
+    return noAction(
+      "recovery-ambiguous",
+      "Repair the ambiguous durable run evidence; do not dispatch or mutate the card meanwhile.",
+      { run_id: ambiguous.run_id }
+    );
+  }
+
+  const transaction = runId ? candidates.find((entry) => entry.run_id === runId) || null : null;
 
   const activeLease = cardLeases.find((lease) => lease.valid_json !== false && !lease.expired);
   if (activeLease) {
@@ -243,34 +294,6 @@ function readCards(pmDir, pmRelative) {
     .filter((card) => STALE_STATUSES.has(normalizeStatus(card.data.status)));
 }
 
-function readTerminalEvents(pmDir) {
-  const eventsDir = path.join(pmDir, "loop", "events");
-  if (!fs.existsSync(eventsDir)) return [];
-  const events = [];
-  for (const entry of fs.readdirSync(eventsDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const runId = entry.name.slice(0, -5);
-    try {
-      const event = JSON.parse(fs.readFileSync(path.join(eventsDir, entry.name), "utf8"));
-      if (event.run_id !== runId || event.terminal !== true || typeof event.card_id !== "string") {
-        continue;
-      }
-      events.push({
-        run_id: runId,
-        state: "finalized",
-        event,
-        recovery: null,
-        lease: null,
-        lease_expired: false,
-        redispatch: false,
-      });
-    } catch {
-      // Invalid durable evidence cannot authorize a repair.
-    }
-  }
-  return events;
-}
-
 function fieldChange(field, before, after) {
   return {
     field,
@@ -282,7 +305,7 @@ function fieldChange(field, before, after) {
 function proposalFor(card, classification) {
   if (classification.operation === "none") return null;
   if (classification.operation === "resume-finalization") {
-    const proposal = {
+    return {
       card_id: card.id,
       card_path: card.relativePath,
       classification: classification.classification,
@@ -291,8 +314,6 @@ function proposalFor(card, classification) {
       expected_revision: card.revision,
       changes: [{ field: "recovery", before: "ready-to-finalize", after: "finalized" }],
     };
-    Object.defineProperty(proposal, "_recovery", { value: classification.recovery });
-    return proposal;
   }
 
   const changes = [];
@@ -340,40 +361,13 @@ function proposalFor(card, classification) {
   return proposal;
 }
 
-function sourceRepository(projectDir) {
-  const root = findGitRoot(projectDir);
-  if (!root) return "";
-  let remote = "";
-  try {
-    remote = runGit(["remote", "get-url", "origin"], root);
-  } catch {
-    return "";
-  }
-  const match = String(remote).match(
-    /(?:github\.com[/:]|^[^/]+\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
-  );
-  return match ? match[1].replace(/\.git$/, "") : "";
-}
-
-function sourceDefaultBranch(projectDir) {
-  const root = findGitRoot(projectDir);
-  if (!root) return "main";
-  try {
-    return runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).replace(
-      /^origin\//,
-      ""
-    );
-  } catch {
-    return "main";
-  }
-}
-
 function buildPlan(projectDir, options = {}) {
   const pmDir = options.pmDir || resolvePmPaths(projectDir).pmDir;
   const now = options.now instanceof Date ? options.now : new Date();
   const expectedRepository =
-    options.expectedRepository || sourceRepository(options.sourceDir || projectDir);
-  const expectedBase = options.expectedBase || sourceDefaultBranch(options.sourceDir || projectDir);
+    options.expectedRepository || sourceRepository(findGitRoot(options.sourceDir || projectDir));
+  const expectedBase =
+    options.expectedBase || defaultBranchName(findGitRoot(options.sourceDir || projectDir));
   const snapshot = (options.withRemoteSnapshot || withRemoteSnapshot)(
     pmDir,
     (remote) => {
@@ -384,35 +378,36 @@ function buildPlan(projectDir, options = {}) {
           path.posix.join(remote.pmRelative, "loop", "leases", path.basename(lease.filePath))
         ),
       }));
-      const incompleteTransactions = scanSnapshotTransactions(remote.pmDir, { now });
-      const byRunId = new Map(
-        readTerminalEvents(remote.pmDir).map((transaction) => [transaction.run_id, transaction])
-      );
-      for (const transaction of incompleteTransactions) {
-        byRunId.set(transaction.run_id, transaction);
-      }
-      const transactions = [...byRunId.values()];
-      const classifications = cards.map((card) => {
-        const classified = classifyStaleCard(
-          card,
-          { leases, transactions },
-          {
-            ...options,
-            expectedRepository,
-            expectedBase,
-          }
-        );
-        return {
+      const transactions = scanSnapshotTransactions(remote.pmDir, {
+        now,
+        cardIds: cards.map((card) => card.id),
+        runIds: cards.map((card) => String(card.data.loop_run_id || "")).filter(Boolean),
+      });
+      const evidenceIndex = indexEvidence(leases, transactions);
+      const counts = new Map();
+      for (const card of cards) counts.set(card.id, (counts.get(card.id) || 0) + 1);
+      const classifications = [];
+      const proposed = [];
+      for (const card of cards) {
+        const classified =
+          counts.get(card.id) > 1
+            ? noAction(
+                "duplicate-card-id",
+                "Give every backlog file a unique card ID before reconciling."
+              )
+            : classifyStaleCard(card, evidenceForCard(card, evidenceIndex), {
+                ...options,
+                expectedRepository,
+                expectedBase,
+              });
+        const classification = {
           card_id: card.id,
           card_path: card.relativePath,
           status: String(card.data.status || ""),
           expected_revision: card.revision,
           ...classified,
         };
-      });
-      const proposed = [];
-      for (const card of cards) {
-        const classification = classifications.find((entry) => entry.card_id === card.id);
+        classifications.push(classification);
         const proposal = proposalFor(card, classification);
         if (proposal) proposed.push(proposal);
       }
@@ -450,75 +445,96 @@ function defaultGitReadiness(pmDir) {
   }
 }
 
-function applyCardChange(pmDir, change, options = {}) {
+function applyCardChanges(pmDir, changes, options = {}) {
+  if (!Array.isArray(changes) || changes.length === 0) {
+    return { ok: true, commitHash: options.expectedHeadOid || "", applied: [] };
+  }
   const transaction = options.runIsolatedTransaction || runIsolatedTransaction;
-  const reconcileRunId = createRunId();
+  const work = changes.map((change) => ({ change, reconcileRunId: createRunId() }));
   return transaction(
     pmDir,
     {
-      commitMessage: `pm loop reconcile ${change.card_id} ${change.classification}`,
+      commitMessage:
+        changes.length === 1
+          ? `pm loop reconcile ${changes[0].card_id} ${changes[0].classification}`
+          : `pm loop reconcile ${changes.length} stale cards`,
+      expectedUpstreamOid: options.expectedHeadOid || "",
+      upstreamMismatchReason: "reconcile-plan-stale",
       mutate(context) {
-        const cardPath = path.join(context.workspace, ...change.card_path.split("/"));
-        if (
-          !fs.existsSync(cardPath) ||
-          sha256(fs.readFileSync(cardPath)) !== change.expected_revision
-        ) {
-          const err = new Error("card revision changed after reconciliation plan");
-          err.name = "ReconcileRevisionError";
-          throw err;
-        }
-        const content = fs.readFileSync(cardPath, "utf8");
-        const data = parseFrontmatter(content).data;
-        const fields = {};
-        for (const field of MANAGED_FIELDS) {
-          if (data[field] !== undefined) fields[field] = data[field];
-        }
-        for (const entry of change.changes) fields[entry.field] = entry.after;
-        fs.writeFileSync(cardPath, rewriteFrontmatter(content, fields));
-
-        let leasePath = "";
-        if (change.lease_path) {
-          leasePath = change.lease_path;
-          const absoluteLease = path.join(context.workspace, ...leasePath.split("/"));
-          if (fs.existsSync(absoluteLease)) {
-            const lease = JSON.parse(fs.readFileSync(absoluteLease, "utf8"));
-            if (change.lease_run_id && lease.run_id !== change.lease_run_id) {
-              throw new Error("expired lease owner changed after reconciliation plan");
-            }
-            fs.rmSync(absoluteLease);
+        const applied = [];
+        for (const item of work) {
+          const { change, reconcileRunId } = item;
+          const cardPath = path.join(context.workspace, ...change.card_path.split("/"));
+          if (
+            !fs.existsSync(cardPath) ||
+            sha256(fs.readFileSync(cardPath)) !== change.expected_revision
+          ) {
+            const err = new Error("card revision changed after reconciliation plan");
+            err.name = "ReconcileRevisionError";
+            throw err;
           }
+          const content = fs.readFileSync(cardPath, "utf8");
+          const data = parseFrontmatter(content).data;
+          const fields = {};
+          for (const field of MANAGED_FIELDS) {
+            if (data[field] !== undefined) fields[field] = data[field];
+          }
+          for (const entry of change.changes) fields[entry.field] = entry.after;
+          fs.writeFileSync(cardPath, rewriteFrontmatter(content, fields));
+
+          let leasePath = "";
+          if (change.lease_path) {
+            leasePath = change.lease_path;
+            const absoluteLease = path.join(context.workspace, ...leasePath.split("/"));
+            if (fs.existsSync(absoluteLease)) {
+              const lease = JSON.parse(fs.readFileSync(absoluteLease, "utf8"));
+              if (change.lease_run_id && lease.run_id !== change.lease_run_id) {
+                throw new Error("expired lease owner changed after reconciliation plan");
+              }
+              fs.rmSync(absoluteLease);
+            }
+          }
+          const eventPath = safeRelativePath(
+            path.posix.join(context.pmRelative, "loop", "events", `${reconcileRunId}.json`)
+          );
+          writeJsonAtomic(path.join(context.workspace, ...eventPath.split("/")), {
+            schema_version: 1,
+            run_id: reconcileRunId,
+            card_id: change.card_id,
+            terminal: true,
+            status: "reconciled",
+            outcome: change.classification,
+            reconciled_at:
+              options.now instanceof Date ? options.now.toISOString() : new Date().toISOString(),
+            changes: change.changes,
+          });
+          applied.push({
+            card_path: change.card_path,
+            event_path: eventPath,
+            lease_path: leasePath,
+          });
         }
-        const eventPath = safeRelativePath(
-          path.posix.join(context.pmRelative, "loop", "events", `${reconcileRunId}.json`)
-        );
-        writeJsonAtomic(path.join(context.workspace, ...eventPath.split("/")), {
-          schema_version: 1,
-          run_id: reconcileRunId,
-          card_id: change.card_id,
-          terminal: true,
-          status: "reconciled",
-          outcome: change.classification,
-          reconciled_at:
-            options.now instanceof Date ? options.now.toISOString() : new Date().toISOString(),
-          changes: change.changes,
-        });
-        return { card_path: change.card_path, event_path: eventPath, lease_path: leasePath };
+        return { applied };
       },
       allowedPaths(_context, result) {
-        return [
-          result.card_path,
-          result.event_path,
-          ...(result.lease_path ? [result.lease_path] : []),
-        ];
+        return result.applied.flatMap((entry) => [
+          entry.card_path,
+          entry.event_path,
+          ...(entry.lease_path ? [entry.lease_path] : []),
+        ]);
       },
     },
     options.transactionOptions || {}
   );
 }
 
-function resumeRecovery(pmDir, change, options = {}) {
-  const recovery = change._recovery;
-  if (!recovery || !recovery.terminal_event) {
+function resumeRecovery(pmDir, change, recovery, options = {}) {
+  if (
+    !recovery ||
+    recovery.run_id !== change.run_id ||
+    recovery.card_id !== change.card_id ||
+    !recovery.terminal_event
+  ) {
     return { ok: false, reason: "recovery terminal event is missing" };
   }
   const finalize = options.finalizeRun || finalizeRun;
@@ -533,8 +549,19 @@ function resumeRecovery(pmDir, change, options = {}) {
         (artifact) => artifact.relative_path
       ),
     },
-    options.transactionOptions || {}
+    {
+      ...(options.transactionOptions || {}),
+      expectedHeadOid: options.expectedHeadOid || "",
+    }
   );
+}
+
+function appliedChange(change, result, paths) {
+  return {
+    ...change,
+    commit_oid: String(result.commitHash || ""),
+    paths: [...new Set((paths || []).filter(Boolean))].sort(),
+  };
 }
 
 function runReconcile(projectDir, options = {}) {
@@ -557,11 +584,19 @@ function runReconcile(projectDir, options = {}) {
     };
   }
 
-  for (const change of plan.proposed_changes) {
-    const result =
-      change.operation === "resume-finalization"
-        ? resumeRecovery(pmDir, change, options)
-        : applyCardChange(pmDir, change, options);
+  let expectedHeadOid = plan.pm_head_oid;
+  const recoveries = plan.proposed_changes.filter(
+    (change) => change.operation === "resume-finalization"
+  );
+  const classifications = new Map(
+    plan.classifications.map((entry) => [`${entry.card_path}\0${entry.run_id || ""}`, entry])
+  );
+  for (const change of recoveries) {
+    const classification = classifications.get(`${change.card_path}\0${change.run_id || ""}`);
+    const result = resumeRecovery(pmDir, change, classification?.recovery, {
+      ...options,
+      expectedHeadOid,
+    });
     if (typeof options.onTransaction === "function") options.onTransaction(change, result);
     if (!result || result.ok !== true) {
       return {
@@ -571,7 +606,58 @@ function runReconcile(projectDir, options = {}) {
         ...base,
       };
     }
-    base.applied_changes.push(change);
+    if (!/^[a-f0-9]{40,64}$/i.test(String(result.commitHash || ""))) {
+      return {
+        ok: false,
+        code: "apply-failed",
+        reason: "isolated PM recovery did not return a commit OID",
+        ...base,
+      };
+    }
+    expectedHeadOid = result.commitHash;
+    base.applied_changes.push(
+      appliedChange(change, result, [
+        result.card_path,
+        result.event_path,
+        result.recovery_path,
+        result.lease_path,
+        ...(result.artifact_paths || []),
+      ])
+    );
+  }
+
+  const ordinary = plan.proposed_changes.filter((change) => change.operation === "update-card");
+  if (ordinary.length > 0) {
+    const result = applyCardChanges(pmDir, ordinary, { ...options, expectedHeadOid });
+    if (typeof options.onTransaction === "function") {
+      options.onTransaction({ operation: "batch-update", changes: ordinary }, result);
+    }
+    if (!result || result.ok !== true) {
+      return {
+        ok: false,
+        code: "apply-failed",
+        reason: result?.reason || result?.error || "isolated PM reconciliation failed",
+        ...base,
+      };
+    }
+    if (!/^[a-f0-9]{40,64}$/i.test(String(result.commitHash || ""))) {
+      return {
+        ok: false,
+        code: "apply-failed",
+        reason: "isolated PM reconciliation did not return a commit OID",
+        ...base,
+      };
+    }
+    for (let index = 0; index < ordinary.length; index += 1) {
+      const detail = result.applied?.[index] || {};
+      base.applied_changes.push(
+        appliedChange(ordinary[index], result, [
+          detail.card_path,
+          detail.event_path,
+          detail.lease_path,
+        ])
+      );
+    }
   }
   return { ok: true, ...base };
 }
@@ -582,6 +668,7 @@ function parseArgs(argv) {
     pmDir: "",
     sourceDir: "",
     apply: false,
+    dryRun: false,
   };
   const { args, positionals } = parseCliArgs(
     argv,
@@ -590,10 +677,12 @@ function parseArgs(argv) {
       "--pm-dir": { key: "pmDir", type: "string" },
       "--source-dir": { key: "sourceDir", type: "string" },
       "--apply": { key: "apply", type: "boolean" },
+      "--dry-run": { key: "dryRun", type: "boolean" },
     },
     defaults
   );
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
+  if (args.apply && args.dryRun) throw new Error("--apply and --dry-run are mutually exclusive");
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
   if (args.sourceDir) args.sourceDir = path.resolve(args.sourceDir);
