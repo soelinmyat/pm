@@ -262,13 +262,19 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
       }
       if (!evidence) return false;
       if (
-        evidence.card_revision !== context.card_revision ||
-        evidence.execution_fingerprint !== context.execution_fingerprint ||
+        !digest.test(String(evidence.card_revision || "")) ||
+        !digest.test(String(evidence.execution_fingerprint || "")) ||
         !digest.test(String(evidence.blocker_signature || "")) ||
         !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
         !RUN_ID_PATTERN.test(String(evidence.last_run_id || ""))
       ) {
         throw new Error(`malformed no-progress evidence for ${event.run_id}`);
+      }
+      if (
+        evidence.card_revision !== context.card_revision ||
+        evidence.execution_fingerprint !== context.execution_fingerprint
+      ) {
+        return false;
       }
       const expected = sha256(
         JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
