@@ -1665,6 +1665,28 @@ test("a matching durable outcome finalized after claim still suppresses engine d
   }
 });
 
+test("post-claim no-progress scan failure durably releases ownership without false evidence", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      findNoProgressSuppression() {
+        throw new Error("transient snapshot failure");
+      },
+    });
+    assert.equal(result.status, "no-progress-check-failed", JSON.stringify(result));
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.no_progress, undefined);
+    assert.match(ledger.reason, /transient snapshot failure/);
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "no-progress-check-failed");
+    assert.equal(event.no_progress, undefined);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("interruptible engine execution sends TERM then KILL to its process group", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-process-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1726,6 +1748,29 @@ test("interruptible execution observes a pre-existing STOP before a fast engine 
   assert.equal(result.stopped, true, JSON.stringify(result));
   assert.equal(result.stop.source, "local");
   assert.ok(result.stop.requested_at);
+});
+
+test("cooperative TERM exits do not wait through the full KILL grace", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-cooperative-stop-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const stopPath = path.join(root, "STOP");
+  fs.writeFileSync(stopPath, "stop\n");
+  const started = Date.now();
+  const result = await runEngineInterruptible(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)"],
+    {
+      cwd: root,
+      env: process.env,
+      stopPath,
+      timeoutMs: 5_000,
+      graceMs: 2_000,
+      pollMs: 250,
+    }
+  );
+  assert.equal(result.stopped, true);
+  assert.equal(result.stop.kill_sent_at, null);
+  assert.ok(Date.now() - started < 1_000, `elapsed=${Date.now() - started}`);
 });
 
 test("interruptible execution observes a STOP pushed from another PM clone", async (t) => {

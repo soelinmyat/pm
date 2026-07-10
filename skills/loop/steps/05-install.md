@@ -94,8 +94,8 @@ node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD"
 ```
 
-4. Only after the user confirms, install (macOS writes the LaunchAgent and
-   loads it; Linux users add the printed line via `crontab -e`):
+4. Only after the user confirms, install through the gate-checked command
+   (macOS writes and loads the LaunchAgent; Linux updates crontab):
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --install

@@ -37,6 +37,17 @@ function signalProcessGroup(child, signal) {
   }
 }
 
+function processGroupExists(child) {
+  if (!child || !Number.isInteger(child.pid)) return false;
+  if (process.platform === "win32") return child.exitCode === null;
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runQuiet(bin, args, options = {}) {
   return new Promise((resolve) => {
     let child;
@@ -71,6 +82,44 @@ function runQuiet(bin, args, options = {}) {
   });
 }
 
+function runCapture(bin, args, options = {}) {
+  return new Promise((resolve) => {
+    let child;
+    let output = "";
+    try {
+      child = spawn(bin, args, {
+        cwd: options.cwd,
+        env: options.env || process.env,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      resolve("");
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The bounded command already exited.
+        }
+      },
+      Math.max(100, Number(options.timeoutMs || 5000))
+    );
+    child.stdout.on("data", (chunk) => {
+      if (output.length < 4096) output += String(chunk).slice(0, 4096 - output.length);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve("");
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? output.trim() : "");
+    });
+  });
+}
+
 async function remoteStopExists(remoteStop) {
   if (
     !remoteStop ||
@@ -81,6 +130,12 @@ async function remoteStopExists(remoteStop) {
   ) {
     return false;
   }
+  const remoteLine = await runCapture("git", ["ls-remote", remoteStop.remote, remoteStop.ref], {
+    timeoutMs: remoteStop.timeoutMs,
+  });
+  const remoteOid = remoteLine.split(/\s+/)[0] || "";
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(remoteOid)) return false;
+  if (remoteStop.last_oid === remoteOid) return false;
   const common = ["--git-dir", remoteStop.gitDir];
   const fetched = await runQuiet(
     "git",
@@ -88,6 +143,7 @@ async function remoteStopExists(remoteStop) {
     { timeoutMs: remoteStop.timeoutMs }
   );
   if (!fetched) return false;
+  remoteStop.last_oid = remoteOid;
   return runQuiet("git", [...common, "cat-file", "-e", `FETCH_HEAD:${remoteStop.path}`], {
     timeoutMs: remoteStop.timeoutMs,
   });
@@ -235,7 +291,7 @@ function runEngineInterruptible(bin, args, options = {}) {
     });
     child.on("close", (code, signal) => {
       closeResult = { code, signal };
-      if (!termReason || escalationComplete) finish(code, signal);
+      if (!termReason || escalationComplete || !processGroupExists(child)) finish(code, signal);
     });
     try {
       if (options.stopPath && fs.existsSync(options.stopPath)) requestTermination("stop-local");

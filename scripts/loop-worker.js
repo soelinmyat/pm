@@ -78,7 +78,7 @@ function isStopped(pmDir) {
   return fs.existsSync(killSwitchPath(pmDir));
 }
 
-function prepareRemoteStopMonitor(pmDir, pmStateDir, runId) {
+function prepareRemoteStopMonitor(pmDir, pmStateDir, runId, config) {
   const gitRoot = findGitRoot(pmDir);
   if (!gitRoot) return null;
   const upstream = runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
@@ -99,7 +99,7 @@ function prepareRemoteStopMonitor(pmDir, pmStateDir, runId) {
     remote,
     ref: `refs/heads/${branch}`,
     path: stopRelative,
-    pollMs: 5000,
+    pollMs: Number(config.claim_envelope.remote_stop_poll_seconds) * 1000,
     timeoutMs: 5000,
   };
 }
@@ -1103,8 +1103,10 @@ function runWorker(projectDir, options = {}) {
   // Every claimed dispatch gets a ledger — including early rejections — so
   // budgets and the attempts backstop always advance and nothing can livelock
   // the wake cycle for free.
-  const bail = (status, reason) => {
-    const evidence = noProgressEvidence(plan, { status, summary: reason });
+  const bail = (status, reason, includeNoProgress = true) => {
+    const evidence = includeNoProgress
+      ? noProgressEvidence(plan, { status, summary: reason })
+      : null;
     const release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
@@ -1121,7 +1123,7 @@ function runWorker(projectDir, options = {}) {
       reason: durableReason,
       ended_at: new Date().toISOString(),
       lease_release: release,
-      no_progress: evidence,
+      ...(evidence ? { no_progress: evidence } : {}),
     });
     return {
       ...plan,
@@ -1143,12 +1145,20 @@ function runWorker(projectDir, options = {}) {
   if (!projectGitRoot) {
     return bail("failed", "project is not a git repository");
   }
-  if (typeof options.afterClaim === "function") options.afterClaim(plan);
-  priorNoProgress = findNoProgressSuppression(
-    paths.pmDir,
-    plan,
-    Number(config.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
-  );
+  try {
+    if (typeof options.afterClaim === "function") options.afterClaim(plan);
+    priorNoProgress = (options.findNoProgressSuppression || findNoProgressSuppression)(
+      paths.pmDir,
+      plan,
+      Number(config.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
+    );
+  } catch (error) {
+    return bail(
+      "no-progress-check-failed",
+      `post-claim no-progress check failed: ${String(error.message || error).slice(0, 2000)}`,
+      false
+    );
+  }
   if (priorNoProgress) {
     writeJsonAtomic(ledgerPath, ledger);
     const suppressionRecord = (options.markRunSuppressed || markRunSuppressed)(
@@ -1294,7 +1304,7 @@ function runWorker(projectDir, options = {}) {
       let remoteStop = null;
       let remoteStopError = "";
       try {
-        remoteStop = prepareRemoteStopMonitor(paths.pmDir, paths.pmStateDir, runId);
+        remoteStop = prepareRemoteStopMonitor(paths.pmDir, paths.pmStateDir, runId, config);
       } catch (error) {
         remoteStopError = String(error.message || error).slice(0, 2000);
       }

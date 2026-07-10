@@ -34,6 +34,8 @@ Highlight these fields when explaining the output:
 - `claim_envelope` bounds branch promotion, bootstrap recheck, shutdown grace,
   artifact verification, PM finalization, workspace cleanup, CAS attempts, and
   the scheduler overlap margin.
+- `claim_envelope.remote_stop_poll_seconds` sets the bounded remote STOP ref
+  check cadence (default 30 seconds); same-machine STOP polling remains fast.
 - `budgets.max_identical_no_progress` defaults to one. A durable terminal event
   records the exact card revision, stage, and blocker signature; the next
   identical execution is suppressed and finalized at `needs-human` with its

@@ -32,6 +32,7 @@ const REQUIRED_ASSERTIONS = Object.freeze({
     "exact_plan_preserved",
     "exact_card_preserved",
     "engine_argv_pinned",
+    "identity_unchanged",
     "worker_preflight_failed",
     "pm_head_unchanged",
     "card_unchanged",
@@ -41,6 +42,7 @@ const REQUIRED_ASSERTIONS = Object.freeze({
     "exact_plan_preserved",
     "exact_card_preserved",
     "engine_argv_pinned",
+    "identity_unchanged",
     "worker_blocked",
     "card_needs_human",
     "remediation_present",
@@ -52,6 +54,7 @@ const REQUIRED_ASSERTIONS = Object.freeze({
     "exact_plan_preserved",
     "exact_card_preserved",
     "engine_argv_pinned",
+    "identity_unchanged",
     "worker_completed",
     "card_shipping",
     "no_lease",
@@ -513,7 +516,8 @@ function executedEngineIdentity(config, workerResult, ledger) {
 }
 
 function assertionsFor(caseName, context) {
-  const { before, after, workerResult, ledger, config, preview, identity } = context;
+  const { before, after, workerResult, ledger, config, preview, identity, identityUnchanged } =
+    context;
   const invocation = executedEngineIdentity(config, workerResult, ledger);
   const common = {
     exact_plan_preserved: workerResult.fingerprint === preview.fingerprint,
@@ -521,6 +525,7 @@ function assertionsFor(caseName, context) {
       (workerResult.card?.id || workerResult.selected?.id) === preview.selected.id,
     engine_argv_pinned:
       sha256(JSON.stringify(invocation)) === String(identity.engine?.argv_hash || ""),
+    identity_unchanged: identityUnchanged,
   };
   if (caseName === "preflight-failure") {
     return {
@@ -648,6 +653,7 @@ function runCanary(projectDir, caseName, options = {}) {
     throw new Error("verified-pr requires autonomy.merge_pr=false");
   }
   const execute = options.runWorker || runWorker;
+  const identity = options.identity || currentCanaryIdentity(config, options);
   const fixture =
     caseName === "verified-pr"
       ? null
@@ -685,7 +691,8 @@ function runCanary(projectDir, caseName, options = {}) {
       runId: workerResult.run_id || "",
     });
     const ledger = readLedger(workerResult);
-    const identity = options.identity || currentCanaryIdentity(config, options);
+    const identityAfter = options.identity || currentCanaryIdentity(config, options);
+    const identityUnchanged = stableEqual(identity, identityAfter);
     const assertions = assertionsFor(caseName, {
       before,
       after,
@@ -694,6 +701,7 @@ function runCanary(projectDir, caseName, options = {}) {
       config,
       preview,
       identity,
+      identityUnchanged,
     });
     const passed = Object.values(assertions).every(Boolean);
     const evidenceRunId = workerResult.run_id || `loop-canary-${crypto.randomUUID()}`;

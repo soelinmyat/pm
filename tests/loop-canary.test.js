@@ -80,6 +80,7 @@ function completeRecord(caseName) {
           exact_plan_preserved: true,
           exact_card_preserved: true,
           engine_argv_pinned: true,
+          identity_unchanged: true,
           worker_preflight_failed: true,
           pm_head_unchanged: true,
           card_unchanged: true,
@@ -90,6 +91,7 @@ function completeRecord(caseName) {
             exact_plan_preserved: true,
             exact_card_preserved: true,
             engine_argv_pinned: true,
+            identity_unchanged: true,
             worker_blocked: true,
             card_needs_human: true,
             remediation_present: true,
@@ -101,6 +103,7 @@ function completeRecord(caseName) {
             exact_plan_preserved: true,
             exact_card_preserved: true,
             engine_argv_pinned: true,
+            identity_unchanged: true,
             worker_completed: true,
             card_shipping: true,
             no_lease: true,
@@ -168,6 +171,56 @@ test("canary identity preserves the approved execution hash", () => {
     versionRunner: () => "codex 1.0.0\n",
   });
   assert.equal(actual.execution_config_hash, config.execution_config_hash);
+});
+
+test("canary fails when engine identity changes during execution", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-identity-drift-"));
+  try {
+    const pmDir = path.join(root, "pm");
+    const pmStateDir = path.join(root, ".pm");
+    fs.mkdirSync(pmDir, { recursive: true });
+    fs.mkdirSync(pmStateDir, { recursive: true });
+    let versionCalls = 0;
+    let workerCalls = 0;
+    const before = state();
+    const record = runCanary(root, "preflight-failure", {
+      paths: { pmDir, pmStateDir },
+      config: defaultIdentityConfig,
+      sourceCommit: "a".repeat(40),
+      versionRunner() {
+        versionCalls += 1;
+        return versionCalls === 1 ? "codex 1.0.0\n" : "codex 2.0.0\n";
+      },
+      fixtureFactory: () => ({
+        projectDir: path.join(root, "fixture"),
+        paths: { pmDir, pmStateDir: path.join(root, "fixture-state") },
+        cleanup() {},
+      }),
+      runWorker(_projectDir, options) {
+        workerCalls += 1;
+        if (options.dryRun) {
+          return {
+            status: "dry-run",
+            selected: { id: "PM-CANARY", stage: "dev", sourcePath: "" },
+            fingerprint: `sha256:${"9".repeat(64)}`,
+          };
+        }
+        return {
+          status: "preflight-failed",
+          selected: { id: "PM-CANARY" },
+          fingerprint: `sha256:${"9".repeat(64)}`,
+        };
+      },
+      snapshot: () => before,
+    });
+    assert.equal(workerCalls, 2);
+    assert.equal(versionCalls, 2);
+    assert.equal(record.assertions.identity_unchanged, false);
+    assert.equal(record.passed, false);
+    assert.match(validateEvidenceRecord(record, "preflight-failure"), /identity_unchanged/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("supervised canary cases persist their exact state assertions", async (t) => {

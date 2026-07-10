@@ -20,7 +20,7 @@ const { isStopped, killSwitchPath, countRunsToday, runsDirFor } = require("./loo
 
 // State precedence, as implemented (config is the precondition for every other
 // state, so it's checked first): unconfigured > paused > in-progress >
-// installed-idle > ready-not-run > no-work.
+// canary-required > installed-idle > ready-not-run > no-work.
 function assessSituation(projectDir, options = {}) {
   let pmDir;
   let pmStateDir;
@@ -86,10 +86,13 @@ function assessSituation(projectDir, options = {}) {
     config: config ? summarizeConfig(config) : null,
     releaseGate: config
       ? safe(
-          () => {
-            const trusted = loadTrustedLoopConfig(pmDir, pmStateDir);
-            return evaluateCurrentCanaryReleaseGate(pmStateDir, trusted);
-          },
+          () =>
+            typeof options.releaseGateProbe === "function"
+              ? options.releaseGateProbe({ projectDir, pmDir, pmStateDir, config })
+              : evaluateCurrentCanaryReleaseGate(
+                  pmStateDir,
+                  loadTrustedLoopConfig(pmDir, pmStateDir)
+                ),
           { passed: false, reason: "current canary identity is unavailable" }
         )
       : { passed: false, reason: "loop is not configured" },
@@ -109,6 +112,13 @@ function assessSituation(projectDir, options = {}) {
   }
   if (paused) return { ...summary, state: "paused" };
   if (board.activeLeases.length > 0) return { ...summary, state: "in-progress" };
+  if (installed && !summary.releaseGate.passed) {
+    return {
+      ...summary,
+      state: "canary-required",
+      note: `Installed scheduler lacks current canary evidence: ${summary.releaseGate.reason}`,
+    };
+  }
   if (installed) return { ...summary, state: "installed-idle" };
   if (board.ready.length > 0) return { ...summary, state: "ready-not-run" };
   return { ...summary, state: "no-work" };

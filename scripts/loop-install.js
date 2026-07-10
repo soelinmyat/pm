@@ -5,7 +5,7 @@
 // (macOS) or cron line (Linux) that wakes loop-worker.js on an interval,
 // entirely on infrastructure the user owns — no vendor scheduling service.
 //
-// Default is generate-and-print; --install writes the LaunchAgent and loads it.
+// Default is a preview only; --install performs the gate-checked scheduler mutation.
 // The kill switch (pm/loop/STOP) is the always-available off button; commit and
 // push it to stop workers on every machine.
 
@@ -21,7 +21,7 @@ const {
   loadLoopConfig,
   loadTrustedLoopConfig,
 } = require("./loop-config.js");
-const { evaluateCanaryReleaseGate, evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
+const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
@@ -118,6 +118,20 @@ function installLaunchd(plist, label) {
   return target;
 }
 
+function installCron(line, options = {}) {
+  const run = options.run || execFileSync;
+  let existing = "";
+  try {
+    existing = String(run("crontab", ["-l"], { encoding: "utf8" }) || "");
+  } catch (error) {
+    if (error && Number(error.status) !== 1) throw error;
+  }
+  if (existing.split(/\r?\n/).includes(line)) return "crontab";
+  const input = `${existing.trimEnd()}${existing.trim() ? "\n" : ""}${line}\n`;
+  run("crontab", ["-"], { input, encoding: "utf8" });
+  return "crontab";
+}
+
 // The kill switch has two halves so callers on a request path can flip the
 // local state instantly and push in the background:
 //   writeKillSwitchFile — synchronous fs write/remove (fast, local truth)
@@ -203,9 +217,8 @@ function generate(opts) {
       content: buildLaunchdPlist({ ...shared, label }),
       exposure,
       instructions: [
-        `Write the plist to ${plistInstallPath(label)} and run:`,
-        `  launchctl load ${plistInstallPath(label)}`,
-        "or rerun this command with --install to do both.",
+        "Preview only — do not load this plist manually.",
+        "After the same-identity canary gate passes, rerun with --install.",
         exposureText,
       ].join("\n"),
     };
@@ -214,7 +227,13 @@ function generate(opts) {
     kind: "cron",
     content: buildCronLine(shared),
     exposure,
-    instructions: ["Add the line above via `crontab -e`.", exposureText].filter(Boolean).join("\n"),
+    instructions: [
+      "Preview only — do not add this line to crontab manually.",
+      "After the same-identity canary gate passes, rerun with --install.",
+      exposureText,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 }
 
@@ -252,16 +271,26 @@ function parseArgs(argv) {
 
 function installGenerated(generated, intervalMinutes, options = {}) {
   const writeError = options.writeError || ((text) => process.stderr.write(text));
-  const install = options.install || installLaunchd;
+  const install = options.install || (generated.kind === "launchd" ? installLaunchd : installCron);
   writeError(`${generated.instructions}\n`);
   const installed = install(generated.content, generated.label);
-  return {
+  const result = {
     installed: true,
-    plist: installed,
     label: generated.label,
     interval_minutes: intervalMinutes,
     exposure: generated.exposure,
   };
+  if (generated.kind === "launchd") result.plist = installed;
+  else result.crontab = installed;
+  return result;
+}
+
+function resumeScheduler(pmDir, config, options = {}) {
+  const exposure = configExposure(config);
+  const writeError = options.writeError || ((text) => process.stderr.write(text));
+  const setStop = options.setStop || setKillSwitch;
+  writeError(`${formatConfigExposure(exposure)}\n`);
+  return { ...setStop(pmDir, false), exposure };
 }
 
 function main() {
@@ -287,7 +316,7 @@ function main() {
         );
       }
       if (args.resume) {
-        const result = setKillSwitch(paths.pmDir, false);
+        const result = resumeScheduler(paths.pmDir, config);
         process.stdout.write(
           `${JSON.stringify({ ...result, release_gate: releaseGate }, null, 2)}\n`
         );
@@ -297,7 +326,7 @@ function main() {
     const intervalMinutes = args.intervalMinutes || Number(config.scheduler_interval_minutes) || 30;
     const generated = generate({ ...args, intervalMinutes, config });
 
-    if (args.install && generated.kind === "launchd") {
+    if (args.install) {
       const installed = installGenerated(generated, intervalMinutes);
       process.stdout.write(`${JSON.stringify(installed, null, 2)}\n`);
       return;
@@ -317,11 +346,12 @@ module.exports = {
   buildLaunchdPlist,
   generate,
   installGenerated,
-  evaluateCanaryReleaseGate,
+  installCron,
   launchdLabel,
   plistInstallPath,
   projectSlug,
   pushKillSwitch,
+  resumeScheduler,
   setKillSwitch,
   writeKillSwitchFile,
 };

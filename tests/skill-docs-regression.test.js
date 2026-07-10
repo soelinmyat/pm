@@ -99,9 +99,10 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
   const install = read(".codex/INSTALL.md");
   const skill = read("skills/loop/SKILL.md");
   const config = read("skills/loop/steps/04-config.md");
+  const route = read("skills/loop/steps/01-route.md");
   const installStep = read("skills/loop/steps/05-install.md");
   const work = read("skills/loop/steps/06-work.md");
-  const all = [readme, install, skill, config, installStep, work].join("\n");
+  const all = [readme, install, skill, config, route, installStep, work].join("\n");
 
   assert.match(
     all,
@@ -120,6 +121,8 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
   assert.match(all, /same.*plugin.*source.*config.*engine/is);
   assert.match(all, /stale.*mixed.*fail/is);
   assert.match(all, /scheduler.*(paused|uninstalled).*until/is);
+  assert.match(route, /canary-required/);
+  assert.match(installStep, /Linux updates crontab/);
   assert.match(all, /does not support exact token cutoffs/i);
 });
 

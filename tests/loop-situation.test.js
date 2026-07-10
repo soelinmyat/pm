@@ -192,9 +192,27 @@ test("installed-idle: injected installed probe true + ready cards → installed-
   const { dir, cleanup } = tmp();
   try {
     initProject(dir, { config: { autonomy: {} }, cards: [approved("alpha")] });
-    const s = assessSituation(dir, { installedProbe: () => true });
+    const s = assessSituation(dir, {
+      installedProbe: () => true,
+      releaseGateProbe: () => ({ passed: true, reason: "" }),
+    });
     assert.equal(s.state, "installed-idle");
     assert.equal(s.installed, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("installed scheduler with failed evidence routes to canary-required", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, { config: { autonomy: {} }, cards: [approved("alpha")] });
+    const s = assessSituation(dir, {
+      installedProbe: () => true,
+      releaseGateProbe: () => ({ passed: false, reason: "mixed canary evidence identity" }),
+    });
+    assert.equal(s.state, "canary-required");
+    assert.match(s.note, /mixed canary evidence identity/i);
   } finally {
     cleanup();
   }
@@ -224,7 +242,7 @@ test("configuration summary exposes bounded daily runtime and safety warnings", 
       },
     });
     const s = assessSituation(dir);
-    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 75240);
+    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 139320);
     assert.equal(s.config.lease_ttl_seconds, 7200);
     assert.equal(s.config.ttl_margin_seconds, 630);
     assert.ok(s.config.warnings.some((warning) => /merge autonomy/i.test(warning)));

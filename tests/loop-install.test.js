@@ -10,13 +10,15 @@ const {
   buildInstallExposure,
   buildCronLine,
   buildLaunchdPlist,
-  evaluateCanaryReleaseGate,
   generate,
   installGenerated,
+  installCron,
   launchdLabel,
   projectSlug,
+  resumeScheduler,
   setKillSwitch,
 } = require("../scripts/loop-install.js");
+const { evaluateCanaryReleaseGate } = require("../scripts/loop-canary.js");
 const { normalizeLoopConfig } = require("../scripts/loop-config.js");
 
 const REQUIRED_ASSERTIONS = {
@@ -24,6 +26,7 @@ const REQUIRED_ASSERTIONS = {
     exact_plan_preserved: true,
     exact_card_preserved: true,
     engine_argv_pinned: true,
+    identity_unchanged: true,
     worker_preflight_failed: true,
     pm_head_unchanged: true,
     card_unchanged: true,
@@ -33,6 +36,7 @@ const REQUIRED_ASSERTIONS = {
     exact_plan_preserved: true,
     exact_card_preserved: true,
     engine_argv_pinned: true,
+    identity_unchanged: true,
     worker_blocked: true,
     card_needs_human: true,
     remediation_present: true,
@@ -44,6 +48,7 @@ const REQUIRED_ASSERTIONS = {
     exact_plan_preserved: true,
     exact_card_preserved: true,
     engine_argv_pinned: true,
+    identity_unchanged: true,
     worker_completed: true,
     card_shipping: true,
     no_lease: true,
@@ -201,6 +206,10 @@ test("generate picks launchd on darwin format and cron otherwise", () => {
   const linux = generate({ projectDir: "/p", mode: "dev", intervalMinutes: 30, format: "cron" });
   assert.equal(linux.kind, "cron");
   assert.match(linux.content, /^\*\/30/);
+  assert.match(mac.instructions, /preview only/i);
+  assert.doesNotMatch(mac.instructions, /launchctl load/i);
+  assert.match(linux.instructions, /preview only/i);
+  assert.doesNotMatch(linux.instructions, /crontab -e/i);
 });
 
 test("install exposure reports daily claim envelope, TTL margin, and unsafe autonomy warnings", () => {
@@ -211,7 +220,7 @@ test("install exposure reports daily claim envelope, TTL margin, and unsafe auto
   const exposure = buildInstallExposure(config);
   assert.equal(exposure.claim_envelope_seconds.dev, 6270);
   assert.equal(exposure.claim_envelope_seconds.ship, 2670);
-  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 75240);
+  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 139320);
   assert.equal(exposure.lease_ttl_seconds, 7200);
   assert.equal(exposure.minimum_ttl_seconds, 6571);
   assert.equal(exposure.ttl_margin_seconds, 630);
@@ -228,6 +237,42 @@ test("install exposure reports daily claim envelope, TTL margin, and unsafe auto
   });
   assert.deepEqual(generated.exposure, exposure);
   assert.match(generated.instructions, /maximum daily claim envelope/i);
+});
+
+test("gated cron installation is idempotent and owns scheduler activation", () => {
+  const calls = [];
+  const result = installCron("*/30 * * * * node worker.js", {
+    run(_bin, args, options) {
+      calls.push({ args, input: options?.input || "" });
+      if (args[0] === "-l") return "0 0 * * * backup\n";
+      return "";
+    },
+  });
+  assert.equal(result, "crontab");
+  assert.deepEqual(calls[0].args, ["-l"]);
+  assert.deepEqual(calls[1].args, ["-"]);
+  assert.match(calls[1].input, /backup/);
+  assert.match(calls[1].input, /node worker\.js/);
+});
+
+test("resume emits exposure before removing STOP and includes it in the result", () => {
+  const config = normalizeLoopConfig({
+    autonomy: { merge_pr: true },
+    worker: { engine_bin: "/opt/custom-engine" },
+  });
+  const events = [];
+  const result = resumeScheduler("/tmp/pm", config, {
+    writeError(text) {
+      events.push(`warning:${/merge autonomy/i.test(text)}:${/custom engine/i.test(text)}`);
+    },
+    setStop(pmDir, stopped) {
+      events.push(`resume:${pmDir}:${stopped}`);
+      return { stopPath: `${pmDir}/loop/STOP`, stopped, committed: true, pushed: true };
+    },
+  });
+  assert.equal(events[0], "warning:true:true");
+  assert.equal(events[1], "resume:/tmp/pm:false");
+  assert.deepEqual(result.exposure, buildInstallExposure(config));
 });
 
 test("direct launchd install emits exposure warnings before enabling the scheduler", () => {

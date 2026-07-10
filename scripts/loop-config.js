@@ -40,6 +40,7 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     branch_promotion_seconds: 120,
     bootstrap_recheck_seconds: 300,
     shutdown_grace_seconds: 30,
+    remote_stop_poll_seconds: 30,
     artifact_verification_seconds: 120,
     pm_finalization_seconds: 180,
     workspace_cleanup_seconds: 120,
@@ -258,15 +259,11 @@ function configExposure(config) {
   if (Array.isArray(worker.codex_add_dirs) && worker.codex_add_dirs.length > 0) {
     warnings.push("Extra Codex writable directories broaden engine host exposure.");
   }
-  const maxRuns = Number(config.budgets.max_runs_per_day);
-  const maxShipRuns = Math.min(maxRuns, Number(config.budgets.max_ship_cycles_per_day));
-  const maximumDailyEnvelope =
-    shipEnvelope > devEnvelope
-      ? maxShipRuns * shipEnvelope + (maxRuns - maxShipRuns) * devEnvelope
-      : maxRuns * devEnvelope;
   return {
     claim_envelope_seconds: { dev: devEnvelope, ship: shipEnvelope },
-    maximum_daily_claim_envelope_seconds: maximumDailyEnvelope,
+    maximum_daily_claim_envelope_seconds:
+      devEnvelope * Number(config.budgets.max_runs_per_day) +
+      shipEnvelope * Number(config.budgets.max_ship_cycles_per_day),
     lease_ttl_seconds: ttl,
     minimum_ttl_seconds: longestEnvelope + margin + 1,
     ttl_margin_seconds: ttl - (longestEnvelope + margin),
@@ -338,6 +335,10 @@ function validateLoopConfig(config) {
     "claim_envelope.scheduler_overlap_margin_seconds"
   );
   positiveInteger(Number(config.claim_envelope.cas_attempts), "claim_envelope.cas_attempts");
+  positiveInteger(
+    Number(config.claim_envelope.remote_stop_poll_seconds),
+    "claim_envelope.remote_stop_poll_seconds"
+  );
   if (ttl <= envelope + margin) {
     throw new Error(
       `budgets.lease_ttl_seconds (${ttl}) must be greater than claim envelope (${envelope}) ` +

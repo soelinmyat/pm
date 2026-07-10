@@ -42,6 +42,7 @@ test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
     "branch_promotion_seconds",
     "bootstrap_recheck_seconds",
     "shutdown_grace_seconds",
+    "remote_stop_poll_seconds",
     "artifact_verification_seconds",
     "pm_finalization_seconds",
     "workspace_cleanup_seconds",
