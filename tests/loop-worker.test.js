@@ -1593,7 +1593,7 @@ test("a durable no-progress signature suppresses the next identical card/stage e
   }
 });
 
-test("corrupt no-progress signatures cannot suppress an eligible execution", () => {
+test("corrupt no-progress signatures fail closed without another engine execution", () => {
   const fixture = makeProjectFixture();
   try {
     const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
@@ -1622,10 +1622,11 @@ test("corrupt no-progress signatures cannot suppress an eligible execution", () 
     git(["push"], fixture.project);
 
     const second = runWorker(fixture.project, { pmDir: fixture.pmDir });
-    assert.equal(second.status, "failed", JSON.stringify(second));
-    assert.notEqual(second.run_id, first.run_id);
-    const secondLedger = JSON.parse(fs.readFileSync(second.ledger, "utf8"));
-    assert.ok(secondLedger.engine, "the engine must run when durable evidence is corrupt");
+    assert.equal(second.status, "preflight-failed", JSON.stringify(second));
+    assert.equal(second.mutation, false);
+    assert.equal(second.ledger, undefined);
+    assert.match(second.remediation, /malformed no-progress evidence/i);
+    assert.equal(parseFrontmatter(readRemoteCard(fixture)).data.status, "ready");
   } finally {
     fixture.cleanup();
   }
@@ -1661,8 +1662,8 @@ test("symlinked no-progress event trees fail closed without launching an engine"
     git(["push"], fixture.project);
 
     const second = runWorker(fixture.project, { pmDir: fixture.pmDir });
-    assert.equal(second.status, "preflight-failed", JSON.stringify(second));
-    assert.match(second.remediation, /events.*real directory|symbolic link/i);
+    assert.equal(second.status, "recovery-required", JSON.stringify(second));
+    assert.match(second.reason, /ambiguous/i);
     assert.equal(second.mutation, false);
     assert.equal(second.ledger, undefined);
     assert.equal(parseFrontmatter(readRemoteCard(fixture)).data.status, "ready");

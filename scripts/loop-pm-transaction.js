@@ -1355,27 +1355,33 @@ function scanSnapshotFinalizedEvents(pmDir, options = {}) {
   }
   const events = [];
   for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
-    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
-    const runId = entry.name.slice(0, -5);
-    if (!RUN_ID_PATTERN.test(runId)) continue;
-    try {
-      const event = readJsonNoFollow(path.join(eventDir, entry.name));
-      if (
-        event.run_id !== runId ||
-        event.terminal !== true ||
-        typeof event.card_id !== "string" ||
-        !event.card_id ||
-        (options.cardId && event.card_id !== options.cardId) ||
-        (options.stage && event.stage !== options.stage) ||
-        (leaseIndex.byRun.get(runId) || []).length > 0 ||
-        fs.existsSync(path.join(pmDir, "loop", "recovery", `${runId}.json`))
-      ) {
-        continue;
-      }
-      events.push(event);
-    } catch {
-      // Malformed records are never positive finalized evidence.
+    if (!entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      throw new Error(`invalid finalized event evidence entry: ${entry.name}`);
     }
+    const runId = entry.name.slice(0, -5);
+    if (!RUN_ID_PATTERN.test(runId)) {
+      throw new Error(`invalid finalized event run ID: ${entry.name}`);
+    }
+    let event;
+    try {
+      event = readJsonNoFollow(path.join(eventDir, entry.name));
+    } catch (error) {
+      throw new Error(`invalid finalized event evidence ${entry.name}: ${error.message}`);
+    }
+    if (event.run_id !== runId || typeof event.card_id !== "string" || !event.card_id) {
+      throw new Error(`invalid finalized event ownership: ${entry.name}`);
+    }
+    if (event.terminal !== true) continue;
+    if (
+      (options.cardId && event.card_id !== options.cardId) ||
+      (options.stage && event.stage !== options.stage) ||
+      (leaseIndex.byRun.get(runId) || []).length > 0 ||
+      fs.existsSync(path.join(pmDir, "loop", "recovery", `${runId}.json`))
+    ) {
+      continue;
+    }
+    events.push(event);
   }
   return events;
 }

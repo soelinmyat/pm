@@ -252,20 +252,27 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
         event.terminal !== true ||
         event.card_id !== context.card_id ||
         event.stage !== context.stage ||
-        !RUN_ID_PATTERN.test(String(event.run_id || "")) ||
-        !evidence ||
+        !RUN_ID_PATTERN.test(String(event.run_id || ""))
+      ) {
+        return false;
+      }
+      if (!evidence) return false;
+      if (
         evidence.card_revision !== context.card_revision ||
         evidence.execution_fingerprint !== context.execution_fingerprint ||
         !digest.test(String(evidence.blocker_signature || "")) ||
         !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
         !RUN_ID_PATTERN.test(String(evidence.last_run_id || ""))
       ) {
-        return false;
+        throw new Error(`malformed no-progress evidence for ${event.run_id}`);
       }
       const expected = sha256(
         JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
       );
-      return evidence.signature === expected;
+      if (evidence.signature !== expected) {
+        throw new Error(`malformed no-progress evidence signature for ${event.run_id}`);
+      }
+      return true;
     })
     .sort((a, b) => String(b.finalized_at || "").localeCompare(String(a.finalized_at || "")));
   const latest = events[0];
