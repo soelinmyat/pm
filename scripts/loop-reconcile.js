@@ -12,16 +12,15 @@ const {
   ensureGitSyncReady,
   findGitRoot,
   gitRelativePath,
-  leaseFileName,
   listLeases,
   runGit,
   writeJsonAtomic,
 } = require("./loop-git.js");
 const {
   assertNoSymlinkPath,
-  buildFinalizedEvent,
   createRunId,
   finalizeRun,
+  planFinalization,
   runIsolatedTransaction,
   safeRelativePath,
   scanSnapshotTransactions,
@@ -324,16 +323,9 @@ function boundedMutationPath(value) {
 
 function recoveryMutationManifest(recovery, pmRelative, finalizedAt) {
   try {
-    const transition = recovery?.transition;
-    if (!transition?.card_write || !Array.isArray(transition.artifact_writes)) return null;
+    const finalizationPlan = planFinalization(recovery, pmRelative, finalizedAt);
+    const { paths, terminalEvent, transition } = finalizationPlan;
     if (transition.artifact_writes.length > MAX_RECOVERY_ARTIFACTS) return null;
-    const finalEvent = buildFinalizedEvent(
-      recovery.terminal_event,
-      recovery.run_id,
-      { card_id: recovery.card_id, stage: recovery.stage },
-      recovery,
-      finalizedAt
-    );
     const mutations = [
       {
         operation: "write",
@@ -352,27 +344,16 @@ function recoveryMutationManifest(recovery, pmRelative, finalizedAt) {
     mutations.push(
       {
         operation: "write",
-        path: boundedMutationPath(
-          path.posix.join(pmRelative, "loop", "events", `${recovery.run_id}.json`)
-        ),
-        content_sha256: sha256(`${JSON.stringify(finalEvent, null, 2)}\n`),
+        path: boundedMutationPath(paths.event),
+        content_sha256: sha256(`${JSON.stringify(terminalEvent, null, 2)}\n`),
       },
       {
         operation: "delete",
-        path: boundedMutationPath(
-          path.posix.join(
-            pmRelative,
-            "loop",
-            "leases",
-            leaseFileName(recovery.card_id, recovery.stage)
-          )
-        ),
+        path: boundedMutationPath(paths.lease),
       },
       {
         operation: "delete",
-        path: boundedMutationPath(
-          path.posix.join(pmRelative, "loop", "recovery", `${recovery.run_id}.json`)
-        ),
+        path: boundedMutationPath(paths.recovery),
       }
     );
     return mutations;

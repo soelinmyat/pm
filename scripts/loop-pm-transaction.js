@@ -812,6 +812,23 @@ function buildFinalizedEvent(event, runId, lease, recovery, finalizedAt) {
   };
 }
 
+function planFinalization(recovery, pmRelative, finalizedAt, event = recovery?.terminal_event) {
+  const runId = assertRunId(recovery?.run_id);
+  if (!recovery.card_id || !recovery.stage) {
+    throw new Error("recovery finalization requires card and stage ownership");
+  }
+  const transition = normalizeTransition(recovery.transition);
+  const paths = transactionPaths(pmRelative, runId, recovery.card_id, recovery.stage);
+  const terminalEvent = buildFinalizedEvent(
+    event,
+    runId,
+    { card_id: recovery.card_id, stage: recovery.stage },
+    recovery,
+    finalizedAt
+  );
+  return { paths, terminalEvent, transition };
+}
+
 function finalizeRun(pmDir, input, options = {}) {
   const runId = assertRunId(input.runId || input.run_id);
   if (!input.event || input.event.terminal !== true || typeof input.event.status !== "string") {
@@ -865,7 +882,13 @@ function finalizeRun(pmDir, input, options = {}) {
         ) {
           throw new TransactionAbort("recovery-not-finalizing", "run is not ready to finalize");
         }
-        const transition = normalizeTransition(recovery.transition);
+        const finalizationPlan = planFinalization(
+          recovery,
+          context.pmRelative,
+          finalizedAt,
+          input.event
+        );
+        const transition = finalizationPlan.transition;
         const transitionHash = sha256(JSON.stringify(stableValue(transition)));
         const storedTerminalEvent = normalizeTerminalEvent(recovery.terminal_event);
         const suppliedTerminalEvent = normalizeTerminalEvent(input.event);
@@ -933,7 +956,7 @@ function finalizeRun(pmDir, input, options = {}) {
           fs.writeFileSync(artifactPath, artifact.content);
         }
         fs.writeFileSync(cardPath, transition.card_write.content);
-        terminalEvent = buildFinalizedEvent(input.event, runId, lease, recovery, finalizedAt);
+        terminalEvent = finalizationPlan.terminalEvent;
         writeJsonAtomic(eventPath, terminalEvent);
         fs.rmSync(recoveryPath);
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
@@ -1061,21 +1084,34 @@ function withRemoteSnapshot(pmDir, callback, options = {}) {
   }
 }
 
-function findLeaseByRunId(pmDir, runId) {
+function buildLeaseIndex(pmDir) {
   const leaseDir = path.join(pmDir, "loop", "leases");
-  if (!fs.existsSync(leaseDir)) return { lease: null, invalid: [] };
+  const byRun = new Map();
   const invalid = [];
-  const matches = [];
+  const records = [];
+  if (!fs.existsSync(leaseDir)) return { byRun, invalid, records };
   for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     try {
       const lease = JSON.parse(fs.readFileSync(path.join(leaseDir, entry.name), "utf8"));
-      if (lease.run_id === runId) matches.push(lease);
-      if (!lease.run_id) invalid.push(entry.name);
+      records.push({ entry: entry.name, lease });
+      if (lease.run_id) {
+        const matches = byRun.get(lease.run_id) || [];
+        matches.push(lease);
+        byRun.set(lease.run_id, matches);
+      } else {
+        invalid.push(entry.name);
+      }
     } catch {
       invalid.push(entry.name);
     }
   }
+  return { byRun, invalid, records };
+}
+
+function findLeaseByRunId(pmDir, runId, leaseIndex = buildLeaseIndex(pmDir)) {
+  const invalid = [...leaseIndex.invalid];
+  const matches = leaseIndex.byRun.get(runId) || [];
   if (matches.length > 1) invalid.push(`duplicate lease ownership for ${runId}`);
   return { lease: matches.length === 1 ? matches[0] : null, invalid };
 }
@@ -1092,7 +1128,7 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
   } catch (err) {
     parseError = err.message;
   }
-  const leaseLookup = findLeaseByRunId(pmDir, runId);
+  const leaseLookup = findLeaseByRunId(pmDir, runId, options.leaseIndex);
   const lease = leaseLookup.lease;
   const now = options.now instanceof Date ? options.now : new Date();
   const leaseExpired = lease ? isLeaseExpired(lease, now) : false;
@@ -1188,53 +1224,48 @@ function listRunIds(pmDir, options = {}) {
   );
   const requestedCards = new Set((options.cardIds || []).map(String).filter(Boolean));
   const scoped = requestedRuns.size > 0 || requestedCards.size > 0;
+  for (const runId of requestedRuns) ids.add(runId);
   const relevant = (record, runId) =>
     !scoped || requestedRuns.has(runId) || requestedCards.has(String(record?.card_id || ""));
-  for (const child of ["events", "recovery", "leases"]) {
+  for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
     const dir = path.join(pmDir, "loop", child);
     if (!fs.existsSync(dir)) continue;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      if (child === "leases") {
-        try {
-          const lease = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
-          if (lease.run_id) {
-            if (!lease.card_id || relevant(lease, lease.run_id)) ids.add(lease.run_id);
-          } else {
-            ids.add(`ambiguous:${entry.name}`);
-          }
-        } catch {
-          ids.add(`ambiguous:${entry.name}`);
+      const runId = entry.name.slice(0, -5);
+      try {
+        const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+        if (
+          child === "events" &&
+          options.includeFinalized !== true &&
+          record.run_id === runId &&
+          record.terminal === true &&
+          record.card_id
+        ) {
+          continue;
         }
-      } else {
-        const runId = entry.name.slice(0, -5);
-        try {
-          const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
-          if (
-            child === "events" &&
-            options.includeFinalized !== true &&
-            record.run_id === runId &&
-            record.terminal === true &&
-            record.card_id
-          ) {
-            continue;
-          }
-          if (!record.card_id || record.run_id !== runId || relevant(record, runId)) ids.add(runId);
-        } catch {
-          ids.add(runId);
-        }
+        if (!record.card_id || record.run_id !== runId || relevant(record, runId)) ids.add(runId);
+      } catch {
+        ids.add(runId);
       }
     }
+  }
+  const leaseIndex = options.leaseIndex || buildLeaseIndex(pmDir);
+  for (const entry of leaseIndex.invalid) ids.add(`ambiguous:${entry}`);
+  for (const { lease } of leaseIndex.records) {
+    if (lease.run_id && (!lease.card_id || relevant(lease, lease.run_id))) ids.add(lease.run_id);
   }
   return [...ids].sort();
 }
 
 function scanSnapshotTransactions(pmDir, options = {}) {
-  return listRunIds(pmDir, options).map((runId) => {
+  const leaseIndex = buildLeaseIndex(pmDir);
+  const scanOptions = { ...options, leaseIndex };
+  return listRunIds(pmDir, scanOptions).map((runId) => {
     if (!RUN_ID_PATTERN.test(runId)) {
       return { run_id: runId, state: "ambiguous", redispatch: false };
     }
-    return inspectSnapshotRunState(pmDir, runId, options);
+    return inspectSnapshotRunState(pmDir, runId, scanOptions);
   });
 }
 
@@ -1257,6 +1288,7 @@ module.exports = {
   finalizeRun,
   inspectRemoteRunState,
   markRunDispatched,
+  planFinalization,
   releaseClaim,
   runIsolatedTransaction,
   safeRelativePath,

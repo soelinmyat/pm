@@ -57,9 +57,8 @@ test("scoped transaction scanning retains structurally unowned durable records a
     runIds: ["loop-52345678-1234-4123-8123-123456789abc"],
     cardIds: ["PM-404"],
   });
-  assert.equal(states.length, 1);
-  assert.equal(states[0].run_id, runId);
-  assert.equal(states[0].state, "ambiguous");
+  const unowned = states.find((entry) => entry.run_id === runId);
+  assert.equal(unowned.state, "ambiguous");
 });
 
 test("duplicate leases claiming one run ID are explicitly ambiguous", (t) => {
