@@ -206,6 +206,10 @@ test("canary evidence validation rejects empty, false, reversed, and future evid
     ],
   };
   assert.match(validateEvidenceRecord(wrongInventoryPath, "verified-pr"), /before state/i);
+
+  const missingInventoryRecords = completeRecord("verified-pr");
+  delete missingInventoryRecords.before.events.records;
+  assert.match(validateEvidenceRecord(missingInventoryRecords, "verified-pr"), /before state/i);
 });
 
 test("canary identity preserves the approved execution hash", () => {

@@ -207,8 +207,8 @@ function evidenceIdentity(record) {
 }
 
 function validInventory(value, kind) {
-  const records = Array.isArray(value?.records) ? value.records : [];
-  const paths = records.map((entry) => entry?.path);
+  const records = value?.records;
+  const paths = Array.isArray(records) ? records.map((entry) => entry?.path) : [];
   const prefix = `pm/loop/${kind}/`;
   return (
     value &&
@@ -216,6 +216,7 @@ function validInventory(value, kind) {
     !Array.isArray(value) &&
     Number.isSafeInteger(value.count) &&
     value.count >= 0 &&
+    Array.isArray(records) &&
     records.length <= value.count &&
     SHA256.test(String(value.sha256 || "")) &&
     new Set(paths).size === paths.length &&
