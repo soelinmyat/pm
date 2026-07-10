@@ -81,6 +81,64 @@ test("duplicate leases claiming one run ID are explicitly ambiguous", (t) => {
   assert.match(state.reason, /duplicate.*lease/i);
 });
 
+test("symlinked transaction directories and JSON records are always ambiguous", async (t) => {
+  const runId = "loop-72345678-1234-4123-8123-123456789abc";
+  const cases = ["events-directory", "event-file", "recovery-directory", "lease-file"];
+  for (const caseName of cases) {
+    await t.test(caseName, () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-loop-symlink-${caseName}-`));
+      t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+      const external = path.join(root, "external");
+      const loopDir = path.join(root, "pm", "loop");
+      fs.mkdirSync(external, { recursive: true });
+      fs.mkdirSync(path.join(loopDir, "events"), { recursive: true });
+      const event = {
+        run_id: runId,
+        card_id: "PM-404",
+        stage: "dev",
+        terminal: true,
+        status: "failed",
+      };
+      const externalEvent = path.join(external, `${runId}.json`);
+      fs.writeFileSync(externalEvent, JSON.stringify(event));
+      fs.writeFileSync(path.join(loopDir, "events", `${runId}.json`), JSON.stringify(event));
+
+      if (caseName === "events-directory") {
+        fs.rmSync(path.join(loopDir, "events"), { recursive: true });
+        fs.symlinkSync(external, path.join(loopDir, "events"));
+      } else if (caseName === "event-file") {
+        fs.rmSync(path.join(loopDir, "events", `${runId}.json`));
+        fs.symlinkSync(externalEvent, path.join(loopDir, "events", `${runId}.json`));
+      } else if (caseName === "recovery-directory") {
+        fs.symlinkSync(external, path.join(loopDir, "recovery"));
+      } else {
+        const leases = path.join(loopDir, "leases");
+        fs.mkdirSync(leases, { recursive: true });
+        const externalLease = path.join(external, "lease.json");
+        fs.writeFileSync(
+          externalLease,
+          JSON.stringify({
+            run_id: runId,
+            card_id: "PM-404",
+            stage: "dev",
+            phase: "claimed",
+            expires_at: "2026-07-10T01:00:00Z",
+          })
+        );
+        fs.symlinkSync(externalLease, path.join(leases, "dev-pm-404.json"));
+      }
+
+      const states = scanSnapshotTransactions(path.join(root, "pm"), {
+        now: FIXED_NOW,
+        runIds: [runId],
+        includeFinalized: true,
+      });
+      const state = states.find((entry) => entry.run_id === runId);
+      assert.equal(state.state, "ambiguous", JSON.stringify(states));
+    });
+  }
+});
+
 const FIXED_NOW = new Date("2026-07-10T00:00:00.000Z");
 const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_DIR",

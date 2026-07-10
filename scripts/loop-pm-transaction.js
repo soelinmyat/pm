@@ -120,6 +120,16 @@ function readJsonNoFollow(filePath) {
   }
 }
 
+function readJsonNoFollowIfExists(filePath) {
+  try {
+    fs.lstatSync(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  return readJsonNoFollow(filePath);
+}
+
 function timeoutValue(timeout) {
   return typeof timeout === "function" ? timeout() : timeout;
 }
@@ -1139,7 +1149,11 @@ function buildLeaseIndex(pmDir) {
     return { byRun, invalid, records };
   }
   for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
-    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
+    if (!entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      invalid.push(entry.name);
+      continue;
+    }
     try {
       const lease = readJsonNoFollow(path.join(leaseDir, entry.name));
       records.push({ entry: entry.name, lease });
@@ -1171,8 +1185,10 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
   let recovery = null;
   let parseError = "";
   try {
-    if (fs.existsSync(eventPath)) event = JSON.parse(fs.readFileSync(eventPath, "utf8"));
-    if (fs.existsSync(recoveryPath)) recovery = JSON.parse(fs.readFileSync(recoveryPath, "utf8"));
+    requireRealDirectoryIfExists(path.dirname(eventPath), "events evidence directory");
+    requireRealDirectoryIfExists(path.dirname(recoveryPath), "recovery evidence directory");
+    event = readJsonNoFollowIfExists(eventPath);
+    recovery = readJsonNoFollowIfExists(recoveryPath);
   } catch (err) {
     parseError = err.message;
   }
@@ -1277,12 +1293,21 @@ function listRunIds(pmDir, options = {}) {
     !scoped || requestedRuns.has(runId) || requestedCards.has(String(record?.card_id || ""));
   for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
     const dir = path.join(pmDir, "loop", child);
-    if (!fs.existsSync(dir)) continue;
+    try {
+      if (!requireRealDirectoryIfExists(dir, `${child} evidence directory`)) continue;
+    } catch {
+      ids.add(`ambiguous:${child}-directory`);
+      continue;
+    }
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      if (!entry.name.endsWith(".json")) continue;
       const runId = entry.name.slice(0, -5);
+      if (!entry.isFile() || entry.isSymbolicLink()) {
+        ids.add(RUN_ID_PATTERN.test(runId) ? runId : `ambiguous:${child}:${entry.name}`);
+        continue;
+      }
       try {
-        const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+        const record = readJsonNoFollow(path.join(dir, entry.name));
         if (
           child === "events" &&
           options.includeFinalized !== true &&

@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
 const { approveExecutionConfig, loadLoopConfig, sha256 } = require("../scripts/loop-config.js");
-const { runEngineInterruptible } = require("../scripts/loop-process.js");
+const { remoteStopExists, runEngineInterruptible } = require("../scripts/loop-process.js");
 
 const {
   buildPrompt,
@@ -1921,6 +1921,31 @@ test("interruptible execution observes a STOP pushed from another PM clone", asy
   assert.equal(result.stop.source, "remote");
   assert.ok(result.stop.term_sent_at);
   assert.ok(result.stop.kill_sent_at);
+});
+
+test("remote STOP polling retries the same OID after an indeterminate probe", async () => {
+  const oid = "a".repeat(40);
+  const remoteStop = {
+    gitDir: "/private/monitor.git",
+    remote: "/private/origin.git",
+    ref: "refs/heads/main",
+    path: "pm/loop/STOP",
+  };
+  let catAttempts = 0;
+  const options = {
+    runCapture: async () => `${oid}\trefs/heads/main`,
+    runQuiet: async () => true,
+    runStatus: async (_bin, args) => {
+      assert.match(args.at(-1), /FETCH_HEAD:pm\/loop\/STOP/);
+      catAttempts += 1;
+      return catAttempts === 1 ? { completed: false, code: null } : { completed: true, code: 0 };
+    },
+  };
+  assert.equal(await remoteStopExists(remoteStop, options), false);
+  assert.equal(remoteStop.last_oid, undefined);
+  assert.equal(await remoteStopExists(remoteStop, options), true);
+  assert.equal(remoteStop.last_oid, oid);
+  assert.equal(catAttempts, 2);
 });
 
 test("TERM escalation kills a surviving same-group descendant after the leader exits", async (t) => {

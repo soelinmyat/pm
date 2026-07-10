@@ -120,7 +120,43 @@ function runCapture(bin, args, options = {}) {
   });
 }
 
-async function remoteStopExists(remoteStop) {
+function runStatus(bin, args, options = {}) {
+  return new Promise((resolve) => {
+    let child;
+    let timedOut = false;
+    try {
+      child = spawn(bin, args, {
+        cwd: options.cwd,
+        env: options.env || process.env,
+        stdio: "ignore",
+      });
+    } catch {
+      resolve({ completed: false, code: null });
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The bounded command already exited.
+        }
+      },
+      Math.max(100, Number(options.timeoutMs || 5000))
+    );
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ completed: false, code: null });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ completed: !timedOut && Number.isInteger(code), code });
+    });
+  });
+}
+
+async function remoteStopExists(remoteStop, options = {}) {
   if (
     !remoteStop ||
     !remoteStop.gitDir ||
@@ -130,23 +166,32 @@ async function remoteStopExists(remoteStop) {
   ) {
     return false;
   }
-  const remoteLine = await runCapture("git", ["ls-remote", remoteStop.remote, remoteStop.ref], {
+  const capture = options.runCapture || runCapture;
+  const quiet = options.runQuiet || runQuiet;
+  const status = options.runStatus || runStatus;
+  const remoteLine = await capture("git", ["ls-remote", remoteStop.remote, remoteStop.ref], {
     timeoutMs: remoteStop.timeoutMs,
   });
   const remoteOid = remoteLine.split(/\s+/)[0] || "";
   if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(remoteOid)) return false;
   if (remoteStop.last_oid === remoteOid) return false;
   const common = ["--git-dir", remoteStop.gitDir];
-  const fetched = await runQuiet(
+  const fetched = await quiet(
     "git",
     [...common, "fetch", "--quiet", "--depth=1", remoteStop.remote, remoteStop.ref],
     { timeoutMs: remoteStop.timeoutMs }
   );
   if (!fetched) return false;
+  const probed = await status(
+    "git",
+    [...common, "cat-file", "-e", `FETCH_HEAD:${remoteStop.path}`],
+    {
+      timeoutMs: remoteStop.timeoutMs,
+    }
+  );
+  if (!probed.completed) return false;
   remoteStop.last_oid = remoteOid;
-  return runQuiet("git", [...common, "cat-file", "-e", `FETCH_HEAD:${remoteStop.path}`], {
-    timeoutMs: remoteStop.timeoutMs,
-  });
+  return probed.code === 0;
 }
 
 function createOutputSink(filePath, maxBuffer) {
@@ -414,6 +459,7 @@ async function main() {
 }
 
 module.exports = {
+  remoteStopExists,
   runEngineInterruptible,
   runEngineInterruptibleSync,
   signalProcessGroup,
