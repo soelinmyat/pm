@@ -19,19 +19,18 @@ const { spawnSync } = require("child_process");
 
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseCliArgs } = require("./loop-args.js");
-const { loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
+const { DEFAULT_LOOP_CONFIG, loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
 const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
   findGitRoot,
-  gitRelativePath,
-  leasePath,
   removeWorkspace,
   runGit,
   sanitizeId,
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { runLoop } = require("./loop-runner.js");
+const { markRunDispatched, releaseClaim } = require("./loop-pm-transaction.js");
 const {
   activeQuarantineForPlan,
   copyReadContext,
@@ -248,10 +247,12 @@ function isSafeBranchRef(branch) {
   return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(branch);
 }
 
-function branchRefExists(gitRoot, branch) {
+function branchRefExists(gitRoot, branch, options = {}) {
   for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
     try {
-      runGit(["rev-parse", "--verify", "--quiet", ref], gitRoot);
+      runGit(["rev-parse", "--verify", "--quiet", ref], gitRoot, {
+        timeout: options.timeout,
+      });
       return true;
     } catch {
       // try the next ref namespace
@@ -263,12 +264,16 @@ function branchRefExists(gitRoot, branch) {
 function prepareWorkspace(gitRoot, plan, config, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const worker = config.worker || {};
+  const envelope = config.claim_envelope || DEFAULT_LOOP_CONFIG.claim_envelope;
   const slug = sanitizeId(plan.selected.id);
   const stamp = now
     .toISOString()
     .replace(/[^0-9]/g, "")
     .slice(0, 12);
   const shipStage = plan.selected.stage === "ship" || plan.selected.stage === "review";
+  const branchTimeout = Number(envelope.branch_promotion_seconds) * 1000;
+  const bootstrapTimeout = Number(envelope.bootstrap_recheck_seconds) * 1000;
+  const cleanupTimeout = Number(envelope.workspace_cleanup_seconds) * 1000;
   const existingBranch = String(plan.selected.branch || "");
   if (shipStage) {
     // branch comes from git-synced card frontmatter — same injection surface
@@ -277,7 +282,7 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     if (!isSafeBranchRef(existingBranch)) {
       return { ok: false, reason: "ship-branch-invalid" };
     }
-    if (!branchRefExists(gitRoot, existingBranch)) {
+    if (!branchRefExists(gitRoot, existingBranch, { timeout: branchTimeout })) {
       return { ok: false, reason: "ship-branch-not-found" };
     }
   }
@@ -289,17 +294,23 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
   }
 
   try {
-    runGit(["fetch", "origin"], gitRoot);
+    runGit(["fetch", "origin"], gitRoot, { timeout: branchTimeout });
     if (shipStage) {
-      runGit(["worktree", "add", workspacePath, branch], gitRoot);
+      runGit(["worktree", "add", workspacePath, branch], gitRoot, {
+        timeout: branchTimeout,
+      });
       // Each cycle starts from the remote tip so pushes from humans or other
       // machines are never ignored or clobbered by a stale local branch.
-      runGit(["reset", "--hard", `origin/${branch}`], workspacePath);
+      runGit(["reset", "--hard", `origin/${branch}`], workspacePath, {
+        timeout: branchTimeout,
+      });
     } else {
       if (!plan.source_base_oid) {
         return { ok: false, reason: "source-base-missing" };
       }
-      runGit(["worktree", "add", workspacePath, "-b", branch, plan.source_base_oid], gitRoot);
+      runGit(["worktree", "add", workspacePath, "-b", branch, plan.source_base_oid], gitRoot, {
+        timeout: branchTimeout,
+      });
     }
   } catch (err) {
     return { ok: false, reason: "worktree-add-failed", error: err.message };
@@ -310,14 +321,16 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
   // and run the bootstrap command. Shared with the dev worktree path via
   // scripts/worktree-bootstrap.js so both honor the same worker.bootstrap_*
   // config keys.
-  const boot = bootstrapWorktree(gitRoot, workspacePath, worker);
+  const boot = bootstrapWorktree(gitRoot, workspacePath, worker, {
+    timeoutMs: bootstrapTimeout,
+  });
   if (!boot.ok) {
     return { ok: false, reason: boot.reason, workspacePath, branch, error: boot.error };
   }
 
   const readContext = copyReadContext(plan.pmDir, workspacePath, plan);
   if (!readContext.ok) {
-    removeWorkspace(gitRoot, workspacePath);
+    removeWorkspace(gitRoot, workspacePath, { timeout: cleanupTimeout });
     if (!shipStage) {
       try {
         runGit(["branch", "-D", branch], gitRoot);
@@ -337,31 +350,23 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
 }
 
 function releaseLease(pmDir, lease, options = {}) {
-  const filePath = leasePath(pmDir, lease.card_id, lease.stage);
-  if (!fs.existsSync(filePath)) return { released: false, reason: "lease-file-missing" };
-
-  const gitRoot = findGitRoot(pmDir);
-  fs.rmSync(filePath);
-  if (!gitRoot) return { released: true, pushed: false, reason: "no-git-root" };
-
-  try {
-    const rel = gitRelativePath(gitRoot, filePath);
-    runGit(["add", "-A", "--", rel], gitRoot);
-    runGit(
-      ["commit", "-m", `pm loop release ${lease.card_id} ${lease.stage}`, "--", rel],
-      gitRoot,
-      {
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
-    if (!options.skipPush) {
-      runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
+  const result = releaseClaim(
+    pmDir,
+    {
+      runId: lease.run_id,
+      cardId: lease.card_id,
+      stage: lease.stage,
+      reason: options.reason || "legacy-worker-release",
+    },
+    {
+      skipPush: options.skipPush,
+      maxAttempts: options.maxAttempts || options.config?.claim_envelope?.cas_attempts,
+      timeoutMs: options.config?.claim_envelope?.pm_finalization_seconds
+        ? Number(options.config.claim_envelope.pm_finalization_seconds) * 1000
+        : undefined,
     }
-    return { released: true, pushed: !options.skipPush };
-  } catch (err) {
-    // Release commit/push failure is non-fatal: the lease TTL guarantees expiry.
-    return { released: true, pushed: false, error: err.message };
-  }
+  );
+  return { ...result, released: result.ok === true };
 }
 
 function runWorker(projectDir, options = {}) {
@@ -513,7 +518,11 @@ function runWorker(projectDir, options = {}) {
   // budgets and the attempts backstop always advance and nothing can livelock
   // the wake cycle for free.
   const bail = (status, reason) => {
-    const release = releaseLease(paths.pmDir, plan.lease, options);
+    const release = releaseLease(paths.pmDir, plan.lease, {
+      ...options,
+      config,
+      reason: status,
+    });
     writeJsonAtomic(ledgerPath, {
       ...ledger,
       status,
@@ -551,62 +560,84 @@ function runWorker(projectDir, options = {}) {
       status = "bootstrap-failed";
       reason = workspace.reason;
     } else {
-      const command = engineCommand(config, buildPrompt(plan, config), {
-        workspacePath: workspace.workspacePath,
-        resultDir,
-      });
-      const timeoutSeconds = shipStage
-        ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
-        : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
-      const timeoutMs = timeoutSeconds * 1000;
-      ledger.engine = { bin: command.bin, args: command.args };
-      ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
-      writeJsonAtomic(ledgerPath, ledger);
-
-      const result = spawnSync(command.bin, command.args, {
-        cwd: workspace.workspacePath,
-        input: command.input,
-        encoding: "utf8",
-        timeout: timeoutMs,
-        maxBuffer: ENGINE_MAX_BUFFER,
-        env: {
-          ...process.env,
-          // Deterministic mode detection for skills (dev/ship read these to
-          // switch into headless loop-worker behavior).
-          PM_LOOP_WORKER: "1",
-          PM_LOOP_STAGE: plan.selected.stage || "dev",
-          PM_LOOP_CARD_ID: plan.selected.id,
-          PM_LOOP_RESULT_DIR: resultDir,
+      const dispatchRecord = markRunDispatched(
+        paths.pmDir,
+        {
+          runId,
+          cardId: plan.lease.card_id,
+          stage: plan.lease.stage,
         },
-      });
-      fs.writeFileSync(path.join(logDir, "stdout.log"), result.stdout || "");
-      fs.writeFileSync(path.join(logDir, "stderr.log"), result.stderr || "");
-
-      if (result.error && result.error.code === "ETIMEDOUT") {
-        status = "timeout";
-        reason = `engine exceeded ${timeoutMs / 1000}s budget`;
-      } else if (result.error) {
-        status = "failed";
-        reason = result.error.message;
+        {
+          maxAttempts: config.claim_envelope.cas_attempts,
+          timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+        }
+      );
+      ledger.dispatch_record = dispatchRecord;
+      if (!dispatchRecord.ok) {
+        status = "dispatch-checkpoint-failed";
+        reason = dispatchRecord.reason || "failed to durably record engine dispatch";
       } else {
-        exitCode = result.status;
-        if (result.status === 0) {
-          const stageContract = validateStageCompletion(stage, plan, workspace, projectGitRoot);
-          ledger.stage_contract = stageContract;
-          if (stageContract.ok) {
-            status = "completed";
-          } else {
-            status = "blocked";
-            reason = stageContract.reason;
-          }
-        } else {
+        const command = engineCommand(config, buildPrompt(plan, config), {
+          workspacePath: workspace.workspacePath,
+          resultDir,
+        });
+        const timeoutSeconds = shipStage
+          ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
+          : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
+        const timeoutMs = timeoutSeconds * 1000;
+        ledger.engine = { bin: command.bin, args: command.args };
+        ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
+        writeJsonAtomic(ledgerPath, ledger);
+
+        const result = spawnSync(command.bin, command.args, {
+          cwd: workspace.workspacePath,
+          input: command.input,
+          encoding: "utf8",
+          timeout: timeoutMs,
+          maxBuffer: ENGINE_MAX_BUFFER,
+          env: {
+            ...process.env,
+            // Deterministic mode detection for skills (dev/ship read these to
+            // switch into headless loop-worker behavior).
+            PM_LOOP_WORKER: "1",
+            PM_LOOP_STAGE: plan.selected.stage || "dev",
+            PM_LOOP_CARD_ID: plan.selected.id,
+            PM_LOOP_RESULT_DIR: resultDir,
+          },
+        });
+        fs.writeFileSync(path.join(logDir, "stdout.log"), result.stdout || "");
+        fs.writeFileSync(path.join(logDir, "stderr.log"), result.stderr || "");
+
+        if (result.error && result.error.code === "ETIMEDOUT") {
+          status = "timeout";
+          reason = `engine exceeded ${timeoutMs / 1000}s budget`;
+        } else if (result.error) {
           status = "failed";
-          reason = `engine exited ${result.status}`;
+          reason = result.error.message;
+        } else {
+          exitCode = result.status;
+          if (result.status === 0) {
+            const stageContract = validateStageCompletion(stage, plan, workspace, projectGitRoot);
+            ledger.stage_contract = stageContract;
+            if (stageContract.ok) {
+              status = "completed";
+            } else {
+              status = "blocked";
+              reason = stageContract.reason;
+            }
+          } else {
+            status = "failed";
+            reason = `engine exited ${result.status}`;
+          }
         }
       }
     }
   } finally {
-    const release = releaseLease(paths.pmDir, plan.lease, options);
+    const release = releaseLease(paths.pmDir, plan.lease, {
+      ...options,
+      config,
+      reason: status,
+    });
     ledger.status = status;
     ledger.reason = reason || undefined;
     ledger.exit_code = exitCode;
@@ -620,7 +651,9 @@ function runWorker(projectDir, options = {}) {
       // and every subsequent cycle fails worktree-add. Dev worktrees go too
       // (logs are already captured); failed dev run branches are deleted so
       // retries don't accumulate refs — never the ship branch itself.
-      ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath);
+      ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath, {
+        timeout: Number(config.claim_envelope.workspace_cleanup_seconds) * 1000,
+      });
       if (!shipStage && status !== "completed" && ledger.workspace_removed) {
         try {
           runGit(["branch", "-D", workspace.branch], projectGitRoot);

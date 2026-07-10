@@ -10,6 +10,7 @@ const path = require("path");
 const { buildLoopBoard } = require("../scripts/loop-board.js");
 const { DEFAULT_LOOP_CONFIG, loadLoopConfig } = require("../scripts/loop-config.js");
 const { runLoop, selectNextCard } = require("../scripts/loop-runner.js");
+const { markRunDispatched } = require("../scripts/loop-pm-transaction.js");
 
 const FIXED_NOW = new Date("2026-06-23T00:00:00Z");
 const GIT_ENV_KEYS_TO_CLEAR = [
@@ -255,7 +256,7 @@ test("loop runner non-dry-run blocks before dispatch unless claim-only is explic
   assert.match(result.reason, /loop-runner selects and claims only/);
 });
 
-test("loop runner claim-only commits a lease without leaving uncommitted event files", (t) => {
+test("loop runner claim-only commits lease and attempt event without moving the shared checkout", (t) => {
   const project = createProject();
   t.after(project.cleanup);
 
@@ -274,7 +275,8 @@ test("loop runner claim-only commits a lease without leaving uncommitted event f
     }) + "body"
   );
   initGit(project);
-  attachRemote(project, t);
+  const remote = attachRemote(project, t);
+  const sharedHead = git(project.root, ["rev-parse", "HEAD"]);
 
   const resolved = config({ autonomy: { start_dev: true } });
   const exactPlan = runLoop(project.root, {
@@ -296,7 +298,78 @@ test("loop runner claim-only commits a lease without leaving uncommitted event f
   assert.equal(result.status, "claimed");
   assert.equal(result.mutation, true);
   assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "events")), false);
+  assert.equal(git(project.root, ["rev-parse", "HEAD"]), sharedHead);
   assert.equal(git(project.root, ["status", "--porcelain"]), "");
+  assert.equal(
+    runGit(
+      ["--git-dir", remote, "cat-file", "-e", `main:pm/loop/events/${result.run_id}.json`],
+      project.root
+    ),
+    ""
+  );
+});
+
+test("next wake stops for durable never-dispatched and dispatched run state", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/recovery-task.md",
+    fm({
+      type: "backlog",
+      id: "PM-REC1",
+      title: "Recovery task",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+      updated: "2026-06-22",
+    }) + "body"
+  );
+  initGit(project);
+  attachRemote(project, t);
+  const resolved = config({ autonomy: { start_dev: true } });
+  const exactPlan = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: resolved,
+  });
+  const claimed = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: false,
+    claimOnly: true,
+    config: resolved,
+    expectedPlan: exactPlan,
+  });
+  assert.equal(claimed.status, "claimed");
+
+  let nextWake = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: resolved,
+  });
+  assert.equal(nextWake.status, "recovery-required");
+  assert.equal(nextWake.recovery.state, "never-dispatched");
+  assert.equal(nextWake.selected, null);
+
+  const dispatched = markRunDispatched(project.pmDir, {
+    runId: claimed.run_id,
+    cardId: "PM-REC1",
+    stage: "dev",
+  });
+  assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+  nextWake = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: resolved,
+  });
+  assert.equal(nextWake.status, "recovery-required");
+  assert.equal(nextWake.recovery.state, "dispatched-without-terminal-result");
+  assert.equal(nextWake.selected, null);
 });
 
 test("loop runner refuses a claim that does not present a preflighted exact plan", (t) => {
@@ -348,6 +421,7 @@ test("loop runner skip-push blocks and cleans the local lease commit", (t) => {
     }) + "body"
   );
   initGit(project);
+  attachRemote(project, t);
 
   const before = git(project.root, ["rev-parse", "HEAD"]);
   const resolved = config({ autonomy: { start_dev: true } });
@@ -375,7 +449,7 @@ test("loop runner skip-push blocks and cleans the local lease commit", (t) => {
   assert.equal(git(project.root, ["status", "--porcelain"]), "");
 });
 
-test("loop runner pulls before mutating selection", (t) => {
+test("loop runner fetches authoritative PM state without moving the shared checkout", (t) => {
   const project = createProject();
   t.after(project.cleanup);
 
@@ -402,6 +476,7 @@ test("loop runner pulls before mutating selection", (t) => {
     dryRun: true,
     config: resolved,
   });
+  const sharedHead = git(project.root, ["rev-parse", "HEAD"]);
   updateRemote(remote, (clone) => {
     fs.writeFileSync(
       path.join(clone, "pm", "backlog", "approved-task.md"),
@@ -431,10 +506,11 @@ test("loop runner pulls before mutating selection", (t) => {
   assert.equal(result.status, "plan-stale");
   assert.equal(result.expected_selected_id, "PM-007");
   assert.equal(result.selected, null);
+  assert.equal(git(project.root, ["rev-parse", "HEAD"]), sharedHead);
   assert.equal(git(project.root, ["status", "--porcelain"]), "");
 });
 
-test("loop runner cleans local lease commit when push is rejected", (t) => {
+test("loop runner rejects an upstream advance before claim without moving shared HEAD", (t) => {
   const project = createProject();
   t.after(project.cleanup);
 
@@ -454,10 +530,6 @@ test("loop runner cleans local lease commit when push is rejected", (t) => {
   );
   initGit(project);
   const remote = attachRemote(project, t);
-  updateRemote(remote, (clone) => {
-    fs.appendFileSync(path.join(clone, "pm", "backlog", "approved-task.md"), "\nremote note\n");
-  });
-
   const before = git(project.root, ["rev-parse", "HEAD"]);
   const resolved = config({ autonomy: { start_dev: true } });
   const exactPlan = runLoop(project.root, {
@@ -465,6 +537,9 @@ test("loop runner cleans local lease commit when push is rejected", (t) => {
     mode: "dev",
     dryRun: true,
     config: resolved,
+  });
+  updateRemote(remote, (clone) => {
+    fs.appendFileSync(path.join(clone, "pm", "backlog", "approved-task.md"), "\nremote note\n");
   });
   const result = runLoop(project.root, {
     now: FIXED_NOW,
@@ -477,8 +552,8 @@ test("loop runner cleans local lease commit when push is rejected", (t) => {
     expectedPlan: exactPlan,
   });
 
-  assert.equal(result.status, "blocked");
-  assert.equal(result.reason, "push-failed");
+  assert.equal(result.status, "plan-stale");
+  assert.match(result.reason, /exact plan changed/);
   assert.equal(git(project.root, ["rev-parse", "HEAD"]), before);
   assert.equal(git(project.root, ["status", "--porcelain"]), "");
 });
@@ -605,7 +680,7 @@ test("claim reloads Git-synced config after pull and rejects exact-plan config d
   assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "leases")), false);
 });
 
-test("claim revalidates the PM HEAD and card revision immediately before lease mutation", (t) => {
+test("claim never resets an operator's unpushed shared-checkout commit", (t) => {
   const project = createProject();
   t.after(project.cleanup);
   const cardPath = project.write(
@@ -631,6 +706,7 @@ test("claim revalidates the PM HEAD and card revision immediately before lease m
     config: resolved,
   });
 
+  let operatorHead = "";
   const result = runLoop(project.root, {
     now: FIXED_NOW,
     mode: "dev",
@@ -642,12 +718,15 @@ test("claim revalidates the PM HEAD and card revision immediately before lease m
       fs.appendFileSync(cardPath, "raced\n");
       git(project.root, ["add", "pm/backlog/claim-race.md"]);
       git(project.root, ["commit", "-m", "race card before claim"]);
+      operatorHead = git(project.root, ["rev-parse", "HEAD"]);
     },
   });
 
-  assert.equal(result.status, "plan-stale");
-  assert.equal(result.mutation, false);
+  assert.equal(result.status, "claimed");
+  assert.equal(result.mutation, true);
+  assert.equal(git(project.root, ["rev-parse", "HEAD"]), operatorHead);
   assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "leases")), false);
+  assert.equal(git(project.root, ["status", "--porcelain"]), "");
 });
 
 test("source base resolves the remote default branch and never falls back to feature HEAD", (t) => {

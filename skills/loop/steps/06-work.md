@@ -10,6 +10,12 @@ Run one worker cycle: select and durably claim the next eligible card, bootstrap
 an isolated worktree, execute the configured engine headless, record a
 crash-safe run ledger, and release the lease.
 
+Claim, dispatch marking, checkpoint/finalization, and release are pushed from
+an isolated detached PM Git transaction. They never commit, pull, reset, or
+restore the operator's shared PM checkout. Each push uses compare-and-swap
+against the fetched upstream OID and fails closed if ownership or the expected
+card revision changes.
+
 ## How
 
 Preview first (no claim, no execution):
@@ -39,6 +45,19 @@ The worker refuses to run when:
 - both implementation gates are not true (`autonomy.start_dev` + per-card
   `implementation_approved`/`approved_by`/`approved_at`),
 - the lease cannot be committed AND pushed (no durable claim, no dispatch).
+
+Claim atomically writes the lease and
+`pm/loop/events/<run_id>.json`. Immediately before engine execution, the worker
+durably changes both records to `dispatched`. A validated result can then be
+checkpointed in `pm/loop/recovery/<run_id>.json` with the lease phase set to
+`finalizing`; finalization writes the terminal event, card and allowlisted
+artifacts while deleting recovery and lease in one CAS commit.
+
+Before selecting new work, the next wake reads remote transaction state. It
+distinguishes `never-dispatched`, `dispatched-without-terminal-result`,
+`recovery-ready`, finalized, and ambiguous runs. Any non-final state returns
+`recovery-required` instead of executing the engine again. An expired lease
+with recovery remains recovery-only.
 
 Every claimed dispatch writes a ledger — including rejections — so budgets and
 the attempts backstop always advance. Worktrees are removed after every run
@@ -74,6 +93,8 @@ When summarizing the JSON result:
   the next wake will do (ship cycle, next sibling, or nothing).
 - `failed` / `timeout` / `bootstrap-failed` — report the reason and log paths;
   the lease was released either way.
+- `recovery-required` — a durable claim, dispatch, recovery checkpoint, or
+  ambiguous orphan must be resolved without redispatching the engine.
 - `stopped` / `disabled` / `budget-exhausted` / `attempts-exhausted` / `rejected` / `idle` / `blocked` — nothing ran (any lease was released); report why.
 
 Close by telling the user the outcome, where the logs are, and what needs human attention next.

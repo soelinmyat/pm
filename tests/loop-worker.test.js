@@ -731,13 +731,25 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
     assert.equal(engineEnv.card, "PM-T1");
 
     // Lease released (file gone) and the release was pushed
-    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
 
     // Crash-safe ledger records the completed run
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "completed");
     assert.equal(ledger.exit_code, 0);
     assert.ok(ledger.lease_release.released);
+    git(["fetch", "origin"], fixture.project);
+    const event = JSON.parse(
+      git(["show", `origin/main:pm/loop/events/${result.run_id}.json`], fixture.project)
+    );
+    assert.equal(event.status, "released");
+    assert.equal(event.terminal, true);
+    assert.equal(
+      git(["log", "--format=%s", "origin/main", "-3"], fixture.project).includes(
+        "pm loop dispatched PM-T1 dev"
+      ),
+      true
+    );
   } finally {
     fixture.cleanup();
   }
@@ -798,7 +810,7 @@ test("engine failure records a failed ledger and still releases the lease", () =
     });
     assert.equal(result.status, "failed");
     assert.equal(result.exit_code, 3);
-    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "failed");
   } finally {
@@ -806,7 +818,7 @@ test("engine failure records a failed ledger and still releases the lease", () =
   }
 });
 
-test("crash recovery: expired lease from a dead worker is re-dispatchable", () => {
+test("crash recovery: an expired orphan lease fails closed without duplicate engine execution", () => {
   const fixture = makeProjectFixture();
   try {
     const engineBin = writeDevCompleteEngine(fixture.root);
@@ -838,10 +850,11 @@ test("crash recovery: expired lease from a dead worker is re-dispatchable", () =
     git(["push"], fixture.project);
 
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
-    assert.equal(result.status, "completed", JSON.stringify(result));
-    assert.equal(result.card.id, "PM-T1");
-    // The stale lease was replaced during the run and released afterward.
-    assert.equal(fs.readdirSync(leaseDir).length, 0);
+    assert.equal(result.status, "recovery-required", JSON.stringify(result));
+    assert.equal(result.recovery.state, "ambiguous");
+    assert.equal(result.selected, null);
+    assert.equal(result.workspace, undefined);
+    assert.equal(fs.readdirSync(leaseDir).length, 1);
   } finally {
     fixture.cleanup();
   }
@@ -896,7 +909,7 @@ test("worker rejects cards with non-dispatchable command shapes", () => {
     assert.equal(result.status, "rejected", JSON.stringify(result));
     assert.match(result.reason, /not a dispatchable/);
     // Lease released; nothing executed.
-    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
     // Rejection still writes a ledger so budgets/attempts advance (no livelock).
     const rejLedger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(rejLedger.status, "rejected");
@@ -1004,6 +1017,7 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
     assert.ok(git(["rev-parse", "--verify", "loop/pm-t1"], fixture.project).length > 0);
 
     const okEngine = writeFakeEngine(fixture.root, { exitCode: 0, marker: "ok-run" });
+    git(["pull", "--rebase"], fixture.project);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ worker: { engine_bin: okEngine } }, null, 2)
@@ -1211,7 +1225,7 @@ test("ship-stage dispatch without a recorded branch fails closed", () => {
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
     assert.equal(result.status, "bootstrap-failed", JSON.stringify(result));
     assert.equal(result.reason, "ship-branch-missing");
-    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
   } finally {
     fixture.cleanup();
   }

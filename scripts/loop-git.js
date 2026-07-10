@@ -4,10 +4,11 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
-const { DEFAULT_LOOP_CONFIG, loadLoopConfig, sha256 } = require("./loop-config.js");
+const { DEFAULT_LOOP_CONFIG, leaseTtlSeconds, loadLoopConfig } = require("./loop-config.js");
 
 const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_DIR",
@@ -76,9 +77,11 @@ function findGitRoot(startDir) {
   }
 }
 
-function removeWorkspace(gitRoot, workspacePath) {
+function removeWorkspace(gitRoot, workspacePath, options = {}) {
   try {
-    runGit(["worktree", "remove", "--force", workspacePath], gitRoot);
+    runGit(["worktree", "remove", "--force", workspacePath], gitRoot, {
+      timeout: options.timeout,
+    });
     return true;
   } catch {
     return false;
@@ -109,8 +112,8 @@ function nowIso(now = new Date()) {
   return now.toISOString();
 }
 
-function addMinutes(date, minutes) {
-  return new Date(date.getTime() + minutes * 60 * 1000);
+function addSeconds(date, seconds) {
+  return new Date(date.getTime() + seconds * 1000);
 }
 
 function readJsonFile(filePath) {
@@ -196,21 +199,26 @@ function activeLeaseFor(pmDir, cardId, stage, options = {}) {
 
 function buildLease(input, config = DEFAULT_LOOP_CONFIG, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const ttl = Number(config.budgets && config.budgets.lease_ttl_minutes) || 45;
+  const ttl = leaseTtlSeconds(config);
   const cardId = input.cardId || input.card_id;
   const stage = input.stage || "work";
   if (!cardId) throw new Error("lease requires cardId");
+  const runId = input.runId || input.run_id || `loop-${crypto.randomUUID()}`;
 
   return {
-    version: 1,
+    version: 2,
     card_id: cardId,
     stage,
     holder: input.holder || os.hostname(),
     runtime: input.runtime || config.default_runtime || "codex",
     source_path: input.sourcePath || input.source_path || "",
     claimed_at: nowIso(now),
-    expires_at: nowIso(addMinutes(now, ttl)),
-    run_id: input.runId || input.run_id || "",
+    expires_at: nowIso(addSeconds(now, ttl)),
+    run_id: runId,
+    phase: input.phase || "claimed",
+    expected_card_revision: input.expectedCardRevision || input.expected_card_revision || "",
+    config_fingerprint: input.configFingerprint || input.config_fingerprint || "",
+    upstream_oid: input.upstreamOid || input.upstream_oid || "",
   };
 }
 
@@ -280,11 +288,6 @@ function ensureGitSyncReady(gitRoot, pmDir) {
   }
 }
 
-function stagedNames(gitRoot, relPath) {
-  const out = runGit(["diff", "--cached", "--name-only", "--", relPath], gitRoot);
-  return out ? out.split(/\r?\n/).filter(Boolean) : [];
-}
-
 function cleanupFailedLeaseCommit(gitRoot, relPath, commitHash) {
   const head = runGit(["rev-parse", "HEAD"], gitRoot);
   if (head !== commitHash) {
@@ -302,96 +305,10 @@ function cleanupFailedLeaseCommit(gitRoot, relPath, commitHash) {
 }
 
 function claimLease(pmDir, input, config = DEFAULT_LOOP_CONFIG, options = {}) {
-  const gitRoot = options.gitRoot || findGitRoot(pmDir);
-  if (!gitRoot) throw new Error(`Cannot find git root for ${pmDir}`);
-
-  if (config.sync_required_for_mutation !== false && !options.allowUnsynced) {
-    ensureGitSyncReady(gitRoot, pmDir);
-  }
-
-  if (!options.skipPull) {
-    runGit(["pull", "--rebase"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
-  }
-
-  const expectedHeadOid = options.expectedHeadOid || "";
-  const expectedCardRevision = options.expectedCardRevision || "";
-  const exactPlanStillCurrent = () => {
-    if (expectedHeadOid && runGit(["rev-parse", "HEAD"], gitRoot) !== expectedHeadOid) {
-      return false;
-    }
-    if (expectedCardRevision) {
-      const sourcePath = input.sourcePath || input.source_path || "";
-      if (!sourcePath || !fs.existsSync(sourcePath)) return false;
-      if (sha256(fs.readFileSync(sourcePath)) !== expectedCardRevision) return false;
-    }
-    return true;
-  };
-  if (!exactPlanStillCurrent()) {
-    return { ok: false, reason: "plan-stale-before-claim" };
-  }
-
-  const prepared = prepareLease(pmDir, input, config, options);
-  if (!prepared.ok) return prepared;
-
-  // Recheck after writing the candidate lease but before staging or committing.
-  // A concurrent local actor cannot turn a stale plan into a durable claim.
-  if (!exactPlanStillCurrent()) {
-    fs.rmSync(prepared.filePath, { force: true });
-    return { ok: false, reason: "plan-stale-before-claim" };
-  }
-
-  const relPath = gitRelativePath(gitRoot, prepared.filePath);
-  runGit(["add", "--", relPath], gitRoot);
-
-  const staged = stagedNames(gitRoot, relPath);
-  if (staged.length !== 1 || staged[0] !== relPath) {
-    throw new Error(`lease claim must stage exactly ${relPath}; staged: ${staged.join(", ")}`);
-  }
-
-  const msg = `pm loop lease ${prepared.lease.card_id} ${prepared.lease.stage}`;
-  runGit(["commit", "-m", msg, "--", relPath], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
-  const commitHash = runGit(["rev-parse", "HEAD"], gitRoot);
-
-  if (options.skipPush) {
-    const cleanup = cleanupFailedLeaseCommit(gitRoot, relPath, commitHash);
-    return {
-      ok: false,
-      reason: "push-skipped",
-      lease: prepared.lease,
-      filePath: prepared.filePath,
-      gitRoot,
-      committed: false,
-      commitHash,
-      pushed: false,
-      ...cleanup,
-    };
-  }
-
-  try {
-    runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
-  } catch (err) {
-    const cleanup = cleanupFailedLeaseCommit(gitRoot, relPath, commitHash);
-    return {
-      ok: false,
-      reason: "push-failed",
-      error: err.stderr || err.message,
-      lease: prepared.lease,
-      filePath: prepared.filePath,
-      gitRoot,
-      committed: false,
-      commitHash,
-      pushed: false,
-      ...cleanup,
-    };
-  }
-
-  return {
-    ...prepared,
-    gitRoot,
-    committed: true,
-    commitHash,
-    pushed: !options.skipPush,
-  };
+  // Loaded lazily so loop-pm-transaction.js can reuse the low-level Git and
+  // lease helpers above without a module-initialization cycle.
+  const { claimRun } = require("./loop-pm-transaction.js");
+  return claimRun(pmDir, input, config, options);
 }
 
 function parseArgs(argv) {
