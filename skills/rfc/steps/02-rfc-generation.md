@@ -178,6 +178,6 @@ After receiving `RFC_COMPLETE`:
 5. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 6. Proceed to RFC Review.
 
-**Done-when:** The HTML and sidecar pass schema, hash-binding, slug, and issue-count checks; task count and session state are updated; and loop mode has made no canonical backlog write.
-
-**Advance:** proceed to Step 03 (RFC Review).
+When the HTML and sidecar pass schema, hash-binding, slug, and issue-count
+checks, task count and session state are updated, and loop mode has made no
+canonical backlog write, proceed to Step 03 (RFC Review).

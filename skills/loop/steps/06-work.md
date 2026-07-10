@@ -113,6 +113,8 @@ When summarizing the JSON result:
   ambiguous orphan must be resolved without redispatching the engine.
 - `stopped` / `disabled` / `budget-exhausted` / `attempts-exhausted` / `rejected` / `idle` / `blocked` — nothing ran (any lease was released); report why.
 
-## Done-when
-
-The worker has either durably finalized one validated stage outcome, preserved an authoritative recovery state without redispatch, or stopped before mutation with an exact reason. Close by telling the user the outcome, result/log locations, and what needs human attention next.
+This step is complete when the worker has either durably finalized one
+validated stage outcome, preserved an authoritative recovery state without
+redispatch, or stopped before mutation with an exact reason. Close by telling
+the user the outcome, result/log locations, and what needs human attention
+next; then end this single-cycle workflow.
