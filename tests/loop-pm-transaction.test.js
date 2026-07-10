@@ -17,6 +17,7 @@ const {
   markRunDispatched,
   releaseClaim,
   runIsolatedTransaction,
+  scanSnapshotFinalizedEvents,
   scanSnapshotTransactions,
 } = require("../scripts/loop-pm-transaction.js");
 
@@ -41,6 +42,23 @@ test("snapshot transaction scanning includes finalized durable events through th
     states.map((entry) => [entry.run_id, entry.state]),
     [[runId, "finalized"]]
   );
+});
+
+test("finalized event scans fail closed at the configured bound", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-event-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  for (const runId of [
+    "loop-82345678-1234-4123-8123-123456789abc",
+    "loop-92345678-1234-4123-8123-123456789abc",
+  ]) {
+    fs.writeFileSync(
+      path.join(eventDir, `${runId}.json`),
+      JSON.stringify({ run_id: runId, card_id: "PM-404", stage: "dev", terminal: true })
+    );
+  }
+  assert.throws(() => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }), /event scan limit/i);
 });
 
 test("scoped transaction scanning retains structurally unowned durable records as ambiguous", (t) => {

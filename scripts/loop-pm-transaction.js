@@ -1354,7 +1354,12 @@ function scanSnapshotFinalizedEvents(pmDir, options = {}) {
     throw new Error(`lease evidence is invalid: ${leaseIndex.invalid[0]}`);
   }
   const events = [];
-  for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
+  const entries = fs.readdirSync(eventDir, { withFileTypes: true });
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  if (entries.filter((entry) => entry.name.endsWith(".json")).length > maxEntries) {
+    throw new Error(`finalized event scan limit exceeded (${maxEntries})`);
+  }
+  for (const entry of entries) {
     if (!entry.name.endsWith(".json")) continue;
     if (!entry.isFile() || entry.isSymbolicLink()) {
       throw new Error(`invalid finalized event evidence entry: ${entry.name}`);

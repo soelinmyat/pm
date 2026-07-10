@@ -366,6 +366,8 @@ function readCanaryEvidence(pmStateDir, options = {}) {
   const records = [];
   const invalid = [];
   const latest = new Map();
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 1000;
+  let scannedEntries = 0;
   let invalidCount = 0;
   const recordInvalid = (value) => {
     invalidCount += 1;
@@ -377,13 +379,21 @@ function readCanaryEvidence(pmStateDir, options = {}) {
     recordInvalid({ file: root, reason: "canary evidence root is not a real directory" });
     return { records, invalid, invalid_count: invalidCount };
   }
-  for (const runEntry of fs.readdirSync(root, { withFileTypes: true })) {
+  evidence: for (const runEntry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) {
       recordInvalid({ file: path.join(root, runEntry.name), reason: "invalid canary run entry" });
       continue;
     }
     const runDir = path.join(root, runEntry.name);
     for (const caseEntry of fs.readdirSync(runDir, { withFileTypes: true })) {
+      scannedEntries += 1;
+      if (scannedEntries > maxEntries) {
+        recordInvalid({
+          file: root,
+          reason: `canary evidence scan limit exceeded (${maxEntries})`,
+        });
+        break evidence;
+      }
       if (!caseEntry.isFile() || caseEntry.isSymbolicLink() || !caseEntry.name.endsWith(".json")) {
         recordInvalid({
           file: path.join(runDir, caseEntry.name),
@@ -434,6 +444,7 @@ function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
   } = readCanaryEvidence(pmStateDir, {
     now,
     latestOnly: true,
+    maxEntries: options.maxEvidenceEntries,
   });
   if (invalidCount > 0) {
     return { passed: false, reason: `invalid canary evidence: ${invalid[0].reason}`, invalid };

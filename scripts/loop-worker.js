@@ -150,7 +150,7 @@ function countRunsToday(runsDir, now = new Date(), opts = {}) {
 
 // Normal waiting/blocked/success terminals do not consume failure attempts.
 // Unknown legacy statuses still count so unreadable or old failures fail closed.
-function countCardAttempts(runsDir, cardId, stage) {
+function countCardAttemptsInLedgers(ledgers, cardId, stage) {
   const nonFailures = new Set([
     "completed",
     "waiting",
@@ -158,13 +158,17 @@ function countCardAttempts(runsDir, cardId, stage) {
     "ready-for-human",
     "blocked",
   ]);
-  return readLedgers(runsDir).filter(
+  return ledgers.filter(
     (record) =>
       record.card &&
       record.card.id === cardId &&
       (record.stage || "dev") === stage &&
       !nonFailures.has(record.status)
   ).length;
+}
+
+function countCardAttempts(runsDir, cardId, stage) {
+  return countCardAttemptsInLedgers(readLedgers(runsDir), cardId, stage);
 }
 
 function usageEvidence(result) {
@@ -955,8 +959,9 @@ function runWorker(projectDir, options = {}) {
   }
 
   const runsDir = runsDirFor(paths);
-  const runsToday = countRunsToday(runsDir, now);
-  const shipCyclesToday = countRunsToday(runsDir, now, { stage: "ship" });
+  const ledgers = (options.readLedgers || readLedgers)(runsDir);
+  const runsToday = countRunsInLedgers(ledgers, now);
+  const shipCyclesToday = countRunsInLedgers(ledgers, now, { stage: "ship" });
 
   const quarantineCheck = (_card, meta) => activeQuarantineForPlan(paths.pmStateDir, meta, now);
   const preview = runLoop(projectDir, {
@@ -1061,7 +1066,7 @@ function runWorker(projectDir, options = {}) {
     };
   }
   const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
-  const attempts = countCardAttempts(runsDir, preview.selected.id, previewStage);
+  const attempts = countCardAttemptsInLedgers(ledgers, preview.selected.id, previewStage);
   if (attempts >= maxAttempts && !priorNoProgress) {
     return {
       ...preview,
@@ -1637,6 +1642,7 @@ module.exports = {
   buildPrompt,
   isSafeBranchRef,
   countCardAttempts,
+  countCardAttemptsInLedgers,
   countRunsInLedgers,
   countRunsToday,
   engineCommand,

@@ -777,6 +777,25 @@ test("daily budget blocks the worker before any claim", () => {
   }
 });
 
+test("worker parses historical ledgers once per wake", () => {
+  const fixture = makeProjectFixture();
+  try {
+    let reads = 0;
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      dryRun: true,
+      readLedgers() {
+        reads += 1;
+        return [];
+      },
+    });
+    assert.equal(result.status, "dry-run");
+    assert.equal(reads, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("dry-run previews selection and engine command without claiming", () => {
   const fixture = makeProjectFixture();
   try {

@@ -404,6 +404,14 @@ test("canary release gate requires fresh same-identity evidence for all three ca
     });
     assert.equal(passing.passed, true, JSON.stringify(passing));
     assert.deepEqual(passing.cases.sort(), cases.sort());
+    assert.match(
+      evaluateCanaryReleaseGate(root, expectedIdentity, {
+        now: new Date("2026-07-10T02:00:00.000Z"),
+        maxAgeSeconds: 7200,
+        maxEvidenceEntries: 2,
+      }).reason,
+      /scan limit/i
+    );
 
     const external = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-external-"));
     try {
