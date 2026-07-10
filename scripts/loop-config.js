@@ -248,6 +248,14 @@ function configExposure(config) {
       "Codex danger-full-access is a broad host permission grant, not capability isolation."
     );
   }
+  if (
+    Array.isArray(worker.engine_args) &&
+    worker.engine_args.includes("--dangerously-bypass-approvals-and-sandbox")
+  ) {
+    warnings.push(
+      "Codex dangerously-bypass-approvals-and-sandbox disables approval and sandbox controls."
+    );
+  }
   if (worker.engine_bin) {
     warnings.push(
       "A custom engine binary runs with host-user permissions outside Codex/Claude sandbox controls."

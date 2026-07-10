@@ -52,6 +52,7 @@ function buildLaunchdPlist(opts) {
     opts.projectDir,
     "--mode",
     opts.mode || "default",
+    "--scheduled",
   ];
   const intervalSeconds = (Number(opts.intervalMinutes) || 30) * 60;
   const logPath = opts.logPath || path.join(os.homedir(), "Library", "Logs", `${label}.log`);
@@ -97,7 +98,7 @@ function buildCronLine(opts) {
   const pathEnv = opts.pathEnv || process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
   return (
     `${schedule} PATH=${pathEnv} ${nodeBin} ${opts.workerScript} ` +
-    `--project-dir ${opts.projectDir} --mode ${opts.mode || "default"} >> ${logPath} 2>&1`
+    `--project-dir ${opts.projectDir} --mode ${opts.mode || "default"} --scheduled >> ${logPath} 2>&1`
   );
 }
 
@@ -272,7 +273,14 @@ function parseArgs(argv) {
 function installGenerated(generated, intervalMinutes, options = {}) {
   const writeError = options.writeError || ((text) => process.stderr.write(text));
   const install = options.install || (generated.kind === "launchd" ? installLaunchd : installCron);
-  writeError(`${generated.instructions}\n`);
+  writeError(
+    [
+      `Activating the gate-approved ${generated.kind} scheduler.`,
+      formatConfigExposure(generated.exposure),
+    ]
+      .filter(Boolean)
+      .join("\n") + "\n"
+  );
   const installed = install(generated.content, generated.label);
   const result = {
     installed: true,

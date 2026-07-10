@@ -173,6 +173,7 @@ test("launchd plist embeds absolute paths, interval, and PATH env", () => {
   assert.match(plist, /<string>\/usr\/local\/bin\/node<\/string>/);
   assert.match(plist, /<string>\/plugin\/scripts\/loop-worker\.js<\/string>/);
   assert.match(plist, /<string>--project-dir<\/string>/);
+  assert.match(plist, /<string>--scheduled<\/string>/);
   assert.match(plist, /<integer>2700<\/integer>/);
   assert.match(plist, /<key>PATH<\/key>/);
   assert.match(plist, /<string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
@@ -188,7 +189,10 @@ test("cron line uses */N for sub-hour and hourly schedule above 60m", () => {
     pathEnv: "/usr/bin",
   });
   assert.match(line30, /^\*\/30 \* \* \* \* /);
-  assert.match(line30, /--project-dir \/work\/proj --mode default >> \/tmp\/loop\.log 2>&1$/);
+  assert.match(
+    line30,
+    /--project-dir \/work\/proj --mode default --scheduled >> \/tmp\/loop\.log 2>&1$/
+  );
 
   const line120 = buildCronLine({
     projectDir: "/work/proj",
@@ -227,6 +231,12 @@ test("install exposure reports daily claim envelope, TTL margin, and unsafe auto
   assert.ok(exposure.warnings.some((warning) => /merge autonomy/i.test(warning)));
   assert.ok(exposure.warnings.some((warning) => /danger-full-access/i.test(warning)));
   assert.ok(exposure.warnings.some((warning) => /custom engine/i.test(warning)));
+  const bypass = buildInstallExposure(
+    normalizeLoopConfig({
+      worker: { engine_args: ["--dangerously-bypass-approvals-and-sandbox"] },
+    })
+  );
+  assert.ok(bypass.warnings.some((warning) => /bypass.*sandbox/i.test(warning)));
 
   const generated = generate({
     projectDir: "/p",
@@ -294,10 +304,12 @@ test("direct launchd install emits exposure warnings before enabling the schedul
       return "/tmp/com.pm.loop.p.plist";
     },
     writeError(text) {
-      events.push(`warning:${/merge autonomy/i.test(text)}:${/danger-full-access/i.test(text)}`);
+      events.push(
+        `warning:${/merge autonomy/i.test(text)}:${/danger-full-access/i.test(text)}:${/preview only/i.test(text)}`
+      );
     },
   });
-  assert.match(events[0], /^warning:true:true$/);
+  assert.match(events[0], /^warning:true:true:false$/);
   assert.match(events[1], /^install:/);
   assert.deepEqual(result.exposure, generated.exposure);
   assert.equal(result.installed, true);

@@ -178,6 +178,9 @@ node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --
 
 Evidence is written under `.pm/loop-canary/<run_id>/<case>.json`. Installation and
 resume fail closed when evidence is missing, stale, mixed across identities, or failed.
+Gate-owned scheduler entries mark every unattended wake with `--scheduled`; the worker
+rechecks current same-identity evidence before any claim, so stale or changed runtime
+identity cannot keep dispatching unattended work. Generated assets are previews only.
 The canary never merges: `autonomy.merge_pr` must remain `false`.
 
 Run ledgers record structured token usage when the engine exposes it and

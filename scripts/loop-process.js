@@ -211,7 +211,9 @@ function runEngineInterruptible(bin, args, options = {}) {
       source: null,
       requested_at: null,
       term_sent_at: null,
+      term_signal: null,
       kill_sent_at: null,
+      kill_signal: null,
     };
 
     const clearTimers = () => {
@@ -231,9 +233,15 @@ function runEngineInterruptible(bin, args, options = {}) {
       } else if (reason === "timeout") {
         timedOut = true;
       }
-      if (signalProcessGroup(child, "SIGTERM")) stop.term_sent_at = at;
+      if (signalProcessGroup(child, "SIGTERM")) {
+        stop.term_sent_at = at;
+        stop.term_signal = "SIGTERM";
+      }
       termTimer = setTimeout(() => {
-        if (!settled && signalProcessGroup(child, "SIGKILL")) stop.kill_sent_at = isoNow();
+        if (!settled && signalProcessGroup(child, "SIGKILL")) {
+          stop.kill_sent_at = isoNow();
+          stop.kill_signal = "SIGKILL";
+        }
         escalationComplete = true;
         if (closeResult) finish(closeResult.code, closeResult.signal);
       }, graceMs);

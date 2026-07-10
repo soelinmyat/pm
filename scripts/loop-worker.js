@@ -138,6 +138,7 @@ function countRunsInLedgers(ledgers, now = new Date(), opts = {}) {
     const sameDay =
       String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
     if (!sameDay) return false;
+    if (record.status === "unreadable") return true;
     if (opts.stage === "ship") return isShipLedger(record);
     return !isShipLedger(record);
   }).length;
@@ -544,7 +545,9 @@ function processEvidence(spawnResult, timeoutMs) {
       ? {
           requested_at: spawnResult.stop?.requested_at || null,
           term_sent_at: spawnResult.stop?.term_sent_at || null,
+          term_signal: spawnResult.stop?.term_signal || null,
           kill_sent_at: spawnResult.stop?.kill_sent_at || null,
+          kill_signal: spawnResult.stop?.kill_signal || null,
           source: spawnResult.stop?.source || "local",
         }
       : undefined,
@@ -921,15 +924,32 @@ function runWorker(projectDir, options = {}) {
   if (isStopped(paths.pmDir)) {
     return { status: "stopped", reason: `kill switch present: ${killSwitchPath(paths.pmDir)}` };
   }
+  if (options.scheduled === true) {
+    try {
+      config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+        loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir)
+      );
+      const releaseGate = options.releaseGateProbe
+        ? options.releaseGateProbe(paths.pmStateDir, config)
+        : require("./loop-canary.js").evaluateCurrentCanaryReleaseGate(paths.pmStateDir, config);
+      if (!releaseGate.passed) {
+        return {
+          status: "canary-required",
+          reason: `scheduled wake refused: ${releaseGate.reason}`,
+          release_gate: releaseGate,
+        };
+      }
+    } catch (error) {
+      return {
+        status: "canary-required",
+        reason: `scheduled wake could not verify canary evidence: ${String(error.message || error).slice(0, 2000)}`,
+      };
+    }
+  }
 
   const runsDir = runsDirFor(paths);
   const runsToday = countRunsToday(runsDir, now);
-  const maxRuns = Number(config.budgets && config.budgets.max_runs_per_day) || 12;
-  if (runsToday >= maxRuns) {
-    return { status: "budget-exhausted", runs_today: runsToday, max_runs_per_day: maxRuns };
-  }
   const shipCyclesToday = countRunsToday(runsDir, now, { stage: "ship" });
-  const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
 
   const quarantineCheck = (_card, meta) => activeQuarantineForPlan(paths.pmStateDir, meta, now);
   const preview = runLoop(projectDir, {
@@ -1021,6 +1041,11 @@ function runWorker(projectDir, options = {}) {
 
   const previewStage = preview.selected.stage || "dev";
   const previewShipStage = previewStage === "ship" || previewStage === "review";
+  const maxRuns = Number(config.budgets && config.budgets.max_runs_per_day) || 12;
+  if (!previewShipStage && runsToday >= maxRuns) {
+    return { status: "budget-exhausted", runs_today: runsToday, max_runs_per_day: maxRuns };
+  }
+  const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
   if (previewShipStage && shipCyclesToday >= maxShipCycles) {
     return {
       ...preview,
@@ -1553,6 +1578,7 @@ function parseArgs(argv) {
     skipPush: false,
     allowUnsynced: false,
     cardId: "",
+    scheduled: false,
   };
   const { args, positionals } = parseCliArgs(
     argv,
@@ -1567,6 +1593,7 @@ function parseArgs(argv) {
       "--skip-push": { key: "skipPush", type: "boolean" },
       "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
       "--card": { key: "cardId", type: "string" },
+      "--scheduled": { key: "scheduled", type: "boolean" },
     },
     defaults
   );

@@ -29,6 +29,9 @@ failed records keep the scheduler paused or uninstalled. The verified-PR case ne
 merges and requires `autonomy.merge_pr: false`. Broad engine permissions and merge
 autonomy produce explicit exposure warnings. PM records `usage_available: false` when
 an engine has no structured usage and does not support exact token cutoffs in that case.
+Generated launchd/cron assets are previews only. `--install` owns activation and marks
+unattended wakes with `--scheduled`; each scheduled wake rechecks the current evidence
+identity before claiming work.
 
 The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
 

@@ -102,7 +102,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --instal
 ```
 
 `--install` and `--resume` enforce the canary release gate before changing
-scheduler state. They do not silently enable unattended scheduling.
+scheduler state. Gate-owned scheduler entries pass `--scheduled`, and every scheduled
+wake rechecks current same-identity evidence before claiming work. Generated assets are
+previews only; they do not silently enable unattended scheduling.
 
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.

@@ -691,6 +691,7 @@ test("countRunsToday counts only same-day ledgers and fails closed on bad JSON",
     );
     fs.writeFileSync(path.join(dir, "c.json"), "{broken");
     assert.equal(countRunsToday(dir, now), 2);
+    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -723,6 +724,27 @@ test("kill switch stops the worker before any claim", () => {
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
     assert.equal(result.status, "stopped");
     assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop")).includes("leases"), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("scheduled wakes fail closed when current canary evidence is unavailable", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      scheduled: true,
+      releaseGateProbe() {
+        return { passed: false, reason: "stale canary evidence for verified-pr" };
+      },
+    });
+    assert.equal(result.status, "canary-required");
+    assert.match(result.reason, /stale canary evidence/i);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+
+    const manual = runWorker(fixture.project, { pmDir: fixture.pmDir, dryRun: true });
+    assert.equal(manual.status, "dry-run");
   } finally {
     fixture.cleanup();
   }
@@ -1770,6 +1792,7 @@ test("cooperative TERM exits do not wait through the full KILL grace", async (t)
   );
   assert.equal(result.stopped, true);
   assert.equal(result.stop.kill_sent_at, null);
+  assert.equal(result.stop.term_signal, "SIGTERM");
   assert.ok(Date.now() - started < 1_000, `elapsed=${Date.now() - started}`);
 });
 
@@ -1926,6 +1949,8 @@ test("an in-flight STOP finalizes stopped evidence and clears durable ownership"
     assert.equal(ledger.process.signal, "SIGKILL");
     assert.ok(ledger.process.stop.term_sent_at);
     assert.ok(ledger.process.stop.kill_sent_at);
+    assert.equal(ledger.process.stop.term_signal, "SIGTERM");
+    assert.equal(ledger.process.stop.kill_signal, "SIGKILL");
     const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
     assert.equal(event.status, "stopped");
     assert.equal(event.process.stopped, true);
@@ -2191,6 +2216,15 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "shipping fixture"], fixture.project);
     git(["push"], fixture.project);
+
+    const runsDir = path.join(fixture.project, ".pm", "loop-runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    for (let index = 0; index < 12; index += 1) {
+      fs.writeFileSync(
+        path.join(runsDir, `dev-budget-${index}.json`),
+        JSON.stringify({ stage: "dev", status: "completed", started_at: new Date().toISOString() })
+      );
+    }
 
     const first = runWorker(fixture.project, {
       pmDir: fixture.pmDir,
