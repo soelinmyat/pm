@@ -54,6 +54,20 @@ test("finalized event scans fail closed at the configured bound", (t) => {
   assert.throws(() => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }), /event scan limit/i);
 });
 
+test("finalized event scan bounds include lease evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-lease-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  const leaseDir = path.join(root, "loop", "leases");
+  fs.mkdirSync(leaseDir, { recursive: true });
+  fs.writeFileSync(path.join(leaseDir, "unexpected-a.txt"), "a\n");
+  fs.writeFileSync(path.join(leaseDir, "unexpected-b.txt"), "b\n");
+  assert.throws(
+    () => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }),
+    /lease evidence scan limit/i
+  );
+});
+
 test("scoped transaction scanning retains structurally unowned durable records as ambiguous", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-unowned-scan-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -1145,20 +1145,27 @@ function withRemoteSnapshot(pmDir, callback, options = {}) {
   }
 }
 
-function buildLeaseIndex(pmDir) {
+function buildLeaseIndex(pmDir, options = {}) {
   const leaseDir = path.join(pmDir, "loop", "leases");
   const byRun = new Map();
   const invalid = [];
   const records = [];
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  let scannedEntries = 0;
   try {
     if (!requireRealDirectoryIfExists(leaseDir, "lease evidence directory")) {
-      return { byRun, invalid, records };
+      return { byRun, invalid, records, scanned_entries: scannedEntries };
     }
   } catch (error) {
     invalid.push(error.message);
-    return { byRun, invalid, records };
+    return { byRun, invalid, records, scanned_entries: scannedEntries };
   }
-  for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
+  for (const entry of directoryEntries(leaseDir)) {
+    scannedEntries += 1;
+    if (scannedEntries > maxEntries) {
+      invalid.push(`lease evidence scan limit exceeded (${maxEntries})`);
+      break;
+    }
     if (!entry.name.endsWith(".json")) continue;
     if (!entry.isFile() || entry.isSymbolicLink()) {
       invalid.push(entry.name);
@@ -1178,7 +1185,7 @@ function buildLeaseIndex(pmDir) {
       invalid.push(entry.name);
     }
   }
-  return { byRun, invalid, records };
+  return { byRun, invalid, records, scanned_entries: scannedEntries };
 }
 
 function findLeaseByRunId(pmDir, runId, leaseIndex = buildLeaseIndex(pmDir)) {
@@ -1359,13 +1366,13 @@ function scanSnapshotFinalizedEvents(pmDir, options = {}) {
   if (!requireRealDirectoryIfExists(eventDir, "events evidence directory")) return [];
   requireRealDirectoryIfExists(leaseDir, "lease evidence directory");
   requireRealDirectoryIfExists(recoveryDir, "recovery evidence directory");
-  const leaseIndex = buildLeaseIndex(pmDir);
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  const leaseIndex = buildLeaseIndex(pmDir, { maxEntries });
   if (leaseIndex.invalid.length > 0) {
     throw new Error(`lease evidence is invalid: ${leaseIndex.invalid[0]}`);
   }
   const events = [];
-  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
-  let scannedEntries = 0;
+  let scannedEntries = leaseIndex.scanned_entries;
   for (const entry of directoryEntries(eventDir)) {
     scannedEntries += 1;
     if (scannedEntries > maxEntries) {
