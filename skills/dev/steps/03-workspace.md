@@ -56,7 +56,8 @@ After worktree creation, prep the environment based on what the project needs.
 node ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-bootstrap.js \
   --git-root "$REPO_ROOT" \
   --worktree "$REPO_ROOT/.worktrees/<slug>" \
-  --pm-dir {pm_dir}
+  --pm-dir {pm_dir} \
+  --pm-state-dir {pm_state_dir}
 ```
 
 Repos without a loop config are a silent no-op (no `worker.bootstrap_*` keys → nothing copied). This reuses the loop's `worker.bootstrap_files`/`bootstrap_command` keys — do not introduce a second set.

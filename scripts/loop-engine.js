@@ -20,8 +20,11 @@ function uniqueExistingDirs(values) {
 }
 
 function codexSandbox(worker = {}) {
-  const requested = String(worker.codex_sandbox || "workspace-write").trim();
-  return CODEX_SANDBOXES.has(requested) ? requested : "workspace-write";
+  const requested = String(worker.codex_sandbox || "workspace-write");
+  if (!CODEX_SANDBOXES.has(requested)) {
+    throw new Error(`unsupported worker.codex_sandbox: ${JSON.stringify(requested)}`);
+  }
+  return requested;
 }
 
 function codexWritableDirs(worker = {}, context = {}) {
@@ -34,7 +37,12 @@ function codexWritableDirs(worker = {}, context = {}) {
 function assertCanonicalEngineArgs(extraArgs) {
   for (const arg of extraArgs) {
     const text = String(arg);
-    if (text === "--sandbox" || text.startsWith("--sandbox=")) {
+    if (
+      text === "--sandbox" ||
+      text.startsWith("--sandbox=") ||
+      text === "-s" ||
+      text.startsWith("-s=")
+    ) {
       throw new Error("worker.engine_args must not contain --sandbox; use worker.codex_sandbox");
     }
     if (text === "--add-dir" || text.startsWith("--add-dir=")) {

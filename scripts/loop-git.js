@@ -7,7 +7,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
-const { DEFAULT_LOOP_CONFIG, loadLoopConfig } = require("./loop-config.js");
+const { DEFAULT_LOOP_CONFIG, loadLoopConfig, sha256 } = require("./loop-config.js");
 
 const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_DIR",
@@ -73,6 +73,15 @@ function findGitRoot(startDir) {
     return out ? realpathForGit(out) : null;
   } catch {
     return null;
+  }
+}
+
+function removeWorkspace(gitRoot, workspacePath) {
+  try {
+    runGit(["worktree", "remove", "--force", workspacePath], gitRoot);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -297,8 +306,32 @@ function claimLease(pmDir, input, config = DEFAULT_LOOP_CONFIG, options = {}) {
     runGit(["pull", "--rebase"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
   }
 
+  const expectedHeadOid = options.expectedHeadOid || "";
+  const expectedCardRevision = options.expectedCardRevision || "";
+  const exactPlanStillCurrent = () => {
+    if (expectedHeadOid && runGit(["rev-parse", "HEAD"], gitRoot) !== expectedHeadOid) {
+      return false;
+    }
+    if (expectedCardRevision) {
+      const sourcePath = input.sourcePath || input.source_path || "";
+      if (!sourcePath || !fs.existsSync(sourcePath)) return false;
+      if (sha256(fs.readFileSync(sourcePath)) !== expectedCardRevision) return false;
+    }
+    return true;
+  };
+  if (!exactPlanStillCurrent()) {
+    return { ok: false, reason: "plan-stale-before-claim" };
+  }
+
   const prepared = prepareLease(pmDir, input, config, options);
   if (!prepared.ok) return prepared;
+
+  // Recheck after writing the candidate lease but before staging or committing.
+  // A concurrent local actor cannot turn a stale plan into a durable claim.
+  if (!exactPlanStillCurrent()) {
+    fs.rmSync(prepared.filePath, { force: true });
+    return { ok: false, reason: "plan-stale-before-claim" };
+  }
 
   const relPath = gitRelativePath(gitRoot, prepared.filePath);
   runGit(["add", "--", relPath], gitRoot);
@@ -454,6 +487,7 @@ module.exports = {
   leasePath,
   listLeases,
   prepareLease,
+  removeWorkspace,
   runGit,
   sanitizeId,
   writeJsonAtomic,

@@ -13,6 +13,7 @@ const {
   loadLoopConfig,
   loadTrustedLoopConfig,
   normalizeLoopConfig,
+  requiresLocalApproval,
 } = require("../scripts/loop-config.js");
 
 test("loop config normalizes malformed object sections back to defaults", () => {
@@ -47,6 +48,8 @@ test("loop config rejects legacy sandbox and add-dir flags that duplicate canoni
   for (const engineArgs of [
     ["--sandbox", "danger-full-access"],
     ["--sandbox=read-only"],
+    ["-s", "danger-full-access"],
+    ["-s=read-only"],
     ["--add-dir", "/tmp/shared"],
     ["--add-dir=/tmp/shared"],
   ]) {
@@ -54,6 +57,29 @@ test("loop config rejects legacy sandbox and add-dir flags that duplicate canoni
       () => normalizeLoopConfig({ version: 2, worker: { engine_args: engineArgs } }),
       /worker\.engine_args.*codex_(sandbox|add_dirs)/
     );
+  }
+});
+
+test("sandbox values are exact enums and runtime switches require local approval", () => {
+  for (const codexSandbox of ["danger-full-access ", " workspace-write", "unknown"]) {
+    assert.throws(
+      () => normalizeLoopConfig({ version: 2, worker: { codex_sandbox: codexSandbox } }),
+      /worker\.codex_sandbox.*read-only.*workspace-write.*danger-full-access/
+    );
+  }
+
+  assert.equal(requiresLocalApproval(normalizeLoopConfig({ default_runtime: "claude" })), true);
+  assert.equal(requiresLocalApproval(normalizeLoopConfig({ worker: { engine: "claude" } })), true);
+});
+
+test("execution config hash covers selection, prompt, claim, and runtime budget behavior", () => {
+  const baseline = normalizeLoopConfig({ autonomy: { start_dev: true } });
+  for (const changed of [
+    normalizeLoopConfig({ autonomy: { start_dev: true, merge_pr: true } }),
+    normalizeLoopConfig({ autonomy: { start_dev: true }, budgets: { max_runs_per_day: 2 } }),
+    normalizeLoopConfig({ autonomy: { start_dev: true }, wip_limits: { implementing: 2 } }),
+  ]) {
+    assert.notEqual(executionConfigHash(changed), executionConfigHash(baseline));
   }
 });
 

@@ -39,7 +39,8 @@ For each task (Issue section) in dependency order from the RFC:
    node ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-bootstrap.js \
      --git-root "$(git rev-parse --show-toplevel)" \
      --worktree "$(git rev-parse --show-toplevel)/.worktrees/{task-slug}" \
-     --pm-dir {pm_dir}
+     --pm-dir {pm_dir} \
+     --pm-state-dir {pm_state_dir}
    ```
 
 2. **Set sub-issue status to In Progress** (if sub-issue has a tracker ID).

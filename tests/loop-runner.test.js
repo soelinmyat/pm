@@ -8,7 +8,7 @@ const os = require("os");
 const path = require("path");
 
 const { buildLoopBoard } = require("../scripts/loop-board.js");
-const { DEFAULT_LOOP_CONFIG } = require("../scripts/loop-config.js");
+const { DEFAULT_LOOP_CONFIG, loadLoopConfig } = require("../scripts/loop-config.js");
 const { runLoop, selectNextCard } = require("../scripts/loop-runner.js");
 
 const FIXED_NOW = new Date("2026-06-23T00:00:00Z");
@@ -81,7 +81,7 @@ function initGit(project) {
   git(project.root, ["init"]);
   git(project.root, ["config", "user.name", "PM Test"]);
   git(project.root, ["config", "user.email", "pm-test@example.com"]);
-  git(project.root, ["add", "pm/backlog"]);
+  git(project.root, ["add", "pm"]);
   git(project.root, ["commit", "-m", "init"]);
 }
 
@@ -103,7 +103,7 @@ function updateRemote(remote, mutate) {
     git(clone, ["config", "user.name", "PM Remote"]);
     git(clone, ["config", "user.email", "pm-remote@example.com"]);
     mutate(clone);
-    git(clone, ["add", "pm/backlog"]);
+    git(clone, ["add", "-A"]);
     git(clone, ["commit", "-m", "remote update"]);
     git(clone, ["push"]);
   } finally {
@@ -546,9 +546,149 @@ test("read-only plans fingerprint the exact card, eligibility, config, source ba
   assert.equal(plan.fingerprint_input.selected_id, "PM-011");
   assert.equal(plan.fingerprint_input.stage, "dev");
   assert.equal(plan.fingerprint_input.source_base_oid, plan.source_base_oid);
+  assert.equal(plan.fingerprint_input.pm_head_oid, git(project.root, ["rev-parse", "HEAD"]));
   assert.match(plan.fingerprint_input.card_revision, /^sha256:[a-f0-9]{64}$/);
   assert.match(plan.fingerprint_input.execution_config_hash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(plan.fingerprint_input.eligibility.implementation_approved, true);
+});
+
+test("claim reloads Git-synced config after pull and rejects exact-plan config drift", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/config-drift.md",
+    fm({
+      type: "backlog",
+      id: "PM-016",
+      title: "Config drift",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }) + "body"
+  );
+  project.write(
+    "pm/loop/config.json",
+    `${JSON.stringify({ version: 2, autonomy: { start_dev: true, merge_pr: false } }, null, 2)}\n`
+  );
+  initGit(project);
+  const remote = attachRemote(project, t);
+  const initialConfig = loadLoopConfig(project.pmDir);
+  const exactPlan = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: initialConfig,
+  });
+
+  updateRemote(remote, (clone) => {
+    fs.writeFileSync(
+      path.join(clone, "pm", "loop", "config.json"),
+      `${JSON.stringify({ version: 2, autonomy: { start_dev: true, merge_pr: true } }, null, 2)}\n`
+    );
+  });
+
+  const result = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: false,
+    claimOnly: true,
+    config: initialConfig,
+    expectedPlan: exactPlan,
+    reloadConfigAfterPull: true,
+  });
+
+  assert.equal(result.status, "plan-stale");
+  assert.equal(result.mutation, false);
+  assert.notEqual(result.current_fingerprint, exactPlan.fingerprint);
+  assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "leases")), false);
+});
+
+test("claim revalidates the PM HEAD and card revision immediately before lease mutation", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  const cardPath = project.write(
+    "pm/backlog/claim-race.md",
+    fm({
+      type: "backlog",
+      id: "PM-017",
+      title: "Claim race",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }) + "original"
+  );
+  initGit(project);
+  attachRemote(project, t);
+  const resolved = config({ autonomy: { start_dev: true } });
+  const exactPlan = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: resolved,
+  });
+
+  const result = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: false,
+    claimOnly: true,
+    config: resolved,
+    expectedPlan: exactPlan,
+    beforeClaim() {
+      fs.appendFileSync(cardPath, "raced\n");
+      git(project.root, ["add", "pm/backlog/claim-race.md"]);
+      git(project.root, ["commit", "-m", "race card before claim"]);
+    },
+  });
+
+  assert.equal(result.status, "plan-stale");
+  assert.equal(result.mutation, false);
+  assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "leases")), false);
+});
+
+test("source base resolves the remote default branch and never falls back to feature HEAD", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/default-branch.md",
+    fm({
+      type: "backlog",
+      id: "PM-018",
+      title: "Default branch",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }) + "body"
+  );
+  initGit(project);
+  const remote = attachRemote(project, t);
+  git(project.root, ["branch", "-M", "trunk"]);
+  git(project.root, ["push", "-u", "origin", "trunk"]);
+  runGit(["--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/trunk"], project.root);
+  git(project.root, ["push", "origin", "--delete", "main"]);
+  git(project.root, ["update-ref", "-d", "refs/remotes/origin/HEAD"]);
+  git(project.root, ["update-ref", "-d", "refs/remotes/origin/main"]);
+  const trunkOid = git(project.root, ["rev-parse", "HEAD"]);
+  git(project.root, ["switch", "-c", "feature"]);
+  project.write("feature-only.txt", "feature\n");
+  git(project.root, ["add", "feature-only.txt"]);
+  git(project.root, ["commit", "-m", "feature tip"]);
+
+  const plan = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: config({ autonomy: { start_dev: true } }),
+  });
+
+  assert.equal(plan.source_base_oid, trunkOid);
+  assert.notEqual(plan.source_base_oid, git(project.root, ["rev-parse", "HEAD"]));
 });
 
 test("claim reselects the exact plan after pull and aborts drift without substituting a lower card", (t) => {

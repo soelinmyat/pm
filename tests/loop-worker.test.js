@@ -248,11 +248,108 @@ test("preflight bootstraps a disposable detached worktree, runs service checks, 
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.ok(observed);
     assert.equal(fs.existsSync(observed.workspacePath), false, "disposable worktree removed");
+    assert.equal(fs.existsSync(observed.resultDir), false, "private probe result dir removed");
     assert.equal(
       fs.readdirSync(path.join(fixture.project, ".worktrees")).length,
       0,
       "preflight leaves no worktree"
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight fails closed and quarantines when disposable cleanup cannot be verified", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const config = {
+      version: 2,
+      autonomy: { start_dev: true },
+      worker: { engine_bin: "/usr/bin/true" },
+      preflight: { service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir: path.join(fixture.project, ".pm"),
+      runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+      removeWorktree: () => false,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.blocker_code, "preflight-cleanup-failed");
+    assert.equal(result.quarantine.fingerprint, plan.fingerprint);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight never follows an RFC symlink outside the protected PM backlog", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const cardPath = path.join(fixture.pmDir, "backlog", "pm-t1.md");
+    fs.writeFileSync(
+      cardPath,
+      fs
+        .readFileSync(cardPath, "utf8")
+        .replace("---\n\nDo the thing.", "rfc: rfcs/secret.html\n---\n\nDo the thing.")
+    );
+    const outside = path.join(fixture.root, "outside-rfcs");
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "secret.html"), "host secret\n");
+    fs.symlinkSync(outside, path.join(fixture.pmDir, "backlog", "rfcs"));
+    git(["add", "pm/backlog/pm-t1.md", "pm/backlog/rfcs"], fixture.project);
+    git(["commit", "-m", "add RFC context"], fixture.project);
+    git(["push"], fixture.project);
+
+    const config = {
+      version: 2,
+      autonomy: { start_dev: true },
+      worker: { engine_bin: "/usr/bin/true" },
+      preflight: { service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir: path.join(fixture.project, ".pm"),
+      runProbe({ contextDir }) {
+        assert.equal(fs.existsSync(path.join(contextDir, "rfc.html")), false);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("invalid preflight plans fail without trying to create an unkeyed quarantine", () => {
+  const fixture = makeProjectFixture();
+  try {
+    assert.doesNotThrow(() => {
+      const result = runPreflight(
+        fixture.project,
+        {},
+        { version: 2 },
+        {
+          pmDir: fixture.pmDir,
+          pmStateDir: path.join(fixture.project, ".pm"),
+        }
+      );
+      assert.equal(result.blocker_code, "preflight-plan-invalid");
+      assert.equal(result.quarantine, undefined);
+    });
   } finally {
     fixture.cleanup();
   }
@@ -513,6 +610,72 @@ test("unapproved execution config fails before claim and quarantines the exact p
     assert.equal(result.mutation, false);
     assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
     assert.equal(result.quarantine.fingerprint, result.fingerprint);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker honors an explicit PM state directory for machine-local approval", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const customState = path.join(fixture.root, "host-state");
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify(
+        {
+          autonomy: { start_dev: true },
+          worker: {
+            engine_bin: "/usr/bin/true",
+            bootstrap_required_files: ["missing-for-preflight.env"],
+          },
+        },
+        null,
+        2
+      )
+    );
+    fs.rmSync(path.join(fixture.project, ".pm", "loop-host.json"), { force: true });
+    approveExecutionConfig(customState, loadLoopConfig(fixture.pmDir));
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "configure explicit host state"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      pmStateDir: customState,
+    });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "bootstrap-required-file-missing");
+    assert.equal(result.quarantine.file_path.startsWith(customState), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker never treats generic options.config as a trusted runtime config", () => {
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: "/usr/bin/false", codex_sandbox: "danger-full-access" },
+      })
+    );
+    fs.rmSync(path.join(fixture.project, ".pm", "loop-host.json"), { force: true });
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "unapproved persisted config"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      config: {
+        ...loadLoopConfig(fixture.pmDir),
+        worker: { engine_bin: "/usr/bin/true" },
+      },
+    });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "execution-config-unapproved");
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
   } finally {
     fixture.cleanup();
   }

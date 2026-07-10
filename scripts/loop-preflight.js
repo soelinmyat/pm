@@ -9,8 +9,14 @@ const { spawnSync } = require("node:child_process");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { normalizeLoopConfig } = require("./loop-config.js");
 const { engineCommand } = require("./loop-engine.js");
-const { findGitRoot, gitRelativePath, runGit, sanitizeId } = require("./loop-git.js");
-const { bootstrapWorktree } = require("./worktree-bootstrap.js");
+const {
+  findGitRoot,
+  gitRelativePath,
+  removeWorkspace,
+  runGit,
+  sanitizeId,
+} = require("./loop-git.js");
+const { bootstrapWorktree, isInside, pathChainHasSymlink } = require("./worktree-bootstrap.js");
 
 const MAX_BUFFER = 8 * 1024 * 1024;
 
@@ -111,11 +117,24 @@ function clearQuarantine(pmStateDir, fingerprint = "all") {
   return removed;
 }
 
-function safeCopy(source, destination) {
+function safeCopy(source, destination, options = {}) {
   if (!source || !fs.existsSync(source)) return false;
+  const sourceRoot = options.sourceRoot || path.dirname(source);
+  const destinationRoot = options.destinationRoot || path.dirname(destination);
+  if (!isInside(sourceRoot, source) || !isInside(destinationRoot, destination)) return false;
+  if (
+    pathChainHasSymlink(sourceRoot, source) ||
+    pathChainHasSymlink(destinationRoot, destination)
+  ) {
+    return false;
+  }
   const stat = fs.lstatSync(source);
   if (!stat.isFile() || stat.isSymbolicLink()) return false;
+  const realSourceRoot = fs.realpathSync(sourceRoot);
+  const realSource = fs.realpathSync(source);
+  if (!isInside(realSourceRoot, realSource)) return false;
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+  if (pathChainHasSymlink(destinationRoot, destination)) return false;
   fs.copyFileSync(source, destination);
   fs.chmodSync(destination, 0o600);
   return true;
@@ -127,16 +146,30 @@ function copyReadContext(pmDir, workspacePath, plan) {
   const copied = [];
   const sourcePath = plan.selected && plan.selected.sourcePath;
   const cardPath = path.join(contextDir, "card.md");
-  if (safeCopy(sourcePath, cardPath)) {
+  let cardCopied = false;
+  if (
+    safeCopy(sourcePath, cardPath, {
+      sourceRoot: pmDir,
+      destinationRoot: contextDir,
+    })
+  ) {
+    cardCopied = true;
     copied.push(cardPath);
     try {
       const parsed = parseFrontmatter(fs.readFileSync(sourcePath, "utf8"));
       if (typeof parsed.data.rfc === "string" && parsed.data.rfc.trim()) {
         const rfcPath = path.resolve(path.join(pmDir, "backlog"), parsed.data.rfc);
         const backlogRoot = path.resolve(path.join(pmDir, "backlog"));
-        if (rfcPath.startsWith(`${backlogRoot}${path.sep}`)) {
+        if (isInside(backlogRoot, rfcPath)) {
           const destination = path.join(contextDir, `rfc${path.extname(rfcPath) || ".html"}`);
-          if (safeCopy(rfcPath, destination)) copied.push(destination);
+          if (
+            safeCopy(rfcPath, destination, {
+              sourceRoot: backlogRoot,
+              destinationRoot: contextDir,
+            })
+          ) {
+            copied.push(destination);
+          }
         }
       }
     } catch {
@@ -145,9 +178,16 @@ function copyReadContext(pmDir, workspacePath, plan) {
   }
   for (const name of ["instructions.md", "instructions.local.md", "memory.md", "strategy.md"]) {
     const destination = path.join(contextDir, name);
-    if (safeCopy(path.join(pmDir, name), destination)) copied.push(destination);
+    if (
+      safeCopy(path.join(pmDir, name), destination, {
+        sourceRoot: pmDir,
+        destinationRoot: contextDir,
+      })
+    ) {
+      copied.push(destination);
+    }
   }
-  return { contextDir, copied };
+  return { ok: cardCopied, contextDir, copied };
 }
 
 function hashDirectory(root) {
@@ -173,8 +213,8 @@ function hashDirectory(root) {
   return hash.digest("hex");
 }
 
-function snapshotProtectedPmState(pmDir) {
-  const gitRoot = findGitRoot(pmDir);
+function snapshotProtectedPmState(pmDir, resolvedGitRoot) {
+  const gitRoot = resolvedGitRoot === undefined ? findGitRoot(pmDir) : resolvedGitRoot;
   if (!gitRoot) return { git_root: "", tree_hash: hashDirectory(pmDir) };
   const rel = gitRelativePath(gitRoot, pmDir);
   return {
@@ -206,6 +246,13 @@ function normalizedCheck(check, index, defaultTimeout) {
   };
 }
 
+class PreflightStop extends Error {
+  constructor(result) {
+    super(result.blocker_code);
+    this.result = result;
+  }
+}
+
 function runPreflight(projectDir, plan, rawConfig, options = {}) {
   const config = normalizeLoopConfig(rawConfig);
   const pmDir = options.pmDir || plan.pmDir;
@@ -213,24 +260,22 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const gitRoot = findGitRoot(projectDir);
   if (!gitRoot || !plan.source_base_oid || !plan.fingerprint || !plan.selected) {
-    const result = failure(
+    return failure(
       "preflight-plan-invalid",
       "Refresh the read-only plan from a Git-backed source checkout and retry."
     );
-    result.quarantine = recordQuarantine(pmStateDir, plan, result, config, { now });
-    return result;
   }
 
-  const preflightId = `${plan.selected.id}-${plan.fingerprint.slice(-12)}-${process.pid}`;
+  const nonce = crypto.randomBytes(6).toString("hex");
+  const preflightId = `${plan.selected.id}-${plan.fingerprint.slice(-12)}-${process.pid}-${nonce}`;
   const workspacePath = path.join(gitRoot, ".worktrees", `preflight-${sanitizeId(preflightId)}`);
   const resultDir = createPrivateResultDir(pmStateDir, preflightId, "loop-preflight-results");
-  const finishFailure = (result) => ({
-    ...result,
-    fingerprint: plan.fingerprint,
-    quarantine: recordQuarantine(pmStateDir, plan, result, config, { now }),
-  });
+  const abort = (result) => {
+    throw new PreflightStop(result);
+  };
 
   let worktreeCreated = false;
+  let outcome;
   try {
     fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
     runGit(["worktree", "add", "--detach", workspacePath, plan.source_base_oid], gitRoot);
@@ -239,13 +284,21 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
     const boot = bootstrapWorktree(gitRoot, workspacePath, config.worker);
     if (!boot.ok) {
       const detail = boot.missing && boot.missing.length ? `: ${boot.missing.join(", ")}` : "";
-      return finishFailure(
+      abort(
         failure(boot.reason, `Fix the bootstrap prerequisite${detail} and retry.`, {
           error: boot.error,
         })
       );
     }
     const context = copyReadContext(pmDir, workspacePath, plan);
+    if (!context.ok) {
+      abort(
+        failure(
+          "read-context-unsafe",
+          "Restore the selected card as a regular file inside the PM directory and retry."
+        )
+      );
+    }
 
     const probeTimeoutSeconds = Math.max(1, Number(config.preflight.probe_timeout_seconds) || 60);
     const spawn = options.spawnSync || spawnSync;
@@ -258,7 +311,7 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
         maxBuffer: MAX_BUFFER,
       });
       if (checked.error || checked.status !== 0) {
-        return finishFailure(
+        abort(
           failure(
             "service-check-failed",
             `Repair configured service check ${JSON.stringify(check.name)} and retry.`,
@@ -271,7 +324,8 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
       }
     }
 
-    const protectedBefore = snapshotProtectedPmState(pmDir);
+    const pmGitRoot = findGitRoot(pmDir);
+    const protectedBefore = snapshotProtectedPmState(pmDir, pmGitRoot);
     const command = engineCommand(
       config,
       [
@@ -297,9 +351,9 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
             PM_LOOP_RESULT_DIR: resultDir,
           },
         });
-    const protectedAfter = snapshotProtectedPmState(pmDir);
+    const protectedAfter = snapshotProtectedPmState(pmDir, pmGitRoot);
     if (JSON.stringify(protectedAfter) !== JSON.stringify(protectedBefore)) {
-      return finishFailure(
+      abort(
         failure(
           "protected-pm-state-changed",
           "Restore PM refs and protected paths, inspect the engine probe, and retry."
@@ -307,7 +361,7 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
       );
     }
     if (probed.error || probed.status !== 0) {
-      return finishFailure(
+      abort(
         failure(
           "engine-probe-failed",
           "Authenticate the configured engine and verify its local permissions, then retry.",
@@ -316,7 +370,7 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
       );
     }
 
-    return {
+    outcome = {
       ok: true,
       fingerprint: plan.fingerprint,
       source_base_oid: plan.source_base_oid,
@@ -326,20 +380,49 @@ function runPreflight(projectDir, plan, rawConfig, options = {}) {
       result_dir: resultDir,
     };
   } catch (err) {
-    return finishFailure(
-      failure("preflight-internal-failed", "Inspect the preflight error and retry.", {
-        error: String(err.message || err).slice(0, 2000),
-      })
-    );
+    outcome =
+      err instanceof PreflightStop
+        ? err.result
+        : failure("preflight-internal-failed", "Inspect the preflight error and retry.", {
+            error: String(err.message || err).slice(0, 2000),
+          });
   } finally {
+    const cleanupErrors = [];
     if (worktreeCreated) {
       try {
-        runGit(["worktree", "remove", "--force", workspacePath], gitRoot);
-      } catch {
-        // Caller gets the original preflight result; cleanup is best effort.
+        const removed = options.removeWorktree
+          ? options.removeWorktree(gitRoot, workspacePath)
+          : removeWorkspace(gitRoot, workspacePath);
+        if (!removed || fs.existsSync(workspacePath)) {
+          cleanupErrors.push("disposable worktree removal could not be verified");
+        }
+      } catch (err) {
+        cleanupErrors.push(String(err.message || err));
       }
     }
+    try {
+      fs.rmSync(resultDir, { recursive: true, force: true });
+      if (fs.existsSync(resultDir)) cleanupErrors.push("private probe result removal failed");
+    } catch (err) {
+      cleanupErrors.push(String(err.message || err));
+    }
+    if (cleanupErrors.length > 0) {
+      outcome = failure(
+        "preflight-cleanup-failed",
+        "Remove the disposable preflight workspace/result paths, prune Git worktrees, and retry.",
+        { error: cleanupErrors.join("; ").slice(0, 2000) }
+      );
+    }
   }
+
+  if (!outcome.ok) {
+    return {
+      ...outcome,
+      fingerprint: plan.fingerprint,
+      quarantine: recordQuarantine(pmStateDir, plan, outcome, config, { now }),
+    };
+  }
+  return outcome;
 }
 
 function main() {

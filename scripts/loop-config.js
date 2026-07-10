@@ -37,7 +37,6 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
   },
   scheduler_interval_minutes: 30,
   preflight: {
-    enabled: true,
     probe_timeout_seconds: 60,
     quarantine_ttl_seconds: 3600,
     service_checks: [],
@@ -140,17 +139,31 @@ function validateLoopConfig(config) {
     );
   }
 
-  const args = Array.isArray(config.worker && config.worker.engine_args)
-    ? config.worker.engine_args.map(String)
-    : [];
+  if (!Array.isArray(config.worker.engine_args)) {
+    throw new Error("worker.engine_args must be an array");
+  }
+  const args = config.worker.engine_args.map(String);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--sandbox" || arg.startsWith("--sandbox=")) {
+    if (
+      arg === "--sandbox" ||
+      arg.startsWith("--sandbox=") ||
+      arg === "-s" ||
+      arg.startsWith("-s=")
+    ) {
       throw new Error("worker.engine_args must not contain --sandbox; use worker.codex_sandbox");
     }
     if (arg === "--add-dir" || arg.startsWith("--add-dir=")) {
       throw new Error("worker.engine_args must not contain --add-dir; use worker.codex_add_dirs");
     }
+  }
+
+  if (
+    !["read-only", "workspace-write", "danger-full-access"].includes(config.worker.codex_sandbox)
+  ) {
+    throw new Error(
+      "worker.codex_sandbox must be exactly one of read-only, workspace-write, danger-full-access"
+    );
   }
 
   for (const key of ["bootstrap_files", "bootstrap_required_files", "codex_add_dirs"]) {
@@ -163,8 +176,9 @@ function validateLoopConfig(config) {
   }
   for (const [index, check] of config.preflight.service_checks.entries()) {
     if (
-      typeof check !== "string" &&
-      (!isPlainObject(check) || typeof check.command !== "string" || !check.command.trim())
+      (typeof check === "string" && !check.trim()) ||
+      (typeof check !== "string" &&
+        (!isPlainObject(check) || typeof check.command !== "string" || !check.command.trim()))
     ) {
       throw new Error(`preflight.service_checks[${index}] must be a command string or object`);
     }
@@ -173,36 +187,21 @@ function validateLoopConfig(config) {
 }
 
 function executionConfig(config) {
-  const normalized = normalizeLoopConfig(config);
-  return {
-    version: normalized.version,
-    default_runtime: normalized.default_runtime,
-    worker: {
-      engine: normalized.worker.engine,
-      engine_bin: normalized.worker.engine_bin,
-      engine_args: normalized.worker.engine_args,
-      claude_permission_mode: normalized.worker.claude_permission_mode,
-      codex_sandbox: normalized.worker.codex_sandbox,
-      codex_add_dirs: normalized.worker.codex_add_dirs,
-      bootstrap_files: normalized.worker.bootstrap_files,
-      bootstrap_required_files: normalized.worker.bootstrap_required_files,
-      bootstrap_command: normalized.worker.bootstrap_command,
-    },
-    preflight: {
-      probe_timeout_seconds: normalized.preflight.probe_timeout_seconds,
-      service_checks: normalized.preflight.service_checks,
-    },
-  };
+  // The exact-plan contract covers every resolved field that can affect
+  // selection, prompting, preflight, claim, or execution. Hashing the complete
+  // normalized config prevents a newly added behavior dial from being omitted.
+  return normalizeLoopConfig(config);
 }
 
 function executionConfigHash(config) {
   return sha256(JSON.stringify(stableValue(executionConfig(config))));
 }
 
-function requiresLocalApproval(config) {
-  const resolved = executionConfig(config);
+function resolvedConfigRequiresLocalApproval(resolved) {
   const worker = resolved.worker;
+  const engine = worker.engine || resolved.default_runtime || "codex";
   return Boolean(
+    engine !== "codex" ||
     worker.engine_bin ||
     worker.engine_args.length > 0 ||
     worker.bootstrap_command ||
@@ -211,6 +210,10 @@ function requiresLocalApproval(config) {
     worker.claude_permission_mode === "bypassPermissions" ||
     resolved.preflight.service_checks.length > 0
   );
+}
+
+function requiresLocalApproval(config) {
+  return resolvedConfigRequiresLocalApproval(executionConfig(config));
 }
 
 function hostConfigPath(pmStateDir) {
@@ -246,8 +249,9 @@ function approveExecutionConfig(pmStateDir, config, options = {}) {
 
 function loadTrustedLoopConfig(pmDir, pmStateDir) {
   const config = loadLoopConfig(pmDir);
-  const hash = executionConfigHash(config);
-  if (requiresLocalApproval(config)) {
+  const resolved = executionConfig(config);
+  const hash = sha256(JSON.stringify(stableValue(resolved)));
+  if (resolvedConfigRequiresLocalApproval(resolved)) {
     const host = readHostConfig(pmStateDir);
     if (!host || host.approved_execution_config_hash !== hash) {
       throw new Error(
@@ -355,6 +359,7 @@ module.exports = {
   normalizeLoopConfig,
   readHostConfig,
   requiresLocalApproval,
+  sha256,
   stableValue,
   validateLoopConfig,
 };

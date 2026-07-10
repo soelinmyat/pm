@@ -4,7 +4,6 @@
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
-const crypto = require("crypto");
 
 const { buildLoopBoard } = require("./loop-board.js");
 const { parseCliArgs } = require("./loop-args.js");
@@ -12,6 +11,7 @@ const {
   executionConfigHash,
   loadLoopConfig,
   loadTrustedLoopConfig,
+  sha256,
   stableValue,
 } = require("./loop-config.js");
 const { claimLease, ensureGitSyncReady, findGitRoot, runGit } = require("./loop-git.js");
@@ -150,25 +150,42 @@ function selectNextCard(board, config, options = {}) {
   };
 }
 
-function sha256(value) {
-  return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
-}
-
-function sourceBaseOid(projectDir) {
+function sourceBaseOid(projectDir, options = {}) {
   const gitRoot = findGitRoot(projectDir);
   if (!gitRoot) return "";
-  for (const ref of ["refs/remotes/origin/HEAD", "refs/remotes/origin/main", "HEAD"]) {
+  let branch = String(options.defaultBranch || "").trim();
+  if (!branch) {
     try {
-      if (ref === "refs/remotes/origin/HEAD") {
-        const symbolic = runGit(["symbolic-ref", ref], gitRoot);
-        return runGit(["rev-parse", symbolic], gitRoot);
-      }
-      return runGit(["rev-parse", ref], gitRoot);
+      const symbolic = runGit(["symbolic-ref", "refs/remotes/origin/HEAD"], gitRoot);
+      branch = symbolic.replace(/^refs\/remotes\/origin\//, "");
     } catch {
-      // Try the next stable base reference.
+      try {
+        const remoteHead = runGit(["ls-remote", "--symref", "origin", "HEAD"], gitRoot);
+        const match = remoteHead.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m);
+        branch = match ? match[1] : "";
+      } catch {
+        return "";
+      }
     }
   }
-  return "";
+  if (!branch || branch.includes("..") || branch.startsWith("/") || branch.endsWith("/")) {
+    return "";
+  }
+  try {
+    return runGit(["rev-parse", `refs/remotes/origin/${branch}`], gitRoot);
+  } catch {
+    return "";
+  }
+}
+
+function pmHeadOid(pmDir) {
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) return "";
+  try {
+    return runGit(["rev-parse", "HEAD"], gitRoot);
+  } catch {
+    return "";
+  }
 }
 
 function cardRevision(card) {
@@ -178,7 +195,7 @@ function cardRevision(card) {
   return sha256(JSON.stringify(stableValue(card)));
 }
 
-function fingerprintInput(card, column, stage, config, baseOid) {
+function fingerprintInput(card, column, stage, config, baseOid, pmHead) {
   return {
     version: 1,
     selected_id: card.id,
@@ -193,6 +210,7 @@ function fingerprintInput(card, column, stage, config, baseOid) {
     },
     execution_config_hash: config.execution_config_hash || executionConfigHash(config),
     source_base_oid: baseOid,
+    pm_head_oid: pmHead,
   };
 }
 
@@ -219,7 +237,7 @@ function runLoop(projectDir, options = {}) {
       }
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
-  const config =
+  let config =
     options.config ||
     (options.dryRun === false && options.claimOnly
       ? loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir)
@@ -228,18 +246,27 @@ function runLoop(projectDir, options = {}) {
     options.dryRun === false && options.claimOnly
       ? syncBeforeMutation(paths.pmDir, config, options)
       : false;
-  const baseOid = options.sourceBaseOid || sourceBaseOid(projectDir);
+  const shouldReloadConfigAfterPull =
+    didPrePull && (!options.config || options.reloadConfigAfterPull);
+  if (shouldReloadConfigAfterPull) {
+    config = loadLoopConfig(paths.pmDir);
+  }
+  const baseOid = options.sourceBaseOid || sourceBaseOid(projectDir, options);
+  const currentPmHead = pmHeadOid(paths.pmDir);
   const board = options.board || buildLoopBoard(projectDir, { pmDir: paths.pmDir, now });
+  const fingerprintMeta = new Map();
   const selected = selectNextCard(board, config, {
     mode: options.mode || "default",
     quarantineCheck:
       typeof options.quarantineCheck === "function"
         ? (card, column, stage) => {
-            const input = fingerprintInput(card, column, stage, config, baseOid);
-            return options.quarantineCheck(card, {
+            const input = fingerprintInput(card, column, stage, config, baseOid, currentPmHead);
+            const meta = {
               fingerprint: planFingerprint(input),
               fingerprint_input: input,
-            });
+            };
+            fingerprintMeta.set(card, meta);
+            return options.quarantineCheck(card, meta);
           }
         : undefined,
   });
@@ -270,14 +297,18 @@ function runLoop(projectDir, options = {}) {
   };
 
   if (selected.card) {
-    plan.fingerprint_input = fingerprintInput(
-      selected.card,
-      selected.column,
-      selected.stage,
-      config,
-      baseOid
-    );
-    plan.fingerprint = planFingerprint(plan.fingerprint_input);
+    const meta = fingerprintMeta.get(selected.card);
+    plan.fingerprint_input =
+      meta?.fingerprint_input ||
+      fingerprintInput(
+        selected.card,
+        selected.column,
+        selected.stage,
+        config,
+        baseOid,
+        currentPmHead
+      );
+    plan.fingerprint = meta?.fingerprint || planFingerprint(plan.fingerprint_input);
   }
 
   if (options.expectedPlan) {
@@ -321,6 +352,30 @@ function runLoop(projectDir, options = {}) {
     };
   }
 
+  if (shouldReloadConfigAfterPull) {
+    try {
+      const trustedConfig = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
+      if (trustedConfig.execution_config_hash !== executionConfigHash(config)) {
+        return {
+          ...plan,
+          status: "plan-stale",
+          mutation: false,
+          reason: "trusted execution config changed after exact-plan comparison",
+        };
+      }
+      config = trustedConfig;
+    } catch (err) {
+      return {
+        ...plan,
+        status: "blocked",
+        mutation: false,
+        reason: String(err.message || err),
+      };
+    }
+  }
+
+  if (typeof options.beforeClaim === "function") options.beforeClaim();
+
   const claim = claimLease(
     paths.pmDir,
     {
@@ -335,13 +390,16 @@ function runLoop(projectDir, options = {}) {
       skipPull: didPrePull || options.skipPull,
       skipPush: options.skipPush,
       allowUnsynced: options.allowUnsynced,
+      expectedHeadOid: plan.fingerprint_input.pm_head_oid,
+      expectedCardRevision: plan.fingerprint_input.card_revision,
     }
   );
 
   if (!claim.ok) {
     return {
       ...plan,
-      status: "blocked",
+      status: claim.reason === "plan-stale-before-claim" ? "plan-stale" : "blocked",
+      mutation: false,
       reason: claim.reason,
       activeLease: claim.lease || null,
     };

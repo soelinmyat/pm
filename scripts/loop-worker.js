@@ -26,6 +26,7 @@ const {
   findGitRoot,
   gitRelativePath,
   leasePath,
+  removeWorkspace,
   runGit,
   sanitizeId,
   writeJsonAtomic,
@@ -315,23 +316,24 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
   }
 
   const readContext = copyReadContext(plan.pmDir, workspacePath, plan);
+  if (!readContext.ok) {
+    removeWorkspace(gitRoot, workspacePath);
+    if (!shipStage) {
+      try {
+        runGit(["branch", "-D", branch], gitRoot);
+      } catch {
+        // The worktree cleanup may already have removed the new branch.
+      }
+    }
+    return { ok: false, reason: "read-context-unsafe", workspacePath, branch };
+  }
 
   return {
     ok: true,
     workspacePath,
     branch,
     bootstrapFiles: boot.copied,
-    readContext: readContext.copied,
   };
-}
-
-function removeWorkspace(gitRoot, workspacePath) {
-  try {
-    runGit(["worktree", "remove", "--force", workspacePath], gitRoot);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function releaseLease(pmDir, lease, options = {}) {
@@ -364,10 +366,13 @@ function releaseLease(pmDir, lease, options = {}) {
 
 function runWorker(projectDir, options = {}) {
   const paths = options.pmDir
-    ? { pmDir: options.pmDir, pmStateDir: path.join(path.dirname(options.pmDir), ".pm") }
+    ? {
+        pmDir: options.pmDir,
+        pmStateDir: options.pmStateDir || path.join(path.dirname(options.pmDir), ".pm"),
+      }
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
-  let config = options.config || loadLoopConfig(paths.pmDir);
+  let config = loadLoopConfig(paths.pmDir);
   const mode = options.mode || "default";
 
   if (config.enabled === false) {
@@ -398,11 +403,7 @@ function runWorker(projectDir, options = {}) {
 
   if (options.dryRun) {
     if (!preview.selected) return preview;
-    const command = engineCommand(config, buildPrompt(preview, config), {
-      pmDir: paths.pmDir,
-      pmStateDir: paths.pmStateDir,
-      projectGitRoot: findGitRoot(projectDir),
-    });
+    const command = engineCommand(config, buildPrompt(preview, config));
     return {
       ...preview,
       status: "dry-run",
@@ -412,23 +413,21 @@ function runWorker(projectDir, options = {}) {
 
   if (!preview.selected) return preview;
 
-  if (!options.config) {
-    try {
-      config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
-    } catch (err) {
-      const blocked = {
-        blocker_code: "execution-config-unapproved",
-        remediation: String(err.message || err),
-      };
-      return {
-        ...preview,
-        status: "preflight-failed",
-        mutation: false,
-        dry_run: false,
-        ...blocked,
-        quarantine: recordQuarantine(paths.pmStateDir, preview, blocked, config, { now }),
-      };
-    }
+  try {
+    config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
+  } catch (err) {
+    const blocked = {
+      blocker_code: "execution-config-unapproved",
+      remediation: String(err.message || err),
+    };
+    return {
+      ...preview,
+      status: "preflight-failed",
+      mutation: false,
+      dry_run: false,
+      ...blocked,
+      quarantine: recordQuarantine(paths.pmStateDir, preview, blocked, config, { now }),
+    };
   }
 
   const previewStage = preview.selected.stage || "dev";
@@ -483,6 +482,8 @@ function runWorker(projectDir, options = {}) {
     allowUnsynced: options.allowUnsynced,
     expectedPlan: preview,
     quarantineCheck,
+    pmStateDir: paths.pmStateDir,
+    reloadConfigAfterPull: true,
   });
   if (plan.status !== "claimed") return plan;
 
@@ -649,6 +650,7 @@ function parseArgs(argv) {
   const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
+    pmStateDir: "",
     mode: "default",
     dryRun: false,
     holder: os.hostname(),
@@ -661,6 +663,7 @@ function parseArgs(argv) {
     {
       "--project-dir": { key: "projectDir", type: "string" },
       "--pm-dir": { key: "pmDir", type: "string" },
+      "--pm-state-dir": { key: "pmStateDir", type: "string" },
       "--mode": { key: "mode", type: "string" },
       "--dry-run": { key: "dryRun", type: "boolean" },
       "--holder": { key: "holder", type: "string" },
@@ -673,6 +676,7 @@ function parseArgs(argv) {
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
+  if (args.pmStateDir) args.pmStateDir = path.resolve(args.pmStateDir);
   return args;
 }
 

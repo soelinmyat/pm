@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-config.js");
 
 const ROOT = path.join(__dirname, "..");
 const CLI = path.join(ROOT, "scripts", "worktree-bootstrap.js");
@@ -123,6 +124,34 @@ test("rejects a bootstrap_files entry whose dest escapes the worktree", () => {
   }
 });
 
+test("rejects symlinks in bootstrap source and destination path chains", () => {
+  const { tmp, gitRoot, worktree, cleanup } = makeDirs();
+  try {
+    const outside = path.join(tmp, "outside");
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "secret.env"), "SECRET=outside\n");
+
+    fs.symlinkSync(outside, path.join(gitRoot, "linked-source"));
+    let res = bootstrapWorktree(gitRoot, worktree, {
+      bootstrap_files: ["linked-source/secret.env"],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "bootstrap-file-unsafe");
+
+    fs.mkdirSync(path.join(gitRoot, "linked-destination"));
+    fs.writeFileSync(path.join(gitRoot, "linked-destination", "secret.env"), "safe\n");
+    fs.symlinkSync(outside, path.join(worktree, "linked-destination"));
+    res = bootstrapWorktree(gitRoot, worktree, {
+      bootstrap_files: ["linked-destination/secret.env"],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "bootstrap-file-unsafe");
+    assert.equal(fs.readFileSync(path.join(outside, "secret.env"), "utf8"), "SECRET=outside\n");
+  } finally {
+    cleanup();
+  }
+});
+
 test("wraps a cpSync throw (same src/dest) as bootstrap-copy-failed, not an uncaught crash", () => {
   const { gitRoot, cleanup } = makeDirs();
   try {
@@ -186,6 +215,41 @@ test("CLI is a silent no-op when the repo has no loop config", () => {
     // Exits 0, copies nothing.
     assert.doesNotThrow(() => out);
     assert.deepEqual(fs.readdirSync(worktree), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("CLI honors --pm-state-dir when loading machine-approved bootstrap config", () => {
+  const { tmp, gitRoot, worktree, cleanup } = makeDirs();
+  try {
+    fs.writeFileSync(path.join(gitRoot, "local.env"), "K=V\n");
+    const pmDir = path.join(tmp, "knowledge", "pm");
+    const pmStateDir = path.join(tmp, "machine-state");
+    fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pmDir, "loop", "config.json"),
+      JSON.stringify({ worker: { engine_bin: "/usr/bin/true", bootstrap_files: ["local.env"] } })
+    );
+    approveExecutionConfig(pmStateDir, loadLoopConfig(pmDir));
+
+    const out = childProcess.execFileSync(
+      "node",
+      [
+        CLI,
+        "--git-root",
+        gitRoot,
+        "--worktree",
+        worktree,
+        "--pm-dir",
+        pmDir,
+        "--pm-state-dir",
+        pmStateDir,
+      ],
+      { encoding: "utf8" }
+    );
+    assert.match(out, /local\.env/);
+    assert.equal(fs.readFileSync(path.join(worktree, "local.env"), "utf8"), "K=V\n");
   } finally {
     cleanup();
   }
