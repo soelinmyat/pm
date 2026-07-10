@@ -36,6 +36,9 @@ const MANAGED_FIELDS = [
   "loop_run_id",
   "loop_log_path",
   "loop_last_outcome",
+  "no_progress_signature",
+  "no_progress_first_run_id",
+  "no_progress_last_run_id",
   "artifact_path",
   "artifact_sha256",
 ];
@@ -203,6 +206,7 @@ function unchangedResult(input, stage, status) {
       status,
       outcome: `${stage}-${status}`,
       summary: bounded(input.result.summary, 2000),
+      ...(input.noProgress ? { no_progress: input.noProgress } : {}),
     },
     allowedArtifactPaths: [],
     artifactHashes: [],
@@ -221,6 +225,59 @@ function buildStageTransition(input) {
   if (!result || result.run_id !== input.runId) return { ok: false, reason: "result/run mismatch" };
   const stage = result.stage;
   const status = result.status;
+
+  if (status === "stopped") {
+    const blocker = {
+      code: "loop-stopped",
+      reason: "The STOP control interrupted the active engine process.",
+      remediation: "Inspect the preserved process evidence, then remove STOP before retrying.",
+    };
+    return transitionResult(
+      input,
+      {
+        ...baseFields(input, "needs-human", `${stage}-stopped`),
+        ...(["ship", "review"].includes(stage) ? durablePrFields(input) : {}),
+        ...blockerFields(blocker),
+      },
+      { status: "stopped", outcome: `${stage}-stopped`, summary: bounded(result.summary, 2000) }
+    );
+  }
+
+  if (status === "no-progress") {
+    const evidence = result.no_progress;
+    if (
+      !evidence ||
+      typeof evidence.signature !== "string" ||
+      typeof evidence.first_run_id !== "string" ||
+      typeof evidence.last_run_id !== "string"
+    ) {
+      return { ok: false, reason: "no-progress transition requires first/last run evidence" };
+    }
+    const blocker = {
+      code: "no-progress",
+      reason:
+        `The same card/stage/blocker signature made no progress from ` +
+        `${bounded(evidence.first_run_id, 80)} through ${bounded(evidence.last_run_id, 80)}.`,
+      remediation: "Resolve the recorded blocker or change the card/config/source fingerprint.",
+    };
+    return transitionResult(
+      input,
+      {
+        ...baseFields(input, "needs-human", `${stage}-no-progress`),
+        ...(["ship", "review"].includes(stage) ? durablePrFields(input) : {}),
+        ...blockerFields(blocker),
+        no_progress_signature: bounded(evidence.signature, 80),
+        no_progress_first_run_id: bounded(evidence.first_run_id, 80),
+        no_progress_last_run_id: bounded(evidence.last_run_id, 80),
+      },
+      {
+        status: "no-progress",
+        outcome: `${stage}-no-progress`,
+        summary: blocker.reason,
+        no_progress: evidence,
+      }
+    );
+  }
 
   if (status === "failed" || status === "noop") return unchangedResult(input, stage, status);
 
@@ -387,10 +444,39 @@ function buildContractFailureResult(input) {
   };
 }
 
+function buildStoppedResult(input) {
+  return {
+    version: 1,
+    run_id: input.runId,
+    card_id: input.cardId,
+    stage: input.stage,
+    status: "stopped",
+    summary: bounded(input.summary || "STOP interrupted the engine process.", 2000),
+    gates: [],
+    usage: { input_tokens: null, output_tokens: null, total_tokens: null },
+  };
+}
+
+function buildNoProgressResult(input) {
+  return {
+    version: 1,
+    run_id: input.runId,
+    card_id: input.cardId,
+    stage: input.stage,
+    status: "no-progress",
+    summary: bounded(input.summary || "Repeated no-progress signature suppressed.", 2000),
+    no_progress: input.noProgress,
+    gates: [],
+    usage: { input_tokens: null, output_tokens: null, total_tokens: null },
+  };
+}
+
 module.exports = {
   CANONICAL_CARD_STATUSES,
   MANAGED_FIELDS,
   buildContractFailureResult,
+  buildNoProgressResult,
+  buildStoppedResult,
   buildStageTransition,
   isNeedsHumanStatus,
   normalizeStatus,

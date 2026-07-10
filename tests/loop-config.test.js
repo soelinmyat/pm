@@ -51,6 +51,15 @@ test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
       new RegExp(`claim_envelope\\.${field} must be a positive integer`)
     );
   }
+
+  assert.throws(
+    () => normalizeLoopConfig({ budgets: { max_identical_no_progress: 0 } }),
+    /budgets\.max_identical_no_progress must be a positive integer/
+  );
+  assert.throws(
+    () => normalizeLoopConfig({ canary: { evidence_ttl_seconds: 0 } }),
+    /canary\.evidence_ttl_seconds must be a positive integer/
+  );
 });
 
 test("legacy minute TTLs migrate explicitly and the old 45-minute value fails closed", () => {

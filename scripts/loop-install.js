@@ -15,7 +15,8 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
-const { loadLoopConfig } = require("./loop-config.js");
+const { configExposure, loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
+const { currentCanaryIdentity, evaluateCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
@@ -169,6 +170,18 @@ function setKillSwitch(pmDir, stopped, options = {}) {
   return { stopPath: file.stopPath, stopped, ...push, committed: push.committed };
 }
 
+function buildInstallExposure(config) {
+  return configExposure(config);
+}
+
+function releaseGateFor(projectDir, paths, config, options = {}) {
+  const identity = currentCanaryIdentity(projectDir, config, options);
+  return evaluateCanaryReleaseGate(paths.pmStateDir, identity, {
+    now: options.now,
+    maxAgeSeconds: config.canary.evidence_ttl_seconds,
+  });
+}
+
 function generate(opts) {
   const workerScript = path.join(__dirname, "loop-worker.js");
   const platform = opts.format === "auto" ? process.platform : opts.format;
@@ -178,6 +191,14 @@ function generate(opts) {
     mode: opts.mode,
     intervalMinutes: opts.intervalMinutes,
   };
+  const exposure = opts.config ? buildInstallExposure(opts.config) : null;
+  const exposureText = exposure
+    ? [
+        `Maximum daily claim envelope: ${exposure.maximum_daily_claim_envelope_seconds}s.`,
+        `Lease TTL: ${exposure.lease_ttl_seconds}s (minimum ${exposure.minimum_ttl_seconds}s; margin ${exposure.ttl_margin_seconds}s).`,
+        ...exposure.warnings.map((warning) => `WARNING: ${warning}`),
+      ].join("\n")
+    : "";
   if (platform === "darwin" || platform === "launchd") {
     const label = launchdLabel(opts.projectDir);
     return {
@@ -185,17 +206,20 @@ function generate(opts) {
       label,
       installPath: plistInstallPath(label),
       content: buildLaunchdPlist({ ...shared, label }),
+      exposure,
       instructions: [
         `Write the plist to ${plistInstallPath(label)} and run:`,
         `  launchctl load ${plistInstallPath(label)}`,
         "or rerun this command with --install to do both.",
+        exposureText,
       ].join("\n"),
     };
   }
   return {
     kind: "cron",
     content: buildCronLine(shared),
-    instructions: "Add the line above via `crontab -e`.",
+    exposure,
+    instructions: ["Add the line above via `crontab -e`.", exposureText].filter(Boolean).join("\n"),
   };
 }
 
@@ -234,17 +258,35 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const paths = args.pmDir ? { pmDir: args.pmDir } : resolvePmPaths(args.projectDir);
+    const paths = args.pmDir
+      ? { pmDir: args.pmDir, pmStateDir: path.join(path.dirname(args.pmDir), ".pm") }
+      : resolvePmPaths(args.projectDir);
 
-    if (args.stop || args.resume) {
+    if (args.stop) {
       const result = setKillSwitch(paths.pmDir, args.stop);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
 
-    const config = loadLoopConfig(paths.pmDir);
+    let config = loadLoopConfig(paths.pmDir);
+    if (args.resume || args.install) {
+      config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
+      const releaseGate = releaseGateFor(args.projectDir, paths, config);
+      if (!releaseGate.passed) {
+        throw new Error(
+          `scheduler remains ${args.resume ? "paused" : "uninstalled"} until canary evidence passes: ${releaseGate.reason}`
+        );
+      }
+      if (args.resume) {
+        const result = setKillSwitch(paths.pmDir, false);
+        process.stdout.write(
+          `${JSON.stringify({ ...result, release_gate: releaseGate }, null, 2)}\n`
+        );
+        return;
+      }
+    }
     const intervalMinutes = args.intervalMinutes || Number(config.scheduler_interval_minutes) || 30;
-    const generated = generate({ ...args, intervalMinutes });
+    const generated = generate({ ...args, intervalMinutes, config });
 
     if (args.install && generated.kind === "launchd") {
       const installed = installLaunchd(generated.content, generated.label);
@@ -263,9 +305,11 @@ function main() {
 }
 
 module.exports = {
+  buildInstallExposure,
   buildCronLine,
   buildLaunchdPlist,
   generate,
+  evaluateCanaryReleaseGate,
   launchdLabel,
   plistInstallPath,
   projectSlug,

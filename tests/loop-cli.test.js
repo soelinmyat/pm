@@ -33,6 +33,23 @@ test("loop CLIs reject unknown options", () => {
   assert.match(runFail("loop-runner.js", ["--bogus"]), /Unknown option/);
   assert.match(runFail("loop-config.js", ["--bogus"]), /Unknown option/);
   assert.match(runFail("loop-reconcile.js", ["--bogus"]), /Unknown option/);
+  assert.match(runFail("loop-canary.js", ["--bogus"]), /Unknown option/);
+});
+
+test("loop canary enforces the exact supervised case arguments", () => {
+  assert.match(runFail("loop-canary.js", ["--project-dir", ROOT]), /--case is required/);
+  assert.match(
+    runFail("loop-canary.js", ["--project-dir", ROOT, "--case", "verified-pr"]),
+    /--card is required/
+  );
+  assert.match(
+    runFail("loop-canary.js", ["--project-dir", ROOT, "--case", "verified-pr", "--card", "PM-108"]),
+    /--no-merge is required/
+  );
+  assert.match(
+    runFail("loop-canary.js", ["--project-dir", ROOT, "--case", "unknown"]),
+    /case must be exactly one of/
+  );
 });
 
 test("loop command and skill docs expose dry-run-first reconciliation with guarded apply", () => {

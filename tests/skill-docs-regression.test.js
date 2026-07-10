@@ -94,6 +94,35 @@ test("loop docs describe the lease envelope and isolated recovery transactions",
   assert.match(readme, /validated stage results.*needs-human/is);
 });
 
+test("loop docs keep scheduling gated on exact same-identity supervised canaries", () => {
+  const readme = read("README.md");
+  const install = read(".codex/INSTALL.md");
+  const skill = read("skills/loop/SKILL.md");
+  const config = read("skills/loop/steps/04-config.md");
+  const installStep = read("skills/loop/steps/05-install.md");
+  const work = read("skills/loop/steps/06-work.md");
+  const all = [readme, install, skill, config, installStep, work].join("\n");
+
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case preflight-failure/
+  );
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case blocked-result/
+  );
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case verified-pr --card "\$CANARY_CARD" --no-merge/
+  );
+  assert.match(all, /usage_available: false/);
+  assert.match(all, /TERM.*KILL/is);
+  assert.match(all, /same.*plugin.*source.*config.*engine/is);
+  assert.match(all, /stale.*mixed.*fail/is);
+  assert.match(all, /scheduler.*(paused|uninstalled).*until/is);
+  assert.match(all, /does not support exact token cutoffs/i);
+});
+
 test("loop-capable workflows return stage results and leave durable card writes to the worker", () => {
   const contracts = {
     dev: /shipped, blocked, failed, noop/,

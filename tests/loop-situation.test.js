@@ -214,6 +214,27 @@ test("engine reflects default_runtime when worker.engine is unset", () => {
   }
 });
 
+test("configuration summary exposes bounded daily runtime and safety warnings", () => {
+  const { dir, cleanup } = tmp();
+  try {
+    initProject(dir, {
+      config: {
+        autonomy: { merge_pr: true },
+        worker: { codex_sandbox: "danger-full-access" },
+      },
+    });
+    const s = assessSituation(dir);
+    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 139320);
+    assert.equal(s.config.lease_ttl_seconds, 7200);
+    assert.equal(s.config.ttl_margin_seconds, 630);
+    assert.ok(s.config.warnings.some((warning) => /merge autonomy/i.test(warning)));
+    assert.ok(s.config.warnings.some((warning) => /danger-full-access/i.test(warning)));
+    assert.equal(s.releaseGate.passed, false, "scheduler gate fails closed without evidence");
+  } finally {
+    cleanup();
+  }
+});
+
 test("in-progress lease surfaces cardExists=false for an orphaned lease", () => {
   const { dir, cleanup } = tmp();
   try {

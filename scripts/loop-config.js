@@ -34,6 +34,7 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     max_runtime_seconds_per_ship_cycle: 1800,
     lease_ttl_seconds: 7200,
     max_attempts_per_stage: 3,
+    max_identical_no_progress: 1,
   },
   claim_envelope: {
     branch_promotion_seconds: 120,
@@ -50,6 +51,9 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     probe_timeout_seconds: 60,
     quarantine_ttl_seconds: 3600,
     service_checks: [],
+  },
+  canary: {
+    evidence_ttl_seconds: 86400,
   },
   worker: {
     engine: "",
@@ -148,6 +152,7 @@ function normalizeLoopConfig(config) {
     "budgets",
     "claim_envelope",
     "preflight",
+    "canary",
     "worker",
   ]) {
     if (!isPlainObject(normalized[key])) {
@@ -224,6 +229,42 @@ function claimEnvelopeSeconds(config, stage = "dev") {
   return phaseSeconds + runtime;
 }
 
+function configExposure(config) {
+  const devEnvelope = claimEnvelopeSeconds(config, "dev");
+  const shipEnvelope = claimEnvelopeSeconds(config, "ship");
+  const longestEnvelope = Math.max(devEnvelope, shipEnvelope);
+  const margin = Number(config.claim_envelope.scheduler_overlap_margin_seconds);
+  const ttl = leaseTtlSeconds(config);
+  const warnings = [];
+  if (config.autonomy && config.autonomy.merge_pr === true) {
+    warnings.push(
+      "Merge autonomy is enabled: verified pull requests may merge without a human stop."
+    );
+  }
+  const worker = config.worker || {};
+  if (worker.codex_sandbox === "danger-full-access") {
+    warnings.push(
+      "Codex danger-full-access is a broad host permission grant, not capability isolation."
+    );
+  }
+  if (worker.claude_permission_mode === "bypassPermissions") {
+    warnings.push("Claude bypassPermissions is a broad host permission grant.");
+  }
+  if (Array.isArray(worker.codex_add_dirs) && worker.codex_add_dirs.length > 0) {
+    warnings.push("Extra Codex writable directories broaden engine host exposure.");
+  }
+  return {
+    claim_envelope_seconds: { dev: devEnvelope, ship: shipEnvelope },
+    maximum_daily_claim_envelope_seconds:
+      devEnvelope * Number(config.budgets.max_runs_per_day) +
+      shipEnvelope * Number(config.budgets.max_ship_cycles_per_day),
+    lease_ttl_seconds: ttl,
+    minimum_ttl_seconds: longestEnvelope + margin + 1,
+    ttl_margin_seconds: ttl - (longestEnvelope + margin),
+    warnings,
+  };
+}
+
 function validateLoopConfig(config) {
   if (![1, 2].includes(config.version)) {
     throw new Error(
@@ -263,6 +304,11 @@ function validateLoopConfig(config) {
   }
 
   const ttl = positiveInteger(leaseTtlSeconds(config), "budgets.lease_ttl_seconds");
+  positiveInteger(
+    Number(config.budgets.max_identical_no_progress),
+    "budgets.max_identical_no_progress"
+  );
+  positiveInteger(Number(config.canary.evidence_ttl_seconds), "canary.evidence_ttl_seconds");
   const devEnvelope = claimEnvelopeSeconds(config, "dev");
   const shipEnvelope = claimEnvelopeSeconds(config, "ship");
   const envelope = Math.max(devEnvelope, shipEnvelope);
@@ -431,6 +477,14 @@ function main() {
       process.stdout.write(`${configPath(args.pmDir)}\n`);
     } else {
       process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+      const exposure = configExposure(config);
+      process.stderr.write(
+        [
+          `Maximum daily claim envelope: ${exposure.maximum_daily_claim_envelope_seconds}s.`,
+          `Lease TTL: ${exposure.lease_ttl_seconds}s (minimum ${exposure.minimum_ttl_seconds}s; margin ${exposure.ttl_margin_seconds}s).`,
+          ...exposure.warnings.map((warning) => `WARNING: ${warning}`),
+        ].join("\n") + "\n"
+      );
     }
   } catch (err) {
     process.stderr.write(`loop-config: ${err.message}\n`);
@@ -443,6 +497,7 @@ module.exports = {
   approveExecutionConfig,
   assertCanonicalEngineArgs,
   claimEnvelopeSeconds,
+  configExposure,
   configPath,
   deepMerge,
   ensureLoopDirs,

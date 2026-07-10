@@ -15,7 +15,6 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
 const {
@@ -38,10 +37,16 @@ const {
   checkpointRecovery,
   finalizeRun,
   markRunDispatched,
+  markRunSuppressed,
   releaseClaim,
   withRemoteSnapshot,
 } = require("./loop-pm-transaction.js");
-const { buildContractFailureResult, buildStageTransition } = require("./loop-card-state.js");
+const {
+  buildContractFailureResult,
+  buildNoProgressResult,
+  buildStageTransition,
+  buildStoppedResult,
+} = require("./loop-card-state.js");
 const {
   activeQuarantineForPlan,
   copyReadContext,
@@ -58,6 +63,7 @@ const {
 const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
+const { runEngineInterruptibleSync } = require("./loop-process.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -129,6 +135,127 @@ function countCardAttempts(runsDir, cardId, stage) {
       (record.stage || "dev") === stage &&
       !nonFailures.has(record.status)
   ).length;
+}
+
+function usageEvidence(result) {
+  const usage = result && result.usage;
+  const available = Boolean(
+    usage &&
+    typeof usage === "object" &&
+    [usage.input_tokens, usage.output_tokens, usage.total_tokens].some(Number.isSafeInteger)
+  );
+  return available
+    ? {
+        usage_available: true,
+        usage: {
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          total_tokens: usage.total_tokens,
+        },
+      }
+    : { usage_available: false };
+}
+
+function blockerSignature(result) {
+  const blocker = result && result.blocker;
+  return sha256(
+    JSON.stringify({
+      status: String(result && result.status ? result.status : "unknown"),
+      code: String(
+        blocker && blocker.code ? blocker.code : result && result.status ? result.status : "unknown"
+      ),
+      reason: String(
+        blocker && blocker.reason ? blocker.reason : result && result.summary ? result.summary : ""
+      ),
+      remediation: String(blocker && blocker.remediation ? blocker.remediation : ""),
+    })
+  );
+}
+
+function noProgressEvidence(plan, result, previous = null) {
+  const stage = plan.selected.stage || "dev";
+  const cardRevision =
+    plan.lease?.expected_card_revision || plan.fingerprint_input?.card_revision || "";
+  const executionFingerprint = sha256(
+    JSON.stringify({
+      execution_config_hash: plan.fingerprint_input?.execution_config_hash || "",
+    })
+  );
+  const blocker = previous?.blocker_signature || blockerSignature(result);
+  const signature = sha256(
+    JSON.stringify({
+      card_id: plan.selected.id,
+      card_revision: cardRevision,
+      execution_fingerprint: executionFingerprint,
+      stage,
+      blocker_signature: blocker,
+    })
+  );
+  return {
+    signature,
+    blocker_signature: blocker,
+    card_revision: cardRevision,
+    execution_fingerprint: executionFingerprint,
+    first_run_id: previous?.first_run_id || plan.run_id,
+    last_run_id: plan.run_id,
+  };
+}
+
+function findNoProgressSuppression(pmDir, plan, maxIdentical, options = {}) {
+  if (!plan.selected || maxIdentical < 1) return null;
+  const cardId = plan.selected.id;
+  const stage = plan.selected.stage || "dev";
+  const cardRevision = plan.fingerprint_input?.card_revision || "";
+  const executionFingerprint = sha256(
+    JSON.stringify({
+      execution_config_hash: plan.fingerprint_input?.execution_config_hash || "",
+    })
+  );
+  return withRemoteSnapshot(
+    pmDir,
+    (snapshot) => {
+      const eventDir = path.join(snapshot.pmDir, "loop", "events");
+      if (!fs.existsSync(eventDir)) return null;
+      const events = [];
+      for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        try {
+          const event = JSON.parse(fs.readFileSync(path.join(eventDir, entry.name), "utf8"));
+          if (
+            event.terminal === true &&
+            event.card_id === cardId &&
+            event.stage === stage &&
+            event.no_progress &&
+            event.no_progress.card_revision === cardRevision &&
+            event.no_progress.execution_fingerprint === executionFingerprint &&
+            /^sha256:[a-f0-9]{64}$/.test(String(event.no_progress.signature || ""))
+          ) {
+            events.push(event);
+          }
+        } catch {
+          // Other transaction scans own malformed-event recovery. A malformed
+          // record is never positive evidence for suppressing execution.
+        }
+      }
+      events.sort((a, b) =>
+        String(b.finalized_at || "").localeCompare(String(a.finalized_at || ""))
+      );
+      const latest = events[0];
+      if (!latest) return null;
+      const identical = events.filter(
+        (event) => event.no_progress.signature === latest.no_progress.signature
+      );
+      if (identical.length < maxIdentical) return null;
+      const oldest = identical.at(-1);
+      return {
+        ...latest.no_progress,
+        first_run_id: oldest.no_progress.first_run_id || oldest.run_id,
+        last_run_id: latest.no_progress.last_run_id || latest.run_id,
+        count: identical.length,
+      };
+    },
+    options
+  );
 }
 
 // Card `command` values are git-synced frontmatter — an injection surface for
@@ -331,6 +458,7 @@ function releaseLease(pmDir, lease, options = {}) {
       stage: lease.stage,
       reason: options.reason || "legacy-worker-release",
       eventStatus: options.eventStatus || options.reason || "released",
+      noProgress: options.noProgress || null,
     },
     {
       skipPush: options.skipPush,
@@ -370,13 +498,25 @@ function claimedCardSnapshot(pmDir, lease, options = {}) {
 }
 
 function processEvidence(spawnResult, timeoutMs) {
-  const timedOut = Boolean(spawnResult?.error && spawnResult.error.code === "ETIMEDOUT");
+  const timedOut = Boolean(
+    spawnResult?.timed_out || (spawnResult?.error && spawnResult.error.code === "ETIMEDOUT")
+  );
   return {
     exit_code: Number.isInteger(spawnResult?.status) ? spawnResult.status : null,
     signal: spawnResult?.signal || spawnResult?.error?.signal || null,
     timed_out: timedOut,
     timeout_seconds: timeoutMs / 1000,
     error_code: spawnResult?.error?.code || null,
+    stopped: Boolean(spawnResult?.stopped),
+    stop: spawnResult?.stopped
+      ? {
+          requested_at: spawnResult.stop?.requested_at || null,
+          term_sent_at: spawnResult.stop?.term_sent_at || null,
+          kill_sent_at: spawnResult.stop?.kill_sent_at || null,
+        }
+      : undefined,
+    started_at: spawnResult?.started_at || undefined,
+    ended_at: spawnResult?.ended_at || undefined,
   };
 }
 
@@ -442,12 +582,46 @@ function validRefSnapshot(value) {
   );
 }
 
-function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRoot = "") {
+function protectedPmStateUnchanged(
+  before,
+  after,
+  sourceBranch = "",
+  sourceGitRoot = "",
+  options = {}
+) {
   if (!validProtectedPmSnapshot(before) || !validProtectedPmSnapshot(after)) return false;
   if (before.git_root !== after.git_root) return false;
   if (!before.git_root) return before.tree_hash === after.tree_hash;
-  if (before.head !== after.head || before.protected_status !== after.protected_status)
+  const normalizeProtectedStatus = (value) =>
+    String(value || "")
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line &&
+          !(options.allowStopControl === true && /(?:^|\s)(?:pm\/)?loop\/STOP(?:\s|$)/.test(line))
+      )
+      .sort()
+      .join("\n");
+  let committedStopControl = false;
+  if (before.head !== after.head && options.allowStopControl === true) {
+    try {
+      const changed = runGit(["diff", "--name-only", before.head, after.head], before.git_root)
+        .split(/\r?\n/)
+        .filter(Boolean);
+      committedStopControl =
+        changed.length > 0 &&
+        changed.every((file) => file === "pm/loop/STOP" || file === "loop/STOP");
+    } catch {
+      committedStopControl = false;
+    }
+  }
+  if (
+    (before.head !== after.head && !committedStopControl) ||
+    normalizeProtectedStatus(before.protected_status) !==
+      normalizeProtectedStatus(after.protected_status)
+  ) {
     return false;
+  }
   const sameRepository =
     sourceGitRoot && path.resolve(before.git_root) === path.resolve(sourceGitRoot);
   const allowed = new Set(
@@ -458,7 +632,10 @@ function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRo
   const left = parseRefSnapshot(before.refs);
   const right = parseRefSnapshot(after.refs);
   for (const ref of new Set([...left.keys(), ...right.keys()])) {
-    if (!allowed.has(ref) && left.get(ref) !== right.get(ref)) return false;
+    if (allowed.has(ref) || left.get(ref) === right.get(ref)) continue;
+    const isStopControlRefMove =
+      committedStopControl && left.get(ref) === before.head && right.get(ref) === after.head;
+    if (!isStopControlRefMove) return false;
   }
   return true;
 }
@@ -633,6 +810,7 @@ function finalizeStageOutcome(input) {
     dispatchAt: input.dispatchRecord.event && input.dispatchRecord.event.dispatched_at,
     prDispatchAt: plan.selected.prDispatchAt || "",
     verifiedArtifact: artifactVerification && artifactVerification.artifact,
+    noProgress: input.noProgress || null,
   });
   if (!mapped.ok) {
     return { ok: false, status: "failed-contract", reason: mapped.reason };
@@ -641,7 +819,7 @@ function finalizeStageOutcome(input) {
     maxAttempts: config.claim_envelope.cas_attempts,
     timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
   };
-  const terminalEvent = { ...mapped.event, process };
+  const terminalEvent = { ...mapped.event, ...(process ? { process } : {}) };
   const checkpoint = (options.checkpointRecovery || checkpointRecovery)(
     paths.pmDir,
     {
@@ -805,14 +983,16 @@ function runWorker(projectDir, options = {}) {
   }
   const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
   const attempts = countCardAttempts(runsDir, preview.selected.id, previewStage);
-  if (attempts >= maxAttempts) {
+  const maxIdenticalNoProgress =
+    Number(config.budgets && config.budgets.max_identical_no_progress) || 1;
+  const priorNoProgress = findNoProgressSuppression(paths.pmDir, preview, maxIdenticalNoProgress);
+  if (attempts >= maxAttempts && !priorNoProgress) {
     return {
       ...preview,
       status: "attempts-exhausted",
       reason: `card ${preview.selected.id} failed ${attempts}x at stage ${previewStage} (max_attempts_per_stage ${maxAttempts}); needs a human look`,
     };
   }
-
   const preflight = runPreflight(projectDir, preview, config, {
     pmDir: paths.pmDir,
     pmStateDir: paths.pmStateDir,
@@ -872,16 +1052,19 @@ function runWorker(projectDir, options = {}) {
     stage,
     started_at: now.toISOString(),
     log_dir: logDir,
+    usage_available: false,
   };
 
   // Every claimed dispatch gets a ledger — including early rejections — so
   // budgets and the attempts backstop always advance and nothing can livelock
   // the wake cycle for free.
   const bail = (status, reason) => {
+    const evidence = noProgressEvidence(plan, { status, summary: reason });
     const release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
       reason: status,
+      noProgress: evidence,
     });
     const durableStatus = release.released ? status : "finalization-blocked";
     const durableReason = release.released
@@ -893,6 +1076,7 @@ function runWorker(projectDir, options = {}) {
       reason: durableReason,
       ended_at: new Date().toISOString(),
       lease_release: release,
+      no_progress: evidence,
     });
     return {
       ...plan,
@@ -913,6 +1097,64 @@ function runWorker(projectDir, options = {}) {
   const projectGitRoot = findGitRoot(projectDir);
   if (!projectGitRoot) {
     return bail("failed", "project is not a git repository");
+  }
+  if (priorNoProgress) {
+    writeJsonAtomic(ledgerPath, ledger);
+    const suppressionRecord = (options.markRunSuppressed || markRunSuppressed)(
+      paths.pmDir,
+      { runId, cardId: plan.lease.card_id, stage: plan.lease.stage },
+      {
+        maxAttempts: config.claim_envelope.cas_attempts,
+        timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+      }
+    );
+    ledger.suppression_record = suppressionRecord;
+    if (!suppressionRecord.ok) {
+      return bail(
+        "suppression-checkpoint-failed",
+        suppressionRecord.reason || "failed to durably record no-progress suppression"
+      );
+    }
+    const evidence = noProgressEvidence(plan, null, priorNoProgress);
+    const stageResult = buildNoProgressResult({
+      runId,
+      cardId: plan.selected.id,
+      stage,
+      noProgress: evidence,
+    });
+    const finalized = finalizeStageOutcome({
+      paths,
+      plan,
+      config,
+      result: stageResult,
+      resultHash: resultHashFor(stageResult),
+      artifactVerification: { ok: true },
+      process: null,
+      options,
+      now,
+      dispatchRecord: suppressionRecord,
+      noProgress: evidence,
+    });
+    ledger.no_progress = evidence;
+    ledger.finalization = compactFinalization(finalized);
+    ledger.status = finalized.status;
+    ledger.reason = finalized.reason || undefined;
+    ledger.ended_at = new Date().toISOString();
+    Object.assign(ledger, usageEvidence(stageResult));
+    writeJsonAtomic(ledgerPath, ledger);
+    return {
+      status: finalized.status,
+      reason: finalized.reason || undefined,
+      run_id: runId,
+      card: plan.selected,
+      exit_code: null,
+      workspace: null,
+      branch: null,
+      ledger: ledgerPath,
+      log_dir: logDir,
+      result_dir: null,
+      fingerprint: plan.fingerprint,
+    };
   }
   try {
     const capability = createRunResultCapability(paths.pmStateDir, runId);
@@ -937,11 +1179,14 @@ function runWorker(projectDir, options = {}) {
   if (!workspace.ok) {
     status = "bootstrap-failed";
     reason = workspace.reason;
+    const failureNoProgress = noProgressEvidence(plan, { status, summary: reason });
+    ledger.no_progress = failureNoProgress;
     release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
       reason: status,
       eventStatus: status,
+      noProgress: failureNoProgress,
     });
     if (!release.released) {
       status = "finalization-blocked";
@@ -987,7 +1232,6 @@ function runWorker(projectDir, options = {}) {
       ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
       writeJsonAtomic(ledgerPath, ledger);
 
-      const runEngine = options.spawnSync || spawnSync;
       const snapshotPm = options.snapshotProtectedPmState || snapshotProtectedPmState;
       let protectedBefore;
       let protectedBeforeError = "";
@@ -1004,25 +1248,38 @@ function runWorker(projectDir, options = {}) {
             stderr: "",
             error: { code: "EPROTECTEDSNAPSHOT", message: protectedBeforeError },
           }
-        : runEngine(command.bin, command.args, {
-            cwd: workspace.workspacePath,
-            input: command.input,
-            encoding: "utf8",
-            timeout: timeoutMs,
-            maxBuffer: ENGINE_MAX_BUFFER,
-            env: {
-              ...process.env,
-              PM_LOOP_WORKER: "1",
-              PM_LOOP_STAGE: plan.selected.stage || "dev",
-              PM_LOOP_CARD_ID: plan.selected.id,
-              PM_LOOP_RUN_ID: runId,
-              PM_LOOP_RESULT_DIR: resultDir,
-              PM_LOOP_RESULT_FILE: resultFile,
-              PM_LOOP_LOG_DIR: logDir,
-            },
-          });
-      fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
-      fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
+        : (() => {
+            const engineOptions = {
+              cwd: workspace.workspacePath,
+              input: command.input,
+              encoding: "utf8",
+              timeout: timeoutMs,
+              timeoutMs,
+              graceMs: Number(config.claim_envelope.shutdown_grace_seconds) * 1000,
+              pollMs: 250,
+              stopPath: killSwitchPath(paths.pmDir),
+              maxBuffer: ENGINE_MAX_BUFFER,
+              stdoutPath: path.join(logDir, "stdout.log"),
+              stderrPath: path.join(logDir, "stderr.log"),
+              env: {
+                ...process.env,
+                PM_LOOP_WORKER: "1",
+                PM_LOOP_STAGE: plan.selected.stage || "dev",
+                PM_LOOP_CARD_ID: plan.selected.id,
+                PM_LOOP_RUN_ID: runId,
+                PM_LOOP_RESULT_DIR: resultDir,
+                PM_LOOP_RESULT_FILE: resultFile,
+                PM_LOOP_LOG_DIR: logDir,
+              },
+            };
+            return typeof options.spawnSync === "function"
+              ? options.spawnSync(command.bin, command.args, engineOptions)
+              : runEngineInterruptibleSync(command.bin, command.args, engineOptions);
+          })();
+      if (!spawned.logs_written) {
+        fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
+        fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
+      }
       processInfo = processEvidence(spawned, timeoutMs);
       exitCode = processInfo.exit_code;
       ledger.process = processInfo;
@@ -1043,7 +1300,8 @@ function runWorker(projectDir, options = {}) {
           protectedBefore,
           protectedAfter,
           workspace.branch,
-          projectGitRoot
+          projectGitRoot,
+          { allowStopControl: processInfo.stopped }
         );
       const protectedPmVerification = {
         ok: !protectedBeforeError && !protectedAfterError && !protectedPmChanged,
@@ -1074,6 +1332,14 @@ function runWorker(projectDir, options = {}) {
             "engine execution changed PM refs or protected PM path status"
         );
         resultHash = resultHashFor(stageResult);
+      } else if (processInfo.stopped && (!read.ok || RESULT_SUCCESSES.has(read.result.status))) {
+        stageResult = buildStoppedResult({
+          runId,
+          cardId: plan.selected.id,
+          stage,
+          summary: "STOP interrupted the active engine process.",
+        });
+        resultHash = resultHashFor(stageResult);
       } else if (!read.ok) {
         const processDescription = processInfo.timed_out
           ? "engine timed out"
@@ -1099,6 +1365,7 @@ function runWorker(projectDir, options = {}) {
         stageResult = read.result;
         resultHash = `sha256:${read.sha256}`;
       }
+      Object.assign(ledger, usageEvidence(stageResult));
 
       let artifactVerification = { ok: true };
       if (stageResult.status !== "failed-contract") {
@@ -1122,6 +1389,9 @@ function runWorker(projectDir, options = {}) {
         }
       }
 
+      const currentNoProgress = ["failed", "noop"].includes(stageResult.status)
+        ? noProgressEvidence(plan, stageResult)
+        : null;
       let finalized = finalizeStageOutcome({
         paths,
         plan,
@@ -1133,6 +1403,7 @@ function runWorker(projectDir, options = {}) {
         options,
         now,
         dispatchRecord,
+        noProgress: currentNoProgress,
       });
       if (!finalized.ok && finalized.status === "failed-contract") {
         stageResult = contractFailure(plan, "transition-invalid", finalized.reason);
@@ -1148,6 +1419,7 @@ function runWorker(projectDir, options = {}) {
           options,
           now,
           dispatchRecord,
+          noProgress: null,
         });
       }
       ledger.finalization = compactFinalization(finalized);
@@ -1190,6 +1462,7 @@ function runWorker(projectDir, options = {}) {
     ledger: ledgerPath,
     log_dir: logDir,
     result_dir: resultDir,
+    fingerprint: plan.fingerprint,
   };
 }
 
@@ -1247,6 +1520,7 @@ module.exports = {
   countRunsInLedgers,
   countRunsToday,
   engineCommand,
+  findNoProgressSuppression,
   isDispatchableCommand,
   isStopped,
   killSwitchPath,
@@ -1256,6 +1530,7 @@ module.exports = {
   releaseLease,
   runsDirFor,
   runWorker,
+  usageEvidence,
 };
 
 if (require.main === module) {

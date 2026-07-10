@@ -54,6 +54,7 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 - v1 is git-self-sufficient: don't introduce Linear into the loop path. Schedulers only wake the loop; PM owns board state, leases, and checkpoints. The kill switch and daily budget apply to every wake.
 - Report every wake as dry-run, claimed, blocked, or idle, and keep durable `pm/` state distinct from local `.pm/` state in the summary.
 - Reconciliation always defaults to dry-run. Apply requires the explicit `--apply` flag, verified Git sync readiness, and Issue 2's isolated PM transaction; UNKNOWN remote evidence never changes a card.
+- Never install or resume the scheduler until all three supervised canary records pass for the same plugin, source, config, and engine identity. Stale, missing, mixed, or failed evidence keeps scheduling paused/uninstalled, and canaries never merge.
 
 ## Escalation Paths
 

@@ -12,9 +12,10 @@ const path = require("node:path");
 
 const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
-const { loadLoopConfig, configPath } = require("./loop-config.js");
+const { loadLoopConfig, loadTrustedLoopConfig, configPath } = require("./loop-config.js");
 const { buildLoopBoard } = require("./loop-board.js");
-const { launchdLabel } = require("./loop-install.js");
+const { buildInstallExposure, launchdLabel } = require("./loop-install.js");
+const { currentCanaryIdentity, evaluateCanaryReleaseGate } = require("./loop-canary.js");
 const { isStopped, killSwitchPath, countRunsToday, runsDirFor } = require("./loop-worker.js");
 
 // State precedence, as implemented (config is the precondition for every other
@@ -83,6 +84,18 @@ function assessSituation(projectDir, options = {}) {
     board,
     budget,
     config: config ? summarizeConfig(config) : null,
+    releaseGate: config
+      ? safe(
+          () => {
+            const trusted = loadTrustedLoopConfig(pmDir, pmStateDir);
+            const identity = currentCanaryIdentity(projectDir, trusted);
+            return evaluateCanaryReleaseGate(pmStateDir, identity, {
+              maxAgeSeconds: trusted.canary.evidence_ttl_seconds,
+            });
+          },
+          { passed: false, reason: "current canary identity is unavailable" }
+        )
+      : { passed: false, reason: "loop is not configured" },
     killSwitch: paused ? safe(() => killSwitchPath(pmDir), null) : null,
     note: "",
   };
@@ -140,6 +153,7 @@ function summarizeConfig(config) {
   const autonomy = config.autonomy || {};
   const budgets = config.budgets || {};
   const worker = config.worker || {};
+  const exposure = buildInstallExposure(config);
   return {
     // Mirror the worker's own resolution (engineCommand) so the router reports
     // the engine that will actually run, not a wrong default.
@@ -149,6 +163,7 @@ function summarizeConfig(config) {
     interval_minutes: Number(config.scheduler_interval_minutes) || 30,
     max_runs_per_day: budgets.max_runs_per_day ?? null,
     max_ship_cycles_per_day: budgets.max_ship_cycles_per_day ?? null,
+    ...exposure,
   };
 }
 
@@ -188,6 +203,7 @@ function unconfigured(note) {
     paused: false,
     board: emptyBoardView(),
     config: null,
+    releaseGate: { passed: false, reason: "loop is not configured" },
     note,
   };
 }

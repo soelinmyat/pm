@@ -165,6 +165,28 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
 | `/pm:loop reconcile` | Dry-run stale-card classification from durable run/recovery and repository-pinned PR evidence; `--apply` requires Git readiness and isolated PM transactions |
 
+### Supervised loop rollout
+
+Keep the scheduler paused or uninstalled while validating a new loop runtime. Run all
+three cases against the same plugin version, source commit, resolved config, and engine:
+
+```bash
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case preflight-failure
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case blocked-result
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --card "$CANARY_CARD" --no-merge
+```
+
+Evidence is written under `.pm/loop-canary/<run_id>/<case>.json`. Installation and
+resume fail closed when evidence is missing, stale, mixed across identities, or failed.
+The canary never merges: `autonomy.merge_pr` must remain `false`.
+
+Run ledgers record structured token usage when the engine exposes it and
+`usage_available: false` when it does not; PM never invents usage numbers and does not
+support exact token cutoffs for engines without stable structured usage. Repeated exact
+card/stage/blocker signatures are parked at `needs-human` before another engine launch.
+An in-flight STOP sends TERM to the engine process group, then KILL after the configured
+shutdown grace, with timestamps and signals persisted in the ledger and durable event.
+
 ### Knowledge base management
 
 | Command | What it does |

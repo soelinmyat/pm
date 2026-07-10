@@ -579,14 +579,14 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
         if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
-        if (
-          phase === "dispatched" &&
-          lease.phase === "dispatched" &&
-          event.status === "dispatched"
-        ) {
+        if (lease.phase === phase && event.status === phase) {
           return { lease, event, idempotent: true };
         }
-        if (phase === "dispatched" && (lease.phase !== "claimed" || event.status !== "claimed")) {
+        if (
+          !["dispatched", "suppressed"].includes(phase) ||
+          lease.phase !== "claimed" ||
+          event.status !== "claimed"
+        ) {
           throw new TransactionAbort(
             "phase-conflict",
             `cannot mark a run dispatched from ${lease.phase || "unknown"}`
@@ -614,6 +614,10 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
 
 function markRunDispatched(pmDir, input, options = {}) {
   return updateRunPhase(pmDir, input, "dispatched", options);
+}
+
+function markRunSuppressed(pmDir, input, options = {}) {
+  return updateRunPhase(pmDir, input, "suppressed", options);
 }
 
 function normalizeTransition(transition) {
@@ -699,7 +703,7 @@ function checkpointRecovery(pmDir, input, options = {}) {
         if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
-        if (!["dispatched", "finalizing"].includes(lease.phase)) {
+        if (!["dispatched", "suppressed", "finalizing"].includes(lease.phase)) {
           throw new TransactionAbort(
             "dispatch-not-recorded",
             `cannot checkpoint lease in ${lease.phase || "unknown"} phase`
@@ -754,7 +758,12 @@ function checkpointRecovery(pmDir, input, options = {}) {
           recovery = existingRecovery;
           return { recovery: existingRecovery, lease, event, idempotent: true };
         }
-        if (event.status !== "dispatched" || event.phase !== "dispatched" || existingRecovery) {
+        if (
+          event.status !== lease.phase ||
+          event.phase !== lease.phase ||
+          !["dispatched", "suppressed"].includes(lease.phase) ||
+          existingRecovery
+        ) {
           throw new TransactionAbort(
             "recovery-conflict",
             "dispatch state is inconsistent with a new recovery checkpoint"
@@ -1018,7 +1027,7 @@ function releaseClaim(pmDir, input, options = {}) {
             "generic release cannot remove a finalizing recovery checkpoint"
           );
         }
-        if (!["claimed", "dispatched"].includes(lease.phase)) {
+        if (!["claimed", "dispatched", "suppressed"].includes(lease.phase)) {
           throw new TransactionAbort(
             "phase-conflict",
             `cannot release a lease in ${lease.phase || "unknown"} phase`
@@ -1031,6 +1040,9 @@ function releaseClaim(pmDir, input, options = {}) {
           terminal: true,
           released_at: releasedAt,
           release_reason: input.reason || "legacy-worker-release",
+          ...(input.noProgress || input.no_progress
+            ? { no_progress: input.noProgress || input.no_progress }
+            : {}),
         });
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
         return { released: true, lease };
@@ -1288,6 +1300,7 @@ module.exports = {
   finalizeRun,
   inspectRemoteRunState,
   markRunDispatched,
+  markRunSuppressed,
   planFinalization,
   releaseClaim,
   runIsolatedTransaction,

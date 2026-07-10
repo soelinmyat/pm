@@ -72,6 +72,22 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --stop  
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --resume  # resume
 ```
 
+- **Supervised canary:** keep the scheduler paused/uninstalled and keep
+  `autonomy.merge_pr: false` until these exact commands all pass:
+
+```bash
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case preflight-failure
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case blocked-result
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --card "$CANARY_CARD" --no-merge
+```
+
+  Records live at `.pm/loop-canary/<run_id>/<case>.json` and pin the plugin
+  version, source commit, resolved config hash, exact plan, and engine binary/
+  argv identity. The release gate accepts only three passing, fresh records
+  with the same plugin/source/config/engine identity. Missing, stale, mixed,
+  or failed evidence fails closed. The verified PR stays OPEN; the canary never
+  merges it.
+
 3. Generate the scheduler asset and show it to the user before installing:
 
 ```bash
@@ -84,6 +100,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD"
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --install
 ```
+
+`--install` and `--resume` enforce the canary release gate before changing
+scheduler state. They do not silently enable unattended scheduling.
 
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.

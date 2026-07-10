@@ -2,12 +2,13 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
 const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-config.js");
+const { runEngineInterruptible } = require("../scripts/loop-process.js");
 
 const {
   buildPrompt,
@@ -148,7 +149,14 @@ function writeDevCompleteEngine(root, { marker = "engine-ran" } = {}) {
 
 function writeStructuredEngine(
   root,
-  { stage = "dev", status = "shipped", exitCode = 0, malformed = false, mismatch = false } = {}
+  {
+    stage = "dev",
+    status = "shipped",
+    exitCode = 0,
+    malformed = false,
+    mismatch = false,
+    usage = null,
+  } = {}
 ) {
   const binPath = path.join(
     root,
@@ -170,10 +178,11 @@ function writeStructuredEngine(
       `  const malformed = ${JSON.stringify(malformed)};`,
       `  const stage = ${JSON.stringify(stage)};`,
       `  const status = ${JSON.stringify(status)};`,
+      `  const usage = ${JSON.stringify(usage)};`,
       `  const cardId = ${mismatch ? '"PM-WRONG"' : "process.env.PM_LOOP_CARD_ID"};`,
       '  const head = cp.execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();',
       '  const headOid = cp.execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();',
-      '  const result = { version: 1, run_id: process.env.PM_LOOP_RUN_ID, card_id: cardId, stage, status, summary: `${stage} ${status}`, gates: ["tdd", "review", "verification"], usage: { input_tokens: null, output_tokens: null, total_tokens: null } };',
+      '  const result = { version: 1, run_id: process.env.PM_LOOP_RUN_ID, card_id: cardId, stage, status, summary: `${stage} ${status}`, gates: ["tdd", "review", "verification"], usage: usage || { input_tokens: null, output_tokens: null, total_tokens: null } };',
       '  if (["shipped", "merged", "ready-for-human", "waiting"].includes(status)) {',
       '    result.artifacts = { type: "pull-request", repo: "openai/pm", number: 342, url: "https://github.com/openai/pm/pull/342", base: "main", head, head_oid: headOid, created_at: "2026-07-10T10:01:00Z" };',
       "  }",
@@ -197,6 +206,45 @@ function writeStructuredEngine(
   );
   fs.chmodSync(binPath, 0o755);
   return binPath;
+}
+
+function writeStopEngine(root) {
+  const binPath = path.join(root, "fake-stop-engine");
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      'const path = require("node:path");',
+      'if (process.env.PM_LOOP_PREFLIGHT === "1") process.exit(0);',
+      'fs.writeFileSync(path.join(process.env.PM_LOOP_LOG_DIR, "engine-ready"), "ready\\n");',
+      'process.on("SIGTERM", () => fs.writeFileSync(path.join(process.env.PM_LOOP_LOG_DIR, "term-seen"), "term\\n"));',
+      "setInterval(() => {}, 1000);",
+      "",
+    ].join("\n")
+  );
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
+}
+
+function armStopWhenEngineStarts(pmStateDir, pmDir) {
+  const script = [
+    'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    "const [runsDir, stopPath] = process.argv.slice(1);",
+    "const deadline = Date.now() + 15000;",
+    "const timer = setInterval(() => {",
+    "  const ready = fs.existsSync(runsDir) && fs.readdirSync(runsDir, { withFileTypes: true }).some((entry) => entry.isDirectory() && fs.existsSync(path.join(runsDir, entry.name, 'engine-ready')));",
+    "  if (ready) { fs.mkdirSync(path.dirname(stopPath), { recursive: true }); fs.writeFileSync(stopPath, 'stop\\n'); clearInterval(timer); process.exit(0); }",
+    "  if (Date.now() > deadline) { clearInterval(timer); process.exit(2); }",
+    "}, 20);",
+  ].join("\n");
+  const helper = spawn(
+    process.execPath,
+    ["-e", script, path.join(pmStateDir, "loop-runs"), path.join(pmDir, "loop", "STOP")],
+    { stdio: "ignore" }
+  );
+  helper.unref();
 }
 
 function readRemoteJson(fixture, relativePath) {
@@ -1002,6 +1050,55 @@ test("post-run PM comparison permits only the expected source branch refs in sam
   );
 });
 
+test("post-run PM comparison permits a committed STOP-only control change", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-stop-snapshot-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  git(["init", "--initial-branch=main"], root);
+  git(["config", "user.email", "pm-eval@example.com"], root);
+  git(["config", "user.name", "PM Loop Test"], root);
+  fs.mkdirSync(path.join(root, "pm", "loop"), { recursive: true });
+  fs.writeFileSync(path.join(root, "README.md"), "base\n");
+  git(["add", "README.md"], root);
+  git(["commit", "-m", "base"], root);
+  const beforeHead = git(["rev-parse", "HEAD"], root);
+  fs.writeFileSync(path.join(root, "pm", "loop", "STOP"), "stop\n");
+  git(["add", "pm/loop/STOP"], root);
+  git(["commit", "-m", "stop"], root);
+  const stopHead = git(["rev-parse", "HEAD"], root);
+  const before = {
+    git_root: root,
+    head: beforeHead,
+    refs: `refs/heads/main:${beforeHead}`,
+    protected_status: "",
+  };
+  const stopped = {
+    git_root: root,
+    head: stopHead,
+    refs: `refs/heads/main:${stopHead}`,
+    protected_status: "",
+  };
+  assert.equal(
+    protectedPmStateUnchanged(before, stopped, "", "", { allowStopControl: true }),
+    true
+  );
+  assert.equal(protectedPmStateUnchanged(before, stopped), false);
+
+  fs.writeFileSync(path.join(root, "pm", "backlog.md"), "changed\n");
+  git(["add", "pm/backlog.md"], root);
+  git(["commit", "-m", "protected mutation"], root);
+  const changedHead = git(["rev-parse", "HEAD"], root);
+  assert.equal(
+    protectedPmStateUnchanged(
+      before,
+      { ...stopped, head: changedHead, refs: `refs/heads/main:${changedHead}` },
+      "",
+      "",
+      { allowStopControl: true }
+    ),
+    false
+  );
+});
+
 test("RFC artifact result is verified, copied, and parked for human approval", () => {
   const fixture = makeProjectFixture();
   try {
@@ -1376,6 +1473,169 @@ test("engine failure result records a durable failed event and clears the lease"
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "failed");
     assert.equal(readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`).status, "failed");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("run ledgers distinguish structured engine usage from unavailable usage", async (t) => {
+  for (const matrixCase of [
+    {
+      name: "available",
+      usage: { input_tokens: 101, output_tokens: 23, total_tokens: 124 },
+      available: true,
+    },
+    { name: "unavailable", usage: null, available: false },
+  ]) {
+    await t.test(matrixCase.name, () => {
+      const fixture = makeProjectFixture();
+      try {
+        const engineBin = writeStructuredEngine(fixture.root, {
+          status: "failed",
+          exitCode: 3,
+          usage: matrixCase.usage,
+        });
+        fs.writeFileSync(
+          path.join(fixture.pmDir, "loop", "config.json"),
+          JSON.stringify({ autonomy: { start_dev: true }, worker: { engine_bin: engineBin } })
+        );
+        approveFixtureConfig(fixture);
+        git(["add", "pm/loop/config.json"], fixture.project);
+        git(["commit", "-m", `usage ${matrixCase.name}`], fixture.project);
+        git(["push"], fixture.project);
+
+        const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+        const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+        assert.equal(ledger.usage_available, matrixCase.available);
+        if (matrixCase.available) assert.deepEqual(ledger.usage, matrixCase.usage);
+        else assert.equal(Object.hasOwn(ledger, "usage"), false);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
+});
+
+test("a durable no-progress signature suppresses the next identical card/stage execution", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        budgets: { max_identical_no_progress: 1 },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "no progress fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const first = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(first.status, "failed");
+    const firstEvent = readRemoteJson(fixture, `pm/loop/events/${first.run_id}.json`);
+    assert.match(firstEvent.no_progress.signature, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(firstEvent.no_progress.first_run_id, first.run_id);
+    assert.equal(firstEvent.no_progress.last_run_id, first.run_id);
+
+    const second = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(second.status, "no-progress", JSON.stringify(second));
+    const secondLedger = JSON.parse(fs.readFileSync(second.ledger, "utf8"));
+    assert.equal(secondLedger.engine, undefined, "suppression must happen before engine launch");
+    assert.equal(secondLedger.no_progress.first_run_id, first.run_id);
+    assert.equal(secondLedger.no_progress.last_run_id, second.run_id);
+    const secondEvent = readRemoteJson(fixture, `pm/loop/events/${second.run_id}.json`);
+    assert.equal(secondEvent.status, "no-progress");
+    assert.equal(secondEvent.no_progress.first_run_id, first.run_id);
+    assert.equal(secondEvent.no_progress.last_run_id, second.run_id);
+    const card = parseFrontmatter(readRemoteCard(fixture)).data;
+    assert.equal(card.status, "needs-human");
+    assert.equal(card.blocker_code, "no-progress");
+    assert.match(card.blocker_reason, new RegExp(first.run_id));
+    assert.match(card.blocker_reason, new RegExp(second.run_id));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("interruptible engine execution sends TERM then KILL to its process group", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-process-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const stopPath = path.join(root, "STOP");
+  const readyPath = path.join(root, "ready");
+  const enginePath = path.join(root, "ignore-term.js");
+  fs.writeFileSync(
+    enginePath,
+    [
+      'const fs = require("node:fs");',
+      `fs.writeFileSync(${JSON.stringify(readyPath)}, "ready\\n");`,
+      'process.on("SIGTERM", () => {});',
+      "setInterval(() => {}, 1000);",
+    ].join("\n")
+  );
+  const helper = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const fs=require("node:fs");const ready=${JSON.stringify(readyPath)};const stop=${JSON.stringify(stopPath)};const t=setInterval(()=>{if(fs.existsSync(ready)){fs.writeFileSync(stop,"stop\\n");clearInterval(t)}},10)`,
+    ],
+    { stdio: "ignore" }
+  );
+  helper.unref();
+
+  const result = await runEngineInterruptible(process.execPath, [enginePath], {
+    cwd: root,
+    env: process.env,
+    stopPath,
+    timeoutMs: 10_000,
+    graceMs: 100,
+    pollMs: 10,
+  });
+  assert.equal(result.stopped, true);
+  assert.equal(result.signal, "SIGKILL");
+  assert.ok(result.stop.requested_at);
+  assert.ok(result.stop.term_sent_at);
+  assert.ok(result.stop.kill_sent_at);
+  assert.ok(Date.parse(result.stop.term_sent_at) <= Date.parse(result.stop.kill_sent_at));
+});
+
+test("an in-flight STOP finalizes stopped evidence and clears durable ownership", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStopEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        budgets: { max_runtime_seconds_per_run: 10 },
+        claim_envelope: { shutdown_grace_seconds: 1 },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "stop fixture"], fixture.project);
+    git(["push"], fixture.project);
+    armStopWhenEngineStarts(path.join(fixture.project, ".pm"), fixture.pmDir);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "stopped", JSON.stringify(result));
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.process.stopped, true);
+    assert.equal(ledger.process.signal, "SIGKILL");
+    assert.ok(ledger.process.stop.term_sent_at);
+    assert.ok(ledger.process.stop.kill_sent_at);
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "stopped");
+    assert.equal(event.process.stopped, true);
+    assert.equal(parseFrontmatter(readRemoteCard(fixture)).data.status, "needs-human");
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+    assert.throws(
+      () => git(["show", `origin/main:pm/loop/recovery/${result.run_id}.json`], fixture.project),
+      /path .* does not exist|exists on disk/i
+    );
   } finally {
     fixture.cleanup();
   }
