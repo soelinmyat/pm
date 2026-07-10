@@ -13,6 +13,12 @@ Three modes: **landscape** (market overview and positioning map), **competitors*
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
 
+## Loop Worker Mode (headless)
+
+When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=research`, preserve sourcing, synthesis, and verification requirements. Do not write or update backlog/card state in loop mode—the loop worker is the only canonical durable card-state writer.
+
+Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses: artifact-ready, blocked, failed, noop. `artifact-ready` includes one `document` payload (`kind: research`, run-relative path, SHA-256, media type); create that document with restrictive mode `0600`. `blocked` includes bounded code, reason, and remediation. The worker verifies and copies the document into the allowlisted PM destination before parking it for human review.
+
 **Workflow:** `research`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults.

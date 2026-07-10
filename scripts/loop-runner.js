@@ -38,6 +38,7 @@ const MODE_COLUMNS = {
 
 function commandForCard(card, column) {
   if (card.command) return card.command;
+  if (column === "shipping" || column === "reviewing") return `/pm:ship ${card.id}`;
   if (column === "ready_for_dev" || column === "implementing") return `/pm:dev ${card.id}`;
   if (column === "needs_rfc") return `/pm:rfc ${card.id}`;
   if (column === "needs_research") return `/pm:research ${card.id}`;
@@ -57,9 +58,21 @@ function selectNextCard(board, config, options = {}) {
   const mode = options.mode || "default";
   const columns = MODE_COLUMNS[mode] || MODE_COLUMNS.default;
   const skipped = [];
+  const now = options.now instanceof Date ? options.now : new Date();
 
   for (const column of columns) {
     for (const card of board.columns[column] || []) {
+      const retryAt = Date.parse(card.retryAfter || "");
+      if (!Number.isNaN(retryAt) && retryAt > now.getTime()) {
+        skipped.push({
+          id: card.id,
+          column,
+          reason: "waiting until retry_after",
+          retry_after: card.retryAfter,
+        });
+        continue;
+      }
+
       if (card.lease) {
         skipped.push({
           id: card.id,

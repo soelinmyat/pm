@@ -6,6 +6,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
 const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-config.js");
 
 const {
@@ -99,6 +100,7 @@ function writeFakeEngine(root, { exitCode = 0, marker = "engine-ran" } = {}) {
     binPath,
     [
       "#!/usr/bin/env node",
+      'const crypto = require("node:crypto");',
       'const fs = require("node:fs");',
       'let input = "";',
       'process.stdin.setEncoding("utf8");',
@@ -140,6 +142,76 @@ function writeDevCompleteEngine(root, { marker = "engine-ran" } = {}) {
   );
   fs.chmodSync(binPath, 0o755);
   return binPath;
+}
+
+function writeStructuredEngine(
+  root,
+  { stage = "dev", status = "shipped", exitCode = 0, malformed = false, mismatch = false } = {}
+) {
+  const binPath = path.join(
+    root,
+    `fake-structured-${stage}-${status}-${exitCode}-${malformed ? "bad" : "ok"}-${mismatch ? "mismatch" : "match"}`
+  );
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      'const cp = require("node:child_process");',
+      'const crypto = require("node:crypto");',
+      'let input = "";',
+      'process.stdin.setEncoding("utf8");',
+      'process.stdin.on("data", (chunk) => { input += chunk; });',
+      'process.stdin.on("end", () => {',
+      '  if (process.env.PM_LOOP_PREFLIGHT === "1") process.exit(0);',
+      '  fs.writeFileSync("engine-ran.txt", input);',
+      `  const malformed = ${JSON.stringify(malformed)};`,
+      `  const stage = ${JSON.stringify(stage)};`,
+      `  const status = ${JSON.stringify(status)};`,
+      `  const cardId = ${mismatch ? '"PM-WRONG"' : "process.env.PM_LOOP_CARD_ID"};`,
+      '  const head = cp.execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();',
+      '  const headOid = cp.execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();',
+      '  const result = { version: 1, run_id: process.env.PM_LOOP_RUN_ID, card_id: cardId, stage, status, summary: `${stage} ${status}`, gates: ["tdd", "review", "verification"], usage: { input_tokens: null, output_tokens: null, total_tokens: null } };',
+      '  if (["shipped", "merged", "ready-for-human", "waiting"].includes(status)) {',
+      '    result.artifacts = { type: "pull-request", repo: "openai/pm", number: 342, url: "https://github.com/openai/pm/pull/342", base: "main", head, head_oid: headOid, created_at: "2026-07-10T10:01:00Z" };',
+      "  }",
+      '  if (status === "merged") { result.artifacts.merge_sha = "b".repeat(40); result.artifacts.merged_at = "2026-07-10T10:05:00Z"; }',
+      '  if (status === "waiting") result.retry_after = new Date(Date.now() + 60_000).toISOString();',
+      '  if (status === "blocked") result.blocker = { code: "db-unreachable", reason: "Database unavailable", remediation: "Start the database and retry." };',
+      '  if (["artifact-ready", "needs-approval"].includes(status)) {',
+      '    const relativePath = stage === "rfc" ? "artifacts/pm-t1.html" : "artifacts/findings.md";',
+      '    const content = stage === "rfc" ? "<h1>RFC</h1>\\n" : "# Findings\\n";',
+      "    fs.mkdirSync(`${process.env.PM_LOOP_RESULT_DIR}/artifacts`, { recursive: true, mode: 0o700 });",
+      "    fs.writeFileSync(`${process.env.PM_LOOP_RESULT_DIR}/${relativePath}`, content, { mode: 0o600 });",
+      '    result.artifacts = { type: "document", kind: stage, relative_path: relativePath, sha256: crypto.createHash("sha256").update(content).digest("hex"), media_type: stage === "rfc" ? "text/html" : "text/markdown" };',
+      "  }",
+      "  const temp = `${process.env.PM_LOOP_RESULT_FILE}.${process.pid}.tmp`;",
+      '  fs.writeFileSync(temp, malformed ? "{partial" : `${JSON.stringify(result, null, 2)}\\n`, { flag: "wx", mode: 0o600 });',
+      "  fs.renameSync(temp, process.env.PM_LOOP_RESULT_FILE);",
+      `  process.exit(${exitCode});`,
+      "});",
+      "",
+    ].join("\n")
+  );
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
+}
+
+function readRemoteJson(fixture, relativePath) {
+  git(["fetch", "origin"], fixture.project);
+  return JSON.parse(git(["show", `origin/main:${relativePath}`], fixture.project));
+}
+
+function readRemoteCard(fixture) {
+  git(["fetch", "origin"], fixture.project);
+  return git(["show", "origin/main:pm/backlog/pm-t1.md"], fixture.project);
+}
+
+function verifiedWorkerOptions() {
+  return {
+    verifyPullRequest: () => ({ ok: true, state: "OPEN" }),
+    verifyGateSidecar: () => ({ ok: true, changedFiles: ["work.txt"] }),
+  };
 }
 
 test("engineCommand maps engines and honors custom bin override", () => {
@@ -717,10 +789,259 @@ test("worker never treats generic options.config as a trusted runtime config", (
   }
 });
 
-test("worker executes the engine in a bootstrapped worktree and releases the lease", () => {
+test("structured dev success checkpoints and finalizes shipping as the sole durable writer", () => {
   const fixture = makeProjectFixture();
   try {
-    const engineBin = writeDevCompleteEngine(fixture.root);
+    const originalCard = fs.readFileSync(path.join(fixture.pmDir, "backlog", "pm-t1.md"), "utf8");
+    const engineBin = writeStructuredEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "structured engine"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      ...verifiedWorkerOptions(),
+    });
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(
+      fs.readFileSync(path.join(result.workspace, "pm", "backlog", "pm-t1.md"), "utf8"),
+      originalCard,
+      "child worktree must not mutate canonical card state"
+    );
+
+    const card = parseFrontmatter(readRemoteCard(fixture)).data;
+    assert.equal(card.status, "shipping");
+    assert.equal(card.branch, result.branch);
+    assert.deepEqual(card.prs, ["#342"]);
+    assert.equal(card.loop_run_id, result.run_id);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "completed");
+    assert.equal(event.outcome, "dev-shipped");
+    assert.equal(event.terminal, true);
+    assert.throws(
+      () => git(["show", `origin/main:pm/loop/recovery/${result.run_id}.json`], fixture.project),
+      /path .* does not exist|exists on disk/i
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("RFC artifact result is verified, copied, and parked for human approval", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const cardPath = path.join(fixture.pmDir, "backlog", "pm-t1.md");
+    fs.writeFileSync(
+      cardPath,
+      fs
+        .readFileSync(cardPath, "utf8")
+        .replace("kind: task", "kind: proposal")
+        .replace("status: ready", "status: proposed")
+    );
+    const engineBin = writeStructuredEngine(fixture.root, {
+      stage: "rfc",
+      status: "needs-approval",
+    });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { draft_rfc: true },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/backlog/pm-t1.md", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "rfc fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "artifact-ready", JSON.stringify(result));
+    const card = parseFrontmatter(readRemoteCard(fixture)).data;
+    assert.equal(card.status, "needs-human");
+    assert.equal(card.blocker_code, "rfc-approval-required");
+    assert.equal(card.artifact_path, "pm/backlog/rfcs/pm-t1.html");
+    assert.equal(
+      git(["show", "origin/main:pm/backlog/rfcs/pm-t1.html"], fixture.project),
+      "<h1>RFC</h1>"
+    );
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "artifact-ready");
+    assert.equal(event.outcome, "rfc-artifact-ready");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker exit/result matrix handles blocked, nonzero success, malformed, missing, and mismatch", async (t) => {
+  const cases = [
+    { name: "exit0-blocked", engine: { status: "blocked", exitCode: 0 }, expected: "blocked" },
+    { name: "nonzero-blocked", engine: { status: "blocked", exitCode: 3 }, expected: "blocked" },
+    {
+      name: "nonzero-success",
+      engine: { status: "shipped", exitCode: 3 },
+      expected: "failed-contract",
+    },
+    { name: "malformed", engine: { malformed: true }, expected: "failed-contract" },
+    { name: "mismatch", engine: { mismatch: true }, expected: "failed-contract" },
+    { name: "missing", engine: null, expected: "failed-contract" },
+  ];
+
+  for (const matrixCase of cases) {
+    await t.test(matrixCase.name, () => {
+      const fixture = makeProjectFixture();
+      try {
+        const engineBin = matrixCase.engine
+          ? writeStructuredEngine(fixture.root, matrixCase.engine)
+          : writeFakeEngine(fixture.root);
+        fs.writeFileSync(
+          path.join(fixture.pmDir, "loop", "config.json"),
+          JSON.stringify({
+            autonomy: { start_dev: true },
+            worker: { engine_bin: engineBin, keep_workspace: true },
+          })
+        );
+        approveFixtureConfig(fixture);
+        git(["add", "pm/loop/config.json"], fixture.project);
+        git(["commit", "-m", matrixCase.name], fixture.project);
+        git(["push"], fixture.project);
+
+        const result = runWorker(fixture.project, {
+          pmDir: fixture.pmDir,
+          ...verifiedWorkerOptions(),
+        });
+        assert.equal(result.status, matrixCase.expected, JSON.stringify(result));
+        const card = parseFrontmatter(readRemoteCard(fixture)).data;
+        assert.equal(card.status, "needs-human");
+        const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+        assert.equal(event.status, matrixCase.expected);
+        assert.equal(event.terminal, true);
+        assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
+});
+
+test("exit 0 with failed or UNKNOWN PR/gate verification becomes failed-contract", async (t) => {
+  for (const verification of ["pr", "gate"]) {
+    await t.test(verification, () => {
+      const fixture = makeProjectFixture();
+      try {
+        const engineBin = writeStructuredEngine(fixture.root);
+        fs.writeFileSync(
+          path.join(fixture.pmDir, "loop", "config.json"),
+          JSON.stringify({
+            autonomy: { start_dev: true },
+            worker: { engine_bin: engineBin, keep_workspace: true },
+          })
+        );
+        approveFixtureConfig(fixture);
+        git(["add", "pm/loop/config.json"], fixture.project);
+        git(["commit", "-m", `${verification} verification failure`], fixture.project);
+        git(["push"], fixture.project);
+
+        const result = runWorker(fixture.project, {
+          pmDir: fixture.pmDir,
+          verifyPullRequest: () =>
+            verification === "pr"
+              ? { ok: false, state: "UNKNOWN", reason: "GitHub unavailable" }
+              : { ok: true, state: "OPEN" },
+          verifyGateSidecar: () =>
+            verification === "gate"
+              ? { ok: false, code: "gate-verification-failed", reason: "stale gate" }
+              : { ok: true },
+        });
+        assert.equal(result.status, "failed-contract", JSON.stringify(result));
+        assert.equal(parseFrontmatter(readRemoteCard(fixture)).data.status, "needs-human");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
+});
+
+test("timeout and signal evidence never infer success; a valid blocked result still wins", async (t) => {
+  const processCases = [
+    { name: "sigterm", spawn: { status: null, signal: "SIGTERM" } },
+    { name: "sigkill", spawn: { status: null, signal: "SIGKILL" } },
+    { name: "timeout", spawn: { status: null, signal: "SIGTERM", error: { code: "ETIMEDOUT" } } },
+  ];
+  for (const processCase of processCases) {
+    await t.test(processCase.name, () => {
+      const fixture = makeProjectFixture();
+      try {
+        const result = runWorker(fixture.project, {
+          pmDir: fixture.pmDir,
+          spawnSync: () => ({ stdout: "", stderr: "", ...processCase.spawn }),
+          runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+        });
+        assert.equal(result.status, "failed-contract", JSON.stringify(result));
+        const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+        assert.equal(ledger.process.signal, processCase.spawn.signal);
+        assert.equal(ledger.process.timed_out, processCase.name === "timeout");
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
+
+  await t.test("timeout-after-blocked-result", () => {
+    const fixture = makeProjectFixture();
+    try {
+      const result = runWorker(fixture.project, {
+        pmDir: fixture.pmDir,
+        runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+        spawnSync: (_bin, _args, spawnOptions) => {
+          const blocked = {
+            version: 1,
+            run_id: spawnOptions.env.PM_LOOP_RUN_ID,
+            card_id: "PM-T1",
+            stage: "dev",
+            status: "blocked",
+            summary: "blocked before timeout",
+            blocker: {
+              code: "db-unreachable",
+              reason: "Database unavailable",
+              remediation: "Start it and retry.",
+            },
+            gates: [],
+            usage: { input_tokens: null, output_tokens: null, total_tokens: null },
+          };
+          const temp = `${spawnOptions.env.PM_LOOP_RESULT_FILE}.tmp`;
+          fs.writeFileSync(temp, `${JSON.stringify(blocked)}\n`, { mode: 0o600 });
+          fs.renameSync(temp, spawnOptions.env.PM_LOOP_RESULT_FILE);
+          return {
+            status: null,
+            signal: "SIGTERM",
+            error: { code: "ETIMEDOUT" },
+            stdout: "",
+            stderr: "",
+          };
+        },
+      });
+      assert.equal(result.status, "blocked", JSON.stringify(result));
+      const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+      assert.equal(ledger.process.timed_out, true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});
+
+test("worker passes the result capability into a bootstrapped worktree", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify(
@@ -741,7 +1062,10 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
     git(["commit", "-m", "config"], fixture.project);
     git(["push"], fixture.project);
 
-    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      ...verifiedWorkerOptions(),
+    });
     assert.equal(result.status, "completed", JSON.stringify(result));
     assert.equal(result.card.id, "PM-T1");
 
@@ -754,27 +1078,19 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
     // Gitignored-but-required file was copied into the fresh worktree
     assert.ok(fs.existsSync(path.join(result.workspace, "local.env")));
 
-    // Skills detect loop mode deterministically via env
-    const engineEnv = JSON.parse(
-      fs.readFileSync(path.join(result.workspace, "engine-env.json"), "utf8")
-    );
-    assert.equal(engineEnv.worker, "1");
-    assert.equal(engineEnv.stage, "dev");
-    assert.equal(engineEnv.card, "PM-T1");
-
-    // Lease released (file gone) and the release was pushed
+    // Finalization removed the lease in the same transaction as the card/event.
     assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
 
     // Crash-safe ledger records the completed run
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "completed");
     assert.equal(ledger.exit_code, 0);
-    assert.ok(ledger.lease_release.released);
+    assert.equal(ledger.finalization.ok, true);
     git(["fetch", "origin"], fixture.project);
     const event = JSON.parse(
       git(["show", `origin/main:pm/loop/events/${result.run_id}.json`], fixture.project)
     );
-    assert.equal(event.status, "released");
+    assert.equal(event.status, "completed");
     assert.equal(event.terminal, true);
     assert.equal(
       git(["log", "--format=%s", "origin/main", "-3"], fixture.project).includes(
@@ -787,10 +1103,10 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
   }
 });
 
-test("worker fails closed when the terminal release CAS is not durable", () => {
+test("worker fails closed when finalization CAS is not durable", () => {
   const fixture = makeProjectFixture();
   try {
-    const engineBin = writeDevCompleteEngine(fixture.root);
+    const engineBin = writeStructuredEngine(fixture.root);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({
@@ -805,22 +1121,23 @@ test("worker fails closed when the terminal release CAS is not durable", () => {
 
     const result = runWorker(fixture.project, {
       pmDir: fixture.pmDir,
-      releaseClaim() {
+      ...verifiedWorkerOptions(),
+      finalizeRun() {
         return { ok: false, pushed: false, reason: "push-race" };
       },
     });
 
     assert.equal(result.status, "finalization-blocked", JSON.stringify(result));
-    assert.equal(result.reason, "lease release was not durably confirmed: push-race");
+    assert.equal(result.reason, "push-race");
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "finalization-blocked");
-    assert.equal(ledger.lease_release.reason, "push-race");
+    assert.equal(ledger.finalization.finalized.reason, "push-race");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("dev-stage exit 0 without shipping metadata is blocked, not completed", () => {
+test("dev-stage exit 0 without a structured result is failed-contract", () => {
   const fixture = makeProjectFixture();
   try {
     const engineBin = writeFakeEngine(fixture.root);
@@ -845,21 +1162,20 @@ test("dev-stage exit 0 without shipping metadata is blocked, not completed", () 
 
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
     assert.equal(result.exit_code, 0);
-    assert.equal(result.status, "blocked", JSON.stringify(result));
-    assert.match(result.reason, /dev completion contract/);
+    assert.equal(result.status, "failed-contract", JSON.stringify(result));
 
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
-    assert.equal(ledger.status, "blocked");
-    assert.match(ledger.reason, /status=shipping/);
+    assert.equal(ledger.status, "failed-contract");
+    assert.equal(ledger.stage_result.code, "result-missing");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("engine failure records a failed ledger and still releases the lease", () => {
+test("engine failure result records a durable failed event and clears the lease", () => {
   const fixture = makeProjectFixture();
   try {
-    const engineBin = writeFakeEngine(fixture.root, { exitCode: 3 });
+    const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ autonomy: { start_dev: true }, worker: { engine_bin: engineBin } }, null, 2)
@@ -878,6 +1194,7 @@ test("engine failure records a failed ledger and still releases the lease", () =
     assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
     const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
     assert.equal(ledger.status, "failed");
+    assert.equal(readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`).status, "failed");
   } finally {
     fixture.cleanup();
   }
@@ -1045,7 +1362,11 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
     git(["push", "-u", "origin", "loop/pm-t1"], fixture.project);
     git(["checkout", "main"], fixture.project);
 
-    const failEngine = writeFakeEngine(fixture.root, { exitCode: 3, marker: "fail-run" });
+    const failEngine = writeStructuredEngine(fixture.root, {
+      stage: "ship",
+      status: "failed",
+      exitCode: 3,
+    });
     fs.writeFileSync(
       path.join(fixture.pmDir, "backlog", "pm-t1.md"),
       [
@@ -1081,7 +1402,7 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
     // Ship branch itself must survive cleanup.
     assert.ok(git(["rev-parse", "--verify", "loop/pm-t1"], fixture.project).length > 0);
 
-    const okEngine = writeFakeEngine(fixture.root, { exitCode: 0, marker: "ok-run" });
+    const okEngine = writeStructuredEngine(fixture.root, { stage: "ship", status: "noop" });
     git(["pull", "--rebase"], fixture.project);
     fs.writeFileSync(
       path.join(fixture.pmDir, "loop", "config.json"),
@@ -1093,7 +1414,7 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
     git(["push"], fixture.project);
 
     const second = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
-    assert.equal(second.status, "completed", JSON.stringify(second));
+    assert.equal(second.status, "noop", JSON.stringify(second));
   } finally {
     fixture.cleanup();
   }
@@ -1123,7 +1444,8 @@ test("dev-stage prompt opens a PR, never merges, and hands off to ship wakes", (
   });
   assert.match(prompt, /\/pm:dev PM-9/);
   assert.match(prompt, /do NOT merge it in this run/);
-  assert.match(prompt, /status: shipping/);
+  assert.match(prompt, /PM_LOOP_RESULT_FILE/);
+  assert.match(prompt, /only canonical durable card-state writer/);
   assert.match(prompt, /never skip or self-approve a gate/);
 });
 
@@ -1143,11 +1465,11 @@ test("ship-stage prompt runs one bounded cycle; merge only with autonomy dial", 
   assert.match(noMerge, /ONE bounded ship cycle/);
   assert.match(noMerge, /One cycle only/);
   assert.match(noMerge, /Do NOT merge/);
-  assert.match(noMerge, /ready for human merge/);
+  assert.match(noMerge, /return ready-for-human/);
 
   const withMerge = buildPrompt(plan, { autonomy: { merge_pr: true } });
   assert.match(withMerge, /Merge only when every review gate and CI check is green/);
-  assert.match(withMerge, /update the backlog card status to done/);
+  assert.match(withMerge, /only canonical durable card-state writer/);
   assert.doesNotMatch(withMerge, /Do NOT merge/);
 });
 
@@ -1162,7 +1484,10 @@ test("ship-stage worker checks out the existing branch and runs one cycle", () =
     git(["push", "-u", "origin", "loop/pm-t1"], fixture.project);
     git(["checkout", "main"], fixture.project);
 
-    const engineBin = writeFakeEngine(fixture.root);
+    const engineBin = writeStructuredEngine(fixture.root, {
+      stage: "ship",
+      status: "waiting",
+    });
     fs.writeFileSync(
       path.join(fixture.pmDir, "backlog", "pm-t1.md"),
       [
@@ -1186,8 +1511,12 @@ test("ship-stage worker checks out the existing branch and runs one cycle", () =
     git(["commit", "-m", "shipping state"], fixture.project);
     git(["push"], fixture.project);
 
-    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
-    assert.equal(result.status, "completed", JSON.stringify(result));
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      mode: "ship",
+      ...verifiedWorkerOptions(),
+    });
+    assert.equal(result.status, "waiting", JSON.stringify(result));
     assert.equal(result.branch, "loop/pm-t1");
 
     // Engine ran in a worktree checked out to the existing branch, with the
@@ -1270,8 +1599,9 @@ test("ship-stage dispatch with a well-formed but nonexistent branch fails closed
 test("ship-stage dispatch without a recorded branch fails closed", () => {
   const fixture = makeProjectFixture();
   try {
+    const cardPath = path.join(fixture.pmDir, "backlog", "pm-t1.md");
     fs.writeFileSync(
-      path.join(fixture.pmDir, "backlog", "pm-t1.md"),
+      cardPath,
       [
         "---",
         'id: "PM-T1"',
@@ -1286,10 +1616,20 @@ test("ship-stage dispatch without a recorded branch fails closed", () => {
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "shipping without branch"], fixture.project);
     git(["push"], fixture.project);
+    const beforeCard = fs.readFileSync(cardPath, "utf8");
 
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
     assert.equal(result.status, "bootstrap-failed", JSON.stringify(result));
     assert.equal(result.reason, "ship-branch-missing");
+    assert.equal(
+      readRemoteCard(fixture),
+      beforeCard.trim(),
+      "pre-claim card state must be preserved"
+    );
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "bootstrap-failed");
+    assert.equal(event.release_reason, "bootstrap-failed");
+    assert.equal(event.terminal, true);
     assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
   } finally {
     fixture.cleanup();

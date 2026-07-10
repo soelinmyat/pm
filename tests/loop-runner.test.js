@@ -194,6 +194,43 @@ test("loop runner plans approved implementation when both gates are true", (t) =
   assert.equal(result.selected.command, "/pm:dev PM-002");
 });
 
+test("loop runner skips a shipping card until its bounded retry_after wake", () => {
+  const board = {
+    columns: {
+      shipping: [
+        {
+          id: "PM-WAIT",
+          title: "Waiting for checks",
+          implementationApproved: true,
+          retryAfter: "2026-06-23T00:05:00Z",
+        },
+      ],
+      reviewing: [],
+    },
+  };
+
+  const deferred = selectNextCard(board, config(), {
+    mode: "ship",
+    now: FIXED_NOW,
+  });
+  assert.equal(deferred.card, null);
+  assert.deepEqual(deferred.skipped, [
+    {
+      id: "PM-WAIT",
+      column: "shipping",
+      reason: "waiting until retry_after",
+      retry_after: "2026-06-23T00:05:00Z",
+    },
+  ]);
+
+  const eligible = selectNextCard(board, config(), {
+    mode: "ship",
+    now: new Date("2026-06-23T00:05:00Z"),
+  });
+  assert.equal(eligible.card.id, "PM-WAIT");
+  assert.equal(eligible.command, "/pm:ship PM-WAIT");
+});
+
 test("loop runner dry-run does not write events or leases", (t) => {
   const project = createProject();
   t.after(project.cleanup);

@@ -27,10 +27,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## Loop Worker Mode (headless)
 
-When `PM_LOOP_WORKER=1` is set, this run was dispatched unattended by the PM loop. Two contract changes, all gates unchanged:
+When `PM_LOOP_WORKER=1` is set, this run was dispatched unattended by the PM loop. TDD, review, QA, verification, and approval gates are unchanged.
 
-1. **Implement-only terminal.** With `PM_LOOP_STAGE=dev`, stop after the review gates pass and the PR is opened — do NOT run ship or merge. Before finishing, update the backlog card frontmatter: `status: shipping`, `branch`, `prs`, `updated`. Subsequent loop wakes run the ship cycles.
-2. **Non-interactive.** There is no user. At any point that would ask a question: take the documented default when one exists and it is safe; otherwise stop and print a report stating exactly what decision or input is needed (the loop parks the card as needs-human). Never wait for input; never treat silence as approval; never skip a gate to avoid asking.
+1. **Implement-only terminal.** With `PM_LOOP_STAGE=dev`, stop after all gates pass and the PR is opened — do NOT run ship or merge. Do not write or update backlog/card state in loop mode; the loop worker is the only canonical durable card-state writer.
+2. **Structured result.** Atomically write the version-1 result envelope to `PM_LOOP_RESULT_FILE` (mode-0600 temp file, then rename). Exact statuses: shipped, blocked, failed, noop. `shipped` includes a `pull-request` artifact with repo, number, URL, base, head, head OID, and creation time. `blocked` includes bounded code, reason, and remediation. The `gates` list summarizes work but never replaces the committed gate sidecar.
+3. **Non-interactive.** There is no user. At any point that would ask a question: take the documented default when one exists and it is safe; otherwise return `blocked` with exactly what decision or input is needed. Never wait for input; never treat silence as approval; never skip a gate to avoid asking.
 
 **Workflow:** `dev`
 

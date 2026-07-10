@@ -9,6 +9,7 @@ const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { parseBooleanFlag, resolveKind } = require("./validate.js");
 const { listDevSessions, listMarkdownFiles, safeRead, safeStat } = require("./lib/session-scan.js");
+const { isDispatchableStatus } = require("./loop-card-state.js");
 const { listLeases } = require("./loop-git.js");
 
 const COLUMN_ORDER = [
@@ -104,6 +105,13 @@ function stageToColumn(stage) {
 function classifyBacklogCard(card) {
   const status = normalizeStatus(card.status);
 
+  if (!isDispatchableStatus(status)) {
+    return {
+      column: "needs_human",
+      blocker: card.blockerReason || "human review or action is required",
+    };
+  }
+
   if (["shipped", "done", "closed", "complete", "completed"].includes(status)) {
     return { column: "done" };
   }
@@ -166,6 +174,14 @@ function readBacklogCards(pmDir, sourceDir) {
         branch: data.branch || "",
         size: normalizeSize(data.size),
         prs: normalizePrs(data.prs),
+        prDispatchAt: typeof data.pr_dispatch_at === "string" ? data.pr_dispatch_at : "",
+        blockerCode: typeof data.blocker_code === "string" ? data.blocker_code : "",
+        blockerReason: typeof data.blocker_reason === "string" ? data.blocker_reason : "",
+        blockerRemediation:
+          typeof data.blocker_remediation === "string" ? data.blocker_remediation : "",
+        loopRunId: typeof data.loop_run_id === "string" ? data.loop_run_id : "",
+        loopLogPath: typeof data.loop_log_path === "string" ? data.loop_log_path : "",
+        retryAfter: typeof data.retry_after === "string" ? data.retry_after : "",
         parent: typeof data.parent === "string" ? data.parent : null,
         childrenSlugs: Array.isArray(data.children) ? data.children.map(String) : [],
         implementationApproved,

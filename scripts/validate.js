@@ -12,10 +12,11 @@ const {
   normalizeKbPath,
   parseFrontmatter,
 } = require("./kb-frontmatter.js");
+const { CANONICAL_CARD_STATUSES } = require("./loop-card-state.js");
 
 // ========== Config ==========
 
-const VALID_STATUSES = ["idea", "drafted", "proposed", "planned", "in-progress", "done"];
+const VALID_STATUSES = CANONICAL_CARD_STATUSES;
 const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
 const VALID_EVIDENCE = ["strong", "moderate", "weak"];
 const VALID_SCOPE = ["small", "medium", "large"];

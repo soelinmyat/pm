@@ -123,6 +123,107 @@ function getPrInfo(branch, options = {}) {
   return { ...EMPTY_INFO };
 }
 
+const PINNED_FIELDS =
+  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,headRefName,headRefOid";
+
+function getPinnedPrInfo(repo, number, options = {}) {
+  const res = runGhWithRetry(
+    ["pr", "view", String(number), "--repo", repo, "--json", PINNED_FIELDS],
+    options
+  );
+  if (res.code === 0) {
+    try {
+      const obj = JSON.parse(res.stdout || "{}");
+      return {
+        state: obj.state || "UNKNOWN",
+        createdAt: obj.createdAt || null,
+        mergedAt: obj.mergedAt || null,
+        mergeSha: obj.mergeCommit && obj.mergeCommit.oid ? obj.mergeCommit.oid : null,
+        number: obj.number ?? null,
+        url: obj.url || null,
+        baseRefName: obj.baseRefName || null,
+        headRefName: obj.headRefName || null,
+        headRefOid: obj.headRefOid || null,
+      };
+    } catch {
+      return { state: "UNKNOWN" };
+    }
+  }
+  if (NO_PR.test(res.stderr)) return { state: "NONE" };
+  return { state: "UNKNOWN" };
+}
+
+function failedVerification(reason, state = "UNKNOWN", pr = null) {
+  return { ok: false, state, reason, pr };
+}
+
+function verifyPullRequest(artifact, options = {}) {
+  const requiredState = options.requiredState;
+  const expectedRepo = options.expectedRepo;
+  if (!artifact || artifact.repo !== expectedRepo) {
+    return failedVerification("pull request repository mismatch");
+  }
+  if (!Number.isSafeInteger(artifact.number) || artifact.number < 1) {
+    return failedVerification("pull request number is invalid");
+  }
+  const info = getPinnedPrInfo(expectedRepo, artifact.number, options);
+  if (info.state === "NONE" || info.state === "UNKNOWN") {
+    return failedVerification(`pull request verification returned ${info.state}`, info.state, info);
+  }
+  if (info.state !== requiredState) {
+    return failedVerification(
+      `pull request state ${info.state} does not match required ${requiredState}`,
+      info.state,
+      info
+    );
+  }
+  if (info.number !== artifact.number) {
+    return failedVerification("pull request number mismatch", info.state, info);
+  }
+  if (info.url !== artifact.url) {
+    return failedVerification("pull request URL mismatch", info.state, info);
+  }
+  if (info.baseRefName !== artifact.base || info.baseRefName !== options.expectedBase) {
+    return failedVerification("pull request base mismatch", info.state, info);
+  }
+  if (info.headRefName !== artifact.head || info.headRefName !== options.expectedHead) {
+    return failedVerification("pull request head mismatch", info.state, info);
+  }
+  if (info.headRefOid !== artifact.head_oid || info.headRefOid !== options.expectedHeadOid) {
+    return failedVerification("pull request head OID mismatch", info.state, info);
+  }
+  const creationDispatchMs = Date.parse(options.createdAfter || options.dispatchedAt);
+  const createdMs = Date.parse(info.createdAt);
+  if (
+    !Number.isFinite(creationDispatchMs) ||
+    !Number.isFinite(createdMs) ||
+    createdMs <= creationDispatchMs
+  ) {
+    return failedVerification("pull request creation predates dispatch", info.state, info);
+  }
+  if (info.createdAt !== artifact.created_at) {
+    return failedVerification("pull request creation timestamp mismatch", info.state, info);
+  }
+  if (requiredState === "MERGED") {
+    const mergeDispatchMs = Date.parse(options.mergedAfter || options.dispatchedAt);
+    const mergedMs = Date.parse(info.mergedAt);
+    if (
+      !Number.isFinite(mergeDispatchMs) ||
+      !Number.isFinite(mergedMs) ||
+      mergedMs <= mergeDispatchMs
+    ) {
+      return failedVerification("pull request merge predates dispatch", info.state, info);
+    }
+    if (info.mergedAt !== artifact.merged_at) {
+      return failedVerification("pull request merge timestamp mismatch", info.state, info);
+    }
+    if (!info.mergeSha || info.mergeSha !== artifact.merge_sha) {
+      return failedVerification("pull request merge SHA mismatch", info.state, info);
+    }
+  }
+  return { ok: true, state: info.state, pr: info };
+}
+
 function defaultRunGit(args, cwd) {
   try {
     const stdout = childProcess.execFileSync("git", args, {
@@ -242,6 +343,8 @@ function main() {
 module.exports = {
   getPrState,
   getPrInfo,
+  getPinnedPrInfo,
+  verifyPullRequest,
   reconcileCrashedTask,
   runGhWithRetry,
   isTransientGhError,

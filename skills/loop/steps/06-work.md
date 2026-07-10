@@ -1,14 +1,15 @@
 ---
 name: Work
 order: 6
-description: Execute one unit of loop work — claim, bootstrap a worktree, run the engine, release
+description: Execute one unit of loop work — claim, run a stage, verify its result, and finalize
 ---
 
 ## Goal
 
 Run one worker cycle: select and durably claim the next eligible card, bootstrap
-an isolated worktree, execute the configured engine headless, record a
-crash-safe run ledger, and release the lease.
+an isolated worktree, execute the configured engine headless, verify its
+bounded stage result, record a crash-safe run ledger, and atomically finalize
+the canonical outcome with lease deletion.
 
 Claim, dispatch marking, checkpoint/finalization, and release are pushed from
 an isolated detached PM Git transaction. They never commit, pull, reset, or
@@ -70,31 +71,48 @@ Engine selection comes from `pm/loop/config.json` → `worker.engine`
 gitignored-but-required files (env files, generated specs) must list them in
 `worker.bootstrap_files` so fresh worktrees don't fail their first test run.
 
-Results land in the local state dir: ledger at `.pm/loop-runs/<run_id>.json`,
-engine logs under `.pm/loop-runs/<run_id>/`.
+Each child workflow atomically writes its versioned envelope only through
+`PM_LOOP_RESULT_FILE`; it never writes canonical backlog state. Results land in
+the cryptographically unique, mode-0700 local directory
+`.pm/loop-results/<run_id>/`, with a mode-0600 `result.json`. The worker
+validates card/stage/run identity, terminal/artifact combinations, bounds, and
+remote PR or document/gate evidence before any success transition. Missing,
+malformed, mismatched, or unverified success becomes `failed-contract` and the
+card becomes non-dispatchable `needs-human`.
+
+The crash-safe ledger remains at `.pm/loop-runs/<run_id>.json`; bounded engine
+logs remain under `.pm/loop-runs/<run_id>/`.
 
 A card's lifecycle spans multiple wakes by design — ship is event-driven
 (CI runs, remote review rounds) and cannot finish in one engine run:
 
 - **Implement wake** (`stage: dev`, budget `max_runtime_seconds_per_run`):
-  fresh worktree → dev workflow → PR opened → card updated to
-  `status: shipping` + `branch` + `prs`. Never merges.
+  fresh worktree → dev workflow → verified OPEN PR + committed gate sidecar →
+  worker updates the card to `status: shipping` + `branch` + `prs`. Never
+  merges.
 - **Ship wakes** (`stage: ship`, budget `max_runtime_seconds_per_ship_cycle`):
   each wake checks out the existing branch and runs ONE bounded cycle —
   assess CI + new review comments, fix what's actionable, push, stop. Rounds
   of remote review each get absorbed by a subsequent wake. With
-  `autonomy.merge_pr: true` the cycle merges when everything is green and
-  marks the card done; with `false` it parks the green PR as needs-human for
-  your merge.
+  `autonomy.merge_pr: true` the cycle verifies the MERGED PR identity and marks
+  the card done; with `false` it parks the green PR as `needs-human` for your
+  merge. A `waiting` result preserves `shipping` with a bounded `retry_after`,
+  and selectors skip the card until that wake time.
 
 When summarizing the JSON result:
 
 - `completed` — this wake's stage finished cleanly; say which stage and what
   the next wake will do (ship cycle, next sibling, or nothing).
-- `failed` / `timeout` / `bootstrap-failed` — report the reason and log paths;
-  the lease was released either way.
+- `failed` / `noop` — the card stays at its pre-claim state while the durable
+  outcome event advances retry policy; report the reason and log paths.
+- `failed-contract` — the result or verified evidence was unsafe or invalid;
+  report the preserved evidence and the `needs-human` remediation.
+- `bootstrap-failed` — report the reason and log paths; the pre-claim card state
+  is preserved and the failure event is durable while the lease is deleted.
 - `recovery-required` — a durable claim, dispatch, recovery checkpoint, or
   ambiguous orphan must be resolved without redispatching the engine.
 - `stopped` / `disabled` / `budget-exhausted` / `attempts-exhausted` / `rejected` / `idle` / `blocked` — nothing ran (any lease was released); report why.
 
-Close by telling the user the outcome, where the logs are, and what needs human attention next.
+## Done-when
+
+The worker has either durably finalized one validated stage outcome, preserved an authoritative recovery state without redispatch, or stopped before mutation with an exact reason. Close by telling the user the outcome, result/log locations, and what needs human attention next.

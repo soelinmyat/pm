@@ -6,7 +6,11 @@ description: Senior engineer review of RFC — architecture, test strategy, comp
 
 ## RFC Review (M/L/XL)
 
+**Goal:** Produce an independently reviewed RFC with every blocking architecture, test-strategy, and maintainability finding resolved, then stop at the human approval boundary.
+
 Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate before implementation.
+
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, review the candidate under `PM_LOOP_RESULT_DIR/artifacts/` with the same reviewers and validation gates. Skip proposal status, backlog `rfc:`, child-card, index, and approval-audit writes. Never self-approve. Atomically write `artifact-ready` or `needs-approval` to `PM_LOOP_RESULT_FILE` with the verified HTML document payload; use `blocked`, `failed`, or `noop` for those exact outcomes.
 
 ### The 3 standard RFC reviewers
 
@@ -231,3 +235,5 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
          - Resume: run /pm:dev {slug} to implement.
          ```
       **Stop here. Do not proceed to implementation.**
+
+**Done-when:** All blocking reviewer findings are resolved and the RFC is either explicitly approved by the user outside loop mode or returned as a verified `needs-approval`/`artifact-ready` result in loop mode. Summarize the reviewed artifact and offer `/pm:dev {slug}` only after approval; otherwise state the required human decision.

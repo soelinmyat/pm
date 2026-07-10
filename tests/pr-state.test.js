@@ -12,6 +12,7 @@ const PR_STATE = path.join(ROOT, "scripts", "pr-state.js");
 const {
   getPrState,
   getPrInfo,
+  verifyPullRequest,
   reconcileCrashedTask,
   runGhWithRetry,
   isTransientGhError,
@@ -170,6 +171,153 @@ test("getPrInfo returns NONE (nulls) when no PR exists", () => {
     number: null,
     headRefOid: null,
   });
+});
+
+function remotePr(overrides = {}) {
+  return {
+    state: "OPEN",
+    createdAt: "2026-07-03T10:01:00Z",
+    mergedAt: null,
+    mergeCommit: null,
+    number: 42,
+    url: "https://github.com/openai/pm/pull/42",
+    baseRefName: "main",
+    headRefName: "loop/pm-108",
+    headRefOid: "a".repeat(40),
+    ...overrides,
+  };
+}
+
+function resultPr(overrides = {}) {
+  return {
+    type: "pull-request",
+    repo: "openai/pm",
+    number: 42,
+    url: "https://github.com/openai/pm/pull/42",
+    base: "main",
+    head: "loop/pm-108",
+    head_oid: "a".repeat(40),
+    created_at: "2026-07-03T10:01:00Z",
+    ...overrides,
+  };
+}
+
+function verify(artifact, remote, overrides = {}) {
+  const { runGh, calls } = fakeGh(
+    remote instanceof Array ? remote : [{ code: 0, stdout: JSON.stringify(remote), stderr: "" }]
+  );
+  const checked = verifyPullRequest(artifact, {
+    requiredState: "OPEN",
+    expectedRepo: "openai/pm",
+    expectedBase: "main",
+    expectedHead: "loop/pm-108",
+    expectedHeadOid: "a".repeat(40),
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    runGh,
+    sleep: noSleep,
+    ...overrides,
+  });
+  return { checked, calls };
+}
+
+test("repository-pinned OPEN verification matches repo, number/url, base, head/OID, and recency", () => {
+  const { checked, calls } = verify(resultPr(), remotePr());
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  assert.equal(checked.state, "OPEN");
+  assert.deepEqual(calls[0].slice(0, 6), ["pr", "view", "42", "--repo", "openai/pm", "--json"]);
+  assert.match(calls[0][6], /state,createdAt,mergedAt,mergeCommit,number,url/);
+  assert.match(calls[0][6], /baseRefName,headRefName,headRefOid/);
+});
+
+test("OPEN verification fails closed for every identity or recency mismatch", () => {
+  const cases = [
+    [resultPr({ repo: "other/pm" }), remotePr(), /repository mismatch/],
+    [resultPr(), remotePr({ number: 99 }), /number mismatch/],
+    [resultPr(), remotePr({ url: "https://github.com/openai/pm/pull/99" }), /URL mismatch/],
+    [resultPr(), remotePr({ baseRefName: "develop" }), /base mismatch/],
+    [resultPr(), remotePr({ headRefName: "loop/old" }), /head mismatch/],
+    [resultPr(), remotePr({ headRefOid: "b".repeat(40) }), /head OID mismatch/],
+    [resultPr(), remotePr({ createdAt: "2026-07-03T09:59:00Z" }), /predates dispatch/],
+    [resultPr(), remotePr({ state: "CLOSED" }), /required OPEN/],
+  ];
+
+  for (const [artifact, remote, expected] of cases) {
+    const { checked } = verify(artifact, remote);
+    assert.equal(checked.ok, false, JSON.stringify(checked));
+    assert.match(checked.reason, expected);
+  }
+});
+
+test("repository-pinned MERGED verification pins merge SHA/time after dispatch", () => {
+  const artifact = resultPr({
+    merge_sha: "b".repeat(40),
+    merged_at: "2026-07-03T10:10:00Z",
+  });
+  const { checked } = verify(
+    artifact,
+    remotePr({
+      state: "MERGED",
+      mergedAt: "2026-07-03T10:10:00Z",
+      mergeCommit: { oid: "b".repeat(40) },
+    }),
+    { requiredState: "MERGED" }
+  );
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+
+  for (const remote of [
+    remotePr({
+      state: "MERGED",
+      mergedAt: "2026-07-03T09:59:00Z",
+      mergeCommit: { oid: "b".repeat(40) },
+    }),
+    remotePr({
+      state: "MERGED",
+      mergedAt: "2026-07-03T10:10:00Z",
+      mergeCommit: { oid: "c".repeat(40) },
+    }),
+  ]) {
+    assert.equal(
+      verify(artifact, remote, { requiredState: "MERGED" }).checked.ok,
+      false,
+      JSON.stringify(remote)
+    );
+  }
+});
+
+test("ship verification uses the original creation dispatch and current merge dispatch", () => {
+  const artifact = resultPr({
+    merge_sha: "b".repeat(40),
+    merged_at: "2026-07-03T11:01:00Z",
+  });
+  const { checked } = verify(
+    artifact,
+    remotePr({
+      state: "MERGED",
+      mergedAt: "2026-07-03T11:01:00Z",
+      mergeCommit: { oid: "b".repeat(40) },
+    }),
+    {
+      requiredState: "MERGED",
+      dispatchedAt: "2026-07-03T11:00:00Z",
+      createdAfter: "2026-07-03T10:00:00Z",
+      mergedAfter: "2026-07-03T11:00:00Z",
+    }
+  );
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+});
+
+test("NONE and UNKNOWN never pass repository-pinned verification", () => {
+  const none = verify(resultPr(), [
+    { code: 1, stdout: "", stderr: "no pull requests found for branch" },
+  ]).checked;
+  assert.equal(none.ok, false);
+  assert.equal(none.state, "NONE");
+
+  const unknown = verify(resultPr(), [
+    { code: 1, stdout: "", stderr: "HTTP 502: Bad Gateway" },
+  ]).checked;
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.state, "UNKNOWN");
 });
 
 // --- Finding 1: crash reconciliation must not advance on a stale merged PR ---

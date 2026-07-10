@@ -13,6 +13,12 @@ RFC is the bridge between product (proposal) and engineering (implementation). N
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification, and `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
+## Loop Worker Mode (headless)
+
+When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=rfc`, preserve RFC research, technical review, and human approval gates; human approval is mandatory and the worker must never self-approve. Do not write or update backlog/card state in loop mode—the loop worker is the only canonical durable card-state writer.
+
+Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses: artifact-ready, needs-approval, blocked, failed, noop. Artifact terminals include one `document` payload (`kind: rfc`, run-relative path, SHA-256, media type); create that document with restrictive mode `0600`. `blocked` includes bounded code, reason, and remediation. The worker verifies and copies the document into the allowlisted PM destination.
+
 **Workflow:** `rfc`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/` in numeric filename order. If `.pm/workflows/rfc/` exists, same-named files there override defaults.

@@ -592,6 +592,20 @@ test("PM-150: planned status passes validation", () => {
   }
 });
 
+test("PM-108: needs-human and shipping are canonical backlog statuses", () => {
+  for (const status of ["needs-human", "shipping"]) {
+    const { pmDir, cleanup } = withPmDir({
+      [`pm/backlog/${status}.md`]: makeBacklogItem({ status }),
+    });
+    try {
+      const result = runValidate(pmDir);
+      assert.equal(result.ok, true, `${status} should pass: ${JSON.stringify(result.details)}`);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
 test("PM-150: approved status is rejected by validation", () => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/approved-item.md": makeBacklogItem({ status: "approved" }),

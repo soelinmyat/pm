@@ -73,6 +73,8 @@ test("sync skill keeps bare sync bidirectional with explicit pull and push overr
 });
 
 test("loop docs describe the lease envelope and isolated recovery transactions", () => {
+  const readme = read("README.md");
+  const skill = read("skills/loop/SKILL.md");
   const config = read("skills/loop/steps/04-config.md");
   const work = read("skills/loop/steps/06-work.md");
 
@@ -85,4 +87,56 @@ test("loop docs describe the lease envelope and isolated recovery transactions",
   assert.match(work, /never-dispatched/);
   assert.match(work, /dispatched-without-terminal-result/);
   assert.match(work, /recovery-required/);
+  assert.match(skill, /needs-human.*non-dispatchable/is);
+  assert.match(work, /PM_LOOP_RESULT_FILE/);
+  assert.match(work, /failed-contract/);
+  assert.match(work, /\.pm\/loop-results\/<run_id>/);
+  assert.match(readme, /validated stage results.*needs-human/is);
+});
+
+test("loop-capable workflows return stage results and leave durable card writes to the worker", () => {
+  const contracts = {
+    dev: /shipped, blocked, failed, noop/,
+    ship: /merged, ready-for-human, waiting, blocked, failed, noop/,
+    rfc: /artifact-ready, needs-approval, blocked, failed, noop/,
+    research: /artifact-ready, blocked, failed, noop/,
+  };
+
+  for (const [skill, statuses] of Object.entries(contracts)) {
+    const text = read(`skills/${skill}/SKILL.md`);
+    assert.match(text, /Loop Worker Mode \(headless\)/, `${skill} needs a loop-mode contract`);
+    assert.match(text, /PM_LOOP_RESULT_FILE/, `${skill} must name the result capability`);
+    assert.match(
+      text,
+      /only canonical durable card-state writer/i,
+      `${skill} must enforce one writer`
+    );
+    assert.match(text, /do not (write|update).*backlog|skip.*backlog writes/i);
+    assert.match(text, statuses, `${skill} must list its exact stage statuses`);
+  }
+
+  assert.match(read("skills/dev/SKILL.md"), /TDD.*review.*QA.*verification/is);
+  assert.match(read("skills/ship/SKILL.md"), /review.*CI.*verification/is);
+  assert.match(read("skills/rfc/SKILL.md"), /human approval.*never.*self-approve/is);
+  assert.match(read("skills/rfc/SKILL.md"), /document.*mode `?0600`?/is);
+  assert.match(read("skills/research/SKILL.md"), /sourcing.*synthesis.*verification/is);
+  assert.match(read("skills/research/SKILL.md"), /document.*mode `?0600`?/is);
+
+  for (const file of [
+    "skills/dev/steps/03-workspace.md",
+    "skills/ship/steps/07-merge-loop.md",
+    "skills/rfc/steps/02-rfc-generation.md",
+    "skills/rfc/steps/03-rfc-review.md",
+    "skills/research/steps/03-landscape.md",
+    "skills/research/steps/04-competitor.md",
+    "skills/research/steps/05-topic.md",
+  ]) {
+    const text = read(file);
+    assert.match(text, /PM_LOOP_WORKER/, `${file} needs an executable loop-mode branch`);
+    assert.match(
+      text,
+      /PM_LOOP_RESULT_(FILE|DIR)|skip.*(backlog|PM|index|log).*write/i,
+      `${file} must route or skip its normal durable writes`
+    );
+  }
 });

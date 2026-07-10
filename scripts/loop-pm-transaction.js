@@ -952,7 +952,7 @@ function releaseClaim(pmDir, input, options = {}) {
         }
         writeJsonAtomic(eventPath, {
           ...event,
-          status: "released",
+          status: input.eventStatus || input.event_status || "released",
           phase: "released",
           terminal: true,
           released_at: releasedAt,

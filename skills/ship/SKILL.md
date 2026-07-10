@@ -25,8 +25,10 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=ship` (or `review`), this run is ONE bounded ship cycle dispatched unattended by the PM loop:
 
 - Assess CI status and new review comments, fix what is actionable now, push, then stop. Do not poll or wait on CI — if external state is pending, report and exit; the next scheduled wake runs the next cycle.
-- Merge only if the loop granted it (the dispatch prompt says so) AND every gate and check is green; after a verified merge, update the backlog card `status: done`. Without the merge grant, when the PR is green and threads are resolved, set the card `status: needs-human` and report it is ready for human merge.
-- Non-interactive: never wait for user input; stop and report when a decision requires a human.
+- Preserve review, CI, verification, and merge-approval gates. Merge only if the loop granted it and every gate/check is green.
+- Do not write or update backlog/card state in loop mode; the loop worker is the only canonical durable card-state writer.
+- Atomically write the version-1 result to `PM_LOOP_RESULT_FILE`. Exact statuses: merged, ready-for-human, waiting, blocked, failed, noop. PR-bearing statuses include the repository-pinned pull-request payload; `merged` adds merge SHA/time; `waiting` adds a bounded `retry_after`; `blocked` includes bounded remediation.
+- Non-interactive: never wait for user input; return `ready-for-human` or `blocked` when a decision requires a human.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
