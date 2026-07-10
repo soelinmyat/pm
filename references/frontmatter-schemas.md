@@ -34,7 +34,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `id` | string | required | `TEAM-NNN` (e.g., `"PM-199"`) | Unique across all backlog items |
 | `title` | string | required | — | Human-readable title |
 | `outcome` | string | required | — | What changes when this ships — one sentence |
-| `status` | enum | required | `"idea"` \| `"drafted"` \| `"proposed"` \| `"planned"` \| `"in-progress"` \| `"done"` | Lifecycle stage |
+| `status` | enum | required | `"idea"` \| `"drafted"` \| `"proposed"` \| `"planned"` \| `"in-progress"` \| `"shipping"` \| `"needs-human"` \| `"done"` | Lifecycle stage; `needs-human` is non-dispatchable |
 | `priority` | enum | required | `"critical"` \| `"high"` \| `"medium"` \| `"low"` | Urgency/importance ranking |
 | `labels` | string[] | required | At least one entry | Categorization tags. Must be non-empty. |
 | `created` | date | required | `YYYY-MM-DD` | Creation date |

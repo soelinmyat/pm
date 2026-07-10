@@ -69,6 +69,8 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full pr
 
 ### Backlog prs write (after merge, before cleanup)
 
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, skip this backlog write and every Product Memory/card status write in this step. Preserve merge verification and all review/CI gates, then atomically return `merged`, `ready-for-human`, `waiting`, `blocked`, `failed`, or `noop` through `PM_LOOP_RESULT_FILE`. The loop worker verifies the PR and owns the durable transition.
+
 After merge confirmation, if `{pm_dir}/backlog/{slug}.md` exists, update its frontmatter to record the PR number(s):
 
 1. Read the existing frontmatter of `{pm_dir}/backlog/{slug}.md`

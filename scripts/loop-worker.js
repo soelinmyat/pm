@@ -17,9 +17,13 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseCliArgs } = require("./loop-args.js");
-const { DEFAULT_LOOP_CONFIG, loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
+const {
+  DEFAULT_LOOP_CONFIG,
+  loadLoopConfig,
+  loadTrustedLoopConfig,
+  sha256,
+} = require("./loop-config.js");
 const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
@@ -30,14 +34,27 @@ const {
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { runLoop } = require("./loop-runner.js");
-const { markRunDispatched, releaseClaim, withRemoteSnapshot } = require("./loop-pm-transaction.js");
+const {
+  checkpointRecovery,
+  finalizeRun,
+  markRunDispatched,
+  releaseClaim,
+  withRemoteSnapshot,
+} = require("./loop-pm-transaction.js");
+const { buildContractFailureResult, buildStageTransition } = require("./loop-card-state.js");
 const {
   activeQuarantineForPlan,
   copyReadContext,
-  createPrivateResultDir,
   recordQuarantine,
   runPreflight,
 } = require("./loop-preflight.js");
+const {
+  createRunResultCapability,
+  readStageResult,
+  verifyCommittedGateSidecar,
+  verifyDocumentArtifact,
+} = require("./loop-result.js");
+const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
@@ -93,15 +110,22 @@ function countRunsToday(runsDir, now = new Date(), opts = {}) {
   return countRunsInLedgers(readLedgers(runsDir), now, opts);
 }
 
-// Attempts per card+stage: every non-completed ledger counts. Backstop for
-// cards that fail or get rejected every wake (budgets.max_attempts_per_stage).
+// Normal waiting/blocked/success terminals do not consume failure attempts.
+// Unknown legacy statuses still count so unreadable or old failures fail closed.
 function countCardAttempts(runsDir, cardId, stage) {
+  const nonFailures = new Set([
+    "completed",
+    "waiting",
+    "artifact-ready",
+    "ready-for-human",
+    "blocked",
+  ]);
   return readLedgers(runsDir).filter(
     (record) =>
       record.card &&
       record.card.id === cardId &&
       (record.stage || "dev") === stage &&
-      record.status !== "completed"
+      !nonFailures.has(record.status)
   ).length;
 }
 
@@ -111,80 +135,6 @@ const DISPATCHABLE_COMMAND = /^\/pm:(dev|ship|rfc|research) [A-Za-z0-9 ._-]{1,12
 
 function isDispatchableCommand(command) {
   return DISPATCHABLE_COMMAND.test(String(command || ""));
-}
-
-function realpathForExisting(targetPath) {
-  try {
-    return fs.realpathSync(targetPath);
-  } catch {
-    return path.resolve(targetPath);
-  }
-}
-
-function isPathInside(parent, child) {
-  if (!parent || !child) return false;
-  const rel = path.relative(realpathForExisting(parent), realpathForExisting(child));
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
-function normalizeStatus(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/_/g, "-");
-}
-
-function normalizePrs(value) {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value === "string" && value.trim()) return [value.trim()];
-  return [];
-}
-
-function terminalCardPath(projectGitRoot, workspacePath, sourcePath) {
-  if (!sourcePath) return "";
-  if (projectGitRoot && workspacePath && isPathInside(projectGitRoot, sourcePath)) {
-    return path.join(
-      workspacePath,
-      path.relative(realpathForExisting(projectGitRoot), realpathForExisting(sourcePath))
-    );
-  }
-  return sourcePath;
-}
-
-function validateStageCompletion(stage, plan, workspace, projectGitRoot) {
-  if (stage !== "dev") return { ok: true, skipped: true };
-
-  const cardPath = terminalCardPath(
-    projectGitRoot,
-    workspace.workspacePath,
-    plan.selected.sourcePath
-  );
-  if (!cardPath || !fs.existsSync(cardPath)) {
-    return {
-      ok: false,
-      reason: `dev completion contract not met: backlog card not found at ${cardPath || "<unknown>"}`,
-    };
-  }
-
-  const parsed = parseFrontmatter(fs.readFileSync(cardPath, "utf8"));
-  const status = normalizeStatus(parsed.data.status);
-  const branch = String(parsed.data.branch || "").trim();
-  const prs = normalizePrs(parsed.data.prs);
-  if (status === "shipping" && branch && prs.length > 0) {
-    return { ok: true, cardPath, status, branch, prs };
-  }
-
-  return {
-    ok: false,
-    cardPath,
-    status,
-    branch,
-    prs,
-    reason:
-      `dev completion contract not met: expected status=shipping, branch, and prs on ${cardPath}; ` +
-      `got status=${status || "<empty>"}, branch=${branch || "<empty>"}, prs=${prs.length}`,
-  };
 }
 
 function buildPrompt(plan, config = {}) {
@@ -197,8 +147,8 @@ function buildPrompt(plan, config = {}) {
   // PR; the wake cadence is the iteration loop.
   if (stage === "ship" || stage === "review") {
     const mergeRule = mergeAutonomy
-      ? "- Merge only when every review gate and CI check is green; never bypass a failing check. After a verified merge, update the backlog card status to done."
-      : "- Do NOT merge. When the PR is green and review threads are resolved, update the backlog card status to needs-human and report it is ready for human merge.";
+      ? "- Merge only when every review gate and CI check is green; never bypass a failing check."
+      : "- Do NOT merge. When the PR is green and review threads are resolved, return ready-for-human.";
     return [
       "You are an autonomous PM loop worker running ONE bounded ship cycle for an existing pull request.",
       `Execute: ${card.command}`,
@@ -208,6 +158,8 @@ function buildPrompt(plan, config = {}) {
       "- One cycle only: assess CI status and new review comments, fix what is actionable now, push, then stop.",
       "- If CI is still running or you are waiting on external state, stop and report — the next wake continues.",
       mergeRule,
+      "- Do not write backlog/card state. The loop worker is the only canonical durable card-state writer.",
+      "- Atomically write the version-1 stage result to PM_LOOP_RESULT_FILE. Allowed statuses: merged, ready-for-human, waiting, blocked, failed, noop.",
       "- If a gate requires human approval or input, stop and state exactly what is needed.",
     ].join("\n");
   }
@@ -220,15 +172,18 @@ function buildPrompt(plan, config = {}) {
       "Rules:",
       "- Work only inside this worktree.",
       "- Produce the artifact the workflow defines (RFC draft or research findings); do NOT open pull requests or merge anything.",
-      "- Update the backlog card status per the workflow, and stop at any gate that requires human approval — RFC approval is always human.",
+      "- Do not write backlog/card state. The loop worker is the only canonical durable card-state writer.",
+      `- Create the document under PM_LOOP_RESULT_DIR with mode 0600, then atomically write the version-1 ${stage} result to PM_LOOP_RESULT_FILE with its document payload; RFC approval is always human.`,
       "- If input is needed, stop and state exactly what is required.",
     ].join("\n");
   }
 
   const terminalRules = [
     "- Open a pull request for the work; do NOT merge it in this run.",
-    "- Before finishing, update the backlog card frontmatter: status: shipping, branch, and prs — subsequent wakes run the ship cycles (CI, review rounds" +
-      (mergeAutonomy ? ", merge)." : ") and a human merges."),
+    "- Do not write backlog/card state. The loop worker is the only canonical durable card-state writer.",
+    "- Atomically write the version-1 dev result to PM_LOOP_RESULT_FILE. Allowed statuses: shipped, blocked, failed, noop.",
+    "- A shipped result includes the pull-request repo, number, URL, base, head, head OID, and creation time; subsequent wakes run ship cycles" +
+      (mergeAutonomy ? " and may merge." : "; a human merges."),
   ];
   return [
     "You are an autonomous PM loop worker running unattended in an isolated git worktree.",
@@ -325,7 +280,22 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     timeoutMs: bootstrapTimeout,
   });
   if (!boot.ok) {
-    return { ok: false, reason: boot.reason, workspacePath, branch, error: boot.error };
+    const workspaceRemoved = removeWorkspace(gitRoot, workspacePath, { timeout: cleanupTimeout });
+    if (!shipStage && workspaceRemoved) {
+      try {
+        runGit(["branch", "-D", branch], gitRoot, { timeout: cleanupTimeout });
+      } catch {
+        // The worktree removal may already have removed the new branch.
+      }
+    }
+    return {
+      ok: false,
+      reason: boot.reason,
+      workspacePath,
+      branch,
+      error: boot.error,
+      workspaceRemoved,
+    };
   }
 
   const readContext = copyReadContext(plan.pmDir, workspacePath, plan);
@@ -358,6 +328,7 @@ function releaseLease(pmDir, lease, options = {}) {
       cardId: lease.card_id,
       stage: lease.stage,
       reason: options.reason || "legacy-worker-release",
+      eventStatus: options.eventStatus || options.reason || "released",
     },
     {
       skipPush: options.skipPush,
@@ -368,6 +339,301 @@ function releaseLease(pmDir, lease, options = {}) {
     }
   );
   return { ...result, released: result.ok === true };
+}
+
+const RESULT_SUCCESSES = new Set([
+  "shipped",
+  "merged",
+  "ready-for-human",
+  "waiting",
+  "artifact-ready",
+  "needs-approval",
+]);
+
+function sourceRepository(gitRoot) {
+  let remote;
+  try {
+    remote = runGit(["remote", "get-url", "origin"], gitRoot);
+  } catch {
+    return "";
+  }
+  const match = String(remote).match(
+    /(?:github\.com[/:]|^[^/]+\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
+  );
+  return match ? match[1].replace(/\.git$/, "") : "";
+}
+
+function defaultBranchName(gitRoot) {
+  try {
+    return runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], gitRoot).replace(
+      /^origin\//,
+      ""
+    );
+  } catch {
+    return "main";
+  }
+}
+
+function claimedCardSnapshot(pmDir, lease, options = {}) {
+  return withRemoteSnapshot(
+    pmDir,
+    (snapshot) => {
+      const relativePath = lease.source_path;
+      const cardPath = path.join(snapshot.workspace, ...relativePath.split("/"));
+      if (!fs.existsSync(cardPath)) throw new Error("claimed card is missing from PM snapshot");
+      return {
+        content: fs.readFileSync(cardPath, "utf8"),
+        relativePath,
+        pmRelative: snapshot.pmRelative,
+      };
+    },
+    options
+  );
+}
+
+function processEvidence(spawnResult, timeoutMs) {
+  const timedOut = Boolean(spawnResult?.error && spawnResult.error.code === "ETIMEDOUT");
+  return {
+    exit_code: Number.isInteger(spawnResult?.status) ? spawnResult.status : null,
+    signal: spawnResult?.signal || spawnResult?.error?.signal || null,
+    timed_out: timedOut,
+    timeout_seconds: timeoutMs / 1000,
+    error_code: spawnResult?.error?.code || null,
+  };
+}
+
+function contractFailure(plan, code, reason) {
+  return buildContractFailureResult({
+    runId: plan.run_id,
+    cardId: plan.selected.id,
+    stage: plan.selected.stage || "dev",
+    code,
+    reason,
+    remediation: "Inspect the preserved workspace, result directory, and bounded run logs.",
+  });
+}
+
+function resultHashFor(result) {
+  return sha256(JSON.stringify(result));
+}
+
+function compactArtifactVerification(verification) {
+  if (!verification || typeof verification !== "object") return verification;
+  const compact = { ok: verification.ok === true };
+  for (const key of ["code", "reason"]) {
+    if (verification[key]) compact[key] = String(verification[key]).slice(0, 2000);
+  }
+  if (verification.pr) {
+    compact.pr = {
+      ok: verification.pr.ok === true,
+      state: verification.pr.state || verification.pr.pr?.state || "",
+      reason: String(verification.pr.reason || "").slice(0, 2000),
+    };
+  }
+  if (verification.gates) {
+    compact.gates = {
+      ok: verification.gates.ok === true,
+      code: verification.gates.code || "",
+      reason: String(verification.gates.reason || "").slice(0, 2000),
+      headOid: verification.gates.headOid || "",
+    };
+  }
+  if (verification.artifact) {
+    compact.artifact = {
+      ok: verification.artifact.ok === true,
+      filePath: verification.artifact.filePath || "",
+      sha256: verification.artifact.sha256 || "",
+      bytes: verification.artifact.bytes || 0,
+    };
+  }
+  return compact;
+}
+
+function compactFinalization(finalization) {
+  if (!finalization || typeof finalization !== "object") return finalization;
+  const compactTransaction = (transaction) =>
+    transaction && typeof transaction === "object"
+      ? {
+          ok: transaction.ok === true,
+          pushed: transaction.pushed === true,
+          reason: transaction.reason || "",
+          commit: transaction.commit || transaction.commitOid || "",
+        }
+      : transaction;
+  return {
+    ok: finalization.ok === true,
+    status: finalization.status || "",
+    reason: finalization.reason || "",
+    checkpoint: compactTransaction(finalization.checkpoint),
+    finalized: compactTransaction(finalization.finalized),
+  };
+}
+
+function verifyResultArtifactsUnchecked(input) {
+  const { result, workspace, projectGitRoot, dispatchRecord, options, resultDir, plan } = input;
+  const prStatus = new Set(["shipped", "merged", "ready-for-human", "waiting"]);
+  if (prStatus.has(result.status)) {
+    const headOid = runGit(["rev-parse", "HEAD"], workspace.workspacePath);
+    const expectedRepo =
+      options.expectedRepository ||
+      (options.verifyPullRequest ? result.artifacts.repo : sourceRepository(projectGitRoot));
+    if (!expectedRepo) {
+      return { ok: false, code: "repository-unresolved", reason: "source repository is unknown" };
+    }
+    const verifyPr = options.verifyPullRequest || verifyPullRequest;
+    const expectedBase = defaultBranchName(projectGitRoot);
+    const dispatchedAt = dispatchRecord.event && dispatchRecord.event.dispatched_at;
+    const originalDispatchAt =
+      result.stage === "dev" ? dispatchedAt : plan.selected.prDispatchAt || dispatchedAt;
+    if (
+      result.stage !== "dev" &&
+      Array.isArray(plan.selected.prs) &&
+      plan.selected.prs.length > 0 &&
+      !plan.selected.prs.includes(`#${result.artifacts.number}`)
+    ) {
+      return {
+        ok: false,
+        code: "pr-verification-failed",
+        reason: "pull request number does not match the durable card",
+      };
+    }
+    const pr = verifyPr(result.artifacts, {
+      requiredState: result.status === "merged" ? "MERGED" : "OPEN",
+      expectedRepo,
+      expectedBase,
+      expectedHead: workspace.branch,
+      expectedHeadOid: headOid,
+      dispatchedAt,
+      createdAfter: originalDispatchAt,
+      mergedAfter: dispatchedAt,
+    });
+    if (!pr.ok) {
+      return {
+        ok: false,
+        code: "pr-verification-failed",
+        reason: pr.reason || `pull request verification returned ${pr.state || "UNKNOWN"}`,
+        pr,
+      };
+    }
+    const verifyGates = options.verifyGateSidecar || verifyCommittedGateSidecar;
+    const gates = verifyGates(workspace.workspacePath, {
+      expectedHeadOid: headOid,
+      expectedHead: workspace.branch,
+      baseRef: `origin/${expectedBase}`,
+    });
+    if (!gates.ok) {
+      return {
+        ok: false,
+        code: gates.code || "gate-verification-failed",
+        reason: gates.reason || "committed gate evidence could not be verified",
+        gates,
+      };
+    }
+    return { ok: true, pr, gates };
+  }
+  if (["artifact-ready", "needs-approval"].includes(result.status)) {
+    const artifact = verifyDocumentArtifact(resultDir, result.artifacts);
+    return artifact.ok
+      ? { ok: true, artifact }
+      : { ok: false, code: artifact.code, reason: artifact.reason, artifact };
+  }
+  return { ok: true };
+}
+
+function verifyResultArtifacts(input) {
+  try {
+    return verifyResultArtifactsUnchecked(input);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "artifact-verification-threw",
+      reason: String(err && err.message ? err.message : err).slice(0, 2000),
+    };
+  }
+}
+
+function finalizeStageOutcome(input) {
+  const { paths, plan, config, result, resultHash, artifactVerification, process, options } = input;
+  let card;
+  try {
+    card = claimedCardSnapshot(paths.pmDir, plan.lease, {
+      timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+    });
+  } catch (err) {
+    return { ok: false, status: "finalization-blocked", reason: err.message };
+  }
+  const mapped = buildStageTransition({
+    result,
+    cardContent: card.content,
+    cardRelativePath: card.relativePath,
+    expectedCardRevision: plan.lease.expected_card_revision,
+    pmRelative: card.pmRelative,
+    runId: plan.run_id,
+    logPath: `.pm/loop-runs/${plan.run_id}/stdout.log`,
+    now: input.now,
+    shipPollHorizonSeconds:
+      Number(config.budgets && config.budgets.max_runtime_seconds_per_ship_cycle) || 1800,
+    dispatchAt: input.dispatchRecord.event && input.dispatchRecord.event.dispatched_at,
+    prDispatchAt: plan.selected.prDispatchAt || "",
+    verifiedArtifact: artifactVerification && artifactVerification.artifact,
+  });
+  if (!mapped.ok) {
+    return { ok: false, status: "failed-contract", reason: mapped.reason };
+  }
+  const txOptions = {
+    maxAttempts: config.claim_envelope.cas_attempts,
+    timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+  };
+  const terminalEvent = { ...mapped.event, process };
+  const checkpoint = (options.checkpointRecovery || checkpointRecovery)(
+    paths.pmDir,
+    {
+      runId: plan.run_id,
+      cardId: plan.lease.card_id,
+      stage: plan.lease.stage,
+      resultHash,
+      artifactHashes: mapped.artifactHashes,
+      transition: mapped.transition,
+      terminalEvent,
+    },
+    txOptions
+  );
+  if (!checkpoint.ok) {
+    return {
+      ok: false,
+      status: "finalization-blocked",
+      reason: checkpoint.reason || "recovery checkpoint was not durably confirmed",
+      checkpoint,
+    };
+  }
+  const finalized = (options.finalizeRun || finalizeRun)(
+    paths.pmDir,
+    {
+      runId: plan.run_id,
+      cardId: plan.lease.card_id,
+      stage: plan.lease.stage,
+      event: terminalEvent,
+      allowedArtifactPaths: mapped.allowedArtifactPaths,
+    },
+    txOptions
+  );
+  if (!finalized.ok) {
+    return {
+      ok: false,
+      status: "finalization-blocked",
+      reason: finalized.reason || "finalization was not durably confirmed",
+      checkpoint,
+      finalized,
+    };
+  }
+  return {
+    ok: true,
+    status: mapped.event.status,
+    reason: "",
+    checkpoint,
+    finalized,
+    transition: mapped.transition,
+  };
 }
 
 function runWorker(projectDir, options = {}) {
@@ -415,6 +681,39 @@ function runWorker(projectDir, options = {}) {
       status: "dry-run",
       engine: { bin: command.bin, args: command.args },
     };
+  }
+
+  if (preview.status === "recovery-required" && preview.recovery?.state === "recovery-ready") {
+    const recovery = preview.recovery.recovery;
+    const terminalEvent = recovery && recovery.terminal_event;
+    if (terminalEvent && terminalEvent.terminal === true) {
+      const recoveredFinalization = (options.finalizeRun || finalizeRun)(
+        paths.pmDir,
+        {
+          runId: recovery.run_id,
+          cardId: recovery.card_id,
+          stage: recovery.stage,
+          event: terminalEvent,
+          allowedArtifactPaths: (recovery.transition?.artifact_writes || []).map(
+            (artifact) => artifact.relative_path
+          ),
+        },
+        {
+          maxAttempts: config.claim_envelope.cas_attempts,
+          timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+        }
+      );
+      return {
+        ...preview,
+        run_id: recovery.run_id,
+        status: recoveredFinalization.ok ? terminalEvent.status : "finalization-blocked",
+        reason: recoveredFinalization.ok
+          ? undefined
+          : recoveredFinalization.reason || "recovery finalization was not durably confirmed",
+        recovered: recoveredFinalization.ok,
+        finalization: compactFinalization(recoveredFinalization),
+      };
+    }
   }
 
   if (!preview.selected) return preview;
@@ -502,7 +801,8 @@ function runWorker(projectDir, options = {}) {
   const logDir = path.join(runsDir, runId);
   fs.mkdirSync(logDir, { recursive: true });
   fs.chmodSync(logDir, 0o700);
-  const resultDir = createPrivateResultDir(paths.pmStateDir, runId);
+  let resultDir = "";
+  let resultFile = "";
 
   const ledger = {
     version: 1,
@@ -557,6 +857,13 @@ function runWorker(projectDir, options = {}) {
   if (!projectGitRoot) {
     return bail("failed", "project is not a git repository");
   }
+  try {
+    const capability = createRunResultCapability(paths.pmStateDir, runId);
+    resultDir = capability.runDir;
+    resultFile = capability.resultFile;
+  } catch (err) {
+    return bail("failed-contract", `result capability could not be created: ${err.message}`);
+  }
   // Crash-safe: written before the engine starts. If this process dies, the
   // "running" record + lease TTL tell the next scout what happened; merged-PR
   // recovery is handled by the reconcile-merged session hook.
@@ -566,120 +873,198 @@ function runWorker(projectDir, options = {}) {
   let status = "failed";
   let reason = "";
   let exitCode = null;
+  let release = null;
+  let processInfo = null;
 
-  try {
-    workspace = prepareWorkspace(projectGitRoot, plan, config, { now, ...options });
-    if (!workspace.ok) {
-      status = "bootstrap-failed";
-      reason = workspace.reason;
-    } else {
-      const dispatchRecord = markRunDispatched(
-        paths.pmDir,
-        {
-          runId,
-          cardId: plan.lease.card_id,
-          stage: plan.lease.stage,
-        },
-        {
-          maxAttempts: config.claim_envelope.cas_attempts,
-          timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
-        }
-      );
-      ledger.dispatch_record = dispatchRecord;
-      if (!dispatchRecord.ok) {
-        status = "dispatch-checkpoint-failed";
-        reason = dispatchRecord.reason || "failed to durably record engine dispatch";
-      } else {
-        const command = engineCommand(config, buildPrompt(plan, config), {
-          workspacePath: workspace.workspacePath,
-          resultDir,
-        });
-        const timeoutSeconds = shipStage
-          ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
-          : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
-        const timeoutMs = timeoutSeconds * 1000;
-        ledger.engine = { bin: command.bin, args: command.args };
-        ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
-        writeJsonAtomic(ledgerPath, ledger);
-
-        const result = spawnSync(command.bin, command.args, {
-          cwd: workspace.workspacePath,
-          input: command.input,
-          encoding: "utf8",
-          timeout: timeoutMs,
-          maxBuffer: ENGINE_MAX_BUFFER,
-          env: {
-            ...process.env,
-            // Deterministic mode detection for skills (dev/ship read these to
-            // switch into headless loop-worker behavior).
-            PM_LOOP_WORKER: "1",
-            PM_LOOP_STAGE: plan.selected.stage || "dev",
-            PM_LOOP_CARD_ID: plan.selected.id,
-            PM_LOOP_RESULT_DIR: resultDir,
-          },
-        });
-        fs.writeFileSync(path.join(logDir, "stdout.log"), result.stdout || "");
-        fs.writeFileSync(path.join(logDir, "stderr.log"), result.stderr || "");
-
-        if (result.error && result.error.code === "ETIMEDOUT") {
-          status = "timeout";
-          reason = `engine exceeded ${timeoutMs / 1000}s budget`;
-        } else if (result.error) {
-          status = "failed";
-          reason = result.error.message;
-        } else {
-          exitCode = result.status;
-          if (result.status === 0) {
-            const stageContract = validateStageCompletion(stage, plan, workspace, projectGitRoot);
-            ledger.stage_contract = stageContract;
-            if (stageContract.ok) {
-              status = "completed";
-            } else {
-              status = "blocked";
-              reason = stageContract.reason;
-            }
-          } else {
-            status = "failed";
-            reason = `engine exited ${result.status}`;
-          }
-        }
-      }
-    }
-  } finally {
-    const release = releaseLease(paths.pmDir, plan.lease, {
+  workspace = prepareWorkspace(projectGitRoot, plan, config, { now, ...options });
+  if (!workspace.ok) {
+    status = "bootstrap-failed";
+    reason = workspace.reason;
+    release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
       reason: status,
+      eventStatus: status,
     });
     if (!release.released) {
       status = "finalization-blocked";
       reason = `lease release was not durably confirmed: ${release.reason || "unknown error"}`;
     }
-    ledger.status = status;
-    ledger.reason = reason || undefined;
-    ledger.exit_code = exitCode;
-    ledger.ended_at = new Date().toISOString();
-    ledger.lease_release = release;
-    writeJsonAtomic(ledgerPath, ledger);
-
-    const keepWorkspace = Boolean(config.worker && config.worker.keep_workspace);
-    if (!keepWorkspace && workspace && workspace.ok) {
-      // Ship worktrees must ALWAYS go: card.branch stays checked out otherwise
-      // and every subsequent cycle fails worktree-add. Dev worktrees go too
-      // (logs are already captured); failed dev run branches are deleted so
-      // retries don't accumulate refs — never the ship branch itself.
-      ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath, {
-        timeout: Number(config.claim_envelope.workspace_cleanup_seconds) * 1000,
+  } else {
+    const dispatchRecord = markRunDispatched(
+      paths.pmDir,
+      {
+        runId,
+        cardId: plan.lease.card_id,
+        stage: plan.lease.stage,
+      },
+      {
+        maxAttempts: config.claim_envelope.cas_attempts,
+        timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+      }
+    );
+    ledger.dispatch_record = dispatchRecord;
+    if (!dispatchRecord.ok) {
+      status = "dispatch-checkpoint-failed";
+      reason = dispatchRecord.reason || "failed to durably record engine dispatch";
+      release = releaseLease(paths.pmDir, plan.lease, {
+        ...options,
+        config,
+        reason: status,
+        eventStatus: status,
       });
-      if (!shipStage && status !== "completed" && ledger.workspace_removed) {
-        try {
-          runGit(["branch", "-D", workspace.branch], projectGitRoot);
-        } catch {
-          // branch may be gone already
+      if (!release.released) {
+        status = "finalization-blocked";
+        reason = `lease release was not durably confirmed: ${release.reason || "unknown error"}`;
+      }
+    } else {
+      const command = engineCommand(config, buildPrompt(plan, config), {
+        workspacePath: workspace.workspacePath,
+        resultDir,
+      });
+      const timeoutSeconds = shipStage
+        ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
+        : Number(config.budgets.max_runtime_seconds_per_run) || 5400;
+      const timeoutMs = timeoutSeconds * 1000;
+      ledger.engine = { bin: command.bin, args: command.args };
+      ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
+      writeJsonAtomic(ledgerPath, ledger);
+
+      const runEngine = options.spawnSync || spawnSync;
+      const spawned = runEngine(command.bin, command.args, {
+        cwd: workspace.workspacePath,
+        input: command.input,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: ENGINE_MAX_BUFFER,
+        env: {
+          ...process.env,
+          PM_LOOP_WORKER: "1",
+          PM_LOOP_STAGE: plan.selected.stage || "dev",
+          PM_LOOP_CARD_ID: plan.selected.id,
+          PM_LOOP_RUN_ID: runId,
+          PM_LOOP_RESULT_DIR: resultDir,
+          PM_LOOP_RESULT_FILE: resultFile,
+          PM_LOOP_LOG_DIR: logDir,
+        },
+      });
+      fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
+      fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
+      processInfo = processEvidence(spawned, timeoutMs);
+      exitCode = processInfo.exit_code;
+      ledger.process = processInfo;
+
+      const read = readStageResult(resultFile, {
+        runId,
+        cardId: plan.selected.id,
+        stage,
+      });
+      ledger.stage_result = read;
+      let stageResult;
+      let resultHash;
+      if (!read.ok) {
+        const processDescription = processInfo.timed_out
+          ? "engine timed out"
+          : processInfo.signal
+            ? `engine stopped with ${processInfo.signal}`
+            : `engine exited ${processInfo.exit_code === null ? "without a code" : processInfo.exit_code}`;
+        stageResult = contractFailure(plan, read.code, `${processDescription}; ${read.reason}`);
+        resultHash = resultHashFor(stageResult);
+      } else if (
+        RESULT_SUCCESSES.has(read.result.status) &&
+        (processInfo.exit_code !== 0 ||
+          processInfo.timed_out ||
+          processInfo.signal ||
+          spawned.error)
+      ) {
+        stageResult = contractFailure(
+          plan,
+          "process-result-mismatch",
+          `engine process did not exit 0 for successful result ${read.result.status}`
+        );
+        resultHash = resultHashFor(stageResult);
+      } else {
+        stageResult = read.result;
+        resultHash = `sha256:${read.sha256}`;
+      }
+
+      let artifactVerification = { ok: true };
+      if (stageResult.status !== "failed-contract") {
+        artifactVerification = verifyResultArtifacts({
+          result: stageResult,
+          workspace,
+          projectGitRoot,
+          dispatchRecord,
+          options,
+          resultDir,
+          plan,
+        });
+        ledger.artifact_verification = compactArtifactVerification(artifactVerification);
+        if (!artifactVerification.ok) {
+          stageResult = contractFailure(
+            plan,
+            artifactVerification.code || "artifact-verification-failed",
+            artifactVerification.reason || "result artifacts could not be verified"
+          );
+          resultHash = resultHashFor(stageResult);
         }
       }
-      writeJsonAtomic(ledgerPath, ledger);
+
+      let finalized = finalizeStageOutcome({
+        paths,
+        plan,
+        config,
+        result: stageResult,
+        resultHash,
+        artifactVerification,
+        process: processInfo,
+        options,
+        now,
+        dispatchRecord,
+      });
+      if (!finalized.ok && finalized.status === "failed-contract") {
+        stageResult = contractFailure(plan, "transition-invalid", finalized.reason);
+        resultHash = resultHashFor(stageResult);
+        finalized = finalizeStageOutcome({
+          paths,
+          plan,
+          config,
+          result: stageResult,
+          resultHash,
+          artifactVerification: { ok: true },
+          process: processInfo,
+          options,
+          now,
+          dispatchRecord,
+        });
+      }
+      ledger.finalization = compactFinalization(finalized);
+      status = finalized.status;
+      reason = finalized.reason || "";
     }
+  }
+
+  ledger.status = status;
+  ledger.reason = reason || undefined;
+  ledger.exit_code = exitCode;
+  ledger.ended_at = new Date().toISOString();
+  if (release) ledger.lease_release = release;
+  writeJsonAtomic(ledgerPath, ledger);
+
+  const keepWorkspace = Boolean(config.worker && config.worker.keep_workspace);
+  const preserveEvidence = status === "failed-contract" || status === "finalization-blocked";
+  if (!keepWorkspace && !preserveEvidence && workspace && workspace.ok) {
+    ledger.workspace_removed = removeWorkspace(projectGitRoot, workspace.workspacePath, {
+      timeout: Number(config.claim_envelope.workspace_cleanup_seconds) * 1000,
+    });
+    if (!shipStage && status !== "completed" && ledger.workspace_removed) {
+      try {
+        runGit(["branch", "-D", workspace.branch], projectGitRoot);
+      } catch {
+        // branch may be gone already
+      }
+    }
+    writeJsonAtomic(ledgerPath, ledger);
   }
 
   return {

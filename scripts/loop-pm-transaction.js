@@ -651,11 +651,31 @@ function normalizeTransition(transition) {
   };
 }
 
+function normalizeTerminalEvent(event) {
+  if (event === undefined || event === null) return null;
+  if (
+    typeof event !== "object" ||
+    Array.isArray(event) ||
+    event.terminal !== true ||
+    typeof event.status !== "string" ||
+    event.status.length > 80
+  ) {
+    throw new Error("recovery terminal_event must be a bounded terminal event");
+  }
+  const body = JSON.stringify(event);
+  if (Buffer.byteLength(body) > 32 * 1024) {
+    throw new Error("recovery terminal_event exceeds 32768 bytes");
+  }
+  return JSON.parse(body);
+}
+
 function checkpointRecovery(pmDir, input, options = {}) {
   const runId = assertRunId(input.runId || input.run_id);
   const transition = normalizeTransition(input.transition);
   const checkpointedAt = input.checkpointedAt || input.checkpointed_at || new Date().toISOString();
   const transitionHash = sha256(JSON.stringify(stableValue(transition)));
+  const terminalEvent = normalizeTerminalEvent(input.terminalEvent || input.terminal_event);
+  const terminalEventHash = terminalEvent ? sha256(JSON.stringify(stableValue(terminalEvent))) : "";
   let recovery;
   let updatedLease;
   return runIsolatedTransaction(
@@ -693,6 +713,8 @@ function checkpointRecovery(pmDir, input, options = {}) {
           artifact_hashes: input.artifactHashes || input.artifact_hashes || [],
           transition_hash: transitionHash,
           transition,
+          terminal_event: terminalEvent,
+          terminal_event_hash: terminalEventHash,
           expected_card_revision: lease.expected_card_revision,
           config_fingerprint: lease.config_fingerprint,
         };
@@ -711,11 +733,14 @@ function checkpointRecovery(pmDir, input, options = {}) {
             stableEqual(existingRecovery.artifact_hashes, recovery.artifact_hashes) &&
             existingRecovery.transition_hash === recovery.transition_hash &&
             stableEqual(existingRecovery.transition, recovery.transition) &&
+            stableEqual(existingRecovery.terminal_event, recovery.terminal_event) &&
+            existingRecovery.terminal_event_hash === recovery.terminal_event_hash &&
             event.status === "finalizing" &&
             event.phase === "finalizing" &&
             event.result_hash === existingRecovery.result_hash &&
             stableEqual(event.artifact_hashes, existingRecovery.artifact_hashes) &&
-            event.transition_hash === existingRecovery.transition_hash
+            event.transition_hash === existingRecovery.transition_hash &&
+            event.terminal_event_hash === existingRecovery.terminal_event_hash
           );
           if (!sameCheckpoint) {
             throw new TransactionAbort(
@@ -739,6 +764,7 @@ function checkpointRecovery(pmDir, input, options = {}) {
           result_hash: recovery.result_hash,
           artifact_hashes: recovery.artifact_hashes,
           transition_hash: transitionHash,
+          terminal_event_hash: terminalEventHash,
         };
         writeJsonAtomic(recoveryPath, recovery);
         writeJsonAtomic(path.join(context.workspace, ...paths.lease.split("/")), updatedLease);
@@ -750,6 +776,7 @@ function checkpointRecovery(pmDir, input, options = {}) {
           result_hash: recovery.result_hash,
           artifact_hashes: recovery.artifact_hashes,
           transition_hash: transitionHash,
+          terminal_event_hash: terminalEventHash,
         });
         return { recovery, lease: updatedLease };
       },
@@ -817,6 +844,11 @@ function finalizeRun(pmDir, input, options = {}) {
         }
         const transition = normalizeTransition(recovery.transition);
         const transitionHash = sha256(JSON.stringify(stableValue(transition)));
+        const storedTerminalEvent = normalizeTerminalEvent(recovery.terminal_event);
+        const suppliedTerminalEvent = normalizeTerminalEvent(input.event);
+        const terminalEventHash = storedTerminalEvent
+          ? sha256(JSON.stringify(stableValue(storedTerminalEvent)))
+          : "";
         if (
           transitionHash !== recovery.transition_hash ||
           transitionHash !== lease.transition_hash ||
@@ -824,7 +856,11 @@ function finalizeRun(pmDir, input, options = {}) {
           recovery.result_hash !== lease.result_hash ||
           currentEvent.result_hash !== recovery.result_hash ||
           !stableEqual(recovery.artifact_hashes, lease.artifact_hashes) ||
-          !stableEqual(currentEvent.artifact_hashes, recovery.artifact_hashes)
+          !stableEqual(currentEvent.artifact_hashes, recovery.artifact_hashes) ||
+          (storedTerminalEvent && !stableEqual(storedTerminalEvent, suppliedTerminalEvent)) ||
+          terminalEventHash !== (recovery.terminal_event_hash || "") ||
+          terminalEventHash !== (lease.terminal_event_hash || "") ||
+          terminalEventHash !== (currentEvent.terminal_event_hash || "")
         ) {
           throw new TransactionAbort("recovery-hash-conflict", "recovery transition hash changed");
         }
@@ -952,7 +988,7 @@ function releaseClaim(pmDir, input, options = {}) {
         }
         writeJsonAtomic(eventPath, {
           ...event,
-          status: "released",
+          status: input.eventStatus || input.event_status || "released",
           phase: "released",
           terminal: true,
           released_at: releasedAt,
@@ -1051,6 +1087,9 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
     return { ...base, state: "finalized" };
   }
   if (recovery) {
+    const terminalEventHash = recovery.terminal_event
+      ? sha256(JSON.stringify(stableValue(recovery.terminal_event)))
+      : "";
     if (
       recovery.run_id === runId &&
       recovery.status === "ready-to-finalize" &&
@@ -1071,7 +1110,10 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
       stableEqual(recovery.artifact_hashes, lease.artifact_hashes) &&
       stableEqual(event.artifact_hashes, recovery.artifact_hashes) &&
       recovery.transition_hash === lease.transition_hash &&
-      event.transition_hash === recovery.transition_hash
+      event.transition_hash === recovery.transition_hash &&
+      terminalEventHash === (recovery.terminal_event_hash || "") &&
+      terminalEventHash === (lease.terminal_event_hash || "") &&
+      terminalEventHash === (event.terminal_event_hash || "")
     ) {
       return { ...base, state: "recovery-ready" };
     }

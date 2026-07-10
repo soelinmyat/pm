@@ -10,6 +10,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capabilit
 
 **Goal:** Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
 
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, read existing PM context but consolidate the five-file profiling output and synthesis into `PM_LOOP_RESULT_DIR/artifacts/competitor-{slug}.md`. Preserve source convergence, profile completeness, synthesis, and verification. Skip all normal PM profile, index, insight-routing, and log writes; atomically return the document through `PM_LOOP_RESULT_FILE` as `artifact-ready` (or `blocked`, `failed`, `noop`).
+
 ### Phase 1: Discover
 
 The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.

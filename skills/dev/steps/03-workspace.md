@@ -33,8 +33,10 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
 6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
 7. **Update local backlog status to in-progress:**
 
+   **Loop worker branch:** If `PM_LOOP_WORKER=1`, skip this backlog write (including the parent write) and log `Backlog write: skipped-loop-worker`. The loop worker already owns the durable claim and is the only process allowed to finalize card state. Continue with worktree prep and every implementation/quality gate below.
+
    <HARD-RULE>
-   If `{pm_dir}/backlog/{slug}.md` exists, you MUST update it now. Do not defer this to later.
+   Outside Loop Worker Mode, if `{pm_dir}/backlog/{slug}.md` exists, you MUST update it now. Do not defer this to later.
    </HARD-RULE>
 
    a. Read `{pm_dir}/backlog/{slug}.md`. If it exists and `status` is not already `in-progress` or `done`:
@@ -94,4 +96,6 @@ If tests fail at this point, the worktree setup is broken — not your changes. 
 
 Record the baseline test outcome in the session file (pass, or which tests failed).
 
-Once the repo root, branch, cwd, worktree, backlog status, and baseline test result are recorded and implementation can begin from a verified clean baseline, proceed to Groom Readiness.
+Once the repo root, branch, cwd, worktree, backlog status, and baseline test
+result are recorded and implementation can begin from a verified clean
+baseline, proceed to Step 04 (Groom Readiness).

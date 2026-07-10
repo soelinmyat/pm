@@ -8,6 +8,8 @@ description: Industry landscape research — market overview, key players, keywo
 
 **Goal:** Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
 
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, read existing PM context but write the consolidated landscape to `PM_LOOP_RESULT_DIR/artifacts/landscape.md`. Preserve sourcing, synthesis, user-input defaults, and verification. Skip the normal PM landscape, index, insight-routing, and log writes; atomically return the document through `PM_LOOP_RESULT_FILE` as `artifact-ready` (or `blocked`, `failed`, `noop`).
+
 ### When to Use
 
 First research activity in a new project. Produces the market overview that makes strategy interviews more specific and competitor profiling more targeted.

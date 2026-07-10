@@ -38,6 +38,8 @@ Loop columns are derived from git-synced state under `pm/`:
 | `needs_rfc` | Proposal needs technical design before implementation |
 | `done` | Work is complete |
 
+The canonical card status `needs-human` always maps to `needs_human` and is explicitly non-dispatchable. Only a human decision or an intentional card edit can make it eligible again.
+
 Local `.pm/*` sessions may be displayed as local-only context, but they are not cross-machine claim candidates until summarized into `pm/loop/session-snapshots/`.
 
 Epics use the existing card relations — no loop-specific fields: a card with open `children` is an umbrella and is never dispatched; a child with `parent` set is dispatched only when every earlier sibling in the parent's ordered `children` list is done. Each child still needs its own `implementation_approved` fields (the RFC approval step can write them for the whole epic in one question).
@@ -48,7 +50,7 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 
 - Never start real implementation unless both gates are true — `autonomy.start_dev: true` in `pm/loop/config.json` AND `implementation_approved: true` on the specific backlog card. Verbal approval in chat is not durable cross-machine state.
 - Durable eligibility comes from git-synced `pm/`; local `.pm/*` is runtime state only, never a cross-machine claim candidate. A card is owned only after a lease commit is pushed — a failed claim means no ownership and no dispatch.
-- Loop workers must be script-like and machine-readable — never parse `/pm:dev` transcript output.
+- Loop workers must be script-like and machine-readable — never parse workflow transcript output. Each child writes only its bounded stage envelope through `PM_LOOP_RESULT_FILE`; the worker verifies it and is the sole canonical card-state writer.
 - v1 is git-self-sufficient: don't introduce Linear into the loop path. Schedulers only wake the loop; PM owns board state, leases, and checkpoints. The kill switch and daily budget apply to every wake.
 - Report every wake as dry-run, claimed, blocked, or idle, and keep durable `pm/` state distinct from local `.pm/` state in the summary.
 

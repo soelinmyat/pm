@@ -6,7 +6,11 @@ description: Generate engineering RFC with issue breakdown, test strategy, and r
 
 ## RFC Generation (M/L/XL)
 
+**Goal:** Produce a validated engineering RFC and machine sidecar whose issue breakdown, test strategy, and artifact binding are ready for independent review.
+
 Generate the engineering RFC — the single artifact that contains the technical approach, issue breakdown, test strategy, and risks. The RFC is written directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` using the reference template.
+
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, use the copied proposal/PM context read-only. Write the candidate HTML (and validation scratch such as its JSON sidecar) under `PM_LOOP_RESULT_DIR/artifacts/`, never under `{pm_dir}`. Skip the normal proposal/backlog `rfc:` write in this step. Continue through the same generation, Test Strategy, sidecar, and review gates; Step 03 emits the final document result through `PM_LOOP_RESULT_FILE`.
 
 Dispatch a fresh @developer agent that writes the RFC. A separate fresh agent handles implementation — the approved RFC is the handoff contract.
 
@@ -169,7 +173,11 @@ After receiving `RFC_COMPLETE`:
    ```
    The RFC is NOT done if the validator exits non-zero (missing sidecar, wrong `schema_version`, malformed issues, empty `test_strategy` fields, slug mismatch, or a `data-sidecar-hash` that does not match the sidecar bytes), OR the two issue counts differ, OR the `RFC_COMPLETE` payload `issues: {N}` disagrees with the validated `issues[].length`. Re-dispatch the writer to fix it and revalidate. **Cap at 2 re-dispatches**, then halt and surface the validator output to the user (mirrors the review-loop cap). Do not proceed to RFC Review until the gate passes. The HTML render remains the human artifact; the sidecar is the machine handoff.
 2. Set `task_count` from the **validated sidecar's** `issues[].length` — never the `RFC_COMPLETE` payload (a payload/sidecar mismatch is a gate failure caught in step 1). Record it in the session state.
-3. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity.
-4. Update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`
+3. If sub-issues exist: reconcile RFC Issue sections back to sub-issues, update sizes in state file if the RFC reveals different complexity. In Loop Worker Mode, keep this local to the run and skip PM/backlog writes.
+4. Outside Loop Worker Mode, update the proposal's frontmatter: set `rfc: rfcs/{slug}.html` in `{pm_dir}/backlog/{slug}.md`. If `PM_LOOP_WORKER=1`, skip this backlog write.
 5. Update `{source_dir}/.pm/rfc-sessions/{slug}.md` with RFC path, commit SHA, and worker metadata
 6. Proceed to RFC Review.
+
+When the HTML and sidecar pass schema, hash-binding, slug, and issue-count
+checks, task count and session state are updated, and loop mode has made no
+canonical backlog write, proceed to Step 03 (RFC Review).

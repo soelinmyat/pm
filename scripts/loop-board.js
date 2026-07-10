@@ -9,6 +9,7 @@ const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { parseBooleanFlag, resolveKind } = require("./validate.js");
 const { listDevSessions, listMarkdownFiles, safeRead, safeStat } = require("./lib/session-scan.js");
+const { isNeedsHumanStatus, normalizeStatus } = require("./loop-card-state.js");
 const { listLeases } = require("./loop-git.js");
 
 const COLUMN_ORDER = [
@@ -33,14 +34,6 @@ function asBool(value) {
   if (value === false) return false;
   if (typeof value !== "string") return false;
   return ["true", "yes", "y", "1", "approved"].includes(value.trim().toLowerCase());
-}
-
-function normalizeStatus(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/_/g, "-");
 }
 
 function cardIdFor(filePath, data) {
@@ -104,6 +97,13 @@ function stageToColumn(stage) {
 function classifyBacklogCard(card) {
   const status = normalizeStatus(card.status);
 
+  if (isNeedsHumanStatus(status)) {
+    return {
+      column: "needs_human",
+      blocker: card.blockerReason || "human review or action is required",
+    };
+  }
+
   if (["shipped", "done", "closed", "complete", "completed"].includes(status)) {
     return { column: "done" };
   }
@@ -166,6 +166,14 @@ function readBacklogCards(pmDir, sourceDir) {
         branch: data.branch || "",
         size: normalizeSize(data.size),
         prs: normalizePrs(data.prs),
+        prDispatchAt: typeof data.pr_dispatch_at === "string" ? data.pr_dispatch_at : "",
+        blockerCode: typeof data.blocker_code === "string" ? data.blocker_code : "",
+        blockerReason: typeof data.blocker_reason === "string" ? data.blocker_reason : "",
+        blockerRemediation:
+          typeof data.blocker_remediation === "string" ? data.blocker_remediation : "",
+        loopRunId: typeof data.loop_run_id === "string" ? data.loop_run_id : "",
+        loopLogPath: typeof data.loop_log_path === "string" ? data.loop_log_path : "",
+        retryAfter: typeof data.retry_after === "string" ? data.retry_after : "",
         parent: typeof data.parent === "string" ? data.parent : null,
         childrenSlugs: Array.isArray(data.children) ? data.children.map(String) : [],
         implementationApproved,
@@ -301,7 +309,7 @@ function readSnapshotCards(pmDir, existingById, sourceDir) {
     const existing = existingById.get(id);
     if (existing) {
       existing.snapshot = snapshot;
-      if (snapshot.stage) {
+      if (snapshot.stage && !isNeedsHumanStatus(existing.status)) {
         existing.column = stageToColumn(snapshot.stage);
         existing.command = commandFor(existing, existing.column);
       }
@@ -325,9 +333,11 @@ function readSnapshotCards(pmDir, existingById, sourceDir) {
       relativePath: relPath(sourceDir, filePath),
       origin: "loop-snapshot",
       snapshot,
-      column: stageToColumn(snapshot.stage || snapshot.status || "active"),
+      column: isNeedsHumanStatus(snapshot.status)
+        ? "needs_human"
+        : stageToColumn(snapshot.stage || snapshot.status || "active"),
     };
-    card.command = commandFor(card, card.column);
+    card.command = card.column === "needs_human" ? "" : commandFor(card, card.column);
     cards.push(card);
   }
   return cards;
@@ -340,6 +350,7 @@ function attachLeases(cards, pmDir, now) {
     if (!lease.valid_json || lease.expired) continue;
     const card = byCard.get(lease.card_id);
     if (!card) continue;
+    if (isNeedsHumanStatus(card.status)) continue;
     card.lease = {
       stage: lease.stage,
       holder: lease.holder,

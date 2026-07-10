@@ -145,6 +145,63 @@ test("parent with all children done lands in needs_human for close-out", (t) => 
   assert.match(row.blocker, /close out the epic parent/);
 });
 
+test("shipping cards expose retry_after for selector deferral", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/waiting.md",
+    fm({
+      type: "backlog",
+      id: "PM-WAIT",
+      title: "Waiting for checks",
+      kind: "task",
+      status: "shipping",
+      retry_after: "2026-06-23T00:05:00Z",
+      pr_dispatch_at: "2026-06-22T23:50:00Z",
+    }) + "body"
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+  assert.equal(board.columns.shipping[0].retryAfter, "2026-06-23T00:05:00Z");
+  assert.equal(board.columns.shipping[0].prDispatchAt, "2026-06-22T23:50:00Z");
+});
+
+test("canonical needs-human cards are explicitly non-dispatchable", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+
+  project.write(
+    "pm/backlog/human-decision.md",
+    approvedCard("PM-301", "Human decision").replace(
+      "status: planned",
+      [
+        "status: needs-human",
+        'blocker_code: "merge-approval-required"',
+        'blocker_reason: "A human must merge this PR"',
+      ].join("\n")
+    )
+  );
+  project.write(
+    "pm/loop/session-snapshots/stale.json",
+    JSON.stringify({ card_id: "PM-301", stage: "dev", status: "in-progress" })
+  );
+  project.write(
+    "pm/loop/session-snapshots/snapshot-human.json",
+    JSON.stringify({ card_id: "PM-302", title: "Snapshot human", status: "needs-human" })
+  );
+
+  const board = buildLoopBoard(project.root, { now: FIXED_NOW });
+  const row = board.columns.needs_human.find((card) => card.id === "PM-301");
+  assert.ok(row, JSON.stringify(board.columns));
+  assert.equal(row.command, "");
+  assert.equal(row.blocker, "A human must merge this PR");
+  assert.ok(!board.columns.ready_for_dev.some((card) => card.id === "PM-301"));
+  assert.ok(!board.columns.implementing.some((card) => card.id === "PM-301"));
+  const snapshotOnly = board.columns.needs_human.find((card) => card.id === "PM-302");
+  assert.ok(snapshotOnly, JSON.stringify(board.columns));
+  assert.equal(snapshotOnly.command, "");
+});
+
 test("loop board classifies backlog cards by durable git-backed fields", (t) => {
   const project = createProject();
   t.after(project.cleanup);

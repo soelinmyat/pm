@@ -10,6 +10,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` for the KB search protocol 
 
 **Goal:** Produce (or update) a sourced evidence file for a specific topic, route findings into insight topics, and update all indexes — so the topic's knowledge is durable and discoverable by downstream skills.
 
+**Loop worker branch:** If `PM_LOOP_WORKER=1`, read existing PM context but write the sourced topic document to `PM_LOOP_RESULT_DIR/artifacts/{topic-slug}.md`. Preserve source convergence, mixed-origin ownership checks, synthesis, and verification. Skip normal PM evidence, index, insight-routing, citation, and log writes; atomically return the document through `PM_LOOP_RESULT_FILE` as `artifact-ready` (or `blocked`, `failed`, `noop`).
+
 For targeted deep dives not covered by landscape or competitor profiling.
 
 ### How
