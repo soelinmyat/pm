@@ -15,6 +15,7 @@ const {
   countCardAttempts,
   countRunsToday,
   engineCommand,
+  findNoProgressSuppressionInSnapshot,
   isDispatchableCommand,
   parseArgs,
   prepareWorkspace,
@@ -1610,6 +1611,64 @@ test("a durable no-progress signature suppresses the next identical card/stage e
   } finally {
     fixture.cleanup();
   }
+});
+
+test("released no-progress events use released_at to select the latest blocker signature", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-released-order-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  const plan = {
+    selected: { id: "PM-ORDER", stage: "dev" },
+    fingerprint_input: {
+      card_revision: `sha256:${"1".repeat(64)}`,
+      execution_config_hash: `sha256:${"2".repeat(64)}`,
+    },
+  };
+  const executionFingerprint = sha256(
+    JSON.stringify({ execution_config_hash: plan.fingerprint_input.execution_config_hash })
+  );
+  const writeReleased = (runId, blockerSignature, releasedAt, firstRunId) => {
+    const context = {
+      card_id: plan.selected.id,
+      stage: plan.selected.stage,
+      card_revision: plan.fingerprint_input.card_revision,
+      execution_fingerprint: executionFingerprint,
+    };
+    fs.writeFileSync(
+      path.join(eventDir, `${runId}.json`),
+      JSON.stringify({
+        run_id: runId,
+        card_id: plan.selected.id,
+        stage: plan.selected.stage,
+        status: "failed",
+        terminal: true,
+        released_at: releasedAt,
+        no_progress: {
+          ...context,
+          blocker_signature: blockerSignature,
+          signature: sha256(JSON.stringify({ ...context, blocker_signature: blockerSignature })),
+          first_run_id: firstRunId,
+          last_run_id: runId,
+        },
+      })
+    );
+  };
+  const blockerA = `sha256:${"a".repeat(64)}`;
+  const blockerB = `sha256:${"b".repeat(64)}`;
+  const a1 = "loop-11111111-1111-4111-8111-111111111111";
+  const a2 = "loop-22222222-2222-4222-8222-222222222222";
+  const b1 = "loop-88888888-8888-4888-8888-888888888888";
+  const b2 = "loop-99999999-9999-4999-8999-999999999999";
+  writeReleased(a1, blockerA, "2026-07-10T01:00:00.000Z", a1);
+  writeReleased(a2, blockerA, "2026-07-10T02:00:00.000Z", a1);
+  writeReleased(b1, blockerB, "2026-07-10T03:00:00.000Z", b1);
+  writeReleased(b2, blockerB, "2026-07-10T04:00:00.000Z", b1);
+
+  const suppression = findNoProgressSuppressionInSnapshot(root, plan, 2);
+  assert.equal(suppression.blocker_signature, blockerB);
+  assert.equal(suppression.first_run_id, b1);
+  assert.equal(suppression.last_run_id, b2);
 });
 
 test("corrupt no-progress signatures fail closed without another engine execution", () => {

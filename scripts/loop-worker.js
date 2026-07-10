@@ -242,6 +242,15 @@ function noProgressEvidence(plan, result, previous = null) {
   };
 }
 
+function terminalEventTime(event) {
+  const timestamp = event.finalized_at || event.released_at || "";
+  const value = Date.parse(timestamp);
+  if (!Number.isFinite(value)) {
+    throw new Error(`malformed no-progress terminal timestamp for ${event.run_id}`);
+  }
+  return value;
+}
+
 function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
   if (!plan.selected || maxIdentical < 1) return null;
   const context = noProgressContext(plan);
@@ -276,6 +285,7 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
       ) {
         return false;
       }
+      terminalEventTime(event);
       const expected = sha256(
         JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
       );
@@ -284,7 +294,11 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
       }
       return true;
     })
-    .sort((a, b) => String(b.finalized_at || "").localeCompare(String(a.finalized_at || "")));
+    .sort(
+      (a, b) =>
+        terminalEventTime(b) - terminalEventTime(a) ||
+        String(b.run_id).localeCompare(String(a.run_id))
+    );
   const latest = events[0];
   if (!latest) return null;
   const identical = events.filter(
@@ -1653,6 +1667,7 @@ module.exports = {
   countRunsToday,
   engineCommand,
   findNoProgressSuppression,
+  findNoProgressSuppressionInSnapshot,
   isDispatchableCommand,
   isStopped,
   killSwitchPath,
