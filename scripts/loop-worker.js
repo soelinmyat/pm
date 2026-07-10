@@ -47,6 +47,7 @@ const {
   copyReadContext,
   recordQuarantine,
   runPreflight,
+  snapshotProtectedPmState,
 } = require("./loop-preflight.js");
 const {
   createRunResultCapability,
@@ -411,6 +412,36 @@ function contractFailure(plan, code, reason) {
     reason,
     remediation: "Inspect the preserved workspace, result directory, and bounded run logs.",
   });
+}
+
+function parseRefSnapshot(value) {
+  const refs = new Map();
+  for (const line of String(value || "")
+    .split(/\r?\n/)
+    .filter(Boolean)) {
+    const separator = line.lastIndexOf(":");
+    refs.set(
+      separator >= 0 ? line.slice(0, separator) : line,
+      separator >= 0 ? line.slice(separator + 1) : ""
+    );
+  }
+  return refs;
+}
+
+function protectedPmStateUnchanged(before, after, sourceBranch = "") {
+  if (!before || !after) return false;
+  for (const field of ["git_root", "head", "tree_hash", "protected_status"]) {
+    if (String(before[field] || "") !== String(after[field] || "")) return false;
+  }
+  const allowed = new Set(
+    sourceBranch ? [`refs/heads/${sourceBranch}`, `refs/remotes/origin/${sourceBranch}`] : []
+  );
+  const left = parseRefSnapshot(before.refs);
+  const right = parseRefSnapshot(after.refs);
+  for (const ref of new Set([...left.keys(), ...right.keys()])) {
+    if (!allowed.has(ref) && left.get(ref) !== right.get(ref)) return false;
+  }
+  return true;
 }
 
 function resultHashFor(result) {
@@ -931,28 +962,70 @@ function runWorker(projectDir, options = {}) {
       writeJsonAtomic(ledgerPath, ledger);
 
       const runEngine = options.spawnSync || spawnSync;
-      const spawned = runEngine(command.bin, command.args, {
-        cwd: workspace.workspacePath,
-        input: command.input,
-        encoding: "utf8",
-        timeout: timeoutMs,
-        maxBuffer: ENGINE_MAX_BUFFER,
-        env: {
-          ...process.env,
-          PM_LOOP_WORKER: "1",
-          PM_LOOP_STAGE: plan.selected.stage || "dev",
-          PM_LOOP_CARD_ID: plan.selected.id,
-          PM_LOOP_RUN_ID: runId,
-          PM_LOOP_RESULT_DIR: resultDir,
-          PM_LOOP_RESULT_FILE: resultFile,
-          PM_LOOP_LOG_DIR: logDir,
-        },
-      });
+      const snapshotPm = options.snapshotProtectedPmState || snapshotProtectedPmState;
+      let protectedBefore;
+      let protectedBeforeError = "";
+      try {
+        protectedBefore = snapshotPm(paths.pmDir);
+      } catch (err) {
+        protectedBeforeError = String(err.message || err).slice(0, 2000);
+      }
+      const spawned = protectedBeforeError
+        ? {
+            status: null,
+            signal: null,
+            stdout: "",
+            stderr: "",
+            error: { code: "EPROTECTEDSNAPSHOT", message: protectedBeforeError },
+          }
+        : runEngine(command.bin, command.args, {
+            cwd: workspace.workspacePath,
+            input: command.input,
+            encoding: "utf8",
+            timeout: timeoutMs,
+            maxBuffer: ENGINE_MAX_BUFFER,
+            env: {
+              ...process.env,
+              PM_LOOP_WORKER: "1",
+              PM_LOOP_STAGE: plan.selected.stage || "dev",
+              PM_LOOP_CARD_ID: plan.selected.id,
+              PM_LOOP_RUN_ID: runId,
+              PM_LOOP_RESULT_DIR: resultDir,
+              PM_LOOP_RESULT_FILE: resultFile,
+              PM_LOOP_LOG_DIR: logDir,
+            },
+          });
       fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
       fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
       processInfo = processEvidence(spawned, timeoutMs);
       exitCode = processInfo.exit_code;
       ledger.process = processInfo;
+
+      let protectedAfter;
+      let protectedAfterError = "";
+      if (!protectedBeforeError) {
+        try {
+          protectedAfter = snapshotPm(paths.pmDir);
+        } catch (err) {
+          protectedAfterError = String(err.message || err).slice(0, 2000);
+        }
+      }
+      const protectedPmChanged =
+        !protectedBeforeError &&
+        !protectedAfterError &&
+        !protectedPmStateUnchanged(protectedBefore, protectedAfter, workspace.branch);
+      const protectedPmVerification = {
+        ok: !protectedBeforeError && !protectedAfterError && !protectedPmChanged,
+        code: protectedBeforeError
+          ? "protected-pm-snapshot-failed"
+          : protectedAfterError
+            ? "protected-pm-post-run-snapshot-failed"
+            : protectedPmChanged
+              ? "protected-pm-state-changed"
+              : "",
+        reason: protectedBeforeError || protectedAfterError || "",
+      };
+      ledger.protected_pm_verification = protectedPmVerification;
 
       const read = readStageResult(resultFile, {
         runId,
@@ -962,7 +1035,15 @@ function runWorker(projectDir, options = {}) {
       ledger.stage_result = read;
       let stageResult;
       let resultHash;
-      if (!read.ok) {
+      if (!protectedPmVerification.ok) {
+        stageResult = contractFailure(
+          plan,
+          protectedPmVerification.code,
+          protectedPmVerification.reason ||
+            "engine execution changed PM refs or protected PM path status"
+        );
+        resultHash = resultHashFor(stageResult);
+      } else if (!read.ok) {
         const processDescription = processInfo.timed_out
           ? "engine timed out"
           : processInfo.signal
@@ -1139,6 +1220,7 @@ module.exports = {
   isStopped,
   killSwitchPath,
   prepareWorkspace,
+  protectedPmStateUnchanged,
   readLedgers,
   releaseLease,
   runsDirFor,

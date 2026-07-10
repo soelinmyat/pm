@@ -16,6 +16,7 @@ const {
   engineCommand,
   isDispatchableCommand,
   prepareWorkspace,
+  protectedPmStateUnchanged,
   runWorker,
 } = require("../scripts/loop-worker.js");
 const { runLoop } = require("../scripts/loop-runner.js");
@@ -868,6 +869,12 @@ test("structured dev success checkpoints and finalizes shipping as the sole dura
     assert.equal(card.status, "shipping");
     assert.equal(card.branch, result.branch);
     assert.deepEqual(card.prs, ["#342"]);
+    assert.equal(card.pr_repo, "openai/pm");
+    assert.equal(card.pr_number, "342");
+    assert.equal(card.pr_url, "https://github.com/openai/pm/pull/342");
+    assert.equal(card.pr_base, "main");
+    assert.equal(card.pr_head_oid, git(["rev-parse", "HEAD"], result.workspace));
+    assert.equal(card.pr_created_at, "2026-07-10T10:01:00Z");
     assert.equal(card.loop_run_id, result.run_id);
     assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
     const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
@@ -881,6 +888,92 @@ test("structured dev success checkpoints and finalizes shipping as the sole dura
   } finally {
     fixture.cleanup();
   }
+});
+
+test("post-run enforcement rejects an engine that mutates protected PM refs or status", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "protected snapshot fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    let snapshots = 0;
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      ...verifiedWorkerOptions(),
+      snapshotProtectedPmState() {
+        snapshots += 1;
+        return snapshots === 1
+          ? { head: "before", refs: "refs-before", protected_status: "" }
+          : { head: "before", refs: "refs-after", protected_status: " M pm/backlog/pm-t1.md" };
+      },
+    });
+
+    assert.equal(result.status, "failed-contract", JSON.stringify(result));
+    assert.equal(snapshots, 2);
+    const card = parseFrontmatter(readRemoteCard(fixture)).data;
+    assert.equal(card.status, "needs-human");
+    assert.equal(card.blocker_code, "failed-contract");
+    assert.match(card.blocker_reason, /protected-pm-state-changed/);
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.protected_pm_verification.ok, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("post-run PM comparison permits only the expected source branch refs in same-repo mode", () => {
+  const before = {
+    git_root: "/repo",
+    head: "main-oid",
+    refs: [
+      `refs/heads/main:${"a".repeat(40)}`,
+      `refs/heads/loop/pm-404:${"b".repeat(40)}`,
+      `refs/remotes/origin/main:${"a".repeat(40)}`,
+    ].join("\n"),
+    protected_status: "",
+  };
+  const sourceOnly = {
+    ...before,
+    refs: [
+      `refs/heads/main:${"a".repeat(40)}`,
+      `refs/heads/loop/pm-404:${"c".repeat(40)}`,
+      `refs/remotes/origin/main:${"a".repeat(40)}`,
+      `refs/remotes/origin/loop/pm-404:${"c".repeat(40)}`,
+    ].join("\n"),
+  };
+  assert.equal(protectedPmStateUnchanged(before, sourceOnly, "loop/pm-404"), true);
+  assert.equal(
+    protectedPmStateUnchanged(
+      before,
+      { ...sourceOnly, protected_status: " M pm/backlog/x.md" },
+      "loop/pm-404"
+    ),
+    false
+  );
+  assert.equal(
+    protectedPmStateUnchanged(
+      before,
+      {
+        ...sourceOnly,
+        refs: sourceOnly.refs.replace(
+          "refs/heads/main:" + "a".repeat(40),
+          "refs/heads/main:" + "d".repeat(40)
+        ),
+      },
+      "loop/pm-404"
+    ),
+    false
+  );
 });
 
 test("RFC artifact result is verified, copied, and parked for human approval", () => {

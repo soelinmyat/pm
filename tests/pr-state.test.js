@@ -12,6 +12,7 @@ const PR_STATE = path.join(ROOT, "scripts", "pr-state.js");
 const {
   getPrState,
   getPrInfo,
+  inspectPullRequest,
   verifyPullRequest,
   reconcileCrashedTask,
   runGhWithRetry,
@@ -184,6 +185,8 @@ function remotePr(overrides = {}) {
     baseRefName: "main",
     headRefName: "loop/pm-108",
     headRefOid: "a".repeat(40),
+    changedFiles: 0,
+    files: [],
     ...overrides,
   };
 }
@@ -227,6 +230,77 @@ test("repository-pinned OPEN verification matches repo, number/url, base, head/O
   assert.deepEqual(calls[0].slice(0, 6), ["pr", "view", "42", "--repo", "openai/pm", "--json"]);
   assert.match(calls[0][6], /state,createdAt,mergedAt,mergeCommit,number,url/);
   assert.match(calls[0][6], /baseRefName,headRefName,headRefOid/);
+  assert.match(calls[0][6], /files/);
+  assert.match(calls[0][6], /changedFiles/);
+});
+
+test("repository-pinned verification fails closed when GitHub returns an incomplete file list", () => {
+  const files = Array.from({ length: 100 }, (_, index) => ({ path: `scripts/file-${index}.js` }));
+  const { checked } = verify(resultPr(), remotePr({ changedFiles: 101, files }));
+  assert.equal(checked.ok, false);
+  assert.match(checked.reason, /file list.*incomplete/i);
+});
+
+test("repository-pinned verification rejects worker-owned PM, lease, recovery, event, and ledger paths", () => {
+  for (const protectedPath of [
+    "pm/backlog/pm-108.md",
+    "pm/loop/leases/dev-pm-108.json",
+    "pm/loop/recovery/loop-run.json",
+    "pm/loop/events/loop-run.json",
+    ".pm/loop-runs/loop-run.json",
+    ".dev-lifecycle-stage",
+  ]) {
+    const { checked } = verify(
+      resultPr(),
+      remotePr({ changedFiles: 1, files: [{ path: protectedPath }] })
+    );
+    assert.equal(checked.ok, false, protectedPath);
+    assert.match(checked.reason, /protected.*path/i);
+    assert.deepEqual(checked.protectedPaths, [protectedPath]);
+  }
+});
+
+test("reconcile inspection accepts only repository-pinned OPEN or MERGED identity and returns merge evidence", () => {
+  const stored = resultPr();
+  const open = inspectPullRequest(stored, {
+    expectedRepo: "openai/pm",
+    expectedBase: "main",
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    runGh: ghInfo(remotePr()),
+    sleep: noSleep,
+  });
+  assert.equal(open.ok, true, JSON.stringify(open));
+  assert.equal(open.state, "OPEN");
+
+  const merged = inspectPullRequest(stored, {
+    expectedRepo: "openai/pm",
+    expectedBase: "main",
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    runGh: ghInfo(
+      remotePr({
+        state: "MERGED",
+        mergedAt: "2026-07-03T10:10:00Z",
+        mergeCommit: { oid: "b".repeat(40) },
+      })
+    ),
+    sleep: noSleep,
+  });
+  assert.equal(merged.ok, true, JSON.stringify(merged));
+  assert.equal(merged.state, "MERGED");
+  assert.deepEqual(merged.merge, {
+    merge_sha: "b".repeat(40),
+    merged_at: "2026-07-03T10:10:00Z",
+  });
+
+  const unknown = inspectPullRequest(stored, {
+    expectedRepo: "openai/pm",
+    expectedBase: "main",
+    dispatchedAt: "2026-07-03T10:00:00Z",
+    runGh: () => ({ code: 1, stdout: "", stderr: "HTTP 502 Bad Gateway" }),
+    sleep: noSleep,
+  });
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.state, "UNKNOWN");
 });
 
 test("OPEN verification fails closed for every identity or recency mismatch", () => {

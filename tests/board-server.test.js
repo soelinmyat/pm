@@ -540,3 +540,30 @@ test("D3/D8: blocker copy is humanized and levelled at the source", () => {
   assert.equal(blockerLevel({ blocker: null }), null);
   assert.equal(humanizeBlocker(null), null);
 });
+
+test("stored blocker remediation and run ID are present in board payload and page rendering", () => {
+  const project = createProject();
+  project.write(
+    "pm/backlog/blocked.md",
+    approvedCard("PM-404", "Blocked task").replace(
+      "status: planned",
+      [
+        "status: needs-human",
+        'blocker_code: "failed-contract"',
+        'blocker_reason: "Remote evidence could not be verified"',
+        'blocker_remediation: "Run /pm:loop reconcile after GitHub recovers."',
+        'loop_run_id: "loop-123"',
+      ].join("\n")
+    )
+  );
+
+  const payload = buildBoardPayload({ pmDir: project.pmDir, now: FIXED_NOW });
+  const card = payload.cards.find((row) => row.id === "PM-404");
+  project.cleanup();
+
+  assert.equal(card.blocker_remediation, "Run /pm:loop reconcile after GitHub recovers.");
+  assert.equal(card.run_id, "loop-123");
+  const html = require("../scripts/board-server.js").renderPage();
+  assert.match(html, /card\.blocker_remediation/);
+  assert.match(html, /card\.run_id/);
+});

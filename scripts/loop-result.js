@@ -14,6 +14,7 @@ const {
 const { RUN_ID_PATTERN } = require("./loop-pm-transaction.js");
 const { runGit } = require("./loop-git.js");
 const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
+const { protectedSourcePaths } = require("./loop-protection.js");
 
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
@@ -498,9 +499,7 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
   } catch (err) {
     return failed("source-diff-unreadable", `source diff could not be verified: ${err.message}`);
   }
-  const protectedPaths = changedFiles.filter(
-    (file) => file === ".dev-lifecycle-stage" || file.startsWith(".pm/") || file.startsWith("pm/")
-  );
+  const protectedPaths = protectedSourcePaths(changedFiles);
   if (protectedPaths.length > 0) {
     return {
       ...failed(

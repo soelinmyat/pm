@@ -21,6 +21,14 @@ const MANAGED_FIELDS = [
   "branch",
   "prs",
   "pr_dispatch_at",
+  "pr_repo",
+  "pr_number",
+  "pr_url",
+  "pr_base",
+  "pr_head_oid",
+  "pr_created_at",
+  "pr_merge_sha",
+  "pr_merged_at",
   "retry_after",
   "blocker_code",
   "blocker_reason",
@@ -102,7 +110,15 @@ function prFields(artifact, dispatchAt) {
   const fields = {
     branch: bounded(artifact.head, 201),
     prs: [`#${artifact.number}`],
+    pr_repo: bounded(artifact.repo, 201),
+    pr_number: artifact.number,
+    pr_url: bounded(artifact.url, 512),
+    pr_base: bounded(artifact.base, 201),
+    pr_head_oid: bounded(artifact.head_oid, 80),
+    pr_created_at: bounded(artifact.created_at, 40),
   };
+  if (artifact.merge_sha) fields.pr_merge_sha = bounded(artifact.merge_sha, 80);
+  if (artifact.merged_at) fields.pr_merged_at = bounded(artifact.merged_at, 40);
   if (dispatchAt) fields.pr_dispatch_at = bounded(dispatchAt, 40);
   return fields;
 }
@@ -121,6 +137,20 @@ function durablePrFields(input) {
   if (prs.length > 0) fields.prs = prs.slice(0, 16).map((value) => bounded(value, 32));
   if (typeof data.pr_dispatch_at === "string" && data.pr_dispatch_at.trim()) {
     fields.pr_dispatch_at = bounded(data.pr_dispatch_at, 40);
+  }
+  for (const [key, max] of [
+    ["pr_repo", 201],
+    ["pr_number", 32],
+    ["pr_url", 512],
+    ["pr_base", 201],
+    ["pr_head_oid", 80],
+    ["pr_created_at", 40],
+    ["pr_merge_sha", 80],
+    ["pr_merged_at", 40],
+  ]) {
+    if (data[key] !== undefined && String(data[key]).trim()) {
+      fields[key] = bounded(data[key], max);
+    }
   }
   return fields;
 }
@@ -359,6 +389,7 @@ function buildContractFailureResult(input) {
 
 module.exports = {
   CANONICAL_CARD_STATUSES,
+  MANAGED_FIELDS,
   buildContractFailureResult,
   buildStageTransition,
   isNeedsHumanStatus,

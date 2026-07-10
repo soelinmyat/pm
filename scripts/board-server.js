@@ -161,6 +161,8 @@ function enrichCard(card, remote, now) {
     column: card.column,
     blocker: humanizeBlocker(card.blocker),
     blocker_level: blockerLevel(card),
+    blocker_remediation: card.blockerRemediation || null,
+    run_id: card.loopRunId || null,
     command: card.command || null,
     origin: card.origin || null,
     updated_epoch: card.updatedEpoch || 0,
@@ -743,6 +745,7 @@ function renderPage() {
     var meta = [];
     if (card.branch) meta.push('<span class="branch">' + esc(card.branch) + "</span>");
     if (card.updated_at) meta.push("<span>" + esc(relAge(card.updated_at)) + "</span>");
+    if (card.run_id) meta.push('<span class="branch">run ' + esc(card.run_id) + "</span>");
 
     var prs = "";
     if (card.prLinks && card.prLinks.length) {
@@ -758,6 +761,9 @@ function renderPage() {
       var problem = card.blocker_level === "problem";
       blocker = '<div class="blocker ' + (problem ? "problem" : "wait") + '">' +
         (problem ? "⚠ " : "⏳ ") + esc(card.blocker) + "</div>";
+    }
+    if (card.blocker_remediation) {
+      blocker += '<div class="blocker wait">Next: ' + esc(card.blocker_remediation) + "</div>";
     }
 
     var style = color ? ' style="border-left-color:' + color + '"' : "";
