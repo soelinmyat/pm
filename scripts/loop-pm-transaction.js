@@ -91,6 +91,35 @@ function readJsonIfExists(filePath) {
   return fs.existsSync(filePath) ? readJson(filePath) : null;
 }
 
+function requireRealDirectoryIfExists(dirPath, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(dirPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`${label} must be a real directory, not a symbolic link`);
+  }
+  return true;
+}
+
+function readJsonNoFollow(filePath) {
+  const before = fs.lstatSync(filePath);
+  if (before.isSymbolicLink() || !before.isFile()) {
+    throw new Error(`JSON evidence is not a real file: ${filePath}`);
+  }
+  let fd = null;
+  try {
+    fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    if (!fs.fstatSync(fd).isFile()) throw new Error(`JSON evidence is not a file: ${filePath}`);
+    return JSON.parse(fs.readFileSync(fd, "utf8"));
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 function timeoutValue(timeout) {
   return typeof timeout === "function" ? timeout() : timeout;
 }
@@ -1101,11 +1130,18 @@ function buildLeaseIndex(pmDir) {
   const byRun = new Map();
   const invalid = [];
   const records = [];
-  if (!fs.existsSync(leaseDir)) return { byRun, invalid, records };
+  try {
+    if (!requireRealDirectoryIfExists(leaseDir, "lease evidence directory")) {
+      return { byRun, invalid, records };
+    }
+  } catch (error) {
+    invalid.push(error.message);
+    return { byRun, invalid, records };
+  }
   for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
     try {
-      const lease = JSON.parse(fs.readFileSync(path.join(leaseDir, entry.name), "utf8"));
+      const lease = readJsonNoFollow(path.join(leaseDir, entry.name));
       records.push({ entry: entry.name, lease });
       if (lease.run_id) {
         const matches = byRun.get(lease.run_id) || [];
@@ -1283,16 +1319,22 @@ function scanSnapshotTransactions(pmDir, options = {}) {
 
 function scanSnapshotFinalizedEvents(pmDir, options = {}) {
   const eventDir = path.join(pmDir, "loop", "events");
-  if (!fs.existsSync(eventDir)) return [];
+  const leaseDir = path.join(pmDir, "loop", "leases");
+  const recoveryDir = path.join(pmDir, "loop", "recovery");
+  if (!requireRealDirectoryIfExists(eventDir, "events evidence directory")) return [];
+  requireRealDirectoryIfExists(leaseDir, "lease evidence directory");
+  requireRealDirectoryIfExists(recoveryDir, "recovery evidence directory");
   const leaseIndex = buildLeaseIndex(pmDir);
-  if (leaseIndex.invalid.length > 0) return [];
+  if (leaseIndex.invalid.length > 0) {
+    throw new Error(`lease evidence is invalid: ${leaseIndex.invalid[0]}`);
+  }
   const events = [];
   for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
     if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
     const runId = entry.name.slice(0, -5);
     if (!RUN_ID_PATTERN.test(runId)) continue;
     try {
-      const event = JSON.parse(fs.readFileSync(path.join(eventDir, entry.name), "utf8"));
+      const event = readJsonNoFollow(path.join(eventDir, entry.name));
       if (
         event.run_id !== runId ||
         event.terminal !== true ||

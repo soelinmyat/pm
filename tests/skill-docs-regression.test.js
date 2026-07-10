@@ -128,6 +128,7 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
   assert.match(all, /scheduler.*(paused|uninstalled).*until/is);
   assert.match(all, /--scheduled/);
   assert.match(all, /scheduled.*wake.*rechecks/is);
+  assert.match(work, /loop-worker\.js --project-dir "\$PWD" --manual/);
   assert.match(route, /canary-required/);
   assert.match(installStep, /Linux updates crontab/);
   assert.match(all, /does not support exact token cutoffs/i);

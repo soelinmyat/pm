@@ -40,6 +40,8 @@ an engine has no structured usage and does not support exact token cutoffs in th
 Generated launchd/cron assets are previews only. `--install` owns activation and marks
 unattended wakes with `--scheduled`; each scheduled wake rechecks the current evidence
 identity before claiming work.
+Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
+scheduler entries; an explicitly supervised one-off worker run uses `--manual`.
 
 The instructions below install PM for your user account. If you prefer a repo-local install, replace `~/.agents` with `<project>/.agents`.
 

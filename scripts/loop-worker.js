@@ -1579,6 +1579,7 @@ function parseArgs(argv) {
     allowUnsynced: false,
     cardId: "",
     scheduled: false,
+    manual: false,
   };
   const { args, positionals } = parseCliArgs(
     argv,
@@ -1594,10 +1595,18 @@ function parseArgs(argv) {
       "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
       "--card": { key: "cardId", type: "string" },
       "--scheduled": { key: "scheduled", type: "boolean" },
+      "--manual": { key: "manual", type: "boolean" },
     },
     defaults
   );
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
+  if (args.scheduled && args.manual) {
+    throw new Error("--scheduled and --manual are mutually exclusive");
+  }
+  // Legacy scheduler entries did not carry --scheduled. Default every CLI
+  // invocation to scheduler-safe gating and require an explicit marker for a
+  // human-supervised one-off run. Programmatic canary calls bypass this parser.
+  args.scheduled = args.scheduled || !args.manual;
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
   if (args.pmStateDir) args.pmStateDir = path.resolve(args.pmStateDir);
@@ -1628,6 +1637,7 @@ module.exports = {
   isDispatchableCommand,
   isStopped,
   killSwitchPath,
+  parseArgs,
   prepareWorkspace,
   protectedPmStateUnchanged,
   readLedgers,

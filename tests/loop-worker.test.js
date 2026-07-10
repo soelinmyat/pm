@@ -16,6 +16,7 @@ const {
   countRunsToday,
   engineCommand,
   isDispatchableCommand,
+  parseArgs,
   prepareWorkspace,
   protectedPmStateUnchanged,
   runWorker,
@@ -748,6 +749,16 @@ test("scheduled wakes fail closed when current canary evidence is unavailable", 
   } finally {
     fixture.cleanup();
   }
+});
+
+test("CLI worker invocations default to scheduled gating unless explicitly manual", () => {
+  assert.equal(parseArgs(["--project-dir", process.cwd()]).scheduled, true);
+  assert.equal(parseArgs(["--project-dir", process.cwd(), "--scheduled"]).scheduled, true);
+  assert.equal(parseArgs(["--project-dir", process.cwd(), "--manual"]).scheduled, false);
+  assert.throws(
+    () => parseArgs(["--project-dir", process.cwd(), "--scheduled", "--manual"]),
+    /mutually exclusive/i
+  );
 });
 
 test("daily budget blocks the worker before any claim", () => {
@@ -1616,6 +1627,47 @@ test("corrupt no-progress signatures cannot suppress an eligible execution", () 
     const secondLedger = JSON.parse(fs.readFileSync(second.ledger, "utf8"));
     assert.ok(secondLedger.engine, "the engine must run when durable evidence is corrupt");
   } finally {
+    fixture.cleanup();
+  }
+});
+
+test("symlinked no-progress event trees fail closed without launching an engine", () => {
+  const fixture = makeProjectFixture();
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-events-external-"));
+  try {
+    const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        budgets: { max_identical_no_progress: 1 },
+        worker: { engine_bin: engineBin },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "symlink no progress fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const first = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(first.status, "failed");
+    git(["pull", "--ff-only"], fixture.project);
+    const eventsDir = path.join(fixture.pmDir, "loop", "events");
+    fs.cpSync(eventsDir, external, { recursive: true });
+    fs.rmSync(eventsDir, { recursive: true });
+    fs.symlinkSync(external, eventsDir);
+    git(["add", "-A", "pm/loop/events"], fixture.project);
+    git(["commit", "-m", "replace events with an external symlink"], fixture.project);
+    git(["push"], fixture.project);
+
+    const second = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(second.status, "preflight-failed", JSON.stringify(second));
+    assert.match(second.remediation, /events.*real directory|symbolic link/i);
+    assert.equal(second.mutation, false);
+    assert.equal(second.ledger, undefined);
+    assert.equal(parseFrontmatter(readRemoteCard(fixture)).data.status, "ready");
+  } finally {
+    fs.rmSync(external, { recursive: true, force: true });
     fixture.cleanup();
   }
 });

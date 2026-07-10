@@ -22,14 +22,19 @@ card revision changes.
 Preview first (no claim, no execution):
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --dry-run
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual --dry-run
 ```
 
 Execute one unit of work:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual
 ```
+
+CLI worker invocations default to scheduler-safe canary gating so scheduler
+entries installed by earlier plugin versions also fail closed. Use `--manual`
+only for an explicitly supervised one-off run; generated schedulers use
+`--scheduled`.
 
 The default mode covers the full lifecycle in priority order (ship cycles for
 in-flight PRs first, then new dev work, then rfc/research if their autonomy

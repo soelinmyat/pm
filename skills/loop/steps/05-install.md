@@ -113,6 +113,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --instal
 scheduler state. Gate-owned scheduler entries pass `--scheduled`, and every scheduled
 wake rechecks current same-identity evidence before claiming work. Generated assets are
 previews only; they do not silently enable unattended scheduling.
+Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
+scheduler entries; explicitly supervised one-off runs use `--manual`.
 
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.

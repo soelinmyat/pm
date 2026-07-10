@@ -190,6 +190,8 @@ Gate-owned scheduler entries mark every unattended wake with `--scheduled`; the 
 rechecks current same-identity evidence before any claim, so stale or changed runtime
 identity cannot keep dispatching unattended work. Generated assets are previews only.
 The canary never merges: `autonomy.merge_pr` must remain `false`.
+Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
+scheduler entries; an explicitly supervised one-off worker run uses `--manual`.
 
 Run ledgers record structured token usage when the engine exposes it and
 `usage_available: false` when it does not; PM never invents usage numbers and does not
