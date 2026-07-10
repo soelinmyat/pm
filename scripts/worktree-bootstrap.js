@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const { loadLoopConfig } = require("./loop-config.js");
+const { loadTrustedLoopConfig } = require("./loop-config.js");
 
 const MAX_BUFFER = 32 * 1024 * 1024;
 const BOOTSTRAP_TIMEOUT_MS = 10 * 60 * 1000;
@@ -29,8 +29,11 @@ function bootstrapWorktree(gitRoot, worktree, worker = {}, options = {}) {
   const timeout = options.timeoutMs || BOOTSTRAP_TIMEOUT_MS;
   const maxBuffer = options.maxBuffer || MAX_BUFFER;
 
-  const copied = [];
-  for (const rel of worker.bootstrap_files || []) {
+  const requiredFiles = worker.bootstrap_required_files || [];
+  const optionalFiles = worker.bootstrap_files || [];
+  const allFiles = [...requiredFiles, ...optionalFiles];
+
+  for (const rel of allFiles) {
     const dest = path.join(worktree, rel);
     // Refuse anything that would write outside the worktree (e.g. "../x").
     const relToWorktree = path.relative(worktree, dest);
@@ -41,6 +44,21 @@ function bootstrapWorktree(gitRoot, worktree, worker = {}, options = {}) {
         error: `refusing to write outside the worktree: ${rel}`,
       };
     }
+  }
+
+  const missing = requiredFiles.filter((rel) => !fs.existsSync(path.join(gitRoot, rel)));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      reason: "bootstrap-required-file-missing",
+      missing,
+      error: `required bootstrap file(s) missing: ${missing.join(", ")}`,
+    };
+  }
+
+  const copied = [];
+  for (const rel of allFiles) {
+    const dest = path.join(worktree, rel);
     const source = path.join(gitRoot, rel);
     if (!fs.existsSync(source)) continue;
     try {
@@ -104,7 +122,8 @@ function main() {
 
   // Repos without a loop config get the frozen defaults (empty bootstrap_files,
   // empty bootstrap_command) — so this is a silent no-op there.
-  const config = loadLoopConfig(pmDir);
+  const pmStateDir = path.join(path.dirname(pmDir), ".pm");
+  const config = loadTrustedLoopConfig(pmDir, pmStateDir);
   const worker = config.worker || {};
 
   const result = bootstrapWorktree(gitRoot, worktree, worker);

@@ -60,6 +60,23 @@ test("silently skips bootstrap_files missing from the main checkout", () => {
   }
 });
 
+test("fails closed when a required bootstrap file is missing", () => {
+  const { gitRoot, worktree, cleanup } = makeDirs();
+  try {
+    fs.writeFileSync(path.join(gitRoot, "present.env"), "x\n");
+    const res = bootstrapWorktree(gitRoot, worktree, {
+      bootstrap_required_files: ["present.env", "required.env"],
+      bootstrap_files: ["optional.env"],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, "bootstrap-required-file-missing");
+    assert.deepEqual(res.missing, ["required.env"]);
+    assert.ok(!fs.existsSync(path.join(worktree, "optional.env")));
+  } finally {
+    cleanup();
+  }
+});
+
 test("runs bootstrap_command in the worktree cwd", () => {
   const { gitRoot, worktree, cleanup } = makeDirs();
   try {
