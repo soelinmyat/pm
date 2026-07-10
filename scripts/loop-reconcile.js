@@ -19,6 +19,7 @@ const {
 } = require("./loop-git.js");
 const {
   assertNoSymlinkPath,
+  buildFinalizedEvent,
   createRunId,
   finalizeRun,
   runIsolatedTransaction,
@@ -51,6 +52,8 @@ const FAILED_TERMINALS = new Set([
   "stopped",
   "crashed",
 ]);
+const MAX_RECOVERY_ARTIFACTS = 64;
+const MAX_MUTATION_PATH_LENGTH = 512;
 
 function asList(value) {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -311,14 +314,30 @@ function fieldChange(field, before, after) {
   };
 }
 
-function recoveryMutationManifest(recovery, pmRelative) {
+function boundedMutationPath(value) {
+  const normalized = safeRelativePath(value);
+  if (normalized.length > MAX_MUTATION_PATH_LENGTH) {
+    throw new Error("recovery mutation path exceeds its bound");
+  }
+  return normalized;
+}
+
+function recoveryMutationManifest(recovery, pmRelative, finalizedAt) {
   try {
     const transition = recovery?.transition;
     if (!transition?.card_write || !Array.isArray(transition.artifact_writes)) return null;
+    if (transition.artifact_writes.length > MAX_RECOVERY_ARTIFACTS) return null;
+    const finalEvent = buildFinalizedEvent(
+      recovery.terminal_event,
+      recovery.run_id,
+      { card_id: recovery.card_id, stage: recovery.stage },
+      recovery,
+      finalizedAt
+    );
     const mutations = [
       {
         operation: "write",
-        path: safeRelativePath(transition.card_write.relative_path),
+        path: boundedMutationPath(transition.card_write.relative_path),
         expected_revision: String(transition.card_write.expected_revision || "").slice(0, 80),
         content_sha256: sha256(transition.card_write.content),
       },
@@ -326,21 +345,21 @@ function recoveryMutationManifest(recovery, pmRelative) {
     for (const artifact of transition.artifact_writes) {
       mutations.push({
         operation: "write",
-        path: safeRelativePath(artifact.relative_path),
+        path: boundedMutationPath(artifact.relative_path),
         content_sha256: sha256(artifact.content),
       });
     }
     mutations.push(
       {
         operation: "write",
-        path: safeRelativePath(
+        path: boundedMutationPath(
           path.posix.join(pmRelative, "loop", "events", `${recovery.run_id}.json`)
         ),
-        content_sha256: String(recovery.terminal_event_hash || "").slice(0, 80),
+        content_sha256: sha256(`${JSON.stringify(finalEvent, null, 2)}\n`),
       },
       {
         operation: "delete",
-        path: safeRelativePath(
+        path: boundedMutationPath(
           path.posix.join(
             pmRelative,
             "loop",
@@ -351,7 +370,7 @@ function recoveryMutationManifest(recovery, pmRelative) {
       },
       {
         operation: "delete",
-        path: safeRelativePath(
+        path: boundedMutationPath(
           path.posix.join(pmRelative, "loop", "recovery", `${recovery.run_id}.json`)
         ),
       }
@@ -390,6 +409,7 @@ function proposalFor(card, classification) {
       operation: classification.operation,
       run_id: classification.run_id,
       expected_revision: card.revision,
+      finalized_at: classification.recovery.finalized_at,
       changes: classification.recovery.mutations,
     };
   }
@@ -492,7 +512,11 @@ function buildPlan(projectDir, options = {}) {
               });
         if (classified.recovery) {
           const privateRecovery = classified.recovery;
-          const mutations = recoveryMutationManifest(privateRecovery, remote.pmRelative);
+          const mutations = recoveryMutationManifest(
+            privateRecovery,
+            remote.pmRelative,
+            now.toISOString()
+          );
           if (!mutations) {
             classified = noAction(
               "recovery-ambiguous",
@@ -506,7 +530,10 @@ function buildPlan(projectDir, options = {}) {
             }
             classified = {
               ...classified,
-              recovery: publicRecoveryEvidence(privateRecovery, mutations),
+              recovery: {
+                ...publicRecoveryEvidence(privateRecovery, mutations),
+                finalized_at: now.toISOString(),
+              },
             };
           }
         }
@@ -658,6 +685,7 @@ function resumeRecovery(pmDir, change, recovery, options = {}) {
       cardId: recovery.card_id,
       stage: recovery.stage,
       event: recovery.terminal_event,
+      finalizedAt: change.finalized_at,
       allowedArtifactPaths: (recovery.transition?.artifact_writes || []).map(
         (artifact) => artifact.relative_path
       ),
@@ -733,6 +761,20 @@ function runReconcile(projectDir, options = {}) {
       };
     }
     expectedHeadOid = result.commitHash;
+    const eventMutation = change.changes.find(
+      (entry) => entry.operation === "write" && entry.path === result.event_path
+    );
+    if (
+      !eventMutation ||
+      eventMutation.content_sha256 !== sha256(`${JSON.stringify(result.event, null, 2)}\n`)
+    ) {
+      return {
+        ok: false,
+        code: "apply-failed",
+        reason: "finalized recovery event does not match the proposed content hash",
+        ...base,
+      };
+    }
     base.applied_changes.push(
       appliedChange(change, result, [
         result.card_path,

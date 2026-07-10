@@ -12,6 +12,7 @@ const {
   buildPlan,
   classifyStaleCard,
   parseArgs,
+  recoveryMutationManifest,
   resumeRecovery,
   runReconcile,
 } = require("../scripts/loop-reconcile.js");
@@ -472,7 +473,48 @@ test("recovery plans expose bounded exact mutations without durable contents", (
       `delete:pm/loop/recovery/${RUN_ID}.json`,
     ]
   );
+  const eventMutation = plan.proposed_changes[0].changes.find((entry) =>
+    entry.path.includes("/loop/events/")
+  );
+  assert.match(eventMutation.content_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.notEqual(eventMutation.content_sha256, recovery.terminal_event_hash);
   assert.doesNotMatch(JSON.stringify(plan), /SECRET/);
+});
+
+test("recovery mutation manifests fail closed on unbounded artifacts and paths", () => {
+  const base = {
+    run_id: RUN_ID,
+    card_id: "PM-404",
+    stage: "dev",
+    terminal_event: { terminal: true, status: "completed" },
+    terminal_event_hash: "sha256:" + "e".repeat(64),
+    transition: {
+      card_write: {
+        relative_path: "pm/backlog/stale.md",
+        expected_revision: "sha256:" + "a".repeat(64),
+        content: "card",
+      },
+      artifact_writes: Array.from({ length: 65 }, (_, index) => ({
+        relative_path: `pm/evidence/${index}.md`,
+        content: "artifact",
+      })),
+    },
+  };
+  assert.equal(recoveryMutationManifest(base, "pm", NOW.toISOString()), null);
+  assert.equal(
+    recoveryMutationManifest(
+      {
+        ...base,
+        transition: {
+          ...base.transition,
+          artifact_writes: [{ relative_path: `pm/${"x".repeat(600)}`, content: "artifact" }],
+        },
+      },
+      "pm",
+      NOW.toISOString()
+    ),
+    null
+  );
 });
 
 test("apply requires Git readiness, uses isolated PM transactions, and reports exact applied changes", (t) => {

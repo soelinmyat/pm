@@ -125,18 +125,24 @@ function getPrInfo(branch, options = {}) {
 }
 
 const PINNED_FIELDS =
-  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,headRefName,headRefOid,changedFiles";
+  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,baseRefOid,headRefName,headRefOid,changedFiles";
 
-function getPinnedPrFiles(repo, number, options = {}) {
+function getPinnedPrFiles(repo, metadata, options = {}) {
+  if (
+    !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(String(metadata.baseRefOid || "")) ||
+    !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(String(metadata.headRefOid || ""))
+  ) {
+    return { ok: false };
+  }
   const res = runGhWithRetry(
-    ["api", "--paginate", "--slurp", `repos/${repo}/pulls/${number}/files`],
+    ["api", `repos/${repo}/compare/${metadata.baseRefOid}...${metadata.headRefOid}`],
     options
   );
   if (res.code !== 0) return { ok: false };
   try {
-    const pages = JSON.parse(res.stdout || "[]");
-    if (!Array.isArray(pages)) return { ok: false };
-    const entries = pages.flatMap((page) => (Array.isArray(page) ? page : []));
+    const comparison = JSON.parse(res.stdout || "{}");
+    if (!comparison || !Array.isArray(comparison.files)) return { ok: false };
+    const entries = comparison.files;
     const paths = [];
     for (const entry of entries) {
       if (!entry || typeof entry.filename !== "string" || !entry.filename) {
@@ -166,6 +172,7 @@ function parsePinnedMetadata(stdout) {
     number: obj.number ?? null,
     url: obj.url || null,
     baseRefName: obj.baseRefName || null,
+    baseRefOid: obj.baseRefOid || null,
     headRefName: obj.headRefName || null,
     headRefOid: obj.headRefOid || null,
     changedFiles: Number.isSafeInteger(obj.changedFiles) ? obj.changedFiles : null,
@@ -178,7 +185,7 @@ function getPinnedPrInfo(repo, number, options = {}) {
   if (res.code === 0) {
     try {
       const before = parsePinnedMetadata(res.stdout);
-      const changed = getPinnedPrFiles(repo, number, options);
+      const changed = getPinnedPrFiles(repo, before, options);
       if (!changed.ok) return { state: "UNKNOWN" };
       const confirmed = runGhWithRetry(args, options);
       if (confirmed.code !== 0) return { state: "UNKNOWN" };

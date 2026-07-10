@@ -151,7 +151,7 @@ function ghInfo(obj, calls) {
         ...(entry.previous_filename ? { previous_filename: entry.previous_filename } : {}),
         status: entry.status || "modified",
       }));
-      return { code: 0, stdout: JSON.stringify([files]), stderr: "" };
+      return { code: 0, stdout: JSON.stringify({ files }), stderr: "" };
     }
     return { code: 0, stdout: JSON.stringify(obj), stderr: "" };
   };
@@ -194,6 +194,7 @@ function remotePr(overrides = {}) {
     number: 42,
     url: "https://github.com/openai/pm/pull/42",
     baseRefName: "main",
+    baseRefOid: "f".repeat(40),
     headRefName: "loop/pm-108",
     headRefOid: "a".repeat(40),
     changedFiles: 0,
@@ -245,9 +246,13 @@ test("repository-pinned OPEN verification matches repo, number/url, base, head/O
   assert.equal(checked.state, "OPEN");
   assert.deepEqual(calls[0].slice(0, 6), ["pr", "view", "42", "--repo", "openai/pm", "--json"]);
   assert.match(calls[0][6], /state,createdAt,mergedAt,mergeCommit,number,url/);
-  assert.match(calls[0][6], /baseRefName,headRefName,headRefOid/);
+  assert.match(calls[0][6], /baseRefName,baseRefOid/);
+  assert.match(calls[0][6], /headRefName,headRefOid/);
   assert.match(calls[0][6], /changedFiles/);
-  assert.deepEqual(calls[1], ["api", "--paginate", "--slurp", "repos/openai/pm/pulls/42/files"]);
+  assert.deepEqual(calls[1], [
+    "api",
+    `repos/openai/pm/compare/${"f".repeat(40)}...${"a".repeat(40)}`,
+  ]);
 });
 
 test("repository-pinned verification fails closed when GitHub returns an incomplete file list", () => {

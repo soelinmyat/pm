@@ -797,6 +797,21 @@ function checkpointRecovery(pmDir, input, options = {}) {
   );
 }
 
+function buildFinalizedEvent(event, runId, lease, recovery, finalizedAt) {
+  return {
+    ...event,
+    schema_version: 1,
+    run_id: runId,
+    card_id: lease.card_id,
+    stage: lease.stage,
+    terminal: true,
+    finalized_at: finalizedAt,
+    result_hash: recovery.result_hash,
+    artifact_hashes: recovery.artifact_hashes,
+    transition_hash: recovery.transition_hash,
+  };
+}
+
 function finalizeRun(pmDir, input, options = {}) {
   const runId = assertRunId(input.runId || input.run_id);
   if (!input.event || input.event.terminal !== true || typeof input.event.status !== "string") {
@@ -918,18 +933,7 @@ function finalizeRun(pmDir, input, options = {}) {
           fs.writeFileSync(artifactPath, artifact.content);
         }
         fs.writeFileSync(cardPath, transition.card_write.content);
-        terminalEvent = {
-          ...input.event,
-          schema_version: 1,
-          run_id: runId,
-          card_id: lease.card_id,
-          stage: lease.stage,
-          terminal: true,
-          finalized_at: finalizedAt,
-          result_hash: recovery.result_hash,
-          artifact_hashes: recovery.artifact_hashes,
-          transition_hash: recovery.transition_hash,
-        };
+        terminalEvent = buildFinalizedEvent(input.event, runId, lease, recovery, finalizedAt);
         writeJsonAtomic(eventPath, terminalEvent);
         fs.rmSync(recoveryPath);
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
@@ -1024,7 +1028,14 @@ function releaseClaim(pmDir, input, options = {}) {
 
 function withRemoteSnapshot(pmDir, callback, options = {}) {
   const gitRoot = options.gitRoot || findGitRoot(pmDir);
-  if (!gitRoot) return callback({ pmDir, pmRelative: ".", workspace: path.dirname(pmDir) });
+  if (!gitRoot) {
+    const absolutePmDir = path.resolve(pmDir);
+    return callback({
+      pmDir: absolutePmDir,
+      pmRelative: safeRelativePath(path.basename(absolutePmDir)),
+      workspace: path.dirname(absolutePmDir),
+    });
+  }
   const upstream = resolveUpstream(gitRoot);
   const timeoutMs = Number(options.timeoutMs || 180_000);
   const upstreamOid = fetchUpstream(gitRoot, upstream, timeoutMs);
@@ -1239,6 +1250,7 @@ module.exports = {
   RUN_ID_PATTERN,
   TransactionAbort,
   assertNoSymlinkPath,
+  buildFinalizedEvent,
   checkpointRecovery,
   claimRun,
   createRunId,
