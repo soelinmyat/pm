@@ -60,6 +60,14 @@ test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
     () => normalizeLoopConfig({ canary: { evidence_ttl_seconds: 0 } }),
     /canary\.evidence_ttl_seconds must be a positive integer/
   );
+  for (const field of ["max_runs_per_day", "max_ship_cycles_per_day"]) {
+    for (const value of [0, -1, 1.5, "twelve"]) {
+      assert.throws(
+        () => normalizeLoopConfig({ budgets: { [field]: value } }),
+        new RegExp(`budgets\\.${field} must be a positive integer`)
+      );
+    }
+  }
 });
 
 test("legacy minute TTLs migrate explicitly and the old 45-minute value fails closed", () => {

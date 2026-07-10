@@ -62,6 +62,10 @@ function selectNextCard(board, config, options = {}) {
 
   for (const column of columns) {
     for (const card of board.columns[column] || []) {
+      if (options.cardId && card.id !== options.cardId) {
+        skipped.push({ id: card.id, column, reason: `not requested card ${options.cardId}` });
+        continue;
+      }
       const retryAt = Date.parse(card.retryAfter || "");
       if (!Number.isNaN(retryAt) && retryAt > now.getTime()) {
         skipped.push({
@@ -274,6 +278,7 @@ function runLoop(projectDir, options = {}) {
     const fingerprintMeta = new Map();
     const selected = selectNextCard(board, config, {
       mode: options.mode || "default",
+      cardId: options.cardId || "",
       quarantineCheck:
         typeof options.quarantineCheck === "function"
           ? (card, column, stage) => {

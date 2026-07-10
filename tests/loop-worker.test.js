@@ -1560,6 +1560,44 @@ test("a durable no-progress signature suppresses the next identical card/stage e
   }
 });
 
+test("corrupt no-progress signatures cannot suppress an eligible execution", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        budgets: { max_identical_no_progress: 1 },
+        worker: { engine_bin: engineBin },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "corrupt no progress fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const first = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(first.status, "failed");
+    git(["pull", "--ff-only"], fixture.project);
+    const eventPath = path.join(fixture.pmDir, "loop", "events", `${first.run_id}.json`);
+    const event = JSON.parse(fs.readFileSync(eventPath, "utf8"));
+    event.no_progress.signature = `sha256:${"0".repeat(64)}`;
+    fs.writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`);
+    git(["add", path.relative(fixture.project, eventPath)], fixture.project);
+    git(["commit", "-m", "corrupt no progress evidence"], fixture.project);
+    git(["push"], fixture.project);
+
+    const second = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(second.status, "failed", JSON.stringify(second));
+    assert.notEqual(second.run_id, first.run_id);
+    const secondLedger = JSON.parse(fs.readFileSync(second.ledger, "utf8"));
+    assert.ok(secondLedger.engine, "the engine must run when durable evidence is corrupt");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("interruptible engine execution sends TERM then KILL to its process group", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-process-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1601,6 +1639,133 @@ test("interruptible engine execution sends TERM then KILL to its process group",
   assert.ok(Date.parse(result.stop.term_sent_at) <= Date.parse(result.stop.kill_sent_at));
 });
 
+test("interruptible execution observes a STOP pushed from another PM clone", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-remote-stop-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const origin = path.join(root, "origin.git");
+  const control = path.join(root, "control");
+  const monitor = path.join(root, "monitor.git");
+  git(["init", "--bare", "--initial-branch=main", origin], root);
+  git(["clone", origin, control], root);
+  git(["config", "user.email", "pm-stop@example.invalid"], control);
+  git(["config", "user.name", "PM Stop Fixture"], control);
+  fs.writeFileSync(path.join(control, "README.md"), "remote stop fixture\n");
+  git(["add", "README.md"], control);
+  git(["commit", "-m", "fixture"], control);
+  git(["push", "origin", "main"], control);
+  git(["symbolic-ref", "HEAD", "refs/heads/main"], origin);
+  git(["init", "--bare", monitor], root);
+
+  const readyPath = path.join(root, "ready");
+  const enginePath = path.join(root, "ignore-term.js");
+  fs.writeFileSync(
+    enginePath,
+    [
+      'const fs = require("node:fs");',
+      `fs.writeFileSync(${JSON.stringify(readyPath)}, "ready\\n");`,
+      'process.on("SIGTERM", () => {});',
+      "setInterval(() => {}, 1000);",
+    ].join("\n")
+  );
+  const helper = spawn(
+    process.execPath,
+    [
+      "-e",
+      [
+        'const fs = require("node:fs");',
+        'const path = require("node:path");',
+        'const { execFileSync } = require("node:child_process");',
+        `const ready = ${JSON.stringify(readyPath)};`,
+        `const control = ${JSON.stringify(control)};`,
+        "const timer = setInterval(() => {",
+        "  if (!fs.existsSync(ready)) return;",
+        '  const stop = path.join(control, "pm", "loop", "STOP");',
+        "  fs.mkdirSync(path.dirname(stop), { recursive: true });",
+        '  fs.writeFileSync(stop, "stop\\n");',
+        '  execFileSync("git", ["add", "pm/loop/STOP"], { cwd: control });',
+        '  execFileSync("git", ["commit", "-m", "stop"], { cwd: control });',
+        '  execFileSync("git", ["push", "origin", "main"], { cwd: control });',
+        "  clearInterval(timer);",
+        "}, 10);",
+      ].join("\n"),
+    ],
+    { stdio: "ignore" }
+  );
+  helper.unref();
+
+  const result = await runEngineInterruptible(process.execPath, [enginePath], {
+    cwd: root,
+    env: process.env,
+    timeoutMs: 2_000,
+    graceMs: 100,
+    pollMs: 10,
+    remoteStop: {
+      gitDir: monitor,
+      remote: origin,
+      ref: "refs/heads/main",
+      path: "pm/loop/STOP",
+      pollMs: 20,
+      timeoutMs: 2_000,
+    },
+  });
+  assert.equal(result.stopped, true, JSON.stringify(result));
+  assert.equal(result.stop.source, "remote");
+  assert.ok(result.stop.term_sent_at);
+  assert.ok(result.stop.kill_sent_at);
+});
+
+test("TERM escalation kills a surviving same-group descendant after the leader exits", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-process-descendant-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const stopPath = path.join(root, "STOP");
+  const readyPath = path.join(root, "ready");
+  const pidPath = path.join(root, "descendant.pid");
+  const descendantReadyPath = path.join(root, "descendant.ready");
+  const enginePath = path.join(root, "leader.js");
+  fs.writeFileSync(
+    enginePath,
+    [
+      'const fs = require("node:fs");',
+      'const { spawn } = require("node:child_process");',
+      `const child = spawn(process.execPath, ["-e", ${JSON.stringify(`const fs=require("node:fs");process.on("SIGTERM",()=>{});fs.writeFileSync(${JSON.stringify(descendantReadyPath)},"ready\\n");setInterval(()=>{},1000);`)}], { stdio: "ignore" });`,
+      `fs.writeFileSync(${JSON.stringify(pidPath)}, String(child.pid));`,
+      `const readyTimer = setInterval(() => { if (fs.existsSync(${JSON.stringify(descendantReadyPath)})) { fs.writeFileSync(${JSON.stringify(readyPath)}, "ready\\n"); clearInterval(readyTimer); } }, 5);`,
+      'process.on("SIGTERM", () => process.exit(0));',
+      "setInterval(() => {}, 1000);",
+    ].join("\n")
+  );
+  const helper = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const fs=require("node:fs");const t=setInterval(()=>{if(fs.existsSync(${JSON.stringify(readyPath)})){fs.writeFileSync(${JSON.stringify(stopPath)},"stop\\n");clearInterval(t)}},10)`,
+    ],
+    { stdio: "ignore" }
+  );
+  helper.unref();
+  const result = await runEngineInterruptible(process.execPath, [enginePath], {
+    cwd: root,
+    env: process.env,
+    stopPath,
+    timeoutMs: 10_000,
+    graceMs: 100,
+    pollMs: 10,
+  });
+  const descendantPid = Number(fs.readFileSync(pidPath, "utf8"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  try {
+    assert.equal(result.stopped, true);
+    assert.ok(result.stop.kill_sent_at, JSON.stringify(result));
+    assert.throws(() => process.kill(descendantPid, 0), /ESRCH/);
+  } finally {
+    try {
+      process.kill(descendantPid, "SIGKILL");
+    } catch {
+      // The supervisor already removed the descendant.
+    }
+  }
+});
+
 test("an in-flight STOP finalizes stopped evidence and clears durable ownership", () => {
   const fixture = makeProjectFixture();
   try {
@@ -1636,6 +1801,68 @@ test("an in-flight STOP finalizes stopped evidence and clears durable ownership"
       () => git(["show", `origin/main:pm/loop/recovery/${result.run_id}.json`], fixture.project),
       /path .* does not exist|exists on disk/i
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("STOP remains authoritative when a TERM-aware engine writes a blocked result", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root, { status: "blocked", exitCode: 0 });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "authoritative stop fixture"], fixture.project);
+    git(["push"], fixture.project);
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      spawnSync(_bin, _args, options) {
+        const stageResult = {
+          version: 1,
+          run_id: options.env.PM_LOOP_RUN_ID,
+          card_id: options.env.PM_LOOP_CARD_ID,
+          stage: options.env.PM_LOOP_STAGE,
+          status: "blocked",
+          summary: "Fixture blocker",
+          blocker: {
+            code: "fixture-blocked",
+            reason: "Fixture blocker",
+            remediation: "Resolve the fixture blocker.",
+          },
+          gates: [],
+          usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+        };
+        fs.writeFileSync(options.env.PM_LOOP_RESULT_FILE, JSON.stringify(stageResult));
+        return {
+          status: 0,
+          signal: "SIGTERM",
+          stdout: "",
+          stderr: "",
+          stopped: true,
+          stop: {
+            requested_at: "2026-07-10T00:00:00.000Z",
+            term_sent_at: "2026-07-10T00:00:00.001Z",
+            kill_sent_at: null,
+          },
+          started_at: "2026-07-10T00:00:00.000Z",
+          ended_at: "2026-07-10T00:00:00.010Z",
+        };
+      },
+    });
+    assert.equal(result.status, "stopped", JSON.stringify(result));
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.status, "stopped");
+    assert.equal(ledger.usage_available, true, JSON.stringify(ledger));
+    assert.deepEqual(ledger.usage, { input_tokens: 1, output_tokens: 2, total_tokens: 3 });
+    const event = readRemoteJson(fixture, `pm/loop/events/${result.run_id}.json`);
+    assert.equal(event.status, "stopped");
   } finally {
     fixture.cleanup();
   }

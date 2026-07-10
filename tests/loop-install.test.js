@@ -18,6 +18,42 @@ const {
 } = require("../scripts/loop-install.js");
 const { normalizeLoopConfig } = require("../scripts/loop-config.js");
 
+const REQUIRED_ASSERTIONS = {
+  "preflight-failure": {
+    exact_plan_preserved: true,
+    exact_card_preserved: true,
+    engine_argv_pinned: true,
+    worker_preflight_failed: true,
+    pm_head_unchanged: true,
+    card_unchanged: true,
+    leases_unchanged: true,
+  },
+  "blocked-result": {
+    exact_plan_preserved: true,
+    exact_card_preserved: true,
+    engine_argv_pinned: true,
+    worker_blocked: true,
+    card_needs_human: true,
+    remediation_present: true,
+    no_lease: true,
+    durable_blocked_event: true,
+    blocked_ledger: true,
+  },
+  "verified-pr": {
+    exact_plan_preserved: true,
+    exact_card_preserved: true,
+    engine_argv_pinned: true,
+    worker_completed: true,
+    card_shipping: true,
+    no_lease: true,
+    no_recovery: true,
+    durable_completed_event: true,
+    completed_ledger: true,
+    verified_open_pr: true,
+    merge_disabled: true,
+  },
+};
+
 function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
   const dir = path.join(pmStateDir, "loop-canary", runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -30,16 +66,72 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
     source_commit: "a".repeat(40),
     execution_config_hash: `sha256:${"b".repeat(64)}`,
     exact_plan_fingerprint: `sha256:${"c".repeat(64)}`,
+    exact_plan_config_hash: `sha256:${"b".repeat(64)}`,
     engine: {
       kind: "codex",
       binary_version: "codex 1.0.0",
       argv_hash: `sha256:${"d".repeat(64)}`,
     },
-    before: {},
-    after: {},
-    worker_result: {},
-    ledger: { path: "run.json", sha256: `sha256:${"e".repeat(64)}` },
-    assertions: { contract: true },
+    before: {
+      pm_head: "f".repeat(40),
+      card: {
+        relative_path: "pm/backlog/canary.md",
+        sha256: `sha256:${"1".repeat(64)}`,
+        status: "ready",
+        blocker_code: "",
+        blocker_remediation: "",
+      },
+      leases: [],
+      recovery: [],
+      events: [],
+    },
+    after: {
+      pm_head: "f".repeat(40),
+      card: {
+        relative_path: "pm/backlog/canary.md",
+        sha256: `sha256:${(caseName === "preflight-failure" ? "1" : "2").repeat(64)}`,
+        status:
+          caseName === "blocked-result"
+            ? "needs-human"
+            : caseName === "verified-pr"
+              ? "shipping"
+              : "ready",
+        blocker_code: caseName === "blocked-result" ? "fixture-blocked" : "",
+        blocker_remediation: caseName === "blocked-result" ? "Resolve the fixture blocker." : "",
+      },
+      leases: [],
+      recovery: [],
+      events:
+        caseName === "preflight-failure"
+          ? []
+          : [
+              {
+                path: `pm/loop/events/${runId}.json`,
+                sha256: `sha256:${"3".repeat(64)}`,
+                value: {
+                  run_id: runId,
+                  status: caseName === "blocked-result" ? "blocked" : "completed",
+                  terminal: true,
+                },
+              },
+            ],
+    },
+    worker_result: {
+      run_id: runId,
+      status:
+        caseName === "preflight-failure"
+          ? "preflight-failed"
+          : caseName === "blocked-result"
+            ? "blocked"
+            : "completed",
+      fingerprint: `sha256:${"c".repeat(64)}`,
+      card: { id: "PM-CANARY" },
+    },
+    ledger:
+      caseName === "preflight-failure"
+        ? { path: "", sha256: "" }
+        : { path: "run.json", sha256: `sha256:${"e".repeat(64)}` },
+    assertions: REQUIRED_ASSERTIONS[caseName],
     passed: true,
     ...overrides,
   };

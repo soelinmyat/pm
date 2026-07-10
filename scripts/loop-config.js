@@ -304,6 +304,9 @@ function validateLoopConfig(config) {
   }
 
   const ttl = positiveInteger(leaseTtlSeconds(config), "budgets.lease_ttl_seconds");
+  for (const field of ["max_runs_per_day", "max_ship_cycles_per_day"]) {
+    positiveInteger(Number(config.budgets[field]), `budgets.${field}`);
+  }
   positiveInteger(
     Number(config.budgets.max_identical_no_progress),
     "budgets.max_identical_no_progress"

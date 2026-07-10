@@ -37,6 +37,62 @@ function signalProcessGroup(child, signal) {
   }
 }
 
+function runQuiet(bin, args, options = {}) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, args, {
+        cwd: options.cwd,
+        env: options.env || process.env,
+        stdio: "ignore",
+      });
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The bounded command already exited.
+        }
+      },
+      Math.max(100, Number(options.timeoutMs || 5000))
+    );
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+}
+
+async function remoteStopExists(remoteStop) {
+  if (
+    !remoteStop ||
+    !remoteStop.gitDir ||
+    !remoteStop.remote ||
+    !remoteStop.ref ||
+    !remoteStop.path
+  ) {
+    return false;
+  }
+  const common = ["--git-dir", remoteStop.gitDir];
+  const fetched = await runQuiet(
+    "git",
+    [...common, "fetch", "--quiet", "--depth=1", remoteStop.remote, remoteStop.ref],
+    { timeoutMs: remoteStop.timeoutMs }
+  );
+  if (!fetched) return false;
+  return runQuiet("git", [...common, "cat-file", "-e", `FETCH_HEAD:${remoteStop.path}`], {
+    timeoutMs: remoteStop.timeoutMs,
+  });
+}
+
 function createOutputSink(filePath, maxBuffer) {
   let fd = null;
   const chunks = [];
@@ -53,7 +109,7 @@ function createOutputSink(filePath, maxBuffer) {
       const remaining = Math.max(0, maxBuffer - bytes);
       const accepted = buffer.subarray(0, remaining);
       if (fd !== null && accepted.length > 0) fs.writeSync(fd, accepted);
-      if (accepted.length > 0) chunks.push(accepted);
+      if (fd === null && accepted.length > 0) chunks.push(accepted);
       bytes += accepted.length;
       if (accepted.length < buffer.length) truncated = true;
       return truncated;
@@ -90,8 +146,13 @@ function runEngineInterruptible(bin, args, options = {}) {
     let timeoutTimer = null;
     let pollTimer = null;
     let spawnError = null;
+    let closeResult = null;
+    let escalationComplete = false;
+    let remoteProbeInFlight = false;
+    let lastRemoteProbeAt = 0;
     const stop = {
       path: options.stopPath || "",
+      source: null,
       requested_at: null,
       term_sent_at: null,
       kill_sent_at: null,
@@ -107,8 +168,9 @@ function runEngineInterruptible(bin, args, options = {}) {
       if (termReason || settled) return;
       termReason = reason;
       const at = isoNow();
-      if (reason === "stop") {
+      if (reason === "stop-local" || reason === "stop-remote") {
         stopped = true;
+        stop.source = reason === "stop-remote" ? "remote" : "local";
         stop.requested_at = at;
       } else if (reason === "timeout") {
         timedOut = true;
@@ -116,6 +178,8 @@ function runEngineInterruptible(bin, args, options = {}) {
       if (signalProcessGroup(child, "SIGTERM")) stop.term_sent_at = at;
       termTimer = setTimeout(() => {
         if (!settled && signalProcessGroup(child, "SIGKILL")) stop.kill_sent_at = isoNow();
+        escalationComplete = true;
+        if (closeResult) finish(closeResult.code, closeResult.signal);
       }, graceMs);
     };
 
@@ -169,20 +233,45 @@ function runEngineInterruptible(bin, args, options = {}) {
     child.on("error", (error) => {
       spawnError = error;
     });
-    child.on("close", finish);
+    child.on("close", (code, signal) => {
+      closeResult = { code, signal };
+      if (!termReason || escalationComplete) finish(code, signal);
+    });
     if (child.stdin) {
       child.stdin.on("error", () => {});
       child.stdin.end(options.input || "");
     }
 
     timeoutTimer = setTimeout(() => requestTermination("timeout"), timeoutMs);
-    if (options.stopPath) {
+    if (options.stopPath || options.remoteStop) {
       pollTimer = setInterval(() => {
         try {
-          if (fs.existsSync(options.stopPath)) requestTermination("stop");
+          if (options.stopPath && fs.existsSync(options.stopPath)) {
+            requestTermination("stop-local");
+            return;
+          }
         } catch {
           // A transient read error must not crash the worker. The bounded
           // runtime remains the fallback control.
+        }
+        const remotePollMs = Math.max(
+          pollMs,
+          Number(options.remoteStop && options.remoteStop.pollMs) || 5000
+        );
+        if (
+          options.remoteStop &&
+          !remoteProbeInFlight &&
+          Date.now() - lastRemoteProbeAt >= remotePollMs
+        ) {
+          remoteProbeInFlight = true;
+          lastRemoteProbeAt = Date.now();
+          remoteStopExists(options.remoteStop)
+            .then((present) => {
+              if (present) requestTermination("stop-remote");
+            })
+            .finally(() => {
+              remoteProbeInFlight = false;
+            });
         }
       }, pollMs);
     }
@@ -199,6 +288,7 @@ function runEngineInterruptibleSync(bin, args, options = {}) {
       env: options.env,
       input: options.input || "",
       stopPath: options.stopPath || "",
+      remoteStop: options.remoteStop || null,
       timeoutMs: options.timeoutMs,
       graceMs: options.graceMs,
       pollMs: options.pollMs,

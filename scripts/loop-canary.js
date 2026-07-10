@@ -9,8 +9,10 @@ const { execFileSync } = require("node:child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
 const {
+  approveExecutionConfig,
   executionConfigHash,
   loadTrustedLoopConfig,
+  normalizeLoopConfig,
   sha256,
   stableValue,
 } = require("./loop-config.js");
@@ -24,6 +26,42 @@ const { parseFrontmatter } = require("./kb-frontmatter.js");
 const CANARY_CASES = Object.freeze(["preflight-failure", "blocked-result", "verified-pr"]);
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
+const CLOCK_SKEW_MS = 5 * 60 * 1000;
+const REQUIRED_ASSERTIONS = Object.freeze({
+  "preflight-failure": Object.freeze([
+    "exact_plan_preserved",
+    "exact_card_preserved",
+    "engine_argv_pinned",
+    "worker_preflight_failed",
+    "pm_head_unchanged",
+    "card_unchanged",
+    "leases_unchanged",
+  ]),
+  "blocked-result": Object.freeze([
+    "exact_plan_preserved",
+    "exact_card_preserved",
+    "engine_argv_pinned",
+    "worker_blocked",
+    "card_needs_human",
+    "remediation_present",
+    "no_lease",
+    "durable_blocked_event",
+    "blocked_ledger",
+  ]),
+  "verified-pr": Object.freeze([
+    "exact_plan_preserved",
+    "exact_card_preserved",
+    "engine_argv_pinned",
+    "worker_completed",
+    "card_shipping",
+    "no_lease",
+    "no_recovery",
+    "durable_completed_event",
+    "completed_ledger",
+    "verified_open_pr",
+    "merge_disabled",
+  ]),
+});
 
 function canaryRoot(pmStateDir) {
   return path.join(pmStateDir, "loop-canary");
@@ -43,15 +81,25 @@ function boundedJson(value, maxBytes = 64 * 1024) {
   return { truncated: true, sha256: sha256(text), bytes: Buffer.byteLength(text) };
 }
 
+function canonicalEngineArgv(config) {
+  const command = engineCommand(config, "PM loop canary identity probe");
+  const args = [...(command.args || [])];
+  const worker = config.worker || {};
+  const kind = worker.engine || config.default_runtime || "codex";
+  if (!worker.engine_bin && kind !== "claude") {
+    const inputIndex = args.lastIndexOf("-");
+    args.splice(inputIndex < 0 ? args.length : inputIndex, 0, "--add-dir", "<PM_LOOP_RESULT_DIR>");
+  }
+  return { bin: command.bin, args };
+}
+
 function currentCanaryIdentity(projectDir, config, options = {}) {
   const pluginRoot = options.pluginRoot || path.resolve(__dirname, "..");
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, "plugin.config.json"), "utf8"));
   const sourceCommit = resolvePluginSourceCommit(pluginRoot, manifest, options);
   if (!COMMIT.test(sourceCommit)) throw new Error("plugin source commit is invalid");
 
-  const identityCommand = engineCommand(config, "PM loop canary identity probe", {
-    workspacePath: projectDir,
-  });
+  const identityCommand = canonicalEngineArgv(config);
   const versionRunner = options.versionRunner || execFileSync;
   let binaryVersion;
   try {
@@ -72,7 +120,7 @@ function currentCanaryIdentity(projectDir, config, options = {}) {
   return {
     plugin_version: String(manifest.version || ""),
     source_commit: sourceCommit,
-    execution_config_hash: executionConfigHash(config),
+    execution_config_hash: config.execution_config_hash || executionConfigHash(config),
     engine: {
       kind: worker.engine_bin ? "custom" : worker.engine || config.default_runtime || "codex",
       binary_version: binaryVersion,
@@ -118,15 +166,56 @@ function evidenceIdentity(record) {
   };
 }
 
-function validateEvidenceRecord(record, caseName) {
+function validInventory(value) {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.path === "string" &&
+        entry.path.length > 0 &&
+        SHA256.test(String(entry.sha256 || ""))
+    )
+  );
+}
+
+function validState(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    COMMIT.test(String(value.pm_head || "")) &&
+    value.card &&
+    typeof value.card.relative_path === "string" &&
+    value.card.relative_path.length > 0 &&
+    SHA256.test(String(value.card.sha256 || "")) &&
+    typeof value.card.status === "string" &&
+    validInventory(value.leases) &&
+    validInventory(value.recovery) &&
+    validInventory(value.events)
+  );
+}
+
+function eventStatus(record, status) {
+  const runId = record.worker_result?.run_id;
+  return record.after.events.some(
+    (entry) => entry.value?.run_id === runId && entry.value?.status === status
+  );
+}
+
+function validateEvidenceRecord(record, caseName, options = {}) {
   if (!record || typeof record !== "object" || Array.isArray(record))
     return "record is not an object";
   if (record.schema_version !== 1) return "schema_version must equal 1";
   if (record.case !== caseName || !CANARY_CASES.includes(record.case)) return "case mismatch";
-  if (!record.started_at || !Number.isFinite(Date.parse(record.started_at)))
-    return "started_at is invalid";
-  if (!record.ended_at || !Number.isFinite(Date.parse(record.ended_at)))
-    return "ended_at is invalid";
+  const startedAt = Date.parse(record.started_at || "");
+  const endedAt = Date.parse(record.ended_at || "");
+  if (!Number.isFinite(startedAt)) return "started_at is invalid";
+  if (!Number.isFinite(endedAt)) return "ended_at is invalid";
+  if (startedAt > endedAt) return "evidence timestamps are not chronological";
+  const now = options.now instanceof Date ? options.now : new Date();
+  if (endedAt > now.getTime() + CLOCK_SKEW_MS) return "ended_at is in the future";
   if (typeof record.plugin_version !== "string" || !record.plugin_version)
     return "plugin_version is missing";
   if (!COMMIT.test(String(record.source_commit || ""))) return "source_commit is invalid";
@@ -135,6 +224,12 @@ function validateEvidenceRecord(record, caseName) {
   if (!SHA256.test(String(record.exact_plan_fingerprint || "")))
     return "exact_plan_fingerprint is invalid";
   if (
+    !SHA256.test(String(record.exact_plan_config_hash || "")) ||
+    record.exact_plan_config_hash !== record.execution_config_hash
+  ) {
+    return "exact plan configuration identity is invalid";
+  }
+  if (
     !record.engine ||
     typeof record.engine.kind !== "string" ||
     typeof record.engine.binary_version !== "string" ||
@@ -142,16 +237,75 @@ function validateEvidenceRecord(record, caseName) {
   ) {
     return "engine identity is invalid";
   }
-  for (const key of ["before", "after", "worker_result", "ledger", "assertions"]) {
-    if (!record[key] || typeof record[key] !== "object" || Array.isArray(record[key])) {
-      return `${key} is missing`;
+  for (const key of ["before", "after"]) {
+    if (!validState(record[key])) return `${key} state is incomplete`;
+  }
+  if (
+    !record.worker_result ||
+    typeof record.worker_result !== "object" ||
+    Array.isArray(record.worker_result) ||
+    !SHA256.test(String(record.worker_result.fingerprint || "")) ||
+    record.worker_result.fingerprint !== record.exact_plan_fingerprint ||
+    typeof (record.worker_result.card?.id || record.worker_result.selected?.id) !== "string" ||
+    !(record.worker_result.card?.id || record.worker_result.selected?.id)
+  ) {
+    return "worker_result is incomplete";
+  }
+  if (!record.ledger || typeof record.ledger !== "object" || Array.isArray(record.ledger)) {
+    return "ledger is missing";
+  }
+  if (
+    caseName !== "preflight-failure" &&
+    (typeof record.ledger.path !== "string" ||
+      !record.ledger.path ||
+      !SHA256.test(String(record.ledger.sha256 || "")))
+  ) {
+    return "ledger identity is incomplete";
+  }
+  if (
+    !record.assertions ||
+    typeof record.assertions !== "object" ||
+    Array.isArray(record.assertions)
+  ) {
+    return "assertions are missing";
+  }
+  for (const key of REQUIRED_ASSERTIONS[caseName]) {
+    if (record.assertions[key] !== true) return `required assertion ${key} did not pass`;
+  }
+  if (caseName === "preflight-failure") {
+    if (record.worker_result.status !== "preflight-failed")
+      return "worker preflight state is invalid";
+    if (
+      record.before.pm_head !== record.after.pm_head ||
+      !stableEqual(record.before.card, record.after.card) ||
+      !stableEqual(record.before.leases, record.after.leases)
+    ) {
+      return "preflight evidence mutated protected PM state";
     }
+  } else if (caseName === "blocked-result") {
+    if (
+      record.worker_result.status !== "blocked" ||
+      record.after.card.status !== "needs-human" ||
+      !record.after.card.blocker_remediation ||
+      record.after.leases.length !== 0 ||
+      !eventStatus(record, "blocked")
+    ) {
+      return "blocked-result state transition is invalid";
+    }
+  } else if (
+    record.worker_result.status !== "completed" ||
+    record.after.card.status !== "shipping" ||
+    record.after.leases.length !== 0 ||
+    record.after.recovery.length !== 0 ||
+    !eventStatus(record, "completed")
+  ) {
+    return "verified-pr state transition is invalid";
   }
   if (record.passed !== true) return "case did not pass";
   return "";
 }
 
-function readCanaryEvidence(pmStateDir) {
+function readCanaryEvidence(pmStateDir, options = {}) {
   const root = canaryRoot(pmStateDir);
   const records = [];
   const invalid = [];
@@ -167,7 +321,7 @@ function readCanaryEvidence(pmStateDir) {
       const caseName = caseEntry.name.slice(0, -5);
       try {
         const record = JSON.parse(fs.readFileSync(filePath, "utf8"));
-        const error = validateEvidenceRecord(record, caseName);
+        const error = validateEvidenceRecord(record, caseName, options);
         if (error) invalid.push({ file: filePath, reason: error });
         else records.push({ ...record, evidence_path: filePath });
       } catch (error) {
@@ -181,7 +335,7 @@ function readCanaryEvidence(pmStateDir) {
 function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const maxAgeSeconds = Math.max(1, Number(options.maxAgeSeconds || 86400));
-  const { records, invalid } = readCanaryEvidence(pmStateDir);
+  const { records, invalid } = readCanaryEvidence(pmStateDir, { now });
   if (invalid.length > 0) {
     return { passed: false, reason: `invalid canary evidence: ${invalid[0].reason}`, invalid };
   }
@@ -219,7 +373,7 @@ function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
   };
 }
 
-function directoryInventory(pmDir, child) {
+function directoryInventory(pmDir, child, options = {}) {
   const root = path.join(pmDir, "loop", child);
   if (!fs.existsSync(root)) return [];
   return fs
@@ -227,17 +381,18 @@ function directoryInventory(pmDir, child) {
     .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
     .map((entry) => {
       const filePath = path.join(root, entry.name);
-      let value = null;
-      try {
-        value = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      } catch {
-        value = null;
-      }
-      return {
+      const item = {
         path: path.posix.join("pm", "loop", child, entry.name),
         sha256: hashFile(filePath),
-        value,
       };
+      if (options.runId && entry.name === `${options.runId}.json`) {
+        try {
+          item.value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+        } catch {
+          item.value = null;
+        }
+      }
+      return item;
     })
     .sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -279,7 +434,7 @@ function snapshotCanaryState(pmDir, cardId, relativePath = "", options = {}) {
       card: findCard(snapshot.pmDir, cardId, relativePath),
       leases: directoryInventory(snapshot.pmDir, "leases"),
       recovery: directoryInventory(snapshot.pmDir, "recovery"),
-      events: directoryInventory(snapshot.pmDir, "events"),
+      events: directoryInventory(snapshot.pmDir, "events", { runId: options.runId || "" }),
     }),
     options
   );
@@ -301,12 +456,35 @@ function eventFor(after, runId) {
   return after.events.find((entry) => entry.path.endsWith(`/${runId}.json`)) || null;
 }
 
+function executedEngineIdentity(config, workerResult, ledger) {
+  const recorded = ledger.value?.engine;
+  if (!recorded || typeof recorded.bin !== "string" || !Array.isArray(recorded.args)) {
+    return canonicalEngineArgv(config);
+  }
+  const args = [...recorded.args];
+  const resultDir = workerResult.result_dir;
+  if (resultDir) {
+    for (let index = 0; index < args.length - 1; index += 1) {
+      if (
+        args[index] === "--add-dir" &&
+        path.resolve(args[index + 1]) === path.resolve(resultDir)
+      ) {
+        args[index + 1] = "<PM_LOOP_RESULT_DIR>";
+      }
+    }
+  }
+  return { bin: recorded.bin, args };
+}
+
 function assertionsFor(caseName, context) {
-  const { before, after, workerResult, ledger, config, preview } = context;
+  const { before, after, workerResult, ledger, config, preview, identity } = context;
+  const invocation = executedEngineIdentity(config, workerResult, ledger);
   const common = {
     exact_plan_preserved: workerResult.fingerprint === preview.fingerprint,
     exact_card_preserved:
       (workerResult.card?.id || workerResult.selected?.id) === preview.selected.id,
+    engine_argv_pinned:
+      sha256(JSON.stringify(invocation)) === String(identity.engine?.argv_hash || ""),
   };
   if (caseName === "preflight-failure") {
     return {
@@ -343,6 +521,117 @@ function assertionsFor(caseName, context) {
   };
 }
 
+function fixtureCard(caseName) {
+  const id = caseName === "preflight-failure" ? "PM-CANARY-PREFLIGHT" : "PM-CANARY-BLOCKED";
+  return {
+    id,
+    body: [
+      "---",
+      `id: ${id}`,
+      `title: ${caseName} supervised canary fixture`,
+      "kind: task",
+      "status: ready",
+      "implementation_approved: true",
+      "approved_by: supervised-canary",
+      "approved_at: 2026-07-10",
+      "---",
+      "",
+      "Exercise the loop safety contract in this disposable fixture only.",
+      "",
+    ].join("\n"),
+  };
+}
+
+function createFixtureCanary(projectDir, caseName, config) {
+  const sourceGitRoot = findGitRoot(projectDir);
+  if (!sourceGitRoot) throw new Error("fixture canary requires a Git-backed source project");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-loop-canary-${caseName}-`));
+  const project = path.join(root, "source");
+  const pmOrigin = path.join(root, "pm-origin.git");
+  const pmProject = path.join(root, "pm-project");
+  try {
+    runGit(["clone", "--no-hardlinks", sourceGitRoot, project], root);
+    runGit(["config", "user.email", "pm-canary@example.invalid"], project);
+    runGit(["config", "user.name", "PM Supervised Canary"], project);
+    runGit(["init", "--bare", "--initial-branch=main", pmOrigin], root);
+    runGit(["clone", pmOrigin, pmProject], root);
+    runGit(["config", "user.email", "pm-canary@example.invalid"], pmProject);
+    runGit(["config", "user.name", "PM Supervised Canary"], pmProject);
+    const pmDir = path.join(pmProject, "pm");
+    const pmStateDir = path.join(root, ".pm");
+    fs.mkdirSync(path.join(pmDir, "backlog"), { recursive: true });
+    fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+    const card = fixtureCard(caseName);
+    fs.writeFileSync(path.join(pmDir, "backlog", `${card.id.toLowerCase()}.md`), card.body);
+    const rawConfig = { ...config };
+    delete rawConfig.execution_config_hash;
+    const fixtureConfig = normalizeLoopConfig(rawConfig);
+    fs.writeFileSync(
+      path.join(pmDir, "loop", "config.json"),
+      `${JSON.stringify(fixtureConfig, null, 2)}\n`
+    );
+    runGit(["add", "-A"], pmProject);
+    runGit(["commit", "-m", `${caseName} supervised canary fixture`], pmProject);
+    runGit(["push", "origin", "main"], pmProject);
+    runGit(["symbolic-ref", "HEAD", "refs/heads/main"], pmOrigin);
+    approveExecutionConfig(pmStateDir, fixtureConfig);
+    return {
+      projectDir: project,
+      paths: { pmDir, pmStateDir },
+      cardId: card.id,
+      cleanup() {
+        fs.rmSync(root, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    fs.rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function fixtureWorkerOptions(caseName) {
+  if (caseName === "preflight-failure") {
+    return {
+      runProbe() {
+        return { status: 2, stderr: "supervised fixture engine-probe failure" };
+      },
+    };
+  }
+  if (caseName === "blocked-result") {
+    return {
+      runProbe() {
+        return { status: 0, stdout: "supervised fixture probe passed" };
+      },
+      spawnSync(_bin, _args, options) {
+        const result = {
+          version: 1,
+          run_id: options.env.PM_LOOP_RUN_ID,
+          card_id: options.env.PM_LOOP_CARD_ID,
+          stage: options.env.PM_LOOP_STAGE,
+          status: "blocked",
+          summary: "Supervised fixture blocker reached.",
+          blocker: {
+            code: "supervised-fixture-blocked",
+            reason: "The controlled blocked-result fixture cannot proceed.",
+            remediation:
+              "Confirm the blocked transition evidence, then continue the canary sequence.",
+          },
+          gates: [],
+          usage: { input_tokens: null, output_tokens: null, total_tokens: null },
+        };
+        const tempPath = `${options.env.PM_LOOP_RESULT_FILE}.${process.pid}.tmp`;
+        fs.writeFileSync(tempPath, `${JSON.stringify(result, null, 2)}\n`, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        fs.renameSync(tempPath, options.env.PM_LOOP_RESULT_FILE);
+        return { status: 0, signal: null, stdout: "", stderr: "" };
+      },
+    };
+  }
+  return {};
+}
+
 function runCanary(projectDir, caseName, options = {}) {
   if (!CANARY_CASES.includes(caseName)) {
     throw new Error(`case must be exactly one of ${CANARY_CASES.join(", ")}`);
@@ -353,63 +642,81 @@ function runCanary(projectDir, caseName, options = {}) {
     throw new Error("verified-pr requires autonomy.merge_pr=false");
   }
   const execute = options.runWorker || runWorker;
-  const preview = execute(projectDir, {
-    pmDir: paths.pmDir,
-    pmStateDir: paths.pmStateDir,
-    dryRun: true,
-  });
-  if (!preview.selected || !SHA256.test(String(preview.fingerprint || ""))) {
-    throw new Error("canary requires an exact eligible plan");
+  const fixture =
+    caseName === "verified-pr"
+      ? null
+      : (options.fixtureFactory || createFixtureCanary)(projectDir, caseName, config);
+  const executionProject = fixture?.projectDir || projectDir;
+  const executionPaths = fixture?.paths || paths;
+  const requestedCard = caseName === "verified-pr" ? options.card : fixture?.cardId || "";
+  try {
+    const commonWorkerOptions = {
+      pmDir: executionPaths.pmDir,
+      pmStateDir: executionPaths.pmStateDir,
+      cardId: requestedCard,
+      ...fixtureWorkerOptions(caseName),
+    };
+    const preview = execute(executionProject, { ...commonWorkerOptions, dryRun: true });
+    if (!preview.selected || !SHA256.test(String(preview.fingerprint || ""))) {
+      throw new Error("canary requires an exact eligible plan");
+    }
+    if (requestedCard && preview.selected.id !== requestedCard) {
+      throw new Error(`canary selected ${preview.selected.id}; expected --card ${requestedCard}`);
+    }
+    const cardId = preview.selected.id;
+    const sourcePath = preview.selected.sourcePath || preview.selected.source_path || "";
+    const relativePath = sourcePath
+      ? path.relative(path.dirname(executionPaths.pmDir), sourcePath).replace(/\\/g, "/")
+      : preview.selected.relative_path || "";
+    const startedAt = new Date().toISOString();
+    const snapshot = options.snapshot || snapshotCanaryState;
+    const before = snapshot(executionPaths.pmDir, cardId, relativePath);
+    const workerResult = execute(executionProject, {
+      ...commonWorkerOptions,
+      mode: preview.selected.stage || "default",
+    });
+    const after = snapshot(executionPaths.pmDir, cardId, relativePath, {
+      runId: workerResult.run_id || "",
+    });
+    const ledger = readLedger(workerResult);
+    const identity = options.identity || currentCanaryIdentity(projectDir, config, options);
+    const assertions = assertionsFor(caseName, {
+      before,
+      after,
+      workerResult,
+      ledger,
+      config,
+      preview,
+      identity,
+    });
+    const passed = Object.values(assertions).every(Boolean);
+    const evidenceRunId = workerResult.run_id || `loop-canary-${crypto.randomUUID()}`;
+    const record = {
+      schema_version: 1,
+      case: caseName,
+      started_at: startedAt,
+      ended_at: new Date().toISOString(),
+      ...identity,
+      exact_plan_fingerprint: preview.fingerprint,
+      exact_plan_config_hash:
+        preview.fingerprint_input?.execution_config_hash || identity.execution_config_hash,
+      before,
+      after,
+      worker_result: boundedJson(workerResult),
+      ledger: { path: ledger.path, sha256: ledger.sha256 },
+      assertions,
+      passed,
+    };
+    const outputDir = path.join(canaryRoot(paths.pmStateDir), evidenceRunId);
+    fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(outputDir, 0o700);
+    const outputPath = path.join(outputDir, `${caseName}.json`);
+    writeJsonAtomic(outputPath, record);
+    fs.chmodSync(outputPath, 0o600);
+    return { ...record, evidence_path: outputPath };
+  } finally {
+    fixture?.cleanup();
   }
-  if (caseName === "verified-pr" && preview.selected.id !== options.card) {
-    throw new Error(`verified-pr selected ${preview.selected.id}; expected --card ${options.card}`);
-  }
-  const cardId = preview.selected.id;
-  const sourcePath = preview.selected.sourcePath || preview.selected.source_path || "";
-  const relativePath = sourcePath
-    ? path.relative(path.dirname(paths.pmDir), sourcePath).replace(/\\/g, "/")
-    : preview.selected.relative_path || "";
-  const startedAt = new Date().toISOString();
-  const before = (options.snapshot || snapshotCanaryState)(paths.pmDir, cardId, relativePath);
-  const workerResult = execute(projectDir, {
-    pmDir: paths.pmDir,
-    pmStateDir: paths.pmStateDir,
-    mode: preview.selected.stage || "default",
-  });
-  const after = (options.snapshot || snapshotCanaryState)(paths.pmDir, cardId, relativePath);
-  const ledger = readLedger(workerResult);
-  const identity = options.identity || currentCanaryIdentity(projectDir, config, options);
-  const assertions = assertionsFor(caseName, {
-    before,
-    after,
-    workerResult,
-    ledger,
-    config,
-    preview,
-  });
-  const passed = Object.values(assertions).every(Boolean);
-  const evidenceRunId = workerResult.run_id || `loop-canary-${crypto.randomUUID()}`;
-  const record = {
-    schema_version: 1,
-    case: caseName,
-    started_at: startedAt,
-    ended_at: new Date().toISOString(),
-    ...identity,
-    exact_plan_fingerprint: preview.fingerprint,
-    before,
-    after,
-    worker_result: boundedJson(workerResult),
-    ledger: { path: ledger.path, sha256: ledger.sha256 },
-    assertions,
-    passed,
-  };
-  const outputDir = path.join(canaryRoot(paths.pmStateDir), evidenceRunId);
-  fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
-  fs.chmodSync(outputDir, 0o700);
-  const outputPath = path.join(outputDir, `${caseName}.json`);
-  writeJsonAtomic(outputPath, record);
-  fs.chmodSync(outputPath, 0o600);
-  return { ...record, evidence_path: outputPath };
 }
 
 function parseArgs(argv) {
@@ -451,6 +758,8 @@ function main() {
 
 module.exports = {
   CANARY_CASES,
+  canonicalEngineArgv,
+  createFixtureCanary,
   currentCanaryIdentity,
   evaluateCanaryReleaseGate,
   parseArgs,

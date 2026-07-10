@@ -27,6 +27,7 @@ const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
   findGitRoot,
+  gitRelativePath,
   removeWorkspace,
   runGit,
   sanitizeId,
@@ -39,6 +40,8 @@ const {
   markRunDispatched,
   markRunSuppressed,
   releaseClaim,
+  RUN_ID_PATTERN,
+  scanSnapshotTransactions,
   withRemoteSnapshot,
 } = require("./loop-pm-transaction.js");
 const {
@@ -73,6 +76,32 @@ function killSwitchPath(pmDir) {
 
 function isStopped(pmDir) {
   return fs.existsSync(killSwitchPath(pmDir));
+}
+
+function prepareRemoteStopMonitor(pmDir, pmStateDir, runId) {
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) return null;
+  const upstream = runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
+  const separator = upstream.indexOf("/");
+  if (separator <= 0 || separator === upstream.length - 1) return null;
+  const remoteName = upstream.slice(0, separator);
+  const branch = upstream.slice(separator + 1);
+  const remote = runGit(["remote", "get-url", remoteName], gitRoot);
+  const pmRelative = gitRelativePath(gitRoot, pmDir).replace(/\\/g, "/");
+  const stopRelative = path.posix.join(pmRelative === "." ? "" : pmRelative, "loop", "STOP");
+  const parent = path.join(pmStateDir, "loop-stop-monitors");
+  const gitDir = path.join(parent, `${sanitizeId(runId)}.git`);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  fs.rmSync(gitDir, { recursive: true, force: true });
+  runGit(["init", "--bare", gitDir], parent, { timeout: 5000 });
+  return {
+    gitDir,
+    remote,
+    ref: `refs/heads/${branch}`,
+    path: stopRelative,
+    pollMs: 5000,
+    timeoutMs: 5000,
+  };
 }
 
 function runsDirFor(paths) {
@@ -172,7 +201,7 @@ function blockerSignature(result) {
   );
 }
 
-function noProgressEvidence(plan, result, previous = null) {
+function noProgressContext(plan) {
   const stage = plan.selected.stage || "dev";
   const cardRevision =
     plan.lease?.expected_card_revision || plan.fingerprint_input?.card_revision || "";
@@ -181,79 +210,81 @@ function noProgressEvidence(plan, result, previous = null) {
       execution_config_hash: plan.fingerprint_input?.execution_config_hash || "",
     })
   );
+  return {
+    card_id: plan.selected.id,
+    stage,
+    card_revision: cardRevision,
+    execution_fingerprint: executionFingerprint,
+  };
+}
+
+function noProgressEvidence(plan, result, previous = null) {
+  const context = noProgressContext(plan);
   const blocker = previous?.blocker_signature || blockerSignature(result);
   const signature = sha256(
     JSON.stringify({
-      card_id: plan.selected.id,
-      card_revision: cardRevision,
-      execution_fingerprint: executionFingerprint,
-      stage,
+      ...context,
       blocker_signature: blocker,
     })
   );
   return {
     signature,
     blocker_signature: blocker,
-    card_revision: cardRevision,
-    execution_fingerprint: executionFingerprint,
+    card_revision: context.card_revision,
+    execution_fingerprint: context.execution_fingerprint,
     first_run_id: previous?.first_run_id || plan.run_id,
     last_run_id: plan.run_id,
   };
 }
 
-function findNoProgressSuppression(pmDir, plan, maxIdentical, options = {}) {
+function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
   if (!plan.selected || maxIdentical < 1) return null;
-  const cardId = plan.selected.id;
-  const stage = plan.selected.stage || "dev";
-  const cardRevision = plan.fingerprint_input?.card_revision || "";
-  const executionFingerprint = sha256(
-    JSON.stringify({
-      execution_config_hash: plan.fingerprint_input?.execution_config_hash || "",
+  const context = noProgressContext(plan);
+  const digest = /^sha256:[a-f0-9]{64}$/;
+  const events = scanSnapshotTransactions(pmDir, { includeFinalized: true })
+    .filter((entry) => entry.state === "finalized" && entry.event)
+    .map((entry) => entry.event)
+    .filter((event) => {
+      const evidence = event.no_progress;
+      if (
+        event.terminal !== true ||
+        event.card_id !== context.card_id ||
+        event.stage !== context.stage ||
+        !RUN_ID_PATTERN.test(String(event.run_id || "")) ||
+        !evidence ||
+        evidence.card_revision !== context.card_revision ||
+        evidence.execution_fingerprint !== context.execution_fingerprint ||
+        !digest.test(String(evidence.blocker_signature || "")) ||
+        !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
+        !RUN_ID_PATTERN.test(String(evidence.last_run_id || ""))
+      ) {
+        return false;
+      }
+      const expected = sha256(
+        JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
+      );
+      return evidence.signature === expected;
     })
+    .sort((a, b) => String(b.finalized_at || "").localeCompare(String(a.finalized_at || "")));
+  const latest = events[0];
+  if (!latest) return null;
+  const identical = events.filter(
+    (event) => event.no_progress.signature === latest.no_progress.signature
   );
+  if (identical.length < maxIdentical) return null;
+  const oldest = identical.at(-1);
+  return {
+    ...latest.no_progress,
+    first_run_id: oldest.no_progress.first_run_id || oldest.run_id,
+    last_run_id: latest.no_progress.last_run_id || latest.run_id,
+    count: identical.length,
+  };
+}
+
+function findNoProgressSuppression(pmDir, plan, maxIdentical, options = {}) {
   return withRemoteSnapshot(
     pmDir,
-    (snapshot) => {
-      const eventDir = path.join(snapshot.pmDir, "loop", "events");
-      if (!fs.existsSync(eventDir)) return null;
-      const events = [];
-      for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        try {
-          const event = JSON.parse(fs.readFileSync(path.join(eventDir, entry.name), "utf8"));
-          if (
-            event.terminal === true &&
-            event.card_id === cardId &&
-            event.stage === stage &&
-            event.no_progress &&
-            event.no_progress.card_revision === cardRevision &&
-            event.no_progress.execution_fingerprint === executionFingerprint &&
-            /^sha256:[a-f0-9]{64}$/.test(String(event.no_progress.signature || ""))
-          ) {
-            events.push(event);
-          }
-        } catch {
-          // Other transaction scans own malformed-event recovery. A malformed
-          // record is never positive evidence for suppressing execution.
-        }
-      }
-      events.sort((a, b) =>
-        String(b.finalized_at || "").localeCompare(String(a.finalized_at || ""))
-      );
-      const latest = events[0];
-      if (!latest) return null;
-      const identical = events.filter(
-        (event) => event.no_progress.signature === latest.no_progress.signature
-      );
-      if (identical.length < maxIdentical) return null;
-      const oldest = identical.at(-1);
-      return {
-        ...latest.no_progress,
-        first_run_id: oldest.no_progress.first_run_id || oldest.run_id,
-        last_run_id: latest.no_progress.last_run_id || latest.run_id,
-        count: identical.length,
-      };
-    },
+    (snapshot) => findNoProgressSuppressionInSnapshot(snapshot.pmDir, plan, maxIdentical),
     options
   );
 }
@@ -513,6 +544,7 @@ function processEvidence(spawnResult, timeoutMs) {
           requested_at: spawnResult.stop?.requested_at || null,
           term_sent_at: spawnResult.stop?.term_sent_at || null,
           kill_sent_at: spawnResult.stop?.kill_sent_at || null,
+          source: spawnResult.stop?.source || "local",
         }
       : undefined,
     started_at: spawnResult?.started_at || undefined,
@@ -904,6 +936,7 @@ function runWorker(projectDir, options = {}) {
     config,
     now,
     mode,
+    cardId: options.cardId || "",
     dryRun: true,
     quarantineCheck,
   });
@@ -953,10 +986,23 @@ function runWorker(projectDir, options = {}) {
 
   if (!preview.selected) return preview;
 
+  const maxIdenticalNoProgress =
+    Number(config.budgets && config.budgets.max_identical_no_progress) || 1;
+  let priorNoProgress = null;
   try {
-    config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
-      loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir)
-    );
+    const trusted = withRemoteSnapshot(paths.pmDir, (snapshot) => {
+      const trustedConfig = loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir);
+      return {
+        config: trustedConfig,
+        priorNoProgress: findNoProgressSuppressionInSnapshot(
+          snapshot.pmDir,
+          preview,
+          Number(trustedConfig.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
+        ),
+      };
+    });
+    config = trusted.config;
+    priorNoProgress = trusted.priorNoProgress;
   } catch (err) {
     const blocked = {
       blocker_code: "execution-config-unapproved",
@@ -983,9 +1029,6 @@ function runWorker(projectDir, options = {}) {
   }
   const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
   const attempts = countCardAttempts(runsDir, preview.selected.id, previewStage);
-  const maxIdenticalNoProgress =
-    Number(config.budgets && config.budgets.max_identical_no_progress) || 1;
-  const priorNoProgress = findNoProgressSuppression(paths.pmDir, preview, maxIdenticalNoProgress);
   if (attempts >= maxAttempts && !priorNoProgress) {
     return {
       ...preview,
@@ -1018,6 +1061,7 @@ function runWorker(projectDir, options = {}) {
     config,
     now,
     mode,
+    cardId: options.cardId || "",
     dryRun: false,
     claimOnly: true,
     holder: options.holder || os.hostname(),
@@ -1240,6 +1284,18 @@ function runWorker(projectDir, options = {}) {
       } catch (err) {
         protectedBeforeError = String(err.message || err).slice(0, 2000);
       }
+      let remoteStop = null;
+      let remoteStopError = "";
+      try {
+        remoteStop = prepareRemoteStopMonitor(paths.pmDir, paths.pmStateDir, runId);
+      } catch (error) {
+        remoteStopError = String(error.message || error).slice(0, 2000);
+      }
+      ledger.stop_control = {
+        local_path: killSwitchPath(paths.pmDir),
+        remote_available: Boolean(remoteStop),
+        remote_error: remoteStopError,
+      };
       const spawned = protectedBeforeError
         ? {
             status: null,
@@ -1258,6 +1314,7 @@ function runWorker(projectDir, options = {}) {
               graceMs: Number(config.claim_envelope.shutdown_grace_seconds) * 1000,
               pollMs: 250,
               stopPath: killSwitchPath(paths.pmDir),
+              remoteStop,
               maxBuffer: ENGINE_MAX_BUFFER,
               stdoutPath: path.join(logDir, "stdout.log"),
               stderrPath: path.join(logDir, "stderr.log"),
@@ -1276,6 +1333,7 @@ function runWorker(projectDir, options = {}) {
               ? options.spawnSync(command.bin, command.args, engineOptions)
               : runEngineInterruptibleSync(command.bin, command.args, engineOptions);
           })();
+      if (remoteStop?.gitDir) fs.rmSync(remoteStop.gitDir, { recursive: true, force: true });
       if (!spawned.logs_written) {
         fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
         fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
@@ -1332,7 +1390,7 @@ function runWorker(projectDir, options = {}) {
             "engine execution changed PM refs or protected PM path status"
         );
         resultHash = resultHashFor(stageResult);
-      } else if (processInfo.stopped && (!read.ok || RESULT_SUCCESSES.has(read.result.status))) {
+      } else if (processInfo.stopped) {
         stageResult = buildStoppedResult({
           runId,
           cardId: plan.selected.id,
@@ -1365,7 +1423,7 @@ function runWorker(projectDir, options = {}) {
         stageResult = read.result;
         resultHash = `sha256:${read.sha256}`;
       }
-      Object.assign(ledger, usageEvidence(stageResult));
+      Object.assign(ledger, usageEvidence(read.ok ? read.result : stageResult));
 
       let artifactVerification = { ok: true };
       if (stageResult.status !== "failed-contract") {
@@ -1477,6 +1535,7 @@ function parseArgs(argv) {
     skipPull: false,
     skipPush: false,
     allowUnsynced: false,
+    cardId: "",
   };
   const { args, positionals } = parseCliArgs(
     argv,
@@ -1490,6 +1549,7 @@ function parseArgs(argv) {
       "--skip-pull": { key: "skipPull", type: "boolean" },
       "--skip-push": { key: "skipPush", type: "boolean" },
       "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
+      "--card": { key: "cardId", type: "string" },
     },
     defaults
   );
