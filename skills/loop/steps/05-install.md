@@ -80,7 +80,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --resume
   the exact commands from the installed PM plugin root:
 
 ```bash
-cd "$PM_PLUGIN_ROOT"
+cd "${CLAUDE_PLUGIN_ROOT}"
 ```
 
 ```bash

@@ -9,6 +9,7 @@ const path = require("node:path");
 const {
   canonicalEngineArgv,
   currentCanaryIdentity,
+  runtimeSourceHash,
   runCanary,
   validateEvidenceRecord,
 } = require("../scripts/loop-canary.js");
@@ -178,6 +179,33 @@ test("canary identity preserves the approved execution hash", () => {
   });
   assert.equal(actual.execution_config_hash, config.execution_config_hash);
   assert.match(actual.runtime_source_hash, /^sha256:[a-f0-9]{64}$/);
+});
+
+test("runtime source identity changes when an optional published template changes", (t) => {
+  const sourceRoot = path.resolve(__dirname, "..");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-runtime-source-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const entry of [
+    "plugin.config.json",
+    "package.json",
+    "package-lock.json",
+    ".claude-plugin",
+    ".codex-plugin",
+    "agents",
+    "commands",
+    "hooks",
+    "references",
+    "scripts",
+    "skills",
+  ]) {
+    fs.cpSync(path.join(sourceRoot, entry), path.join(root, entry), { recursive: true });
+  }
+  fs.mkdirSync(path.join(root, "templates"));
+  const template = path.join(root, "templates", "release.md");
+  fs.writeFileSync(template, "first template\n");
+  const first = runtimeSourceHash(root);
+  fs.writeFileSync(template, "modified template\n");
+  assert.notEqual(runtimeSourceHash(root), first);
 });
 
 test("canary fails when engine identity changes during execution", () => {

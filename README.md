@@ -175,6 +175,7 @@ eligible approved card that is expected to produce an OPEN PR, then run the exac
 commands from the installed PM plugin root:
 
 ```bash
+export PM_PLUGIN_ROOT=/absolute/path/to/installed/pm
 cd "$PM_PLUGIN_ROOT"
 ```
 

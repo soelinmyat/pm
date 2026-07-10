@@ -40,6 +40,7 @@ const RUNTIME_SOURCE_ENTRIES = Object.freeze([
   "scripts",
   "skills",
 ]);
+const OPTIONAL_RUNTIME_SOURCE_ENTRIES = Object.freeze(["templates"]);
 const REQUIRED_ASSERTIONS = Object.freeze({
   "preflight-failure": Object.freeze([
     "exact_plan_preserved",
@@ -123,6 +124,9 @@ function runtimeSourceHash(pluginRoot) {
       throw new Error(`runtime source entry is missing: ${entry}`);
     }
     visit(entry);
+  }
+  for (const entry of OPTIONAL_RUNTIME_SOURCE_ENTRIES) {
+    if (fs.existsSync(path.join(pluginRoot, entry))) visit(entry);
   }
   return sha256(JSON.stringify(records));
 }

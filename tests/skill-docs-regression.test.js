@@ -116,11 +116,15 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
     all,
     /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case verified-pr --card "\$CANARY_CARD" --no-merge/
   );
-  for (const document of [readme, install, installStep]) {
+  for (const document of [readme, install]) {
     assert.match(document, /cd "\$PM_PLUGIN_ROOT"/);
     assert.match(document, /CLEANLOG_ROOT.*consumer project/is);
     assert.match(document, /CANARY_CARD.*approved.*OPEN PR/is);
   }
+  assert.match(readme, /export PM_PLUGIN_ROOT=/);
+  assert.match(installStep, /cd "\$\{CLAUDE_PLUGIN_ROOT\}"/);
+  assert.match(installStep, /CLEANLOG_ROOT.*consumer project/is);
+  assert.match(installStep, /CANARY_CARD.*approved.*OPEN PR/is);
   assert.match(all, /usage_available: false/);
   assert.match(all, /TERM.*KILL/is);
   assert.match(all, /same.*plugin.*source.*config.*engine/is);
@@ -130,6 +134,8 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
   assert.match(all, /scheduled.*wake.*rechecks/is);
   assert.match(work, /loop-worker\.js --project-dir "\$PWD" --manual/);
   assert.match(route, /canary-required/);
+  assert.match(route, /paused.*releaseGate\.passed.*resume/is);
+  assert.match(route, /paused.*canary.*install/is);
   assert.match(installStep, /Linux updates crontab/);
   assert.match(all, /does not support exact token cutoffs/i);
 });
