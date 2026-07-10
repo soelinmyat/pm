@@ -116,6 +116,11 @@ test("loop docs keep scheduling gated on exact same-identity supervised canaries
     all,
     /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case verified-pr --card "\$CANARY_CARD" --no-merge/
   );
+  for (const document of [readme, install, installStep]) {
+    assert.match(document, /cd "\$PM_PLUGIN_ROOT"/);
+    assert.match(document, /CLEANLOG_ROOT.*consumer project/is);
+    assert.match(document, /CANARY_CARD.*approved.*OPEN PR/is);
+  }
   assert.match(all, /usage_available: false/);
   assert.match(all, /TERM.*KILL/is);
   assert.match(all, /same.*plugin.*source.*config.*engine/is);

@@ -13,12 +13,14 @@ const {
   validateEvidenceRecord,
 } = require("../scripts/loop-canary.js");
 const { executionConfigHash, normalizeLoopConfig, sha256 } = require("../scripts/loop-config.js");
+const { findGitRoot } = require("../scripts/loop-git.js");
 
 const defaultIdentityConfig = normalizeLoopConfig({ autonomy: { merge_pr: false } });
 
 const identity = {
   plugin_version: "1.13.6",
   source_commit: "a".repeat(40),
+  runtime_source_hash: `sha256:${"7".repeat(64)}`,
   execution_config_hash: `sha256:${"b".repeat(64)}`,
   engine: {
     kind: "codex",
@@ -161,6 +163,10 @@ test("canary evidence validation rejects empty, false, reversed, and future evid
     validateEvidenceRecord(future, "verified-pr", { now: new Date("2026-07-09T01:00:00.000Z") }),
     /future/i
   );
+
+  const missingRuntimeHash = completeRecord("verified-pr");
+  delete missingRuntimeHash.runtime_source_hash;
+  assert.match(validateEvidenceRecord(missingRuntimeHash, "verified-pr"), /runtime source/i);
 });
 
 test("canary identity preserves the approved execution hash", () => {
@@ -171,6 +177,7 @@ test("canary identity preserves the approved execution hash", () => {
     versionRunner: () => "codex 1.0.0\n",
   });
   assert.equal(actual.execution_config_hash, config.execution_config_hash);
+  assert.match(actual.runtime_source_hash, /^sha256:[a-f0-9]{64}$/);
 });
 
 test("canary fails when engine identity changes during execution", () => {
@@ -366,13 +373,16 @@ test("default fixture canaries create disposable Git-backed PM/source state", as
         const pmDir = path.join(root, "real-pm");
         const pmStateDir = path.join(root, ".pm");
         const engineBin = path.join(root, "fixture-engine");
+        const sourceOriginProbe = path.join(root, "fixture-source-origin.txt");
         fs.writeFileSync(
           engineBin,
           [
             "#!/usr/bin/env node",
             'const fs = require("node:fs");',
+            'const { execFileSync } = require("node:child_process");',
             'if (process.argv.includes("--version")) { console.log("fixture-engine 1.0.0"); process.exit(0); }',
             'if (process.env.PM_LOOP_PREFLIGHT === "1") process.exit(0);',
+            `fs.writeFileSync(${JSON.stringify(sourceOriginProbe)}, execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }));`,
             'let input = "";',
             'process.stdin.setEncoding("utf8");',
             'process.stdin.on("data", (chunk) => { input += chunk; });',
@@ -408,6 +418,11 @@ test("default fixture canaries create disposable Git-backed PM/source state", as
         assert.equal(record.passed, true, JSON.stringify(record));
         assert.equal(validateEvidenceRecord(record, caseName), "");
         assert.equal(fs.existsSync(path.join(pmDir, "loop")), false);
+        if (caseName === "blocked-result") {
+          const fixtureOrigin = fs.readFileSync(sourceOriginProbe, "utf8").trim();
+          assert.notEqual(path.resolve(fixtureOrigin), path.resolve(findGitRoot(process.cwd())));
+          assert.match(fixtureOrigin, /pm-loop-canary-blocked-result-/);
+        }
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }

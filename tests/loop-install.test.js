@@ -78,6 +78,7 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
     ended_at: "2026-07-10T01:01:00.000Z",
     plugin_version: "1.13.2",
     source_commit: "a".repeat(40),
+    runtime_source_hash: `sha256:${"7".repeat(64)}`,
     execution_config_hash: `sha256:${"b".repeat(64)}`,
     exact_plan_fingerprint: `sha256:${"c".repeat(64)}`,
     exact_plan_config_hash: `sha256:${"b".repeat(64)}`,
@@ -369,6 +370,7 @@ test("canary release gate requires fresh same-identity evidence for all three ca
     const expectedIdentity = {
       plugin_version: records[0].plugin_version,
       source_commit: records[0].source_commit,
+      runtime_source_hash: records[0].runtime_source_hash,
       execution_config_hash: records[0].execution_config_hash,
       engine: records[0].engine,
     };

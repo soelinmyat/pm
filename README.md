@@ -170,6 +170,14 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 Keep the scheduler paused or uninstalled while validating a new loop runtime. Run all
 three cases against the same plugin version, source commit, resolved config, and engine:
 
+Set `CLEANLOG_ROOT` to the absolute consumer project root. Set `CANARY_CARD` to an
+eligible approved card that is expected to produce an OPEN PR, then run the exact
+commands from the installed PM plugin root:
+
+```bash
+cd "$PM_PLUGIN_ROOT"
+```
+
 ```bash
 node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case preflight-failure
 node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case blocked-result

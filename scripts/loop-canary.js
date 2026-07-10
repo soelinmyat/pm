@@ -27,6 +27,19 @@ const CANARY_CASES = Object.freeze(["preflight-failure", "blocked-result", "veri
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
+const RUNTIME_SOURCE_ENTRIES = Object.freeze([
+  "plugin.config.json",
+  "package.json",
+  "package-lock.json",
+  ".claude-plugin",
+  ".codex-plugin",
+  "agents",
+  "commands",
+  "hooks",
+  "references",
+  "scripts",
+  "skills",
+]);
 const REQUIRED_ASSERTIONS = Object.freeze({
   "preflight-failure": Object.freeze([
     "exact_plan_preserved",
@@ -88,6 +101,32 @@ function canonicalEngineArgv(config) {
   return canonicalEngineCommand(config);
 }
 
+function runtimeSourceHash(pluginRoot) {
+  const records = [];
+  const visit = (relativePath) => {
+    const absolutePath = path.join(pluginRoot, relativePath);
+    const stat = fs.lstatSync(absolutePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`runtime source contains a symbolic link: ${relativePath}`);
+    }
+    if (stat.isDirectory()) {
+      for (const entry of fs.readdirSync(absolutePath).sort()) {
+        visit(path.join(relativePath, entry));
+      }
+      return;
+    }
+    if (!stat.isFile()) throw new Error(`runtime source entry is not a file: ${relativePath}`);
+    records.push([relativePath.replace(/\\/g, "/"), hashFile(absolutePath)]);
+  };
+  for (const entry of RUNTIME_SOURCE_ENTRIES) {
+    if (!fs.existsSync(path.join(pluginRoot, entry))) {
+      throw new Error(`runtime source entry is missing: ${entry}`);
+    }
+    visit(entry);
+  }
+  return sha256(JSON.stringify(records));
+}
+
 function currentCanaryIdentity(config, options = {}) {
   const pluginRoot = options.pluginRoot || path.resolve(__dirname, "..");
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, "plugin.config.json"), "utf8"));
@@ -115,6 +154,7 @@ function currentCanaryIdentity(config, options = {}) {
   return {
     plugin_version: String(manifest.version || ""),
     source_commit: sourceCommit,
+    runtime_source_hash: options.runtimeSourceHash || runtimeSourceHash(pluginRoot),
     execution_config_hash: config.execution_config_hash || executionConfigHash(config),
     engine: {
       kind: worker.engine_bin ? "custom" : worker.engine || config.default_runtime || "codex",
@@ -156,6 +196,7 @@ function evidenceIdentity(record) {
   return {
     plugin_version: record.plugin_version,
     source_commit: record.source_commit,
+    runtime_source_hash: record.runtime_source_hash,
     execution_config_hash: record.execution_config_hash,
     engine: record.engine,
   };
@@ -220,6 +261,8 @@ function validateEvidenceRecord(record, caseName, options = {}) {
   if (typeof record.plugin_version !== "string" || !record.plugin_version)
     return "plugin_version is missing";
   if (!COMMIT.test(String(record.source_commit || ""))) return "source_commit is invalid";
+  if (!SHA256.test(String(record.runtime_source_hash || "")))
+    return "runtime source identity is invalid";
   if (!SHA256.test(String(record.execution_config_hash || "")))
     return "execution_config_hash is invalid";
   if (!SHA256.test(String(record.exact_plan_fingerprint || "")))
@@ -605,11 +648,17 @@ function createFixtureCanary(projectDir, caseName, config) {
   const sourceGitRoot = findGitRoot(projectDir);
   if (!sourceGitRoot) throw new Error("fixture canary requires a Git-backed source project");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-loop-canary-${caseName}-`));
+  const sourceOrigin = path.join(root, "source-origin.git");
   const project = path.join(root, "source");
   const pmOrigin = path.join(root, "pm-origin.git");
   const pmProject = path.join(root, "pm-project");
   try {
-    runGit(["clone", "--no-hardlinks", sourceGitRoot, project], root);
+    const sourceCommit = runGit(["rev-parse", "HEAD"], sourceGitRoot);
+    runGit(["init", "--bare", "--initial-branch=main", sourceOrigin], root);
+    runGit(["fetch", sourceGitRoot, `${sourceCommit}:refs/heads/main`], sourceOrigin);
+    runGit(["symbolic-ref", "HEAD", "refs/heads/main"], sourceOrigin);
+    runGit(["clone", "--no-hardlinks", sourceOrigin, project], root);
+    runGit(["remote", "set-url", "origin", sourceOrigin], project);
     runGit(["config", "user.email", "pm-canary@example.invalid"], project);
     runGit(["config", "user.name", "PM Supervised Canary"], project);
     runGit(["init", "--bare", "--initial-branch=main", pmOrigin], root);
@@ -796,6 +845,7 @@ module.exports = {
   parseArgs,
   readCanaryEvidence,
   resolvePluginSourceCommit,
+  runtimeSourceHash,
   runCanary,
   snapshotCanaryState,
   validateEvidenceRecord,
