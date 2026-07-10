@@ -237,6 +237,11 @@ function runEngineInterruptible(bin, args, options = {}) {
       closeResult = { code, signal };
       if (!termReason || escalationComplete) finish(code, signal);
     });
+    try {
+      if (options.stopPath && fs.existsSync(options.stopPath)) requestTermination("stop-local");
+    } catch {
+      // Interval polling and the bounded runtime remain as fallbacks.
+    }
     if (child.stdin) {
       child.stdin.on("error", () => {});
       child.stdin.end(options.input || "");

@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
-const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-config.js");
+const { approveExecutionConfig, loadLoopConfig, sha256 } = require("../scripts/loop-config.js");
 const { runEngineInterruptible } = require("../scripts/loop-process.js");
 
 const {
@@ -1598,6 +1598,73 @@ test("corrupt no-progress signatures cannot suppress an eligible execution", () 
   }
 });
 
+test("a matching durable outcome finalized after claim still suppresses engine dispatch", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeStructuredEngine(fixture.root, { status: "failed", exitCode: 3 });
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        budgets: { max_identical_no_progress: 1 },
+        worker: { engine_bin: engineBin },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "no progress race fixture"], fixture.project);
+    git(["push"], fixture.project);
+
+    const previousRunId = "loop-11111111-1111-4111-8111-111111111111";
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      afterClaim(plan) {
+        git(["pull", "--ff-only"], fixture.project);
+        const context = {
+          card_id: plan.selected.id,
+          stage: plan.selected.stage,
+          card_revision: plan.lease.expected_card_revision,
+          execution_fingerprint: sha256(
+            JSON.stringify({
+              execution_config_hash: plan.fingerprint_input.execution_config_hash,
+            })
+          ),
+        };
+        const blockerSignature = sha256("race blocker");
+        const event = {
+          schema_version: 1,
+          run_id: previousRunId,
+          card_id: plan.selected.id,
+          stage: plan.selected.stage,
+          status: "failed",
+          terminal: true,
+          finalized_at: "2026-07-10T00:00:00.000Z",
+          no_progress: {
+            signature: sha256(JSON.stringify({ ...context, blocker_signature: blockerSignature })),
+            blocker_signature: blockerSignature,
+            card_revision: context.card_revision,
+            execution_fingerprint: context.execution_fingerprint,
+            first_run_id: previousRunId,
+            last_run_id: previousRunId,
+          },
+        };
+        const eventPath = path.join(fixture.pmDir, "loop", "events", `${previousRunId}.json`);
+        fs.mkdirSync(path.dirname(eventPath), { recursive: true });
+        fs.writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`);
+        git(["add", path.relative(fixture.project, eventPath)], fixture.project);
+        git(["commit", "-m", "concurrent no progress outcome"], fixture.project);
+        git(["push"], fixture.project);
+      },
+    });
+    assert.equal(result.status, "no-progress", JSON.stringify(result));
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.engine, undefined);
+    assert.equal(ledger.no_progress.first_run_id, previousRunId);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("interruptible engine execution sends TERM then KILL to its process group", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-process-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1637,6 +1704,28 @@ test("interruptible engine execution sends TERM then KILL to its process group",
   assert.ok(result.stop.term_sent_at);
   assert.ok(result.stop.kill_sent_at);
   assert.ok(Date.parse(result.stop.term_sent_at) <= Date.parse(result.stop.kill_sent_at));
+});
+
+test("interruptible execution observes a pre-existing STOP before a fast engine can succeed", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-preexisting-stop-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const stopPath = path.join(root, "STOP");
+  fs.writeFileSync(stopPath, "stop\n");
+  const result = await runEngineInterruptible(
+    process.execPath,
+    ["-e", "setTimeout(() => process.exit(0), 50)"],
+    {
+      cwd: root,
+      env: process.env,
+      stopPath,
+      timeoutMs: 2_000,
+      graceMs: 100,
+      pollMs: 250,
+    }
+  );
+  assert.equal(result.stopped, true, JSON.stringify(result));
+  assert.equal(result.stop.source, "local");
+  assert.ok(result.stop.requested_at);
 });
 
 test("interruptible execution observes a STOP pushed from another PM clone", async (t) => {

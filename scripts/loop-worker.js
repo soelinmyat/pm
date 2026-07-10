@@ -41,7 +41,7 @@ const {
   markRunSuppressed,
   releaseClaim,
   RUN_ID_PATTERN,
-  scanSnapshotTransactions,
+  scanSnapshotFinalizedEvents,
   withRemoteSnapshot,
 } = require("./loop-pm-transaction.js");
 const {
@@ -241,9 +241,10 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
   if (!plan.selected || maxIdentical < 1) return null;
   const context = noProgressContext(plan);
   const digest = /^sha256:[a-f0-9]{64}$/;
-  const events = scanSnapshotTransactions(pmDir, { includeFinalized: true })
-    .filter((entry) => entry.state === "finalized" && entry.event)
-    .map((entry) => entry.event)
+  const events = scanSnapshotFinalizedEvents(pmDir, {
+    cardId: context.card_id,
+    stage: context.stage,
+  })
     .filter((event) => {
       const evidence = event.no_progress;
       if (
@@ -1142,6 +1143,12 @@ function runWorker(projectDir, options = {}) {
   if (!projectGitRoot) {
     return bail("failed", "project is not a git repository");
   }
+  if (typeof options.afterClaim === "function") options.afterClaim(plan);
+  priorNoProgress = findNoProgressSuppression(
+    paths.pmDir,
+    plan,
+    Number(config.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
+  );
   if (priorNoProgress) {
     writeJsonAtomic(ledgerPath, ledger);
     const suppressionRecord = (options.markRunSuppressed || markRunSuppressed)(

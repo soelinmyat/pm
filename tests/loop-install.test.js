@@ -12,6 +12,7 @@ const {
   buildLaunchdPlist,
   evaluateCanaryReleaseGate,
   generate,
+  installGenerated,
   launchdLabel,
   projectSlug,
   setKillSwitch,
@@ -54,6 +55,14 @@ const REQUIRED_ASSERTIONS = {
   },
 };
 
+function inventory(records = []) {
+  return {
+    count: records.length,
+    sha256: `sha256:${"4".repeat(64)}`,
+    records,
+  };
+}
+
 function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
   const dir = path.join(pmStateDir, "loop-canary", runId);
   fs.mkdirSync(dir, { recursive: true });
@@ -81,9 +90,9 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
         blocker_code: "",
         blocker_remediation: "",
       },
-      leases: [],
-      recovery: [],
-      events: [],
+      leases: inventory(),
+      recovery: inventory(),
+      events: inventory(),
     },
     after: {
       pm_head: "f".repeat(40),
@@ -99,9 +108,9 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
         blocker_code: caseName === "blocked-result" ? "fixture-blocked" : "",
         blocker_remediation: caseName === "blocked-result" ? "Resolve the fixture blocker." : "",
       },
-      leases: [],
-      recovery: [],
-      events:
+      leases: inventory(),
+      recovery: inventory(),
+      events: inventory(
         caseName === "preflight-failure"
           ? []
           : [
@@ -114,7 +123,8 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
                   terminal: true,
                 },
               },
-            ],
+            ]
+      ),
     },
     worker_result: {
       run_id: runId,
@@ -196,17 +206,18 @@ test("generate picks launchd on darwin format and cron otherwise", () => {
 test("install exposure reports daily claim envelope, TTL margin, and unsafe autonomy warnings", () => {
   const config = normalizeLoopConfig({
     autonomy: { merge_pr: true },
-    worker: { codex_sandbox: "danger-full-access" },
+    worker: { engine_bin: "/opt/custom-engine", codex_sandbox: "danger-full-access" },
   });
   const exposure = buildInstallExposure(config);
   assert.equal(exposure.claim_envelope_seconds.dev, 6270);
   assert.equal(exposure.claim_envelope_seconds.ship, 2670);
-  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 139320);
+  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 75240);
   assert.equal(exposure.lease_ttl_seconds, 7200);
   assert.equal(exposure.minimum_ttl_seconds, 6571);
   assert.equal(exposure.ttl_margin_seconds, 630);
   assert.ok(exposure.warnings.some((warning) => /merge autonomy/i.test(warning)));
   assert.ok(exposure.warnings.some((warning) => /danger-full-access/i.test(warning)));
+  assert.ok(exposure.warnings.some((warning) => /custom engine/i.test(warning)));
 
   const generated = generate({
     projectDir: "/p",
@@ -217,6 +228,34 @@ test("install exposure reports daily claim envelope, TTL margin, and unsafe auto
   });
   assert.deepEqual(generated.exposure, exposure);
   assert.match(generated.instructions, /maximum daily claim envelope/i);
+});
+
+test("direct launchd install emits exposure warnings before enabling the scheduler", () => {
+  const config = normalizeLoopConfig({
+    autonomy: { merge_pr: true },
+    worker: { codex_sandbox: "danger-full-access" },
+  });
+  const generated = generate({
+    projectDir: "/p",
+    mode: "dev",
+    intervalMinutes: 30,
+    format: "launchd",
+    config,
+  });
+  const events = [];
+  const result = installGenerated(generated, 30, {
+    install(content, label) {
+      events.push(`install:${label}:${content.includes("<plist")}`);
+      return "/tmp/com.pm.loop.p.plist";
+    },
+    writeError(text) {
+      events.push(`warning:${/merge autonomy/i.test(text)}:${/danger-full-access/i.test(text)}`);
+    },
+  });
+  assert.match(events[0], /^warning:true:true$/);
+  assert.match(events[1], /^install:/);
+  assert.deepEqual(result.exposure, generated.exposure);
+  assert.equal(result.installed, true);
 });
 
 test("canary release gate requires fresh same-identity evidence for all three cases", () => {

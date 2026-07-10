@@ -16,8 +16,8 @@ const {
   sha256,
   stableValue,
 } = require("./loop-config.js");
-const { engineCommand } = require("./loop-engine.js");
-const { findGitRoot, runGit, writeJsonAtomic } = require("./loop-git.js");
+const { canonicalEngineCommand } = require("./loop-engine.js");
+const { findGitRoot, gitRelativePath, runGit, writeJsonAtomic } = require("./loop-git.js");
 const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { runWorker } = require("./loop-worker.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
@@ -82,18 +82,10 @@ function boundedJson(value, maxBytes = 64 * 1024) {
 }
 
 function canonicalEngineArgv(config) {
-  const command = engineCommand(config, "PM loop canary identity probe");
-  const args = [...(command.args || [])];
-  const worker = config.worker || {};
-  const kind = worker.engine || config.default_runtime || "codex";
-  if (!worker.engine_bin && kind !== "claude") {
-    const inputIndex = args.lastIndexOf("-");
-    args.splice(inputIndex < 0 ? args.length : inputIndex, 0, "--add-dir", "<PM_LOOP_RESULT_DIR>");
-  }
-  return { bin: command.bin, args };
+  return canonicalEngineCommand(config);
 }
 
-function currentCanaryIdentity(projectDir, config, options = {}) {
+function currentCanaryIdentity(config, options = {}) {
   const pluginRoot = options.pluginRoot || path.resolve(__dirname, "..");
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, "plugin.config.json"), "utf8"));
   const sourceCommit = resolvePluginSourceCommit(pluginRoot, manifest, options);
@@ -168,8 +160,14 @@ function evidenceIdentity(record) {
 
 function validInventory(value) {
   return (
-    Array.isArray(value) &&
-    value.every(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Number.isSafeInteger(value.count) &&
+    value.count >= 0 &&
+    SHA256.test(String(value.sha256 || "")) &&
+    Array.isArray(value.records) &&
+    value.records.every(
       (entry) =>
         entry &&
         typeof entry === "object" &&
@@ -199,7 +197,7 @@ function validState(value) {
 
 function eventStatus(record, status) {
   const runId = record.worker_result?.run_id;
-  return record.after.events.some(
+  return record.after.events.records.some(
     (entry) => entry.value?.run_id === runId && entry.value?.status === status
   );
 }
@@ -287,7 +285,7 @@ function validateEvidenceRecord(record, caseName, options = {}) {
       record.worker_result.status !== "blocked" ||
       record.after.card.status !== "needs-human" ||
       !record.after.card.blocker_remediation ||
-      record.after.leases.length !== 0 ||
+      record.after.leases.count !== 0 ||
       !eventStatus(record, "blocked")
     ) {
       return "blocked-result state transition is invalid";
@@ -295,8 +293,8 @@ function validateEvidenceRecord(record, caseName, options = {}) {
   } else if (
     record.worker_result.status !== "completed" ||
     record.after.card.status !== "shipping" ||
-    record.after.leases.length !== 0 ||
-    record.after.recovery.length !== 0 ||
+    record.after.leases.count !== 0 ||
+    record.after.recovery.count !== 0 ||
     !eventStatus(record, "completed")
   ) {
     return "verified-pr state transition is invalid";
@@ -309,7 +307,13 @@ function readCanaryEvidence(pmStateDir, options = {}) {
   const root = canaryRoot(pmStateDir);
   const records = [];
   const invalid = [];
-  if (!fs.existsSync(root)) return { records, invalid };
+  const latest = new Map();
+  let invalidCount = 0;
+  const recordInvalid = (value) => {
+    invalidCount += 1;
+    if (invalid.length < 10) invalid.push(value);
+  };
+  if (!fs.existsSync(root)) return { records, invalid, invalid_count: invalidCount };
   for (const runEntry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) continue;
     const runDir = path.join(root, runEntry.name);
@@ -322,21 +326,42 @@ function readCanaryEvidence(pmStateDir, options = {}) {
       try {
         const record = JSON.parse(fs.readFileSync(filePath, "utf8"));
         const error = validateEvidenceRecord(record, caseName, options);
-        if (error) invalid.push({ file: filePath, reason: error });
-        else records.push({ ...record, evidence_path: filePath });
+        if (error) recordInvalid({ file: filePath, reason: error });
+        else {
+          const value = { ...record, evidence_path: filePath };
+          if (options.latestOnly) {
+            const prior = latest.get(caseName);
+            if (!prior || Date.parse(value.ended_at) > Date.parse(prior.ended_at)) {
+              latest.set(caseName, value);
+            }
+          } else {
+            records.push(value);
+          }
+        }
       } catch (error) {
-        invalid.push({ file: filePath, reason: error.message });
+        recordInvalid({ file: filePath, reason: error.message });
       }
     }
   }
-  return { records, invalid };
+  return {
+    records: options.latestOnly ? [...latest.values()] : records,
+    invalid,
+    invalid_count: invalidCount,
+  };
 }
 
 function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const maxAgeSeconds = Math.max(1, Number(options.maxAgeSeconds || 86400));
-  const { records, invalid } = readCanaryEvidence(pmStateDir, { now });
-  if (invalid.length > 0) {
+  const {
+    records,
+    invalid,
+    invalid_count: invalidCount,
+  } = readCanaryEvidence(pmStateDir, {
+    now,
+    latestOnly: true,
+  });
+  if (invalidCount > 0) {
     return { passed: false, reason: `invalid canary evidence: ${invalid[0].reason}`, invalid };
   }
   const selected = [];
@@ -373,28 +398,51 @@ function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
   };
 }
 
+function evaluateCurrentCanaryReleaseGate(pmStateDir, config, options = {}) {
+  const identity = currentCanaryIdentity(config, options);
+  return evaluateCanaryReleaseGate(pmStateDir, identity, {
+    now: options.now,
+    maxAgeSeconds: config.canary.evidence_ttl_seconds,
+  });
+}
+
 function directoryInventory(pmDir, child, options = {}) {
   const root = path.join(pmDir, "loop", child);
-  if (!fs.existsSync(root)) return [];
-  return fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-    .map((entry) => {
+  const entries = fs.existsSync(root)
+    ? fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+  let treeIdentity = entries.map((entry) => entry.name).join("\n");
+  const gitRoot = findGitRoot(pmDir);
+  if (gitRoot && fs.existsSync(root)) {
+    try {
+      const relative = gitRelativePath(gitRoot, root).replace(/\\/g, "/");
+      treeIdentity = runGit(["rev-parse", `HEAD:${relative}`], gitRoot);
+    } catch {
+      // Filename identity still gives deterministic fail-closed comparison.
+    }
+  }
+  const records = [];
+  if (options.runId) {
+    const entry = entries.find((candidate) => candidate.name === `${options.runId}.json`);
+    if (entry) {
       const filePath = path.join(root, entry.name);
-      const item = {
+      let value = null;
+      try {
+        value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      } catch {
+        value = null;
+      }
+      records.push({
         path: path.posix.join("pm", "loop", child, entry.name),
         sha256: hashFile(filePath),
-      };
-      if (options.runId && entry.name === `${options.runId}.json`) {
-        try {
-          item.value = JSON.parse(fs.readFileSync(filePath, "utf8"));
-        } catch {
-          item.value = null;
-        }
-      }
-      return item;
-    })
-    .sort((a, b) => a.path.localeCompare(b.path));
+        value,
+      });
+    }
+  }
+  return { count: entries.length, sha256: sha256(treeIdentity), records };
 }
 
 function findCard(pmDir, cardId, relativePath = "") {
@@ -453,7 +501,7 @@ function readLedger(workerResult) {
 }
 
 function eventFor(after, runId) {
-  return after.events.find((entry) => entry.path.endsWith(`/${runId}.json`)) || null;
+  return after.events.records.find((entry) => entry.path.endsWith(`/${runId}.json`)) || null;
 }
 
 function executedEngineIdentity(config, workerResult, ledger) {
@@ -461,19 +509,7 @@ function executedEngineIdentity(config, workerResult, ledger) {
   if (!recorded || typeof recorded.bin !== "string" || !Array.isArray(recorded.args)) {
     return canonicalEngineArgv(config);
   }
-  const args = [...recorded.args];
-  const resultDir = workerResult.result_dir;
-  if (resultDir) {
-    for (let index = 0; index < args.length - 1; index += 1) {
-      if (
-        args[index] === "--add-dir" &&
-        path.resolve(args[index + 1]) === path.resolve(resultDir)
-      ) {
-        args[index + 1] = "<PM_LOOP_RESULT_DIR>";
-      }
-    }
-  }
-  return { bin: recorded.bin, args };
+  return canonicalEngineCommand(config, recorded, { resultDir: workerResult.result_dir || "" });
 }
 
 function assertionsFor(caseName, context) {
@@ -501,7 +537,7 @@ function assertionsFor(caseName, context) {
       worker_blocked: workerResult.status === "blocked",
       card_needs_human: after.card?.status === "needs-human",
       remediation_present: Boolean(after.card?.blocker_remediation),
-      no_lease: after.leases.length === 0,
+      no_lease: after.leases.count === 0,
       durable_blocked_event: eventFor(after, workerResult.run_id)?.value?.status === "blocked",
       blocked_ledger: ledger.value?.status === "blocked",
     };
@@ -510,8 +546,8 @@ function assertionsFor(caseName, context) {
     ...common,
     worker_completed: workerResult.status === "completed",
     card_shipping: after.card?.status === "shipping",
-    no_lease: after.leases.length === 0,
-    no_recovery: after.recovery.length === 0,
+    no_lease: after.leases.count === 0,
+    no_recovery: after.recovery.count === 0,
     durable_completed_event: eventFor(after, workerResult.run_id)?.value?.status === "completed",
     completed_ledger: ledger.value?.status === "completed",
     verified_open_pr:
@@ -536,7 +572,9 @@ function fixtureCard(caseName) {
       "approved_at: 2026-07-10",
       "---",
       "",
-      "Exercise the loop safety contract in this disposable fixture only.",
+      caseName === "blocked-result"
+        ? "This supervised fixture has an intentional external blocker. Do not modify source or open a pull request. Return a structured blocked result with clear remediation."
+        : "Exercise the loop preflight failure contract in this disposable fixture only.",
       "",
     ].join("\n"),
   };
@@ -597,38 +635,6 @@ function fixtureWorkerOptions(caseName) {
       },
     };
   }
-  if (caseName === "blocked-result") {
-    return {
-      runProbe() {
-        return { status: 0, stdout: "supervised fixture probe passed" };
-      },
-      spawnSync(_bin, _args, options) {
-        const result = {
-          version: 1,
-          run_id: options.env.PM_LOOP_RUN_ID,
-          card_id: options.env.PM_LOOP_CARD_ID,
-          stage: options.env.PM_LOOP_STAGE,
-          status: "blocked",
-          summary: "Supervised fixture blocker reached.",
-          blocker: {
-            code: "supervised-fixture-blocked",
-            reason: "The controlled blocked-result fixture cannot proceed.",
-            remediation:
-              "Confirm the blocked transition evidence, then continue the canary sequence.",
-          },
-          gates: [],
-          usage: { input_tokens: null, output_tokens: null, total_tokens: null },
-        };
-        const tempPath = `${options.env.PM_LOOP_RESULT_FILE}.${process.pid}.tmp`;
-        fs.writeFileSync(tempPath, `${JSON.stringify(result, null, 2)}\n`, {
-          flag: "wx",
-          mode: 0o600,
-        });
-        fs.renameSync(tempPath, options.env.PM_LOOP_RESULT_FILE);
-        return { status: 0, signal: null, stdout: "", stderr: "" };
-      },
-    };
-  }
   return {};
 }
 
@@ -679,7 +685,7 @@ function runCanary(projectDir, caseName, options = {}) {
       runId: workerResult.run_id || "",
     });
     const ledger = readLedger(workerResult);
-    const identity = options.identity || currentCanaryIdentity(projectDir, config, options);
+    const identity = options.identity || currentCanaryIdentity(config, options);
     const assertions = assertionsFor(caseName, {
       before,
       after,
@@ -761,6 +767,7 @@ module.exports = {
   canonicalEngineArgv,
   createFixtureCanary,
   currentCanaryIdentity,
+  evaluateCurrentCanaryReleaseGate,
   evaluateCanaryReleaseGate,
   parseArgs,
   readCanaryEvidence,

@@ -224,7 +224,7 @@ test("configuration summary exposes bounded daily runtime and safety warnings", 
       },
     });
     const s = assessSituation(dir);
-    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 139320);
+    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 75240);
     assert.equal(s.config.lease_ttl_seconds, 7200);
     assert.equal(s.config.ttl_margin_seconds, 630);
     assert.ok(s.config.warnings.some((warning) => /merge autonomy/i.test(warning)));

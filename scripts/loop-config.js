@@ -247,22 +247,40 @@ function configExposure(config) {
       "Codex danger-full-access is a broad host permission grant, not capability isolation."
     );
   }
+  if (worker.engine_bin) {
+    warnings.push(
+      "A custom engine binary runs with host-user permissions outside Codex/Claude sandbox controls."
+    );
+  }
   if (worker.claude_permission_mode === "bypassPermissions") {
     warnings.push("Claude bypassPermissions is a broad host permission grant.");
   }
   if (Array.isArray(worker.codex_add_dirs) && worker.codex_add_dirs.length > 0) {
     warnings.push("Extra Codex writable directories broaden engine host exposure.");
   }
+  const maxRuns = Number(config.budgets.max_runs_per_day);
+  const maxShipRuns = Math.min(maxRuns, Number(config.budgets.max_ship_cycles_per_day));
+  const maximumDailyEnvelope =
+    shipEnvelope > devEnvelope
+      ? maxShipRuns * shipEnvelope + (maxRuns - maxShipRuns) * devEnvelope
+      : maxRuns * devEnvelope;
   return {
     claim_envelope_seconds: { dev: devEnvelope, ship: shipEnvelope },
-    maximum_daily_claim_envelope_seconds:
-      devEnvelope * Number(config.budgets.max_runs_per_day) +
-      shipEnvelope * Number(config.budgets.max_ship_cycles_per_day),
+    maximum_daily_claim_envelope_seconds: maximumDailyEnvelope,
     lease_ttl_seconds: ttl,
     minimum_ttl_seconds: longestEnvelope + margin + 1,
     ttl_margin_seconds: ttl - (longestEnvelope + margin),
     warnings,
   };
+}
+
+function formatConfigExposure(exposure) {
+  if (!exposure) return "";
+  return [
+    `Maximum daily claim envelope: ${exposure.maximum_daily_claim_envelope_seconds}s.`,
+    `Lease TTL: ${exposure.lease_ttl_seconds}s (minimum ${exposure.minimum_ttl_seconds}s; margin ${exposure.ttl_margin_seconds}s).`,
+    ...exposure.warnings.map((warning) => `WARNING: ${warning}`),
+  ].join("\n");
 }
 
 function validateLoopConfig(config) {
@@ -481,13 +499,7 @@ function main() {
     } else {
       process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
       const exposure = configExposure(config);
-      process.stderr.write(
-        [
-          `Maximum daily claim envelope: ${exposure.maximum_daily_claim_envelope_seconds}s.`,
-          `Lease TTL: ${exposure.lease_ttl_seconds}s (minimum ${exposure.minimum_ttl_seconds}s; margin ${exposure.ttl_margin_seconds}s).`,
-          ...exposure.warnings.map((warning) => `WARNING: ${warning}`),
-        ].join("\n") + "\n"
-      );
+      process.stderr.write(`${formatConfigExposure(exposure)}\n`);
     }
   } catch (err) {
     process.stderr.write(`loop-config: ${err.message}\n`);
@@ -506,6 +518,7 @@ module.exports = {
   ensureLoopDirs,
   executionConfig,
   executionConfigHash,
+  formatConfigExposure,
   hostConfigPath,
   initLoopConfig,
   loadLoopConfig,

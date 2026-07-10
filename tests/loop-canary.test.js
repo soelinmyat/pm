@@ -27,6 +27,16 @@ const identity = {
   },
 };
 
+function inventory(records = []) {
+  return {
+    count: records.length,
+    sha256: sha256(
+      JSON.stringify(records.map(({ path: recordPath, sha256: digest }) => [recordPath, digest]))
+    ),
+    records,
+  };
+}
+
 function state({ status = "ready", runId = "", eventStatus = "" } = {}) {
   return {
     pm_head: "d".repeat(40),
@@ -37,9 +47,9 @@ function state({ status = "ready", runId = "", eventStatus = "" } = {}) {
       blocker_code: status === "needs-human" ? "db-unreachable" : "",
       blocker_remediation: status === "needs-human" ? "Start the database." : "",
     },
-    leases: [],
-    recovery: [],
-    events:
+    leases: inventory(),
+    recovery: inventory(),
+    events: inventory(
       runId && eventStatus
         ? [
             {
@@ -48,7 +58,8 @@ function state({ status = "ready", runId = "", eventStatus = "" } = {}) {
               value: { run_id: runId, status: eventStatus, terminal: true },
             },
           ]
-        : [],
+        : []
+    ),
   };
 }
 
@@ -152,7 +163,7 @@ test("canary evidence validation rejects empty, false, reversed, and future evid
 test("canary identity preserves the approved execution hash", () => {
   const config = normalizeLoopConfig({ autonomy: { merge_pr: false } });
   config.execution_config_hash = executionConfigHash(config);
-  const actual = currentCanaryIdentity(process.cwd(), config, {
+  const actual = currentCanaryIdentity(config, {
     sourceCommit: "a".repeat(40),
     versionRunner: () => "codex 1.0.0\n",
   });
@@ -301,9 +312,30 @@ test("default fixture canaries create disposable Git-backed PM/source state", as
       try {
         const pmDir = path.join(root, "real-pm");
         const pmStateDir = path.join(root, ".pm");
+        const engineBin = path.join(root, "fixture-engine");
+        fs.writeFileSync(
+          engineBin,
+          [
+            "#!/usr/bin/env node",
+            'const fs = require("node:fs");',
+            'if (process.argv.includes("--version")) { console.log("fixture-engine 1.0.0"); process.exit(0); }',
+            'if (process.env.PM_LOOP_PREFLIGHT === "1") process.exit(0);',
+            'let input = "";',
+            'process.stdin.setEncoding("utf8");',
+            'process.stdin.on("data", (chunk) => { input += chunk; });',
+            'process.stdin.on("end", () => {',
+            '  const result = { version: 1, run_id: process.env.PM_LOOP_RUN_ID, card_id: process.env.PM_LOOP_CARD_ID, stage: process.env.PM_LOOP_STAGE, status: "blocked", summary: "Controlled fixture blocked", blocker: { code: "supervised-fixture-blocked", reason: "Controlled fixture blocker", remediation: "Confirm the blocked canary evidence." }, gates: [], usage: { input_tokens: null, output_tokens: null, total_tokens: null } };',
+            "  const temp = `${process.env.PM_LOOP_RESULT_FILE}.${process.pid}.tmp`;",
+            '  fs.writeFileSync(temp, `${JSON.stringify(result, null, 2)}\\n`, { flag: "wx", mode: 0o600 });',
+            "  fs.renameSync(temp, process.env.PM_LOOP_RESULT_FILE);",
+            "});",
+            "",
+          ].join("\n")
+        );
+        fs.chmodSync(engineBin, 0o755);
         const config = normalizeLoopConfig({
           autonomy: { start_dev: true, merge_pr: false },
-          worker: { engine_bin: "/usr/bin/true", keep_workspace: false },
+          worker: { engine_bin: engineBin, keep_workspace: false },
         });
         fs.mkdirSync(pmDir, { recursive: true });
         fs.mkdirSync(pmStateDir, { recursive: true });

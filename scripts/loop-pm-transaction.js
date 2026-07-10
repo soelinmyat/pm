@@ -1281,6 +1281,38 @@ function scanSnapshotTransactions(pmDir, options = {}) {
   });
 }
 
+function scanSnapshotFinalizedEvents(pmDir, options = {}) {
+  const eventDir = path.join(pmDir, "loop", "events");
+  if (!fs.existsSync(eventDir)) return [];
+  const leaseIndex = buildLeaseIndex(pmDir);
+  if (leaseIndex.invalid.length > 0) return [];
+  const events = [];
+  for (const entry of fs.readdirSync(eventDir, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
+    const runId = entry.name.slice(0, -5);
+    if (!RUN_ID_PATTERN.test(runId)) continue;
+    try {
+      const event = JSON.parse(fs.readFileSync(path.join(eventDir, entry.name), "utf8"));
+      if (
+        event.run_id !== runId ||
+        event.terminal !== true ||
+        typeof event.card_id !== "string" ||
+        !event.card_id ||
+        (options.cardId && event.card_id !== options.cardId) ||
+        (options.stage && event.stage !== options.stage) ||
+        (leaseIndex.byRun.get(runId) || []).length > 0 ||
+        fs.existsSync(path.join(pmDir, "loop", "recovery", `${runId}.json`))
+      ) {
+        continue;
+      }
+      events.push(event);
+    } catch {
+      // Malformed records are never positive finalized evidence.
+    }
+  }
+  return events;
+}
+
 function scanRemoteTransactions(pmDir, options = {}) {
   return withRemoteSnapshot(
     pmDir,
@@ -1306,6 +1338,7 @@ module.exports = {
   runIsolatedTransaction,
   safeRelativePath,
   scanRemoteTransactions,
+  scanSnapshotFinalizedEvents,
   scanSnapshotTransactions,
   withRemoteSnapshot,
 };

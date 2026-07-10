@@ -15,7 +15,7 @@ const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { loadLoopConfig, loadTrustedLoopConfig, configPath } = require("./loop-config.js");
 const { buildLoopBoard } = require("./loop-board.js");
 const { buildInstallExposure, launchdLabel } = require("./loop-install.js");
-const { currentCanaryIdentity, evaluateCanaryReleaseGate } = require("./loop-canary.js");
+const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { isStopped, killSwitchPath, countRunsToday, runsDirFor } = require("./loop-worker.js");
 
 // State precedence, as implemented (config is the precondition for every other
@@ -88,10 +88,7 @@ function assessSituation(projectDir, options = {}) {
       ? safe(
           () => {
             const trusted = loadTrustedLoopConfig(pmDir, pmStateDir);
-            const identity = currentCanaryIdentity(projectDir, trusted);
-            return evaluateCanaryReleaseGate(pmStateDir, identity, {
-              maxAgeSeconds: trusted.canary.evidence_ttl_seconds,
-            });
+            return evaluateCurrentCanaryReleaseGate(pmStateDir, trusted);
           },
           { passed: false, reason: "current canary identity is unavailable" }
         )
