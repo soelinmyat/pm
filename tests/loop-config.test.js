@@ -9,12 +9,79 @@ const path = require("path");
 const {
   DEFAULT_LOOP_CONFIG,
   approveExecutionConfig,
+  claimEnvelopeSeconds,
   executionConfigHash,
+  initLoopConfig,
   loadLoopConfig,
   loadTrustedLoopConfig,
   normalizeLoopConfig,
   requiresLocalApproval,
 } = require("../scripts/loop-config.js");
+
+test("lease TTL covers the complete bounded claim-to-final-push envelope", () => {
+  const config = normalizeLoopConfig({});
+  const envelope = claimEnvelopeSeconds(config, "dev");
+  const margin = config.claim_envelope.scheduler_overlap_margin_seconds;
+
+  assert.equal(envelope, 6270);
+  assert.ok(config.budgets.lease_ttl_seconds > envelope + margin);
+  assert.equal(config.budgets.lease_ttl_seconds, 7200);
+  assert.equal("lease_ttl_minutes" in config.budgets, false);
+});
+
+test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
+  assert.throws(
+    () =>
+      normalizeLoopConfig({
+        budgets: { lease_ttl_seconds: 6570 },
+      }),
+    /lease_ttl_seconds \(6570\) must be greater than claim envelope \(6270\).*margin \(300\)/
+  );
+
+  for (const field of [
+    "branch_promotion_seconds",
+    "bootstrap_recheck_seconds",
+    "shutdown_grace_seconds",
+    "artifact_verification_seconds",
+    "pm_finalization_seconds",
+    "workspace_cleanup_seconds",
+  ]) {
+    assert.throws(
+      () => normalizeLoopConfig({ claim_envelope: { [field]: 0 } }),
+      new RegExp(`claim_envelope\\.${field} must be a positive integer`)
+    );
+  }
+});
+
+test("legacy minute TTLs migrate explicitly and the old 45-minute value fails closed", () => {
+  assert.throws(
+    () => normalizeLoopConfig({ budgets: { lease_ttl_minutes: 45 } }),
+    /lease_ttl_seconds \(2700\) must be greater/
+  );
+
+  const migrated = normalizeLoopConfig({ budgets: { lease_ttl_minutes: 120 } });
+  assert.equal(migrated.budgets.lease_ttl_seconds, 7200);
+  assert.equal("lease_ttl_minutes" in migrated.budgets, false);
+});
+
+test("persisted legacy TTLs migrate before defaults merge and loop init creates recovery storage", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-config-migration-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pmDir, "loop", "config.json"),
+    JSON.stringify({ version: 1, budgets: { lease_ttl_minutes: 120 } })
+  );
+
+  const migrated = loadLoopConfig(pmDir);
+  assert.equal(migrated.budgets.lease_ttl_seconds, 7200);
+  assert.equal("lease_ttl_minutes" in migrated.budgets, false);
+
+  fs.rmSync(pmDir, { recursive: true, force: true });
+  initLoopConfig(pmDir);
+  assert.equal(fs.existsSync(path.join(pmDir, "loop", "recovery")), true);
+});
 
 test("loop config normalizes malformed object sections back to defaults", () => {
   const config = normalizeLoopConfig({

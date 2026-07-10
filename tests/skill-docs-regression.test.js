@@ -71,3 +71,18 @@ test("sync skill keeps bare sync bidirectional with explicit pull and push overr
     /route is `auto`|selected route is `auto`/
   );
 });
+
+test("loop docs describe the lease envelope and isolated recovery transactions", () => {
+  const config = read("skills/loop/steps/04-config.md");
+  const work = read("skills/loop/steps/06-work.md");
+
+  assert.match(config, /budgets\.lease_ttl_seconds/);
+  assert.match(config, /claim-to-final-push\s+envelope/);
+  assert.match(config, /scheduler overlap margin/);
+  assert.match(work, /detached PM Git transaction/);
+  assert.match(work, /pm\/loop\/events\/.*run_id/);
+  assert.match(work, /pm\/loop\/recovery\/.*run_id/);
+  assert.match(work, /never-dispatched/);
+  assert.match(work, /dispatched-without-terminal-result/);
+  assert.match(work, /recovery-required/);
+});

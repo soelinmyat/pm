@@ -28,11 +28,22 @@ Highlight these fields when explaining the output:
 - `sync_required_for_mutation` must remain true for cross-machine safety.
 - `autonomy.start_dev` defaults false and gates implementation pickup.
 - `autonomy.merge_pr` defaults false and gates auto-merge.
-- `budgets.lease_ttl_minutes` controls lease expiry.
+- `budgets.lease_ttl_seconds` controls lease expiry. The default is 7,200
+  seconds; legacy `lease_ttl_minutes` values migrate to seconds before
+  validation.
+- `claim_envelope` bounds branch promotion, bootstrap recheck, shutdown grace,
+  artifact verification, PM finalization, workspace cleanup, CAS attempts, and
+  the scheduler overlap margin.
 - `worker.bootstrap_required_files` fails preflight when a required local file
   is missing; `worker.bootstrap_files` remains optional and skips missing files.
 - `preflight.service_checks` runs bounded project-specific health commands in
   the disposable worktree before a lease is claimed.
+
+The lease must be strictly longer than the complete claim-to-final-push
+envelope plus the scheduler overlap margin. Unsafe configurations fail before
+selection with the computed envelope and required remediation; the former
+45-minute default is intentionally rejected because it is shorter than the
+default dev runtime alone.
 
 Executable commands and broad permissions are inert until the resolved
 execution hash is approved on this machine. After inspecting the exact config,

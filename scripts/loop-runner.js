@@ -14,7 +14,12 @@ const {
   sha256,
   stableValue,
 } = require("./loop-config.js");
-const { claimLease, ensureGitSyncReady, findGitRoot, runGit } = require("./loop-git.js");
+const { claimLease, findGitRoot, runGit } = require("./loop-git.js");
+const {
+  createRunId,
+  scanSnapshotTransactions,
+  withRemoteSnapshot,
+} = require("./loop-pm-transaction.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const MODE_COLUMNS = {
@@ -218,15 +223,15 @@ function planFingerprint(input) {
   return sha256(JSON.stringify(stableValue(input)));
 }
 
-function syncBeforeMutation(pmDir, config, options = {}) {
-  if (options.skipPull) return false;
+function hasUpstream(pmDir) {
   const gitRoot = findGitRoot(pmDir);
-  if (!gitRoot) throw new Error(`Cannot find git root for ${pmDir}`);
-  if (config.sync_required_for_mutation !== false && !options.allowUnsynced) {
-    ensureGitSyncReady(gitRoot, pmDir);
+  if (!gitRoot) return false;
+  try {
+    runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
+    return true;
+  } catch {
+    return false;
   }
-  runGit(["pull", "--rebase"], gitRoot, { stdio: ["ignore", "pipe", "pipe"] });
-  return true;
 }
 
 function runLoop(projectDir, options = {}) {
@@ -237,40 +242,112 @@ function runLoop(projectDir, options = {}) {
       }
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
-  let config =
-    options.config ||
-    (options.dryRun === false && options.claimOnly
-      ? loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir)
-      : loadLoopConfig(paths.pmDir));
-  const didPrePull =
-    options.dryRun === false && options.claimOnly
-      ? syncBeforeMutation(paths.pmDir, config, options)
-      : false;
-  const shouldReloadConfigAfterPull =
-    didPrePull && (!options.config || options.reloadConfigAfterPull);
-  if (shouldReloadConfigAfterPull) {
-    config = loadLoopConfig(paths.pmDir);
+  let config = options.config || null;
+  const baseOid =
+    options.sourceBaseOid ||
+    options.expectedPlan?.source_base_oid ||
+    sourceBaseOid(projectDir, options);
+  const planFromPmState = (authoritativePmDir, currentPmHead) => {
+    const authoritativeConfigExists = fs.existsSync(
+      path.join(authoritativePmDir, "loop", "config.json")
+    );
+    if ((!options.board && authoritativeConfigExists) || !config) {
+      config =
+        options.dryRun === false && options.claimOnly
+          ? loadTrustedLoopConfig(authoritativePmDir, paths.pmStateDir)
+          : loadLoopConfig(authoritativePmDir);
+    }
+    const board = options.board || buildLoopBoard(projectDir, { pmDir: authoritativePmDir, now });
+    const fingerprintMeta = new Map();
+    const selected = selectNextCard(board, config, {
+      mode: options.mode || "default",
+      quarantineCheck:
+        typeof options.quarantineCheck === "function"
+          ? (card, column, stage) => {
+              const input = fingerprintInput(card, column, stage, config, baseOid, currentPmHead);
+              const meta = {
+                fingerprint: planFingerprint(input),
+                fingerprint_input: input,
+              };
+              fingerprintMeta.set(card, meta);
+              return options.quarantineCheck(card, meta);
+            }
+          : undefined,
+    });
+    const meta = selected.card ? fingerprintMeta.get(selected.card) : null;
+    const fingerprint = selected.card
+      ? meta?.fingerprint ||
+        planFingerprint(
+          fingerprintInput(
+            selected.card,
+            selected.column,
+            selected.stage,
+            config,
+            baseOid,
+            currentPmHead
+          )
+        )
+      : "";
+    const fingerprintInputValue = selected.card
+      ? meta?.fingerprint_input ||
+        fingerprintInput(
+          selected.card,
+          selected.column,
+          selected.stage,
+          config,
+          baseOid,
+          currentPmHead
+        )
+      : null;
+    if (selected.card && authoritativePmDir !== paths.pmDir && selected.card.sourcePath) {
+      selected.card.sourcePath = path.join(
+        paths.pmDir,
+        path.relative(authoritativePmDir, selected.card.sourcePath)
+      );
+    }
+    return { selected, fingerprint, fingerprint_input: fingerprintInputValue };
+  };
+
+  const remoteBacked = !options.board && hasUpstream(paths.pmDir);
+  const snapshotResult = remoteBacked
+    ? withRemoteSnapshot(paths.pmDir, (snapshot) => {
+        const pendingRecovery =
+          options.skipRecoveryScan === true
+            ? null
+            : scanSnapshotTransactions(snapshot.pmDir, { now }).find(
+                (entry) => entry.state !== "absent" && entry.state !== "finalized"
+              );
+        return {
+          pendingRecovery,
+          authoritative: pendingRecovery
+            ? null
+            : planFromPmState(snapshot.pmDir, snapshot.upstreamOid),
+        };
+      })
+    : {
+        pendingRecovery: null,
+        authoritative: planFromPmState(paths.pmDir, pmHeadOid(paths.pmDir)),
+      };
+  if (snapshotResult.pendingRecovery) {
+    const pendingRecovery = snapshotResult.pendingRecovery;
+    return {
+      run_id: options.runId || createRunId(),
+      status: "recovery-required",
+      mode: options.mode || "default",
+      mutation: false,
+      dry_run: options.dryRun !== false,
+      generated_at: now.toISOString(),
+      pmDir: paths.pmDir,
+      source_base_oid: baseOid,
+      selected: null,
+      skipped: [],
+      recovery: pendingRecovery,
+      reason: `durable run ${pendingRecovery.run_id} requires ${pendingRecovery.state} handling before selection`,
+    };
   }
-  const baseOid = options.sourceBaseOid || sourceBaseOid(projectDir, options);
-  const currentPmHead = pmHeadOid(paths.pmDir);
-  const board = options.board || buildLoopBoard(projectDir, { pmDir: paths.pmDir, now });
-  const fingerprintMeta = new Map();
-  const selected = selectNextCard(board, config, {
-    mode: options.mode || "default",
-    quarantineCheck:
-      typeof options.quarantineCheck === "function"
-        ? (card, column, stage) => {
-            const input = fingerprintInput(card, column, stage, config, baseOid, currentPmHead);
-            const meta = {
-              fingerprint: planFingerprint(input),
-              fingerprint_input: input,
-            };
-            fingerprintMeta.set(card, meta);
-            return options.quarantineCheck(card, meta);
-          }
-        : undefined,
-  });
-  const runId = options.runId || `loop-${now.toISOString().replace(/[^0-9]/g, "")}`;
+  const authoritative = snapshotResult.authoritative;
+  const selected = authoritative.selected;
+  const runId = options.runId || options.expectedPlan?.run_id || createRunId();
 
   const plan = {
     run_id: runId,
@@ -297,18 +374,8 @@ function runLoop(projectDir, options = {}) {
   };
 
   if (selected.card) {
-    const meta = fingerprintMeta.get(selected.card);
-    plan.fingerprint_input =
-      meta?.fingerprint_input ||
-      fingerprintInput(
-        selected.card,
-        selected.column,
-        selected.stage,
-        config,
-        baseOid,
-        currentPmHead
-      );
-    plan.fingerprint = meta?.fingerprint || planFingerprint(plan.fingerprint_input);
+    plan.fingerprint_input = authoritative.fingerprint_input;
+    plan.fingerprint = authoritative.fingerprint;
   }
 
   if (options.expectedPlan) {
@@ -352,28 +419,6 @@ function runLoop(projectDir, options = {}) {
     };
   }
 
-  if (shouldReloadConfigAfterPull) {
-    try {
-      const trustedConfig = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
-      if (trustedConfig.execution_config_hash !== executionConfigHash(config)) {
-        return {
-          ...plan,
-          status: "plan-stale",
-          mutation: false,
-          reason: "trusted execution config changed after exact-plan comparison",
-        };
-      }
-      config = trustedConfig;
-    } catch (err) {
-      return {
-        ...plan,
-        status: "blocked",
-        mutation: false,
-        reason: String(err.message || err),
-      };
-    }
-  }
-
   if (typeof options.beforeClaim === "function") options.beforeClaim();
 
   const claim = claimLease(
@@ -384,14 +429,17 @@ function runLoop(projectDir, options = {}) {
       holder: options.holder || os.hostname(),
       sourcePath: selected.card.sourcePath,
       runId,
+      configFingerprint: plan.fingerprint_input.execution_config_hash,
+      attempt: options.attempt || 1,
     },
     config,
     {
-      skipPull: didPrePull || options.skipPull,
+      skipPull: options.skipPull,
       skipPush: options.skipPush,
       allowUnsynced: options.allowUnsynced,
       expectedHeadOid: plan.fingerprint_input.pm_head_oid,
       expectedCardRevision: plan.fingerprint_input.card_revision,
+      timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
     }
   );
 
@@ -486,7 +534,6 @@ module.exports = {
   selectNextCard,
   sourceBaseOid,
   stageForColumn,
-  syncBeforeMutation,
 };
 
 if (require.main === module) {

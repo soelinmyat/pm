@@ -32,8 +32,18 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     max_ship_cycles_per_day: 24,
     max_runtime_seconds_per_run: 5400,
     max_runtime_seconds_per_ship_cycle: 1800,
-    lease_ttl_minutes: 45,
+    lease_ttl_seconds: 7200,
     max_attempts_per_stage: 3,
+  },
+  claim_envelope: {
+    branch_promotion_seconds: 120,
+    bootstrap_recheck_seconds: 300,
+    shutdown_grace_seconds: 30,
+    artifact_verification_seconds: 120,
+    pm_finalization_seconds: 180,
+    workspace_cleanup_seconds: 120,
+    scheduler_overlap_margin_seconds: 300,
+    cas_attempts: 3,
   },
   scheduler_interval_minutes: 30,
   preflight: {
@@ -116,12 +126,30 @@ function loadLoopConfig(pmDir) {
     throw new Error(`Loop config at ${filePath} must be a JSON object`);
   }
 
-  return normalizeLoopConfig(deepMerge(DEFAULT_LOOP_CONFIG, userConfig));
+  return normalizeLoopConfig(userConfig);
 }
 
 function normalizeLoopConfig(config) {
-  const normalized = deepMerge(DEFAULT_LOOP_CONFIG, config);
-  for (const key of ["wip_limits", "autonomy", "budgets", "preflight", "worker"]) {
+  const input = isPlainObject(config) ? clone(config) : {};
+  if (isPlainObject(input.budgets) && Object.hasOwn(input.budgets, "lease_ttl_minutes")) {
+    if (Object.hasOwn(input.budgets, "lease_ttl_seconds")) {
+      throw new Error(
+        "budgets must not set both lease_ttl_minutes and lease_ttl_seconds; migrate to seconds"
+      );
+    }
+    input.budgets.lease_ttl_seconds = Number(input.budgets.lease_ttl_minutes) * 60;
+    delete input.budgets.lease_ttl_minutes;
+  }
+
+  const normalized = deepMerge(DEFAULT_LOOP_CONFIG, input);
+  for (const key of [
+    "wip_limits",
+    "autonomy",
+    "budgets",
+    "claim_envelope",
+    "preflight",
+    "worker",
+  ]) {
     if (!isPlainObject(normalized[key])) {
       normalized[key] = clone(DEFAULT_LOOP_CONFIG[key]);
     } else {
@@ -147,6 +175,53 @@ function assertCanonicalEngineArgs(extraArgs) {
       throw new Error("worker.engine_args must not contain --add-dir; use worker.codex_add_dirs");
     }
   }
+}
+
+const CLAIM_PHASE_FIELDS = Object.freeze([
+  "branch_promotion_seconds",
+  "bootstrap_recheck_seconds",
+  "shutdown_grace_seconds",
+  "artifact_verification_seconds",
+  "pm_finalization_seconds",
+  "workspace_cleanup_seconds",
+]);
+
+function positiveInteger(value, label) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return value;
+}
+
+function leaseTtlSeconds(config) {
+  const budgets = isPlainObject(config && config.budgets) ? config.budgets : {};
+  if (Number.isFinite(Number(budgets.lease_ttl_seconds))) {
+    return Number(budgets.lease_ttl_seconds);
+  }
+  if (Number.isFinite(Number(budgets.lease_ttl_minutes))) {
+    return Number(budgets.lease_ttl_minutes) * 60;
+  }
+  return DEFAULT_LOOP_CONFIG.budgets.lease_ttl_seconds;
+}
+
+function claimEnvelopeSeconds(config, stage = "dev") {
+  const envelope = config && config.claim_envelope;
+  if (!isPlainObject(envelope)) {
+    throw new Error("claim_envelope must be an object");
+  }
+  const phaseSeconds = CLAIM_PHASE_FIELDS.reduce(
+    (total, field) => total + positiveInteger(Number(envelope[field]), `claim_envelope.${field}`),
+    0
+  );
+  const runtimeField =
+    stage === "ship" || stage === "review"
+      ? "max_runtime_seconds_per_ship_cycle"
+      : "max_runtime_seconds_per_run";
+  const runtime = positiveInteger(
+    Number(config.budgets && config.budgets[runtimeField]),
+    `budgets.${runtimeField}`
+  );
+  return phaseSeconds + runtime;
 }
 
 function validateLoopConfig(config) {
@@ -185,6 +260,22 @@ function validateLoopConfig(config) {
     ) {
       throw new Error(`preflight.service_checks[${index}] must be a command string or object`);
     }
+  }
+
+  const ttl = positiveInteger(leaseTtlSeconds(config), "budgets.lease_ttl_seconds");
+  const devEnvelope = claimEnvelopeSeconds(config, "dev");
+  const shipEnvelope = claimEnvelopeSeconds(config, "ship");
+  const envelope = Math.max(devEnvelope, shipEnvelope);
+  const margin = positiveInteger(
+    Number(config.claim_envelope.scheduler_overlap_margin_seconds),
+    "claim_envelope.scheduler_overlap_margin_seconds"
+  );
+  positiveInteger(Number(config.claim_envelope.cas_attempts), "claim_envelope.cas_attempts");
+  if (ttl <= envelope + margin) {
+    throw new Error(
+      `budgets.lease_ttl_seconds (${ttl}) must be greater than claim envelope (${envelope}) ` +
+        `plus scheduler overlap margin (${margin}); increase the TTL or lower bounded phase times`
+    );
   }
   return config;
 }
@@ -267,7 +358,7 @@ function loadTrustedLoopConfig(pmDir, pmStateDir) {
 }
 
 function ensureLoopDirs(pmDir) {
-  for (const child of ["events", "leases", "session-snapshots"]) {
+  for (const child of ["events", "leases", "recovery", "session-snapshots"]) {
     fs.mkdirSync(path.join(pmDir, "loop", child), { recursive: true });
   }
 }
@@ -351,6 +442,7 @@ module.exports = {
   DEFAULT_LOOP_CONFIG,
   approveExecutionConfig,
   assertCanonicalEngineArgs,
+  claimEnvelopeSeconds,
   configPath,
   deepMerge,
   ensureLoopDirs,
@@ -360,6 +452,7 @@ module.exports = {
   initLoopConfig,
   loadLoopConfig,
   loadTrustedLoopConfig,
+  leaseTtlSeconds,
   normalizeLoopConfig,
   readHostConfig,
   requiresLocalApproval,
