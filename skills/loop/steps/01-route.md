@@ -32,5 +32,5 @@ It returns one object with `state` plus `configured`, `installed`, `paused`, `co
 
 - Keep the summary short — one situation line + the fitting question. This is a router, not a report.
 - Respect the gates: `ready-not-run` and `installed-idle` only offer to *run* a cycle; the actual `work` step still enforces `autonomy.start_dev: true` + per-card `implementation_approved`, and refuses otherwise.
-- If the operator names a subcommand explicitly (`/pm:loop status|wake|work|config|install`), that subcommand's step runs directly — the router is only the no-subcommand default.
+- If the operator names a subcommand explicitly (`/pm:loop status|wake|work|config|install|reconcile`), that subcommand's step runs directly — the router is only the no-subcommand default.
 - `/pm:board` is the richer live view; point at it whenever the operator wants more than the one-glance summary.

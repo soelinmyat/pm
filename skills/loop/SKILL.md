@@ -1,13 +1,13 @@
 ---
 name: loop
-description: "Use when the user asks for loop engineering, AI development loop orchestration, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, unattended workers, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`, `/pm:loop work`."
+description: "Use when the user asks for loop engineering, AI development loop orchestration, stale-card reconciliation, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, unattended workers, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`, `/pm:loop work`, `/pm:loop reconcile`."
 ---
 
 # pm:loop
 
 ## Purpose
 
-Coordinate PM's git-backed loop layer. **Bare `/pm:loop` is a single-command front door**: it reads the current situation (configured? scheduled? paused? cards ready? a wake in progress?) and offers only the next action that fits — so the operator drives the whole loop by running `/pm:loop` and answering. Under the hood it still shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker. The `status`/`wake`/`config`/`install`/`work` subcommands remain for direct use.
+Coordinate PM's git-backed loop layer. **Bare `/pm:loop` is a single-command front door**: it reads the current situation (configured? scheduled? paused? cards ready? a wake in progress?) and offers only the next action that fits — so the operator drives the whole loop by running `/pm:loop` and answering. Under the hood it still shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker. The `status`/`wake`/`config`/`install`/`work`/`reconcile` subcommands remain for direct use.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
@@ -53,6 +53,7 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 - Loop workers must be script-like and machine-readable — never parse workflow transcript output. Each child writes only its bounded stage envelope through `PM_LOOP_RESULT_FILE`; the worker verifies it and is the sole canonical card-state writer.
 - v1 is git-self-sufficient: don't introduce Linear into the loop path. Schedulers only wake the loop; PM owns board state, leases, and checkpoints. The kill switch and daily budget apply to every wake.
 - Report every wake as dry-run, claimed, blocked, or idle, and keep durable `pm/` state distinct from local `.pm/` state in the summary.
+- Reconciliation always defaults to dry-run. Apply requires the explicit `--apply` flag, verified Git sync readiness, and Issue 2's isolated PM transaction; UNKNOWN remote evidence never changes a card.
 
 ## Escalation Paths
 

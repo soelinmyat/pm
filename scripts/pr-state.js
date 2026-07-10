@@ -15,6 +15,7 @@
 // merged" / "do not advance". UNKNOWN is never merged.
 
 const childProcess = require("node:child_process");
+const { protectedSourcePaths } = require("./loop-protection.js");
 
 const GH_TIMEOUT_MS = 30_000;
 
@@ -124,26 +125,78 @@ function getPrInfo(branch, options = {}) {
 }
 
 const PINNED_FIELDS =
-  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,headRefName,headRefOid";
+  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,baseRefOid,headRefName,headRefOid,changedFiles";
 
-function getPinnedPrInfo(repo, number, options = {}) {
+function getPinnedPrFiles(repo, metadata, options = {}) {
+  if (
+    !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(String(metadata.baseRefOid || "")) ||
+    !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(String(metadata.headRefOid || ""))
+  ) {
+    return { ok: false };
+  }
   const res = runGhWithRetry(
-    ["pr", "view", String(number), "--repo", repo, "--json", PINNED_FIELDS],
+    ["api", `repos/${repo}/compare/${metadata.baseRefOid}...${metadata.headRefOid}`],
     options
   );
+  if (res.code !== 0) return { ok: false };
+  try {
+    const comparison = JSON.parse(res.stdout || "{}");
+    if (!comparison || !Array.isArray(comparison.files)) return { ok: false };
+    const entries = comparison.files;
+    const paths = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry.filename !== "string" || !entry.filename) {
+        return { ok: false };
+      }
+      paths.push(entry.filename);
+      if (entry.previous_filename !== undefined) {
+        if (typeof entry.previous_filename !== "string" || !entry.previous_filename) {
+          return { ok: false };
+        }
+        paths.push(entry.previous_filename);
+      }
+    }
+    return { ok: true, count: entries.length, paths: [...new Set(paths)].sort() };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function parsePinnedMetadata(stdout) {
+  const obj = JSON.parse(stdout || "{}");
+  return {
+    state: obj.state || "UNKNOWN",
+    createdAt: obj.createdAt || null,
+    mergedAt: obj.mergedAt || null,
+    mergeSha: obj.mergeCommit && obj.mergeCommit.oid ? obj.mergeCommit.oid : null,
+    number: obj.number ?? null,
+    url: obj.url || null,
+    baseRefName: obj.baseRefName || null,
+    baseRefOid: obj.baseRefOid || null,
+    headRefName: obj.headRefName || null,
+    headRefOid: obj.headRefOid || null,
+    changedFiles: Number.isSafeInteger(obj.changedFiles) ? obj.changedFiles : null,
+  };
+}
+
+function getPinnedPrInfo(repo, number, options = {}) {
+  const args = ["pr", "view", String(number), "--repo", repo, "--json", PINNED_FIELDS];
+  const res = runGhWithRetry(args, options);
   if (res.code === 0) {
     try {
-      const obj = JSON.parse(res.stdout || "{}");
+      const before = parsePinnedMetadata(res.stdout);
+      const changed = getPinnedPrFiles(repo, before, options);
+      if (!changed.ok) return { state: "UNKNOWN" };
+      const confirmed = runGhWithRetry(args, options);
+      if (confirmed.code !== 0) return { state: "UNKNOWN" };
+      const after = parsePinnedMetadata(confirmed.stdout);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        return { state: "UNKNOWN", reason: "pull request changed during verification" };
+      }
       return {
-        state: obj.state || "UNKNOWN",
-        createdAt: obj.createdAt || null,
-        mergedAt: obj.mergedAt || null,
-        mergeSha: obj.mergeCommit && obj.mergeCommit.oid ? obj.mergeCommit.oid : null,
-        number: obj.number ?? null,
-        url: obj.url || null,
-        baseRefName: obj.baseRefName || null,
-        headRefName: obj.headRefName || null,
-        headRefOid: obj.headRefOid || null,
+        ...after,
+        fileCount: changed.count,
+        files: changed.paths,
       };
     } catch {
       return { state: "UNKNOWN" };
@@ -157,8 +210,7 @@ function failedVerification(reason, state = "UNKNOWN", pr = null) {
   return { ok: false, state, reason, pr };
 }
 
-function verifyPullRequest(artifact, options = {}) {
-  const requiredState = options.requiredState;
+function inspectPullRequest(artifact, options = {}) {
   const expectedRepo = options.expectedRepo;
   if (!artifact || artifact.repo !== expectedRepo) {
     return failedVerification("pull request repository mismatch");
@@ -166,13 +218,18 @@ function verifyPullRequest(artifact, options = {}) {
   if (!Number.isSafeInteger(artifact.number) || artifact.number < 1) {
     return failedVerification("pull request number is invalid");
   }
+  if (typeof options.expectedBase !== "string" || !options.expectedBase) {
+    return failedVerification("pull request base is unresolved");
+  }
   const info = getPinnedPrInfo(expectedRepo, artifact.number, options);
   if (info.state === "NONE" || info.state === "UNKNOWN") {
     return failedVerification(`pull request verification returned ${info.state}`, info.state, info);
   }
-  if (info.state !== requiredState) {
+  if (!new Set(["OPEN", "MERGED"]).has(info.state)) {
     return failedVerification(
-      `pull request state ${info.state} does not match required ${requiredState}`,
+      options.requiredState
+        ? `pull request state ${info.state} does not match required ${options.requiredState}`
+        : `pull request state ${info.state} is not OPEN or MERGED`,
       info.state,
       info
     );
@@ -183,13 +240,16 @@ function verifyPullRequest(artifact, options = {}) {
   if (info.url !== artifact.url) {
     return failedVerification("pull request URL mismatch", info.state, info);
   }
-  if (info.baseRefName !== artifact.base || info.baseRefName !== options.expectedBase) {
+  const expectedBase = options.expectedBase;
+  const expectedHead = options.expectedHead || artifact.head;
+  const expectedHeadOid = options.expectedHeadOid || artifact.head_oid;
+  if (info.baseRefName !== artifact.base || info.baseRefName !== expectedBase) {
     return failedVerification("pull request base mismatch", info.state, info);
   }
-  if (info.headRefName !== artifact.head || info.headRefName !== options.expectedHead) {
+  if (info.headRefName !== artifact.head || info.headRefName !== expectedHead) {
     return failedVerification("pull request head mismatch", info.state, info);
   }
-  if (info.headRefOid !== artifact.head_oid || info.headRefOid !== options.expectedHeadOid) {
+  if (info.headRefOid !== artifact.head_oid || info.headRefOid !== expectedHeadOid) {
     return failedVerification("pull request head OID mismatch", info.state, info);
   }
   const creationDispatchMs = Date.parse(options.createdAfter || options.dispatchedAt);
@@ -204,7 +264,25 @@ function verifyPullRequest(artifact, options = {}) {
   if (info.createdAt !== artifact.created_at) {
     return failedVerification("pull request creation timestamp mismatch", info.state, info);
   }
-  if (requiredState === "MERGED") {
+  if (!Number.isSafeInteger(info.changedFiles) || info.changedFiles !== info.fileCount) {
+    return failedVerification(
+      "pull request file list is incomplete and protected paths cannot be verified",
+      info.state,
+      info
+    );
+  }
+  const protectedPaths = protectedSourcePaths(info.files);
+  if (protectedPaths.length > 0) {
+    return {
+      ...failedVerification(
+        `pull request touches protected worker-owned paths: ${protectedPaths.join(", ")}`,
+        info.state,
+        info
+      ),
+      protectedPaths,
+    };
+  }
+  if (info.state === "MERGED") {
     const mergeDispatchMs = Date.parse(options.mergedAfter || options.dispatchedAt);
     const mergedMs = Date.parse(info.mergedAt);
     if (
@@ -214,14 +292,37 @@ function verifyPullRequest(artifact, options = {}) {
     ) {
       return failedVerification("pull request merge predates dispatch", info.state, info);
     }
-    if (info.mergedAt !== artifact.merged_at) {
-      return failedVerification("pull request merge timestamp mismatch", info.state, info);
+    if (!info.mergeSha)
+      return failedVerification("pull request merge SHA is missing", info.state, info);
+  }
+  return {
+    ok: true,
+    state: info.state,
+    pr: info,
+    merge: info.state === "MERGED" ? { merge_sha: info.mergeSha, merged_at: info.mergedAt } : null,
+  };
+}
+
+function verifyPullRequest(artifact, options = {}) {
+  const checked = inspectPullRequest(artifact, options);
+  if (!checked.ok) return checked;
+  const requiredState = options.requiredState;
+  if (checked.state !== requiredState) {
+    return failedVerification(
+      `pull request state ${checked.state} does not match required ${requiredState}`,
+      checked.state,
+      checked.pr
+    );
+  }
+  if (requiredState === "MERGED") {
+    if (checked.merge.merged_at !== artifact.merged_at) {
+      return failedVerification("pull request merge timestamp mismatch", checked.state, checked.pr);
     }
-    if (!info.mergeSha || info.mergeSha !== artifact.merge_sha) {
-      return failedVerification("pull request merge SHA mismatch", info.state, info);
+    if (checked.merge.merge_sha !== artifact.merge_sha) {
+      return failedVerification("pull request merge SHA mismatch", checked.state, checked.pr);
     }
   }
-  return { ok: true, state: info.state, pr: info };
+  return checked;
 }
 
 function defaultRunGit(args, cwd) {
@@ -344,6 +445,7 @@ module.exports = {
   getPrState,
   getPrInfo,
   getPinnedPrInfo,
+  inspectPullRequest,
   verifyPullRequest,
   reconcileCrashedTask,
   runGhWithRetry,

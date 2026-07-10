@@ -178,6 +178,8 @@ test("canonical needs-human cards are explicitly non-dispatchable", (t) => {
         "status: needs-human",
         'blocker_code: "merge-approval-required"',
         'blocker_reason: "A human must merge this PR"',
+        'blocker_remediation: "Review PR #42 and choose merge or rework."',
+        'loop_run_id: "loop-123"',
       ].join("\n")
     )
   );
@@ -195,6 +197,11 @@ test("canonical needs-human cards are explicitly non-dispatchable", (t) => {
   assert.ok(row, JSON.stringify(board.columns));
   assert.equal(row.command, "");
   assert.equal(row.blocker, "A human must merge this PR");
+  assert.equal(row.blockerRemediation, "Review PR #42 and choose merge or rework.");
+  assert.equal(row.loopRunId, "loop-123");
+  const summary = require("../scripts/loop-board.js").formatSummary(board);
+  assert.match(summary, /remediation: Review PR #42 and choose merge or rework\./);
+  assert.match(summary, /run: loop-123/);
   assert.ok(!board.columns.ready_for_dev.some((card) => card.id === "PM-301"));
   assert.ok(!board.columns.implementing.some((card) => card.id === "PM-301"));
   const snapshotOnly = board.columns.needs_human.find((card) => card.id === "PM-302");

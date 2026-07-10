@@ -437,6 +437,8 @@ function formatSummary(board) {
     for (const card of cards.slice(0, 7)) {
       const parts = [`- ${card.id}`, card.title, `[${card.kind}]`];
       if (card.blocker) parts.push(`blocked: ${card.blocker}`);
+      if (card.blockerRemediation) parts.push(`remediation: ${card.blockerRemediation}`);
+      if (card.loopRunId) parts.push(`run: ${card.loopRunId}`);
       if (card.command) parts.push(card.command);
       if (card.lease) parts.push(`lease: ${card.lease.holder}/${card.lease.stage}`);
       lines.push(parts.join("  "));

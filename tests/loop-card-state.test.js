@@ -96,6 +96,12 @@ test("dev shipped maps only verified PR metadata into shipping", () => {
   assert.equal(data.branch, "loop/pm-108");
   assert.deepEqual(data.prs, ["#342"]);
   assert.equal(data.pr_dispatch_at, "2026-07-10T10:00:00.000Z");
+  assert.equal(data.pr_repo, "openai/pm");
+  assert.equal(data.pr_number, "342");
+  assert.equal(data.pr_url, "https://github.com/openai/pm/pull/342");
+  assert.equal(data.pr_base, "main");
+  assert.equal(data.pr_head_oid, "a".repeat(40));
+  assert.equal(data.pr_created_at, "2026-07-10T10:01:00Z");
   assert.equal(data.loop_run_id, RUN_ID);
   assert.equal(mapped.event.status, "completed");
   assert.equal(mapped.event.outcome, "dev-shipped");
@@ -241,6 +247,12 @@ test("ship contract failures preserve durable PR identity for remediation", () =
       "prs:",
       '  - "#342"',
       'pr_dispatch_at: "2026-07-10T09:00:00Z"',
+      'pr_repo: "openai/pm"',
+      'pr_number: "342"',
+      'pr_url: "https://github.com/openai/pm/pull/342"',
+      'pr_base: "main"',
+      `pr_head_oid: "${"a".repeat(40)}"`,
+      'pr_created_at: "2026-07-10T09:01:00Z"',
     ].join("\n")
   );
   const contractResult = buildContractFailureResult({
@@ -255,6 +267,12 @@ test("ship contract failures preserve durable PR identity for remediation", () =
   assert.equal(data.branch, "loop/pm-108");
   assert.deepEqual(data.prs, ["#342"]);
   assert.equal(data.pr_dispatch_at, "2026-07-10T09:00:00Z");
+  assert.equal(data.pr_repo, "openai/pm");
+  assert.equal(data.pr_number, "342");
+  assert.equal(data.pr_url, "https://github.com/openai/pm/pull/342");
+  assert.equal(data.pr_base, "main");
+  assert.equal(data.pr_head_oid, "a".repeat(40));
+  assert.equal(data.pr_created_at, "2026-07-10T09:01:00Z");
 });
 
 test("document hash comparison accepts canonical uppercase hex input", () => {

@@ -47,6 +47,7 @@ const {
   copyReadContext,
   recordQuarantine,
   runPreflight,
+  snapshotProtectedPmState,
 } = require("./loop-preflight.js");
 const {
   createRunResultCapability,
@@ -56,6 +57,7 @@ const {
 } = require("./loop-result.js");
 const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -350,30 +352,6 @@ const RESULT_SUCCESSES = new Set([
   "needs-approval",
 ]);
 
-function sourceRepository(gitRoot) {
-  let remote;
-  try {
-    remote = runGit(["remote", "get-url", "origin"], gitRoot);
-  } catch {
-    return "";
-  }
-  const match = String(remote).match(
-    /(?:github\.com[/:]|^[^/]+\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/
-  );
-  return match ? match[1].replace(/\.git$/, "") : "";
-}
-
-function defaultBranchName(gitRoot) {
-  try {
-    return runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], gitRoot).replace(
-      /^origin\//,
-      ""
-    );
-  } catch {
-    return "main";
-  }
-}
-
 function claimedCardSnapshot(pmDir, lease, options = {}) {
   return withRemoteSnapshot(
     pmDir,
@@ -411,6 +389,78 @@ function contractFailure(plan, code, reason) {
     reason,
     remediation: "Inspect the preserved workspace, result directory, and bounded run logs.",
   });
+}
+
+function parseRefSnapshot(value) {
+  const refs = new Map();
+  for (const line of String(value || "")
+    .split(/\r?\n/)
+    .filter(Boolean)) {
+    const separator = line.lastIndexOf(":");
+    refs.set(
+      separator >= 0 ? line.slice(0, separator) : line,
+      separator >= 0 ? line.slice(separator + 1) : ""
+    );
+  }
+  return refs;
+}
+
+function validProtectedPmSnapshot(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (typeof value.git_root !== "string") return false;
+  if (value.git_root) {
+    return (
+      typeof value.head === "string" &&
+      /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(value.head) &&
+      typeof value.refs === "string" &&
+      validRefSnapshot(value.refs) &&
+      typeof value.protected_status === "string"
+    );
+  }
+  return typeof value.tree_hash === "string" && value.tree_hash.length > 0;
+}
+
+function validRefSnapshot(value) {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  return (
+    lines.length > 0 &&
+    lines.every((line) => {
+      const match = line.match(
+        /^(refs\/(?:heads|remotes)\/[^\s:]+):([a-f0-9]{40}(?:[a-f0-9]{24})?)$/i
+      );
+      return Boolean(
+        match &&
+        !match[1].includes("..") &&
+        !match[1].includes("@{") &&
+        !match[1].includes("//") &&
+        !match[1].endsWith(".") &&
+        !match[1].endsWith(".lock")
+      );
+    })
+  );
+}
+
+function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRoot = "") {
+  if (!validProtectedPmSnapshot(before) || !validProtectedPmSnapshot(after)) return false;
+  if (before.git_root !== after.git_root) return false;
+  if (!before.git_root) return before.tree_hash === after.tree_hash;
+  if (before.head !== after.head || before.protected_status !== after.protected_status)
+    return false;
+  const sameRepository =
+    sourceGitRoot && path.resolve(before.git_root) === path.resolve(sourceGitRoot);
+  const allowed = new Set(
+    sourceBranch && sameRepository
+      ? [`refs/heads/${sourceBranch}`, `refs/remotes/origin/${sourceBranch}`]
+      : []
+  );
+  const left = parseRefSnapshot(before.refs);
+  const right = parseRefSnapshot(after.refs);
+  for (const ref of new Set([...left.keys(), ...right.keys()])) {
+    if (!allowed.has(ref) && left.get(ref) !== right.get(ref)) return false;
+  }
+  return true;
 }
 
 function resultHashFor(result) {
@@ -482,6 +532,13 @@ function verifyResultArtifactsUnchecked(input) {
     }
     const verifyPr = options.verifyPullRequest || verifyPullRequest;
     const expectedBase = defaultBranchName(projectGitRoot);
+    if (!expectedBase) {
+      return {
+        ok: false,
+        code: "default-branch-unresolved",
+        reason: "source default branch could not be verified from the remote HEAD",
+      };
+    }
     const dispatchedAt = dispatchRecord.event && dispatchRecord.event.dispatched_at;
     const originalDispatchAt =
       result.stage === "dev" ? dispatchedAt : plan.selected.prDispatchAt || dispatchedAt;
@@ -931,28 +988,75 @@ function runWorker(projectDir, options = {}) {
       writeJsonAtomic(ledgerPath, ledger);
 
       const runEngine = options.spawnSync || spawnSync;
-      const spawned = runEngine(command.bin, command.args, {
-        cwd: workspace.workspacePath,
-        input: command.input,
-        encoding: "utf8",
-        timeout: timeoutMs,
-        maxBuffer: ENGINE_MAX_BUFFER,
-        env: {
-          ...process.env,
-          PM_LOOP_WORKER: "1",
-          PM_LOOP_STAGE: plan.selected.stage || "dev",
-          PM_LOOP_CARD_ID: plan.selected.id,
-          PM_LOOP_RUN_ID: runId,
-          PM_LOOP_RESULT_DIR: resultDir,
-          PM_LOOP_RESULT_FILE: resultFile,
-          PM_LOOP_LOG_DIR: logDir,
-        },
-      });
+      const snapshotPm = options.snapshotProtectedPmState || snapshotProtectedPmState;
+      let protectedBefore;
+      let protectedBeforeError = "";
+      try {
+        protectedBefore = snapshotPm(paths.pmDir);
+      } catch (err) {
+        protectedBeforeError = String(err.message || err).slice(0, 2000);
+      }
+      const spawned = protectedBeforeError
+        ? {
+            status: null,
+            signal: null,
+            stdout: "",
+            stderr: "",
+            error: { code: "EPROTECTEDSNAPSHOT", message: protectedBeforeError },
+          }
+        : runEngine(command.bin, command.args, {
+            cwd: workspace.workspacePath,
+            input: command.input,
+            encoding: "utf8",
+            timeout: timeoutMs,
+            maxBuffer: ENGINE_MAX_BUFFER,
+            env: {
+              ...process.env,
+              PM_LOOP_WORKER: "1",
+              PM_LOOP_STAGE: plan.selected.stage || "dev",
+              PM_LOOP_CARD_ID: plan.selected.id,
+              PM_LOOP_RUN_ID: runId,
+              PM_LOOP_RESULT_DIR: resultDir,
+              PM_LOOP_RESULT_FILE: resultFile,
+              PM_LOOP_LOG_DIR: logDir,
+            },
+          });
       fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
       fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
       processInfo = processEvidence(spawned, timeoutMs);
       exitCode = processInfo.exit_code;
       ledger.process = processInfo;
+
+      let protectedAfter;
+      let protectedAfterError = "";
+      if (!protectedBeforeError) {
+        try {
+          protectedAfter = snapshotPm(paths.pmDir);
+        } catch (err) {
+          protectedAfterError = String(err.message || err).slice(0, 2000);
+        }
+      }
+      const protectedPmChanged =
+        !protectedBeforeError &&
+        !protectedAfterError &&
+        !protectedPmStateUnchanged(
+          protectedBefore,
+          protectedAfter,
+          workspace.branch,
+          projectGitRoot
+        );
+      const protectedPmVerification = {
+        ok: !protectedBeforeError && !protectedAfterError && !protectedPmChanged,
+        code: protectedBeforeError
+          ? "protected-pm-snapshot-failed"
+          : protectedAfterError
+            ? "protected-pm-post-run-snapshot-failed"
+            : protectedPmChanged
+              ? "protected-pm-state-changed"
+              : "",
+        reason: protectedBeforeError || protectedAfterError || "",
+      };
+      ledger.protected_pm_verification = protectedPmVerification;
 
       const read = readStageResult(resultFile, {
         runId,
@@ -962,7 +1066,15 @@ function runWorker(projectDir, options = {}) {
       ledger.stage_result = read;
       let stageResult;
       let resultHash;
-      if (!read.ok) {
+      if (!protectedPmVerification.ok) {
+        stageResult = contractFailure(
+          plan,
+          protectedPmVerification.code,
+          protectedPmVerification.reason ||
+            "engine execution changed PM refs or protected PM path status"
+        );
+        resultHash = resultHashFor(stageResult);
+      } else if (!read.ok) {
         const processDescription = processInfo.timed_out
           ? "engine timed out"
           : processInfo.signal
@@ -1139,6 +1251,7 @@ module.exports = {
   isStopped,
   killSwitchPath,
   prepareWorkspace,
+  protectedPmStateUnchanged,
   readLedgers,
   releaseLease,
   runsDirFor,
