@@ -19,21 +19,29 @@ const { spawnSync } = require("child_process");
 
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseCliArgs } = require("./loop-args.js");
-const { loadLoopConfig } = require("./loop-config.js");
+const { loadLoopConfig, loadTrustedLoopConfig } = require("./loop-config.js");
+const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
   findGitRoot,
   gitRelativePath,
   leasePath,
+  removeWorkspace,
   runGit,
   sanitizeId,
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { runLoop } = require("./loop-runner.js");
+const {
+  activeQuarantineForPlan,
+  copyReadContext,
+  createPrivateResultDir,
+  recordQuarantine,
+  runPreflight,
+} = require("./loop-preflight.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
-const CODEX_SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -118,76 +126,6 @@ function isPathInside(parent, child) {
   if (!parent || !child) return false;
   const rel = path.relative(realpathForExisting(parent), realpathForExisting(child));
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
-function uniqueExistingDirs(values) {
-  const seen = new Set();
-  const dirs = [];
-  for (const value of values) {
-    if (!value || typeof value !== "string") continue;
-    const resolved = path.resolve(value);
-    if (seen.has(resolved)) continue;
-    if (!fs.existsSync(resolved)) continue;
-    seen.add(resolved);
-    dirs.push(resolved);
-  }
-  return dirs;
-}
-
-function codexSandbox(worker = {}) {
-  const requested = String(worker.codex_sandbox || "workspace-write").trim();
-  return CODEX_SANDBOXES.has(requested) ? requested : "workspace-write";
-}
-
-function codexWritableDirs(worker = {}, context = {}) {
-  const dirs = [];
-  const configured = Array.isArray(worker.codex_add_dirs) ? worker.codex_add_dirs : [];
-  dirs.push(...configured);
-
-  if (context.projectGitRoot) {
-    if (context.pmDir && !isPathInside(context.projectGitRoot, context.pmDir)) {
-      dirs.push(context.pmDir);
-    }
-    if (context.pmStateDir && !isPathInside(context.projectGitRoot, context.pmStateDir)) {
-      dirs.push(context.pmStateDir);
-    }
-  }
-
-  if (context.workspacePath) {
-    return uniqueExistingDirs(dirs).filter((dir) => !isPathInside(context.workspacePath, dir));
-  }
-  return uniqueExistingDirs(dirs);
-}
-
-function engineCommand(config, prompt, context = {}) {
-  const worker = config.worker || {};
-  const extraArgs = Array.isArray(worker.engine_args) ? worker.engine_args : [];
-  if (worker.engine_bin) {
-    return { bin: worker.engine_bin, args: extraArgs, input: prompt };
-  }
-  const kind = worker.engine || config.default_runtime || "codex";
-  if (kind === "claude") {
-    // Default is acceptEdits: unattended Bash will be denied and the run will
-    // fail loudly. Granting the engine full permissions is an explicit operator
-    // opt-in (worker.claude_permission_mode: "bypassPermissions"), same as the
-    // autonomy gates — never a built-in default.
-    const permissionMode = worker.claude_permission_mode || "acceptEdits";
-    return {
-      bin: "claude",
-      args: ["-p", "--permission-mode", permissionMode, "--no-session-persistence", ...extraArgs],
-      input: prompt,
-    };
-  }
-  const args = ["exec", "--sandbox", codexSandbox(worker), "--skip-git-repo-check"];
-  for (const dir of codexWritableDirs(worker, context)) {
-    args.push("--add-dir", dir);
-  }
-  args.push(...extraArgs, "-");
-  return {
-    bin: "codex",
-    args,
-    input: prompt,
-  };
 }
 
 function normalizeStatus(value) {
@@ -322,15 +260,6 @@ function branchRefExists(gitRoot, branch) {
   return false;
 }
 
-function defaultBranch(gitRoot) {
-  try {
-    const ref = runGit(["symbolic-ref", "refs/remotes/origin/HEAD"], gitRoot);
-    return ref.replace("refs/remotes/origin/", "");
-  } catch {
-    return "main";
-  }
-}
-
 function prepareWorkspace(gitRoot, plan, config, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const worker = config.worker || {};
@@ -367,8 +296,10 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
       // machines are never ignored or clobbered by a stale local branch.
       runGit(["reset", "--hard", `origin/${branch}`], workspacePath);
     } else {
-      const base = options.baseBranch || defaultBranch(gitRoot);
-      runGit(["worktree", "add", workspacePath, "-b", branch, `origin/${base}`], gitRoot);
+      if (!plan.source_base_oid) {
+        return { ok: false, reason: "source-base-missing" };
+      }
+      runGit(["worktree", "add", workspacePath, "-b", branch, plan.source_base_oid], gitRoot);
     }
   } catch (err) {
     return { ok: false, reason: "worktree-add-failed", error: err.message };
@@ -384,16 +315,25 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
     return { ok: false, reason: boot.reason, workspacePath, branch, error: boot.error };
   }
 
-  return { ok: true, workspacePath, branch, bootstrapFiles: boot.copied };
-}
-
-function removeWorkspace(gitRoot, workspacePath) {
-  try {
-    runGit(["worktree", "remove", "--force", workspacePath], gitRoot);
-    return true;
-  } catch {
-    return false;
+  const readContext = copyReadContext(plan.pmDir, workspacePath, plan);
+  if (!readContext.ok) {
+    removeWorkspace(gitRoot, workspacePath);
+    if (!shipStage) {
+      try {
+        runGit(["branch", "-D", branch], gitRoot);
+      } catch {
+        // The worktree cleanup may already have removed the new branch.
+      }
+    }
+    return { ok: false, reason: "read-context-unsafe", workspacePath, branch };
   }
+
+  return {
+    ok: true,
+    workspacePath,
+    branch,
+    bootstrapFiles: boot.copied,
+  };
 }
 
 function releaseLease(pmDir, lease, options = {}) {
@@ -426,10 +366,13 @@ function releaseLease(pmDir, lease, options = {}) {
 
 function runWorker(projectDir, options = {}) {
   const paths = options.pmDir
-    ? { pmDir: options.pmDir, pmStateDir: path.join(path.dirname(options.pmDir), ".pm") }
+    ? {
+        pmDir: options.pmDir,
+        pmStateDir: options.pmStateDir || path.join(path.dirname(options.pmDir), ".pm"),
+      }
     : resolvePmPaths(projectDir);
   const now = options.now instanceof Date ? options.now : new Date();
-  const config = options.config || loadLoopConfig(paths.pmDir);
+  let config = loadLoopConfig(paths.pmDir);
   const mode = options.mode || "default";
 
   if (config.enabled === false) {
@@ -448,24 +391,81 @@ function runWorker(projectDir, options = {}) {
   const shipCyclesToday = countRunsToday(runsDir, now, { stage: "ship" });
   const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
 
+  const quarantineCheck = (_card, meta) => activeQuarantineForPlan(paths.pmStateDir, meta, now);
+  const preview = runLoop(projectDir, {
+    pmDir: paths.pmDir,
+    config,
+    now,
+    mode,
+    dryRun: true,
+    quarantineCheck,
+  });
+
   if (options.dryRun) {
-    const preview = runLoop(projectDir, {
-      pmDir: paths.pmDir,
-      config,
-      now,
-      mode,
-      dryRun: true,
-    });
     if (!preview.selected) return preview;
-    const command = engineCommand(config, buildPrompt(preview, config), {
-      pmDir: paths.pmDir,
-      pmStateDir: paths.pmStateDir,
-      projectGitRoot: findGitRoot(projectDir),
-    });
+    const command = engineCommand(config, buildPrompt(preview, config));
     return {
       ...preview,
       status: "dry-run",
       engine: { bin: command.bin, args: command.args },
+    };
+  }
+
+  if (!preview.selected) return preview;
+
+  try {
+    config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
+  } catch (err) {
+    const blocked = {
+      blocker_code: "execution-config-unapproved",
+      remediation: String(err.message || err),
+    };
+    return {
+      ...preview,
+      status: "preflight-failed",
+      mutation: false,
+      dry_run: false,
+      ...blocked,
+      quarantine: recordQuarantine(paths.pmStateDir, preview, blocked, config, { now }),
+    };
+  }
+
+  const previewStage = preview.selected.stage || "dev";
+  const previewShipStage = previewStage === "ship" || previewStage === "review";
+  if (previewShipStage && shipCyclesToday >= maxShipCycles) {
+    return {
+      ...preview,
+      status: "budget-exhausted",
+      reason: `ship cycles today (${shipCyclesToday}) reached max_ship_cycles_per_day (${maxShipCycles})`,
+    };
+  }
+  const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
+  const attempts = countCardAttempts(runsDir, preview.selected.id, previewStage);
+  if (attempts >= maxAttempts) {
+    return {
+      ...preview,
+      status: "attempts-exhausted",
+      reason: `card ${preview.selected.id} failed ${attempts}x at stage ${previewStage} (max_attempts_per_stage ${maxAttempts}); needs a human look`,
+    };
+  }
+
+  const preflight = runPreflight(projectDir, preview, config, {
+    pmDir: paths.pmDir,
+    pmStateDir: paths.pmStateDir,
+    now,
+    runProbe: options.runProbe,
+    spawnSync: options.preflightSpawnSync,
+  });
+  if (!preflight.ok) {
+    return {
+      ...preview,
+      status: "preflight-failed",
+      mutation: false,
+      dry_run: false,
+      blocker_code: preflight.blocker_code,
+      remediation: preflight.remediation,
+      quarantine: preflight.quarantine,
+      preflight,
     };
   }
 
@@ -480,6 +480,10 @@ function runWorker(projectDir, options = {}) {
     skipPull: options.skipPull,
     skipPush: options.skipPush,
     allowUnsynced: options.allowUnsynced,
+    expectedPlan: preview,
+    quarantineCheck,
+    pmStateDir: paths.pmStateDir,
+    reloadConfigAfterPull: true,
   });
   if (plan.status !== "claimed") return plan;
 
@@ -489,6 +493,8 @@ function runWorker(projectDir, options = {}) {
   const ledgerPath = path.join(runsDir, `${runId}.json`);
   const logDir = path.join(runsDir, runId);
   fs.mkdirSync(logDir, { recursive: true });
+  fs.chmodSync(logDir, 0o700);
+  const resultDir = createPrivateResultDir(paths.pmStateDir, runId);
 
   const ledger = {
     version: 1,
@@ -518,22 +524,6 @@ function runWorker(projectDir, options = {}) {
     return { ...plan, status, reason, run_id: runId, ledger: ledgerPath };
   };
 
-  if (shipStage && shipCyclesToday >= maxShipCycles) {
-    return bail(
-      "budget-exhausted",
-      `ship cycles today (${shipCyclesToday}) reached max_ship_cycles_per_day (${maxShipCycles})`
-    );
-  }
-
-  const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
-  const attempts = countCardAttempts(runsDir, plan.selected.id, stage);
-  if (attempts >= maxAttempts) {
-    return bail(
-      "attempts-exhausted",
-      `card ${plan.selected.id} failed ${attempts}x at stage ${stage} (max_attempts_per_stage ${maxAttempts}); needs a human look`
-    );
-  }
-
   if (!isDispatchableCommand(plan.selected.command)) {
     return bail(
       "rejected",
@@ -562,10 +552,8 @@ function runWorker(projectDir, options = {}) {
       reason = workspace.reason;
     } else {
       const command = engineCommand(config, buildPrompt(plan, config), {
-        pmDir: paths.pmDir,
-        pmStateDir: paths.pmStateDir,
-        projectGitRoot,
         workspacePath: workspace.workspacePath,
+        resultDir,
       });
       const timeoutSeconds = shipStage
         ? Number(config.budgets.max_runtime_seconds_per_ship_cycle) || 1800
@@ -588,6 +576,7 @@ function runWorker(projectDir, options = {}) {
           PM_LOOP_WORKER: "1",
           PM_LOOP_STAGE: plan.selected.stage || "dev",
           PM_LOOP_CARD_ID: plan.selected.id,
+          PM_LOOP_RESULT_DIR: resultDir,
         },
       });
       fs.writeFileSync(path.join(logDir, "stdout.log"), result.stdout || "");
@@ -653,6 +642,7 @@ function runWorker(projectDir, options = {}) {
     branch: workspace && workspace.ok ? workspace.branch : null,
     ledger: ledgerPath,
     log_dir: logDir,
+    result_dir: resultDir,
   };
 }
 
@@ -660,6 +650,7 @@ function parseArgs(argv) {
   const defaults = {
     projectDir: process.cwd(),
     pmDir: "",
+    pmStateDir: "",
     mode: "default",
     dryRun: false,
     holder: os.hostname(),
@@ -672,6 +663,7 @@ function parseArgs(argv) {
     {
       "--project-dir": { key: "projectDir", type: "string" },
       "--pm-dir": { key: "pmDir", type: "string" },
+      "--pm-state-dir": { key: "pmStateDir", type: "string" },
       "--mode": { key: "mode", type: "string" },
       "--dry-run": { key: "dryRun", type: "boolean" },
       "--holder": { key: "holder", type: "string" },
@@ -684,6 +676,7 @@ function parseArgs(argv) {
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
+  if (args.pmStateDir) args.pmStateDir = path.resolve(args.pmStateDir);
   return args;
 }
 

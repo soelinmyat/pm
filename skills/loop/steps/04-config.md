@@ -24,9 +24,28 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUG
 
 Highlight these fields when explaining the output:
 
+- `version: 2` enables exact-plan preflight and trusted host configuration.
 - `sync_required_for_mutation` must remain true for cross-machine safety.
 - `autonomy.start_dev` defaults false and gates implementation pickup.
 - `autonomy.merge_pr` defaults false and gates auto-merge.
 - `budgets.lease_ttl_minutes` controls lease expiry.
+- `worker.bootstrap_required_files` fails preflight when a required local file
+  is missing; `worker.bootstrap_files` remains optional and skips missing files.
+- `preflight.service_checks` runs bounded project-specific health commands in
+  the disposable worktree before a lease is claimed.
+
+Executable commands and broad permissions are inert until the resolved
+execution hash is approved on this machine. After inspecting the exact config,
+record that approval locally (never in git):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js \
+  --pm-dir "$(node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js "$PWD")" \
+  --approve-host
+```
+
+Changing an engine binary/argument, bootstrap command, service check,
+`codex_add_dirs`, Claude bypass mode, or Codex `danger-full-access` changes the
+hash and requires a new explicit approval.
 
 Do not modify `implementation_approved`, `approved_by`, or `approved_at` on backlog cards from this step.

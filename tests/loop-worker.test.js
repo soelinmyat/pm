@@ -6,14 +6,23 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { approveExecutionConfig, loadLoopConfig } = require("../scripts/loop-config.js");
 
 const {
   buildPrompt,
   countRunsToday,
   engineCommand,
   isDispatchableCommand,
+  prepareWorkspace,
   runWorker,
 } = require("../scripts/loop-worker.js");
+const { runLoop } = require("../scripts/loop-runner.js");
+const {
+  activeQuarantineForPlan,
+  clearQuarantine,
+  readQuarantine,
+  runPreflight,
+} = require("../scripts/loop-preflight.js");
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -50,11 +59,11 @@ function makeProjectFixture({ autonomyStartDev = true, config = {} } = {}) {
       "Do the thing.",
     ].join("\n") + "\n"
   );
-  // Safety: default engine is /usr/bin/false so no test can ever invoke a
+  // Safety: default engine is /usr/bin/true so no test can ever invoke a
   // real vendor CLI; dispatch-reaching tests override engine_bin explicitly.
   const loopConfig = {
     autonomy: { start_dev: autonomyStartDev },
-    worker: { keep_workspace: true, engine_bin: "/usr/bin/false" },
+    worker: { keep_workspace: true, engine_bin: "/usr/bin/true" },
     ...config,
   };
   fs.writeFileSync(
@@ -70,12 +79,18 @@ function makeProjectFixture({ autonomyStartDev = true, config = {} } = {}) {
   git(["push", "origin", "main"], project);
   git(["symbolic-ref", "HEAD", "refs/heads/main"], origin);
 
+  approveExecutionConfig(path.join(project, ".pm"), loadLoopConfig(pmDir));
+
   return {
     root,
     project,
     pmDir,
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
+}
+
+function approveFixtureConfig(fixture) {
+  return approveExecutionConfig(path.join(fixture.project, ".pm"), loadLoopConfig(fixture.pmDir));
 }
 
 function writeFakeEngine(root, { exitCode = 0, marker = "engine-ran" } = {}) {
@@ -163,6 +178,355 @@ test("engineCommand maps engines and honors custom bin override", () => {
   );
   assert.equal(custom.bin, "/x/bin");
   assert.deepEqual(custom.args, ["--a"]);
+  assert.throws(
+    () => engineCommand({ worker: { engine_args: ["-s", "danger-full-access"] } }, "p"),
+    /must not contain --sandbox/
+  );
+});
+
+test("codex engine capability adds only explicit dirs and the private result directory", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-engine-capability-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const workspacePath = path.join(root, "workspace");
+  const pmDir = path.join(root, "knowledge", "pm");
+  const pmStateDir = path.join(root, "knowledge", ".pm");
+  const resultDir = path.join(root, "results", "run-1");
+  const explicitDir = path.join(root, "approved-cache");
+  for (const dir of [workspacePath, pmDir, pmStateDir, resultDir, explicitDir]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const command = engineCommand({ worker: { codex_add_dirs: [explicitDir] } }, "probe", {
+    workspacePath,
+    pmDir,
+    pmStateDir,
+    resultDir,
+  });
+  const added = command.args
+    .map((arg, index) => (arg === "--add-dir" ? command.args[index + 1] : null))
+    .filter(Boolean);
+  assert.deepEqual(added.sort(), [explicitDir, resultDir].sort());
+  assert.ok(!added.includes(pmDir));
+  assert.ok(!added.includes(pmStateDir));
+});
+
+test("preflight bootstraps a disposable detached worktree, runs service checks, and probes the exact engine", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const pmStateDir = path.join(fixture.project, ".pm");
+    const config = {
+      version: 2,
+      default_runtime: "codex",
+      autonomy: { start_dev: true },
+      worker: {
+        engine_bin: "/usr/bin/true",
+        bootstrap_required_files: ["local.env"],
+      },
+      preflight: {
+        probe_timeout_seconds: 5,
+        quarantine_ttl_seconds: 60,
+        service_checks: [{ name: "bootstrap-present", command: "test -f local.env" }],
+      },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    let observed;
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir,
+      runProbe(context) {
+        observed = context;
+        assert.equal(context.command.bin, "/usr/bin/true");
+        assert.equal(fs.statSync(context.resultDir).mode & 0o777, 0o700);
+        assert.equal(git(["rev-parse", "HEAD"], context.workspacePath), plan.source_base_oid);
+        assert.ok(fs.existsSync(path.join(context.workspacePath, "local.env")));
+        assert.ok(fs.existsSync(path.join(context.contextDir, "card.md")));
+        return { status: 0, stdout: "ok", stderr: "" };
+      },
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.ok(observed);
+    assert.equal(fs.existsSync(observed.workspacePath), false, "disposable worktree removed");
+    assert.equal(fs.existsSync(observed.resultDir), false, "private probe result dir removed");
+    assert.equal(
+      fs.readdirSync(path.join(fixture.project, ".worktrees")).length,
+      0,
+      "preflight leaves no worktree"
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight fails closed and quarantines when disposable cleanup cannot be verified", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const config = {
+      version: 2,
+      autonomy: { start_dev: true },
+      worker: { engine_bin: "/usr/bin/true" },
+      preflight: { service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir: path.join(fixture.project, ".pm"),
+      runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+      removeWorktree: () => false,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.blocker_code, "preflight-cleanup-failed");
+    assert.equal(result.quarantine.fingerprint, plan.fingerprint);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight never follows an RFC symlink outside the protected PM backlog", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const cardPath = path.join(fixture.pmDir, "backlog", "pm-t1.md");
+    fs.writeFileSync(
+      cardPath,
+      fs
+        .readFileSync(cardPath, "utf8")
+        .replace("---\n\nDo the thing.", "rfc: rfcs/secret.html\n---\n\nDo the thing.")
+    );
+    const outside = path.join(fixture.root, "outside-rfcs");
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "secret.html"), "host secret\n");
+    fs.symlinkSync(outside, path.join(fixture.pmDir, "backlog", "rfcs"));
+    git(["add", "pm/backlog/pm-t1.md", "pm/backlog/rfcs"], fixture.project);
+    git(["commit", "-m", "add RFC context"], fixture.project);
+    git(["push"], fixture.project);
+
+    const config = {
+      version: 2,
+      autonomy: { start_dev: true },
+      worker: { engine_bin: "/usr/bin/true" },
+      preflight: { service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir: path.join(fixture.project, ".pm"),
+      runProbe({ contextDir }) {
+        assert.equal(fs.existsSync(path.join(contextDir, "rfc.html")), false);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("invalid preflight plans fail without trying to create an unkeyed quarantine", () => {
+  const fixture = makeProjectFixture();
+  try {
+    assert.doesNotThrow(() => {
+      const result = runPreflight(
+        fixture.project,
+        {},
+        { version: 2 },
+        {
+          pmDir: fixture.pmDir,
+          pmStateDir: path.join(fixture.project, ".pm"),
+        }
+      );
+      assert.equal(result.blocker_code, "preflight-plan-invalid");
+      assert.equal(result.quarantine, undefined);
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight protects PM refs and protected-path status across the bounded probe", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const config = {
+      version: 2,
+      default_runtime: "codex",
+      autonomy: { start_dev: true },
+      worker: { engine_bin: "/usr/bin/true" },
+      preflight: { probe_timeout_seconds: 5, quarantine_ttl_seconds: 60, service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir: path.join(fixture.project, ".pm"),
+      runProbe() {
+        fs.appendFileSync(path.join(fixture.pmDir, "backlog", "pm-t1.md"), "probe mutation\n");
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.blocker_code, "protected-pm-state-changed");
+    assert.match(result.remediation, /restore PM refs and protected paths/i);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("preflight failure creates no branch or lease and writes fingerprint-keyed local quarantine", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const pmStateDir = path.join(fixture.project, ".pm");
+    const firstCard = path.join(fixture.pmDir, "backlog", "pm-t1.md");
+    fs.writeFileSync(
+      firstCard,
+      fs
+        .readFileSync(firstCard, "utf8")
+        .replace("status: ready", "status: ready\npriority: critical")
+    );
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "backlog", "pm-t2.md"),
+      [
+        "---",
+        "id: PM-T2",
+        "title: Later card",
+        "kind: task",
+        "priority: low",
+        "status: ready",
+        "implementation_approved: true",
+        "approved_by: PM Test",
+        "approved_at: 2026-07-01",
+        "---",
+        "",
+        "Later work.",
+        "",
+      ].join("\n")
+    );
+    git(["add", "pm/backlog"], fixture.project);
+    git(["commit", "-m", "add lower priority card"], fixture.project);
+    git(["push"], fixture.project);
+    const config = {
+      version: 2,
+      default_runtime: "codex",
+      autonomy: { start_dev: true },
+      worker: {
+        engine_bin: "/usr/bin/true",
+        bootstrap_required_files: ["missing-required.env"],
+      },
+      preflight: { probe_timeout_seconds: 5, quarantine_ttl_seconds: 60, service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    const beforeHead = git(["rev-parse", "HEAD"], fixture.project);
+    const beforeBranches = git(
+      ["for-each-ref", "--format=%(refname)", "refs/heads"],
+      fixture.project
+    );
+    const beforeStatus = git(["status", "--porcelain", "--", "pm"], fixture.project);
+
+    const result = runPreflight(fixture.project, plan, config, {
+      pmDir: fixture.pmDir,
+      pmStateDir,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.blocker_code, "bootstrap-required-file-missing");
+    assert.equal(git(["rev-parse", "HEAD"], fixture.project), beforeHead);
+    assert.equal(
+      git(["for-each-ref", "--format=%(refname)", "refs/heads"], fixture.project),
+      beforeBranches
+    );
+    assert.equal(git(["status", "--porcelain", "--", "pm"], fixture.project), beforeStatus);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+
+    const quarantine = readQuarantine(pmStateDir, plan.fingerprint, new Date());
+    assert.equal(quarantine.fingerprint, plan.fingerprint);
+    assert.equal(quarantine.blocker_code, "bootstrap-required-file-missing");
+    assert.match(quarantine.remediation, /missing-required\.env/);
+
+    const nextPlan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+      quarantineCheck: (_card, meta) => activeQuarantineForPlan(pmStateDir, meta),
+    });
+    assert.equal(nextPlan.selected.id, "PM-T2", "quarantine leaves later work eligible");
+
+    fs.appendFileSync(firstCard, "fingerprint changed\n");
+    git(["add", "pm/backlog/pm-t1.md"], fixture.project);
+    git(["commit", "-m", "change first card fingerprint"], fixture.project);
+    git(["push"], fixture.project);
+    const retriedPlan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+      quarantineCheck: (_card, meta) => activeQuarantineForPlan(pmStateDir, meta),
+    });
+    assert.equal(retriedPlan.selected.id, "PM-T1", "fingerprint change permits retry");
+
+    assert.equal(clearQuarantine(pmStateDir, plan.fingerprint), 1);
+    assert.equal(readQuarantine(pmStateDir, plan.fingerprint, new Date()), null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("execution worktree is promoted from the fingerprinted source base instead of moving origin", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const config = {
+      version: 2,
+      default_runtime: "codex",
+      autonomy: { start_dev: true },
+      worker: {},
+      preflight: { service_checks: [] },
+    };
+    const plan = runLoop(fixture.project, {
+      pmDir: fixture.pmDir,
+      config,
+      dryRun: true,
+      mode: "dev",
+    });
+    fs.writeFileSync(path.join(fixture.project, "after-plan.txt"), "new tip\n");
+    git(["add", "after-plan.txt"], fixture.project);
+    git(["commit", "-m", "advance source after plan"], fixture.project);
+    git(["push"], fixture.project);
+    assert.notEqual(git(["rev-parse", "HEAD"], fixture.project), plan.source_base_oid);
+
+    const workspace = prepareWorkspace(fixture.project, plan, config, {
+      now: new Date("2026-07-02T10:00:00Z"),
+    });
+    assert.equal(workspace.ok, true, JSON.stringify(workspace));
+    assert.equal(git(["rev-parse", "HEAD"], workspace.workspacePath), plan.source_base_oid);
+    assert.equal(fs.existsSync(path.join(workspace.workspacePath, "after-plan.txt")), false);
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("countRunsToday counts only same-day ledgers and fails closed on bad JSON", () => {
@@ -225,6 +589,102 @@ test("dry-run previews selection and engine command without claiming", () => {
   }
 });
 
+test("unapproved execution config fails before claim and quarantines the exact plan", () => {
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify(
+        {
+          version: 2,
+          autonomy: { start_dev: true },
+          worker: { engine_bin: "/usr/bin/false", codex_sandbox: "danger-full-access" },
+        },
+        null,
+        2
+      )
+    );
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "change unapproved engine authority"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "execution-config-unapproved");
+    assert.equal(result.mutation, false);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+    assert.equal(result.quarantine.fingerprint, result.fingerprint);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker honors an explicit PM state directory for machine-local approval", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const customState = path.join(fixture.root, "host-state");
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify(
+        {
+          autonomy: { start_dev: true },
+          worker: {
+            engine_bin: "/usr/bin/true",
+            bootstrap_required_files: ["missing-for-preflight.env"],
+          },
+        },
+        null,
+        2
+      )
+    );
+    fs.rmSync(path.join(fixture.project, ".pm", "loop-host.json"), { force: true });
+    approveExecutionConfig(customState, loadLoopConfig(fixture.pmDir));
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "configure explicit host state"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      pmStateDir: customState,
+    });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "bootstrap-required-file-missing");
+    assert.equal(result.quarantine.file_path.startsWith(customState), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker never treats generic options.config as a trusted runtime config", () => {
+  const fixture = makeProjectFixture();
+  try {
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: "/usr/bin/false", codex_sandbox: "danger-full-access" },
+      })
+    );
+    fs.rmSync(path.join(fixture.project, ".pm", "loop-host.json"), { force: true });
+    git(["add", "pm/loop/config.json"], fixture.project);
+    git(["commit", "-m", "unapproved persisted config"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      config: {
+        ...loadLoopConfig(fixture.pmDir),
+        worker: { engine_bin: "/usr/bin/true" },
+      },
+    });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "execution-config-unapproved");
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("worker executes the engine in a bootstrapped worktree and releases the lease", () => {
   const fixture = makeProjectFixture();
   try {
@@ -244,6 +704,7 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
         2
       )
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "config"], fixture.project);
     git(["push"], fixture.project);
@@ -300,6 +761,7 @@ test("dev-stage exit 0 without shipping metadata is blocked, not completed", () 
         2
       )
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "config"], fixture.project);
     git(["push"], fixture.project);
@@ -325,11 +787,15 @@ test("engine failure records a failed ledger and still releases the lease", () =
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ autonomy: { start_dev: true }, worker: { engine_bin: engineBin } }, null, 2)
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "config"], fixture.project);
     git(["push"], fixture.project);
 
-    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+    });
     assert.equal(result.status, "failed");
     assert.equal(result.exit_code, 3);
     assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
@@ -352,6 +818,7 @@ test("crash recovery: expired lease from a dead worker is re-dispatchable", () =
         2
       )
     );
+    approveFixtureConfig(fixture);
     // A stale lease left behind by a SIGKILLed worker: expired TTL.
     const leaseDir = path.join(fixture.pmDir, "loop", "leases");
     fs.mkdirSync(leaseDir, { recursive: true });
@@ -458,7 +925,11 @@ test("attempts backstop: card that keeps failing is not re-dispatched forever", 
     const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
     assert.equal(result.status, "attempts-exhausted", JSON.stringify(result));
     assert.match(result.reason, /needs a human look/);
-    assert.equal(fs.readdirSync(path.join(fixture.pmDir, "loop", "leases")).length, 0);
+    assert.equal(
+      fs.existsSync(path.join(fixture.pmDir, "loop", "leases")),
+      false,
+      "attempt budget stops before any lease directory is created"
+    );
   } finally {
     fixture.cleanup();
   }
@@ -515,11 +986,16 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ worker: { engine_bin: failEngine } }, null, 2)
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "shipping fixture"], fixture.project);
     git(["push"], fixture.project);
 
-    const first = runWorker(fixture.project, { pmDir: fixture.pmDir, mode: "ship" });
+    const first = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      mode: "ship",
+      runProbe: () => ({ status: 0, stdout: "", stderr: "" }),
+    });
     assert.equal(first.status, "failed", JSON.stringify(first));
     // Worktree removed despite failure — card.branch is free for the next cycle.
     const worktrees = path.join(fixture.project, ".worktrees");
@@ -532,6 +1008,7 @@ test("failed ship cycle removes its worktree so the next cycle can proceed", () 
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ worker: { engine_bin: okEngine } }, null, 2)
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "swap engine"], fixture.project);
     git(["push"], fixture.project);
@@ -625,6 +1102,7 @@ test("ship-stage worker checks out the existing branch and runs one cycle", () =
       path.join(fixture.pmDir, "loop", "config.json"),
       JSON.stringify({ worker: { engine_bin: engineBin, keep_workspace: true } }, null, 2)
     );
+    approveFixtureConfig(fixture);
     git(["add", "-A"], fixture.project);
     git(["commit", "-m", "shipping state"], fixture.project);
     git(["push"], fixture.project);

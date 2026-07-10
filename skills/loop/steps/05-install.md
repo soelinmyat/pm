@@ -35,15 +35,28 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUG
   a dedicated user account or container for the scheduler. Codex loop runs
   default to `worker.codex_sandbox: "workspace-write"` and can opt into
   `"danger-full-access"` only when local test dependencies require it. Add
-  extra writable roots in `worker.codex_add_dirs`; when the PM knowledge base
-  lives outside the project repo, the worker automatically passes that PM dir
-  via `--add-dir`. The worker also refuses any card whose `command` is not a
+  extra writable roots in `worker.codex_add_dirs`. `danger-full-access` is an
+  explicit local grant of host authority, **not capability isolation**. The
+  worker never automatically exposes PM content or state roots as writable
+  engine directories: it copies the selected read context into the disposable
+  worktree and exposes only a mode-0700 result directory (plus roots the local
+  operator explicitly approved). The worker also refuses any card whose `command` is not a
   `/pm:dev|rfc|research <id>` shape, so git-synced card frontmatter cannot
   inject arbitrary instructions.
 - **Worktree bootstrap:** list the project's gitignored-but-required files
-  (env files, generated specs) in `worker.bootstrap_files`; use
+  (env files, generated specs) in `worker.bootstrap_required_files`; use
+  `worker.bootstrap_files` only for truly optional inputs, and use
   `worker.bootstrap_command` for install steps. Fresh-worktree test failures
   are the most common unattended-run failure.
+- **Preflight checks:** put project-specific service health commands in
+  `preflight.service_checks`. The loop runs bootstrap, service checks, and a
+  bounded exact-engine auth/permission probe in a detached disposable
+  worktree before it claims a lease. Failures stay machine-local in a
+  fingerprint-keyed quarantine so later cards remain eligible.
+- **Local approval:** after reviewing executable commands and broad
+  permissions, run `scripts/loop-config.js --approve-host`. Any relevant
+  config change produces a new execution hash and fails closed until that hash
+  is approved on the machine again.
 - **Merge autonomy:** `autonomy.merge_pr: false` (default) means every child
   stops at an open PR for your review. Setting it to `true` grants full
   epic autonomy: implement → test → merge to main → next child, with no human
