@@ -142,8 +142,19 @@ test("CLI retries then reports UNKNOWN when gh hangs past the timeout", () => {
 
 // --- getPrInfo: the richer fields the crash-recovery gate needs ---
 
-function ghInfo(obj) {
-  return () => ({ code: 0, stdout: JSON.stringify(obj), stderr: "" });
+function ghInfo(obj, calls) {
+  return (args = []) => {
+    if (calls) calls.push(args);
+    if (args[0] === "api") {
+      const files = (obj.files || []).map((entry) => ({
+        filename: entry.filename || entry.path,
+        ...(entry.previous_filename ? { previous_filename: entry.previous_filename } : {}),
+        status: entry.status || "modified",
+      }));
+      return { code: 0, stdout: JSON.stringify([files]), stderr: "" };
+    }
+    return { code: 0, stdout: JSON.stringify(obj), stderr: "" };
+  };
 }
 
 test("getPrInfo returns state, mergedAt, number, headRefOid", () => {
@@ -206,9 +217,14 @@ function resultPr(overrides = {}) {
 }
 
 function verify(artifact, remote, overrides = {}) {
-  const { runGh, calls } = fakeGh(
-    remote instanceof Array ? remote : [{ code: 0, stdout: JSON.stringify(remote), stderr: "" }]
-  );
+  let runGh;
+  let calls;
+  if (remote instanceof Array) {
+    ({ runGh, calls } = fakeGh(remote));
+  } else {
+    calls = [];
+    runGh = ghInfo(remote, calls);
+  }
   const checked = verifyPullRequest(artifact, {
     requiredState: "OPEN",
     expectedRepo: "openai/pm",
@@ -230,8 +246,8 @@ test("repository-pinned OPEN verification matches repo, number/url, base, head/O
   assert.deepEqual(calls[0].slice(0, 6), ["pr", "view", "42", "--repo", "openai/pm", "--json"]);
   assert.match(calls[0][6], /state,createdAt,mergedAt,mergeCommit,number,url/);
   assert.match(calls[0][6], /baseRefName,headRefName,headRefOid/);
-  assert.match(calls[0][6], /files/);
   assert.match(calls[0][6], /changedFiles/);
+  assert.deepEqual(calls[1], ["api", "--paginate", "--slurp", "repos/openai/pm/pulls/42/files"]);
 });
 
 test("repository-pinned verification fails closed when GitHub returns an incomplete file list", () => {
@@ -258,6 +274,25 @@ test("repository-pinned verification rejects worker-owned PM, lease, recovery, e
     assert.match(checked.reason, /protected.*path/i);
     assert.deepEqual(checked.protectedPaths, [protectedPath]);
   }
+});
+
+test("repository-pinned verification rejects a rename from a protected path", () => {
+  const { checked } = verify(
+    resultPr(),
+    remotePr({
+      changedFiles: 1,
+      files: [
+        {
+          path: "archive/pm-108.md",
+          previous_filename: "pm/backlog/pm-108.md",
+          status: "renamed",
+        },
+      ],
+    })
+  );
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.match(checked.reason, /protected.*path/i);
+  assert.deepEqual(checked.protectedPaths, ["pm/backlog/pm-108.md"]);
 });
 
 test("reconcile inspection accepts only repository-pinned OPEN or MERGED identity and returns merge evidence", () => {

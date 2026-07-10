@@ -570,6 +570,9 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
           input.cardId || input.card_id,
           input.stage
         );
+        for (const protectedPath of [paths.event, paths.recovery, paths.lease]) {
+          assertNoSymlinkPath(context.workspace, protectedPath);
+        }
         const lease = leaseForRun(context, paths, runId);
         const eventPath = path.join(context.workspace, ...paths.event.split("/"));
         const event = readJsonIfExists(eventPath);
@@ -816,6 +819,9 @@ function finalizeRun(pmDir, input, options = {}) {
           input.cardId || input.card_id,
           input.stage
         );
+        for (const protectedPath of [paths.event, paths.recovery, paths.lease]) {
+          assertNoSymlinkPath(context.workspace, protectedPath);
+        }
         const lease = leaseForRun(context, paths, runId);
         const eventPath = path.join(context.workspace, ...paths.event.split("/"));
         const currentEvent = readJsonIfExists(eventPath);
@@ -1085,8 +1091,16 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
     lease_expired: leaseExpired,
     redispatch: false,
   };
+  const ownsRun = (record) =>
+    !record ||
+    (record.run_id === runId &&
+      typeof record.card_id === "string" &&
+      record.card_id.trim().length > 0);
   if (parseError || leaseLookup.invalid.length > 0) {
     return { ...base, state: "ambiguous", reason: parseError || "invalid orphan lease" };
+  }
+  if (!ownsRun(event) || !ownsRun(recovery) || !ownsRun(lease)) {
+    return { ...base, state: "ambiguous", reason: "durable record ownership is missing" };
   }
   if (event && event.run_id === runId && event.terminal === true && !lease && !recovery) {
     return { ...base, state: "finalized" };
@@ -1168,7 +1182,7 @@ function listRunIds(pmDir, options = {}) {
         try {
           const lease = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
           if (lease.run_id) {
-            if (relevant(lease, lease.run_id)) ids.add(lease.run_id);
+            if (!lease.card_id || relevant(lease, lease.run_id)) ids.add(lease.run_id);
           } else {
             ids.add(`ambiguous:${entry.name}`);
           }
@@ -1179,7 +1193,7 @@ function listRunIds(pmDir, options = {}) {
         const runId = entry.name.slice(0, -5);
         try {
           const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
-          if (relevant(record, runId)) ids.add(runId);
+          if (!record.card_id || record.run_id !== runId || relevant(record, runId)) ids.add(runId);
         } catch {
           ids.add(runId);
         }
@@ -1209,6 +1223,7 @@ function scanRemoteTransactions(pmDir, options = {}) {
 module.exports = {
   RUN_ID_PATTERN,
   TransactionAbort,
+  assertNoSymlinkPath,
   checkpointRecovery,
   claimRun,
   createRunId,

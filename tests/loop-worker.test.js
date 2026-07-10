@@ -934,7 +934,7 @@ test("post-run enforcement rejects an engine that mutates protected PM refs or s
 test("post-run PM comparison permits only the expected source branch refs in same-repo mode", () => {
   const before = {
     git_root: "/repo",
-    head: "main-oid",
+    head: "a".repeat(40),
     refs: [
       `refs/heads/main:${"a".repeat(40)}`,
       `refs/heads/loop/pm-404:${"b".repeat(40)}`,
@@ -958,6 +958,24 @@ test("post-run PM comparison permits only the expected source branch refs in sam
     "a source-named ref in a separate PM repository must remain protected"
   );
   assert.equal(protectedPmStateUnchanged({}, {}, "loop/pm-404", "/repo"), false);
+  assert.equal(
+    protectedPmStateUnchanged(
+      { ...before, head: "UNKNOWN" },
+      { ...before, head: "UNKNOWN" },
+      "loop/pm-404",
+      "/repo"
+    ),
+    false
+  );
+  assert.equal(
+    protectedPmStateUnchanged(
+      { ...before, refs: "garbage" },
+      { ...before, refs: "garbage" },
+      "loop/pm-404",
+      "/repo"
+    ),
+    false
+  );
   assert.equal(
     protectedPmStateUnchanged(
       before,

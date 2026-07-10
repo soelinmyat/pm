@@ -17,14 +17,13 @@ function sourceRepository(gitRoot) {
 }
 
 function defaultBranchName(gitRoot) {
-  if (!gitRoot) return "main";
+  if (!gitRoot) return "";
   try {
-    return runGit(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], gitRoot).replace(
-      /^origin\//,
-      ""
-    );
+    const output = runGit(["ls-remote", "--symref", "origin", "HEAD"], gitRoot);
+    const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m);
+    return match && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(match[1]) ? match[1] : "";
   } catch {
-    return "main";
+    return "";
   }
 }
 

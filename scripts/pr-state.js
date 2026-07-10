@@ -125,7 +125,36 @@ function getPrInfo(branch, options = {}) {
 }
 
 const PINNED_FIELDS =
-  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,headRefName,headRefOid,changedFiles,files";
+  "state,createdAt,mergedAt,mergeCommit,number,url,baseRefName,headRefName,headRefOid,changedFiles";
+
+function getPinnedPrFiles(repo, number, options = {}) {
+  const res = runGhWithRetry(
+    ["api", "--paginate", "--slurp", `repos/${repo}/pulls/${number}/files`],
+    options
+  );
+  if (res.code !== 0) return { ok: false };
+  try {
+    const pages = JSON.parse(res.stdout || "[]");
+    if (!Array.isArray(pages)) return { ok: false };
+    const entries = pages.flatMap((page) => (Array.isArray(page) ? page : []));
+    const paths = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry.filename !== "string" || !entry.filename) {
+        return { ok: false };
+      }
+      paths.push(entry.filename);
+      if (entry.previous_filename !== undefined) {
+        if (typeof entry.previous_filename !== "string" || !entry.previous_filename) {
+          return { ok: false };
+        }
+        paths.push(entry.previous_filename);
+      }
+    }
+    return { ok: true, count: entries.length, paths: [...new Set(paths)].sort() };
+  } catch {
+    return { ok: false };
+  }
+}
 
 function getPinnedPrInfo(repo, number, options = {}) {
   const res = runGhWithRetry(
@@ -135,6 +164,8 @@ function getPinnedPrInfo(repo, number, options = {}) {
   if (res.code === 0) {
     try {
       const obj = JSON.parse(res.stdout || "{}");
+      const changed = getPinnedPrFiles(repo, number, options);
+      if (!changed.ok) return { state: "UNKNOWN" };
       return {
         state: obj.state || "UNKNOWN",
         createdAt: obj.createdAt || null,
@@ -146,11 +177,8 @@ function getPinnedPrInfo(repo, number, options = {}) {
         headRefName: obj.headRefName || null,
         headRefOid: obj.headRefOid || null,
         changedFiles: Number.isSafeInteger(obj.changedFiles) ? obj.changedFiles : null,
-        files: Array.isArray(obj.files)
-          ? obj.files
-              .map((entry) => (typeof entry === "string" ? entry : entry && entry.path))
-              .filter(Boolean)
-          : [],
+        fileCount: changed.count,
+        files: changed.paths,
       };
     } catch {
       return { state: "UNKNOWN" };
@@ -215,7 +243,7 @@ function inspectPullRequest(artifact, options = {}) {
   if (info.createdAt !== artifact.created_at) {
     return failedVerification("pull request creation timestamp mismatch", info.state, info);
   }
-  if (!Number.isSafeInteger(info.changedFiles) || info.changedFiles !== info.files.length) {
+  if (!Number.isSafeInteger(info.changedFiles) || info.changedFiles !== info.fileCount) {
     return failedVerification(
       "pull request file list is incomplete and protected paths cannot be verified",
       info.state,

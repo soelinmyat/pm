@@ -277,6 +277,24 @@ test("invalid stored pull-request artifacts fail closed before remote inspection
   assert.equal(inspected, false);
 });
 
+test("pull-request evidence fails closed when the source default branch is unresolved", () => {
+  let inspected = false;
+  const result = classifyStaleCard(
+    storedPr(),
+    { leases: [], transactions: [] },
+    {
+      expectedRepository: "openai/pm",
+      expectedBase: "",
+      inspectPullRequest() {
+        inspected = true;
+        return { ok: true, state: "OPEN" };
+      },
+    }
+  );
+  assert.equal(result.classification, "unverified");
+  assert.equal(inspected, false);
+});
+
 function makeFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-reconcile-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -471,6 +489,31 @@ test("apply pins the planned PM head and aborts when durable evidence changes", 
   assert.deepEqual(result.applied_changes, []);
   const remoteCard = git(fixture.project, ["show", "origin/main:pm/backlog/stale.md"]);
   assert.equal(parseFrontmatter(remoteCard).data.status, "shipping");
+});
+
+test("apply rejects symlink chains for card, lease, and event mutations", (t) => {
+  const fixture = makeFixture(t);
+  const escape = path.join(fixture.root, "escape-events");
+  fs.mkdirSync(escape);
+  fs.rmSync(path.join(fixture.pmDir, "loop", "events"), { recursive: true, force: true });
+  fs.symlinkSync(escape, path.join(fixture.pmDir, "loop", "events"));
+  git(fixture.project, ["add", "pm/loop/events"]);
+  git(fixture.project, ["commit", "-m", "symlinked event path"]);
+  git(fixture.project, ["push"]);
+
+  const result = runReconcile(fixture.project, {
+    pmDir: fixture.pmDir,
+    now: NOW,
+    apply: true,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    checkGitReady: () => ({ ok: true }),
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.code, "apply-failed");
+  assert.match(result.reason, /symlink/i);
+  assert.deepEqual(fs.readdirSync(escape), []);
 });
 
 test("ordinary card repairs are batched into one isolated PM transaction", (t) => {

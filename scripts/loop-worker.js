@@ -411,13 +411,35 @@ function validProtectedPmSnapshot(value) {
   if (value.git_root) {
     return (
       typeof value.head === "string" &&
-      value.head.length > 0 &&
+      /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(value.head) &&
       typeof value.refs === "string" &&
-      value.refs.length > 0 &&
+      validRefSnapshot(value.refs) &&
       typeof value.protected_status === "string"
     );
   }
   return typeof value.tree_hash === "string" && value.tree_hash.length > 0;
+}
+
+function validRefSnapshot(value) {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  return (
+    lines.length > 0 &&
+    lines.every((line) => {
+      const match = line.match(
+        /^(refs\/(?:heads|remotes)\/[^\s:]+):([a-f0-9]{40}(?:[a-f0-9]{24})?)$/i
+      );
+      return Boolean(
+        match &&
+        !match[1].includes("..") &&
+        !match[1].includes("@{") &&
+        !match[1].includes("//") &&
+        !match[1].endsWith(".") &&
+        !match[1].endsWith(".lock")
+      );
+    })
+  );
 }
 
 function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRoot = "") {

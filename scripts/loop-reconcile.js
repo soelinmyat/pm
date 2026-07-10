@@ -17,6 +17,7 @@ const {
   writeJsonAtomic,
 } = require("./loop-git.js");
 const {
+  assertNoSymlinkPath,
   createRunId,
   finalizeRun,
   runIsolatedTransaction,
@@ -211,6 +212,13 @@ function classifyStaleCard(card, evidence = {}, options = {}) {
 
   const artifact = pullRequestArtifact(card.data);
   if (artifact) {
+    if (!options.expectedRepository || !options.expectedBase) {
+      return noAction(
+        "unverified",
+        "Resolve the authoritative source repository and default branch before retrying reconciliation.",
+        { run_id: String(card.data.loop_run_id || "") }
+      );
+    }
     const inspect = options.inspectPullRequest || inspectPullRequest;
     const verified = inspect(artifact, {
       expectedRepo: options.expectedRepository,
@@ -464,6 +472,7 @@ function applyCardChanges(pmDir, changes, options = {}) {
         const applied = [];
         for (const item of work) {
           const { change, reconcileRunId } = item;
+          assertNoSymlinkPath(context.workspace, change.card_path);
           const cardPath = path.join(context.workspace, ...change.card_path.split("/"));
           if (
             !fs.existsSync(cardPath) ||
@@ -485,6 +494,7 @@ function applyCardChanges(pmDir, changes, options = {}) {
           let leasePath = "";
           if (change.lease_path) {
             leasePath = change.lease_path;
+            assertNoSymlinkPath(context.workspace, leasePath);
             const absoluteLease = path.join(context.workspace, ...leasePath.split("/"));
             if (fs.existsSync(absoluteLease)) {
               const lease = JSON.parse(fs.readFileSync(absoluteLease, "utf8"));
@@ -497,6 +507,7 @@ function applyCardChanges(pmDir, changes, options = {}) {
           const eventPath = safeRelativePath(
             path.posix.join(context.pmRelative, "loop", "events", `${reconcileRunId}.json`)
           );
+          assertNoSymlinkPath(context.workspace, eventPath);
           writeJsonAtomic(path.join(context.workspace, ...eventPath.split("/")), {
             schema_version: 1,
             run_id: reconcileRunId,
@@ -564,6 +575,13 @@ function appliedChange(change, result, paths) {
   };
 }
 
+function applyFailureReason(result, fallback) {
+  if (result?.error) {
+    return `${result.reason ? `${result.reason}: ` : ""}${result.error}`;
+  }
+  return result?.reason || fallback;
+}
+
 function runReconcile(projectDir, options = {}) {
   const pmDir = options.pmDir || resolvePmPaths(projectDir).pmDir;
   const plan = buildPlan(projectDir, { ...options, pmDir });
@@ -602,7 +620,7 @@ function runReconcile(projectDir, options = {}) {
       return {
         ok: false,
         code: "apply-failed",
-        reason: result?.reason || result?.error || "isolated PM reconciliation failed",
+        reason: applyFailureReason(result, "isolated PM reconciliation failed"),
         ...base,
       };
     }
@@ -636,7 +654,7 @@ function runReconcile(projectDir, options = {}) {
       return {
         ok: false,
         code: "apply-failed",
-        reason: result?.reason || result?.error || "isolated PM reconciliation failed",
+        reason: applyFailureReason(result, "isolated PM reconciliation failed"),
         ...base,
       };
     }
