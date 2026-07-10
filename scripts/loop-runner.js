@@ -17,7 +17,7 @@ const {
 const { claimLease, findGitRoot, runGit } = require("./loop-git.js");
 const {
   createRunId,
-  scanRemoteTransactions,
+  scanSnapshotTransactions,
   withRemoteSnapshot,
 } = require("./loop-pm-transaction.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
@@ -247,32 +247,11 @@ function runLoop(projectDir, options = {}) {
     options.sourceBaseOid ||
     options.expectedPlan?.source_base_oid ||
     sourceBaseOid(projectDir, options);
-  const remoteTransactions =
-    !options.board && hasUpstream(paths.pmDir) && options.skipRecoveryScan !== true
-      ? scanRemoteTransactions(paths.pmDir, { now })
-      : [];
-  const pendingRecovery = remoteTransactions.find(
-    (entry) => entry.state !== "absent" && entry.state !== "finalized"
-  );
-  if (pendingRecovery) {
-    return {
-      run_id: options.runId || createRunId(),
-      status: "recovery-required",
-      mode: options.mode || "default",
-      mutation: false,
-      dry_run: options.dryRun !== false,
-      generated_at: now.toISOString(),
-      pmDir: paths.pmDir,
-      source_base_oid: baseOid,
-      selected: null,
-      skipped: [],
-      recovery: pendingRecovery,
-      reason: `durable run ${pendingRecovery.run_id} requires ${pendingRecovery.state} handling before selection`,
-    };
-  }
-
   const planFromPmState = (authoritativePmDir, currentPmHead) => {
-    if (!config) {
+    const authoritativeConfigExists = fs.existsSync(
+      path.join(authoritativePmDir, "loop", "config.json")
+    );
+    if ((!options.board && authoritativeConfigExists) || !config) {
       config =
         options.dryRun === false && options.claimOnly
           ? loadTrustedLoopConfig(authoritativePmDir, paths.pmStateDir)
@@ -329,12 +308,44 @@ function runLoop(projectDir, options = {}) {
     return { selected, fingerprint, fingerprint_input: fingerprintInputValue };
   };
 
-  const authoritative =
-    !options.board && hasUpstream(paths.pmDir)
-      ? withRemoteSnapshot(paths.pmDir, (snapshot) =>
-          planFromPmState(snapshot.pmDir, snapshot.upstreamOid)
-        )
-      : planFromPmState(paths.pmDir, pmHeadOid(paths.pmDir));
+  const remoteBacked = !options.board && hasUpstream(paths.pmDir);
+  const snapshotResult = remoteBacked
+    ? withRemoteSnapshot(paths.pmDir, (snapshot) => {
+        const pendingRecovery =
+          options.skipRecoveryScan === true
+            ? null
+            : scanSnapshotTransactions(snapshot.pmDir, { now }).find(
+                (entry) => entry.state !== "absent" && entry.state !== "finalized"
+              );
+        return {
+          pendingRecovery,
+          authoritative: pendingRecovery
+            ? null
+            : planFromPmState(snapshot.pmDir, snapshot.upstreamOid),
+        };
+      })
+    : {
+        pendingRecovery: null,
+        authoritative: planFromPmState(paths.pmDir, pmHeadOid(paths.pmDir)),
+      };
+  if (snapshotResult.pendingRecovery) {
+    const pendingRecovery = snapshotResult.pendingRecovery;
+    return {
+      run_id: options.runId || createRunId(),
+      status: "recovery-required",
+      mode: options.mode || "default",
+      mutation: false,
+      dry_run: options.dryRun !== false,
+      generated_at: now.toISOString(),
+      pmDir: paths.pmDir,
+      source_base_oid: baseOid,
+      selected: null,
+      skipped: [],
+      recovery: pendingRecovery,
+      reason: `durable run ${pendingRecovery.run_id} requires ${pendingRecovery.state} handling before selection`,
+    };
+  }
+  const authoritative = snapshotResult.authoritative;
   const selected = authoritative.selected;
   const runId = options.runId || options.expectedPlan?.run_id || createRunId();
 

@@ -680,6 +680,47 @@ test("claim reloads Git-synced config after pull and rejects exact-plan config d
   assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "leases")), false);
 });
 
+test("fresh remote planning never uses a stale caller-supplied portable config", (t) => {
+  const project = createProject();
+  t.after(project.cleanup);
+  project.write(
+    "pm/backlog/remote-policy.md",
+    fm({
+      type: "backlog",
+      id: "PM-REMOTE-CONFIG",
+      title: "Remote policy",
+      kind: "task",
+      status: "planned",
+      implementation_approved: "true",
+      approved_by: "soelinmyat",
+      approved_at: "2026-06-23",
+    }) + "body"
+  );
+  project.write(
+    "pm/loop/config.json",
+    `${JSON.stringify({ version: 2, autonomy: { start_dev: true } }, null, 2)}\n`
+  );
+  initGit(project);
+  const remote = attachRemote(project, t);
+  const staleConfig = loadLoopConfig(project.pmDir);
+  updateRemote(remote, (clone) => {
+    fs.writeFileSync(
+      path.join(clone, "pm", "loop", "config.json"),
+      `${JSON.stringify({ version: 2, autonomy: { start_dev: false } }, null, 2)}\n`
+    );
+  });
+
+  const plan = runLoop(project.root, {
+    now: FIXED_NOW,
+    mode: "dev",
+    dryRun: true,
+    config: staleConfig,
+  });
+
+  assert.equal(plan.status, "idle");
+  assert.equal(plan.selected, null);
+});
+
 test("claim never resets an operator's unpushed shared-checkout commit", (t) => {
   const project = createProject();
   t.after(project.cleanup);

@@ -15,6 +15,7 @@ const {
   finalizeRun,
   inspectRemoteRunState,
   markRunDispatched,
+  releaseClaim,
   runIsolatedTransaction,
 } = require("../scripts/loop-pm-transaction.js");
 
@@ -481,4 +482,230 @@ test("non-push transaction failures stop immediately instead of masquerading as 
   assert.equal(result.reason, "transaction-failed");
   assert.equal(result.attempts, 1);
   assert.match(result.error, /injected validation failure/);
+});
+
+test("one aggregate deadline bounds every command and CAS retry in a transaction", (t) => {
+  const fixture = makeFixture(t);
+  let monotonicNow = 0;
+  let raced = false;
+  const target = "pm/loop/deadline.json";
+  const result = runIsolatedTransaction(
+    fixture.pmDir,
+    {
+      commitMessage: "bounded transaction",
+      maxAttempts: 3,
+      mutate({ workspace }) {
+        const filePath = path.join(workspace, ...target.split("/"));
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, '{"bounded":true}\n');
+      },
+      allowedPaths() {
+        return [target];
+      },
+    },
+    {
+      timeoutMs: 1_000,
+      monotonicNow: () => monotonicNow,
+      beforePush() {
+        if (raced) return;
+        raced = true;
+        remoteCommit(fixture, (clone) => {
+          const note = path.join(clone, "pm", "loop", "deadline-race.txt");
+          fs.mkdirSync(path.dirname(note), { recursive: true });
+          fs.writeFileSync(note, "race\n");
+        });
+        monotonicNow = 1_001;
+      },
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "transaction-timeout");
+  assert.equal(remoteExists(fixture, target), false);
+});
+
+test("dispatch/checkpoint transitions are monotonic and checkpoint retries are immutable", (t) => {
+  const fixture = makeFixture(t);
+  const claimed = claim(fixture);
+  const transition = {
+    card_write: {
+      relative_path: "pm/backlog/transaction.md",
+      expected_revision: claimed.expectedCardRevision,
+      content: cardBody("checkpointed").replace("status: planned", "status: needs-human"),
+    },
+    artifact_writes: [],
+  };
+  assert.equal(
+    markRunDispatched(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      dispatchedAt: "2026-07-10T00:00:05.000Z",
+    }).ok,
+    true
+  );
+  const checkpointInput = {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+    resultHash: sha256("result-a"),
+    artifactHashes: [],
+    transition,
+    checkpointedAt: "2026-07-10T00:00:10.000Z",
+  };
+  assert.equal(checkpointRecovery(fixture.pmDir, checkpointInput).ok, true);
+
+  const identical = checkpointRecovery(fixture.pmDir, checkpointInput);
+  assert.equal(identical.ok, true, JSON.stringify(identical));
+  assert.equal(identical.idempotent, true);
+
+  const conflicting = checkpointRecovery(fixture.pmDir, {
+    ...checkpointInput,
+    resultHash: sha256("result-b"),
+  });
+  assert.equal(conflicting.ok, false);
+  assert.equal(conflicting.reason, "recovery-conflict");
+
+  const lateDispatch = markRunDispatched(fixture.pmDir, {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+  });
+  assert.equal(lateDispatch.ok, false);
+  assert.equal(lateDispatch.reason, "phase-conflict");
+  assert.equal(inspectRemoteRunState(fixture.pmDir, claimed.runId).state, "recovery-ready");
+});
+
+test("generic release cannot destroy a finalizing recovery checkpoint", (t) => {
+  const fixture = makeFixture(t);
+  const claimed = claim(fixture);
+  assert.equal(
+    markRunDispatched(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+    }).ok,
+    true
+  );
+  assert.equal(
+    checkpointRecovery(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      resultHash: sha256("result"),
+      artifactHashes: [],
+      transition: {
+        card_write: {
+          relative_path: "pm/backlog/transaction.md",
+          expected_revision: claimed.expectedCardRevision,
+          content: cardBody("checkpointed"),
+        },
+        artifact_writes: [],
+      },
+    }).ok,
+    true
+  );
+
+  const released = releaseClaim(fixture.pmDir, {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+  });
+  assert.equal(released.ok, false);
+  assert.equal(released.reason, "recovery-authoritative");
+  assert.equal(remoteExists(fixture, `pm/loop/recovery/${claimed.runId}.json`), true);
+  assert.equal(remoteExists(fixture, "pm/loop/leases/dev-pm-tx1.json"), true);
+});
+
+test("recovery classification and finalization fail closed on cross-record hash drift", (t) => {
+  const fixture = makeFixture(t);
+  const claimed = claim(fixture);
+  assert.equal(
+    markRunDispatched(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+    }).ok,
+    true
+  );
+  assert.equal(
+    checkpointRecovery(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      resultHash: sha256("validated-result"),
+      artifactHashes: [sha256("artifact")],
+      transition: {
+        card_write: {
+          relative_path: "pm/backlog/transaction.md",
+          expected_revision: claimed.expectedCardRevision,
+          content: cardBody("finalized"),
+        },
+        artifact_writes: [],
+      },
+    }).ok,
+    true
+  );
+
+  remoteCommit(fixture, (clone) => {
+    const recoveryPath = path.join(clone, "pm", "loop", "recovery", `${claimed.runId}.json`);
+    const recovery = JSON.parse(fs.readFileSync(recoveryPath, "utf8"));
+    recovery.result_hash = sha256("tampered-result");
+    fs.writeFileSync(recoveryPath, `${JSON.stringify(recovery, null, 2)}\n`);
+  });
+
+  assert.equal(inspectRemoteRunState(fixture.pmDir, claimed.runId).state, "ambiguous");
+  const finalized = finalizeRun(fixture.pmDir, {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+    event: { status: "blocked", terminal: true },
+    allowedArtifactPaths: [],
+  });
+  assert.equal(finalized.ok, false);
+  assert.equal(finalized.reason, "recovery-hash-conflict");
+  assert.equal(remoteExists(fixture, `pm/loop/recovery/${claimed.runId}.json`), true);
+});
+
+test("finalization rejects artifact writes outside PM and reserved transaction paths", (t) => {
+  for (const artifactPath of ["README.md", "pm/loop/leases/dev-pm-tx1.json"]) {
+    const fixture = makeFixture(t);
+    const claimed = claim(fixture);
+    assert.equal(
+      markRunDispatched(fixture.pmDir, {
+        runId: claimed.runId,
+        cardId: "PM-TX1",
+        stage: "dev",
+      }).ok,
+      true
+    );
+    assert.equal(
+      checkpointRecovery(fixture.pmDir, {
+        runId: claimed.runId,
+        cardId: "PM-TX1",
+        stage: "dev",
+        resultHash: sha256("result"),
+        artifactHashes: [sha256("artifact")],
+        transition: {
+          card_write: {
+            relative_path: "pm/backlog/transaction.md",
+            expected_revision: claimed.expectedCardRevision,
+            content: cardBody("finalized"),
+          },
+          artifact_writes: [{ relative_path: artifactPath, content: "artifact\n" }],
+        },
+      }).ok,
+      true
+    );
+
+    const finalized = finalizeRun(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      event: { status: "blocked", terminal: true },
+      allowedArtifactPaths: [artifactPath],
+    });
+    assert.equal(finalized.ok, false, artifactPath);
+    assert.equal(finalized.reason, "artifact-path-not-allowlisted", artifactPath);
+  }
 });

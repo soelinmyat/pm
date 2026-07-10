@@ -13,8 +13,11 @@ const {
   gitRelativePath,
   isLeaseExpired,
   leaseFileName,
+  listLeases,
   runGit,
+  writeJsonAtomic,
 } = require("./loop-git.js");
+const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
 
 const RUN_ID_PATTERN = /^loop-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -24,6 +27,13 @@ class TransactionAbort extends Error {
     this.name = "TransactionAbort";
     this.reason = reason;
     this.details = details;
+  }
+}
+
+class TransactionDeadlineError extends Error {
+  constructor() {
+    super("PM transaction exceeded its aggregate deadline");
+    this.name = "TransactionDeadlineError";
   }
 }
 
@@ -59,18 +69,13 @@ function joinRelative(...parts) {
 }
 
 function isAtOrBelow(candidate, parent) {
-  return candidate === parent || candidate.startsWith(`${parent}/`);
+  return parent === "." || candidate === parent || candidate.startsWith(`${parent}/`);
 }
 
 function assertNoSymlinkPath(root, relativePath) {
-  const parts = safeRelativePath(relativePath).split("/");
-  let cursor = root;
-  for (const part of parts) {
-    cursor = path.join(cursor, part);
-    if (!fs.existsSync(cursor)) continue;
-    if (fs.lstatSync(cursor).isSymbolicLink()) {
-      throw new Error(`transaction path crosses symlink: ${relativePath}`);
-    }
+  const candidate = path.join(root, ...safeRelativePath(relativePath).split("/"));
+  if (pathChainHasSymlink(root, candidate)) {
+    throw new Error(`transaction path crosses symlink: ${relativePath}`);
   }
 }
 
@@ -86,17 +91,16 @@ function readJsonIfExists(filePath) {
   return fs.existsSync(filePath) ? readJson(filePath) : null;
 }
 
-function writeJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+function timeoutValue(timeout) {
+  return typeof timeout === "function" ? timeout() : timeout;
 }
 
 function changedPaths(workspace, timeout) {
-  const tracked = runGit(["diff", "--name-only"], workspace, { timeout })
+  const tracked = runGit(["diff", "--name-only"], workspace, { timeout: timeoutValue(timeout) })
     .split(/\r?\n/)
     .filter(Boolean);
   const untracked = runGit(["ls-files", "--others", "--exclude-standard"], workspace, {
-    timeout,
+    timeout: timeoutValue(timeout),
   })
     .split(/\r?\n/)
     .filter(Boolean);
@@ -124,22 +128,28 @@ function resolveUpstream(gitRoot) {
 function fetchUpstream(gitRoot, upstream, timeout) {
   runGit(["fetch", "--no-tags", upstream.remote, upstream.branch], gitRoot, {
     stdio: ["ignore", "pipe", "pipe"],
-    timeout,
+    timeout: timeoutValue(timeout),
   });
-  return runGit(["rev-parse", `refs/remotes/${upstream.upstream}`], gitRoot, { timeout });
+  return runGit(["rev-parse", `refs/remotes/${upstream.upstream}`], gitRoot, {
+    timeout: timeoutValue(timeout),
+  });
 }
 
 function defaultRemoveWorktree(gitRoot, workspace, timeout) {
   runGit(["worktree", "remove", "--force", workspace], gitRoot, {
     stdio: ["ignore", "pipe", "pipe"],
-    timeout,
+    timeout: timeoutValue(timeout),
   });
 }
 
 function cleanupAttempt(gitRoot, workspace, tempRoot, options = {}) {
   let error = null;
   try {
-    (options.removeWorktree || defaultRemoveWorktree)(gitRoot, workspace, options.timeoutMs);
+    (options.removeWorktree || defaultRemoveWorktree)(
+      gitRoot,
+      workspace,
+      timeoutValue(options.timeoutMs)
+    );
   } catch (err) {
     error = err;
   }
@@ -161,8 +171,10 @@ function stageAllowlistedChanges(workspace, allowedPaths, timeout) {
       { unexpected }
     );
   }
-  runGit(["add", "-A", "--", ...changed], workspace, { timeout });
-  const staged = runGit(["diff", "--cached", "--name-only"], workspace, { timeout })
+  runGit(["add", "-A", "--", ...changed], workspace, { timeout: timeoutValue(timeout) });
+  const staged = runGit(["diff", "--cached", "--name-only"], workspace, {
+    timeout: timeoutValue(timeout),
+  })
     .split(/\r?\n/)
     .filter(Boolean)
     .map(safeRelativePath);
@@ -183,13 +195,44 @@ function runIsolatedTransaction(pmDir, spec, options = {}) {
   const upstream = resolveUpstream(gitRoot);
   const maxAttempts = Number(options.maxAttempts || spec.maxAttempts || 1);
   const timeoutMs = Number(options.timeoutMs || 180_000);
+  const monotonicNow = options.monotonicNow || (() => Number(process.hrtime.bigint() / 1_000_000n));
+  const deadline = monotonicNow() + timeoutMs;
+  const remainingTimeout = () => {
+    const remaining = Math.ceil(deadline - monotonicNow());
+    if (remaining <= 0) throw new TransactionDeadlineError();
+    return remaining;
+  };
   if (!Number.isInteger(maxAttempts) || maxAttempts <= 0) {
     throw new Error("PM transaction maxAttempts must be a positive integer");
   }
 
   let lastPushError = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const upstreamOid = fetchUpstream(gitRoot, upstream, timeoutMs);
+    let upstreamOid;
+    try {
+      upstreamOid = fetchUpstream(gitRoot, upstream, remainingTimeout);
+    } catch (err) {
+      if (err instanceof TransactionDeadlineError || err.code === "ETIMEDOUT") {
+        return {
+          ok: false,
+          pushed: false,
+          reason: "transaction-timeout",
+          error: err.message,
+          attempts: attempt,
+          cleanup_ok: true,
+          cleanup_error: "",
+        };
+      }
+      return {
+        ok: false,
+        pushed: false,
+        reason: "transaction-failed",
+        error: `fetch: ${err.message}`,
+        attempts: attempt,
+        cleanup_ok: true,
+        cleanup_error: "",
+      };
+    }
     if (spec.expectedUpstreamOid && upstreamOid !== spec.expectedUpstreamOid) {
       return {
         ok: false,
@@ -213,7 +256,7 @@ function runIsolatedTransaction(pmDir, spec, options = {}) {
     try {
       runGit(["worktree", "add", "--detach", workspace, upstreamOid], gitRoot, {
         stdio: ["ignore", "pipe", "pipe"],
-        timeout: timeoutMs,
+        timeout: remainingTimeout(),
       });
       const context = {
         attempt,
@@ -230,42 +273,65 @@ function runIsolatedTransaction(pmDir, spec, options = {}) {
       result = spec.mutate(context) || {};
       phase = "stage";
       const allowedPaths = spec.allowedPaths(context, result).map(safeRelativePath);
-      const staged = stageAllowlistedChanges(workspace, allowedPaths, timeoutMs);
-      phase = "commit";
-      runGit(["commit", "-m", spec.commitMessage, "--", ...staged], workspace, {
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: timeoutMs,
-      });
-      commitHash = runGit(["rev-parse", "HEAD"], workspace, { timeout: timeoutMs });
-      if (options.skipPush) {
-        pushSkipped = true;
-      } else if (typeof options.beforePush === "function") {
-        phase = "before-push";
-        options.beforePush({ ...context, commitHash });
+      let staged;
+      let alreadyDurable = false;
+      try {
+        staged = stageAllowlistedChanges(workspace, allowedPaths, remainingTimeout);
+      } catch (err) {
+        if (
+          err instanceof TransactionAbort &&
+          err.reason === "no-transaction-change" &&
+          result.idempotent
+        ) {
+          pushed = true;
+          commitHash = upstreamOid;
+          phase = "idempotent";
+          alreadyDurable = true;
+          staged = [];
+        } else {
+          throw err;
+        }
       }
-      if (!pushSkipped) {
-        phase = "push";
-        runGit(
-          [
-            "push",
-            upstream.remote,
-            `HEAD:refs/heads/${upstream.branch}`,
-            `--force-with-lease=refs/heads/${upstream.branch}:${upstreamOid}`,
-          ],
-          workspace,
-          { stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs }
-        );
-        pushed = true;
+      if (!alreadyDurable) {
+        phase = "commit";
+        runGit(["commit", "-m", spec.commitMessage, "--", ...staged], workspace, {
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: remainingTimeout(),
+        });
+        commitHash = runGit(["rev-parse", "HEAD"], workspace, { timeout: remainingTimeout() });
+        if (options.skipPush) {
+          pushSkipped = true;
+        } else if (typeof options.beforePush === "function") {
+          phase = "before-push";
+          options.beforePush({ ...context, commitHash });
+        }
+        if (!pushSkipped) {
+          phase = "push";
+          const pushTimeout = remainingTimeout();
+          runGit(
+            [
+              "push",
+              upstream.remote,
+              `HEAD:refs/heads/${upstream.branch}`,
+              `--force-with-lease=refs/heads/${upstream.branch}:${upstreamOid}`,
+            ],
+            workspace,
+            { stdio: ["ignore", "pipe", "pipe"], timeout: pushTimeout }
+          );
+          pushed = true;
+        }
       }
     } catch (err) {
       if (err instanceof TransactionAbort) abort = err;
-      else if (phase === "push") lastPushError = err;
+      else if (err instanceof TransactionDeadlineError || err.code === "ETIMEDOUT") {
+        transactionError = err;
+      } else if (phase === "push") lastPushError = err;
       else transactionError = err;
     }
 
     const cleanupError = cleanupAttempt(gitRoot, workspace, tempRoot, {
       ...options,
-      timeoutMs,
+      timeoutMs: remainingTimeout,
     });
     if (abort) {
       return {
@@ -282,7 +348,11 @@ function runIsolatedTransaction(pmDir, spec, options = {}) {
       return {
         ok: false,
         pushed: false,
-        reason: "transaction-failed",
+        reason:
+          transactionError instanceof TransactionDeadlineError ||
+          transactionError.code === "ETIMEDOUT"
+            ? "transaction-timeout"
+            : "transaction-failed",
         error: `${phase}: ${transactionError.message}`,
         attempts: attempt,
         cleanup_ok: !cleanupError,
@@ -360,13 +430,27 @@ function leaseForRun(context, paths, runId) {
   return lease;
 }
 
+function stableEqual(left, right) {
+  return JSON.stringify(stableValue(left)) === JSON.stringify(stableValue(right));
+}
+
+function eventMatchesLease(event, lease, runId) {
+  return Boolean(
+    event &&
+    event.run_id === runId &&
+    event.card_id === lease.card_id &&
+    event.stage === lease.stage &&
+    event.config_fingerprint === lease.config_fingerprint &&
+    event.expected_card_revision === lease.expected_card_revision
+  );
+}
+
 function findActiveCardLease(pmDir, cardId, now) {
-  const leaseDir = path.join(pmDir, "loop", "leases");
-  if (!fs.existsSync(leaseDir)) return null;
-  for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const lease = readJson(path.join(leaseDir, entry.name));
-    if (lease.card_id === cardId && !isLeaseExpired(lease, now)) return lease;
+  for (const lease of listLeases(pmDir, { now })) {
+    if (!lease.valid_json) {
+      throw new TransactionAbort("ambiguous-state", lease.error || "invalid lease JSON");
+    }
+    if (lease.card_id === cardId && !lease.expired) return lease;
   }
   return null;
 }
@@ -450,8 +534,8 @@ function claimRun(pmDir, input, config, options = {}) {
           config_fingerprint: lease.config_fingerprint,
           upstream_oid: context.upstreamOid,
         };
-        writeJson(path.join(context.workspace, ...paths.lease.split("/")), lease);
-        writeJson(path.join(context.workspace, ...paths.event.split("/")), event);
+        writeJsonAtomic(path.join(context.workspace, ...paths.lease.split("/")), lease);
+        writeJsonAtomic(path.join(context.workspace, ...paths.event.split("/")), event);
         return {
           lease,
           event,
@@ -489,13 +573,26 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
         const lease = leaseForRun(context, paths, runId);
         const eventPath = path.join(context.workspace, ...paths.event.split("/"));
         const event = readJsonIfExists(eventPath);
-        if (!event || event.run_id !== runId || event.terminal === true) {
+        if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
+        }
+        if (
+          phase === "dispatched" &&
+          lease.phase === "dispatched" &&
+          event.status === "dispatched"
+        ) {
+          return { lease, event, idempotent: true };
+        }
+        if (phase === "dispatched" && (lease.phase !== "claimed" || event.status !== "claimed")) {
+          throw new TransactionAbort(
+            "phase-conflict",
+            `cannot mark a run dispatched from ${lease.phase || "unknown"}`
+          );
         }
         updatedLease = { ...lease, phase, [`${phase}_at`]: timestamp };
         updatedEvent = { ...event, status: phase, phase, [`${phase}_at`]: timestamp };
-        writeJson(path.join(context.workspace, ...paths.lease.split("/")), updatedLease);
-        writeJson(eventPath, updatedEvent);
+        writeJsonAtomic(path.join(context.workspace, ...paths.lease.split("/")), updatedLease);
+        writeJsonAtomic(eventPath, updatedEvent);
         return { lease: updatedLease, event: updatedEvent };
       },
       allowedPaths(context) {
@@ -576,7 +673,7 @@ function checkpointRecovery(pmDir, input, options = {}) {
         const lease = leaseForRun(context, paths, runId);
         const eventPath = path.join(context.workspace, ...paths.event.split("/"));
         const event = readJsonIfExists(eventPath);
-        if (!event || event.run_id !== runId || event.terminal === true) {
+        if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
         if (!["dispatched", "finalizing"].includes(lease.phase)) {
@@ -599,6 +696,42 @@ function checkpointRecovery(pmDir, input, options = {}) {
           expected_card_revision: lease.expected_card_revision,
           config_fingerprint: lease.config_fingerprint,
         };
+        const recoveryPath = path.join(context.workspace, ...paths.recovery.split("/"));
+        const existingRecovery = readJsonIfExists(recoveryPath);
+        if (lease.phase === "finalizing") {
+          const sameCheckpoint = Boolean(
+            existingRecovery &&
+            existingRecovery.run_id === runId &&
+            existingRecovery.card_id === lease.card_id &&
+            existingRecovery.stage === lease.stage &&
+            existingRecovery.status === "ready-to-finalize" &&
+            existingRecovery.expected_card_revision === lease.expected_card_revision &&
+            existingRecovery.config_fingerprint === lease.config_fingerprint &&
+            existingRecovery.result_hash === recovery.result_hash &&
+            stableEqual(existingRecovery.artifact_hashes, recovery.artifact_hashes) &&
+            existingRecovery.transition_hash === recovery.transition_hash &&
+            stableEqual(existingRecovery.transition, recovery.transition) &&
+            event.status === "finalizing" &&
+            event.phase === "finalizing" &&
+            event.result_hash === existingRecovery.result_hash &&
+            stableEqual(event.artifact_hashes, existingRecovery.artifact_hashes) &&
+            event.transition_hash === existingRecovery.transition_hash
+          );
+          if (!sameCheckpoint) {
+            throw new TransactionAbort(
+              "recovery-conflict",
+              "an immutable recovery checkpoint already exists for this run"
+            );
+          }
+          recovery = existingRecovery;
+          return { recovery: existingRecovery, lease, event, idempotent: true };
+        }
+        if (event.status !== "dispatched" || event.phase !== "dispatched" || existingRecovery) {
+          throw new TransactionAbort(
+            "recovery-conflict",
+            "dispatch state is inconsistent with a new recovery checkpoint"
+          );
+        }
         updatedLease = {
           ...lease,
           phase: "finalizing",
@@ -607,14 +740,15 @@ function checkpointRecovery(pmDir, input, options = {}) {
           artifact_hashes: recovery.artifact_hashes,
           transition_hash: transitionHash,
         };
-        writeJson(path.join(context.workspace, ...paths.recovery.split("/")), recovery);
-        writeJson(path.join(context.workspace, ...paths.lease.split("/")), updatedLease);
-        writeJson(eventPath, {
+        writeJsonAtomic(recoveryPath, recovery);
+        writeJsonAtomic(path.join(context.workspace, ...paths.lease.split("/")), updatedLease);
+        writeJsonAtomic(eventPath, {
           ...event,
           status: "finalizing",
           phase: "finalizing",
           checkpointed_at: checkpointedAt,
           result_hash: recovery.result_hash,
+          artifact_hashes: recovery.artifact_hashes,
           transition_hash: transitionHash,
         });
         return { recovery, lease: updatedLease };
@@ -654,27 +788,43 @@ function finalizeRun(pmDir, input, options = {}) {
           input.stage
         );
         const lease = leaseForRun(context, paths, runId);
+        const eventPath = path.join(context.workspace, ...paths.event.split("/"));
+        const currentEvent = readJsonIfExists(eventPath);
         const recoveryPath = path.join(context.workspace, ...paths.recovery.split("/"));
         const recovery = readJsonIfExists(recoveryPath);
         if (
           !recovery ||
           recovery.run_id !== runId ||
           recovery.card_id !== lease.card_id ||
-          recovery.stage !== lease.stage
+          recovery.stage !== lease.stage ||
+          recovery.expected_card_revision !== lease.expected_card_revision ||
+          recovery.config_fingerprint !== lease.config_fingerprint ||
+          !eventMatchesLease(currentEvent, lease, runId)
         ) {
           throw new TransactionAbort(
             "recovery-owner-conflict",
             "recovery is missing or mismatched"
           );
         }
-        if (lease.phase !== "finalizing" || recovery.status !== "ready-to-finalize") {
+        if (
+          lease.phase !== "finalizing" ||
+          recovery.status !== "ready-to-finalize" ||
+          currentEvent.terminal === true ||
+          currentEvent.status !== "finalizing" ||
+          currentEvent.phase !== "finalizing"
+        ) {
           throw new TransactionAbort("recovery-not-finalizing", "run is not ready to finalize");
         }
         const transition = normalizeTransition(recovery.transition);
         const transitionHash = sha256(JSON.stringify(stableValue(transition)));
         if (
           transitionHash !== recovery.transition_hash ||
-          transitionHash !== lease.transition_hash
+          transitionHash !== lease.transition_hash ||
+          currentEvent.transition_hash !== recovery.transition_hash ||
+          recovery.result_hash !== lease.result_hash ||
+          currentEvent.result_hash !== recovery.result_hash ||
+          !stableEqual(recovery.artifact_hashes, lease.artifact_hashes) ||
+          !stableEqual(currentEvent.artifact_hashes, recovery.artifact_hashes)
         ) {
           throw new TransactionAbort("recovery-hash-conflict", "recovery transition hash changed");
         }
@@ -698,13 +848,26 @@ function finalizeRun(pmDir, input, options = {}) {
             "card revision changed before finalization"
           );
         }
+        const reservedArtifactPaths = new Set([
+          paths.event,
+          paths.recovery,
+          paths.lease,
+          cardRelative,
+        ]);
+        const artifactPaths = new Set();
         for (const artifact of transition.artifact_writes) {
-          if (!allowedArtifacts.has(artifact.relative_path)) {
+          if (
+            !allowedArtifacts.has(artifact.relative_path) ||
+            !isAtOrBelow(artifact.relative_path, context.pmRelative) ||
+            reservedArtifactPaths.has(artifact.relative_path) ||
+            artifactPaths.has(artifact.relative_path)
+          ) {
             throw new TransactionAbort(
               "artifact-path-not-allowlisted",
               `artifact destination is not allowlisted: ${artifact.relative_path}`
             );
           }
+          artifactPaths.add(artifact.relative_path);
           assertNoSymlinkPath(context.workspace, artifact.relative_path);
           const artifactPath = path.join(context.workspace, ...artifact.relative_path.split("/"));
           fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
@@ -723,7 +886,7 @@ function finalizeRun(pmDir, input, options = {}) {
           artifact_hashes: recovery.artifact_hashes,
           transition_hash: recovery.transition_hash,
         };
-        writeJson(path.join(context.workspace, ...paths.event.split("/")), terminalEvent);
+        writeJsonAtomic(eventPath, terminalEvent);
         fs.rmSync(recoveryPath);
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
         return {
@@ -771,10 +934,23 @@ function releaseClaim(pmDir, input, options = {}) {
         const lease = leaseForRun(context, paths, runId);
         const eventPath = path.join(context.workspace, ...paths.event.split("/"));
         const event = readJsonIfExists(eventPath);
-        if (!event || event.run_id !== runId || event.terminal === true) {
+        if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
-        writeJson(eventPath, {
+        const recoveryPath = path.join(context.workspace, ...paths.recovery.split("/"));
+        if (lease.phase === "finalizing" || fs.existsSync(recoveryPath)) {
+          throw new TransactionAbort(
+            "recovery-authoritative",
+            "generic release cannot remove a finalizing recovery checkpoint"
+          );
+        }
+        if (!["claimed", "dispatched"].includes(lease.phase)) {
+          throw new TransactionAbort(
+            "phase-conflict",
+            `cannot release a lease in ${lease.phase || "unknown"} phase`
+          );
+        }
+        writeJsonAtomic(eventPath, {
           ...event,
           status: "released",
           phase: "released",
@@ -783,9 +959,6 @@ function releaseClaim(pmDir, input, options = {}) {
           release_reason: input.reason || "legacy-worker-release",
         });
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
-        if (fs.existsSync(path.join(context.workspace, ...paths.recovery.split("/")))) {
-          fs.rmSync(path.join(context.workspace, ...paths.recovery.split("/")));
-        }
         return { released: true, lease };
       },
       allowedPaths(context) {
@@ -884,13 +1057,27 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
       recovery.transition &&
       lease &&
       lease.run_id === runId &&
-      lease.phase === "finalizing"
+      lease.phase === "finalizing" &&
+      eventMatchesLease(event, lease, runId) &&
+      event.terminal !== true &&
+      event.status === "finalizing" &&
+      event.phase === "finalizing" &&
+      recovery.card_id === lease.card_id &&
+      recovery.stage === lease.stage &&
+      recovery.expected_card_revision === lease.expected_card_revision &&
+      recovery.config_fingerprint === lease.config_fingerprint &&
+      recovery.result_hash === lease.result_hash &&
+      event.result_hash === recovery.result_hash &&
+      stableEqual(recovery.artifact_hashes, lease.artifact_hashes) &&
+      stableEqual(event.artifact_hashes, recovery.artifact_hashes) &&
+      recovery.transition_hash === lease.transition_hash &&
+      event.transition_hash === recovery.transition_hash
     ) {
       return { ...base, state: "recovery-ready" };
     }
     return { ...base, state: "ambiguous", reason: "recovery ownership or phase mismatch" };
   }
-  if (lease && event && lease.run_id === runId && event.run_id === runId) {
+  if (lease && eventMatchesLease(event, lease, runId) && event.terminal !== true) {
     if (lease.phase === "claimed" && event.status === "claimed") {
       return { ...base, state: "never-dispatched", redispatch: leaseExpired };
     }
@@ -931,6 +1118,14 @@ function listRunIds(pmDir) {
         } catch {
           ids.add(`ambiguous:${entry.name}`);
         }
+      } else if (child === "events") {
+        const runId = entry.name.slice(0, -5);
+        try {
+          const event = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+          if (event.terminal !== true || event.run_id !== runId) ids.add(runId);
+        } catch {
+          ids.add(runId);
+        }
       } else {
         ids.add(entry.name.slice(0, -5));
       }
@@ -939,16 +1134,19 @@ function listRunIds(pmDir) {
   return [...ids].sort();
 }
 
+function scanSnapshotTransactions(pmDir, options = {}) {
+  return listRunIds(pmDir).map((runId) => {
+    if (!RUN_ID_PATTERN.test(runId)) {
+      return { run_id: runId, state: "ambiguous", redispatch: false };
+    }
+    return inspectSnapshotRunState(pmDir, runId, options);
+  });
+}
+
 function scanRemoteTransactions(pmDir, options = {}) {
   return withRemoteSnapshot(
     pmDir,
-    (snapshot) =>
-      listRunIds(snapshot.pmDir).map((runId) => {
-        if (!RUN_ID_PATTERN.test(runId)) {
-          return { run_id: runId, state: "ambiguous", redispatch: false };
-        }
-        return inspectSnapshotRunState(snapshot.pmDir, runId, options);
-      }),
+    (snapshot) => scanSnapshotTransactions(snapshot.pmDir, options),
     options
   );
 }
@@ -966,5 +1164,6 @@ module.exports = {
   runIsolatedTransaction,
   safeRelativePath,
   scanRemoteTransactions,
+  scanSnapshotTransactions,
   withRemoteSnapshot,
 };

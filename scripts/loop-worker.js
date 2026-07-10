@@ -30,7 +30,7 @@ const {
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { runLoop } = require("./loop-runner.js");
-const { markRunDispatched, releaseClaim } = require("./loop-pm-transaction.js");
+const { markRunDispatched, releaseClaim, withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const {
   activeQuarantineForPlan,
   copyReadContext,
@@ -350,7 +350,8 @@ function prepareWorkspace(gitRoot, plan, config, options = {}) {
 }
 
 function releaseLease(pmDir, lease, options = {}) {
-  const result = releaseClaim(
+  const releaseTransaction = options.releaseClaim || releaseClaim;
+  const result = releaseTransaction(
     pmDir,
     {
       runId: lease.run_id,
@@ -419,7 +420,9 @@ function runWorker(projectDir, options = {}) {
   if (!preview.selected) return preview;
 
   try {
-    config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
+    config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+      loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir)
+    );
   } catch (err) {
     const blocked = {
       blocker_code: "execution-config-unapproved",
@@ -523,14 +526,24 @@ function runWorker(projectDir, options = {}) {
       config,
       reason: status,
     });
+    const durableStatus = release.released ? status : "finalization-blocked";
+    const durableReason = release.released
+      ? reason
+      : `lease release was not durably confirmed: ${release.reason || "unknown error"}`;
     writeJsonAtomic(ledgerPath, {
       ...ledger,
-      status,
-      reason,
+      status: durableStatus,
+      reason: durableReason,
       ended_at: new Date().toISOString(),
       lease_release: release,
     });
-    return { ...plan, status, reason, run_id: runId, ledger: ledgerPath };
+    return {
+      ...plan,
+      status: durableStatus,
+      reason: durableReason,
+      run_id: runId,
+      ledger: ledgerPath,
+    };
   };
 
   if (!isDispatchableCommand(plan.selected.command)) {
@@ -638,6 +651,10 @@ function runWorker(projectDir, options = {}) {
       config,
       reason: status,
     });
+    if (!release.released) {
+      status = "finalization-blocked";
+      reason = `lease release was not durably confirmed: ${release.reason || "unknown error"}`;
+    }
     ledger.status = status;
     ledger.reason = reason || undefined;
     ledger.exit_code = exitCode;

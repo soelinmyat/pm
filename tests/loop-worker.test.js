@@ -619,6 +619,38 @@ test("unapproved execution config fails before claim and quarantines the exact p
   }
 });
 
+test("worker validates a remote-only config change instead of executing stale local policy", () => {
+  const fixture = makeProjectFixture();
+  const clone = path.join(fixture.root, "remote-config-update");
+  try {
+    git(["clone", path.join(fixture.root, "origin.git"), clone], fixture.root);
+    git(["config", "user.email", "remote@example.com"], clone);
+    git(["config", "user.name", "Remote Config"], clone);
+    fs.writeFileSync(
+      path.join(clone, "pm", "loop", "config.json"),
+      JSON.stringify(
+        {
+          autonomy: { start_dev: true },
+          worker: { engine_bin: "/usr/bin/false", codex_sandbox: "danger-full-access" },
+        },
+        null,
+        2
+      )
+    );
+    git(["add", "pm/loop/config.json"], clone);
+    git(["commit", "-m", "remote-only policy change"], clone);
+    git(["push"], clone);
+
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "preflight-failed");
+    assert.equal(result.blocker_code, "execution-config-unapproved");
+    assert.equal(result.mutation, false);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("worker honors an explicit PM state directory for machine-local approval", () => {
   const fixture = makeProjectFixture();
   try {
@@ -750,6 +782,39 @@ test("worker executes the engine in a bootstrapped worktree and releases the lea
       ),
       true
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("worker fails closed when the terminal release CAS is not durable", () => {
+  const fixture = makeProjectFixture();
+  try {
+    const engineBin = writeDevCompleteEngine(fixture.root);
+    fs.writeFileSync(
+      path.join(fixture.pmDir, "loop", "config.json"),
+      JSON.stringify({
+        autonomy: { start_dev: true },
+        worker: { engine_bin: engineBin, keep_workspace: true },
+      })
+    );
+    approveFixtureConfig(fixture);
+    git(["add", "-A"], fixture.project);
+    git(["commit", "-m", "config"], fixture.project);
+    git(["push"], fixture.project);
+
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      releaseClaim() {
+        return { ok: false, pushed: false, reason: "push-race" };
+      },
+    });
+
+    assert.equal(result.status, "finalization-blocked", JSON.stringify(result));
+    assert.equal(result.reason, "lease release was not durably confirmed: push-race");
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.status, "finalization-blocked");
+    assert.equal(ledger.lease_release.reason, "push-race");
   } finally {
     fixture.cleanup();
   }
