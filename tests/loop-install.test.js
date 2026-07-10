@@ -12,6 +12,7 @@ const {
   buildLaunchdPlist,
   generate,
   installGenerated,
+  installPaths,
   installCron,
   launchdLabel,
   parseArgs,
@@ -159,6 +160,20 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
 test("projectSlug and launchdLabel derive stable identifiers", () => {
   assert.equal(projectSlug("/Users/x/Projects/cleanlog-mono"), "cleanlog-mono");
   assert.equal(launchdLabel("/Users/x/My App!"), "com.pm.loop.my-app");
+});
+
+test("explicit flat-layout PM directories resolve their inner runtime state", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-install-flat-"));
+  try {
+    const pmDir = path.join(root, "knowledge");
+    fs.mkdirSync(path.join(pmDir, ".pm"), { recursive: true });
+    assert.deepEqual(installPaths(root, pmDir), {
+      pmDir,
+      pmStateDir: path.join(pmDir, ".pm"),
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("launchd plist embeds absolute paths, interval, and PATH env", () => {

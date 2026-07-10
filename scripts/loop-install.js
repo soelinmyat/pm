@@ -24,7 +24,7 @@ const {
 } = require("./loop-config.js");
 const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
-const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
 
 function projectSlug(projectDir) {
   return path
@@ -214,6 +214,10 @@ function releaseGateFor(paths, config, options = {}) {
   return evaluateCurrentCanaryReleaseGate(paths.pmStateDir, config, options);
 }
 
+function installPaths(projectDir, pmDir = "") {
+  return pmDir ? { pmDir, pmStateDir: resolvePmStateDir(pmDir) } : resolvePmPaths(projectDir);
+}
+
 function generate(opts) {
   const workerScript = path.join(__dirname, "loop-worker.js");
   const platform = opts.format === "auto" ? process.platform : opts.format;
@@ -336,9 +340,7 @@ function resumeScheduler(pmDir, config, options = {}) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const paths = args.pmDir
-      ? { pmDir: args.pmDir, pmStateDir: path.join(path.dirname(args.pmDir), ".pm") }
-      : resolvePmPaths(args.projectDir);
+    const paths = installPaths(args.projectDir, args.pmDir);
 
     if (args.stop) {
       const result = setKillSwitch(paths.pmDir, args.stop);
@@ -386,6 +388,7 @@ module.exports = {
   buildLaunchdPlist,
   generate,
   installGenerated,
+  installPaths,
   installCron,
   launchdLabel,
   parseArgs,

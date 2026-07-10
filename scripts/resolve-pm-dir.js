@@ -150,22 +150,18 @@ function tryConfigBased(configRoot) {
 // Resolve both the content dir and the .pm state dir, accounting for flat vs
 // nested layouts. In the nested convention, `.pm/` lives alongside `pm/` at
 // the PM repo root; in the flat layout, `.pm/` lives inside the content dir.
-function resolvePmPaths(projectDir, options = {}) {
-  const pmDir = resolvePmDir(projectDir, options);
+function resolvePmStateDir(pmDir) {
   const innerDotPm = path.join(pmDir, ".pm");
   const parentDotPm = path.join(path.dirname(pmDir), ".pm");
+  if (fs.existsSync(innerDotPm)) return innerDotPm;
+  if (fs.existsSync(parentDotPm)) return parentDotPm;
+  // Neither exists yet (fresh setup) — default to the nested convention.
+  return parentDotPm;
+}
 
-  let pmStateDir;
-  if (fs.existsSync(innerDotPm)) {
-    pmStateDir = innerDotPm;
-  } else if (fs.existsSync(parentDotPm)) {
-    pmStateDir = parentDotPm;
-  } else {
-    // Neither exists yet (fresh setup) — default to the nested convention.
-    pmStateDir = parentDotPm;
-  }
-
-  return { pmDir, pmStateDir };
+function resolvePmPaths(projectDir, options = {}) {
+  const pmDir = resolvePmDir(projectDir, options);
+  return { pmDir, pmStateDir: resolvePmStateDir(pmDir) };
 }
 
 // In-process memoization. Helps callers like start-status / kb-sync-git that
@@ -216,6 +212,7 @@ function _clearCache() {
 module.exports = {
   resolvePmDir,
   resolvePmPaths,
+  resolvePmStateDir,
   tryConfigBased,
   defaultGitCommonDir,
   _clearCache,
