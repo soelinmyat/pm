@@ -183,6 +183,37 @@ In current Codex builds, fresh sessions still surface the usable PM workflows un
 
 Runtime note: PM skill text may still mention \`\${CLAUDE_PLUGIN_ROOT}\` because the Claude command contract historically used that placeholder. In Codex, treat it as a legacy alias for the PM plugin root. For shell commands that run PM scripts, set \`PM_PLUGIN_ROOT\` to your PM clone or loaded plugin root, for example \`export PM_PLUGIN_ROOT=~/.agents/vendor/pm\`. PM subprocess dispatch exports both \`PM_PLUGIN_ROOT\` and \`CLAUDE_PLUGIN_ROOT\` automatically.
 
+## Loop scheduler release gate
+
+Do not install or resume unattended scheduling until one supervised run of each safety
+case passes with the same plugin version, source commit, resolved configuration, and
+engine identity:
+
+Set \`CLEANLOG_ROOT\` to the absolute consumer project root. Set \`CANARY_CARD\` to an
+eligible approved card that is expected to produce an OPEN PR, then run the exact
+commands from the installed PM plugin root:
+
+\`\`\`bash
+cd "$PM_PLUGIN_ROOT"
+\`\`\`
+
+\`\`\`bash
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case preflight-failure
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case blocked-result
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --card "$CANARY_CARD" --no-merge
+\`\`\`
+
+The records live under \`.pm/loop-canary/<run_id>/\`. Missing, stale, mixed-identity, or
+failed records keep the scheduler paused or uninstalled. The verified-PR case never
+merges and requires \`autonomy.merge_pr: false\`. Broad engine permissions and merge
+autonomy produce explicit exposure warnings. PM records \`usage_available: false\` when
+an engine has no structured usage and does not support exact token cutoffs in that case.
+Generated launchd/cron assets are previews only. \`--install\` owns activation and marks
+unattended wakes with \`--scheduled\`; each scheduled wake rechecks the current evidence
+identity before claiming work.
+Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
+scheduler entries; an explicitly supervised one-off worker run uses \`--manual\`.
+
 The instructions below install PM for your user account. If you prefer a repo-local install, replace \`~/.agents\` with \`<project>/.agents\`.
 
 ## Prerequisites
