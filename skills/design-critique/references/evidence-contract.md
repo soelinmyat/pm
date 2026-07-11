@@ -50,6 +50,8 @@ Modes are `product-ui` and `pm-artifact`. Platforms are `web`, `mobile`, and `do
 
 Product UI decides primary, empty, error, and boundary applicability for every subject. Web primary desktop is always required. Add tablet/narrow rows when a surface reflows. PM artifacts require desktop, tablet, narrow, and print.
 
+Mobile product UI requires a primary `device` row. Every PM artifact subject also includes `artifact: {path, sha256, kind}` for the exact proposal, RFC, or report HTML.
+
 ## Captures
 
 `captures.json` binds the route and every evidence byte:
@@ -71,6 +73,8 @@ Product UI decides primary, empty, error, and boundary applicability for every s
       "width": 1440,
       "height": 1000,
       "full_page": false,
+      "round": 1,
+      "active": true,
       "captured_at": "2026-07-12T00:01:00Z"
     }
   ],
@@ -87,9 +91,11 @@ Product UI decides primary, empty, error, and boundary applicability for every s
 }
 ```
 
-Capture kinds are `screenshot` and `pdf`. Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
+Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
 
-Keep before and after capture entries when a blocking finding is fixed. IDs include the round; coverage IDs stay stable.
+Each capture records `round` (1 or 2) and `active`. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest capture stays active for each required coverage ID. IDs include the round; coverage IDs stay stable.
+
+Accessibility and DOM evidence are JSON objects bound to the route commit, subject, and cited capture IDs. Accessibility checks require passing `landmarks`, `names`, and `focus_order`; DOM audits require passing `overflow`, `edge_alignment`, and `hierarchy`. Both retain a `findings` array, including when empty.
 
 ## Report
 
@@ -107,20 +113,21 @@ Keep before and after capture entries when a blocking finding is fixed. IDs incl
   "rounds": 1,
   "coverage": { "required": 4, "captured": 4, "percent": 100 },
   "scores": {
-    "hierarchy": 4,
-    "density": 4,
-    "consistency": 4,
-    "accessibility": 4,
-    "responsive": 4,
-    "state-clarity": 4
+    "hierarchy": { "value": 4, "rationale": "The primary action and title establish a clear first scan.", "evidence_ids": ["capture-account-primary-desktop-r1"] },
+    "density": { "value": 4, "rationale": "Information groups remain readable without excessive whitespace.", "evidence_ids": ["capture-account-primary-desktop-r1"] },
+    "consistency": { "value": 4, "rationale": "Repeated regions use the same component treatment.", "evidence_ids": ["evidence-account-dom-r1"] },
+    "accessibility": { "value": 4, "rationale": "Named landmarks and focus order pass the audit.", "evidence_ids": ["evidence-account-a11y-r1"] },
+    "responsive": { "value": 4, "rationale": "Applicable viewports preserve hierarchy without overflow.", "evidence_ids": ["capture-account-primary-desktop-r1"] },
+    "state-clarity": { "value": 4, "rationale": "Applicable states communicate status and recovery clearly.", "evidence_ids": ["capture-account-primary-desktop-r1"] }
   },
   "findings": [],
+  "next_action": "Proceed to QA.",
   "human_report": { "path": ".pm/.../report.html" },
   "checked_at": "2026-07-12T00:03:00Z"
 }
 ```
 
-Artifact mode replaces `state-clarity` with `print-navigation`. Scores are integers:
+Artifact mode replaces `state-clarity` with `print-navigation`. Every score has an integer `value`, a concrete `rationale`, and one or more valid `evidence_ids`:
 
 | Score | Anchor |
 |---|---|
@@ -159,7 +166,7 @@ Resolved P0/P1 needs distinct before/after capture hashes. Deferred findings nee
 
 Render `report.html` from `references/templates/design-critique-report.html`. The inert PM artifact metadata uses kind `report`, lifecycle `reviewed`, `source.path` equal to `report.json`, `source.sha256` equal to `sha256:<report-json-hash>`, and an evidence row binding `captures.json` the same way. Replace all example zero hashes before validation.
 
-The first screenful shows outcome, subject mode, coverage, largest remaining issue, and next action. Include score anchors, findings with evidence IDs, before/after proof, ownership handoffs, method, and print-friendly navigation.
+The first screenful shows outcome, subject mode, coverage, largest remaining issue, and next action. Mark the visible outcome with `data-dc-outcome="{outcome}"`, coverage with `data-dc-coverage="{percent}"`, and the next action with `data-dc-next-action-sha256="{raw-sha256-of-next-action}"`. Every score card carries `data-dc-score-key` and `data-dc-score-value`. Every rendered finding carries `data-dc-finding-id`, `data-dc-finding-priority`, and `data-dc-finding-status`. Include score anchors, findings with evidence IDs, before/after proof, ownership handoffs, method, and print-friendly navigation.
 
 ## Outcome mapping
 

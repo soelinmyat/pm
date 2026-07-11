@@ -6,6 +6,11 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
+const {
+  VIEWPORTS: ARTIFACT_VIEWPORTS,
+  inspectPdf,
+  inspectPng,
+} = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -14,6 +19,9 @@ const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
 const STATES = new Set(["primary", "empty", "error", "boundary", "responsive", "print"]);
+const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
+const MAX_JSON_BYTES = 4 * 1024 * 1024;
+const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 const SCORE_KEYS = Object.freeze({
   "product-ui": [
     "hierarchy",
@@ -44,14 +52,18 @@ function checkDesignCritique(options) {
   const route = routeFile.value;
   const captures = capturesFile.value;
   const report = reportFile.value;
-  validateRoute(route, options.commit, issues);
-  if (options.verifyDiff !== false) validateDiffIdentity(root, route, issues);
+  const gitIdentity =
+    options.verifyGit === false
+      ? { commit: options.commit, baseRef: options.baseRef }
+      : resolveGitIdentity(root, options, issues);
+  validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, issues);
+  if (options.verifyGit !== false) validateDiffIdentity(root, route, gitIdentity.baseRef, issues);
   validateCaptures(root, captures, route, routeFile, issues);
   validateReport(root, report, route, captures, routeFile, capturesFile, reportFile, issues);
   return { ok: issues.length === 0, issues };
 }
 
-function validateRoute(route, commit, issues) {
+function validateRoute(route, commit, baseRef, issues) {
   if (!object(route)) return add(issues, "route", "must be an object");
   if (route.schema_version !== 1) add(issues, "route.schema_version", "must equal 1");
   if (!text(route.run_id)) add(issues, "route.run_id", "is required");
@@ -64,6 +76,8 @@ function validateRoute(route, commit, issues) {
     if (commit && route.source.commit !== commit)
       add(issues, "route.source.commit", `must equal current commit ${commit}`);
     if (!text(route.source.base_ref)) add(issues, "route.source.base_ref", "is required");
+    if (baseRef && route.source.base_ref !== baseRef)
+      add(issues, "route.source.base_ref", `must equal expected base ${baseRef}`);
     if (!sha256(route.source.diff_sha256))
       add(issues, "route.source.diff_sha256", "must be SHA-256");
   }
@@ -91,7 +105,20 @@ function validateRoute(route, commit, issues) {
   validateCoverage(route, subjectIds, issues);
 }
 
-function validateDiffIdentity(root, route, issues) {
+function resolveGitIdentity(root, options, issues) {
+  let head = "";
+  try {
+    head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  } catch (error) {
+    add(issues, "git", `cannot resolve current HEAD: ${error.message}`);
+  }
+  if (options.commit && head && options.commit !== head)
+    add(issues, "commit", `supplied commit must equal current HEAD ${head}`);
+  if (!text(options.baseRef)) add(issues, "base", "an expected base ref is required");
+  return { commit: head || options.commit, baseRef: options.baseRef };
+}
+
+function validateDiffIdentity(root, route, baseRef, issues) {
   if (
     !text(route?.source?.base_ref) ||
     !sha(route?.source?.commit) ||
@@ -99,11 +126,12 @@ function validateDiffIdentity(root, route, issues) {
   )
     return;
   try {
-    const bytes = execFileSync(
-      "git",
-      ["diff", "--binary", `${route.source.base_ref}...${route.source.commit}`],
-      { cwd: root, encoding: null, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 }
-    );
+    const bytes = execFileSync("git", ["diff", "--binary", `${baseRef}...${route.source.commit}`], {
+      cwd: root,
+      encoding: null,
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+    });
     if (digest(bytes) !== route.source.diff_sha256)
       add(issues, "route.source.diff_sha256", "does not match the frozen git diff bytes");
   } catch (error) {
@@ -147,8 +175,10 @@ function validateCoverage(route, subjectIds, issues) {
           add(issues, `route.coverage.${subject.id}`, `must decide applicability for ${state}`);
       if (!required("primary", "desktop") && subject.platform === "web")
         add(issues, `route.coverage.${subject.id}`, "web primary desktop capture is required");
+      if (!required("primary", "device") && subject.platform === "mobile")
+        add(issues, `route.coverage.${subject.id}`, "mobile primary device capture is required");
     } else {
-      for (const viewport of ["desktop", "tablet", "narrow"])
+      for (const viewport of ARTIFACT_VIEWPORT_NAMES)
         if (!rows.some((item) => item.viewport === viewport && item.required))
           add(issues, `route.coverage.${subject.id}`, `${viewport} artifact render is required`);
       if (
@@ -171,7 +201,8 @@ function validateCaptures(root, captures, route, routeFile, issues) {
   validateBinding(captures.route, routeFile, "captures.route", issues);
   const coverage = new Map((route.coverage || []).map((item) => [item.id, item]));
   const captureIds = new Set();
-  const capturedCoverage = new Map();
+  const activeCoverage = new Map();
+  const allCoverage = new Map();
   if (!Array.isArray(captures.captures)) add(issues, "captures.captures", "must be an array");
   for (const [index, item] of (captures.captures || []).entries()) {
     const at = `captures.captures[${index}]`;
@@ -182,7 +213,12 @@ function validateCaptures(root, captures, route, routeFile, issues) {
     captureIds.add(item.id);
     if (!coverage.has(item.coverage_id))
       add(issues, `${at}.coverage_id`, "must reference route coverage");
-    capturedCoverage.set(item.coverage_id, (capturedCoverage.get(item.coverage_id) || 0) + 1);
+    allCoverage.set(item.coverage_id, (allCoverage.get(item.coverage_id) || 0) + 1);
+    if (item.active === true)
+      activeCoverage.set(item.coverage_id, (activeCoverage.get(item.coverage_id) || 0) + 1);
+    if (typeof item.active !== "boolean") add(issues, `${at}.active`, "must be boolean");
+    if (!Number.isInteger(item.round) || item.round < 1 || item.round > 2)
+      add(issues, `${at}.round`, "must be 1 or 2");
     if (!["screenshot", "pdf"].includes(item.kind))
       add(issues, `${at}.kind`, "must be screenshot or pdf");
     validateFileBinding(root, item, at, issues);
@@ -194,17 +230,55 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       add(issues, `${at}.kind`, "print coverage requires a PDF");
   }
   for (const item of route.coverage || []) {
-    const count = capturedCoverage.get(item.id) || 0;
-    if (item.required && count !== 1)
+    const activeCount = activeCoverage.get(item.id) || 0;
+    const totalCount = allCoverage.get(item.id) || 0;
+    if (item.required && activeCount !== 1)
       add(
         issues,
         `captures.captures`,
-        `required coverage ${item.id} must be captured exactly once`
+        `required coverage ${item.id} must have exactly one active capture`
       );
-    if (!item.required && count > 0)
+    if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
   validateEvidence(root, captures.evidence, route, captures.captures || [], issues);
+}
+
+function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
+  const audit = readEvidenceJson(root, entry, label, issues);
+  if (!audit) return;
+  if (
+    audit.schema_version !== 1 ||
+    audit.subject_id !== entry.subject_id ||
+    audit.commit !== route.source?.commit
+  )
+    add(issues, label, "audit schema, subject, and commit must match the route");
+  const subjectCoverage = new Set(
+    (route.coverage || [])
+      .filter((item) => item.subject_id === entry.subject_id)
+      .map((item) => item.id)
+  );
+  const validCaptureIds = new Set(
+    captureRows.filter((item) => subjectCoverage.has(item.coverage_id)).map((item) => item.id)
+  );
+  const activeCaptureIds = captureRows
+    .filter((item) => item.active === true && subjectCoverage.has(item.coverage_id))
+    .map((item) => item.id);
+  if (
+    !Array.isArray(audit.capture_ids) ||
+    audit.capture_ids.length === 0 ||
+    audit.capture_ids.some((id) => !validCaptureIds.has(id))
+  )
+    add(issues, `${label}.capture_ids`, "must cite captures for the same subject");
+  else if (activeCaptureIds.some((id) => !audit.capture_ids.includes(id)))
+    add(issues, `${label}.capture_ids`, "must include every active capture for the subject");
+  const requiredChecks =
+    entry.kind === "accessibility-tree"
+      ? ["landmarks", "names", "focus_order"]
+      : ["overflow", "edge_alignment", "hierarchy"];
+  if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
+    add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);
+  if (!Array.isArray(audit.findings)) add(issues, `${label}.findings`, "must be an array");
 }
 
 function validateEvidence(root, evidence, route, captureRows, issues) {
@@ -224,6 +298,8 @@ function validateEvidence(root, evidence, route, captureRows, issues) {
     )
       add(issues, `${at}.kind`, "is invalid");
     validateFileBinding(root, item, at, issues);
+    if (["accessibility-tree", "dom-audit"].includes(item?.kind))
+      validateAuditEvidence(root, item, route, captureRows, at, issues);
   }
   for (const subject of route.subjects || []) {
     const kinds = new Set(
@@ -267,7 +343,7 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
   if (
     structural &&
     (structural.schema_version !== 1 ||
-      structural.artifact?.sha256 !== artifactFile.sha256 ||
+      structural.artifact?.sha256 !== `sha256:${artifactFile.sha256}` ||
       realPathMaybe(structural.artifact?.path) !== artifactFile.path ||
       !object(structural.checks) ||
       Object.values(structural.checks).some((value) => value !== true))
@@ -285,7 +361,7 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
     )
       add(issues, `${at}.render.source`, "must bind the exact HTML bytes");
     const viewports = new Set((render.captures || []).map((item) => item.name));
-    for (const viewport of ["desktop", "tablet", "narrow"])
+    for (const viewport of ARTIFACT_VIEWPORT_NAMES)
       if (!viewports.has(viewport)) add(issues, `${at}.render.captures`, `missing ${viewport}`);
     if (
       !text(render.print?.path) ||
@@ -294,21 +370,34 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
       !positiveInt(render.print?.pages)
     )
       add(issues, `${at}.render.print`, "requires a non-empty hash-bound PDF");
-    const renderedFiles = new Set();
+    const renderedByViewport = new Map();
     for (const item of render.captures || []) {
-      if (item.path && item.sha256) renderedFiles.add(`${realPathMaybe(item.path)}|${item.sha256}`);
+      const files = new Set();
+      if (item.path && item.sha256) files.add(`${realPathMaybe(item.path)}|${item.sha256}`);
       if (item.full_page?.path && item.full_page?.sha256)
-        renderedFiles.add(`${realPathMaybe(item.full_page.path)}|${item.full_page.sha256}`);
+        files.add(`${realPathMaybe(item.full_page.path)}|${item.full_page.sha256}`);
+      renderedByViewport.set(item.name, files);
     }
-    if (render.print?.path && render.print?.sha256)
-      renderedFiles.add(`${realPathMaybe(render.print.path)}|${render.print.sha256}`);
-    const subjectCoverage = new Set(
+    const subjectCoverage = new Map(
       (route.coverage || [])
         .filter((item) => item.subject_id === subject.id && item.required)
-        .map((item) => item.id)
+        .map((item) => [item.id, item])
     );
-    for (const capture of captureRows.filter((item) => subjectCoverage.has(item.coverage_id))) {
+    for (const capture of captureRows.filter(
+      (item) => item.active === true && subjectCoverage.has(item.coverage_id)
+    )) {
       const file = readBoundFile(root, capture.path, `${at}.capture.${capture.id}`, []);
+      const coverage = subjectCoverage.get(capture.coverage_id);
+      const renderedFiles =
+        coverage.viewport === "print"
+          ? new Set([`${realPathMaybe(render.print?.path)}|${render.print?.sha256}`])
+          : renderedByViewport.get(coverage.viewport) || new Set();
+      if (capture.kind === "screenshot" && capture.full_page !== true)
+        add(
+          issues,
+          `${at}.capture.${capture.id}`,
+          "artifact screenshots must be full-page captures"
+        );
       if (file && !renderedFiles.has(`${file.path}|sha256:${file.sha256}`))
         add(issues, `${at}.capture.${capture.id}`, "is not bound by the artifact render manifest");
     }
@@ -319,6 +408,10 @@ function readEvidenceJson(root, entry, label, issues) {
   if (!entry) return null;
   const file = readBoundFile(root, entry.path, `${label}.path`, issues);
   if (!file) return null;
+  if (file.bytes.length > MAX_JSON_BYTES) {
+    add(issues, label, `JSON exceeds ${MAX_JSON_BYTES} bytes`);
+    return null;
+  }
   try {
     return JSON.parse(file.bytes.toString("utf8"));
   } catch (error) {
@@ -349,12 +442,17 @@ function validateReport(
   validateBinding(report.route, routeFile, "report.route", issues);
   validateBinding(report.captures, capturesFile, "report.captures", issues);
   if (!OUTCOMES.has(report.outcome)) add(issues, "report.outcome", "is invalid");
+  if (!text(report.next_action)) add(issues, "report.next_action", "is required");
   if (!Number.isInteger(report.rounds) || report.rounds < 1 || report.rounds > 2)
     add(issues, "report.rounds", "must be 1 or 2");
-  validateScores(report.scores, route.mode, issues);
+  if ((captures.captures || []).some((item) => item.round > report.rounds))
+    add(issues, "report.rounds", "must include every recorded capture round");
+  validateScores(report.scores, route.mode, captures, issues);
   validateFindings(report.findings, route, captures, report.outcome, issues);
   const required = (route.coverage || []).filter((item) => item.required).length;
-  const captured = new Set((captures.captures || []).map((item) => item.coverage_id));
+  const captured = new Set(
+    (captures.captures || []).filter((item) => item.active === true).map((item) => item.coverage_id)
+  );
   const completed = (route.coverage || []).filter(
     (item) => item.required && captured.has(item.id)
   ).length;
@@ -378,17 +476,34 @@ function validateReport(
       !text(report.authority.decision))
   )
     add(issues, "report.authority", "deferred requires approver and decision");
-  validateHumanReport(root, report.human_report, reportFile, capturesFile, issues);
+  validateHumanReport(root, report.human_report, report, reportFile, capturesFile, issues);
 }
 
-function validateScores(scores, mode, issues) {
+function validateScores(scores, mode, captures, issues) {
   if (!object(scores)) return add(issues, "report.scores", "must be an object");
   const expected = new Set(SCORE_KEYS[mode] || []);
+  const evidenceIds = new Set([
+    ...(captures.captures || []).filter((item) => item.active === true).map((item) => item.id),
+    ...(captures.evidence || []).map((item) => item.id),
+  ]);
   for (const key of Object.keys(scores))
     if (!expected.has(key)) add(issues, `report.scores.${key}`, "is not valid for this mode");
-  for (const key of expected)
-    if (!Number.isInteger(scores[key]) || scores[key] < 1 || scores[key] > 5)
-      add(issues, `report.scores.${key}`, "must be an integer from 1 to 5");
+  for (const key of expected) {
+    const score = scores[key];
+    if (!object(score)) {
+      add(issues, `report.scores.${key}`, "must be an evidence-backed score object");
+      continue;
+    }
+    if (!Number.isInteger(score.value) || score.value < 1 || score.value > 5)
+      add(issues, `report.scores.${key}.value`, "must be an integer from 1 to 5");
+    if (!text(score.rationale)) add(issues, `report.scores.${key}.rationale`, "is required");
+    if (
+      !Array.isArray(score.evidence_ids) ||
+      score.evidence_ids.length === 0 ||
+      score.evidence_ids.some((id) => !evidenceIds.has(id))
+    )
+      add(issues, `report.scores.${key}.evidence_ids`, "must cite known evidence");
+  }
 }
 
 function validateFindings(findings, route, captures, outcome, issues) {
@@ -454,19 +569,27 @@ function validateCaptureBytes(root, item, label, issues) {
   if (!object(item) || !text(item.path)) return;
   const file = readBoundFile(root, item.path, `${label}.path`, []);
   if (!file) return;
-  if (item.kind === "screenshot") {
-    const png = file.bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
-    const jpeg = file.bytes.subarray(0, 3).equals(Buffer.from("ffd8ff", "hex"));
-    const webp =
-      file.bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-      file.bytes.subarray(8, 12).toString("ascii") === "WEBP";
-    if (!png && !jpeg && !webp) add(issues, label, "screenshot bytes must be PNG, JPEG, or WebP");
+  try {
+    if (item.kind === "screenshot") {
+      const dimensions = inspectPng(file.path);
+      if (dimensions.width !== item.width || dimensions.height !== item.height)
+        add(
+          issues,
+          label,
+          `declared dimensions must equal ${dimensions.width}x${dimensions.height}`
+        );
+    }
+    if (item.kind === "pdf") {
+      const inspected = inspectPdf(file.path);
+      if (!positiveInt(item.pages) || item.pages !== inspected.pages)
+        add(issues, label, `declared pages must equal ${inspected.pages}`);
+    }
+  } catch (error) {
+    add(issues, label, error.message);
   }
-  if (item.kind === "pdf" && file.bytes.subarray(0, 5).toString("ascii") !== "%PDF-")
-    add(issues, label, "PDF capture has an invalid signature");
 }
 
-function validateHumanReport(root, human, reportFile, capturesFile, issues) {
+function validateHumanReport(root, human, report, reportFile, capturesFile, issues) {
   if (!object(human) || !text(human.path))
     return add(issues, "report.human_report", "requires an HTML path");
   const htmlFile = readBoundFile(root, human.path, "report.human_report.path", issues);
@@ -488,6 +611,39 @@ function validateHumanReport(root, human, reportFile, capturesFile, issues) {
     )
   )
     add(issues, "report.human_report", "metadata evidence must bind the exact captures manifest");
+  const html = htmlFile.bytes.toString("utf8");
+  if (!hasDataValue(html, "data-dc-outcome", report.outcome))
+    add(issues, "report.human_report", "visible outcome marker must match report JSON");
+  if (!hasDataValue(html, "data-dc-coverage", String(report.coverage?.percent)))
+    add(issues, "report.human_report", "visible coverage marker must match report JSON");
+  if (
+    !hasDataValue(html, "data-dc-next-action-sha256", digest(Buffer.from(report.next_action || "")))
+  )
+    add(issues, "report.human_report", "visible next action must match report JSON");
+  for (const [key, score] of Object.entries(report.scores || {}))
+    if (!hasTagWithData(html, { "data-dc-score-key": key, "data-dc-score-value": score.value }))
+      add(issues, "report.human_report", `visible score ${key} must match report JSON`);
+  for (const finding of report.findings || []) {
+    if (
+      !hasTagWithData(html, {
+        "data-dc-finding-id": finding.id,
+        "data-dc-finding-priority": finding.priority,
+        "data-dc-finding-status": finding.status,
+      })
+    )
+      add(issues, "report.human_report", `missing visible finding ${finding.id}`);
+  }
+}
+
+function hasDataValue(html, attribute, value) {
+  const escaped = String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${attribute}=["']${escaped}["']`, "i").test(html);
+}
+
+function hasTagWithData(html, attributes) {
+  return [...String(html).matchAll(/<[^!][^>]*>/g)].some((match) =>
+    Object.entries(attributes).every(([name, value]) => hasDataValue(match[0], name, String(value)))
+  );
 }
 
 function findingId(finding) {
@@ -503,6 +659,10 @@ function findingId(finding) {
 function readJsonFile(root, rel, label, issues) {
   const file = readBoundFile(root, rel, label, issues);
   if (!file) return null;
+  if (file.bytes.length > MAX_JSON_BYTES) {
+    add(issues, label, `JSON exceeds ${MAX_JSON_BYTES} bytes`);
+    return null;
+  }
   try {
     return { ...file, value: JSON.parse(file.bytes.toString("utf8")) };
   } catch (error) {
@@ -525,6 +685,8 @@ function readBoundFile(root, rel, label, issues) {
     const stat = fs.lstatSync(resolved);
     if (!stat.isFile() || stat.isSymbolicLink())
       throw new Error("must be a regular non-symlink file");
+    if (stat.size > MAX_EVIDENCE_BYTES)
+      throw new Error(`exceeds the ${MAX_EVIDENCE_BYTES}-byte evidence budget`);
     const real = fs.realpathSync(resolved);
     if (real !== root && !real.startsWith(`${fs.realpathSync(root)}${path.sep}`))
       throw new Error("resolves outside project root");
@@ -597,13 +759,14 @@ function parseArgs(argv) {
       "--captures": "capturesPath",
       "--report": "reportPath",
       "--commit": "commit",
+      "--base": "baseRef",
     }[arg];
     if (!key) throw new Error(`unknown argument ${arg}`);
     if (!argv[index + 1] || argv[index + 1].startsWith("--"))
       throw new Error(`${arg} requires a value`);
     out[key] = argv[++index];
   }
-  for (const key of ["routePath", "capturesPath", "reportPath", "commit"])
+  for (const key of ["routePath", "capturesPath", "reportPath", "commit", "baseRef"])
     if (!out[key]) throw new Error(`missing required ${key}`);
   return out;
 }
