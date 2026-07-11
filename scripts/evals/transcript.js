@@ -208,6 +208,10 @@ function checkTranscript(events, command, ...args) {
     }
     case "test-red-green":
       return testRedGreen(normalized, args[0] || "test");
+    case "command-succeeded":
+      return commandSucceeded(normalized, args[0]);
+    case "quality-revalidation":
+      return qualityRevalidationCommand(normalized, args[0]);
     case "gate-evidence": {
       // A discipline gate is satisfied by ANY observed form of the work:
       // the skill invoked, a matching agent dispatched, or matching command
@@ -342,6 +346,44 @@ function skillBeforeCommand(events, skill, commandPattern) {
   return commandIndex > skillIndex
     ? pass()
     : fail(`command matched before skill ${skill}: ${commandPattern}`);
+}
+
+function commandSucceeded(events, commandPattern) {
+  let pattern;
+  try {
+    pattern = new RegExp(commandPattern, "i");
+  } catch {
+    return { status: "indeterminate", reason: "invalid-command-pattern" };
+  }
+  return events.some(
+    (event) =>
+      event.type === "tool" &&
+      event.tool_class === "run-command" &&
+      pattern.test(String(event.command || "")) &&
+      Number(event.exit_code) === 0
+  )
+    ? pass()
+    : fail(`successful command not observed: ${commandPattern}`);
+}
+
+function qualityRevalidationCommand(events, workflow) {
+  if (!/^[a-z][a-z0-9-]*$/.test(String(workflow || ""))) {
+    return { status: "indeterminate", reason: "invalid-workflow" };
+  }
+  const script = String.raw`(?:"[^"]*quality-resume\.js"|'[^']*quality-resume\.js'|\S*quality-resume\.js)`;
+  const root = String.raw`(?:"[^"]+"|'[^']+'|\S+)`;
+  const pattern = new RegExp(
+    String.raw`^\s*(?:node|\S*[\\/]node)\s+${script}\s+revalidate\s+${workflow}\s+${root}\s*$`
+  );
+  return events.some(
+    (event) =>
+      event.type === "tool" &&
+      event.tool_class === "run-command" &&
+      Number(event.exit_code) === 0 &&
+      pattern.test(String(event.command || ""))
+  )
+    ? pass()
+    : fail(`exact quality revalidation command not observed for ${workflow}`);
 }
 
 function findSkillIndex(events, skill) {

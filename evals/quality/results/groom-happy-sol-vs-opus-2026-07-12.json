@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "overall_status": "quality-scored",
+  "total_candidates": 2,
+  "eligible_candidates": 2,
+  "behavioral_failures": 0,
+  "behavioral_uncertain": 0,
+  "quality_winner": null,
+  "adjudication_required": false,
+  "judge_agreement": {
+    "flagged_dimensions": 0,
+    "candidate_dimensions": 12,
+    "adjudication_pass_rate": 1,
+    "exact_agreement_rate": 0.75,
+    "within_one_agreement_rate": 1,
+    "comparison_count": 12
+  },
+  "profiles": {
+    "sol-high": {
+      "mean": 4.9,
+      "median": 4.9,
+      "minimum": 4.9,
+      "maximum": 4.9,
+      "repeats": 1,
+      "behavioral_pass_rate": 1,
+      "latency": {
+        "mean_ms": 404539,
+        "median_ms": 404539,
+        "minimum_ms": 404539,
+        "maximum_ms": 404539
+      },
+      "variance": {
+        "claimable": false,
+        "range": 0,
+        "standard_deviation": 0
+      },
+      "dimensions": {
+        "judgment": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "evidence": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "decision-usefulness": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "clarity": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "craft": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "calibration": {
+          "mean": 4.5,
+          "coverage": 1
+        }
+      }
+    },
+    "opus-xhigh": {
+      "mean": 4.2,
+      "median": 4.2,
+      "minimum": 4.2,
+      "maximum": 4.2,
+      "repeats": 1,
+      "behavioral_pass_rate": 1,
+      "latency": {
+        "mean_ms": 851902,
+        "median_ms": 851902,
+        "minimum_ms": 851902,
+        "maximum_ms": 851902
+      },
+      "variance": {
+        "claimable": false,
+        "range": 0,
+        "standard_deviation": 0
+      },
+      "dimensions": {
+        "judgment": {
+          "mean": 4,
+          "coverage": 1
+        },
+        "evidence": {
+          "mean": 3.5,
+          "coverage": 1
+        },
+        "decision-usefulness": {
+          "mean": 4,
+          "coverage": 1
+        },
+        "clarity": {
+          "mean": 5,
+          "coverage": 1
+        },
+        "craft": {
+          "mean": 4.5,
+          "coverage": 1
+        },
+        "calibration": {
+          "mean": 4.5,
+          "coverage": 1
+        }
+      }
+    }
+  },
+  "pairwise": {
+    "total": 2,
+    "wins": {
+      "sol-high": 2
+    },
+    "ties": 0
+  },
+  "packet_id": "qp-d0ea6db66f6536e765e3",
+  "workflow": "groom",
+  "case_id": "groom-happy-path",
+  "releases": ["1.13.12"],
+  "judges": ["blind-judge-1", "blind-judge-2"],
+  "disagreement": [],
+  "observed_leader": "sol-high",
+  "evaluation_identity": {
+    "source_hash": "sha256:71cd095a9476a206d566669ec1e16f2b033f0e1b27faeae07184b9dc93b4c3a8",
+    "scenario_hash": "sha256:814c6f91e8b76288f7a4caa43fd5a9f4e8086f5f717fd3672a01613babef2502",
+    "quality_case_hash": "sha256:f7a50ffd3adb8c7d334e3808169958566cc3c4967d3a8c6e935e7316f88436bb",
+    "rubric_hash": "sha256:d7994bc94c10214c9053446eba82fbe1602839729b11c79cf3edd7eebf185620",
+    "evaluation_design_hash": "sha256:c70679ebab2e7c6526c5634b376f75ac8485d3ccbe48680dd9d8d2e93cb5e3e2"
+  }
+}

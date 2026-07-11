@@ -1,0 +1,67 @@
+{
+  "$schema": "https://pm-plugin.local/evals/quality-rubric.schema.json",
+  "schema_version": 1,
+  "disagreement_threshold": 1.5,
+  "dimensions": [
+    {
+      "id": "judgment",
+      "label": "Problem understanding and judgment",
+      "weight": 2,
+      "anchors": {
+        "1": "Misreads the problem, avoids the real decision, or recommends unjustified action.",
+        "3": "Understands the main decision and makes a usable recommendation with ordinary tradeoff reasoning.",
+        "5": "Finds the real decision, handles tensions explicitly, and makes a precise recommendation calibrated to the evidence."
+      }
+    },
+    {
+      "id": "evidence",
+      "label": "Evidence and traceability",
+      "weight": 1.5,
+      "anchors": {
+        "1": "Important claims are unsupported or cannot be traced to inputs and repository evidence.",
+        "3": "Material claims usually identify their basis and separate facts from assumptions.",
+        "5": "Every consequential claim is traceable, limitations are explicit, and evidence is synthesized rather than dumped."
+      }
+    },
+    {
+      "id": "decision-usefulness",
+      "label": "Completeness and decision usefulness",
+      "weight": 2,
+      "anchors": {
+        "1": "The artifact looks complete but leaves essential decisions, risks, owners, or next actions unresolved.",
+        "3": "A competent reader can act on it with limited follow-up.",
+        "5": "It resolves the right decisions, exposes remaining uncertainty, and makes the next action unambiguous."
+      }
+    },
+    {
+      "id": "clarity",
+      "label": "Clarity and information design",
+      "weight": 1,
+      "anchors": {
+        "1": "Structure, wording, or density obscures the important information.",
+        "3": "The artifact is understandable and sensibly organized.",
+        "5": "Hierarchy and language make complex material effortless to scan, understand, and revisit."
+      }
+    },
+    {
+      "id": "craft",
+      "label": "Artifact craft and usability",
+      "weight": 1.5,
+      "anchors": {
+        "1": "The artifact technically renders or validates but feels generic, fragile, or awkward to use.",
+        "3": "The artifact is coherent, usable, and appropriate to its medium.",
+        "5": "The artifact is polished, resilient, and uses its medium to materially improve comprehension or action."
+      }
+    },
+    {
+      "id": "calibration",
+      "label": "Calibration, boundaries, and recovery",
+      "weight": 2,
+      "anchors": {
+        "1": "It overclaims, crosses authority boundaries, hides uncertainty, or gives no useful recovery path.",
+        "3": "It respects authority, labels meaningful uncertainty, and gives a workable recovery path.",
+        "5": "It is exact about confidence and authority, degrades safely, and turns blockers into concrete recovery choices."
+      }
+    }
+  ]
+}

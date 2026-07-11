@@ -3,7 +3,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 
 const { safeCopyTree } = require("../stage.js");
 const { parseJsonl } = require("../transcript.js");
@@ -16,13 +15,14 @@ const {
   resolveBin,
   sourceMarkerVerified,
   sourceSkipDirs,
+  spawnCapturedSync,
+  scanCapturedLines,
   templateHasAuthMaterial,
   transcriptEscapesRunDir,
   treeContains,
 } = require("./shared.js");
 
 const ADAPTER_TIMEOUT_MS = 600_000;
-const OUTPUT_MAX_BUFFER = 2 * 1024 * 1024;
 const MAX_SYNC_ARTIFACT_BYTES = 1024 * 1024;
 
 function preflight() {
@@ -65,30 +65,50 @@ function run({ scenarioId, paths }) {
     },
   });
 
-  const result = spawnSync(codexBin, argv, {
-    cwd: paths.workdir,
-    input: prompt,
-    env: codexEnv({ paths, prepared, artifactsDir: writableArtifactsDir }),
-    encoding: "utf8",
-    timeout: timeoutMs,
-    maxBuffer: OUTPUT_MAX_BUFFER,
-  });
+  const stderrPath = path.join(paths.metadataDir, "codex.stderr.log");
+  const result = spawnCapturedSync(
+    codexBin,
+    argv,
+    {
+      cwd: paths.workdir,
+      input: prompt,
+      env: codexEnv({ paths, prepared, artifactsDir: writableArtifactsDir }),
+      encoding: "utf8",
+      timeout: timeoutMs,
+    },
+    {
+      stdoutPath: paths.transcriptRaw,
+      stderrPath,
+      progressPath: path.join(paths.metadataDir, "codex_progress.json"),
+    }
+  );
 
   const stdout = result.stdout || "";
-  const stderr = result.stderr || "";
-  fs.writeFileSync(paths.transcriptRaw, stdout);
-  fs.writeFileSync(path.join(paths.metadataDir, "codex.stderr.log"), stderr);
-  fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "codex.stdout.jsonl"), stdout);
-  fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "codex.stderr.log"), stderr);
   syncCodexArtifacts({ paths, sourceDir: writableArtifactsDir });
 
   const parsed = parseJsonl(stdout);
+  fs.writeFileSync(
+    paths.transcriptNormalized,
+    parsed.events.map((event) => JSON.stringify(event)).join("\n") +
+      (parsed.events.length ? "\n" : "")
+  );
 
   // Escape evidence is valid regardless of marker trust or a crashed/timed-out
   // run — check it FIRST so an escape-then-crash records as a hard fail, not
   // retryable indeterminate noise.
   if (transcriptEscapesRunDir(parsed.events, paths.runDir, paths.workdir)) {
     return { status: "fail", reason: "containment-escape" };
+  }
+  if (result.stdoutOverflow) {
+    const scan = scanCapturedLines(paths.transcriptRaw, (line) => {
+      const one = parseJsonl(line);
+      return transcriptEscapesRunDir(one.events, paths.runDir, paths.workdir);
+    });
+    if (scan.matched) return { status: "fail", reason: "containment-escape" };
+    if (scan.indeterminate) return { status: "fail", reason: "containment-unverifiable" };
+  }
+  if (result.captureOverflow) {
+    return { status: "indeterminate", reason: "codex-output-limit" };
   }
 
   if (result.error && result.error.code === "ETIMEDOUT") {
@@ -101,12 +121,6 @@ function run({ scenarioId, paths }) {
   if (parsed.status !== "pass") {
     return { status: "indeterminate", reason: parsed.reason || "empty-transcript" };
   }
-  fs.writeFileSync(
-    paths.transcriptNormalized,
-    parsed.events.map((event) => JSON.stringify(event)).join("\n") +
-      (parsed.events.length ? "\n" : "")
-  );
-
   if (!sourceMarkerVerified(paths, prepared.marker)) {
     return { status: "indeterminate", reason: "wrong-source" };
   }
@@ -137,8 +151,12 @@ function skip(reason) {
 
 function buildCodexArgv({ paths }) {
   const argv = ["exec"];
-  const model = envString("PM_EVAL_CODEX_MODEL");
-  const reasoningEffort = envString("PM_EVAL_CODEX_REASONING_EFFORT");
+  const model = paths.qualityProfile
+    ? paths.qualityProfile.model
+    : envString("PM_EVAL_CODEX_MODEL");
+  const reasoningEffort = paths.qualityProfile
+    ? paths.qualityProfile.effort
+    : envString("PM_EVAL_CODEX_REASONING_EFFORT");
   if (model) argv.push("-m", model);
   if (reasoningEffort) {
     argv.push("-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);

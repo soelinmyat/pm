@@ -12,6 +12,8 @@ const { detectContainerRuntime } = require("./sandbox.js");
 const { safeCopyTree, createSourceIdentity, createScenarioIdentity } = require("./stage.js");
 const { parseCheckFrames } = require("./transcript.js");
 const { composeVerdict } = require("./verdict.js");
+const { parseFrontmatter } = require("../kb-frontmatter.js");
+const { loadQualityCase, loadQualityProfile } = require("./quality.js");
 
 const RUNTIME_PATHS = [
   "commands",
@@ -46,6 +48,8 @@ function parseArgs(argv) {
     agent: "stub",
     scenarioArg: null,
     runId: null,
+    qualityCase: null,
+    qualityProfile: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -56,6 +60,10 @@ function parseArgs(argv) {
       opts.runId = requireValue(argv, (index += 1), arg);
     } else if (arg === "--root") {
       opts.rootDir = path.resolve(requireValue(argv, (index += 1), arg));
+    } else if (arg === "--quality-case") {
+      opts.qualityCase = requireValue(argv, (index += 1), arg);
+    } else if (arg === "--quality-profile") {
+      opts.qualityProfile = requireValue(argv, (index += 1), arg);
     } else if (!opts.scenarioArg) {
       opts.scenarioArg = arg;
     } else {
@@ -89,6 +97,22 @@ function runEval(opts) {
   if (!validation.ok) {
     throw new Error(`scenario validation failed: ${JSON.stringify(validation.issues, null, 2)}`);
   }
+  const qualityCase = opts.qualityCase ? loadQualityCase(rootDir, opts.qualityCase) : null;
+  if (qualityCase) validateQualityCaseCompatibility(scenarioDir, qualityCase);
+  const qualityProfile = opts.qualityProfile
+    ? loadQualityProfile(rootDir, opts.qualityProfile)
+    : null;
+  if (qualityProfile && !qualityCase) {
+    throw new Error("--quality-profile requires --quality-case");
+  }
+  if (qualityCase && ["codex", "claude"].includes(agent) && !qualityProfile) {
+    throw new Error("live quality runs require --quality-profile");
+  }
+  if (qualityProfile && qualityProfile.adapter !== agent) {
+    throw new Error(
+      `quality profile ${qualityProfile.id} requires adapter ${qualityProfile.adapter}, not ${agent}`
+    );
+  }
 
   const runDir = path.join(rootDir, "eval-results", "runs", runId);
   const paths = createRunLayout(runDir);
@@ -96,9 +120,22 @@ function runEval(opts) {
   paths.scenarioDir = scenarioDir;
   paths.scenarioId = scenarioId;
   paths.runId = runId;
+  paths.qualityProfile = qualityProfile;
 
   stageRuntime(rootDir, paths.runtimeDir);
   safeCopyTree(scenarioDir, paths.scenarioStageDir);
+  if (qualityCase) {
+    stageQualityCase(paths, qualityCase);
+  }
+  if (qualityProfile) {
+    writeJson(path.join(paths.metadataDir, "quality_profile_identity.json"), {
+      schema_version: 1,
+      id: qualityProfile.id,
+      adapter: qualityProfile.adapter,
+      model: qualityProfile.model,
+      effort: qualityProfile.effort,
+    });
+  }
   writeJson(
     path.join(paths.metadataDir, "source_identity.json"),
     sourceIdentity(rootDir, paths.runtimeDir)
@@ -114,7 +151,15 @@ function runEval(opts) {
     run_id: runId,
     isolated_home: rel(paths.homeDir, runDir),
     staged_plugin_root: rel(paths.runtimeDir, runDir),
-    argv: ["node", "scripts/evals/run.js", rel(scenarioDir, rootDir), "--agent", agent],
+    argv: [
+      "node",
+      "scripts/evals/run.js",
+      rel(scenarioDir, rootDir),
+      "--agent",
+      agent,
+      ...(opts.qualityCase ? ["--quality-case", opts.qualityCase] : []),
+      ...(opts.qualityProfile ? ["--quality-profile", opts.qualityProfile] : []),
+    ],
   });
 
   const preflight = runAdapterPreflight(adapter, { scenarioId, paths });
@@ -219,6 +264,51 @@ function runEval(opts) {
   });
   writeJson(path.join(runDir, "verdict.json"), verdict);
   return verdict;
+}
+
+function validateQualityCaseCompatibility(scenarioDir, qualityCase) {
+  const scenarioId = path.basename(scenarioDir);
+  if (scenarioId !== qualityCase.scenario_ref) {
+    throw new Error(
+      `quality case ${qualityCase.id} requires scenario ${qualityCase.scenario_ref}, not ${scenarioId}`
+    );
+  }
+  const actualHash = createScenarioIdentity({ id: scenarioId, scenarioDir }).scenario_hash;
+  if (actualHash !== qualityCase.scenario_contract_hash) {
+    throw new Error(`quality case ${qualityCase.id} scenario contract has changed`);
+  }
+  const story = parseFrontmatter(fs.readFileSync(path.join(scenarioDir, "story.md"), "utf8"));
+  const tags = new Set(Array.isArray(story.data.tags) ? story.data.tags : []);
+  for (const tag of [qualityCase.workflow, qualityCase.type, "quality-evaluation"]) {
+    if (!tags.has(tag))
+      throw new Error(`quality case ${qualityCase.id} scenario missing tag ${tag}`);
+  }
+}
+
+function stageQualityCase(paths, qualityCase) {
+  const storyPath = path.join(paths.scenarioStageDir, "story.md");
+  const story = fs.readFileSync(storyPath, "utf8");
+  const marker = /User message:[\s\S]*?\n\nStop condition:/;
+  if (!marker.test(story)) {
+    throw new Error(
+      `scenario ${paths.scenarioId} cannot accept a quality case: story has no user-message boundary`
+    );
+  }
+  fs.writeFileSync(
+    storyPath,
+    story.replace(marker, () => `User message: ${qualityCase.prompt}\n\nStop condition:`)
+  );
+  writeJson(path.join(paths.metadataDir, "quality_case_identity.json"), {
+    schema_version: 1,
+    id: qualityCase.id,
+    workflow: qualityCase.workflow,
+    type: qualityCase.type,
+    prompt_ref: qualityCase.prompt_ref,
+    prompt_hash: qualityCase.prompt_hash,
+    base_scenario: paths.scenarioId,
+    scenario_ref: qualityCase.scenario_ref,
+    scenario_contract_hash: qualityCase.scenario_contract_hash,
+  });
 }
 
 function validateRunId(runId, scenarioId, agent) {
@@ -397,6 +487,8 @@ function phaseEnv(paths) {
     PM_EVAL_ARTIFACTS_DIR: paths.artifactsDir,
     PM_EVAL_TRANSCRIPT: paths.transcriptNormalized,
     PM_EVAL_TRANSCRIPT_MODULE: path.join(paths.runtimeDir, "scripts", "evals", "transcript.js"),
+    PM_PLUGIN_ROOT: paths.runtimeDir,
+    CLAUDE_PLUGIN_ROOT: paths.runtimeDir,
   };
 }
 
@@ -475,4 +567,5 @@ module.exports = {
   timestamp,
   hostRepoSnapshot,
   hostRepoEscaped,
+  stageQualityCase,
 };

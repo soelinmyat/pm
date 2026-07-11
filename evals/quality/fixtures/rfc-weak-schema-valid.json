@@ -1,0 +1,26 @@
+{
+  "schema_version": 3,
+  "slug": "export-job-recovery",
+  "title": "Improve export recovery",
+  "size": "M",
+  "issues": [
+    {
+      "num": 1,
+      "title": "Add export recovery",
+      "size": "M",
+      "depends_on": [],
+      "owns": ["scripts/export-job.js"],
+      "acceptance_criteria": ["Exports recover correctly"],
+      "approach": "Add robust retry logic and handle edge cases using best practices.",
+      "verification_commands": ["npm test"],
+      "test_hooks": ["Test recovery"]
+    }
+  ],
+  "test_strategy": {
+    "test_levels": "Add unit and integration tests where appropriate.",
+    "new_infrastructure": "None expected.",
+    "regression_surface": "Exports.",
+    "verification_commands": "npm test",
+    "open_questions": "Details can be decided during implementation."
+  }
+}

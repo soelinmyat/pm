@@ -5,6 +5,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseFrontmatter } = require("../kb-frontmatter.js");
+const { validateQualityTree } = require("./quality.js");
 
 const REQUIRED_SCENARIO_FILES = ["story.md", "setup.sh", "checks.sh"];
 const ALLOWED_SCENARIO_FILES = new Set(REQUIRED_SCENARIO_FILES);
@@ -92,6 +93,12 @@ function validateEvalTree(rootDir = process.cwd()) {
         issues.push(issue(resultPath, `result ledger is invalid JSON: ${err.message}`));
       }
     }
+  }
+
+  const qualityDir = path.join(rootDir, "evals", "quality");
+  if (fs.existsSync(qualityDir)) {
+    const quality = validateQualityTree(rootDir);
+    issues.push(...quality.issues.map((message) => issue("evals/quality", message)));
   }
 
   return { ok: issues.length === 0, issues };
