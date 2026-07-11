@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-plugin.local/schemas/dev-delivery-receipt-v1.json",
+  "title": "PM Dev delivery receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pr_number",
+    "pr_url",
+    "state",
+    "merge_sha",
+    "head_branch",
+    "feature_commit"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "pr_number": { "type": "integer", "minimum": 1 },
+    "pr_url": { "type": "string", "pattern": "^https://" },
+    "state": { "enum": ["OPEN", "MERGED"] },
+    "merge_sha": { "type": ["string", "null"] },
+    "head_branch": { "type": "string", "minLength": 1 },
+    "feature_commit": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "MERGED" } } },
+      "then": { "properties": { "merge_sha": { "type": "string", "minLength": 1 } } },
+      "else": { "properties": { "merge_sha": { "type": "null" } } }
+    }
+  ]
+}

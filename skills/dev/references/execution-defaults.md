@@ -4,7 +4,7 @@ Shared execution patterns for all dev flows. Referenced from SKILL.md — not lo
 
 ## Workspace checkpoint format
 
-At stage start/end, print this block and mirror the same fields in `.pm/dev-sessions/{slug}.md`:
+At stage start/end, print this block and mirror the same fields in `.pm/dev-sessions/{slug}/session.json`:
 
 ```
 Checkpoint

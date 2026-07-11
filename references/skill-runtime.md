@@ -57,6 +57,19 @@ Two mechanics are load-bearing:
 1. **User overrides:** if `.pm/workflows/{SKILL_NAME}/` exists, same-named files there override the plugin defaults.
 2. **Persona references:** `@persona` tokens resolve from `.pm/personas/` (user overrides) then `${CLAUDE_PLUGIN_ROOT}/agents/` (defaults — the same files that register as callable `pm:<name>` agents).
 
+### Phase-local workflows
+
+Stateful skills may opt into runner-selected, phase-local loading. For those skills:
+
+1. Read the skill entry contract.
+2. Ask the runner for the active step.
+3. Load only that step, its declared `requires`, and the task artifacts named by the runner.
+4. Record a structured phase result before asking the runner for the next step.
+
+Do not load future steps into the active prompt. The full ordered step list remains the workflow definition, and user overrides still replace same-named defaults. Phase-local loading changes when instructions enter context, not override precedence.
+
+`pm:dev` uses this mode through `scripts/dev-session.js`. Other skills keep their existing loading behavior until their own contracts opt in.
+
 ---
 
 ## Completion

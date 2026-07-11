@@ -121,6 +121,12 @@ test("claude live adapter stages plugin, enables analytics, and captures evidenc
     assert.ok(command.argv.includes("--plugin-dir"));
     assert.ok(command.argv.includes("stream-json"));
     assert.ok(command.argv.includes("--no-session-persistence"));
+    assert.equal(
+      command.argv[command.argv.indexOf("--permission-mode") + 1],
+      "auto",
+      "live evals must not bypass Claude permission checks"
+    );
+    assert.deepEqual(command.argv.slice(-4), ["--model", "claude-opus-4-8", "--effort", "xhigh"]);
 
     const fakeLog = JSON.parse(fs.readFileSync(logPath, "utf8"));
     assert.equal(fakeLog.markerInPrompt, false);
@@ -591,6 +597,8 @@ function liveClaudeEnv({ binDir }) {
     PM_EVAL_CLAUDE_LIVE: "1",
     PM_EVAL_CLAUDE_ALLOW_UNCONTAINED_NETWORK: "1",
     PM_EVAL_CLAUDE_API_KEY: "pm-eval-test-key",
+    PM_EVAL_CLAUDE_MODEL: "claude-opus-4-8",
+    PM_EVAL_CLAUDE_REASONING_EFFORT: "xhigh",
   };
 }
 

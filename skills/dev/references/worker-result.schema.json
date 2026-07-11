@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pm.dev.worker-result.v1",
+  "title": "PM dev work-unit result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "work_unit_id",
+    "status",
+    "summary",
+    "commit",
+    "files_changed",
+    "evidence",
+    "blocker",
+    "runtime"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "work_unit_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["completed", "blocked", "failed"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1 },
+    "commit": { "type": ["string", "null"], "minLength": 1 },
+    "files_changed": { "type": "integer", "minimum": 0 },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "exit_code"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "integer" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "blocker": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["reason"],
+          "properties": { "reason": { "type": "string", "minLength": 1 } },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["provider"],
+      "properties": { "provider": { "type": "string", "minLength": 1 } },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } } },
+      "then": {
+        "properties": {
+          "commit": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "minItems": 1,
+            "contains": {
+              "type": "object",
+              "required": ["exit_code"],
+              "properties": { "exit_code": { "const": 0 } }
+            }
+          },
+          "blocker": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["blocked", "failed"] } } },
+      "then": { "required": ["reason"], "properties": { "blocker": { "type": "object" } } }
+    }
+  ]
+}

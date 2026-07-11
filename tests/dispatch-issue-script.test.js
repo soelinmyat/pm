@@ -8,6 +8,17 @@ const path = require("path");
 const repoRoot = path.join(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "dispatch-issue.sh");
 
+function createWorktree(worktree) {
+  fs.mkdirSync(worktree, { recursive: true });
+  execFileSync("git", ["init", "-q", worktree]);
+  execFileSync("git", ["-C", worktree, "config", "user.name", "PM Test"]);
+  execFileSync("git", ["-C", worktree, "config", "user.email", "pm@example.test"]);
+  execFileSync("git", ["-C", worktree, "commit", "--allow-empty", "-qm", "fixture"]);
+  return execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+}
+
 describe("dispatch-issue.sh", () => {
   it("script exists and is syntactically valid bash", () => {
     assert.ok(fs.existsSync(scriptPath), "scripts/dispatch-issue.sh must exist");
@@ -15,19 +26,12 @@ describe("dispatch-issue.sh", () => {
     execFileSync("bash", ["-n", scriptPath]);
   });
 
-  it("claude subprocess pins --model opus", () => {
-    // A spawned `claude -p` subprocess does NOT inherit the orchestrator's
-    // model and would fall back to the config default (Sonnet), silently
-    // degrading implementation quality. The claude runtime branch must pin
-    // the model explicitly.
+  it("delegates provider policy to the Node runtime adapter", () => {
     const src = fs.readFileSync(scriptPath, "utf8");
-    const claudeBranch = src.slice(src.indexOf("\n  claude)"), src.indexOf("\n  codex)"));
-    assert.ok(claudeBranch.length > 0, "claude runtime branch must exist before the codex branch");
-    assert.match(
-      claudeBranch,
-      /--model\s+opus\b/,
-      "claude branch must pass `--model opus` to `claude -p`"
-    );
+    assert.match(src, /dev-runtime\/dispatch\.js/);
+    assert.doesNotMatch(src, /--dangerously-skip-permissions/);
+    assert.doesNotMatch(src, /--full-auto/);
+    assert.doesNotMatch(src, /--model\s+opus\b/);
   });
 
   // End-to-end check of placeholder resolution + result-file path handling.
@@ -38,7 +42,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const promptDump = path.join(tmp, "received-prompt.txt");
@@ -50,6 +54,8 @@ describe("dispatch-issue.sh", () => {
       const stub = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        'if [ "${1:-}" = "--version" ]; then echo "2.1.207"; exit 0; fi',
+        'if [ "${1:-}" = "--help" ]; then echo "--json-schema stream-json --resume --permission-mode auto"; exit 0; fi',
         'prompt="$(cat)"',
         `printf '%s' "$prompt" > ${JSON.stringify(promptDump)}`,
         `printf '\\nENV_PM_PLUGIN_ROOT=%s\\nENV_CLAUDE_PLUGIN_ROOT=%s\\n' "$PM_PLUGIN_ROOT" "$CLAUDE_PLUGIN_ROOT" >> ${JSON.stringify(promptDump)}`,
@@ -149,7 +155,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       // Stub runtime: drain stdin and exit 0 WITHOUT writing the result file.
@@ -213,7 +219,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -272,7 +278,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -282,6 +288,8 @@ describe("dispatch-issue.sh", () => {
       // The dispatcher should classify this before the generic trap result.
       const stub = [
         "#!/usr/bin/env bash",
+        'if [ "${1:-}" = "--version" ]; then echo "2.1.207"; exit 0; fi',
+        'if [ "${1:-}" = "--help" ]; then echo "--json-schema stream-json --resume --permission-mode auto"; exit 0; fi',
         "cat > /dev/null",
         "echo 'usage limit reached' >&2",
         "exit 1",
@@ -318,7 +326,7 @@ describe("dispatch-issue.sh", () => {
       const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
       assert.equal(result.status, "blocked", "limit stop must be a blocked result");
       assert.match(result.reason, /normal subscription usage limits/);
-      assert.equal(result.log_file, logFile);
+      assert.equal(result.runtime.log_file, logFile);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -331,7 +339,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -381,13 +389,13 @@ describe("dispatch-issue.sh", () => {
     }
   });
 
-  it("codex subprocess uses explicit sandbox args and writable result directory", () => {
+  it("codex subprocess uses the structured adapter with safe model and sandbox args", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-codex-"));
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
       const resultDir = path.join(tmp, "external-pm-state", "runs", "issue-1");
-      fs.mkdirSync(worktree, { recursive: true });
+      createWorktree(worktree);
       fs.mkdirSync(binDir, { recursive: true });
       fs.mkdirSync(resultDir, { recursive: true });
 
@@ -398,6 +406,9 @@ describe("dispatch-issue.sh", () => {
       const stub = [
         "#!/usr/bin/env node",
         'const fs = require("node:fs");',
+        "const args = process.argv.slice(2);",
+        'if (args.includes("--version")) { process.stdout.write("codex-cli 0.144.0\\n"); process.exit(0); }',
+        'if (args.includes("--help")) { process.stdout.write(args.includes("resume") ? "exec resume --json --output-schema\\n" : "--sandbox --json --output-schema --output-last-message\\n"); process.exit(0); }',
         `fs.writeFileSync(${JSON.stringify(argvDump)}, JSON.stringify(process.argv.slice(2)));`,
         'let input = "";',
         'process.stdin.setEncoding("utf8");',
@@ -438,14 +449,82 @@ describe("dispatch-issue.sh", () => {
 
       assert.match(out, /"status"\s*:\s*"merged"/);
       const argv = JSON.parse(fs.readFileSync(argvDump, "utf8"));
-      assert.deepEqual(argv.slice(0, 2), ["exec", "--sandbox"]);
-      assert.ok(argv.includes("danger-full-access"));
+      assert.deepEqual(argv.slice(0, 3), ["exec", "--model", "gpt-5.6-sol"]);
+      assert.ok(argv.includes("workspace-write"));
+      assert.ok(argv.includes('model_reasoning_effort="high"'));
+      assert.ok(argv.includes("--output-schema"));
+      assert.ok(argv.includes("--json"));
       assert.ok(!argv.includes("--full-auto"));
-      assert.ok(argv.includes("--add-dir"));
-      assert.ok(argv.includes(resultDir));
+      assert.ok(!argv.includes("--add-dir"));
       assert.ok(argv.includes("-C"));
       assert.ok(argv.includes(worktree));
       assert.ok(fs.readFileSync(stdinDump, "utf8").includes(`RESULT_PATH=${resultFile}`));
+      assert.match(fs.readFileSync(stdinDump, "utf8"), /Root-owned external effects/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("claude subprocess uses Opus 4.8 xhigh, auto permissions, and structured output", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-issue-claude-argv-"));
+    try {
+      const worktree = path.join(tmp, "wt");
+      const binDir = path.join(tmp, "bin");
+      const fixtureCommit = createWorktree(worktree);
+      fs.mkdirSync(binDir);
+      const argvDump = path.join(tmp, "claude-argv.json");
+      const resultFile = path.join(tmp, "result.json");
+      const completedResult = `${JSON.stringify({
+        schema_version: 1,
+        work_unit_id: "legacy",
+        status: "completed",
+        summary: "done",
+        commit: fixtureCommit,
+        files_changed: 1,
+        evidence: [{ kind: "test", exit_code: 0 }],
+        blocker: null,
+        runtime: { provider: "claude" },
+      })}\n`;
+      const stub = [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        "const args = process.argv.slice(2);",
+        'if (args.includes("--version")) { process.stdout.write("2.1.207\\n"); process.exit(0); }',
+        'if (args.includes("--help")) { process.stdout.write("--json-schema stream-json --resume --permission-mode auto\\n"); process.exit(0); }',
+        `fs.writeFileSync(${JSON.stringify(argvDump)}, JSON.stringify(process.argv.slice(2)));`,
+        "process.stdin.resume();",
+        'process.stdin.on("end", () => {',
+        `  fs.writeFileSync(${JSON.stringify(resultFile)}, ${JSON.stringify(completedResult)});`,
+        "});",
+      ].join("\n");
+      const stubPath = path.join(binDir, "claude");
+      fs.writeFileSync(stubPath, stub);
+      fs.chmodSync(stubPath, 0o755);
+      const promptFile = path.join(tmp, "prompt.txt");
+      fs.writeFileSync(promptFile, "implement\n");
+
+      execFileSync(
+        "bash",
+        [
+          scriptPath,
+          "--runtime",
+          "claude",
+          "--worktree",
+          worktree,
+          "--prompt-file",
+          promptFile,
+          "--result-file",
+          resultFile,
+        ],
+        { env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` } }
+      );
+
+      const argv = JSON.parse(fs.readFileSync(argvDump, "utf8"));
+      assert.deepEqual(argv.slice(0, 5), ["-p", "--model", "claude-opus-4-8", "--effort", "xhigh"]);
+      assert.ok(argv.includes("auto"));
+      assert.ok(argv.includes("stream-json"));
+      assert.ok(argv.includes("--json-schema"));
+      assert.ok(!argv.includes("--dangerously-skip-permissions"));
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

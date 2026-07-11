@@ -6,7 +6,13 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { loadWorkflow, buildPrompt, loadPersonas } = require("../scripts/step-loader");
+const {
+  loadWorkflow,
+  buildPrompt,
+  buildPhasePrompt,
+  selectWorkflowStep,
+  loadPersonas,
+} = require("../scripts/step-loader");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +103,23 @@ function stepFile(name, order, description, body) {
   return `---\nname: ${name}\norder: ${order}\ndescription: ${description}\n---\n\n${body}\n`;
 }
 
+function phaseStepFile(name, order, phase, body) {
+  return `---
+name: ${name}
+order: ${order}
+description: ${name} phase
+phase: ${phase}
+requires:
+  - ${phase}-contract.md
+gates:
+  - ${phase}-gate
+result_schema: phase-result-v1
+---
+
+${body}
+`;
+}
+
 function personaFile(name, description, body) {
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
 }
@@ -132,6 +155,31 @@ test("loadWorkflow: loads default steps sorted by order", () => {
   }
 });
 
+test("loadWorkflow: exposes optional phase metadata without changing legacy fields", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "05-implementation.md": phaseStepFile(
+          "Implementation",
+          5,
+          "implementation",
+          "Implement now."
+        ),
+      },
+    },
+  });
+
+  try {
+    const [step] = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(step.phase, "implementation");
+    assert.deepEqual(step.requires, ["implementation-contract.md"]);
+    assert.deepEqual(step.gates, ["implementation-gate"]);
+    assert.equal(step.resultSchema, "phase-result-v1");
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("loadWorkflow: user override replaces same-named default step", () => {
   const env = scaffold({
     defaultSteps: {
@@ -153,6 +201,108 @@ test("loadWorkflow: user override replaces same-named default step", () => {
     assert.ok(steps[0].body.includes("User plan body."));
     assert.ok(!steps[0].body.includes("Default plan body."));
     assert.equal(steps[0].source, "user");
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadWorkflow: user overrides cannot weaken bundled phase contracts", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "05-implementation.md": `---
+name: Implementation
+order: 5
+phase: implementation
+gates: [tdd]
+required_capabilities: [local-write]
+required_evidence: [test]
+allowed_modes: [inline, delegated]
+requires_commit: true
+---
+Default body.
+`,
+      },
+    },
+    userSteps: {
+      dev: {
+        "05-implementation.md": `---
+name: Custom implementation
+order: 5
+phase: implementation
+gates: [cosmetic]
+required_capabilities: [custom-tool]
+required_evidence: [note]
+allowed_modes: [inline, headless]
+requires_commit: false
+---
+Custom body.
+`,
+      },
+    },
+  });
+  try {
+    const [step] = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.deepEqual(step.gates, ["tdd", "cosmetic"]);
+    assert.deepEqual(step.requiredCapabilities, ["local-write", "custom-tool"]);
+    assert.deepEqual(step.requiredEvidence, ["test", "note"]);
+    assert.deepEqual(step.allowedModes, ["inline"]);
+    assert.equal(step.requiresCommit, true);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadWorkflow: a legacy filename overrides the uniquely matching phase", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "08-review.md": phaseStepFile("Review", 8, "review", "New default review."),
+      },
+    },
+    userSteps: {
+      dev: {
+        "07-review.md": stepFile(
+          "Legacy override",
+          7,
+          "Pre-v2 override without phase metadata",
+          "Legacy custom review."
+        ),
+      },
+    },
+  });
+  try {
+    const steps = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].phase, "review");
+    assert.equal(steps[0].source, "user");
+    assert.match(steps[0].body, /Legacy custom review/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadWorkflow: exact override wins deterministically over a legacy alias", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "08-review.md": phaseStepFile("Review", 8, "review", "Bundled review."),
+      },
+    },
+    userSteps: {
+      dev: {
+        "07-review.md": stepFile("Legacy review", 7, "Legacy", "Legacy override."),
+        "08-review.md": stepFile("Exact review", 8, "Exact", "Exact override."),
+      },
+    },
+  });
+
+  try {
+    const steps = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].stem, "08-review");
+    assert.ok(steps[0].body.includes("Exact override."));
+    assert.ok(!steps[0].body.includes("Legacy override."));
   } finally {
     env.cleanup();
   }
@@ -426,6 +576,69 @@ test("buildPrompt: returns empty string for no enabled steps", () => {
 
   const prompt = buildPrompt(steps);
   assert.equal(prompt, "");
+});
+
+test("selectWorkflowStep: selects one enabled phase by phase, stem, or order", () => {
+  const steps = [
+    { stem: "02-intake", phase: "intake", order: 2, name: "Intake", enabled: true },
+    {
+      stem: "05-implementation",
+      phase: "implementation",
+      order: 5,
+      name: "Implementation",
+      enabled: true,
+    },
+  ];
+
+  assert.equal(selectWorkflowStep(steps, { phase: "implementation" }).stem, "05-implementation");
+  assert.equal(selectWorkflowStep(steps, { stem: "02-intake" }).phase, "intake");
+  assert.equal(selectWorkflowStep(steps, { order: 5 }).name, "Implementation");
+  assert.equal(selectWorkflowStep(steps, "implementation").order, 5);
+});
+
+test("selectWorkflowStep: ignores disabled steps and rejects ambiguous selectors", () => {
+  const disabled = [
+    { stem: "05-implementation", phase: "implementation", order: 5, enabled: false },
+  ];
+  assert.equal(selectWorkflowStep(disabled, { phase: "implementation" }), null);
+
+  const duplicate = [
+    { stem: "05-a", phase: "implementation", order: 5, enabled: true },
+    { stem: "06-b", phase: "implementation", order: 6, enabled: true },
+  ];
+  assert.throws(
+    () => selectWorkflowStep(duplicate, { phase: "implementation" }),
+    /matched multiple workflow steps/
+  );
+});
+
+test("buildPhasePrompt: includes only the selected phase and preserves buildPrompt behavior", () => {
+  const steps = [
+    {
+      stem: "05-implementation",
+      phase: "implementation",
+      name: "Implementation",
+      order: 5,
+      body: "ACTIVE_IMPLEMENT_TOKEN",
+      enabled: true,
+    },
+    {
+      stem: "08-ship",
+      phase: "ship",
+      name: "Ship",
+      order: 8,
+      body: "FUTURE_SHIP_TOKEN",
+      enabled: true,
+    },
+  ];
+
+  const phasePrompt = buildPhasePrompt(steps, { phase: "implementation" });
+  assert.match(phasePrompt, /ACTIVE_IMPLEMENT_TOKEN/);
+  assert.doesNotMatch(phasePrompt, /FUTURE_SHIP_TOKEN/);
+
+  const legacyPrompt = buildPrompt(steps);
+  assert.match(legacyPrompt, /ACTIVE_IMPLEMENT_TOKEN/);
+  assert.match(legacyPrompt, /FUTURE_SHIP_TOKEN/);
 });
 
 // ---------------------------------------------------------------------------

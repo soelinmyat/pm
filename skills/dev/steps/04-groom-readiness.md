@@ -2,6 +2,16 @@
 name: Groom Readiness
 order: 4
 description: Check for existing RFC, route ungroomed work to pm:groom or inline scoping
+phase: readiness
+requires:
+  - risk-routing.md
+gates: []
+required_evidence:
+  - rfc-readiness
+requires_commit: false
+allowed_modes:
+  - inline
+result_schema: phase-result-v1
 ---
 
 ## RFC Check (all sizes)
@@ -41,12 +51,12 @@ For `kind: proposal` (or absent/null via `resolveKind`), continue to Step 1.
 Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
-- **`rfc:` is non-null** AND the referenced RFC file exists with `status: approved` → RFC is ready. **Re-discover tasks from the RFC** (the session file may have stale `task_count` from a prior intake that ran before the RFC existed), following the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json --html {pm_dir}/backlog/rfcs/{slug}.html --slug {slug}`:
+- **`rfc:` is non-null** AND the referenced RFC exists → RFC is ready only when `{slug}.approval.json` follows `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/rfc-approval.schema.json`, records explicit human approval, and its HTML/sidecar SHA-256 values match the exact adjacent files. HTML `status: approved` is a projection, not approval authority. **Re-discover tasks from the RFC** (the session file may have stale task data from a prior intake that ran before the RFC existed), following the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json --html {pm_dir}/backlog/rfcs/{slug}.html --slug {slug}`:
   - **valid** → rebuild the `## Tasks` table from its `issues[]` (`num`, `title`, `size`, `test_hooks`) — no HTML parse.
   - **present but invalid** (non-zero exit) → **hard-abort**: "Schema-v2 sidecar present but failed rfc-sidecar-check — route to /pm:rfc." Do NOT fall back to the HTML.
-  - **absent** (pre-sidecar RFC) → read the RFC HTML and parse `.issue-detail` elements (extract `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size` for each).
+  - **sidecar or approval audit absent** → hard-abort and route to `/pm:rfc` to refresh and obtain approval for an exact artifact. Do not infer approval from editable HTML metadata or a remembered conversation.
 
-  Set `task_count`. If zero issues are found, hard-abort: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Then update the session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`, the refreshed `task_count`, and the rebuilt `## Tasks` table. Skip to Implementation. Log: `RFC: approved (path: {rfc_path}, tasks: {task_count})`.
+  If zero issues are found, hard-abort: "RFC found but no Issue sections parsed — check the JSON sidecar." Return a passed readiness result whose `rfc-readiness` evidence artifact is the absolute sidecar path; `dev-session record` independently verifies the sidecar↔HTML binding and human approval hashes before advancing. Never edit the canonical phase directly. Log: `RFC: approved (path: {rfc_path}, tasks: {task_count})`.
 - **`rfc:` is non-null** but RFC file has `status: draft` AND size is M+ → RFC started but not approved. Treat same as null — continue to the RFC prompt below. Log: `RFC: draft (needs /rfc to complete)`.
 - **`rfc:` is null** AND size is M+ → No RFC exists for M-sized work. Continue to the RFC prompt below.
 - **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
@@ -89,7 +99,7 @@ Classify:
 - **Developing** (strategy OR research present) → max tier: `standard`
 - **Mature** (strategy AND research AND competitors) → max tier: `full`
 
-Log in `.pm/dev-sessions/{slug}.md`: `kb_maturity: {level}, tier_cap: {tier}`
+Log in `.pm/dev-sessions/{slug}/session.json`: `kb_maturity: {level}, tier_cap: {tier}`
 
 | Size | Action |
 |------|--------|
@@ -112,7 +122,13 @@ Time estimates by tier:
 | `standard` | ~15 min |
 | `full` | ~30 min |
 
-Log the decision in `.pm/dev-sessions/{slug}.md`:
+Log the decision in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - RFC check: approved (path: {rfc_path}) | blocked-needs-rfc | blocked-needs-proposal | incomplete-groom (status not proposed/planned/in-progress) | skipped-xs | conversational-s
 ```
+
+## Done-when
+
+The routed product/readiness prerequisites are satisfied, or the session contains a direct `pm:groom`/`pm:rfc` blocker with its missing artifact.
+
+**Advance:** proceed to Step 05 (Implementation).

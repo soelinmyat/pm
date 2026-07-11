@@ -61,13 +61,16 @@ function run({ scenarioId, paths }) {
     "stream-json",
     "--verbose",
     "--permission-mode",
-    "bypassPermissions",
+    process.env.PM_EVAL_CLAUDE_PERMISSION_MODE || "auto",
     "--no-session-persistence",
     "--plugin-dir",
     prepared.pluginRoot,
   ];
   if (process.env.PM_EVAL_CLAUDE_MODEL) {
     argv.push("--model", process.env.PM_EVAL_CLAUDE_MODEL);
+  }
+  if (process.env.PM_EVAL_CLAUDE_REASONING_EFFORT) {
+    argv.push("--effort", process.env.PM_EVAL_CLAUDE_REASONING_EFFORT);
   }
 
   writeJson(path.join(paths.metadataDir, "claude_command.json"), {

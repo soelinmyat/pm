@@ -30,15 +30,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 8 step files exist and load (06-simplify absorbed into review, v1.9)
+// AC 1: All 10 phase-local step files exist and load.
 // ---------------------------------------------------------------------------
 
-test("dev steps: all 8 step files load with correct order", () => {
+test("dev steps: all 10 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 8, `Expected 8 steps, got ${steps.length}`);
+    assert.equal(steps.length, 10, `Expected 10 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -86,90 +86,24 @@ test("dev steps: each step has name, order, and description in frontmatter", () 
 // Critical instruction keywords from dev-flow.md that MUST appear in the
 // concatenated output. Organized by the stage they originate from.
 const CRITICAL_KEYWORDS = [
-  // Stage 0.5: Tool Check
   "command -v gh",
-  "GitHub CLI",
-
-  // Stage 0.7: Source Repo Access Check
   "source_dir",
-  "source code indicators",
-  "package.json",
-  "Cargo.toml",
-
-  // Stage 1: Intake
-  "Load learnings",
   "memory.md",
-  "Classify size",
-  "Confirm size with user",
-
-  // Stage Routing by Size table
-  "Worktree",
-  "RFC check",
-  "RFC generation",
-  "Design critique",
-  "Verification gate",
-
-  // Stage 2: Workspace
+  'dev-session.js" route',
+  "risk-routing.md",
   "git worktree add",
-  "Worktree environment prep",
-  "Workspace verification",
   "AGENTS.md",
-
-  // Stage 2.5: RFC Check / Groom Readiness
-  "backlog/{slug}.md",
   "pm:groom",
-  "KB maturity",
-  "kb_maturity",
-
-  // Stage 5: Implementation
-  "implementation-flow.md",
+  "analyzeWorkUnits",
   "pm:review",
-  "dev/references/tdd.md",
-  "merge-loop",
-
-  // Stage 6: Worktree Cleanup (folded into 10-ship.md)
+  "session.routing.review_mode",
+  "scripts/dev-gate-check.js",
   "git worktree remove",
-  "Leftover worktrees",
-
-  // Stage 7: Retro (auto-extraction)
-  "Auto-Extract Learnings",
-  "memory.md",
-  "memory-cap.md",
-  "extractable events",
-  "hard gate",
-  "knowledge-writeback.md",
-  "knowledge-writeback.js",
-  "--pm-dir",
-  "artifactMode",
-  "implementation-learnings",
-  "routeSuggestions",
-  "route-selection.js",
-  "insight-routing.md",
-  "insight-routing.js",
-  "evidence/research/{slug}-implementation-learnings.md",
-  "durable product-learning writeback",
-
-  // Status Updates
   "Status Updates",
   "status: done",
-
-  // Continuous Execution
-  "Continuous Execution",
-  "HARD-RULE",
-
-  // Multi-task (routing lives in the always-loaded step; the sequential-execution
-  // machinery itself moved to references/multi-task-dispatch.md and is pinned by
-  // tests/multi-task-dispatch-reference.test.js — see that file for the relocated
-  // "Sequential execution" guard).
-  "task_count",
-
-  // RFC-based task discovery (PM-231)
-  ".issue-detail",
-  "## Tasks",
-
-  // State file
-  "dev-sessions",
-  "single source of truth",
+  "Auto-Extract Learnings",
+  "knowledge-writeback.js",
+  "dev-sessions/{slug}/session.json",
 ];
 
 test("dev steps: concatenated output contains all critical instruction keywords", () => {
@@ -211,9 +145,13 @@ test("dev steps: sub-skill invocations use Invoke pm:{skill} syntax", () => {
       assert.ok(prompt.includes(skill), `Sub-skill reference "${skill}" should be in output`);
     }
     // tdd, debugging, subagent-dev are now references, not sub-skills
-    const demotedRefs = ["dev/references/tdd.md", "dev/references/subagent-dev.md"];
+    const implementation = steps.find((step) => step.phase === "implementation");
+    const demotedRefs = ["tdd.md", "subagent-dev.md", "implementation-flow.md"];
     for (const ref of demotedRefs) {
-      assert.ok(prompt.includes(ref), `Demoted reference "${ref}" should be in output`);
+      assert.ok(
+        implementation.requires.includes(ref),
+        `Implementation metadata should require "${ref}" just in time`
+      );
     }
   } finally {
     cleanup();
@@ -224,26 +162,22 @@ test("dev steps: sub-skill invocations use Invoke pm:{skill} syntax", () => {
 // AC 5: ${CLAUDE_PLUGIN_ROOT} template variables used for references
 // ---------------------------------------------------------------------------
 
-test("dev steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", () => {
+test("dev steps: active commands use ${CLAUDE_PLUGIN_ROOT} while references are metadata", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps);
 
-    const references = ["implementation-flow.md"];
     const writebackReference = path.join(PLUGIN_ROOT, "references", "knowledge-writeback.md");
     assert.ok(
       fs.existsSync(writebackReference),
       "knowledge-writeback.md should exist in references/"
     );
 
-    for (const ref of [...references, "knowledge-writeback.md"]) {
-      // Find the reference and verify it uses ${CLAUDE_PLUGIN_ROOT}
-      assert.ok(
-        prompt.includes(`\${CLAUDE_PLUGIN_ROOT}`) && prompt.includes(ref),
-        `Reference "${ref}" should use \${CLAUDE_PLUGIN_ROOT} variable`
-      );
-    }
+    assert.ok(prompt.includes(`\${CLAUDE_PLUGIN_ROOT}`));
+    assert.ok(prompt.includes("knowledge-writeback.md"));
+    const implementation = steps.find((step) => step.phase === "implementation");
+    assert.ok(implementation.requires.includes("implementation-flow.md"));
   } finally {
     cleanup();
   }
@@ -268,12 +202,12 @@ test("dev steps: Stage 0.7 content folded into 01-tool-check", () => {
   }
 });
 
-test("dev steps: Stage 6 (Worktree Cleanup) folded into 08-ship", () => {
+test("dev steps: worktree cleanup remains in the phase-local Ship step", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
-    const ship = steps.find((s) => s.order === 8);
-    assert.ok(ship, "Step with order 8 should exist");
+    const ship = steps.find((s) => s.phase === "ship");
+    assert.ok(ship, "Ship phase should exist");
     assert.ok(
       ship.body.includes("git worktree remove") || ship.body.includes("Worktree Cleanup"),
       "Ship step should contain worktree cleanup content"

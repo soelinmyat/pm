@@ -120,8 +120,8 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
      --slug {slug}
    ```
    Commit the RFC HTML and its JSON sidecar together. If nothing was edited (no blocking fixes), the sidecar is already in sync — still run the validator once to confirm before approval.
-7. Update RFC frontmatter to `status: approved`.
-8. Update the proposal status to `planned` in `{pm_dir}/backlog/{slug}.md`.
+7. Keep RFC lifecycle metadata at `status: awaiting-approval`. Review completion is not human approval.
+8. Keep the proposal out of `planned` until the user approves the exact reviewed artifacts.
 9. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
    - **Answer it** using the proposal (`{pm_dir}/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
    - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
@@ -139,7 +139,23 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
    ```
 
    Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-11. Wait for user approval.
+11. Wait for explicit user approval. If the user does not approve, stop at `awaiting-approval`; never create approval state from review completion or silence.
+
+    After explicit approval, update the RFC lifecycle metadata to `status: approved` and the proposal status to `planned`. Then write `{pm_dir}/backlog/rfcs/{slug}.approval.json` as the canonical approval audit for the exact artifact bytes, following `references/rfc-approval.schema.json`:
+
+    ```json
+    {
+      "schema_version": 1,
+      "slug": "{slug}",
+      "status": "approved",
+      "approved_by": "{human identity}",
+      "approved_at": "{ISO-8601 timestamp}",
+      "html_sha256": "sha256:{hash of final HTML bytes}",
+      "sidecar_sha256": "sha256:{hash of final JSON sidecar bytes}"
+    }
+    ```
+
+    The audit is valid only when both hashes match the files beside it. Commit the final HTML, sidecar, approval audit, and proposal lifecycle update together. Dev readiness treats the HTML metadata as a projection and this human approval audit as authority.
 
 12. **Linear issue creation (after approval).**
 

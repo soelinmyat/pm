@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "codex": "codex-workhorse",
+    "claude": "claude-workhorse",
+    "inline": "inline-current"
+  },
+  "profiles": {
+    "codex-workhorse": {
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "sandbox": "workspace-write",
+      "approvalPolicy": "never",
+      "externalEffects": false
+    },
+    "claude-workhorse": {
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "effort": "xhigh",
+      "permissionMode": "auto",
+      "externalEffects": false
+    },
+    "claude-frontier": {
+      "provider": "claude",
+      "model": "claude-fable-5",
+      "effort": "xhigh",
+      "permissionMode": "auto",
+      "externalEffects": false
+    },
+    "inline-current": {
+      "provider": "inline",
+      "model": "inherit",
+      "effort": "inherit",
+      "externalEffects": false
+    }
+  }
+}

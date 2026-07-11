@@ -1,0 +1,186 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const {
+  recentMergedBranches,
+  scanSessionDirectory,
+  tsv,
+} = require("../scripts/dev-reconcile-scan");
+
+test("reconcile scan parses each canonical session once and excludes completed archives", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-scan-"));
+  try {
+    write(root, "active/session.json", {
+      schema_version: 2,
+      status: "active",
+      task: { reference: "PM-42" },
+      source: { branch: "codex/active" },
+    });
+    write(root, "complete/session.json", {
+      schema_version: 2,
+      status: "complete",
+      task: { reference: "PM-41" },
+      source: { branch: "codex/complete" },
+    });
+    write(root, "completed/old/session.json", {
+      schema_version: 2,
+      status: "complete",
+      task: { reference: "PM-40" },
+      source: { branch: "codex/old" },
+    });
+    const records = scanSessionDirectory(root);
+    assert.deepEqual(
+      records.map((record) => record.issue),
+      ["PM-42"]
+    );
+    assert.match(tsv(records), /^PM-42\tcodex\/active\t/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reconcile scan preserves legacy plain branch fields", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-scan-"));
+  try {
+    fs.writeFileSync(path.join(root, "legacy.md"), "# CLE-1380\n\nbranch: feat/x\n");
+    assert.deepEqual(
+      scanSessionDirectory(root).map(({ issue, branch }) => ({ issue, branch })),
+      [{ issue: "CLE-1380", branch: "feat/x" }]
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reconcile scan resolves recent merged branches with one retried list query", () => {
+  let calls = 0;
+  const branches = recentMergedBranches(48, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: () => {
+      calls += 1;
+      if (calls === 1) return { code: 1, stdout: "", stderr: "HTTP 502" };
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            state: "MERGED",
+            headRefName: "feat/recent",
+            mergedAt: "2026-07-12T11:00:00Z",
+          },
+          {
+            state: "MERGED",
+            headRefName: "feat/old",
+            mergedAt: "2026-07-01T11:00:00Z",
+          },
+        ]),
+      };
+    },
+  });
+  assert.deepEqual([...branches], ["feat/recent"]);
+  assert.equal(calls, 2);
+});
+
+test("reconcile scan expands the consolidated query when the first page budget saturates", () => {
+  let calls = 0;
+  const rows = Array.from({ length: 3 }, (_, index) => ({
+    state: "MERGED",
+    headRefName: index === 2 ? "feat/missing" : `feat/listed-${index}`,
+    mergedAt: "2026-07-12T11:00:00Z",
+  }));
+  const merged = recentMergedBranches(48, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    listLimit: 2,
+    searchResultCap: 8,
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      calls += 1;
+      assert.equal(args[args.indexOf("--search") + 1], "merged:>=2026-07-10");
+      const limit = Number(args[args.indexOf("--limit") + 1]);
+      return { code: 0, stdout: JSON.stringify(rows.slice(0, limit)), stderr: "" };
+    },
+  });
+  assert.equal(merged.has("feat/missing"), true);
+  assert.equal(calls, 2);
+});
+
+test("reconcile scan scopes mature repositories to the requested merge window", () => {
+  let calls = 0;
+  const merged = recentMergedBranches(24, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    listLimit: 2,
+    searchResultCap: 2,
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      calls += 1;
+      assert.equal(args[args.indexOf("--search") + 1], "merged:>=2026-07-11");
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            state: "MERGED",
+            headRefName: "feat/recent-in-mature-repo",
+            mergedAt: "2026-07-12T11:00:00Z",
+          },
+        ]),
+      };
+    },
+  });
+  assert.deepEqual([...merged], ["feat/recent-in-mature-repo"]);
+  assert.equal(calls, 1);
+});
+
+test("reconcile scan verifies finite active candidates at the search result ceiling", () => {
+  let listCalls = 0;
+  let viewCalls = 0;
+  const merged = recentMergedBranches(24, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    listLimit: 2,
+    searchResultCap: 2,
+    candidateBranches: ["feat/outside-search-cap"],
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      if (args[1] === "list") {
+        listCalls += 1;
+        return {
+          code: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            { state: "MERGED", headRefName: "feat/first", mergedAt: "2026-07-12T11:00:00Z" },
+            { state: "MERGED", headRefName: "feat/second", mergedAt: "2026-07-12T10:00:00Z" },
+          ]),
+        };
+      }
+      viewCalls += 1;
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          state: "MERGED",
+          mergedAt: "2026-07-12T09:00:00Z",
+          number: 42,
+          headRefOid: "abc",
+        }),
+      };
+    },
+  });
+  assert.equal(merged.has("feat/outside-search-cap"), true);
+  assert.equal(listCalls, 1);
+  assert.equal(viewCalls, 1);
+});
+
+function write(root, relative, value) {
+  const file = path.join(root, relative);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value));
+}

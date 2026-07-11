@@ -57,13 +57,13 @@ PLATFORM detection:
 
 No engineer agent. Returns findings to the calling agent.
 
-**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, enriched artifacts (a11y snapshots, consistency audit), page context from `.pm/dev-sessions/{slug}.md`.
+**Input:** Screenshots at `/tmp/design-review/{feature}/`, manifest, enriched artifacts (a11y snapshots, consistency audit), page context from `.pm/dev-sessions/{slug}/session.json`.
 **Output:** Prioritized findings (P0/P1/P2) with confidence tiers + Verdict (Ship/Fix/Rethink).
 
 ### Flow
 
 1. **Read screenshots** from manifest at `/tmp/design-review/{feature}/manifest.md`.
-2. **Read page context** from `.pm/dev-sessions/{slug}.md` (or legacy `.dev-state-*.md`).
+2. **Read page context** from `.pm/dev-sessions/{slug}/session.json` (or legacy `.dev-state-*.md`).
 3. **Read CLAUDE.md** design principles from the project root.
 4. **Dispatch design reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-reviewer.md`. The reviewer receives: all screenshots (via Read tool), manifest, enriched artifacts (a11y snapshots, consistency audit), CLAUDE.md design principles, ticket context.
 5. **Dispatch Fresh Eyes reviewer** per `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-fresh-eyes.md`. Run in parallel with the primary reviewer when the runtime supports delegation.

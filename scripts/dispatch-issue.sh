@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Subprocess dispatch for full-lifecycle issue execution.
+# Compatibility shim for the v2 Node runtime adapter.
 #
-# Spawns a top-level agent subprocess (claude -p or codex exec) to execute
-# one issue end-to-end (implement → simplify → review → ship → merge).
-# The subprocess is a top-level run with no parent, so it has no implicit
-# "return to orchestrator" pressure that causes early bailing on long phases
-# like CI watches and review-comment loops.
-#
-# The dispatched agent MUST write a structured result JSON file before
-# exiting. The orchestrator reads that file after the subprocess returns
-# to determine success/blocked and advance the plan.
+# This interface remains callable by legacy prompts for one release. Provider
+# policy, model selection, structured output, and safe permissions live under
+# scripts/dev-runtime/ rather than in shell-interpolated command strings.
 #
 # Prompt placeholders ${PM_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_ROOT}, and
 # ${RESULT_FILE} are resolved to absolute paths here before dispatch — the
@@ -132,61 +126,37 @@ prompt_body="${prompt_body//'${RESULT_FILE}'/$RESULT_FILE}"
 printf '%s\n' "$prompt_body" > "$RESOLVED_PROMPT"
 
 case "$RUNTIME" in
-  claude)
-    command -v claude >/dev/null 2>&1 || { echo "claude CLI not in PATH" >&2; exit 3; }
-    # `claude -p` draws from the account's normal Claude usage limits, so PM
-    # needs no opt-in env var; usage/quota/rate stops are surfaced as blocked
-    # results below. Canonical: dev/references/agent-runtime.md § Subprocess Dispatch.
-    (
-      cd "$WORKTREE"
-      # Pin Opus: a spawned subprocess does NOT inherit the orchestrator's model
-      # and without --model falls back to the config default (often Sonnet),
-      # silently degrading implementation quality. `opus` resolves to whatever
-      # Opus the account/provider maps it to — a cost/latency choice.
-      claude -p \
-        --model opus \
-        --dangerously-skip-permissions \
-        < "$RESOLVED_PROMPT"
-    ) > "$LOG_FILE" 2>&1 || true
-    # Surface a usage/quota stop as a clear blocked reason instead of the
-    # opaque "exited without writing result" trap stub.
-    if [[ ! -f "$RESULT_FILE" ]] && grep -qiE 'agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|usage credit|usage limit|plan.*limit|limit.*reached|quota|rate.?limit' "$LOG_FILE" 2>/dev/null; then
-      cat > "$RESULT_FILE" <<EOF
-{
-  "status": "blocked",
-  "reason": "subprocess stopped on a Claude usage, quota, or rate limit. 'claude -p' currently draws from normal subscription usage limits; enable usage credits, wait for reset, or run on an API key. See log.",
-  "log_file": "$LOG_FILE"
-}
-EOF
-    fi
-    ;;
-
-  codex)
-    command -v codex >/dev/null 2>&1 || { echo "codex CLI not in PATH" >&2; exit 3; }
-    CODEX_SANDBOX="${PM_CODEX_SANDBOX:-danger-full-access}"
-    case "$CODEX_SANDBOX" in
-      read-only|workspace-write|danger-full-access) ;;
-      *)
-        echo "Invalid PM_CODEX_SANDBOX: $CODEX_SANDBOX (expected read-only, workspace-write, or danger-full-access)" >&2
-        exit 1
-        ;;
-    esac
-    RESULT_DIR="$(dirname "$RESULT_FILE")"
-    codex exec \
-      --sandbox "$CODEX_SANDBOX" \
-      -C "$WORKTREE" \
-      --add-dir "$RESULT_DIR" \
-      -o "${LOG_FILE%.log}.last-message.txt" \
-      - \
-      < "$RESOLVED_PROMPT" \
-      > "$LOG_FILE" 2>&1
-    ;;
+  claude|codex) ;;
 
   *)
     echo "Unknown runtime: $RUNTIME (expected: claude | codex)" >&2
     exit 1
     ;;
 esac
+
+echo "warning: dispatch-issue.sh is a compatibility shim; use scripts/dev-runtime directly" >&2
+
+# Preserve the old sandbox variable as an opt-in alias. Broad access still
+# requires PM_DEV_ALLOW_BROAD_PERMISSIONS=1 and is never the default.
+if [[ -n "${PM_CODEX_SANDBOX:-}" && -z "${PM_DEV_CODEX_SANDBOX:-}" ]]; then
+  export PM_DEV_CODEX_SANDBOX="$PM_CODEX_SANDBOX"
+fi
+
+set +e
+PM_DEV_LEGACY_DISPATCH=1 node "$SCRIPT_DIR/dev-runtime/dispatch.js" \
+  --runtime "$RUNTIME" \
+  --worktree "$WORKTREE" \
+  --prompt-file "$RESOLVED_PROMPT" \
+  --result-file "$RESULT_FILE" \
+  --log-file "$LOG_FILE" \
+  --work-unit-id "legacy" \
+  --owns-json '["**"]'
+ADAPTER_STATUS=$?
+set -e
+
+if [[ "$ADAPTER_STATUS" -eq 3 ]]; then
+  exit 3
+fi
 
 if [[ ! -f "$RESULT_FILE" ]]; then
   echo "Agent exited without writing result file: $RESULT_FILE" >&2

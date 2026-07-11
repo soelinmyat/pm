@@ -138,6 +138,78 @@ test("listDevSessions returns [] when no dev sessions exist anywhere", () => {
   }
 });
 
+test("listDevSessions reads canonical v2 JSON and suppresses a same-slug projection", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/add-auth/session.json",
+      JSON.stringify({
+        schema_version: 2,
+        run_id: "dev_json",
+        slug: "add-auth",
+        status: "active",
+        phase: "review",
+        updated_at: "2026-07-11T00:00:00.000Z",
+        task: { reference: "PROJ-9" },
+      })
+    );
+    project.write(
+      ".pm/dev-sessions/add-auth.md",
+      "# Projection\n\n| Field | Value |\n|---|---|\n| Stage | implementation |\n"
+    );
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].stage, "review");
+    assert.equal(sessions[0].linearId, "PROJ-9");
+    assert.match(sessions[0].filePath, /add-auth\/session\.json$/);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("listDevSessions omits completed canonical sessions and deduplicates retained root legacy state", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/done/session.json",
+      JSON.stringify({ schema_version: 2, slug: "done", status: "complete", phase: "retro" })
+    );
+    project.write(
+      ".pm/dev-sessions/old/session.json",
+      JSON.stringify({ schema_version: 2, slug: "old", status: "active", phase: "review" })
+    );
+    project.write(
+      ".dev-state-old.md",
+      "# Legacy\n\n| Field | Value |\n|---|---|\n| Stage | review |\n"
+    );
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.deepEqual(
+      sessions.map((session) => session.topic),
+      ["old"]
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("listDevSessions ignores completed archives and surfaces malformed canonical state", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/completed/done/session.json",
+      JSON.stringify({ schema_version: 2, slug: "done", status: "complete", phase: "retro" })
+    );
+    project.write(".pm/dev-sessions/broken/session.json", "{not-json");
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].topic, "broken");
+    assert.equal(sessions[0].stage, "invalid");
+    assert.match(sessions[0].summary, /invalid canonical dev session/);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("listRfcSessions reads source-side .pm/rfc-sessions/ via the documented markdown-table schema", () => {
   const project = mktmp();
   try {

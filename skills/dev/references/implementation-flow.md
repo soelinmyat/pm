@@ -86,7 +86,7 @@ Classify the change:
 
 For monorepos, map to specific app directories. For single-app projects, classify by file type (controllers/models vs components/pages).
 
-Log in `.pm/dev-sessions/{slug}.md`:
+Log in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - Platform: <detected platform>
 - Contract gate: <required | skipped (reason)>
@@ -171,7 +171,7 @@ grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/featu
 
 **If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
 
-Log the scan result in `.pm/dev-sessions/{slug}.md`:
+Log the scan result in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - Pattern scan: Reusing existing Drawer from src/components/ui/Drawer.tsx
   OR
@@ -189,7 +189,7 @@ Log the scan result in `.pm/dev-sessions/{slug}.md`:
 
 ### TDD Evidence Gate
 
-For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}.gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
+For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}/gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
 
 Docs-only, config-only, generated-only, or lockfile-only changes may record `tdd: skipped`, but only with a concrete reason. A missing `tdd` row blocks the pre-push gate checker.
 
@@ -222,15 +222,15 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 ---
 
 <!-- Steps 3-8: Quality gates and ship lifecycle.
-     The authoritative source for quality gate logic is skills/dev/steps/07-review.md.
-     The authoritative source for ship/status logic is skills/dev/steps/08-ship.md.
+     The authoritative sources for quality gate logic are the phase-local steps 06-design-critique.md, 07-qa.md, and 08-review.md.
+     The authoritative source for ship/status logic is skills/dev/steps/09-ship.md.
      This file only adds multi-task-specific orchestration on top. -->
 
 <!-- Step 3 (Simplify) was absorbed into the review fan-out in v1.9; numbering keeps the gap so external Step-N references stay valid. -->
 
 ## Step 4: Design Critique + Step 5: QA + Step 6: Review + Verification
 
-Follow the quality gate sections in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`. That file is the single source of truth for:
+Follow the phase-local quality contracts in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/06-design-critique.md`, `07-qa.md`, and `08-review.md`. Those files are the source of truth for:
 - Design critique process (10-step closed-loop, skip conditions, size routing)
 - QA gate behavior (dispatch, verdict table, re-verify loop, state file update)
 - Code review (M/L/XL HARD GATE, conditional Design Review skip, code scan for XS)
@@ -249,19 +249,19 @@ Before any `git push` or `gh pr create`, run the shared checker against current 
 ```bash
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
 ```
 
-If the checker fails, stop and run the missing gate. For stale rows, run the final recertification pass from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not push, create a PR, or proceed to the merge loop until it passes.
+If the checker fails, stop and run the missing gate. For stale rows, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or recertify with fresh phase-keyed evidence. Do not push, create a PR, or proceed to the merge loop until it passes.
 
 ### Push and create PR
 
 ```bash
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
 git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```
@@ -270,7 +270,7 @@ gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BR
 
 **Multi-task (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
 
-**Single-issue:** Invoke `/ship` — see `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-ship.md`.
+**Single-issue:** Invoke `/ship` — see `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-ship.md`.
 
 ### Handling review feedback
 
@@ -282,14 +282,14 @@ When review comments appear on the PR, use `ship/references/handling-feedback.md
 
 ## Step 8: Cleanup + Status Updates
 
-Follow the cleanup and status update logic in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-ship.md`. That file is the authoritative source for:
+Follow the cleanup and status update logic in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-ship.md`. That file is the authoritative source for:
 - Worktree cleanup (removal, branch deletion)
 - Process cleanup (kill orphaned test runners)
 - Local backlog updates (create if missing, set done)
 - Linear issue closure (children first, verify, then parent)
 - User confirmation gate before Linear updates
 
-Multi-task agents complete cleanup per task. After ALL tasks finish, the orchestrator runs parent-level status updates per 08-ship.md's multi-task skip section.
+Multi-task agents complete cleanup per task. After ALL tasks finish, the orchestrator runs parent-level status updates per 09-ship.md's multi-task skip section.
 
 ---
 
@@ -316,7 +316,7 @@ Blocked: {ISSUE_ID} — {reason}
 
 ### Single-issue context
 
-Proceed to retro (`${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-retro.md`).
+Proceed to retro (`${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/10-retro.md`).
 
 ---
 

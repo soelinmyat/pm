@@ -125,3 +125,27 @@ test("state-telemetry: writes active-step when .current-run provides run_id", ()
   const active = JSON.parse(fs.readFileSync(activeStepFile(root), "utf8"));
   assert.equal(active.run_id, "dev-test-123");
 });
+
+test("state-telemetry: reads run and phase directly from canonical v2 JSON", () => {
+  const { root, env } = setupRepo();
+  const stateRel = ".pm/dev-sessions/json-demo/session.json";
+  const stateAbs = path.join(root, stateRel);
+  fs.mkdirSync(path.dirname(stateAbs), { recursive: true });
+  fs.writeFileSync(
+    stateAbs,
+    JSON.stringify({
+      schema_version: 2,
+      run_id: "dev_json_123",
+      slug: "json-demo",
+      status: "active",
+      phase: "implementation",
+      created_at: "2026-07-11T00:00:00.000Z",
+      updated_at: "2026-07-11T00:01:00.000Z",
+    })
+  );
+  runStateTelemetry(root, env, "snapshot", ["--file", stateRel]);
+  runStateTelemetry(root, env, "apply", ["--file", stateRel]);
+  const active = JSON.parse(fs.readFileSync(activeStepFile(root), "utf8"));
+  assert.equal(active.run_id, "dev_json_123");
+  assert.equal(active.step, "implementation");
+});

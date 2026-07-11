@@ -4,6 +4,7 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -16,7 +17,6 @@ const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
 const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
 const NEVER_SKIPPABLE_GATES = new Set(["review", "verification"]);
 const REQUIRED_GATE_FIELDS = ["name", "status", "commit", "artifact", "reason", "checked_at"];
-const SESSION_BRANCH_PREFIXES = ["codex/", "feat/", "fix/", "chore/", "release/"];
 const UI_SKIP_GATES = new Set(["design-critique", "qa"]);
 const NO_UI_SKIP_REASON =
   /(no (ui|visual|user-visible|interaction) (impact|change|surface)|no visual impact|no user-visible (impact|change|surface)|backend-only|docs-only|config-only|generated-only|pure refactor)/i;
@@ -77,6 +77,9 @@ function checkGateManifest(manifest, opts = {}) {
   }
   if (manifest.schema_version !== 1) {
     issues.push(issue(manifestPath, "schema_version must equal 1"));
+  }
+  if (opts.runId && manifest.run_id !== opts.runId) {
+    issues.push(issue(manifestPath, `run_id must equal active session ${opts.runId}`));
   }
   if (!Array.isArray(manifest.gates)) {
     issues.push(issue(manifestPath, "gates must be an array"));
@@ -395,18 +398,6 @@ function currentGitCommit(cwd = process.cwd()) {
   }).trim();
 }
 
-function deriveSessionSlug(branchName) {
-  let slug = String(branchName || "").trim();
-  for (const prefix of SESSION_BRANCH_PREFIXES) {
-    if (slug.startsWith(prefix)) {
-      slug = slug.slice(prefix.length);
-      break;
-    }
-  }
-  slug = slug.replace(/\//g, "-");
-  return slug || "current";
-}
-
 function parseArgs(argv) {
   const opts = {
     manifestPath: DEFAULT_MANIFEST_PATH,
@@ -422,6 +413,8 @@ function parseArgs(argv) {
       opts.manifestPath = requireValue(argv, ++index, arg);
     } else if (arg === "--commit") {
       opts.currentCommit = requireValue(argv, ++index, arg);
+    } else if (arg === "--run-id") {
+      opts.runId = requireValue(argv, ++index, arg);
     } else if (arg === "--require") {
       opts.requiredGates.push(...normalizeGateNames(requireValue(argv, ++index, arg)));
     } else if (arg === "--allow-skip") {
@@ -464,7 +457,7 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
@@ -557,9 +550,22 @@ function main(argv = process.argv.slice(2)) {
     requiredGates: opts.requiredGates,
     allowSkippedGates: opts.allowSkippedGates,
     changedFiles,
+    runId: opts.runId || readSiblingRunId(manifestPath),
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;
+}
+
+function readSiblingRunId(manifestPath) {
+  if (path.basename(manifestPath) !== "gates.json") return null;
+  try {
+    const session = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(manifestPath), "session.json"), "utf8")
+    );
+    return typeof session.run_id === "string" ? session.run_id : null;
+  } catch {
+    return null;
+  }
 }
 
 if (require.main === module) {

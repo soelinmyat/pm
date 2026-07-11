@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-plugin.local/schemas/rfc-approval-v1.json",
+  "title": "PM RFC approval audit v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "slug",
+    "status",
+    "approved_by",
+    "approved_at",
+    "html_sha256",
+    "sidecar_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "slug": { "type": "string", "minLength": 1 },
+    "status": { "const": "approved" },
+    "approved_by": { "type": "string", "minLength": 1 },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

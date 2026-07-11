@@ -78,6 +78,20 @@ function collectSessionFiles(sessionsDir) {
     .map((entry) => path.join(sessionsDir, entry.name));
 }
 
+function collectDevSessionFiles(sessionsDir) {
+  if (!fileExists(sessionsDir)) return [];
+  const files = [];
+  for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      files.push(path.join(sessionsDir, entry.name));
+    } else if (entry.isDirectory()) {
+      const canonical = path.join(sessionsDir, entry.name, "session.json");
+      if (fileExists(canonical)) files.push(canonical);
+    }
+  }
+  return files;
+}
+
 function buildGroomDescriptor(filePath, stat, text) {
   const topic = frontmatterValue(text, "topic") || path.basename(filePath, ".md");
   const phase = frontmatterValue(text, "phase") || "active";
@@ -105,7 +119,7 @@ function buildDevDescriptor(filePath, stat, text) {
   const parentTitle = markdownTableValue(text, "Parent Title");
   const currentSubIssue = bulletValue(text, "Current sub-issue");
 
-  const cleanName = baseName.replace(/^(epic|bugfix)-/, "");
+  const cleanName = baseName.replace(/^\.dev-(?:epic-)?state-/, "").replace(/^(epic|bugfix)-/, "");
   const topic = parentTitle || cleanName;
   const label = ticket ? `${ticket}: ${topic}` : topic;
 
@@ -124,6 +138,44 @@ function buildDevDescriptor(filePath, stat, text) {
     linearId: ticket,
     summary,
     next: nextAction || "resume active delivery work",
+  };
+}
+
+function buildDevJsonDescriptor(filePath, stat, text) {
+  let session;
+  try {
+    session = JSON.parse(text);
+  } catch {
+    session = null;
+  }
+  if (session?.schema_version !== 2 || typeof session.slug !== "string") {
+    const slug = path.basename(path.dirname(filePath));
+    return {
+      kind: "dev",
+      filePath,
+      topic: slug,
+      stage: "invalid",
+      updated: "",
+      updatedEpoch: Math.floor(stat.mtimeMs / 1000),
+      linearId: "",
+      status: "invalid",
+      summary: `invalid canonical dev session: ${slug}`,
+      next: `repair or migrate dev session (${slug})`,
+    };
+  }
+  if (session.status === "complete") return null;
+  const reference = typeof session.task?.reference === "string" ? session.task.reference : "";
+  const label = reference ? `${reference}: ${session.slug}` : session.slug;
+  return {
+    kind: "dev",
+    filePath,
+    topic: session.slug,
+    stage: session.phase || "active",
+    updated: session.updated_at || "",
+    updatedEpoch: dateToEpoch(session.updated_at) || Math.floor(stat.mtimeMs / 1000),
+    linearId: reference,
+    summary: `delivery in progress: ${label} (${session.phase || "active"})`,
+    next: `resume ${session.phase || "active"} phase`,
   };
 }
 
@@ -198,7 +250,7 @@ function listDevSessions(paths) {
   const runtimeDir = path.join(sourceDir, ".pm");
   const sessionsDir = path.join(runtimeDir, "dev-sessions");
 
-  const candidates = collectSessionFiles(sessionsDir);
+  const candidates = collectDevSessionFiles(sessionsDir);
   const legacyFiles = listMarkdownFiles(sourceDir).filter((filePath) => {
     const name = path.basename(filePath);
     return name.startsWith(".dev-state-") || name.startsWith(".dev-epic-state-");
@@ -210,9 +262,17 @@ function listDevSessions(paths) {
     const stat = safeStat(filePath);
     if (!stat) continue;
     const text = safeRead(filePath);
-    out.push(buildDevDescriptor(filePath, stat, text));
+    const descriptor = filePath.endsWith("session.json")
+      ? buildDevJsonDescriptor(filePath, stat, text)
+      : buildDevDescriptor(filePath, stat, text);
+    if (descriptor) out.push(descriptor);
   }
-  return out;
+  const canonicalTopics = new Set(
+    out.filter((item) => item.filePath.endsWith("session.json")).map((item) => item.topic)
+  );
+  return out.filter(
+    (item) => item.filePath.endsWith("session.json") || !canonicalTopics.has(item.topic)
+  );
 }
 
 function listRfcSessions(paths) {

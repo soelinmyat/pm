@@ -4,6 +4,14 @@ const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter");
 
+const LEGACY_STEP_ALIASES = Object.freeze({
+  dev: {
+    "07-review.md": "08-review.md",
+    "08-ship.md": "09-ship.md",
+    "09-retro.md": "10-retro.md",
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -37,6 +45,19 @@ function parseStepFile(filePath, filename) {
     order,
     description: data.description || "",
     appliesTo: Array.isArray(data.applies_to) ? data.applies_to : null,
+    phase: typeof data.phase === "string" && data.phase.trim() ? data.phase.trim() : null,
+    requires: Array.isArray(data.requires) ? data.requires : [],
+    gates: Array.isArray(data.gates) ? data.gates : [],
+    requiredCapabilities: Array.isArray(data.required_capabilities)
+      ? data.required_capabilities
+      : [],
+    requiredEvidence: Array.isArray(data.required_evidence) ? data.required_evidence : [],
+    allowedModes: Array.isArray(data.allowed_modes) ? data.allowed_modes : [],
+    requiresCommit: data.requires_commit === true || data.requires_commit === "true",
+    resultSchema:
+      typeof data.result_schema === "string" && data.result_schema.trim()
+        ? data.result_schema.trim()
+        : null,
     body: body,
   };
 }
@@ -149,8 +170,47 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   const defaultFiles = collectStepFiles(defaultStepDir);
   const userFiles = collectStepFiles(userStepDir);
 
-  // Merge: user overrides default for same filename
-  const allFilenames = new Set([...defaultFiles.keys(), ...userFiles.keys()]);
+  // Match user overrides by stable phase when a bundled filename was renamed.
+  // Exact filenames still win; phase aliases preserve older documented overrides.
+  const overrideTargets = new Map();
+  const consumedUserFiles = new Set();
+  // Resolve in explicit precedence passes so filesystem enumeration order can
+  // never let a legacy alias replace an exact override.
+  for (const defaultFilename of defaultFiles.keys()) {
+    if (!userFiles.has(defaultFilename)) continue;
+    overrideTargets.set(defaultFilename, defaultFilename);
+    consumedUserFiles.add(defaultFilename);
+  }
+  for (const userFilename of [...userFiles.keys()].sort()) {
+    if (consumedUserFiles.has(userFilename)) continue;
+    const aliasedDefault = LEGACY_STEP_ALIASES[command]?.[userFilename];
+    if (aliasedDefault && defaultFiles.has(aliasedDefault)) {
+      if (!overrideTargets.has(aliasedDefault)) {
+        overrideTargets.set(aliasedDefault, userFilename);
+      }
+      consumedUserFiles.add(userFilename);
+    }
+  }
+  for (const userFilename of [...userFiles.keys()].sort()) {
+    if (consumedUserFiles.has(userFilename)) continue;
+    const userPath = userFiles.get(userFilename);
+    const userStep = parseStepFile(userPath, userFilename);
+    if (!userStep?.phase) continue;
+    const phaseMatches = [...defaultFiles].filter(([defaultFilename, defaultPath]) => {
+      const defaultStep = parseStepFile(defaultPath, defaultFilename);
+      return defaultStep?.phase === userStep.phase;
+    });
+    if (phaseMatches.length === 1) {
+      if (!overrideTargets.has(phaseMatches[0][0])) {
+        overrideTargets.set(phaseMatches[0][0], userFilename);
+      }
+      consumedUserFiles.add(userFilename);
+    }
+  }
+  const allFilenames = new Set([
+    ...defaultFiles.keys(),
+    ...[...userFiles.keys()].filter((filename) => !consumedUserFiles.has(filename)),
+  ]);
 
   if (allFilenames.size === 0) {
     return [];
@@ -163,20 +223,26 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   const steps = [];
 
   for (const filename of allFilenames) {
-    const isUserOverride = userFiles.has(filename);
-    const filePath = isUserOverride ? userFiles.get(filename) : defaultFiles.get(filename);
+    const userFilename =
+      overrideTargets.get(filename) || (userFiles.has(filename) ? filename : null);
+    const isUserOverride = Boolean(userFilename);
+    const filePath = isUserOverride ? userFiles.get(userFilename) : defaultFiles.get(filename);
 
-    const parsed = parseStepFile(filePath, filename);
+    const parsed = parseStepFile(filePath, userFilename || filename);
     if (!parsed) {
       console.warn(`[step-loader] Could not read step file: ${filename}`);
       continue;
     }
+    const baseline =
+      isUserOverride && defaultFiles.has(filename)
+        ? parseStepFile(defaultFiles.get(filename), filename)
+        : null;
 
     // Resolve @persona references in body
     const resolvedBody = resolvePersonaRefs(parsed.body, userPersonaDir, defaultPersonaDir);
 
     // Check enabled/disabled from config
-    const stem = filename.replace(/\.md$/, "");
+    const stem = (userFilename || filename).replace(/\.md$/, "");
     const stepCfg = stepConfig[stem];
     const enabled = stepCfg?.enabled !== false;
 
@@ -186,6 +252,18 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       order: parsed.order,
       description: parsed.description,
       appliesTo: parsed.appliesTo,
+      phase: parsed.phase || baseline?.phase || null,
+      requires: parsed.requires.length > 0 ? parsed.requires : baseline?.requires || [],
+      gates: unionMetadata(baseline?.gates, parsed.gates),
+      requiredCapabilities: unionMetadata(
+        baseline?.requiredCapabilities,
+        parsed.requiredCapabilities
+      ),
+      requiredEvidence: unionMetadata(baseline?.requiredEvidence, parsed.requiredEvidence),
+      allowedModes: constrainModes(baseline?.allowedModes, parsed.allowedModes),
+      requiresCommit: parsed.requiresCommit || baseline?.requiresCommit || false,
+      resultSchema: parsed.resultSchema || baseline?.resultSchema || null,
+      filePath,
       body: resolvedBody,
       enabled,
       source: isUserOverride ? "user" : "default",
@@ -196,6 +274,16 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   steps.sort((a, b) => a.order - b.order);
 
   return steps;
+}
+
+function unionMetadata(baseline = [], override = []) {
+  return [...new Set([...(baseline || []), ...(override || [])])];
+}
+
+function constrainModes(baseline = [], override = []) {
+  if (!baseline?.length) return [...override];
+  if (!override?.length) return [...baseline];
+  return override.filter((mode) => baseline.includes(mode));
 }
 
 /**
@@ -217,6 +305,51 @@ function buildPrompt(steps, options) {
   if (filtered.length === 0) return "";
 
   return filtered.map((s) => `## Step ${s.order}: ${s.name}\n\n${s.body.trim()}`).join("\n\n");
+}
+
+/**
+ * Select exactly one enabled workflow step without changing legacy prompt
+ * assembly. A string selector matches phase, stem, or name; an object may use
+ * phase, stem, order, or name and combines the supplied constraints.
+ *
+ * @returns {object|null}
+ */
+function selectWorkflowStep(steps, selector) {
+  if (!Array.isArray(steps)) throw new TypeError("steps must be an array");
+  if (selector === undefined || selector === null || selector === "") {
+    throw new TypeError("a phase selector is required");
+  }
+
+  let matches;
+  if (typeof selector === "string") {
+    matches = steps.filter(
+      (step) =>
+        step.enabled !== false &&
+        (step.phase === selector || step.stem === selector || step.name === selector)
+    );
+  } else if (typeof selector === "number") {
+    matches = steps.filter((step) => step.enabled !== false && step.order === selector);
+  } else if (typeof selector === "object" && !Array.isArray(selector)) {
+    const constraints = ["phase", "stem", "order", "name"].filter(
+      (key) => selector[key] !== undefined
+    );
+    if (constraints.length === 0) throw new TypeError("a phase selector is required");
+    matches = steps.filter(
+      (step) => step.enabled !== false && constraints.every((key) => step[key] === selector[key])
+    );
+  } else {
+    throw new TypeError("invalid phase selector");
+  }
+
+  if (matches.length > 1) throw new Error("phase selector matched multiple workflow steps");
+  return matches[0] || null;
+}
+
+/** Build the legacy markdown rendering for one selected workflow phase. */
+function buildPhasePrompt(steps, selector, options) {
+  const step = selectWorkflowStep(steps, selector);
+  if (!step) return "";
+  return buildPrompt([step], options);
 }
 
 /**
@@ -265,4 +398,10 @@ function loadPersonas(pmDir, pluginRoot) {
   return personas;
 }
 
-module.exports = { loadWorkflow, buildPrompt, loadPersonas };
+module.exports = {
+  loadWorkflow,
+  buildPrompt,
+  selectWorkflowStep,
+  buildPhasePrompt,
+  loadPersonas,
+};
