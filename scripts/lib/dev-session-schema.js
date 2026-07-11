@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { routeDevWork } = require("./dev-risk");
+const { validateWorkUnits } = require("./dev-work-units");
 
 const RUNNER_VERSION = "2.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -62,7 +63,7 @@ const PHASE_METADATA = Object.freeze({
   implementation: phaseMetadata(["local_writes"], ["tdd"], true, ["test"]),
   "design-critique": phaseMetadata(["local_writes"], ["design-critique"], true, ["review"]),
   qa: phaseMetadata([], ["qa"], true, ["test"]),
-  review: phaseMetadata(["native_subagents"], ["review"], true, ["review"]),
+  review: phaseMetadata([], ["review"], true, ["review"]),
   ship: phaseMetadata([], ["verification"], true, ["test"]),
   retro: phaseMetadata([], [], false),
 });
@@ -388,9 +389,11 @@ function validateStateEvidence(evidence, errors) {
       errors.push(issue(evidencePath, "must be an object"));
       continue;
     }
-    const fields = new Set(["commit", "records", "recorded_at"]);
+    const fields = new Set(["commit", "records", "recorded_at", "verified_commit", "verified_at"]);
     validateExactFields(evidenceSet, fields, evidencePath, errors);
-    for (const field of fields) requireField(evidenceSet, field, evidencePath, errors);
+    for (const field of ["commit", "records", "recorded_at"]) {
+      requireField(evidenceSet, field, evidencePath, errors);
+    }
     if (
       evidenceSet.commit !== null &&
       (typeof evidenceSet.commit !== "string" || !evidenceSet.commit)
@@ -406,6 +409,18 @@ function validateStateEvidence(evidence, errors) {
     }
     if (!isIsoDate(evidenceSet.recorded_at)) {
       errors.push(issue(`${evidencePath}.recorded_at`, "must be an ISO date"));
+    }
+    const hasVerifiedCommit = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_commit");
+    const hasVerifiedAt = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_at");
+    if (hasVerifiedCommit !== hasVerifiedAt) {
+      errors.push(issue(evidencePath, "verified_commit and verified_at must be written together"));
+    } else if (hasVerifiedCommit) {
+      if (typeof evidenceSet.verified_commit !== "string" || !evidenceSet.verified_commit) {
+        errors.push(issue(`${evidencePath}.verified_commit`, "must be a commit string"));
+      }
+      if (!isIsoDate(evidenceSet.verified_at)) {
+        errors.push(issue(`${evidencePath}.verified_at`, "must be an ISO date"));
+      }
     }
   }
 }
@@ -469,6 +484,18 @@ function validateBlockers(blockers, errors) {
       errors.push(issue(`${blockerPath}.phase`, "invalid phase"));
     if (!isIsoDate(blocker.recorded_at))
       errors.push(issue(`${blockerPath}.recorded_at`, "must be an ISO date"));
+    const hasResolvedAt = Object.prototype.hasOwnProperty.call(blocker, "resolved_at");
+    const hasResolution = Object.prototype.hasOwnProperty.call(blocker, "resolution");
+    if (hasResolvedAt !== hasResolution) {
+      errors.push(issue(blockerPath, "resolved_at and resolution must be written together"));
+    } else if (hasResolvedAt) {
+      if (!isIsoDate(blocker.resolved_at)) {
+        errors.push(issue(`${blockerPath}.resolved_at`, "must be an ISO date"));
+      }
+      if (typeof blocker.resolution !== "string" || !blocker.resolution.trim()) {
+        errors.push(issue(`${blockerPath}.resolution`, "must be a non-empty string"));
+      }
+    }
   });
 }
 
@@ -572,20 +599,33 @@ function validateResult(session, result, options = {}) {
     errors.push(issue("$.status", `session is ${session.status}, not active`));
 
   const metadata = PHASE_METADATA[session.phase];
+  const applicableGates = metadata.gates.filter((gate) =>
+    session.routing.required_gates.includes(gate)
+  );
+  if (result.status === "noop" && (metadata.requires_commit || applicableGates.length > 0)) {
+    errors.push(
+      issue(
+        "$.status",
+        `${session.phase} cannot use noop because it carries required work or gates`
+      )
+    );
+  }
   if (result.status === "passed") {
     if (metadata?.requires_commit && !result.commit) {
       errors.push(issue("$.commit", `${session.phase} requires a commit`));
     }
-    if (metadata?.required_evidence_kinds.length > 0) {
+    const requiredEvidenceKinds =
+      applicableGates.length > 0 ? metadata.required_evidence_kinds : [];
+    if (requiredEvidenceKinds.length > 0) {
       const records = Array.isArray(result.evidence) ? result.evidence : [];
-      const kindSatisfied = metadata.required_evidence_kinds.some((kind) =>
+      const kindSatisfied = requiredEvidenceKinds.some((kind) =>
         records.some((record) => record?.kind === kind && record.exit_code === 0)
       );
       if (!kindSatisfied) {
         errors.push(
           issue(
             "$.evidence",
-            `${session.phase} requires passing evidence: ${metadata.required_evidence_kinds.join(", ")}`
+            `${session.phase} requires passing evidence: ${requiredEvidenceKinds.join(", ")}`
           )
         );
       }
@@ -634,6 +674,12 @@ function createSession(options) {
     throw new Error("createSession requires slug and sourceDir");
   }
   const sourceDir = path.resolve(options.sourceDir);
+  let repoRoot;
+  try {
+    repoRoot = path.resolve(runGit(sourceDir, ["rev-parse", "--show-toplevel"]));
+  } catch {
+    throw new Error(`source directory is not a Git worktree: ${sourceDir}`);
+  }
   const slug = normalizeSlug(options.slug);
   const now = options.now || new Date().toISOString();
   const branch = gitValue(sourceDir, ["branch", "--show-current"], "detached");
@@ -649,8 +695,8 @@ function createSession(options) {
     created_at: now,
     updated_at: now,
     source: {
-      repo_root: sourceDir,
-      worktree: sourceDir,
+      repo_root: repoRoot,
+      worktree: repoRoot,
       branch,
       default_branch: defaultBranch,
       base_commit: head,
@@ -726,6 +772,7 @@ function applyRouting(session, facts, options = {}) {
   }
   if (facts.work_units !== undefined) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
+    validateWorkUnits(facts.work_units);
     next.task.work_units = structuredClone(facts.work_units);
   }
   next.routing = {
@@ -736,6 +783,29 @@ function applyRouting(session, facts, options = {}) {
     reasons: [...route.reasons],
   };
   next.updated_at = options.now || new Date().toISOString();
+  assertValidSession(next);
+  return next;
+}
+
+function recertifyEvidence(session, phases, commit, options = {}) {
+  assertValidSession(session);
+  if (!Array.isArray(phases) || phases.length === 0) {
+    throw new TypeError("recertification requires at least one evidence phase");
+  }
+  const commitErrors = [];
+  validateCommit(session, commit, options, commitErrors);
+  if (commitErrors.length > 0)
+    throw validationError("recertification commit is invalid", commitErrors);
+  const next = structuredClone(session);
+  const timestamp = options.now || new Date().toISOString();
+  for (const phase of [...new Set(phases)]) {
+    if (!PHASES.includes(phase)) throw new Error(`unknown evidence phase: ${phase}`);
+    const evidence = next.evidence[phase];
+    if (!evidence?.commit) throw new Error(`cannot recertify missing evidence for ${phase}`);
+    evidence.verified_commit = commit;
+    evidence.verified_at = timestamp;
+  }
+  next.updated_at = timestamp;
   assertValidSession(next);
   return next;
 }
@@ -865,6 +935,7 @@ function nextDecision(session, sessionPath = null) {
     session_path: sessionPath ? path.resolve(sessionPath) : null,
     status: session.status,
     phase: session.phase,
+    instruction_path: PHASE_INSTRUCTION_PATHS[session.phase],
     attempt: session.phase_attempt,
     required_capabilities: [...metadata.required_capabilities],
     applicable_gates: metadata.gates.filter((gate) =>
@@ -913,7 +984,14 @@ function recordResult(session, result, options = {}) {
     runtime: result.runtime,
   });
 
-  if (result.evidence.length > 0) {
+  if (result.runtime.session_id) {
+    next.execution.runtime_session_id = result.runtime.session_id;
+    next.execution.runtime = result.runtime.provider;
+    next.execution.model = result.runtime.model;
+    next.execution.reasoning = result.runtime.reasoning;
+  }
+
+  if (result.status === "passed" && result.evidence.length > 0) {
     next.evidence[priorPhase] = {
       commit: result.commit,
       records: structuredClone(result.evidence),
@@ -974,13 +1052,19 @@ function recordResult(session, result, options = {}) {
 }
 
 function assertFinalGates(session, resultCommit, options) {
-  const head = resultCommit || (options.branchHead || defaultBranchHead)(session);
+  const latestRecordedCommit = [...session.attempts]
+    .reverse()
+    .find((attempt) => attempt.commit)?.commit;
+  const head =
+    resultCommit || latestRecordedCommit || (options.branchHead || defaultBranchHead)(session);
   const gateToPhase = { tdd: "implementation", review: "review", verification: "ship" };
   const missing = [];
   for (const gate of session.routing.required_gates) {
     const phase = gateToPhase[gate] || gate;
     const record = session.evidence[phase];
-    if (!record || !record.commit || record.commit !== head) missing.push(gate);
+    if (!record || !record.commit || (record.commit !== head && record.verified_commit !== head)) {
+      missing.push(gate);
+    }
   }
   if (missing.length > 0) {
     throw validationError("final gate evidence is missing or stale", [
@@ -1004,6 +1088,72 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
+function resumeBlocked(session, resolution, options = {}) {
+  assertValidSession(session);
+  if (session.status !== "blocked") throw new Error("only a blocked session can be resumed");
+  if (typeof resolution !== "string" || !resolution.trim()) {
+    throw new TypeError("resume resolution must be a non-empty string");
+  }
+  const next = structuredClone(session);
+  const blocker = [...next.blockers].reverse().find((entry) => !entry.resolved_at);
+  if (!blocker) throw new Error("blocked session has no unresolved blocker");
+  const timestamp = options.now || new Date().toISOString();
+  blocker.resolved_at = timestamp;
+  blocker.resolution = resolution.trim();
+  next.status = "active";
+  next.phase_attempt = 1;
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function grantAuthority(session, actions, reason, options = {}) {
+  assertValidSession(session);
+  if (!Array.isArray(actions) || actions.length === 0) {
+    throw new TypeError("authority grant requires at least one action");
+  }
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new TypeError("authority grant requires a non-empty reason");
+  }
+  const grantable = new Set(["push_feature_branch", "create_pr", "merge", "tracker_updates"]);
+  const next = structuredClone(session);
+  for (const action of [...new Set(actions)]) {
+    if (!grantable.has(action))
+      throw new Error(`authority action is not externally grantable: ${action}`);
+    next.authority[action] = true;
+  }
+  next.routing.reasons.push(
+    `Authority grant (${[...new Set(actions)].join(", ")}): ${reason.trim()}`
+  );
+  next.updated_at = options.now || new Date().toISOString();
+  assertValidSession(next);
+  return next;
+}
+
+function updateWorkspace(session, worktree, options = {}) {
+  assertValidSession(session);
+  const requested = path.resolve(worktree);
+  const resolved = path.resolve(runGit(requested, ["rev-parse", "--show-toplevel"]));
+  const sourceCommon = resolveGitCommonDir(session.source.repo_root);
+  const worktreeCommon = resolveGitCommonDir(resolved);
+  if (sourceCommon !== worktreeCommon) {
+    throw new Error(`worktree does not belong to the session repository: ${resolved}`);
+  }
+  const branch = runGit(resolved, ["branch", "--show-current"]);
+  if (!branch) throw new Error(`worktree is detached: ${resolved}`);
+  const next = structuredClone(session);
+  next.source.worktree = resolved;
+  next.source.branch = branch;
+  next.updated_at = options.now || new Date().toISOString();
+  assertValidSession(next);
+  return next;
+}
+
+function resolveGitCommonDir(worktree) {
+  const value = runGit(worktree, ["rev-parse", "--git-common-dir"]);
+  return fs.realpathSync(path.resolve(worktree, value));
+}
+
 function migrateLegacyMarkdown(legacyPath, options = {}) {
   const absoluteLegacyPath = path.resolve(legacyPath);
   const text = fs.readFileSync(absoluteLegacyPath, "utf8");
@@ -1020,7 +1170,15 @@ function migrateLegacyMarkdown(legacyPath, options = {}) {
     runId: normalizeLegacyRunId(values["Run ID"]),
     now: isIsoDate(values["Started at"]) ? new Date(values["Started at"]).toISOString() : now,
   });
-  session.phase = normalizeLegacyPhase(values.Stage);
+  const legacyPhase = normalizeLegacyPhase(values.Stage);
+  session.phase = ["review", "ship", "retro"].includes(legacyPhase)
+    ? "implementation"
+    : legacyPhase;
+  if (session.phase === "implementation" && legacyPhase !== "implementation") {
+    session.routing.reasons = [
+      `Legacy ${legacyPhase} session routed through implementation to rebuild current gate evidence`,
+    ];
+  }
   const legacyWorktree = values.Worktree || values["Active cwd"];
   session.source.worktree = legacyWorktree ? path.resolve(sourceDir, legacyWorktree) : sourceDir;
   session.source.branch = values.Branch || session.source.branch;
@@ -1118,16 +1276,21 @@ module.exports = {
   RUNNER_VERSION,
   applyRouting,
   createSession,
+  grantAuthority,
+  hashResult,
   migrateLegacyMarkdown,
   nextDecision,
   projectMarkdown,
   promptMetadata,
   readSession,
+  recertifyEvidence,
   recordResult,
+  resumeBlocked,
   validateResult,
   validateResultEnvelope,
   validateSession,
   validationError,
+  updateWorkspace,
   writeJsonAtomic,
   writeSession,
 };

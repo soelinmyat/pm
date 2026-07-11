@@ -167,6 +167,31 @@ test("listDevSessions reads canonical v2 JSON and suppresses a same-slug project
   }
 });
 
+test("listDevSessions omits completed canonical sessions and deduplicates retained root legacy state", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/done/session.json",
+      JSON.stringify({ schema_version: 2, slug: "done", status: "complete", phase: "retro" })
+    );
+    project.write(
+      ".pm/dev-sessions/old/session.json",
+      JSON.stringify({ schema_version: 2, slug: "old", status: "active", phase: "review" })
+    );
+    project.write(
+      ".dev-state-old.md",
+      "# Legacy\n\n| Field | Value |\n|---|---|\n| Stage | review |\n"
+    );
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.deepEqual(
+      sessions.map((session) => session.topic),
+      ["old"]
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("listRfcSessions reads source-side .pm/rfc-sessions/ via the documented markdown-table schema", () => {
   const project = mktmp();
   try {

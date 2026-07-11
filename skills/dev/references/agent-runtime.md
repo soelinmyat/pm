@@ -44,14 +44,22 @@ Defaults are data-driven:
 
 Environment overrides are supported by the adapter. Broad modes (`danger-full-access`, `bypassPermissions`) require `PM_DEV_ALLOW_BROAD_PERMISSIONS=1` and are never the default.
 
+Override precedence is provider-specific variable, then generic variable, then profile default:
+
+| Setting | Generic | Codex | Claude |
+|---|---|---|---|
+| Model | `PM_DEV_MODEL` | `PM_DEV_CODEX_MODEL` | `PM_DEV_CLAUDE_MODEL` |
+| Effort | `PM_DEV_EFFORT` | `PM_DEV_CODEX_REASONING_EFFORT` | `PM_DEV_CLAUDE_EFFORT` |
+| Permission | — | `PM_DEV_CODEX_SANDBOX` | `PM_DEV_CLAUDE_PERMISSION_MODE` |
+
 ## Structured dispatch
 
-Invoke `scripts/dev-runtime/dispatch.js` with runtime, worktree, prompt file, result file, and log file. The adapter:
+Invoke `scripts/dev-runtime/dispatch.js` with runtime, worktree, prompt file, result file, log file, work-unit ID, and the unit's ownership array as `--owns-json`. The adapter:
 
 - prepends root-owned authority constraints;
 - writes runtime metadata atomically;
 - records JSONL events and stderr separately;
-- validates the final worker result;
+- validates the final worker result, reported HEAD commit, changed-file count, and owned paths;
 - persists the runtime session/thread ID for safe resumption;
 - classifies missing CLI, malformed output, crash, and quota conditions without claiming success.
 

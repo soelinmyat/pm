@@ -118,13 +118,16 @@ describe("dev runtime adapters", () => {
     assert.throws(() => validateWorkerResult({ status: "blocked" }), /schema_version/);
     assert.throws(
       () =>
-        validateWorkerResult({
-          status: "merged",
-          issue_id: "PM-1",
-          pr: "1",
-          merge_sha: "abc",
-          files_changed: 1,
-        }),
+        validateWorkerResult(
+          {
+            status: "merged",
+            issue_id: "PM-1",
+            pr: "1",
+            merge_sha: "abc",
+            files_changed: 1,
+          },
+          { allowLegacyMerged: true }
+        ),
       /integer pr/
     );
   });
@@ -155,13 +158,16 @@ describe("dev runtime adapters", () => {
     assert.equal(schema.additionalProperties, false);
     assert.doesNotThrow(() => validateWorkerResult(validCompleted("codex")));
     assert.doesNotThrow(() =>
-      validateWorkerResult({
-        status: "merged",
-        issue_id: "PM-1.1",
-        pr: 1,
-        merge_sha: "abc",
-        files_changed: 1,
-      })
+      validateWorkerResult(
+        {
+          status: "merged",
+          issue_id: "PM-1.1",
+          pr: 1,
+          merge_sha: "abc",
+          files_changed: 1,
+        },
+        { allowLegacyMerged: true }
+      )
     );
   });
 });
@@ -172,9 +178,9 @@ function validCompleted(provider) {
     work_unit_id: "unit-1",
     status: "completed",
     summary: "tests pass",
-    commit: null,
+    commit: "abc123",
     files_changed: 1,
-    evidence: [{ kind: "test" }],
+    evidence: [{ kind: "test", exit_code: 0 }],
     blocker: null,
     runtime: { provider },
   };

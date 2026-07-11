@@ -13,6 +13,10 @@ dev-session next --session <path> [--json]
 dev-session prompt --session <path> --output <path>
 dev-session route --session <path> --facts <json-path> [--json]
 dev-session record --session <path> --result <path>
+dev-session recertify --session <path> --phases <csv> --commit <sha>
+dev-session unblock --session <path> --reason <resolution>
+dev-session authorize --session <path> --grant <csv> --reason <consent>
+dev-session workspace --session <path> --worktree <path>
 dev-session validate --session <path>
 dev-session migrate --legacy <path> [--output <path>]
 dev-session project --session <path> [--output <path>]
@@ -38,6 +42,7 @@ The runner is the only lifecycle writer. `next` and `prompt` are read-only. `rec
 - A blocked result contains a stable blocker code and reason.
 - The same failed phase receives at most three validated attempts before the session blocks.
 - Completion requires every routed phase and final required gate to have current evidence.
+- After later review/fix commits, `recertify` preserves the original evidence commit and writes paired `verified_commit` / `verified_at` fields for phases whose evidence was actually rechecked. Completion accepts either the original or verified commit when it equals current HEAD.
 
 Every accepted result appends a history record with the prior phase, next phase, reason, SHA-256 result hash, timestamp, and runner version. Results never grant authority or modify routing.
 

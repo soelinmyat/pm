@@ -35,7 +35,13 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
 5. If branch/worktree already exists:
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
-6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}/session.json`.
+6. Record the verified worktree atomically; never hand-edit source paths in JSON:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" workspace \
+     --session "{absolute_session_path}" \
+     --worktree "${REPO_ROOT}/.worktrees/<slug>"
+   ```
+   Continue using the absolute session path returned by `init`; it remains in the originating repository even after cwd moves into the feature worktree.
 7. **Update local backlog status to in-progress:**
 
    **Loop worker branch:** If `PM_LOOP_WORKER=1`, skip this backlog write (including the parent write) and log `Backlog write: skipped-loop-worker`. The loop worker already owns the durable claim and is the only process allowed to finalize card state. Continue with worktree prep and every implementation/quality gate below.

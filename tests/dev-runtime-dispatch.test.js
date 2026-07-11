@@ -18,7 +18,7 @@ describe("dev runtime structured dispatch", () => {
         'if (args.includes("--version")) { process.stdout.write("codex-cli 0.144.0\\n"); process.exit(0); }',
         'if (args.includes("--help")) { process.stdout.write(args.includes("resume") ? "exec resume --json --output-schema\\n" : "--sandbox --json --output-schema --output-last-message\\n"); process.exit(0); }',
         'const output = args[args.indexOf("--output-last-message") + 1];',
-        `fs.writeFileSync(output, JSON.stringify(${JSON.stringify(validCompleted("codex"))}));`,
+        `fs.writeFileSync(output, JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
         'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-42" }) + "\\n");',
       ].join("\n");
       installStub(fixture.binDir, "codex", stub);
@@ -45,7 +45,7 @@ describe("dev runtime structured dispatch", () => {
         'if (args.includes("--version")) { process.stdout.write("2.1.207\\n"); process.exit(0); }',
         'if (args.includes("--help")) { process.stdout.write("--json-schema stream-json --resume --permission-mode auto\\n"); process.exit(0); }',
         'process.stdout.write(JSON.stringify({ type: "system", session_id: "session-9" }) + "\\n");',
-        `process.stdout.write(JSON.stringify({ type: "result", session_id: "session-9", structured_output: ${JSON.stringify(validCompleted("claude"))} }) + "\\n");`,
+        `process.stdout.write(JSON.stringify({ type: "result", session_id: "session-9", structured_output: ${JSON.stringify(validCompleted("claude", fixture.commit))} }) + "\\n");`,
       ].join("\n");
       installStub(fixture.binDir, "claude", stub);
       runDispatch(fixture);
@@ -89,6 +89,16 @@ function createFixture(runtime) {
   const binDir = path.join(tmp, "bin");
   fs.mkdirSync(worktree);
   fs.mkdirSync(binDir);
+  execFileSync("git", ["init", "-q", worktree]);
+  execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+  execFileSync("git", ["-C", worktree, "config", "user.name", "Test"]);
+  fs.mkdirSync(path.join(worktree, "src"));
+  fs.writeFileSync(path.join(worktree, "src", "unit.js"), "module.exports = 1;\n");
+  execFileSync("git", ["-C", worktree, "add", "src/unit.js"]);
+  execFileSync("git", ["-C", worktree, "commit", "-qm", "worker change"]);
+  const commit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
   const promptFile = path.join(tmp, "prompt.txt");
   fs.writeFileSync(promptFile, "Implement the bounded unit.\n");
   const logFile = path.join(tmp, "run.log");
@@ -101,18 +111,19 @@ function createFixture(runtime) {
     resultFile: path.join(tmp, "result.json"),
     logFile,
     eventsFile: path.join(tmp, "run.events.jsonl"),
+    commit,
   };
 }
 
-function validCompleted(provider) {
+function validCompleted(provider, commit = "abc123") {
   return {
     schema_version: 1,
     work_unit_id: "unit-1",
     status: "completed",
     summary: "green",
-    commit: null,
+    commit,
     files_changed: 1,
-    evidence: [{ kind: "test" }],
+    evidence: [{ kind: "test", exit_code: 0 }],
     blocker: null,
     runtime: { provider },
   };
@@ -139,6 +150,10 @@ function runDispatch(fixture) {
       fixture.resultFile,
       "--log-file",
       fixture.logFile,
+      "--work-unit-id",
+      "unit-1",
+      "--owns-json",
+      '["src/**"]',
     ],
     {
       env: { ...process.env, PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH}` },

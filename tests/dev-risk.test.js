@@ -79,6 +79,16 @@ test("routeDevWork: kind cannot erase full review for a high-risk task", () => {
   assert.match(route.reasons.join("\n"), /high risk requires full review/i);
 });
 
+test("routeDevWork: a public contract break promotes even XS work to full review", () => {
+  const route = routeDevWork({
+    kind: "bug",
+    size: "XS",
+    risk: { external_contract: 2 },
+  });
+  assert.equal(route.risk_tier, "high");
+  assert.equal(route.review_mode, "full");
+});
+
 test("routeDevWork: M+ proposals require readiness while tasks with clear scope do not", () => {
   const proposal = routeDevWork({ kind: "proposal", size: "M", risk: { behavioral: 1 } });
   const task = routeDevWork({ kind: "task", size: "L", risk: { behavioral: 1 } });

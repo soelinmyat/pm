@@ -122,7 +122,7 @@ test("low-risk S work receives a code scan instead of silently skipping review",
 test("XS work uses the same durable runner and cannot bypass final gates", () => {
   const text = read("skills/dev/SKILL.md");
   assert.doesNotMatch(text, /XS Express/);
-  assert.match(text, /Create canonical state for fresh work/);
+  assert.match(text, /create canonical state for fresh work/i);
   assert.match(text, /Complete routed gates/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
 });

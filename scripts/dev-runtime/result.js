@@ -14,10 +14,13 @@ function parseJson(value, label = "result") {
   }
 }
 
-function validateWorkerResult(input) {
+function validateWorkerResult(input, options = {}) {
   const result = parseJson(input, "worker result");
   if (Array.isArray(result)) throw new Error("worker result must be an object");
   if (result.status === "merged") {
+    if (!options.allowLegacyMerged) {
+      throw new Error("merged worker result is allowed only in legacy compatibility mode");
+    }
     if (!nonEmpty(result.issue_id))
       throw new Error("legacy merged worker result requires issue_id");
     if (!Number.isInteger(result.pr) || result.pr < 1)
@@ -28,7 +31,11 @@ function validateWorkerResult(input) {
       throw new Error("legacy merged worker result requires non-negative integer files_changed");
     return result;
   }
-  return validateWorkUnitResult(result);
+  return validateWorkUnitResult(result, {
+    expectedWorkUnitId: options.expectedWorkUnitId,
+    expectedOwnership: options.expectedOwnership,
+    worktree: options.worktree,
+  });
 }
 
 function nonEmpty(value) {

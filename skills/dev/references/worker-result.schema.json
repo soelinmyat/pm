@@ -21,14 +21,17 @@
     "status": { "enum": ["completed", "blocked", "failed"] },
     "summary": { "type": "string", "minLength": 1 },
     "reason": { "type": "string", "minLength": 1 },
-    "commit": { "type": ["string", "null"] },
+    "commit": { "type": ["string", "null"], "minLength": 1 },
     "files_changed": { "type": "integer", "minimum": 0 },
     "evidence": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["kind"],
-        "properties": { "kind": { "type": "string", "minLength": 1 } },
+        "required": ["kind", "exit_code"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "integer" }
+        },
         "additionalProperties": true
       }
     },
@@ -53,7 +56,20 @@
   "allOf": [
     {
       "if": { "properties": { "status": { "const": "completed" } } },
-      "then": { "properties": { "evidence": { "minItems": 1 }, "blocker": { "type": "null" } } }
+      "then": {
+        "properties": {
+          "commit": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "minItems": 1,
+            "contains": {
+              "type": "object",
+              "required": ["exit_code"],
+              "properties": { "exit_code": { "const": 0 } }
+            }
+          },
+          "blocker": { "type": "null" }
+        }
+      }
     },
     {
       "if": { "properties": { "status": { "enum": ["blocked", "failed"] } } },

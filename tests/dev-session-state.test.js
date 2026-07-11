@@ -11,9 +11,13 @@ const {
   PHASES,
   applyRouting,
   createSession,
+  grantAuthority,
   migrateLegacyMarkdown,
   readSession,
+  recertifyEvidence,
   recordResult,
+  resumeBlocked,
+  updateWorkspace,
   validateResult,
   validateSession,
   writeJsonAtomic,
@@ -37,6 +41,141 @@ test("applyRouting persists observed risk and prevents kind from erasing safegua
     assert.ok(routed.routing.required_gates.includes("review"));
     assert.deepEqual(validateSession(routed), []);
     assert.equal(session.task.risk_tier, "unassessed", "routing must not mutate its input");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("applyRouting rejects invalid work-unit dependencies before persisting intake", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "invalid-dag", sourceDir: repo.root });
+    assert.throws(
+      () =>
+        applyRouting(session, {
+          kind: "task",
+          size: "S",
+          risk: {},
+          work_units: [
+            { id: "a", title: "A", depends_on: ["missing"], owns: ["a.js"], status: "pending" },
+          ],
+        }),
+      /unknown dependency missing/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("recertified gate evidence remains current after review fixes change HEAD", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "recertify", sourceDir: repo.root });
+    session.routing.required_phases = ["implementation", "retro"];
+    session.routing.required_gates = ["tdd"];
+    session.phase = "implementation";
+    const original = repo.head();
+    session = recordResult(
+      session,
+      passedResult(session, {
+        commit: original,
+        evidence: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+      })
+    );
+    fs.appendFileSync(path.join(repo.root, "README.md"), "review fix\n");
+    execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+    execFileSync("git", ["commit", "-m", "review fix"], { cwd: repo.root });
+    const finalHead = repo.head();
+    session = recertifyEvidence(session, ["implementation"], finalHead);
+    assert.equal(session.evidence.implementation.commit, original);
+    assert.equal(session.evidence.implementation.verified_commit, finalHead);
+    session = recordResult(session, passedResult(session));
+    assert.equal(session.status, "complete");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("failed gate evidence cannot be advanced or recertified through noop", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "failed-noop", sourceDir: repo.root });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.routing.required_gates = ["tdd"];
+    session = recordResult(
+      session,
+      passedResult(session, {
+        status: "failed",
+        commit: repo.head(),
+        evidence: [{ kind: "test", command: "node --test", exit_code: 1, artifact: null }],
+      })
+    );
+    assert.equal(session.evidence.implementation, undefined);
+    assert.throws(
+      () => recordResult(session, passedResult(session, { status: "noop", attempt: 2 })),
+      /cannot use noop/
+    );
+    assert.throws(
+      () => recertifyEvidence(session, ["implementation"], repo.head()),
+      /missing evidence/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("blocked sessions resume only through an audited resolution", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "unblock", sourceDir: repo.root });
+    session = recordResult(
+      session,
+      passedResult(session, {
+        status: "blocked",
+        blocker: { code: "auth", reason: "Login required", remediation: "Authenticate" },
+      })
+    );
+    session = resumeBlocked(session, "Authenticated the runtime");
+    assert.equal(session.status, "active");
+    assert.equal(session.phase_attempt, 1);
+    assert.equal(session.blockers[0].resolution, "Authenticated the runtime");
+    assert.ok(session.blockers[0].resolved_at);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("external authority requires an explicit recorded grant", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "authority", sourceDir: repo.root });
+    const granted = grantAuthority(session, ["merge", "tracker_updates"], "User asked to ship");
+    assert.equal(granted.authority.merge, true);
+    assert.equal(granted.authority.tracker_updates, true);
+    assert.match(granted.routing.reasons.at(-1), /User asked to ship/);
+    assert.equal(session.authority.merge, false);
+    assert.throws(
+      () => grantAuthority(session, ["local_writes"], "expand"),
+      /not externally grantable/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("workspace updates are verified against the same Git repository", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "workspace", sourceDir: repo.root });
+    const worktree = path.join(repo.root, ".worktrees", "feature");
+    fs.mkdirSync(path.dirname(worktree), { recursive: true });
+    execFileSync("git", ["worktree", "add", "-b", "feature/test", worktree], {
+      cwd: repo.root,
+    });
+    const updated = updateWorkspace(session, worktree);
+    assert.equal(updated.source.worktree, fs.realpathSync(worktree));
+    assert.equal(updated.source.branch, "feature/test");
   } finally {
     repo.cleanup();
   }
@@ -92,7 +231,7 @@ test("createSession produces a strict, cold-resumable v2 state", () => {
     assert.equal(session.phase, "intake");
     assert.equal(session.phase_attempt, 1);
     assert.deepEqual(session.routing.required_phases, PHASES);
-    assert.equal(session.source.repo_root, repo.root);
+    assert.equal(session.source.repo_root, fs.realpathSync(repo.root));
     assert.equal(session.source.branch, "main");
     assert.equal(session.source.base_commit, repo.head());
     assert.deepEqual(validateSession(session), []);
@@ -169,6 +308,22 @@ test("a mismatched or evidence-free required result cannot advance", () => {
   }
 });
 
+test("late-phase legacy migration routes back through implementation for fresh gates", () => {
+  const repo = makeRepo();
+  try {
+    const legacyPath = path.join(repo.root, ".dev-state-late.md");
+    fs.writeFileSync(
+      legacyPath,
+      `# Legacy\n\n| Field | Value |\n|---|---|\n| Stage | ship |\n| Repo root | ${repo.root} |\n`
+    );
+    const { session } = migrateLegacyMarkdown(legacyPath);
+    assert.equal(session.phase, "implementation");
+    assert.match(session.routing.reasons[0], /rebuild current gate evidence/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("recordResult advances deterministically and records a result hash", () => {
   const repo = makeRepo();
   try {
@@ -193,6 +348,29 @@ test("runtime session IDs are optional in provider-neutral results", () => {
     const result = passedResult(session);
     delete result.runtime.session_id;
     assert.deepEqual(validateResult(session, result), []);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("recordResult persists provider session identity for cold resume", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "runtime-resume", sourceDir: repo.root });
+    const updated = recordResult(
+      session,
+      passedResult(session, {
+        runtime: {
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoning: "high",
+          session_id: "thread-42",
+        },
+      })
+    );
+    assert.equal(updated.execution.runtime_session_id, "thread-42");
+    assert.equal(updated.execution.runtime, "codex");
+    assert.equal(updated.execution.model, "gpt-5.6-sol");
   } finally {
     repo.cleanup();
   }

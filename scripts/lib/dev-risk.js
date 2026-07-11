@@ -54,6 +54,9 @@ function assessRisk(input = {}) {
   } else {
     if (dimensions.security >= 2) reasons.push("security boundary requires high-risk handling");
     if (dimensions.auth >= 1) reasons.push("authorization change requires high-risk handling");
+    if (dimensions.external_contract >= 2) {
+      reasons.push("public contract change requires high-risk handling");
+    }
     if (input.destructive_data) {
       reasons.push("destructive data change requires high-risk handling");
     }

@@ -119,7 +119,7 @@ function buildDevDescriptor(filePath, stat, text) {
   const parentTitle = markdownTableValue(text, "Parent Title");
   const currentSubIssue = bulletValue(text, "Current sub-issue");
 
-  const cleanName = baseName.replace(/^(epic|bugfix)-/, "");
+  const cleanName = baseName.replace(/^\.dev-(?:epic-)?state-/, "").replace(/^(epic|bugfix)-/, "");
   const topic = parentTitle || cleanName;
   const label = ticket ? `${ticket}: ${topic}` : topic;
 
@@ -149,6 +149,7 @@ function buildDevJsonDescriptor(filePath, stat, text) {
     return null;
   }
   if (session?.schema_version !== 2 || typeof session.slug !== "string") return null;
+  if (session.status === "complete") return null;
   const reference = typeof session.task?.reference === "string" ? session.task.reference : "";
   const label = reference ? `${reference}: ${session.slug}` : session.slug;
   return {

@@ -7,14 +7,19 @@ const path = require("node:path");
 const {
   applyRouting,
   createSession,
+  grantAuthority,
+  hashResult,
   migrateLegacyMarkdown,
   nextDecision,
   projectMarkdown,
   promptMetadata,
   readSession,
+  recertifyEvidence,
   recordResult,
+  resumeBlocked,
   validateResultEnvelope,
   validateSession,
+  updateWorkspace,
   writeJsonAtomic,
   writeSession,
 } = require("./lib/dev-session-schema");
@@ -43,6 +48,14 @@ function main(argv) {
       return routeCommand(options);
     case "record":
       return recordCommand(options);
+    case "recertify":
+      return recertifyCommand(options);
+    case "unblock":
+      return unblockCommand(options);
+    case "authorize":
+      return authorizeCommand(options);
+    case "workspace":
+      return workspaceCommand(options);
     case "validate":
       return validateCommand(options);
     case "migrate":
@@ -86,18 +99,23 @@ function initCommand(options) {
   if (!fs.existsSync(sourceDir) || !fs.statSync(sourceDir).isDirectory()) {
     throw cliError(`source directory does not exist: ${sourceDir}`, EXIT.PRECONDITION);
   }
-  const session = createSession({
-    slug: options.slug,
-    sourceDir,
-    task: options.task,
-    kind: options.kind,
-    size: options.size,
-    profile: options.profile,
-    runtime: options.runtime,
-    model: options.model,
-    reasoning: options.reasoning,
-    mode: options.mode,
-  });
+  let session;
+  try {
+    session = createSession({
+      slug: options.slug,
+      sourceDir,
+      task: options.task,
+      kind: options.kind,
+      size: options.size,
+      profile: options.profile,
+      runtime: options.runtime,
+      model: options.model,
+      reasoning: options.reasoning,
+      mode: options.mode,
+    });
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
   const sessionPath = path.join(
     session.source.repo_root,
     ".pm",
@@ -184,7 +202,6 @@ function recordCommand(options) {
   requireOptions(options, ["session", "result"]);
   const sessionPath = path.resolve(options.session);
   const resultPath = path.resolve(options.result);
-  const session = readSession(sessionPath);
   let result;
   try {
     result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
@@ -195,24 +212,141 @@ function recordCommand(options) {
   if (envelopeErrors.length > 0) {
     throw cliError(formatValidation("result is invalid", envelopeErrors), EXIT.RESULT_INVALID);
   }
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    const session = readSession(sessionPath);
+    const resultHash = hashResult(result);
+    if (session.history.at(-1)?.result_hash === resultHash) {
+      const decision = nextDecision(session, sessionPath);
+      emit(
+        options,
+        { session_path: sessionPath, session, next: decision, idempotent: true },
+        `${decision.phase}\n`
+      );
+      return session.status === "blocked" ? EXIT.BLOCKED : EXIT.OK;
+    }
+    let updated;
+    try {
+      updated = recordResult(session, result);
+    } catch (error) {
+      throw cliError(error.message, EXIT.RESULT_INVALID);
+    }
+    writeSession(sessionPath, updated);
+    const decision = nextDecision(updated, sessionPath);
+    emit(
+      options,
+      { session_path: sessionPath, session: updated, next: decision, idempotent: false },
+      `${decision.phase}\n`
+    );
+    if (updated.status === "blocked") {
+      return updated.blockers.at(-1)?.code === "retry-exhausted"
+        ? EXIT.RETRY_EXHAUSTED
+        : EXIT.BLOCKED;
+    }
+    return EXIT.OK;
+  } finally {
+    releaseLock();
+  }
+}
+
+function acquireSessionLock(sessionPath) {
+  const lockPath = `${sessionPath}.lock`;
+  function attempt() {
+    try {
+      const descriptor = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(descriptor, `${process.pid}\n`);
+      fs.closeSync(descriptor);
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const pid = Number.parseInt(fs.readFileSync(lockPath, "utf8"), 10);
+      try {
+        process.kill(pid, 0);
+        throw cliError(`session record is locked by process ${pid}`, EXIT.PRECONDITION);
+      } catch (probeError) {
+        if (probeError.exitCode) throw probeError;
+        fs.rmSync(lockPath, { force: true });
+        return attempt();
+      }
+    }
+    return () => fs.rmSync(lockPath, { force: true });
+  }
+  return attempt();
+}
+
+function recertifyCommand(options) {
+  requireOptions(options, ["session", "phases", "commit"]);
+  const sessionPath = path.resolve(options.session);
+  const session = readSession(sessionPath);
+  const phases = options.phases
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   let updated;
   try {
-    updated = recordResult(session, result);
+    updated = recertifyEvidence(session, phases, options.commit);
   } catch (error) {
-    throw cliError(error.message, EXIT.RESULT_INVALID);
+    throw cliError(error.message, EXIT.PRECONDITION);
   }
   writeSession(sessionPath, updated);
-  const decision = nextDecision(updated, sessionPath);
   emit(
     options,
-    { session_path: sessionPath, session: updated, next: decision },
-    `${decision.phase}\n`
+    { session_path: sessionPath, phases, commit: options.commit },
+    `Recertified ${phases.join(", ")} at ${options.commit}\n`
   );
-  if (updated.status === "blocked") {
-    return updated.blockers.at(-1)?.code === "retry-exhausted"
-      ? EXIT.RETRY_EXHAUSTED
-      : EXIT.BLOCKED;
+  return EXIT.OK;
+}
+
+function unblockCommand(options) {
+  requireOptions(options, ["session", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = resumeBlocked(readSession(sessionPath), options.reason);
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
   }
+  writeSession(sessionPath, updated);
+  emit(options, { session_path: sessionPath, session: updated }, `Resumed ${updated.phase}\n`);
+  return EXIT.OK;
+}
+
+function authorizeCommand(options) {
+  requireOptions(options, ["session", "grant", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  const actions = options.grant
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  let updated;
+  try {
+    updated = grantAuthority(readSession(sessionPath), actions, options.reason);
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  writeSession(sessionPath, updated);
+  emit(
+    options,
+    { session_path: sessionPath, authority: updated.authority },
+    `Granted ${actions.join(", ")}\n`
+  );
+  return EXIT.OK;
+}
+
+function workspaceCommand(options) {
+  requireOptions(options, ["session", "worktree"]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = updateWorkspace(readSession(sessionPath), options.worktree);
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  writeSession(sessionPath, updated);
+  emit(
+    options,
+    { session_path: sessionPath, source: updated.source },
+    `${updated.source.worktree}\n`
+  );
   return EXIT.OK;
 }
 
@@ -330,6 +464,10 @@ function helpText() {
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--json]",
     "  record --session <path> --result <path> [--json]",
+    "  recertify --session <path> --phases <csv> --commit <sha> [--json]",
+    "  unblock --session <path> --reason <resolution> [--json]",
+    "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
+    "  workspace --session <path> --worktree <path> [--json]",
     "  validate --session <path> [--json]",
     "  migrate --legacy <path> [--output <path>] [--json]",
     "  project --session <path> [--output <path>] [--json]",

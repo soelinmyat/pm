@@ -29,6 +29,10 @@ Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manage
 - Monitor CI, code review, and merge readiness
 - Squash merge when all gates pass
 
+Before any external effect, read the canonical authority envelope. Push/PR, merge, and tracker updates run only when their corresponding booleans are true. If merge or tracker authority is false, stop at the reviewed PR/status boundary and return a structured blocker naming the exact grant required; do not infer consent from an approved implementation plan.
+
+After merge is verified but **before** deleting the feature branch or removing its worktree, record the ship phase result using the verified feature HEAD as `commit` and the PR/merge identity as evidence/artifacts. The squash merge SHA is observed delivery metadata, not the commit validated against the feature branch. Only after the runner advances to retro may cleanup remove the feature worktree.
+
 ### Worktree Cleanup
 
 Clean up any worktrees created during this session:
@@ -83,7 +87,7 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "PR opene
 ### After merge — set "Done" everywhere
 
 <HARD-GATE>
-You MUST complete ALL steps below in order. Local backlog updates are always required. Linear updates require user confirmation first (see Step 2b below). A merged PR with a backlog item still showing "in-progress" is a bug.
+You MUST complete ALL steps below in order. Local backlog updates are always required. Linear updates follow the configured standing-consent rule in Step 2b; `ship.skip_linear_updates: true` is the explicit opt-out. A merged PR with a backlog item still showing "in-progress" is a bug.
 </HARD-GATE>
 
 **Step 1: Create local backlog entry if missing.**

@@ -48,6 +48,7 @@ function main(argv = process.argv.slice(2)) {
   const runtimePath = path.join(resultDir, "runtime.json");
   fs.mkdirSync(resultDir, { recursive: true });
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
+  fs.rmSync(options.resultFile, { force: true });
 
   const sessionId = options.resumeId || (options.runtime === "claude" ? randomUUID() : null);
   const allowBroadPermissions = process.env.PM_DEV_ALLOW_BROAD_PERMISSIONS === "1";
@@ -73,7 +74,7 @@ function main(argv = process.argv.slice(2)) {
     });
   } catch (error) {
     process.stderr.write(`runtime configuration error: ${error.message}\n`);
-    return 1;
+    return error.code === "ENOENT" || error.cause?.code === "ENOENT" ? 3 : 1;
   }
 
   const startedAt = new Date().toISOString();
@@ -120,7 +121,12 @@ function main(argv = process.argv.slice(2)) {
   let resumeId = sessionId;
   try {
     if (fs.existsSync(options.resultFile)) {
-      result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"));
+      result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"), {
+        expectedWorkUnitId: options.workUnitId,
+        expectedOwnership: options.owns,
+        worktree: options.worktree,
+        allowLegacyMerged: process.env.PM_DEV_LEGACY_DISPATCH === "1",
+      });
     } else {
       const extracted = extractResult({
         provider: options.runtime,
@@ -128,26 +134,30 @@ function main(argv = process.argv.slice(2)) {
         lastMessagePath,
       });
       result = extracted.result;
+      validateWorkerResult(result, {
+        expectedWorkUnitId: options.workUnitId,
+        expectedOwnership: options.owns,
+        worktree: options.worktree,
+      });
       resumeId = extracted.resumeId ?? resumeId;
       writeJsonAtomic(options.resultFile, result);
     }
   } catch (error) {
     if (USAGE_LIMIT.test(`${stdout}\n${stderr}`)) {
-      result = {
-        status: "blocked",
-        reason:
-          options.runtime === "claude"
-            ? "subprocess stopped on a Claude usage, quota, or rate limit. 'claude -p' currently draws from normal subscription usage limits; enable usage credits, wait for reset, or run on an API key. See log."
-            : "subprocess stopped on a Codex usage, quota, or rate limit. Wait for reset or select another authorized profile. See log.",
-        log_file: options.logFile,
-      };
+      result = blockedResult(
+        options,
+        profile,
+        options.runtime === "claude"
+          ? "subprocess stopped on a Claude usage, quota, or rate limit. 'claude -p' currently draws from normal subscription usage limits; enable usage credits, wait for reset, or run on an API key. See log."
+          : "subprocess stopped on a Codex usage, quota, or rate limit. Wait for reset or select another authorized profile. See log."
+      );
       writeJsonAtomic(options.resultFile, result);
     } else if (fs.existsSync(options.resultFile)) {
-      result = {
-        status: "blocked",
-        reason: `runtime produced an invalid result: ${error.message}`,
-        log_file: options.logFile,
-      };
+      result = blockedResult(
+        options,
+        profile,
+        `runtime produced an invalid result: ${error.message}`
+      );
       writeJsonAtomic(options.resultFile, result);
     } else {
       finishRuntime(runtimePath, {
@@ -159,6 +169,15 @@ function main(argv = process.argv.slice(2)) {
       process.stderr.write(`Agent exited without a valid structured result: ${error.message}\n`);
       return 4;
     }
+  }
+
+  if (execution.status !== 0 && result.status === "completed") {
+    result = blockedResult(
+      options,
+      profile,
+      `runtime exited ${execution.status} after writing a completed result`
+    );
+    writeJsonAtomic(options.resultFile, result);
   }
 
   finishRuntime(runtimePath, {
@@ -189,15 +208,48 @@ function parseArgs(argv) {
       "--profile": "profileName",
       "--resume-id": "resumeId",
       "--schema": "schemaPath",
+      "--work-unit-id": "workUnitId",
+      "--owns-json": "ownsJson",
     }[flag];
     if (!key) throw new Error(`unknown argument: ${flag}`);
     options[key] = value;
   }
-  for (const required of ["runtime", "worktree", "promptFile", "resultFile", "logFile"]) {
+  for (const required of [
+    "runtime",
+    "worktree",
+    "promptFile",
+    "resultFile",
+    "logFile",
+    "workUnitId",
+    "ownsJson",
+  ]) {
     if (!options[required]) throw new Error(`--${toKebab(required)} is required`);
   }
   if (!/^(codex|claude)$/.test(options.runtime)) throw new Error("runtime must be codex or claude");
+  try {
+    options.owns = JSON.parse(options.ownsJson);
+  } catch (error) {
+    throw new Error(`--owns-json must be a JSON array: ${error.message}`);
+  }
+  if (!Array.isArray(options.owns) || options.owns.length === 0) {
+    throw new Error("--owns-json must be a non-empty JSON array");
+  }
   return options;
+}
+
+function blockedResult(options, profile, reason) {
+  return {
+    schema_version: 1,
+    work_unit_id: options.workUnitId,
+    status: "blocked",
+    summary: "Runtime could not complete the assigned work unit.",
+    reason,
+    commit: null,
+    files_changed: 0,
+    evidence: [],
+    blocker: { reason, remediation: `Inspect ${options.logFile}` },
+    runtime: { provider: options.runtime, model: profile.model, log_file: options.logFile },
+  };
 }
 
 function finishRuntime(filePath, patch) {

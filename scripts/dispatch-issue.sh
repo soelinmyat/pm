@@ -143,12 +143,14 @@ if [[ -n "${PM_CODEX_SANDBOX:-}" && -z "${PM_DEV_CODEX_SANDBOX:-}" ]]; then
 fi
 
 set +e
-node "$SCRIPT_DIR/dev-runtime/dispatch.js" \
+PM_DEV_LEGACY_DISPATCH=1 node "$SCRIPT_DIR/dev-runtime/dispatch.js" \
   --runtime "$RUNTIME" \
   --worktree "$WORKTREE" \
   --prompt-file "$RESOLVED_PROMPT" \
   --result-file "$RESULT_FILE" \
-  --log-file "$LOG_FILE"
+  --log-file "$LOG_FILE" \
+  --work-unit-id "legacy" \
+  --owns-json '["**"]'
 ADAPTER_STATUS=$?
 set -e
 

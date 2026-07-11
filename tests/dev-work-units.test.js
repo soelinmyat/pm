@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   analyzeWorkUnits,
@@ -27,6 +31,14 @@ test("validateWorkUnits: rejects duplicate IDs, missing dependencies, and cycles
   assert.throws(
     () => validateWorkUnits([unit("a", { depends_on: ["missing"] })]),
     /unknown dependency missing/
+  );
+  assert.throws(
+    () => validateWorkUnits([unit("escape", { owns: ["../shared/**"] })]),
+    /repo-relative/
+  );
+  assert.throws(
+    () => validateWorkUnits([unit("absolute", { owns: ["/tmp/file"] })]),
+    /repo-relative/
   );
   assert.throws(
     () => validateWorkUnits([unit("a", { depends_on: ["b"] }), unit("b", { depends_on: ["a"] })]),
@@ -96,6 +108,7 @@ test("analyzeWorkUnits: running ownership serializes a newly ready unit", () => 
 
 test("ownershipOverlaps: compares exact paths, directory globs, and unknown glob roots conservatively", () => {
   assert.equal(ownershipOverlaps(["src/a.js"], ["src/a.js"]), true);
+  assert.equal(ownershipOverlaps(["src"], ["src/a.js"]), true);
   assert.equal(ownershipOverlaps(["src/**"], ["src/a.js"]), true);
   assert.equal(ownershipOverlaps(["src/a/**"], ["src/b/**"]), false);
   assert.equal(ownershipOverlaps(["src/*/config.js"], ["src/api/config.js"]), true);
@@ -173,6 +186,14 @@ test("validateWorkUnitResult: rejects merged, mismatched, and evidence-free comp
     () => validateWorkUnitResult({ ...base, evidence: [] }),
     /completed result requires evidence/
   );
+  assert.throws(
+    () => validateWorkUnitResult({ ...base, commit: null }),
+    /completed result requires commit/
+  );
+  assert.throws(
+    () => validateWorkUnitResult({ ...base, evidence: [{ kind: "test", exit_code: 1 }] }),
+    /passing evidence/
+  );
 });
 
 test("validateWorkUnitResult: blocked and failed results require a structured blocker", () => {
@@ -194,4 +215,57 @@ test("validateWorkUnitResult: blocked and failed results require a structured bl
     () => validateWorkUnitResult({ ...blocked, reason: undefined, blocker: null }),
     /blocked result requires reason/
   );
+});
+
+test("validateWorkUnitResult: verifies completed commit HEAD, file count, and ownership", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-"));
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", worktree, "config", "user.name", "Test"]);
+    fs.mkdirSync(path.join(worktree, "src"));
+    fs.writeFileSync(path.join(worktree, "src", "owned.js"), "export default true;\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "worker result"]);
+    const commit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const result = {
+      schema_version: 1,
+      work_unit_id: "owned",
+      status: "completed",
+      summary: "Done.",
+      commit,
+      files_changed: 1,
+      evidence: [{ kind: "test", exit_code: 0 }],
+      blocker: null,
+      runtime: { provider: "codex" },
+    };
+
+    assert.doesNotThrow(() =>
+      validateWorkUnitResult(result, {
+        expectedWorkUnitId: "owned",
+        expectedOwnership: ["src/**"],
+        worktree,
+      })
+    );
+    assert.throws(
+      () =>
+        validateWorkUnitResult(result, {
+          expectedOwnership: ["tests/**"],
+          worktree,
+        }),
+      /outside assigned ownership: src\/owned\.js/
+    );
+    assert.throws(
+      () =>
+        validateWorkUnitResult(
+          { ...result, commit: "deadbeef" },
+          { expectedOwnership: ["src/**"], worktree }
+        ),
+      /could not verify worker commit/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
 });

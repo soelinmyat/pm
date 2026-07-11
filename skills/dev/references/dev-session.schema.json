@@ -234,7 +234,13 @@
       "properties": {
         "commit": { "type": ["string", "null"] },
         "records": { "type": "array", "items": { "$ref": "#/$defs/evidence_record" } },
-        "recorded_at": { "type": "string", "format": "date-time" }
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "verified_commit": { "type": "string", "minLength": 1 },
+        "verified_at": { "type": "string", "format": "date-time" }
+      },
+      "dependentRequired": {
+        "verified_commit": ["verified_at"],
+        "verified_at": ["verified_commit"]
       }
     },
     "runtime_result": {
@@ -269,7 +275,13 @@
         "reason": { "type": "string", "minLength": 1 },
         "remediation": { "type": "string" },
         "phase": { "$ref": "#/$defs/phase" },
-        "recorded_at": { "type": "string", "format": "date-time" }
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "resolved_at": { "type": "string", "format": "date-time" },
+        "resolution": { "type": "string", "minLength": 1 }
+      },
+      "dependentRequired": {
+        "resolved_at": ["resolution"],
+        "resolution": ["resolved_at"]
       }
     },
     "history_record": {

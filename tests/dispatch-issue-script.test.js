@@ -315,7 +315,7 @@ describe("dispatch-issue.sh", () => {
       const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
       assert.equal(result.status, "blocked", "limit stop must be a blocked result");
       assert.match(result.reason, /normal subscription usage limits/);
-      assert.equal(result.log_file, logFile);
+      assert.equal(result.runtime.log_file, logFile);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -465,12 +465,12 @@ describe("dispatch-issue.sh", () => {
       const resultFile = path.join(tmp, "result.json");
       const completedResult = `${JSON.stringify({
         schema_version: 1,
-        work_unit_id: "unit-1",
+        work_unit_id: "legacy",
         status: "completed",
         summary: "done",
-        commit: null,
+        commit: "abc123",
         files_changed: 1,
-        evidence: [{ kind: "test" }],
+        evidence: [{ kind: "test", exit_code: 0 }],
         blocker: null,
         runtime: { provider: "claude" },
       })}\n`;

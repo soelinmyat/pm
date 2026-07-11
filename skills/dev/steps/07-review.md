@@ -286,6 +286,17 @@ Append a short state note:
 - Rerun gates: <none | list>
 ```
 
+For canonical v2 state, also recertify the applicable phase evidence at final HEAD:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" recertify \
+  --session .pm/dev-sessions/{slug}/session.json \
+  --phases implementation,design-critique,qa,review \
+  --commit "$(git rev-parse HEAD)"
+```
+
+Pass only phases that have evidence and whose relevant surface was rechecked above. The runner preserves the original evidence commit and writes paired `verified_commit` / `verified_at` fields.
+
 Before handing off to ship, run the shared checker:
 
 ```bash

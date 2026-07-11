@@ -1,5 +1,7 @@
 "use strict";
 
+const { execFileSync } = require("node:child_process");
+
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const RESULT_STATUSES = new Set(["completed", "blocked", "failed"]);
 const RESULT_FIELDS = new Set([
@@ -35,6 +37,7 @@ function validateWorkUnits(units) {
     }
     for (const ownership of item.owns) {
       if (!nonEmpty(ownership)) throw new TypeError(`work unit ${item.id} has empty ownership`);
+      validateRepoRelativePattern(ownership, `work unit ${item.id} ownership`);
     }
     byId.set(item.id, item);
   }
@@ -108,7 +111,7 @@ function patternsOverlap(leftValue, rightValue) {
   const rightGlob = hasGlob(right);
   if (leftGlob && !rightGlob && globMatches(left, right)) return true;
   if (rightGlob && !leftGlob && globMatches(right, left)) return true;
-  if (!leftGlob && !rightGlob) return false;
+  if (!leftGlob && !rightGlob) return rootsIntersect(left, right);
 
   const leftRoot = literalRoot(left);
   const rightRoot = literalRoot(right);
@@ -171,10 +174,19 @@ function validateWorkUnitResult(input, options = {}) {
   if (result.status === "completed" && result.evidence.length === 0) {
     throw new Error("completed result requires evidence");
   }
+  if (result.status === "completed" && !nonEmpty(result.commit)) {
+    throw new Error("completed result requires commit");
+  }
   for (const evidence of result.evidence) {
     if (!isObject(evidence) || !nonEmpty(evidence.kind)) {
       throw new Error("worker result evidence entries require kind");
     }
+  }
+  if (
+    result.status === "completed" &&
+    !result.evidence.some((entry) => Number.isInteger(entry.exit_code) && entry.exit_code === 0)
+  ) {
+    throw new Error("completed result requires passing evidence");
   }
   if (result.status === "completed" && result.blocker !== null) {
     throw new Error("completed result blocker must be null");
@@ -191,7 +203,65 @@ function validateWorkUnitResult(input, options = {}) {
   if (!isObject(result.runtime) || !nonEmpty(result.runtime.provider)) {
     throw new Error("worker result runtime.provider is required");
   }
+  if (result.status === "completed" && options.worktree) {
+    validateCompletedCommit(result, options);
+  }
   return result;
+}
+
+function validateCompletedCommit(result, options) {
+  const worktree = options.worktree;
+  const ownership = options.expectedOwnership;
+  validateOwnershipList(ownership, "expected ownership");
+
+  let head;
+  let changedPaths;
+  try {
+    head = runGit(worktree, ["rev-parse", "HEAD"]);
+    changedPaths = runGit(worktree, [
+      "diff-tree",
+      "--root",
+      "--no-commit-id",
+      "--name-only",
+      "-r",
+      result.commit,
+    ])
+      .split("\n")
+      .filter(Boolean);
+  } catch (error) {
+    throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
+  }
+
+  if (result.commit !== head) {
+    throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
+  }
+  const escaped = changedPaths.filter(
+    (file) => !ownership.some((pattern) => pathIsOwned(file, pattern))
+  );
+  if (escaped.length > 0) {
+    throw new Error(
+      `worker commit changed paths outside assigned ownership: ${escaped.join(", ")}`
+    );
+  }
+  if (result.files_changed !== changedPaths.length) {
+    throw new Error(
+      `worker result files_changed mismatch: reported ${result.files_changed}, observed ${changedPaths.length}`
+    );
+  }
+}
+
+function pathIsOwned(fileValue, patternValue) {
+  const file = normalizePattern(fileValue);
+  const pattern = normalizePattern(patternValue);
+  if (hasGlob(pattern)) return globMatches(pattern, file);
+  return file === pattern || file.startsWith(`${pattern}/`);
+}
+
+function runGit(worktree, args) {
+  return execFileSync("git", ["-C", worktree, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function detectCycle(units, byId) {
@@ -215,6 +285,18 @@ function validateOwnershipList(value, label) {
     throw new TypeError(`${label} must be a non-empty array`);
   }
   if (value.some((item) => !nonEmpty(item))) throw new TypeError(`${label} contains an empty path`);
+  for (const item of value) validateRepoRelativePattern(item, label);
+}
+
+function validateRepoRelativePattern(value, label) {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").includes("..")
+  ) {
+    throw new Error(`${label} must be a repo-relative path pattern`);
+  }
 }
 
 function normalizePattern(value) {

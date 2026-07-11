@@ -37,6 +37,8 @@ SESSION_DIR="$PROJECT_DIR/.pm/dev-sessions"
 if [ -d "$SESSION_DIR" ]; then
   while IFS= read -r session; do
     if [[ "$session" == */session.json ]]; then
+      SESSION_STATUS=$(node -e 'const s=require(process.argv[1]); process.stdout.write(String(s.status||""))' "$session" 2>/dev/null || true)
+      [ "$SESSION_STATUS" = "complete" ] && continue
       ISSUE_ID=$(node -e 'const s=require(process.argv[1]); const v=String(s.task?.reference||"").match(/[A-Z]+-[0-9]+/); process.stdout.write(v?.[0]||"")' "$session" 2>/dev/null || true)
       BRANCH=$(node -e 'const s=require(process.argv[1]); process.stdout.write(String(s.source?.branch||""))' "$session" 2>/dev/null || true)
     else

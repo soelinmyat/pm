@@ -49,6 +49,7 @@ test("init, status, next, prompt, validate, and project form a cold-process CLI"
     assert.equal(next.status, 0, next.stderr);
     const decision = JSON.parse(next.stdout);
     assert.equal(decision.phase, "intake");
+    assert.equal(decision.instruction_path, "skills/dev/steps/02-intake.md");
     assert.deepEqual(decision.allowed_modes, ["inline", "delegated", "headless"]);
     assert.ok(Array.isArray(decision.input_paths));
     assert.ok(Array.isArray(decision.required_capabilities));
@@ -68,6 +69,21 @@ test("init, status, next, prompt, validate, and project form a cold-process CLI"
     assert.match(projected.stdout, /\| Stage \| intake \|/);
   } finally {
     repo.cleanup();
+  }
+});
+
+test("init rejects a source directory outside a Git worktree as a precondition", () => {
+  const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-dev-non-git-"));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [CLI, "init", "--slug", "not-git", "--source-dir", sourceDir],
+      { encoding: "utf8" }
+    );
+    assert.equal(result.status, 3);
+    assert.match(result.stderr, /not a Git worktree/);
+  } finally {
+    fs.rmSync(sourceDir, { recursive: true, force: true });
   }
 });
 
@@ -112,6 +128,47 @@ test("record rejects mismatched results with exit 4 and preserves state", () => 
   }
 });
 
+test("record is idempotent when a caller retries after the atomic write", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "record-idempotent", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const resultPath = path.join(repo.root, "result.json");
+    fs.writeFileSync(
+      resultPath,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: initialized.session.run_id,
+        phase: "intake",
+        attempt: 1,
+        status: "passed",
+        summary: "Intake complete",
+        commit: null,
+        files_changed: [],
+        evidence: [],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+      })
+    );
+    const args = [
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      resultPath,
+      "--json",
+    ];
+    assert.equal(repo.run(args).status, 0);
+    const retried = repo.run(args);
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.equal(JSON.parse(retried.stdout).idempotent, true);
+    assert.equal(JSON.parse(fs.readFileSync(initialized.session_path, "utf8")).history.length, 1);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("route records strict intake facts and emits the durable decision", () => {
   const repo = makeRepo();
   try {
@@ -147,6 +204,43 @@ test("route records strict intake facts and emits the durable decision", () => {
   }
 });
 
+test("recertify updates existing gate evidence for the current HEAD", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "recertify-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const session = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    session.evidence.implementation = {
+      commit: execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: repo.root,
+        encoding: "utf8",
+      }).trim(),
+      records: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+      recorded_at: new Date().toISOString(),
+    };
+    fs.writeFileSync(initialized.session_path, JSON.stringify(session));
+    const result = repo.run([
+      "recertify",
+      "--session",
+      initialized.session_path,
+      "--phases",
+      "implementation",
+      "--commit",
+      session.evidence.implementation.commit,
+      "--json",
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const updated = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    assert.equal(
+      updated.evidence.implementation.verified_commit,
+      session.evidence.implementation.commit
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("migrate writes v2 state and retains the Markdown file", () => {
   const repo = makeRepo();
   try {
@@ -169,7 +263,11 @@ test("migrate writes v2 state and retains the Markdown file", () => {
     const payload = JSON.parse(migrated.stdout);
     assert.ok(fs.existsSync(payload.session_path));
     assert.ok(fs.existsSync(legacy));
-    assert.equal(JSON.parse(fs.readFileSync(payload.session_path, "utf8")).phase, "review");
+    assert.equal(
+      JSON.parse(fs.readFileSync(payload.session_path, "utf8")).phase,
+      "implementation",
+      "late legacy sessions rebuild current gate evidence before delivery"
+    );
   } finally {
     repo.cleanup();
   }
