@@ -735,6 +735,11 @@ function createFixtureCanary(projectDir, caseName, config) {
     runGit(["symbolic-ref", "HEAD", "refs/heads/main"], sourceOrigin);
     runGit(["clone", "--no-hardlinks", sourceOrigin, project], root);
     runGit(["remote", "set-url", "origin", sourceOrigin], project);
+    // GitHub Actions checks out a shallow synthetic merge ref. Pin the
+    // disposable clone's remote-tracking base explicitly instead of relying
+    // on clone's remote-HEAD inference from that source topology.
+    runGit(["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"], project);
+    runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], project);
     runGit(["config", "user.email", "pm-canary@example.invalid"], project);
     runGit(["config", "user.name", "PM Supervised Canary"], project);
     runGit(["init", "--bare", "--initial-branch=main", pmOrigin], root);
