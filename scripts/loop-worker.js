@@ -67,8 +67,11 @@ const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 const { runEngineInterruptibleSync } = require("./loop-process.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
+const MAX_LEDGER_BYTES = 512 * 1024;
+const MAX_LEDGER_ENTRIES = 10_000;
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -110,33 +113,63 @@ function runsDirFor(paths) {
   return path.join(paths.pmStateDir, "loop-runs");
 }
 
-function readLedgers(runsDir) {
+function unreadableLedger(weight = 1) {
+  return {
+    status: "unreadable",
+    started_at: "9999-12-31T00:00:00Z",
+    budget_weight: weight,
+  };
+}
+
+function readLedgers(runsDir, options = {}) {
   if (!fs.existsSync(runsDir)) return [];
   const ledgers = [];
-  for (const entry of fs.readdirSync(runsDir)) {
-    if (!entry.endsWith(".json")) continue;
-    try {
-      const record = JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8"));
-      const validStage =
-        record?.stage === undefined ||
-        ["dev", "ship", "review", "rfc", "research"].includes(record.stage);
-      if (
-        !record ||
-        typeof record !== "object" ||
-        Array.isArray(record) ||
-        typeof record.status !== "string" ||
-        !record.status ||
-        typeof record.started_at !== "string" ||
-        !Number.isFinite(Date.parse(record.started_at)) ||
-        !validStage
-      ) {
-        throw new Error("malformed ledger");
+  const maxEntries = Number.isSafeInteger(options.maxEntries)
+    ? options.maxEntries
+    : MAX_LEDGER_ENTRIES;
+  const directory = fs.opendirSync(runsDir);
+  let scanned = 0;
+  try {
+    let entry;
+    while ((entry = directory.readSync()) !== null) {
+      scanned += 1;
+      if (scanned > maxEntries) {
+        ledgers.push(unreadableLedger(Number.MAX_SAFE_INTEGER));
+        break;
       }
-      ledgers.push(record);
-    } catch {
-      // unreadable ledger entries still count toward budgets: fail closed
-      ledgers.push({ status: "unreadable", started_at: "9999-12-31T00:00:00Z" });
+      if (!entry.name.endsWith(".json")) continue;
+      try {
+        const read = readBoundedRegularFile(
+          path.join(runsDir, entry.name),
+          MAX_LEDGER_BYTES,
+          "loop ledger",
+          { requirePrivate: false }
+        );
+        if (!read.ok) throw new Error(read.reason);
+        const record = JSON.parse(read.content.toString("utf8"));
+        const validStage =
+          record?.stage === undefined ||
+          ["dev", "ship", "review", "rfc", "research"].includes(record.stage);
+        if (
+          !record ||
+          typeof record !== "object" ||
+          Array.isArray(record) ||
+          typeof record.status !== "string" ||
+          !record.status ||
+          typeof record.started_at !== "string" ||
+          !Number.isFinite(Date.parse(record.started_at)) ||
+          !validStage
+        ) {
+          throw new Error("malformed ledger");
+        }
+        ledgers.push(record);
+      } catch {
+        // Unreadable ledger entries still count toward both budgets: fail closed.
+        ledgers.push(unreadableLedger());
+      }
     }
+  } finally {
+    directory.closeSync();
   }
   return ledgers;
 }
@@ -150,18 +183,18 @@ function isShipLedger(record) {
 // count toward the main budget: fail closed.
 function countRunsInLedgers(ledgers, now = new Date(), opts = {}) {
   const today = now.toISOString().slice(0, 10);
-  return ledgers.filter((record) => {
+  return ledgers.reduce((total, record) => {
     const sameDay =
       String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
-    if (!sameDay) return false;
-    if (record.status === "unreadable") return true;
-    if (opts.stage === "ship") return isShipLedger(record);
-    return !isShipLedger(record);
-  }).length;
+    if (!sameDay) return total;
+    if (record.status === "unreadable") return total + (record.budget_weight || 1);
+    if (opts.stage === "ship") return total + (isShipLedger(record) ? 1 : 0);
+    return total + (isShipLedger(record) ? 0 : 1);
+  }, 0);
 }
 
 function countRunsToday(runsDir, now = new Date(), opts = {}) {
-  return countRunsInLedgers(readLedgers(runsDir), now, opts);
+  return countRunsInLedgers(readLedgers(runsDir, opts), now, opts);
 }
 
 // Normal waiting/blocked/success terminals do not consume failure attempts.
@@ -987,6 +1020,19 @@ function runWorker(projectDir, options = {}) {
   if (isStopped(paths.pmDir)) {
     return { status: "stopped", reason: `kill switch present: ${killSwitchPath(paths.pmDir)}` };
   }
+  try {
+    const upstreamStopped = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+      isStopped(snapshot.pmDir)
+    );
+    if (upstreamStopped) {
+      return { status: "stopped", reason: "kill switch present on the authoritative PM upstream" };
+    }
+  } catch (error) {
+    return {
+      status: "stopped",
+      reason: `authoritative STOP state could not be verified: ${String(error.message || error).slice(0, 2000)}`,
+    };
+  }
   if (options.scheduled === true) {
     try {
       config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
@@ -1047,6 +1093,7 @@ function runWorker(projectDir, options = {}) {
           cardId: recovery.card_id,
           stage: recovery.stage,
           event: terminalEvent,
+          requireStopAbsent: true,
           allowedArtifactPaths: (recovery.transition?.artifact_writes || []).map(
             (artifact) => artifact.relative_path
           ),

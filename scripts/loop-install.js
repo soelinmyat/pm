@@ -191,13 +191,16 @@ function pushKillSwitch(pmDir, stopped, options = {}) {
   try {
     const rel = gitRelativePath(gitRoot, stopPath);
     runGit(["add", "-A", "--", rel], gitRoot, { timeout });
-    runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout,
-    });
-    committed = true;
+    const changed = Boolean(runGit(["status", "--porcelain", "--", rel], gitRoot, { timeout }));
+    if (changed) {
+      runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout,
+      });
+      committed = true;
+    }
     runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"], timeout });
-    return { committed: true, pushed: true };
+    return { committed, pushed: true, no_change: !changed };
   } catch (err) {
     // Surface the failure — the "halt every machine" guarantee must fail loudly.
     return {
@@ -212,6 +215,31 @@ function setKillSwitch(pmDir, stopped, options = {}) {
   const file = writeKillSwitchFile(pmDir, stopped);
   const push = pushKillSwitch(pmDir, stopped, options);
   return { stopPath: file.stopPath, stopped, ...push, committed: push.committed };
+}
+
+function probeAuthoritativeStop(pmDir, options = {}) {
+  if (typeof options.remoteStopProbe === "function") {
+    return options.remoteStopProbe(pmDir);
+  }
+  return withRemoteSnapshot(pmDir, (snapshot) =>
+    fs.existsSync(path.join(snapshot.pmDir, "loop", "STOP"))
+  );
+}
+
+function stopScheduler(pmDir, options = {}) {
+  const setStop = options.setStop || setKillSwitch;
+  const result = setStop(pmDir, true, options);
+  if (result.pushed === true) return result;
+  let confirmed = false;
+  try {
+    confirmed = probeAuthoritativeStop(pmDir, options) === true;
+  } catch {
+    confirmed = false;
+  }
+  if (confirmed) return { ...result, pushed: true, verified_remote: true };
+  throw new Error(
+    `STOP is local but was not durably pushed${result.error ? `: ${result.error}` : ""}`
+  );
 }
 
 function buildInstallExposure(config) {
@@ -354,11 +382,30 @@ function resumeScheduler(pmDir, config, options = {}) {
   const writeError = options.writeError || ((text) => process.stderr.write(text));
   const setStop = options.setStop || setKillSwitch;
   writeError(`${formatConfigExposure(exposure)}\n`);
-  const result = setStop(pmDir, false);
+  const result = setStop(pmDir, false, options);
   if (result.pushed !== true) {
-    writeKillSwitchFile(pmDir, true);
+    let remoteStopped = null;
+    try {
+      remoteStopped = probeAuthoritativeStop(pmDir, options);
+    } catch {
+      remoteStopped = null;
+    }
+    if (result.committed !== true && remoteStopped === false) {
+      return { ...result, pushed: true, verified_remote: true, exposure };
+    }
+
+    const restored = setStop(pmDir, true, options);
+    let stopConfirmed = restored.pushed === true;
+    if (!stopConfirmed) {
+      try {
+        stopConfirmed = probeAuthoritativeStop(pmDir, options) === true;
+      } catch {
+        stopConfirmed = false;
+      }
+    }
+    if (!stopConfirmed) writeKillSwitchFile(pmDir, true);
     throw new Error(
-      `resume was not durably pushed; local STOP restored${result.error ? `: ${result.error}` : ""}`
+      `resume was not durably confirmed; STOP ${stopConfirmed ? "republished" : "restored locally but remote state is unknown"}${result.error ? `: ${result.error}` : ""}`
     );
   }
   return { ...result, exposure };
@@ -370,7 +417,7 @@ function main() {
     const paths = installPaths(args.projectDir, args.pmDir);
 
     if (args.stop) {
-      const result = setKillSwitch(paths.pmDir, args.stop);
+      const result = stopScheduler(paths.pmDir);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
@@ -423,9 +470,11 @@ module.exports = {
   parseArgs,
   plistInstallPath,
   projectSlug,
+  probeAuthoritativeStop,
   pushKillSwitch,
   resumeScheduler,
   setKillSwitch,
+  stopScheduler,
   writeKillSwitchFile,
 };
 

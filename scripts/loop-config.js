@@ -183,18 +183,16 @@ function assertCanonicalEngineArgs(extraArgs) {
   }
 }
 
-const CLAIM_PHASE_FIELDS = Object.freeze([
-  "branch_promotion_seconds",
-  "bootstrap_recheck_seconds",
-  "shutdown_grace_seconds",
-  "artifact_verification_seconds",
-  "pm_finalization_seconds",
-  "workspace_cleanup_seconds",
-]);
-// A normal claimed run can independently spend this timeout while recording
-// dispatch, snapshotting the claimed card, checkpointing recovery, and pushing
-// final state. Count every bounded PM phase in the advertised lease envelope.
-const PM_FINALIZATION_PHASE_COUNT = 4;
+const CLAIM_PHASE_WEIGHTS = Object.freeze({
+  branch_promotion_seconds: 1,
+  bootstrap_recheck_seconds: 1,
+  shutdown_grace_seconds: 1,
+  artifact_verification_seconds: 1,
+  // Dispatch, claimed-card snapshot, recovery checkpoint, and final push are
+  // independently bounded PM transactions on the normal claimed-run path.
+  pm_finalization_seconds: 4,
+  workspace_cleanup_seconds: 1,
+});
 
 function positiveInteger(value, label) {
   if (!Number.isInteger(value) || value <= 0) {
@@ -234,12 +232,9 @@ function claimEnvelopeSeconds(config, stage = "dev") {
   if (!isPlainObject(envelope)) {
     throw new Error("claim_envelope must be an object");
   }
-  const phaseSeconds = CLAIM_PHASE_FIELDS.reduce((total, field) => {
+  const phaseSeconds = Object.entries(CLAIM_PHASE_WEIGHTS).reduce((total, [field, weight]) => {
     const seconds = positiveInteger(Number(envelope[field]), `claim_envelope.${field}`);
-    return (
-      total +
-      (field === "pm_finalization_seconds" ? seconds * PM_FINALIZATION_PHASE_COUNT : seconds)
-    );
+    return total + seconds * weight;
   }, 0);
   const runtimeField =
     stage === "ship" || stage === "review"

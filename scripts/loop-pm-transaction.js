@@ -637,7 +637,7 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
         ) {
           throw new TransactionAbort(
             "phase-conflict",
-            `cannot mark a run dispatched from ${lease.phase || "unknown"}`
+            `cannot mark a run ${phase} from ${lease.phase || "unknown"}`
           );
         }
         updatedLease = { ...lease, phase, [`${phase}_at`]: timestamp };
@@ -908,6 +908,16 @@ function finalizeRun(pmDir, input, options = {}) {
           input.cardId || input.card_id,
           input.stage
         );
+        if (input.requireStopAbsent === true) {
+          const stopRelative = joinRelative(context.pmRelative, "loop", "STOP");
+          assertNoSymlinkPath(context.workspace, stopRelative);
+          if (fs.existsSync(path.join(context.workspace, ...stopRelative.split("/")))) {
+            throw new TransactionAbort(
+              "kill-switch-present",
+              "authoritative STOP appeared before recovery finalization"
+            );
+          }
+        }
         for (const protectedPath of [paths.event, paths.recovery, paths.lease]) {
           assertNoSymlinkPath(context.workspace, protectedPath);
         }

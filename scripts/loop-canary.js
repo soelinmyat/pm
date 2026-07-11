@@ -20,7 +20,6 @@ const { canonicalEngineCommand } = require("./loop-engine.js");
 const { findGitRoot, gitRelativePath, runGit, writeJsonAtomic } = require("./loop-git.js");
 const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { readBoundedRegularFile } = require("./loop-safe-file.js");
-const { runWorker } = require("./loop-worker.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 
@@ -439,7 +438,16 @@ function readCanaryEvidence(pmStateDir, options = {}) {
           const value = { ...record, evidence_path: filePath };
           if (options.latestOnly) {
             const prior = latest.get(caseName);
-            if (!prior || Date.parse(value.ended_at) > Date.parse(prior.ended_at)) {
+            const valueTime = Date.parse(value.ended_at);
+            const priorTime = prior ? Date.parse(prior.ended_at) : Number.NEGATIVE_INFINITY;
+            const priorRecord = prior ? { ...prior } : null;
+            if (priorRecord) delete priorRecord.evidence_path;
+            if (prior && valueTime === priorTime && !stableEqual(record, priorRecord)) {
+              recordInvalid({
+                file: filePath,
+                reason: `conflicting latest canary evidence timestamp for ${caseName}`,
+              });
+            } else if (!prior || valueTime > priorTime) {
               latest.set(caseName, value);
             }
           } else {
@@ -772,7 +780,7 @@ function runCanary(projectDir, caseName, options = {}) {
   if (caseName === "verified-pr" && config.autonomy?.merge_pr !== false) {
     throw new Error("verified-pr requires autonomy.merge_pr=false");
   }
-  const execute = options.runWorker || runWorker;
+  const execute = options.runWorker || require("./loop-worker.js").runWorker;
   const identity = options.identity || currentCanaryIdentity(config, options);
   const fixture =
     caseName === "verified-pr"

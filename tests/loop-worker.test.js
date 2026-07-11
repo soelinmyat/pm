@@ -701,6 +701,26 @@ test("countRunsToday counts only same-day ledgers and fails closed on malformed 
   }
 });
 
+test("ledger budgets fail closed on oversized, symlinked, and entry-flood evidence", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-ledger-bounds-"));
+  const external = path.join(dir, "external.json");
+  try {
+    fs.writeFileSync(
+      external,
+      JSON.stringify({ status: "completed", started_at: new Date().toISOString() })
+    );
+    fs.symlinkSync(external, path.join(dir, "linked.json"));
+    fs.writeFileSync(path.join(dir, "oversized.json"), "x".repeat(512 * 1024 + 1));
+    fs.writeFileSync(path.join(dir, "extra.txt"), "ignored\n");
+    const now = new Date();
+    assert.equal(countRunsToday(dir, now), 3);
+    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 2);
+    assert.ok(countRunsToday(dir, now, { maxEntries: 1 }) >= Number.MAX_SAFE_INTEGER);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("normal waiting ship cycles do not consume failure attempts", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-attempts-"));
   try {

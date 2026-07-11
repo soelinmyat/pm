@@ -20,6 +20,7 @@ const {
   projectSlug,
   resumeScheduler,
   setKillSwitch,
+  stopScheduler,
 } = require("../scripts/loop-install.js");
 const { evaluateCanaryReleaseGate } = require("../scripts/loop-canary.js");
 const { normalizeLoopConfig } = require("../scripts/loop-config.js");
@@ -356,17 +357,81 @@ test("resume restores local STOP and fails when durable removal is not pushed", 
       () =>
         resumeScheduler(pmDir, normalizeLoopConfig({}), {
           writeError() {},
-          setStop(target) {
+          setStop(target, stopped) {
+            if (stopped) {
+              fs.writeFileSync(path.join(target, "loop", "STOP"), "stop\n");
+              return { stopped: true, committed: true, pushed: true };
+            }
             fs.rmSync(path.join(target, "loop", "STOP"));
             return { stopped: false, committed: true, pushed: false, error: "push rejected" };
           },
         }),
-      /not durably pushed/i
+      /not durably confirmed/i
     );
     assert.equal(fs.existsSync(path.join(pmDir, "loop", "STOP")), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("resume is idempotent when authoritative STOP is already absent", () => {
+  const result = resumeScheduler("/tmp/pm", normalizeLoopConfig({}), {
+    writeError() {},
+    setStop() {
+      return { stopped: false, committed: false, pushed: false, error: "nothing to commit" };
+    },
+    remoteStopProbe() {
+      return false;
+    },
+  });
+  assert.equal(result.pushed, true);
+  assert.equal(result.verified_remote, true);
+});
+
+test("an ambiguous resume push republishes STOP before returning blocked", () => {
+  const calls = [];
+  assert.throws(
+    () =>
+      resumeScheduler("/tmp/pm", normalizeLoopConfig({}), {
+        writeError() {},
+        setStop(_pmDir, stopped) {
+          calls.push(stopped);
+          return stopped
+            ? { stopped: true, committed: true, pushed: true }
+            : { stopped: false, committed: true, pushed: false, error: "push timed out" };
+        },
+        remoteStopProbe() {
+          return false;
+        },
+      }),
+    /STOP republished/i
+  );
+  assert.deepEqual(calls, [false, true]);
+});
+
+test("stop fails unless STOP is pushed or confirmed on the authoritative remote", () => {
+  assert.throws(
+    () =>
+      stopScheduler("/tmp/pm", {
+        setStop() {
+          return { stopped: true, pushed: false, error: "push rejected" };
+        },
+        remoteStopProbe() {
+          return false;
+        },
+      }),
+    /not durably pushed/i
+  );
+  const confirmed = stopScheduler("/tmp/pm", {
+    setStop() {
+      return { stopped: true, pushed: false, error: "push timed out" };
+    },
+    remoteStopProbe() {
+      return true;
+    },
+  });
+  assert.equal(confirmed.pushed, true);
+  assert.equal(confirmed.verified_remote, true);
 });
 
 test("scheduler activation resolves config and release identity from the authoritative snapshot", () => {
@@ -575,6 +640,31 @@ test("a later passing canary rerun supersedes an earlier valid failed case", () 
       maxAgeSeconds: 7200,
     });
     assert.equal(passing.passed, true, JSON.stringify(passing));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("equal-timestamp conflicting canary reruns fail closed deterministically", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-tie-"));
+  try {
+    for (const [index, caseName] of [
+      "preflight-failure",
+      "blocked-result",
+      "verified-pr",
+    ].entries()) {
+      writeCanaryRecord(root, `passing-${index}`, caseName);
+    }
+    writeCanaryRecord(root, "verified-conflict", "verified-pr", {
+      assertions: { ...REQUIRED_ASSERTIONS["verified-pr"], verified_open_pr: false },
+      passed: false,
+    });
+    const gate = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+      maxAgeSeconds: 7200,
+    });
+    assert.equal(gate.passed, false);
+    assert.match(gate.reason, /conflicting latest canary evidence timestamp/i);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

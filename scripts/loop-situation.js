@@ -42,15 +42,9 @@ function assessSituation(projectDir, options = {}) {
       // Config present but malformed (bad JSON, or well-formed-but-wrong-type,
       // which loadLoopConfig now rejects) — route the operator to fix it rather
       // than proceed on silently-substituted permissive defaults.
-      return {
-        state: "unconfigured",
+      return unconfigured(`Loop config is present but unreadable: ${err.message}`, {
         configured: true,
-        installed: false,
-        paused: false,
-        board: emptyBoardView(),
-        config: null,
-        note: `Loop config is present but unreadable: ${err.message}`,
-      };
+      });
     }
   }
 
@@ -213,7 +207,7 @@ function emptyBoardView() {
   return { counts: {}, ready: [], needsRfc: 0, needsHuman: 0, activeLeases: [], note: "" };
 }
 
-function unconfigured(note) {
+function unconfigured(note, overrides = {}) {
   return {
     state: "unconfigured",
     configured: false,
@@ -223,6 +217,7 @@ function unconfigured(note) {
     config: null,
     releaseGate: { passed: false, reason: "loop is not configured" },
     note,
+    ...overrides,
   };
 }
 

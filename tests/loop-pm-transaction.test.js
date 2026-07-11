@@ -403,6 +403,60 @@ test("checkpoint and finalization atomically persist recovery then card/event/ar
   assert.equal(git(fixture.project, ["status", "--porcelain"]), "");
 });
 
+test("recovery finalization fails closed when authoritative STOP appears", (t) => {
+  const fixture = makeFixture(t);
+  const claimed = claim(fixture);
+  assert.equal(claimed.result.ok, true);
+  assert.equal(
+    markRunDispatched(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      dispatchedAt: "2026-07-10T00:00:05.000Z",
+    }).ok,
+    true
+  );
+  const transition = {
+    card_write: {
+      relative_path: "pm/backlog/transaction.md",
+      expected_revision: claimed.expectedCardRevision,
+      content: cardBody("stopped recovery").replace("status: planned", "status: needs-human"),
+    },
+    artifact_writes: [],
+  };
+  assert.equal(
+    checkpointRecovery(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      resultHash: sha256("stopped-result"),
+      artifactHashes: [],
+      transition,
+      checkpointedAt: "2026-07-10T00:00:10.000Z",
+    }).ok,
+    true
+  );
+  remoteCommit(
+    fixture,
+    (clone) => {
+      fs.mkdirSync(path.join(clone, "pm", "loop"), { recursive: true });
+      fs.writeFileSync(path.join(clone, "pm", "loop", "STOP"), "stop\n");
+    },
+    "stop before recovery finalization"
+  );
+  const finalized = finalizeRun(fixture.pmDir, {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+    event: { status: "blocked", summary: "stopped", terminal: true },
+    requireStopAbsent: true,
+  });
+  assert.equal(finalized.ok, false);
+  assert.equal(finalized.reason, "kill-switch-present");
+  assert.match(finalized.error, /authoritative STOP/i);
+  assert.match(remoteFile(fixture, `pm/loop/recovery/${claimed.runId}.json`), /ready-to-finalize/);
+});
+
 test("recovery inspection distinguishes never-dispatched, dispatched, finalized, and ambiguous runs", (t) => {
   const fixture = makeFixture(t);
   const claimed = claim(fixture);
