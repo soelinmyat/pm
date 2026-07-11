@@ -397,6 +397,7 @@ module.exports = {
   analyzeWorkUnits,
   narrowAuthority,
   ownershipOverlaps,
+  validateOwnershipList,
   validateWorkUnitResult,
   validateWorkUnits,
 };

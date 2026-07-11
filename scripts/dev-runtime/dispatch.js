@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const { randomUUID } = require("node:crypto");
-const { spawnSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -12,7 +12,8 @@ const {
   validateWorkerResult,
 } = require(".");
 const { writeJsonAtomic } = require("./result");
-const { probeCapabilities } = require("./capabilities");
+const { probeCapabilitiesCached } = require("./capabilities");
+const { validateOwnershipList } = require("../lib/dev-work-units");
 
 const USAGE_LIMIT =
   /agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|usage credit|usage limit|plan.*limit|limit.*reached|quota|rate.?limit/i;
@@ -20,7 +21,7 @@ const AUTHORITY = `<worker-authority>
 Root-owned external effects: this worker may inspect, edit, test, and commit only inside its assigned worktree. Do not push, open or update a pull request, merge, or update external trackers. Report completion to the root through the structured result contract.
 </worker-authority>\n\n`;
 
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   let options;
   try {
     options = parseArgs(argv);
@@ -29,14 +30,22 @@ function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  for (const [name, value] of Object.entries({
-    "prompt file": options.promptFile,
-    worktree: options.worktree,
-  })) {
-    if (!fs.existsSync(value)) {
-      process.stderr.write(`${name} not found: ${value}\n`);
-      return 2;
-    }
+  if (!fs.existsSync(options.promptFile) || !fs.statSync(options.promptFile).isFile()) {
+    process.stderr.write(`prompt file is not a regular file: ${options.promptFile}\n`);
+    return 2;
+  }
+  if (!fs.existsSync(options.worktree) || !fs.statSync(options.worktree).isDirectory()) {
+    process.stderr.write(`worktree is not a directory: ${options.worktree}\n`);
+    return 2;
+  }
+  try {
+    execFileSync("git", ["-C", options.worktree, "rev-parse", "--show-toplevel"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    validateOwnershipList(options.owns, "assigned ownership");
+  } catch (error) {
+    process.stderr.write(`invalid dispatch scope: ${error.message}\n`);
+    return 2;
   }
 
   const schemaPath = options.schemaPath ?? defaultSchemaPath();
@@ -55,7 +64,7 @@ function main(argv = process.argv.slice(2)) {
   let profile;
   let launch;
   try {
-    const capabilities = probeCapabilities(options.runtime);
+    const capabilities = probeCapabilitiesCached(options.runtime);
     profile = resolveProfile({
       provider: options.runtime,
       profileName: options.profileName,
@@ -94,12 +103,13 @@ function main(argv = process.argv.slice(2)) {
   });
 
   const prompt = `${AUTHORITY}${fs.readFileSync(options.promptFile, "utf8")}`;
-  const execution = spawnSync(launch.command, launch.args, {
+  const execution = await runStreaming(launch.command, launch.args, {
     cwd: options.worktree,
     env: process.env,
     input: prompt,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+    eventsPath,
+    stderrPath,
+    logFile: options.logFile,
   });
   if (execution.error?.code === "ENOENT") {
     finishRuntime(runtimePath, {
@@ -111,11 +121,8 @@ function main(argv = process.argv.slice(2)) {
     return 3;
   }
 
-  const stdout = execution.stdout || "";
-  const stderr = execution.stderr || "";
-  fs.writeFileSync(eventsPath, stdout);
-  fs.writeFileSync(stderrPath, stderr);
-  fs.writeFileSync(options.logFile, `${stdout}${stderr}`);
+  const stdout = execution.extractionEvents || "";
+  const stderr = execution.stderrTail || "";
 
   let result;
   let resumeId = sessionId;
@@ -261,6 +268,103 @@ function toKebab(value) {
   return value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-if (require.main === module) process.exitCode = main();
+function runStreaming(command, args, options) {
+  const limit = 4 * 1024 * 1024;
+  const important = [];
+  let stdoutTail = "";
+  let stderrTail = "";
+  let pending = "";
+  const eventsFd = secureOpen(options.eventsPath);
+  const stderrFd = secureOpen(options.stderrPath);
 
-module.exports = { AUTHORITY, main, parseArgs };
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let spawnError = null;
+    child.on("error", (error) => {
+      spawnError = error;
+    });
+    child.stdout.on("data", (chunk) => {
+      fs.writeSync(eventsFd, chunk);
+      const text = chunk.toString("utf8");
+      stdoutTail = boundedTail(stdoutTail, text, limit);
+      pending += text;
+      const lines = pending.split("\n");
+      pending = lines.pop();
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          if (["thread.started", "system", "result"].includes(event.type)) important.push(line);
+        } catch {
+          // Non-JSON output remains in the bounded tail and full events file.
+        }
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      fs.writeSync(stderrFd, chunk);
+      stderrTail = boundedTail(stderrTail, chunk.toString("utf8"), limit);
+    });
+    child.on("close", (status, signal) => {
+      fs.closeSync(eventsFd);
+      fs.closeSync(stderrFd);
+      const extractionEvents = `${important.join("\n")}\n${stdoutTail}`;
+      const log = [
+        `events_file=${options.eventsPath}`,
+        `stderr_file=${options.stderrPath}`,
+        "",
+        "--- bounded stdout tail ---",
+        stdoutTail,
+        "--- bounded stderr tail ---",
+        stderrTail,
+      ].join("\n");
+      secureWrite(options.logFile, log);
+      resolve({
+        status,
+        signal,
+        error: spawnError,
+        extractionEvents,
+        stderrTail,
+      });
+    });
+    child.stdin.end(options.input);
+  });
+}
+
+function secureOpen(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const descriptor = fs.openSync(filePath, "w", 0o600);
+  fs.fchmodSync(descriptor, 0o600);
+  return descriptor;
+}
+
+function secureWrite(filePath, content) {
+  const descriptor = secureOpen(filePath);
+  try {
+    fs.writeFileSync(descriptor, content, "utf8");
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function boundedTail(current, addition, limit) {
+  const combined = current + addition;
+  return combined.length <= limit ? combined : combined.slice(combined.length - limit);
+}
+
+if (require.main === module) {
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      process.stderr.write(`dev runtime dispatch failed: ${error.message}\n`);
+      process.exitCode = 1;
+    }
+  );
+}
+
+module.exports = { AUTHORITY, boundedTail, main, parseArgs, runStreaming };

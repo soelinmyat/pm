@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -31,6 +31,40 @@ describe("dev runtime structured dispatch", () => {
       assert.equal(runtime.model, "gpt-5.6-sol");
       assert.equal(runtime.external_effects, false);
       assert.match(fs.readFileSync(fixture.eventsFile, "utf8"), /thread\.started/);
+      for (const file of [fixture.eventsFile, fixture.logFile, `${fixture.tmp}/run.stderr.log`]) {
+        assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      }
+    } finally {
+      fs.rmSync(fixture.tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid prompt, worktree, and ownership inputs before launching a model", () => {
+    const fixture = createFixture("codex");
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          dispatchPath,
+          "--runtime",
+          "codex",
+          "--worktree",
+          fixture.worktree,
+          "--prompt-file",
+          fixture.tmp,
+          "--result-file",
+          fixture.resultFile,
+          "--log-file",
+          fixture.logFile,
+          "--work-unit-id",
+          "unit-1",
+          "--owns-json",
+          '["../escape"]',
+        ],
+        { encoding: "utf8" }
+      );
+      assert.equal(result.status, 2);
+      assert.match(result.stderr, /prompt file is not a regular file/);
     } finally {
       fs.rmSync(fixture.tmp, { recursive: true, force: true });
     }
