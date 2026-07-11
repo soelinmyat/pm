@@ -12,6 +12,7 @@ const { routeDevWork } = require("./dev-risk");
 const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
+const { isRfc3339DateTime } = require("./iso-time");
 
 const RUNNER_VERSION = "2.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -100,7 +101,7 @@ function isObject(value) {
 }
 
 function isIsoDate(value) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  return isRfc3339DateTime(value);
 }
 
 function isAbsolutePath(value) {
@@ -220,7 +221,7 @@ function validateTask(task, errors) {
     errors.push(issue("$.task.work_units", "must be an array"));
   } else {
     try {
-      validateWorkUnits(task.work_units);
+      validateWorkUnits(task.work_units, { persisted: true });
     } catch (error) {
       errors.push(issue("$.task.work_units", error.message));
     }
@@ -929,6 +930,10 @@ function createSession(options) {
       `slug ${slug} does not match current branch ${branch} (${deriveSessionSlug(branch)})`
     );
   }
+  const loopWorker = process.env.PM_LOOP_WORKER === "1";
+  if (loopWorker && options.mode && options.mode !== "headless") {
+    throw new Error("PM_LOOP_WORKER=1 requires execution mode headless");
+  }
   const session = {
     schema_version: 2,
     run_id: options.runId || generateRunId(),
@@ -959,7 +964,7 @@ function createSession(options) {
       runtime: options.runtime || "inline",
       model: options.model || "inherit",
       reasoning: options.reasoning || "inherit",
-      mode: options.mode || "inline",
+      mode: loopWorker ? "headless" : options.mode || "inline",
       runtime_session_id: null,
     },
     authority: {
@@ -1070,6 +1075,19 @@ function transitionWorkUnit(session, input, options = {}) {
     unit.assigned_worktree = assignedWorktree;
     unit.assigned_branch = assignedBranch;
     unit.base_commit = runGit(assignedWorktree, ["rev-parse", "HEAD"]);
+    for (const dependencyId of unit.depends_on) {
+      const dependency = next.task.work_units.find((candidate) => candidate.id === dependencyId);
+      if (dependency?.status !== "completed" || !dependency.result?.commit) {
+        throw new Error(`work unit ${unit.id} dependency ${dependencyId} lacks a completed commit`);
+      }
+      try {
+        runGit(assignedWorktree, ["merge-base", "--is-ancestor", dependency.result.commit, "HEAD"]);
+      } catch {
+        throw new Error(
+          `assigned worktree for ${unit.id} does not contain dependency ${dependencyId} commit ${dependency.result.commit}`
+        );
+      }
+    }
   } else if (["completed", "blocked", "failed"].includes(targetStatus)) {
     const assignedWorktree = unit.assigned_worktree || session.source.worktree;
     const assignedBranch = unit.assigned_branch || session.source.branch;
@@ -1245,6 +1263,16 @@ function upgradeCompatibleSession(input) {
   if (!isObject(input) || input.schema_version !== 2) return input;
   const session = structuredClone(input);
   if (!Array.isArray(session.authority_log)) session.authority_log = [];
+  const loggedGrants = new Set(
+    session.authority_log
+      .filter((entry) => isObject(entry) && Array.isArray(entry.actions))
+      .flatMap((entry) => entry.actions.filter((action) => GRANTABLE_AUTHORITY.has(action)))
+  );
+  if (isObject(session.authority)) {
+    for (const action of GRANTABLE_AUTHORITY) {
+      session.authority[action] = session.authority[action] === true && loggedGrants.has(action);
+    }
+  }
   if (isObject(session.execution)) delete session.execution.capabilities;
   if (isObject(session.evidence)) {
     for (const evidence of Object.values(session.evidence)) {

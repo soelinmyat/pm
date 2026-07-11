@@ -7,6 +7,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const {
   detectCapabilities,
+  acquireProbeLock,
   probeCapabilities,
   probeCapabilitiesCached,
   requireCapabilities,
@@ -101,6 +102,24 @@ describe("dev runtime capability detection", () => {
         fs.readdirSync(cacheDir).filter((name) => name.includes(".tmp-") || name.endsWith(".lock")),
         []
       );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims an abandoned lock directory after the initialization grace", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capabilities-lock-"));
+    const lockPath = path.join(dir, "probe.lock");
+    try {
+      fs.mkdirSync(lockPath);
+      const release = acquireProbeLock(lockPath, () => null, {
+        initializationGraceMs: 0,
+        lockAttempts: 2,
+        lockWaitMs: 0,
+      });
+      assert.ok(fs.existsSync(path.join(lockPath, "owner.json")));
+      release();
+      assert.equal(fs.existsSync(lockPath), false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

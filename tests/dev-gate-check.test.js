@@ -91,6 +91,24 @@ test("dev gate checker accepts required gates tied to the current commit", () =>
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
+test("canonical gate manifests are bound to the active session run ID", () => {
+  const rows = [gate("review"), gate("verification")];
+  const ok = checkGateManifest(manifest(rows, { run_id: "dev_current" }), {
+    currentCommit: "abc123",
+    requiredGates: ["review", "verification"],
+    runId: "dev_current",
+  });
+  assert.equal(ok.ok, true, JSON.stringify(ok.issues));
+  const stale = checkGateManifest(manifest(rows, { run_id: "dev_old" }), {
+    currentCommit: "abc123",
+    requiredGates: ["review", "verification"],
+    runId: "dev_current",
+  });
+  assert.equal(stale.ok, false);
+  assert.match(stale.issues.map((entry) => entry.message).join("\n"), /active session dev_current/);
+  assert.equal(parseArgs(["--run-id", "dev_current"]).runId, "dev_current");
+});
+
 test("dev gate checker default rejects a partial final gate manifest", () => {
   const result = checkGateManifest(manifest([gate("review"), gate("verification")]), {
     currentCommit: "abc123",

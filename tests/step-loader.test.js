@@ -262,7 +262,12 @@ test("loadWorkflow: a legacy filename overrides the uniquely matching phase", ()
     },
     userSteps: {
       dev: {
-        "07-review.md": phaseStepFile("Legacy override", 7, "review", "Legacy custom review."),
+        "07-review.md": stepFile(
+          "Legacy override",
+          7,
+          "Pre-v2 override without phase metadata",
+          "Legacy custom review."
+        ),
       },
     },
   });

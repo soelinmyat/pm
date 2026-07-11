@@ -4,6 +4,14 @@ const fs = require("fs");
 const path = require("path");
 const { parseFrontmatter } = require("./kb-frontmatter");
 
+const LEGACY_STEP_ALIASES = Object.freeze({
+  dev: {
+    "07-review.md": "08-review.md",
+    "08-ship.md": "09-ship.md",
+    "09-retro.md": "10-retro.md",
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -169,6 +177,12 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   for (const [userFilename, userPath] of userFiles) {
     if (defaultFiles.has(userFilename)) {
       overrideTargets.set(userFilename, userFilename);
+      consumedUserFiles.add(userFilename);
+      continue;
+    }
+    const aliasedDefault = LEGACY_STEP_ALIASES[command]?.[userFilename];
+    if (aliasedDefault && defaultFiles.has(aliasedDefault)) {
+      overrideTargets.set(aliasedDefault, userFilename);
       consumedUserFiles.add(userFilename);
       continue;
     }

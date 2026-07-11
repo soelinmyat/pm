@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const dispatchPath = path.join(__dirname, "..", "scripts", "dev-runtime", "dispatch.js");
-const { BoundedBuffer } = require("../scripts/dev-runtime/dispatch");
+const { BoundedBuffer, runStreaming } = require("../scripts/dev-runtime/dispatch");
 
 describe("dev runtime structured dispatch", () => {
   it("bounds retained event bytes without repeated whole-tail concatenation", () => {
@@ -14,6 +14,28 @@ describe("dev runtime structured dispatch", () => {
     for (let index = 0; index < 1000; index += 1) tail.append(`event-${index}\n`);
     assert.ok(tail.bytes <= 32);
     assert.match(tail.toString(), /event-999/);
+  });
+
+  it("retains the first runtime identity after more output than the tail budget", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dev-runtime-identity-"));
+    try {
+      const source = [
+        'process.stdout.write(JSON.stringify({type:"thread.started",thread_id:"thread-fixed"})+"\\n");',
+        'const line=JSON.stringify({type:"system",message:"x".repeat(200)})+"\\n";',
+        "for(let i=0;i<25000;i++) process.stdout.write(line);",
+      ].join("");
+      const result = await runStreaming(process.execPath, ["-e", source], {
+        cwd: tmp,
+        env: process.env,
+        input: "",
+        eventsPath: path.join(tmp, "events.jsonl"),
+        stderrPath: path.join(tmp, "stderr.log"),
+        logFile: path.join(tmp, "run.log"),
+      });
+      assert.match(result.extractionEvents, /thread-fixed/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
   it("captures Codex JSONL identity and promotes the schema-constrained final message", () => {
     const fixture = createFixture("codex");

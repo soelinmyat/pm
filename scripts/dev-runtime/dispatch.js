@@ -266,7 +266,9 @@ function toKebab(value) {
 function runStreaming(command, args, options) {
   const limit = 4 * 1024 * 1024;
   const lineLimit = 1024 * 1024;
-  const important = new BoundedBuffer(lineLimit);
+  const systemEvents = new BoundedBuffer(lineLimit);
+  let identityEvent = "";
+  let resultEvent = "";
   const stdoutTail = new BoundedBuffer(limit);
   const stderrTail = new BoundedBuffer(limit);
   let pending = "";
@@ -293,9 +295,11 @@ function runStreaming(command, args, options) {
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
-          if (["thread.started", "system", "result"].includes(event.type)) {
-            important.append(`${line}\n`);
+          if (["thread.started", "system"].includes(event.type) && !identityEvent) {
+            identityEvent = line;
           }
+          if (event.type === "system") systemEvents.append(`${line}\n`);
+          if (event.type === "result") resultEvent = boundedTail("", line, lineLimit);
         } catch {
           // Non-JSON output remains in the bounded tail and full events file.
         }
@@ -310,7 +314,9 @@ function runStreaming(command, args, options) {
       fs.closeSync(stderrFd);
       const stdoutText = stdoutTail.toString();
       const stderrText = stderrTail.toString();
-      const extractionEvents = `${important.toString()}\n${stdoutText}`;
+      const extractionEvents = [identityEvent, systemEvents.toString(), resultEvent, stdoutText]
+        .filter(Boolean)
+        .join("\n");
       const log = [
         `events_file=${options.eventsPath}`,
         `stderr_file=${options.stderrPath}`,

@@ -87,6 +87,37 @@ test("reconcile scan resolves recent merged branches with one retried list query
   assert.equal(calls, 2);
 });
 
+test("reconcile scan checks finite active branches when the merged list is saturated", () => {
+  let calls = 0;
+  const rows = Array.from({ length: 100 }, (_, index) => ({
+    state: "MERGED",
+    headRefName: `feat/listed-${index}`,
+    mergedAt: "2026-07-12T11:00:00Z",
+  }));
+  const merged = recentMergedBranches(48, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    candidateBranches: ["feat/missing"],
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      calls += 1;
+      if (args[1] === "list") return { code: 0, stdout: JSON.stringify(rows), stderr: "" };
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          state: "MERGED",
+          mergedAt: "2026-07-12T10:00:00Z",
+          number: 999,
+          headRefOid: "abc",
+        }),
+        stderr: "",
+      };
+    },
+  });
+  assert.equal(merged.has("feat/missing"), true);
+  assert.equal(calls, 2);
+});
+
 function write(root, relative, value) {
   const file = path.join(root, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });

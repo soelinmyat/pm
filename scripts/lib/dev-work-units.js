@@ -2,6 +2,7 @@
 
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
+const { isRfc3339DateTime } = require("./iso-time");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -30,8 +31,9 @@ const RESULT_FIELDS = new Set([
   "blocker",
   "runtime",
 ]);
+const TRANSITION_FIELDS = new Set(["from", "to", "reason", "commit", "recorded_at"]);
 
-function validateWorkUnits(units) {
+function validateWorkUnits(units, options = {}) {
   if (!Array.isArray(units)) throw new TypeError("work units must be an array");
   const byId = new Map();
 
@@ -73,6 +75,30 @@ function validateWorkUnits(units) {
     if (item.updated_at !== undefined && item.updated_at !== null && !nonEmpty(item.updated_at)) {
       throw new TypeError(`work unit ${item.id} updated_at must be null or a non-empty string`);
     }
+    if (item.updated_at && !isRfc3339DateTime(item.updated_at)) {
+      throw new TypeError(`work unit ${item.id} updated_at must be an RFC 3339 date-time`);
+    }
+    if (options.persisted && ["running", "completed", "blocked", "failed"].includes(item.status)) {
+      for (const field of ["base_commit", "assigned_worktree", "assigned_branch"]) {
+        if (!nonEmpty(item[field]))
+          throw new TypeError(`work unit ${item.id} ${field} is required`);
+      }
+    }
+    if (options.persisted && ["completed", "blocked", "failed"].includes(item.status)) {
+      const persistedResult = validateWorkUnitResult(item.result, {
+        expectedWorkUnitId: item.id,
+      });
+      if (persistedResult.status !== item.status) {
+        throw new Error(
+          `work unit ${item.id} result status ${persistedResult.status} does not match ${item.status}`
+        );
+      }
+    } else if (options.persisted && item.result !== undefined && item.result !== null) {
+      throw new Error(`work unit ${item.id} cannot have a result while ${item.status}`);
+    }
+    for (const [index, transition] of (item.transitions || []).entries()) {
+      validateTransition(item.id, transition, index);
+    }
     for (const ownership of item.owns) {
       if (!nonEmpty(ownership)) throw new TypeError(`work unit ${item.id} has empty ownership`);
       validateRepoRelativePattern(ownership, `work unit ${item.id} ownership`);
@@ -99,6 +125,34 @@ function validateWorkUnits(units) {
 
   detectCycle(units, byId);
   return units;
+}
+
+function validateTransition(unitId, transition, index) {
+  if (!isObject(transition)) {
+    throw new TypeError(`work unit ${unitId} transition ${index} must be an object`);
+  }
+  for (const field of Object.keys(transition)) {
+    if (!TRANSITION_FIELDS.has(field)) {
+      throw new Error(`work unit ${unitId} transition ${index} has unknown field ${field}`);
+    }
+  }
+  for (const field of TRANSITION_FIELDS) {
+    if (!Object.hasOwn(transition, field)) {
+      throw new Error(`work unit ${unitId} transition ${index} requires ${field}`);
+    }
+  }
+  if (!VALID_STATUSES.has(transition.from) || !VALID_STATUSES.has(transition.to)) {
+    throw new Error(`work unit ${unitId} transition ${index} has invalid status`);
+  }
+  if (!nonEmpty(transition.reason)) {
+    throw new TypeError(`work unit ${unitId} transition ${index} reason is required`);
+  }
+  if (transition.commit !== null && !nonEmpty(transition.commit)) {
+    throw new TypeError(`work unit ${unitId} transition ${index} commit must be null or a string`);
+  }
+  if (!isRfc3339DateTime(transition.recorded_at)) {
+    throw new TypeError(`work unit ${unitId} transition ${index} recorded_at must be RFC 3339`);
+  }
 }
 
 function analyzeWorkUnits(units) {

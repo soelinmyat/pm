@@ -4,7 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { bulletValue, markdownTableValue } = require("./lib/session-scan");
-const { runGhWithRetry } = require("./pr-state");
+const { getPrInfo, runGhWithRetry } = require("./pr-state");
 
 function scanSessionDirectory(sessionDir) {
   if (!fs.existsSync(sessionDir)) return [];
@@ -17,7 +17,7 @@ function scanSessionDirectory(sessionDir) {
       if (!fs.existsSync(sessionPath)) continue;
       try {
         const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
-        if (session.status === "complete") continue;
+        if (["complete", "handoff"].includes(session.status)) continue;
         const issue = String(session.task?.reference || "").match(/[A-Z]+-[0-9]+/)?.[0] || "";
         const branch = String(session.source?.branch || "");
         if (issue && branch) records.push({ issue, branch, sessionPath });
@@ -70,7 +70,7 @@ function recentMergedBranches(hours, options = {}) {
   }
   if (!Array.isArray(rows)) throw new Error("GitHub PR list did not return an array");
   const cutoff = (options.now || Date.now()) - hours * 60 * 60 * 1000;
-  return new Set(
+  const merged = new Set(
     rows
       .filter(
         (row) =>
@@ -81,6 +81,16 @@ function recentMergedBranches(hours, options = {}) {
       )
       .map((row) => row.headRefName)
   );
+  if (rows.length >= 100) {
+    for (const branch of new Set(options.candidateBranches || [])) {
+      if (merged.has(branch)) continue;
+      const info = getPrInfo(branch, options);
+      if (info.state === "MERGED" && Date.parse(info.mergedAt || "") > cutoff) {
+        merged.add(branch);
+      }
+    }
+  }
+  return merged;
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -98,6 +108,7 @@ function main(argv = process.argv.slice(2)) {
     try {
       const merged = recentMergedBranches(hours, {
         backoffMs: Number(process.env.PM_PR_STATE_BACKOFF_MS) || 1000,
+        candidateBranches: records.map(({ branch }) => branch),
       });
       records = records.filter(({ branch }) => merged.has(branch));
     } catch {

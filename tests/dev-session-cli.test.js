@@ -181,6 +181,15 @@ test("completion moves the durable audit out of the active-session scan path", (
     session.routing.required_phases = ["retro"];
     session.routing.required_gates = [];
     fs.writeFileSync(initialized.session_path, JSON.stringify(session));
+    const activeDir = path.dirname(initialized.session_path);
+    fs.writeFileSync(
+      path.join(activeDir, "gates.json"),
+      JSON.stringify({
+        run_id: session.run_id,
+        gates: [{ artifact: ".pm/dev-sessions/archive-cli/review.log" }],
+      })
+    );
+    fs.writeFileSync(path.join(activeDir, "review.log"), "review evidence\n");
     const resultPath = path.join(repo.root, "retro-result.json");
     fs.writeFileSync(
       resultPath,
@@ -210,6 +219,13 @@ test("completion moves the durable audit out of the active-session scan path", (
     const archived = JSON.parse(recorded.stdout).session_path;
     assert.match(archived, /dev-sessions\/completed\/archive-cli\/dev_[^/]+\/session\.json$/);
     assert.ok(fs.existsSync(archived));
+    assert.ok(fs.existsSync(path.join(path.dirname(archived), "gates.json")));
+    assert.ok(fs.existsSync(path.join(path.dirname(archived), "review.log")));
+    assert.match(
+      JSON.parse(fs.readFileSync(path.join(path.dirname(archived), "gates.json"), "utf8")).gates[0]
+        .artifact,
+      /dev-sessions\/completed\/archive-cli\/dev_[^/]+\/review\.log$/
+    );
     assert.equal(fs.existsSync(initialized.session_path), false);
     assert.ok(fs.existsSync(path.join(path.dirname(initialized.session_path), "completion.json")));
     const retried = repo.run([
@@ -222,6 +238,17 @@ test("completion moves the durable audit out of the active-session scan path", (
     ]);
     assert.equal(retried.status, 0, retried.stderr);
     assert.equal(JSON.parse(retried.stdout).idempotent, true);
+    fs.rmSync(path.join(activeDir, "completion.json"));
+    const recoveredWithoutPointer = repo.run([
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      resultPath,
+      "--json",
+    ]);
+    assert.equal(recoveredWithoutPointer.status, 0, recoveredWithoutPointer.stderr);
+    assert.equal(JSON.parse(recoveredWithoutPointer.stdout).idempotent, true);
 
     const second = JSON.parse(
       repo.run(["init", "--slug", "archive-cli", "--source-dir", repo.root, "--json"]).stdout

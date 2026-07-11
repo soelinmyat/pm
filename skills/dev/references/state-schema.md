@@ -166,6 +166,7 @@ Schema:
 ```json
 {
   "schema_version": 1,
+  "run_id": "dev_01J...",
   "size": "M",
   "kind": "proposal",
   "gates": [
@@ -187,6 +188,7 @@ Gate names are `tdd`, `design-critique`, `qa`, `review`, and `verification` (`si
 
 Rules:
 
+- Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a mismatched run even when commits happen to match. Legacy flat manifests without a sibling canonical session remain readable during migration.
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.

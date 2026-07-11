@@ -111,10 +111,18 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
   const waitMs = options.lockWaitMs ?? 25;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const descriptor = fs.openSync(lockPath, "wx", 0o600);
-      fs.writeFileSync(descriptor, `${process.pid}\n`, "utf8");
-      fs.closeSync(descriptor);
-      const release = () => fs.rmSync(lockPath, { force: true });
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      try {
+        writeJsonAtomic(
+          path.join(lockPath, "owner.json"),
+          { pid: process.pid, created_at: new Date().toISOString() },
+          { directoryMode: 0o700, fileMode: 0o600 }
+        );
+      } catch (error) {
+        fs.rmSync(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      const release = () => fs.rmSync(lockPath, { recursive: true, force: true });
       release.cached = null;
       return release;
     } catch (error) {
@@ -125,8 +133,8 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
         release.cached = cached;
         return release;
       }
-      if (isStaleProbeLock(lockPath)) {
-        fs.rmSync(lockPath, { force: true });
+      if (isStaleProbeLock(lockPath, options.initializationGraceMs ?? 100)) {
+        fs.rmSync(lockPath, { recursive: true, force: true });
         continue;
       }
       synchronousWait(waitMs);
@@ -135,11 +143,11 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
   throw new Error(`timed out waiting for capability probe lock: ${lockPath}`);
 }
 
-function isStaleProbeLock(lockPath) {
+function isStaleProbeLock(lockPath, initializationGraceMs) {
   try {
-    const pid = Number(fs.readFileSync(lockPath, "utf8").trim());
-    if (!Number.isInteger(pid) || pid < 1)
-      return Date.now() - fs.statSync(lockPath).mtimeMs > 30_000;
+    const owner = JSON.parse(fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"));
+    const pid = Number(owner.pid);
+    if (!Number.isInteger(pid) || pid < 1) return true;
     try {
       process.kill(pid, 0);
       return false;
@@ -147,7 +155,12 @@ function isStaleProbeLock(lockPath) {
       return error.code === "ESRCH";
     }
   } catch {
-    return false;
+    try {
+      if (initializationGraceMs <= 0) return true;
+      return Date.now() - fs.statSync(lockPath).mtimeMs >= initializationGraceMs;
+    } catch {
+      return true;
+    }
   }
 }
 

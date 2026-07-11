@@ -168,6 +168,74 @@ test("delegated work-unit results validate in their assigned worktree before int
   }
 });
 
+test("dependent work units require prerequisite commits in the assigned worktree", () => {
+  const repo = makeRepo();
+  try {
+    const depWorktree = path.join(repo.root, ".worktrees", "dependency");
+    const childWorktree = path.join(repo.root, ".worktrees", "child");
+    fs.mkdirSync(path.dirname(depWorktree), { recursive: true });
+    execFileSync("git", ["worktree", "add", "-b", "unit/dependency", depWorktree], {
+      cwd: repo.root,
+    });
+    let session = createSession({ slug: "dependency-proof", sourceDir: repo.root });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.task.work_units = [
+      { id: "dep", title: "Dependency", depends_on: [], owns: ["README.md"], status: "pending" },
+      { id: "child", title: "Child", depends_on: ["dep"], owns: ["child.txt"], status: "pending" },
+    ];
+    session = transitionWorkUnit(session, {
+      id: "dep",
+      status: "running",
+      worktree: depWorktree,
+    });
+    fs.appendFileSync(path.join(depWorktree, "README.md"), "dependency\n");
+    execFileSync("git", ["add", "README.md"], { cwd: depWorktree });
+    execFileSync("git", ["commit", "-m", "dependency"], { cwd: depWorktree });
+    const dependencyCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: depWorktree,
+      encoding: "utf8",
+    }).trim();
+    session = transitionWorkUnit(session, {
+      id: "dep",
+      status: "completed",
+      worktree: depWorktree,
+      result: {
+        schema_version: 1,
+        work_unit_id: "dep",
+        status: "completed",
+        summary: "Dependency complete",
+        commit: dependencyCommit,
+        files_changed: 1,
+        evidence: [{ kind: "test", exit_code: 0 }],
+        blocker: null,
+        runtime: { provider: "codex" },
+      },
+    });
+    execFileSync("git", ["worktree", "add", "-b", "unit/child", childWorktree], {
+      cwd: repo.root,
+    });
+    assert.throws(
+      () =>
+        transitionWorkUnit(session, {
+          id: "child",
+          status: "running",
+          worktree: childWorktree,
+        }),
+      /does not contain dependency dep commit/
+    );
+    execFileSync("git", ["merge", "--ff-only", dependencyCommit], { cwd: childWorktree });
+    const running = transitionWorkUnit(session, {
+      id: "child",
+      status: "running",
+      worktree: childWorktree,
+    });
+    assert.equal(running.task.work_units[1].status, "running");
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("recertified gate evidence remains current after review fixes change HEAD", () => {
   const repo = makeRepo();
   try {
@@ -348,18 +416,17 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
       `<script type="application/json" id="rfc-meta">{"status":"approved"}</script><main data-sidecar-hash="${hash}"></main>`
     );
     const htmlBytes = fs.readFileSync(htmlPath);
-    fs.writeFileSync(
-      path.join(repo.root, `${slug}.approval.json`),
-      JSON.stringify({
-        schema_version: 1,
-        slug,
-        status: "approved",
-        approved_by: "Test User",
-        approved_at: new Date().toISOString(),
-        html_sha256: `sha256:${crypto.createHash("sha256").update(htmlBytes).digest("hex")}`,
-        sidecar_sha256: hash,
-      })
-    );
+    const approvalPath = path.join(repo.root, `${slug}.approval.json`);
+    const approval = {
+      schema_version: 1,
+      slug,
+      status: "approved",
+      approved_by: "Test User",
+      approved_at: new Date().toISOString(),
+      html_sha256: `sha256:${crypto.createHash("sha256").update(htmlBytes).digest("hex")}`,
+      sidecar_sha256: hash,
+    };
+    fs.writeFileSync(approvalPath, JSON.stringify(approval));
     const session = createSession({ slug, sourceDir: repo.root });
     session.phase = "readiness";
     session.routing.required_phases = ["readiness", "implementation", "retro"];
@@ -374,6 +441,9 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
       ],
     });
     assert.deepEqual(validateResult(session, valid), []);
+    fs.writeFileSync(approvalPath, JSON.stringify({ ...approval, approved_at: "2026-07-12" }));
+    assert.ok(validateResult(session, valid).some((error) => /approval audit/.test(error.message)));
+    fs.writeFileSync(approvalPath, JSON.stringify(approval));
     fs.writeFileSync(htmlPath, fs.readFileSync(htmlPath, "utf8").replace("approved", "draft"));
     assert.ok(validateResult(session, valid).some((error) => /approval audit/.test(error.message)));
   } finally {
@@ -584,6 +654,26 @@ test("createSession produces a strict, cold-resumable v2 state", () => {
   }
 });
 
+test("PM_LOOP_WORKER initialization derives and enforces headless mode", () => {
+  const repo = makeRepo();
+  const previous = process.env.PM_LOOP_WORKER;
+  try {
+    process.env.PM_LOOP_WORKER = "1";
+    assert.equal(
+      createSession({ slug: "loop-mode", sourceDir: repo.root }).execution.mode,
+      "headless"
+    );
+    assert.throws(
+      () => createSession({ slug: "loop-conflict", sourceDir: repo.root, mode: "inline" }),
+      /requires execution mode headless/
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PM_LOOP_WORKER;
+    else process.env.PM_LOOP_WORKER = previous;
+    repo.cleanup();
+  }
+});
+
 test("the published JSON Schema exposes session and phase-result contracts", () => {
   const schemaPath = path.resolve(
     __dirname,
@@ -625,6 +715,28 @@ test("runtime validation matches schema constraints for work units and authority
     const errors = validateSession(session);
     assert.ok(errors.some((error) => /work unit id is required/.test(error.message)));
     assert.ok(errors.some((error) => /invalid grant action bogus/.test(error.message)));
+
+    const nested = createSession({ slug: "nested-parity", sourceDir: repo.root });
+    nested.task.work_units = [
+      {
+        id: "unit-a",
+        title: "Unit A",
+        depends_on: [],
+        owns: ["README.md"],
+        status: "completed",
+        base_commit: repo.head(),
+        assigned_worktree: repo.root,
+        assigned_branch: "main",
+        result: {},
+        transitions: [{}],
+        updated_at: "not-a-date",
+      },
+    ];
+    assert.ok(
+      validateSession(nested).some((error) =>
+        /updated_at|worker result|transition/.test(error.message)
+      )
+    );
   } finally {
     repo.cleanup();
   }
@@ -635,6 +747,8 @@ test("readSession safely upgrades immediately preceding v2 state", () => {
   try {
     const session = createSession({ slug: "compat-v2", sourceDir: repo.root });
     delete session.authority_log;
+    session.authority.push_feature_branch = true;
+    session.authority.create_pr = true;
     session.execution.capabilities = ["legacy"];
     session.evidence.implementation = {
       commit: repo.head(),
@@ -647,6 +761,8 @@ test("readSession safely upgrades immediately preceding v2 state", () => {
     fs.writeFileSync(sessionPath, JSON.stringify(session));
     const upgraded = readSession(sessionPath);
     assert.deepEqual(upgraded.authority_log, []);
+    assert.equal(upgraded.authority.push_feature_branch, false);
+    assert.equal(upgraded.authority.create_pr, false);
     assert.equal(Object.hasOwn(upgraded.execution, "capabilities"), false);
     assert.equal(Object.hasOwn(upgraded.evidence.implementation, "verified_commit"), false);
     assert.deepEqual(validateSession(upgraded), []);

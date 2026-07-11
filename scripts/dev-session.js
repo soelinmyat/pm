@@ -158,7 +158,7 @@ function initCommand(options) {
     if (fs.existsSync(sessionPath)) {
       throw cliError(`session already exists: ${sessionPath}`, EXIT.PRECONDITION);
     }
-    fs.rmSync(path.join(path.dirname(sessionPath), "completion.json"), { force: true });
+    clearActiveRunDirectory(sessionPath);
     writeSession(sessionPath, session);
   } finally {
     releaseLock();
@@ -249,19 +249,15 @@ function recordCommand(options) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
     if (!fs.existsSync(sessionPath)) {
-      const completionPath = path.join(path.dirname(sessionPath), "completion.json");
       try {
-        const completion = JSON.parse(fs.readFileSync(completionPath, "utf8"));
-        if (completion.result_hash !== hashResult(result)) {
-          throw new Error("completion result hash does not match this retry");
-        }
-        const session = readSession(completion.session_path);
+        const recovered = recoverTerminalRetry(sessionPath, result);
+        const session = readSession(recovered.session_path);
         emit(
           options,
           {
-            session_path: completion.session_path,
+            session_path: recovered.session_path,
             session,
-            next: nextDecision(session, completion.session_path),
+            next: nextDecision(session, recovered.session_path),
             idempotent: true,
           },
           `${session.phase}\n`
@@ -274,10 +270,21 @@ function recordCommand(options) {
     const session = readSession(sessionPath);
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
-      const decision = nextDecision(session, sessionPath);
+      let idempotentSession = session;
+      let idempotentPath = sessionPath;
+      if (["complete", "handoff"].includes(session.status)) {
+        idempotentPath = archiveTerminalRun(sessionPath, session, result);
+        idempotentSession = readSession(idempotentPath);
+      }
+      const decision = nextDecision(idempotentSession, idempotentPath);
       emit(
         options,
-        { session_path: sessionPath, session, next: decision, idempotent: true },
+        {
+          session_path: idempotentPath,
+          session: idempotentSession,
+          next: decision,
+          idempotent: true,
+        },
         `${decision.phase}\n`
       );
       return session.status === "blocked" ? EXIT.BLOCKED : EXIT.OK;
@@ -290,22 +297,8 @@ function recordCommand(options) {
     }
     let persistedPath = sessionPath;
     if (["complete", "handoff"].includes(updated.status)) {
-      const sessionsDir = path.dirname(path.dirname(sessionPath));
-      persistedPath = path.join(
-        sessionsDir,
-        "completed",
-        updated.slug,
-        updated.run_id,
-        "session.json"
-      );
-      writeSession(persistedPath, updated);
-      fs.rmSync(sessionPath, { force: true });
-      writeJsonAtomic(path.join(path.dirname(sessionPath), "completion.json"), {
-        schema_version: 1,
-        run_id: updated.run_id,
-        result_hash: hashResult(result),
-        session_path: persistedPath,
-      });
+      persistedPath = archiveTerminalRun(sessionPath, updated, result);
+      updated = readSession(persistedPath);
     } else {
       writeSession(sessionPath, updated);
     }
@@ -324,6 +317,122 @@ function recordCommand(options) {
   } finally {
     releaseLock();
   }
+}
+
+function clearActiveRunDirectory(sessionPath) {
+  const activeDir = path.dirname(sessionPath);
+  const lockName = path.basename(`${sessionPath}.lock`);
+  for (const entry of fs.readdirSync(activeDir)) {
+    if (entry === lockName) continue;
+    fs.rmSync(path.join(activeDir, entry), { recursive: true, force: true });
+  }
+}
+
+function archiveTerminalRun(sessionPath, session, result) {
+  const activeDir = path.dirname(sessionPath);
+  const sessionsDir = path.dirname(activeDir);
+  const archiveDir = path.join(sessionsDir, "completed", session.slug, session.run_id);
+  const persistedPath = path.join(archiveDir, "session.json");
+  if (fs.existsSync(archiveDir)) throw new Error(`terminal archive already exists: ${archiveDir}`);
+  const archivedSession = rebaseRunPaths(session, activeDir, archiveDir, session.source.repo_root);
+  writeSession(sessionPath, archivedSession);
+  rebaseRunJsonArtifacts(activeDir, archiveDir, session.source.repo_root, sessionPath);
+  fs.mkdirSync(path.dirname(archiveDir), { recursive: true, mode: 0o700 });
+  fs.renameSync(activeDir, archiveDir);
+  fs.rmSync(path.join(archiveDir, path.basename(`${sessionPath}.lock`)), {
+    recursive: true,
+    force: true,
+  });
+  writeJsonAtomic(path.join(activeDir, "completion.json"), {
+    schema_version: 1,
+    run_id: session.run_id,
+    result_hash: hashResult(result),
+    session_path: persistedPath,
+  });
+  return persistedPath;
+}
+
+function recoverTerminalRetry(sessionPath, result) {
+  const resultHash = hashResult(result);
+  const activeDir = path.dirname(sessionPath);
+  const completionPath = path.join(activeDir, "completion.json");
+  try {
+    const completion = JSON.parse(fs.readFileSync(completionPath, "utf8"));
+    if (completion.run_id === result.run_id && completion.result_hash === resultHash) {
+      return completion;
+    }
+  } catch {
+    // Fall through to immutable archive discovery.
+  }
+  const sessionsDir = path.dirname(activeDir);
+  const archivePath = path.join(
+    sessionsDir,
+    "completed",
+    path.basename(activeDir),
+    result.run_id,
+    "session.json"
+  );
+  const archived = readSession(archivePath);
+  if (archived.history.at(-1)?.result_hash !== resultHash) {
+    throw new Error("completion result hash does not match this retry");
+  }
+  fs.rmSync(path.join(path.dirname(archivePath), "session.json.lock"), {
+    recursive: true,
+    force: true,
+  });
+  return { session_path: archivePath, run_id: result.run_id, result_hash: resultHash };
+}
+
+function rebaseRunJsonArtifacts(activeDir, archiveDir, repoRoot, sessionPath) {
+  const lockPath = `${sessionPath}.lock`;
+  const pending = [activeDir];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entryPath === lockPath || entryPath.startsWith(`${lockPath}${path.sep}`)) continue;
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+      } else if (entry.isFile() && entryPath !== sessionPath && entry.name.endsWith(".json")) {
+        let parsed;
+        try {
+          parsed = JSON.parse(fs.readFileSync(entryPath, "utf8"));
+        } catch {
+          // Non-contract scratch JSON remains byte-for-byte archived.
+          continue;
+        }
+        writeJsonAtomic(entryPath, rebaseRunPaths(parsed, activeDir, archiveDir, repoRoot));
+      }
+    }
+  }
+}
+
+function rebaseRunPaths(value, fromDir, toDir, repoRoot) {
+  if (Array.isArray(value))
+    return value.map((item) => rebaseRunPaths(item, fromDir, toDir, repoRoot));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        rebaseRunPaths(item, fromDir, toDir, repoRoot),
+      ])
+    );
+  }
+  if (
+    typeof value === "string" &&
+    (value === fromDir || value.startsWith(`${fromDir}${path.sep}`))
+  ) {
+    return path.join(toDir, path.relative(fromDir, value));
+  }
+  if (typeof value === "string" && repoRoot) {
+    const normalized = value.replace(/\\/g, "/");
+    const fromRelative = path.relative(repoRoot, fromDir).replace(/\\/g, "/");
+    const toRelative = path.relative(repoRoot, toDir).replace(/\\/g, "/");
+    if (normalized === fromRelative || normalized.startsWith(`${fromRelative}/`)) {
+      return `${toRelative}${normalized.slice(fromRelative.length)}`;
+    }
+  }
+  return value;
 }
 
 function acquireSessionLock(sessionPath) {

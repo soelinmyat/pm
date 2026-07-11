@@ -78,6 +78,9 @@ function checkGateManifest(manifest, opts = {}) {
   if (manifest.schema_version !== 1) {
     issues.push(issue(manifestPath, "schema_version must equal 1"));
   }
+  if (opts.runId && manifest.run_id !== opts.runId) {
+    issues.push(issue(manifestPath, `run_id must equal active session ${opts.runId}`));
+  }
   if (!Array.isArray(manifest.gates)) {
     issues.push(issue(manifestPath, "gates must be an array"));
     return { ok: false, issues };
@@ -410,6 +413,8 @@ function parseArgs(argv) {
       opts.manifestPath = requireValue(argv, ++index, arg);
     } else if (arg === "--commit") {
       opts.currentCommit = requireValue(argv, ++index, arg);
+    } else if (arg === "--run-id") {
+      opts.runId = requireValue(argv, ++index, arg);
     } else if (arg === "--require") {
       opts.requiredGates.push(...normalizeGateNames(requireValue(argv, ++index, arg)));
     } else if (arg === "--allow-skip") {
@@ -452,7 +457,7 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
@@ -545,9 +550,22 @@ function main(argv = process.argv.slice(2)) {
     requiredGates: opts.requiredGates,
     allowSkippedGates: opts.allowSkippedGates,
     changedFiles,
+    runId: opts.runId || readSiblingRunId(manifestPath),
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;
+}
+
+function readSiblingRunId(manifestPath) {
+  if (path.basename(manifestPath) !== "gates.json") return null;
+  try {
+    const session = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(manifestPath), "session.json"), "utf8")
+    );
+    return typeof session.run_id === "string" ? session.run_id : null;
+  } catch {
+    return null;
+  }
 }
 
 if (require.main === module) {
