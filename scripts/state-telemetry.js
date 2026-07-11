@@ -72,6 +72,7 @@ function resolveTrackedPath(projectDir, targetPath) {
 
   const tracked =
     /^\.pm\/groom-sessions\/.+\.md$/.test(relative) ||
+    /^\.pm\/dev-sessions\/[^/]+\/session\.json$/.test(relative) ||
     /^\.pm\/dev-sessions\/.+\.md$/.test(relative) ||
     /^\.dev-state-.+\.md$/.test(relative) ||
     /^\.dev-epic-state-.+\.md$/.test(relative) ||
@@ -199,6 +200,26 @@ function parseTrackedState(relativePath, content, fallbackSkill, currentRunId) {
     relativePath.startsWith(".dev-state-") ||
     relativePath.startsWith(".dev-epic-state-")
   ) {
+    if (relativePath.endsWith("/session.json")) {
+      let session;
+      try {
+        session = JSON.parse(content);
+      } catch {
+        return null;
+      }
+      if (session?.schema_version !== 2 || !session.phase) return null;
+      const allowedSkills = new Set(["dev", "review", "ship", "debugging"]);
+      const skill = allowedSkills.has(fallbackSkill) ? fallbackSkill : "dev";
+      return {
+        skill,
+        runId: firstValue(session.run_id, currentRunId),
+        phase: skill === "dev" ? null : skill,
+        step: normalizeDevStep(session.phase),
+        startedAt: firstValue(session.created_at),
+        completedAt: session.status === "complete" ? firstValue(session.updated_at) : "",
+        stateFile: relativePath,
+      };
+    }
     const rawStage = firstValue(
       markdownTableValue(content, "Stage"),
       bulletValue(content, "Stage"),

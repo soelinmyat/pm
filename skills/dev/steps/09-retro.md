@@ -2,6 +2,11 @@
 name: Retro
 order: 9
 description: Auto-extract learnings from dev session state, write to pm/memory.md, and write durable implementation learnings when warranted
+phase: retro
+requires:
+  - state-schema.md
+gates: []
+result_schema: phase-result-v1
 ---
 
 ## Retro — Auto-Extract Learnings
@@ -12,7 +17,7 @@ Extract durable learnings from the completed dev session, write them to the righ
 
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
-If extraction fails at any point, do NOT delete the state file. Instead, write `retro_failed: true` to the state file and say:
+If extraction fails at any point, preserve canonical state and record a structured failed retro result with the error evidence. Then say:
 > "Retro extraction failed; session state preserved for retry."
 Then stop — do not proceed to deletion.
 
@@ -31,7 +36,7 @@ Session-specific context (counts, slugs, specific failures) belongs in the `deta
 
 ### Step 1: Scan for extractable events
 
-Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}.md`) and check for these events:
+Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}/session.json`) and check for these events:
 
 **Single-task events** (check `Review`, `QA`, `Merge-Watch` sections directly):
 
@@ -64,7 +69,7 @@ gh pr view {PR_NUMBER} --json reviews,statusCheckRollup,commits
 
 ### Step 2: No events — skip silently
 
-If none of the conditions above match (clean session: XS task, shipped clean, no friction), log internally "no learnings detected" and skip to **Step 7** (state file deletion). Do NOT prompt the user.
+If none of the conditions above match (clean session: XS task, shipped clean, no friction), log internally "no learnings detected" and skip to **Step 7** (record completion). Do NOT prompt the user.
 
 ---
 
@@ -88,7 +93,7 @@ Wait for the user's answer.
 - **(b):** Collect additional learnings from the user. Each user-provided learning needs `category` (offer the valid set: `scope`, `research`, `review`, `process`, `quality`) and a one-liner. Nudge the user toward generalizable phrasing if their learning is session-specific (e.g., "what's the broader lesson here?"). Append them to the auto-extracted list.
 - **Pin:** If the user says "pin {N}", mark that entry with `pinned: true`. Multiple pins allowed. Then continue with the accept/add flow.
 
-This is a hard gate — at minimum the auto-extracted learnings must be written before state file deletion.
+This is a hard gate — at minimum the auto-extracted learnings must be written before retro completion.
 
 ---
 
@@ -115,7 +120,7 @@ Read `{pm_dir}/memory.md`. For each entry to write, check existing entries: if a
 
 Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter structure (`type: project-memory`).
 
-**5c. Error recovery.** If the write fails, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
+**5c. Error recovery.** If the write fails, preserve the session, record a structured failed retro result, and stop.
 
 ---
 
@@ -164,7 +169,7 @@ cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/knowledge-writeback.js --pm-di
   "openQuestions": ["{remaining open question}"],
   "sourceArtifacts": [
     "backlog/{slug}.md",
-    ".pm/dev-sessions/{slug}.md"
+    ".pm/dev-sessions/{slug}/session.json"
   ]
 }
 JSON
@@ -177,12 +182,12 @@ Pass into that flow:
 - artifact mode: `implementation-learnings`
 - artifact path: `{pm_dir}/evidence/research/{slug}-implementation-learnings.md`
 - topic name: `{slug} — Implementation Learnings`
-- state source: `{source_dir}/.pm/dev-sessions/{slug}.md`
+- state source: `{source_dir}/.pm/dev-sessions/{slug}/session.json`
 - the key findings you extracted from the session
 
 If a specific finding is ambiguous and you cannot write it without guessing: skip that finding and log `retro: skipped ambiguous finding "{short label}"` in the state file. Do NOT ask the user mid-retro. Unambiguous findings still get written automatically. Retro never halts the flow — skipping one finding is better than pausing.
 
-If this writeback fails after you decided it should happen, do NOT delete the state file. Write `retro_failed: true` to the state file and stop.
+If this writeback fails after you decided it should happen, preserve the session, record a structured failed retro result, and stop.
 
 ---
 
@@ -200,14 +205,9 @@ If validation fails, fix the entries and re-validate before proceeding.
 
 ---
 
-### Step 7: Mark completed, then delete state file
+### Step 7: Record the retro result
 
-Two writes, in this order:
-
-1. **Set `Completed at`** in the state file to the current ISO timestamp (replace `| Completed at | null |` with `| Completed at | {now ISO} |`). This is the signal the analytics state-telemetry hook watches for — without it the run sits open and gets marked abandoned at session end, even on a clean ship.
-2. **Delete** `{source_dir}/.pm/dev-sessions/{slug}.md`. Dev session is complete.
-
-The completion timestamp must be written as a separate write before deletion — the Write hook fires synchronously and closes the run with `status=completed` before the delete runs. If you delete without writing the timestamp, the run will still be closed (by session-end), but as abandoned.
+Write the strict retro phase-result envelope and record it with `scripts/dev-session.js record`. The runner sets `status: complete`, updates `updated_at`, and appends the result hash. Preserve `session.json` as the durable audit/resume record; do not delete it.
 
 ---
 
@@ -220,9 +220,15 @@ mcp__plugin_linear_linear__save_comment({ issueId: "{ISSUE_ID}", body: "{learnin
 
 ---
 
-### State File ({source_dir}/.pm/dev-sessions/{slug}.md)
+### State File ({source_dir}/.pm/dev-sessions/{slug}/session.json)
 
 The state file is the **single source of truth** for session state — full schema, template, valid stage values, and update rules live in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`. Retro-specific deltas:
 
-- Dev sessions always live in the source repo's `.pm/dev-sessions/` directory — even in separate-repo mode — keeping state co-located with the code being modified. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md`.
-- Set `Completed at` before deletion (Step 7 above), then delete the file only after retro succeeds.
+- Dev sessions always live in the source repo's `.pm/dev-sessions/` directory — even in separate-repo mode — keeping state co-located with the code being modified. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}/session.json`.
+- Record the retro result through the runner (Step 7 above) and retain the completed session.
+
+## Done-when
+
+Learnings and any required writeback validate, the retro result is recorded, and canonical state reports `status: complete`.
+
+Offer the user the delivered summary and any clearly scoped follow-up work.

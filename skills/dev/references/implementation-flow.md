@@ -86,7 +86,7 @@ Classify the change:
 
 For monorepos, map to specific app directories. For single-app projects, classify by file type (controllers/models vs components/pages).
 
-Log in `.pm/dev-sessions/{slug}.md`:
+Log in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - Platform: <detected platform>
 - Contract gate: <required | skipped (reason)>
@@ -171,7 +171,7 @@ grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/featu
 
 **If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
 
-Log the scan result in `.pm/dev-sessions/{slug}.md`:
+Log the scan result in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - Pattern scan: Reusing existing Drawer from src/components/ui/Drawer.tsx
   OR
@@ -189,7 +189,7 @@ Log the scan result in `.pm/dev-sessions/{slug}.md`:
 
 ### TDD Evidence Gate
 
-For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}.gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
+For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}/gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
 
 Docs-only, config-only, generated-only, or lockfile-only changes may record `tdd: skipped`, but only with a concrete reason. A missing `tdd` row blocks the pre-push gate checker.
 
@@ -249,7 +249,7 @@ Before any `git push` or `gh pr create`, run the shared checker against current 
 ```bash
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
 ```
@@ -261,7 +261,7 @@ If the checker fails, stop and run the missing gate. For stale rows, run the fin
 ```bash
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
 git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```

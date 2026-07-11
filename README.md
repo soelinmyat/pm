@@ -160,7 +160,7 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:task <title>` | Capture a lightweight chore (version bump, small cleanup) — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:rfc <feature-slug>` | Generate a technical RFC from a groomed proposal |
-| `/pm:dev [ticket]` | Auto-detects scope, invokes RFC for M/L/XL work, implements with TDD |
+| `/pm:dev [ticket]` | Routes by scope and risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
 | `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
 | `/pm:loop reconcile` | Dry-run stale-card classification from durable run/recovery and repository-pinned PR evidence; `--apply` requires Git readiness and isolated PM transactions |

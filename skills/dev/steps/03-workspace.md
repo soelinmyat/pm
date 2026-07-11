@@ -2,6 +2,11 @@
 name: Workspace
 order: 3
 description: Set up isolated git worktree, install deps, verify clean baseline
+phase: workspace
+requires:
+  - execution-defaults.md
+gates: []
+result_schema: phase-result-v1
 ---
 
 ## Workspace (all sizes)
@@ -30,7 +35,7 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
 5. If branch/worktree already exists:
    - Reuse existing branch + worktree when valid
    - If occupied or ambiguous, suffix branch/worktree with `-v2`, `-v3`
-6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}.md`.
+6. Record final `repo root`, `cwd`, `branch`, and `worktree` in `.pm/dev-sessions/{slug}/session.json`.
 7. **Update local backlog status to in-progress:**
 
    **Loop worker branch:** If `PM_LOOP_WORKER=1`, skip this backlog write (including the parent write) and log `Backlog write: skipped-loop-worker`. The loop worker already owns the durable claim and is the only process allowed to finalize card state. Continue with worktree prep and every implementation/quality gate below.
@@ -99,3 +104,9 @@ Record the baseline test outcome in the session file (pass, or which tests faile
 Once the repo root, branch, cwd, worktree, backlog status, and baseline test
 result are recorded and implementation can begin from a verified clean
 baseline, proceed to Step 04 (Groom Readiness).
+
+## Done-when
+
+The isolated branch/worktree, repository instructions, dependency baseline, and source/session paths are recorded and verified.
+
+**Advance:** proceed to Step 04 (Groom Readiness).

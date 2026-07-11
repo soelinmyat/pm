@@ -31,7 +31,7 @@ test("dev review step requires PM-native design critique rather than external sk
 
 test("dev review step records gate sidecar rows and runs the checker", () => {
   const text = read("skills/dev/steps/07-review.md");
-  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /--require design-critique/);
   assert.match(text, /--require review/);
@@ -111,84 +111,48 @@ test("review treats PM plugin Markdown runtime files as reviewable source", () =
   assert.match(text, /do not treat them as docs-only\/config-only/);
 });
 
-test("S-sized dev work receives a code scan instead of silently skipping review", () => {
-  const intake = read("skills/dev/steps/02-intake.md");
+test("low-risk S work receives a code scan instead of silently skipping review", () => {
+  const risk = read("skills/dev/references/risk-routing.md");
   const review = read("skills/dev/steps/07-review.md");
-  assert.match(intake, /\| Code scan \| Code scan \| Code scan \|/);
-  assert.match(review, /Code scan \(XS\/S/);
+  assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
+  assert.match(review, /routing\.review_mode: code-scan/);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
 });
 
-test("XS Express records every default gate before push", () => {
+test("XS work uses the same durable runner and cannot bypass final gates", () => {
   const text = read("skills/dev/SKILL.md");
-  const block = text.match(/## XS Express Path[\s\S]*?---/);
-  assert.ok(block, "XS Express section must exist");
-  assert.match(block[0], /size: "XS"/);
-  assert.match(block[0], /Commit implementation/);
-  assert.match(block[0], /do not push an empty branch/);
-  assert.doesNotMatch(block[0], /Simplify skip row/);
-  assert.match(block[0], /commit any fixes/);
-  assert.match(block[0], /record `qa` as `passed`/);
-  assert.match(block[0], /record `qa` as `skipped` with a concrete reason/);
-  assert.match(block[0], /recertify earlier gate rows/);
-  assert.match(block[0], /PM_PLUGIN_ROOT/);
-  assert.match(block[0], /scripts\/dev-gate-check\.js/);
-  assert.match(block[0], /--manifest .pm\/dev-sessions\/\{slug\}\.gates\.json/);
-  assert.match(block[0], /--commit "\$\(git rev-parse HEAD\)"/);
-  assert.match(block[0], /--base origin\/\{DEFAULT_BRANCH\}/);
-  assert.doesNotMatch(block[0], /--require tdd,design-critique,review,verification/);
+  assert.doesNotMatch(text, /XS Express/);
+  assert.match(text, /Create canonical state for fresh work/);
+  assert.match(text, /Complete routed gates/);
+  assert.match(text, /scripts\/dev-gate-check\.js/);
 });
 
-test("single-task implementation brief records TDD after committing implementation", () => {
+test("implementation records red-green and post-integration evidence", () => {
   const text = read("skills/dev/steps/05-implementation.md");
-  const lifecycle = text.match(/Lifecycle:[\s\S]*?If blocked/);
-  assert.ok(lifecycle, "single-task implementation lifecycle must exist");
-  const suiteIndex = lifecycle[0].indexOf("Run the project test suite");
-  const commitIndex = lifecycle[0].indexOf("Commit implementation and test changes");
-  const tddIndex = lifecycle[0].indexOf("Record TDD evidence");
-  assert.ok(suiteIndex > -1, "lifecycle must run tests");
-  assert.ok(commitIndex > suiteIndex, "implementation commit must happen after tests");
-  assert.ok(tddIndex > commitIndex, "TDD evidence must be tied to the committed HEAD");
-  assert.match(lifecycle[0], /committed HEAD/);
+  assert.match(text, /observe the targeted test fail before behavioral implementation/);
+  assert.match(text, /run targeted tests and the project-appropriate suite/);
+  assert.match(text, /Accepted commits are reachable from the current worktree HEAD/);
 });
 
-test("multi-task implementation prompt uses branch slug for gate sidecar", () => {
-  // The per-issue prompt template moved from 05 into the multi-task reference
-  // (loaded only on the multi-task branch); the assertions are unchanged.
+test("multi-work-unit dispatch keeps integration and delivery authority at root", () => {
   const text = read("skills/dev/references/multi-task-dispatch.md");
-  const prompt = text.match(/Build the per-issue prompt[\s\S]*?4\. \*\*Dispatch as subprocess/);
-  assert.ok(prompt, "multi-task per-issue prompt must exist");
-  assert.match(prompt[0], /\*\*Branch:\*\* feat\/\{task-slug\}/);
-  assert.match(prompt[0], /\*\*RFC:\*\* \{pm_dir\}\/backlog\/rfcs\/\{parent_slug\}\.html/);
-  assert.match(prompt[0], /\*\*Parent RFC slug:\*\* \{parent_slug\}/);
-  assert.match(prompt[0], /\*\*Task\/session slug:\*\* \{task-slug\}/);
-  assert.match(prompt[0], /\.pm\/dev-sessions\/\{task-slug\}\.gates\.json/);
-  assert.match(prompt[0], /PM_PLUGIN_ROOT/);
-  assert.match(prompt[0], /pre-push hook derives the required manifest from `feat\/\{task-slug\}`/);
-  assert.doesNotMatch(prompt[0], /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(text, /validateWorkUnits/);
+  assert.match(text, /analyzeWorkUnits/);
+  assert.match(
+    text,
+    /Push, PR, merge, tracker updates, and aggregate gate changes are always false/
+  );
+  assert.match(text, /root integrates commits in deterministic DAG order/);
 });
 
-test("runtime shell snippets use PM_PLUGIN_ROOT with CLAUDE fallback", () => {
-  const files = [
-    "references/skill-runtime.md",
-    "skills/dev/SKILL.md",
-    // The runtime dispatch/wait shell snippets moved from 05 into the
-    // multi-task reference; the PM_PLUGIN_ROOT fallback must live with them.
-    "skills/dev/references/multi-task-dispatch.md",
-    "skills/dev/steps/07-review.md",
-    "skills/dev/references/implementation-flow.md",
-    "skills/dev/references/state-schema.md",
-    "skills/design-critique/steps/03-critique.md",
-    "skills/review/SKILL.md",
-    "skills/ship/steps/04-push.md",
-    "skills/ship/steps/07-merge-loop.md",
-  ];
-  for (const file of files) {
-    const text = read(file);
-    assert.match(text, /PM_PLUGIN_ROOT/, `${file} must mention PM_PLUGIN_ROOT`);
-  }
-  assert.match(read("references/skill-runtime.md"), /legacy alias/);
-  assert.match(read("scripts/dispatch-issue.sh"), /export PM_PLUGIN_ROOT CLAUDE_PLUGIN_ROOT/);
+test("runtime policy lives in data and adapters rather than provider-specific worker prose", () => {
+  const runtime = read("skills/dev/references/agent-runtime.md");
+  const profiles = JSON.parse(read("skills/dev/references/model-profiles.json"));
+  assert.match(runtime, /scripts\/dev-runtime\/dispatch\.js/);
+  assert.equal(profiles.profiles["codex-workhorse"].model, "gpt-5.6-sol");
+  assert.equal(profiles.profiles["claude-workhorse"].model, "claude-opus-4-8");
+  assert.doesNotMatch(runtime, /dangerously-skip-permissions/);
+  assert.match(runtime, /Broad modes .* require `PM_DEV_ALLOW_BROAD_PERMISSIONS=1`/);
 });
 
 test("dev review step blocks QA environment failures instead of skipping them", () => {

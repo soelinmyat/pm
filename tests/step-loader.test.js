@@ -6,7 +6,13 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { loadWorkflow, buildPrompt, loadPersonas } = require("../scripts/step-loader");
+const {
+  loadWorkflow,
+  buildPrompt,
+  buildPhasePrompt,
+  selectWorkflowStep,
+  loadPersonas,
+} = require("../scripts/step-loader");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +103,23 @@ function stepFile(name, order, description, body) {
   return `---\nname: ${name}\norder: ${order}\ndescription: ${description}\n---\n\n${body}\n`;
 }
 
+function phaseStepFile(name, order, phase, body) {
+  return `---
+name: ${name}
+order: ${order}
+description: ${name} phase
+phase: ${phase}
+requires:
+  - ${phase}-contract.md
+gates:
+  - ${phase}-gate
+result_schema: phase-result-v1
+---
+
+${body}
+`;
+}
+
 function personaFile(name, description, body) {
   return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
 }
@@ -127,6 +150,31 @@ test("loadWorkflow: loads default steps sorted by order", () => {
     assert.equal(steps[1].order, 2);
     assert.equal(steps[2].name, "Review");
     assert.equal(steps[2].order, 3);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadWorkflow: exposes optional phase metadata without changing legacy fields", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "05-implementation.md": phaseStepFile(
+          "Implementation",
+          5,
+          "implementation",
+          "Implement now."
+        ),
+      },
+    },
+  });
+
+  try {
+    const [step] = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(step.phase, "implementation");
+    assert.deepEqual(step.requires, ["implementation-contract.md"]);
+    assert.deepEqual(step.gates, ["implementation-gate"]);
+    assert.equal(step.resultSchema, "phase-result-v1");
   } finally {
     env.cleanup();
   }
@@ -426,6 +474,69 @@ test("buildPrompt: returns empty string for no enabled steps", () => {
 
   const prompt = buildPrompt(steps);
   assert.equal(prompt, "");
+});
+
+test("selectWorkflowStep: selects one enabled phase by phase, stem, or order", () => {
+  const steps = [
+    { stem: "02-intake", phase: "intake", order: 2, name: "Intake", enabled: true },
+    {
+      stem: "05-implementation",
+      phase: "implementation",
+      order: 5,
+      name: "Implementation",
+      enabled: true,
+    },
+  ];
+
+  assert.equal(selectWorkflowStep(steps, { phase: "implementation" }).stem, "05-implementation");
+  assert.equal(selectWorkflowStep(steps, { stem: "02-intake" }).phase, "intake");
+  assert.equal(selectWorkflowStep(steps, { order: 5 }).name, "Implementation");
+  assert.equal(selectWorkflowStep(steps, "implementation").order, 5);
+});
+
+test("selectWorkflowStep: ignores disabled steps and rejects ambiguous selectors", () => {
+  const disabled = [
+    { stem: "05-implementation", phase: "implementation", order: 5, enabled: false },
+  ];
+  assert.equal(selectWorkflowStep(disabled, { phase: "implementation" }), null);
+
+  const duplicate = [
+    { stem: "05-a", phase: "implementation", order: 5, enabled: true },
+    { stem: "06-b", phase: "implementation", order: 6, enabled: true },
+  ];
+  assert.throws(
+    () => selectWorkflowStep(duplicate, { phase: "implementation" }),
+    /matched multiple workflow steps/
+  );
+});
+
+test("buildPhasePrompt: includes only the selected phase and preserves buildPrompt behavior", () => {
+  const steps = [
+    {
+      stem: "05-implementation",
+      phase: "implementation",
+      name: "Implementation",
+      order: 5,
+      body: "ACTIVE_IMPLEMENT_TOKEN",
+      enabled: true,
+    },
+    {
+      stem: "08-ship",
+      phase: "ship",
+      name: "Ship",
+      order: 8,
+      body: "FUTURE_SHIP_TOKEN",
+      enabled: true,
+    },
+  ];
+
+  const phasePrompt = buildPhasePrompt(steps, { phase: "implementation" });
+  assert.match(phasePrompt, /ACTIVE_IMPLEMENT_TOKEN/);
+  assert.doesNotMatch(phasePrompt, /FUTURE_SHIP_TOKEN/);
+
+  const legacyPrompt = buildPrompt(steps);
+  assert.match(legacyPrompt, /ACTIVE_IMPLEMENT_TOKEN/);
+  assert.match(legacyPrompt, /FUTURE_SHIP_TOKEN/);
 });
 
 // ---------------------------------------------------------------------------

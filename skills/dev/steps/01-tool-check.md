@@ -2,6 +2,11 @@
 name: Tool Check
 order: 1
 description: Verify gh CLI and source repo access before starting work
+phase: tool-check
+requires:
+  - execution-defaults.md
+gates: []
+result_schema: phase-result-v1
 ---
 
 <!-- Merged: Stage 0.5 (Tool Check) + Stage 0.7 (Source Repo Access Check) from dev-flow.md -->
@@ -46,3 +51,9 @@ Dev requires a source code repository to operate — it creates branches, worktr
      Do NOT proceed to the next step. The user must either configure `source_repo` in `.pm/config.json` (via `pm:setup separate-repo`) or invoke `pm:dev` from within the source repo.
 
 **Dev session files** always live at `{source_dir}/.pm/dev-sessions/` in both same-repo and separate-repo modes — session state is ephemeral, machine-local, and gitignored. Groom and RFC sessions follow the same rule (`{source_dir}/.pm/groom-sessions/`, `{source_dir}/.pm/rfc-sessions/`). Only artefacts (proposals, RFCs) live in the PM repo.
+
+## Done-when
+
+The plugin root, source repository, and required local tools are resolved, or a precise source/tool blocker has been returned.
+
+**Advance:** proceed to Step 02 (Intake).

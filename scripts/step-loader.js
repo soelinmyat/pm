@@ -37,6 +37,13 @@ function parseStepFile(filePath, filename) {
     order,
     description: data.description || "",
     appliesTo: Array.isArray(data.applies_to) ? data.applies_to : null,
+    phase: typeof data.phase === "string" && data.phase.trim() ? data.phase.trim() : null,
+    requires: Array.isArray(data.requires) ? data.requires : [],
+    gates: Array.isArray(data.gates) ? data.gates : [],
+    resultSchema:
+      typeof data.result_schema === "string" && data.result_schema.trim()
+        ? data.result_schema.trim()
+        : null,
     body: body,
   };
 }
@@ -186,6 +193,10 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       order: parsed.order,
       description: parsed.description,
       appliesTo: parsed.appliesTo,
+      phase: parsed.phase,
+      requires: parsed.requires,
+      gates: parsed.gates,
+      resultSchema: parsed.resultSchema,
       body: resolvedBody,
       enabled,
       source: isUserOverride ? "user" : "default",
@@ -217,6 +228,51 @@ function buildPrompt(steps, options) {
   if (filtered.length === 0) return "";
 
   return filtered.map((s) => `## Step ${s.order}: ${s.name}\n\n${s.body.trim()}`).join("\n\n");
+}
+
+/**
+ * Select exactly one enabled workflow step without changing legacy prompt
+ * assembly. A string selector matches phase, stem, or name; an object may use
+ * phase, stem, order, or name and combines the supplied constraints.
+ *
+ * @returns {object|null}
+ */
+function selectWorkflowStep(steps, selector) {
+  if (!Array.isArray(steps)) throw new TypeError("steps must be an array");
+  if (selector === undefined || selector === null || selector === "") {
+    throw new TypeError("a phase selector is required");
+  }
+
+  let matches;
+  if (typeof selector === "string") {
+    matches = steps.filter(
+      (step) =>
+        step.enabled !== false &&
+        (step.phase === selector || step.stem === selector || step.name === selector)
+    );
+  } else if (typeof selector === "number") {
+    matches = steps.filter((step) => step.enabled !== false && step.order === selector);
+  } else if (typeof selector === "object" && !Array.isArray(selector)) {
+    const constraints = ["phase", "stem", "order", "name"].filter(
+      (key) => selector[key] !== undefined
+    );
+    if (constraints.length === 0) throw new TypeError("a phase selector is required");
+    matches = steps.filter(
+      (step) => step.enabled !== false && constraints.every((key) => step[key] === selector[key])
+    );
+  } else {
+    throw new TypeError("invalid phase selector");
+  }
+
+  if (matches.length > 1) throw new Error("phase selector matched multiple workflow steps");
+  return matches[0] || null;
+}
+
+/** Build the legacy markdown rendering for one selected workflow phase. */
+function buildPhasePrompt(steps, selector, options) {
+  const step = selectWorkflowStep(steps, selector);
+  if (!step) return "";
+  return buildPrompt([step], options);
 }
 
 /**
@@ -265,4 +321,10 @@ function loadPersonas(pmDir, pluginRoot) {
   return personas;
 }
 
-module.exports = { loadWorkflow, buildPrompt, loadPersonas };
+module.exports = {
+  loadWorkflow,
+  buildPrompt,
+  selectWorkflowStep,
+  buildPhasePrompt,
+  loadPersonas,
+};

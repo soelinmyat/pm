@@ -91,7 +91,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md and run diff-aware QA.
 
 ## Default Branch
 
-Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}/session.json` if available. Otherwise detect:
 
 ```bash
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -207,9 +207,9 @@ If server or auth fails: Blocked. If seed or routes partially fail: note finding
 
 ### Read context
 
-**Persistent agent mode:** All context (feature, ACs, routes, platform, tier) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}.md` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
+**Persistent agent mode:** All context (feature, ACs, routes, platform, tier) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}/session.json` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
 
-**Manual reference mode:** If `.pm/dev-sessions/{slug}.md` exists (derive slug from `git branch --show-current` using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`):
+**Manual reference mode:** If `.pm/dev-sessions/{slug}/session.json` exists (derive slug from `git branch --show-current` using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`):
 
 - Extract: feature description, platform, affected routes, **acceptance criteria**, dev size
 
@@ -659,7 +659,7 @@ Verdict: {PASS / PASS WITH CONCERNS / FAIL / BLOCKED}
 
 ### Embedded mode (dev session exists)
 
-Append structured report to `.pm/dev-sessions/{slug}.md` under `## QA`:
+Append structured report to `.pm/dev-sessions/{slug}/session.json` under `## QA`:
 
 ```markdown
 ## QA
@@ -738,7 +738,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 6. Smoke-check adjacent routes for regressions (navigate, check console, verify key elements)
 7. Recompute health score with updated findings
 8. Update verdict
-9. Write results to `.pm/dev-sessions/{slug}.md` and return verdict to orchestrator
+9. Write results to `.pm/dev-sessions/{slug}/session.json` and return verdict to orchestrator
 
 **What the worker skips on re-verify:**
 - Phase 0 (servers already running, auth active, tokens discovered)
@@ -750,7 +750,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 
 For manual reference runs, re-verify works the old way:
 
-1. Read previous findings from `.pm/dev-sessions/{slug}.md` `## QA` section
+1. Read previous findings from `.pm/dev-sessions/{slug}/session.json` `## QA` section
 2. Re-run Phase 0 (environment readiness — cold start needed)
 3. Filter to Critical and High, re-run assertions, update verdict
 
@@ -818,7 +818,7 @@ ALWAYS kill servers you started when QA is fully done (final passing verdict in 
 
 ## State File Integration
 
-QA reads from and writes to `.pm/dev-sessions/{slug}.md`.
+QA reads from and writes to `.pm/dev-sessions/{slug}/session.json`.
 
 **Reads:**
 - Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — manual reference mode only; persistent agent gets these from spawn prompt)

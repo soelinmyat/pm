@@ -1,184 +1,44 @@
 ---
 name: Intake
 order: 2
-description: Load project memory, discover project context, classify size, create state file
+description: Resolve task context, acceptance criteria, size, risk, and executable routing
+phase: intake
+requires:
+  - state-schema.md
+  - risk-routing.md
+gates: []
+result_schema: phase-result-v1
 ---
-
-## Intake
-
-Document output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
 ## Goal
 
-Load the task context, classify the work correctly, and create the initial dev session state from the best available product and project inputs.
+Turn the request and available product context into confirmed scope plus a durable, executable risk route.
 
-1. **Load learnings** — Read `{pm_dir}/memory.md`. Select up to 5 entries using the algorithm in `references/memory-recall.md`. Display them to the user so past context informs the dev session. If the file is missing or has zero entries, show "No past learnings yet — they'll appear here after your first completed session." and continue.
-2. **Discover project context** — Read CLAUDE.md + AGENTS.md. Detect issue tracker from MCP tools.
-3. **Resolve task context:**
+## How
 
-   **Local backlog resolution (runs first).** If `$ARGUMENTS` is a slug (e.g., `inspection-checklist-navigation`) or an issue ID (e.g., `PM-036`, `CLE-123`):
-   1. Check `{pm_dir}/backlog/{slug}.md` — if found, read frontmatter and use as task context.
-   2. If the argument looks like an issue identifier, scan `{pm_dir}/backlog/*.md` frontmatter for a matching `id:` or `linear_id:` field. If found, use that file's slug and content as task context.
-   3. Only if no local backlog match: fall through to MCP lookup.
-
-   **Resolve `kind` (normative).** When frontmatter is read, route the value through the `resolveKind(fm)` helper exported from `scripts/validate.js` — absent/null/undefined become `"proposal"`. Persist the resolved value to `.pm/dev-sessions/{slug}.md` under the `kind:` field as a concrete string (`"proposal"`, `"task"`, or `"bug"`) — never write `null` or `undefined`. Every downstream step (04-groom-readiness, 07-review) consumes `session.kind` as a defined string and treats missing/blank as a bug, not as "proposal by default".
-
-   **Kind × size collision.** When `kind` is `task` or `bug`, **kind wins** — downstream steps skip groom/RFC and force `pm:review` regardless of `size`. If the backlog file carries `size: M`, `L`, or `XL` on a task/bug item, log a one-line warning to the session state: `Warning: kind={kind} overrides size={size} — routing as lightweight.` Proceed without further action.
-
-   **MCP lookup.** If `$ARGUMENTS` looks like an issue ID and was NOT resolved from local backlog, fetch via MCP. If MCP returns nothing, proceed with the argument as the topic. If only conversation context is available, use that.
-
-   **Linear readiness assessment.** If the MCP fetch returned a Linear issue, assess dev-readiness. Read the issue title, description, labels, and status. Check three criteria — be generous, look for testable statements anywhere, not just under "AC:" headers:
-
-   - **AC exist:** Testable acceptance criteria (specific, verifiable — not just a vague description)
-   - **Scope is clear:** What's in scope vs. out of scope is distinguishable
-   - **Size is inferrable:** Enough detail to classify as XS/S/M/L/XL
-
-   Route based on readiness:
-
-   | Readiness | Action |
-   |-----------|--------|
-   | dev-ready (all 3 pass) | Store Linear context in session state. Proceed normally. |
-   | needs-groom | Store `linear_readiness: needs-groom` and `gaps` (e.g., `[missing-ac, vague-scope]`). Step 5 routes. |
-   | fetch failed | Ask user to paste the issue description. Proceed with pasted text. |
-
-   Store `linear_id`, `linear_readiness`, `linear_title`, `linear_description`, and `linear_labels` in the session state. For needs-groom, also store `size` and `gaps`.
-4. **Discover tasks from RFC** — After resolving the backlog item, check if it has a non-null `rfc:` field. If so, read the RFC HTML file at `{pm_dir}/backlog/{rfc_field}` (the `rfc:` value is relative to `{pm_dir}/backlog/`).
-
-   **Layered RFC preference.** If the RFC contains `id="execution-contract"`, read that section first and store a compact summary in the session state under `## Execution Contract`. This is the default agent handoff. It should contain scope, non-goals, files, dependencies, AC summary, Test hooks, verification commands, and open implementation questions.
-
-   **JSON sidecar (preferred issue source).** Follow the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. The sidecar path is the `rfc:` value with `.html` swapped for `.json` (e.g. `{pm_dir}/backlog/rfcs/{slug}.json`). Run the validator **once** here and record the outcome in the session state as `sidecar_validation: pass | halt | absent` — the Test Strategy gate below reuses it, so do not run the validator a second time:
+1. Read repository instructions and run the project context discovery protocol. Recall at most five relevant entries from `{pm_dir}/memory.md`; absence is not a blocker.
+2. Resolve the task locally before querying integrations: direct backlog slug, matching `id`/`linear_id`, approved RFC sidecar, then configured tracker. Conversation context is valid when no artifact exists.
+3. Normalize `kind` to `proposal`, `task`, or `bug`. Kind affects readiness inputs, not safety gates. Never let `task` or `bug` erase high-risk review.
+4. Extract or confirm testable acceptance criteria, explicit non-goals, and size (`XS`–`XL`). Ask for confirmation when these materially depend on user intent; otherwise use the supplied approved artifact.
+5. Score every dimension in `risk-routing.md`: `behavioral`, `security`, `auth`, `data`, `external_contract`, `operational`, `ui`, `reversibility`, and `cross_module`; record `destructive_data` separately. Use observable facts and add a concrete `non_behavioral_reason` only when TDD is genuinely inapplicable.
+6. **Layered RFC preference.** If an RFC exists, prefer its `id="execution-contract"` handoff and validate its JSON sidecar once with `scripts/rfc-sidecar-check.js`. A present invalid sidecar blocks and routes to `pm:rfc`. For a pre-rollout RFC with no sidecar, use the Legacy fallback: parse `.issue-detail` cards (`.issue-detail-num`, `.issue-detail-title`, and `.issue-detail-size`) and apply the Test Strategy grandfather rule. No `data-schema-version="2"` and no `test-strategy` is warn-only; a schema-v2 RFC missing or empty Test Strategy is a halt and must be regenerated with `/pm:rfc`. Convert issue dependencies and owned paths into `work_units`.
+7. Write an intake facts JSON file containing `reference`, `kind`, `size`, `risk`, `acceptance_criteria`, `work_units`, and optional `non_behavioral_reason`. Run:
 
    ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js \
-     --sidecar {pm_dir}/backlog/rfcs/{slug}.json \
-     --html {pm_dir}/backlog/rfcs/{slug}.html \
-     --slug {slug}
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/dev-session.js" route \
+     --session .pm/dev-sessions/{slug}/session.json \
+     --facts .pm/dev-sessions/{slug}/intake-facts.json \
+     --json
    ```
 
-   - **Sidecar present and valid** (exit 0) → read the task list from its `issues[]`; each entry carries `num`, `title`, `size`, and `test_hooks` (the last is the implementer handoff). No HTML parsing. Record `sidecar_validation: pass`.
-   - **Sidecar present but invalid** (non-zero exit) → **hard-abort**: "Schema-v2 sidecar present but failed rfc-sidecar-check — route to /pm:rfc." Record `sidecar_validation: halt`. Do NOT fall back to the HTML for a broken sidecar.
-   - **Sidecar absent** → record `sidecar_validation: absent` and use the legacy fallback below (era detection: an HTML with `data-sidecar-hash` but no/mismatched sidecar is a `halt`, not `absent`).
+8. Read back the route. M/L/XL proposals include readiness; tasks/bugs with adequate supplied scope may skip readiness. High-risk work uses full review regardless of kind or size. UI impact adds design critique and QA. Review and verification remain mandatory.
+9. Record a passing intake phase result with no fabricated test evidence. The runner, not prose, selects the next routed phase.
 
-   **Legacy fallback (`.issue-detail` parse).** Only when the sidecar is absent (pre-sidecar RFCs are grandfathered), parse the RFC Issue sections by finding elements with class `.issue-detail`. These issue cards are the task-discovery contract for legacy RFCs. For each, extract:
-   - Issue number from `.issue-detail-num`
-   - Title from `.issue-detail-title`
-   - Size from `.issue-detail-size`
+## Done-when
 
-   Set `task_count` to the number of issues discovered (sidecar `issues[]` when valid, otherwise the parsed `.issue-detail` cards). If the RFC exists but **zero issues are discovered**, **hard-abort**: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Do NOT silently fall back to `task_count = 1`.
+- Scope, acceptance criteria, size, and non-goals are confirmed or sourced from an approved artifact.
+- Every risk dimension is recorded and `dev-session route` succeeds.
+- The canonical session contains the derived tier, review mode, ordered phases/gates, reasons, and validated work units.
+- Any required RFC/sidecar problem is a structured blocker rather than an implementation guess.
 
-   Store the task list in the session state under `## Tasks` (not `## Sub-Issues`):
-   ```
-   ## Tasks
-   | Issue # | Title | Size | Status | Branch | PR |
-   |---------|-------|------|--------|--------|----|
-   | 1 | {title} | {size} | pending | — | — |
-   ```
-
-   If no RFC exists (XS/S work, or RFC not yet generated), set `task_count = 1` and create a single-row `## Tasks` table from the proposal title.
-
-   If a current schema-v2 RFC has no `id="execution-contract"`, warn: `Layered RFC missing Execution Contract — proceeding with legacy issue-card parsing.` Do not hard-abort unless the existing issue-card parser fails.
-
-   **Linear enrichment (optional):** If Linear MCP is available and `linear_id` is set, fetch sub-issues via `list_issues({ parentId })` for **status sync only** (setting "In Progress" on sub-issues during implementation). Do NOT use Linear sub-issues for task decomposition — the RFC is the single source of truth.
-5. **Classify size:**
-
-| Size | Signal | Example |
-|------|--------|---------|
-| **XS** | One-line fix, typo, config tweak | Fix a typo in a label, bump a dep version |
-| **S** | Single concern, clear scope, no design decisions needed | Add a column, remove a field, fix a bug in one component |
-| **M** | Cross-layer or multi-concern, needs design thought | New API endpoint + frontend feature, remove a concept that touches many files |
-| **L** | New domain/module, cross-cutting refactor | New domain module, redesign auth flow |
-| **XL** | Multi-domain, multi-sprint, architectural overhaul | New billing system, full app rewrite |
-
-   Classify using the best available context (Linear description, backlog, conversation). **Multi-task:** If RFC tasks exist (`task_count > 1`), each task already has a size from the RFC. Present a table. The parent size is the largest task size.
-
-6. **Confirm size with user** before proceeding.
-
-7. **Linear issue readiness routing** — If `linear_id` is set in the session state:
-
-   If `linear_readiness` is `dev-ready`:
-   - Use `linear_title` as the task title and `linear_description` as task context.
-   - Skip proposal existence check in groom-readiness — the Linear issue IS the product context.
-   - Proceed to workspace setup.
-
-   If `linear_readiness` is `needs-groom` AND size is M/L/XL:
-   - Announce: "Linear issue {linear_id} needs grooming. Gaps: {gaps}. Invoking pm:groom."
-   - Invoke `pm:groom` within the same conversation. Pass the Linear context as conversation text: title, description, labels, ID, and the slug to use. Groom picks up this context from the preceding messages — no CLI flags needed.
-   - Tell groom: "Use slug: {slug}. This is a Linear issue that needs enrichment. Linear ID: {ID}. Title: {title}. Description: {description}."
-   - After groom completes, re-read `{pm_dir}/backlog/{slug}.md`. If the file does not exist or `status` is not `proposed`, `planned`, or `in-progress`:
-     - Log: `Groom did not produce a valid proposal. Falling back to conversational scoping.`
-     - Set `groom_attempted: true` in the session state.
-     - Handle inline — confirm scope + ACs with the user conversationally (same as XS/S path). Do not re-invoke groom.
-   - If the file exists with `status: proposed` and `rfc: null`: groom-readiness Step 1 routes to RFC generation.
-
-   If `linear_readiness` is `needs-groom` AND size is XS/S:
-   - Handle inline: confirm scope + ACs with the user conversationally (same as existing XS/S ungroomed path in groom-readiness Step 2). Do not invoke groom.
-   - Store `linear_id` in session state for ship write-back.
-8. **Issue tracking (M/L/XL only):**
-   - From ticket: set status "In Progress"
-   - From conversation: create issue in current cycle/sprint
-9. **Create state file.** Derive the slug from the task (becomes the branch name slug after workspace setup, e.g., `fix-typo`). Create the state file at `{source_dir}/.pm/dev-sessions/{slug}.md` (run `mkdir -p {source_dir}/.pm/dev-sessions` first). In separate-repo mode, `source_dir` is the source repo root — dev sessions always live in the source repo, never in the PM repo. In same-repo mode, `source_dir` == cwd, so the path is `.pm/dev-sessions/{slug}.md` as before. Populate with initial state: stage, size, Linear readiness routing result, task context, project context from discovery, plus `run_id`, `started_at`, `stage_started_at`, and `completed_at: null`. Include a `## Tasks` table (always present — single-task sessions have one row, multi-task sessions have N rows from the RFC). This is the single source of truth for the session.
-
-## Test Strategy Gate
-
-After RFC issue discovery (step 4), validate that the RFC contains a well-formed Test Strategy section. This gate ensures implementation agents have a testing contract before starting work.
-
-**Size enforcement:** This gate applies only to M/L/XL work. XS/S sizes pass through silently — they use lightweight TDD without a formal Test Strategy contract.
-
-### Gate logic
-
-0. **Reuse the discovery-step validation — do not re-run the validator.** Read `sidecar_validation` recorded during RFC issue discovery (step 4):
-   - `pass` → the sidecar validated, so all five `test_strategy` fields are present and non-empty. The gate **passes** without HTML parsing. As a structural sanity check, still confirm the schema-v2 HTML has an `id="test-strategy"` section; a v2 render missing it is malformed — **halt** to `/pm:rfc`.
-   - `halt` → a present sidecar failed `rfc-sidecar-check`. A non-zero exit can be any schema problem (empty `test_strategy` fields, bad issues, slug or `data-sidecar-hash` mismatch), not just Test Strategy. **Halt** and route to `/pm:rfc` for regeneration.
-   - `absent` → pre-sidecar RFC. Fall through to the HTML checks below.
-1. **Check for `id="test-strategy"` section** in the RFC HTML.
-2. **Check for `data-schema-version="2"`** on any element in the RFC.
-3. **Apply grandfather clause (pre-rollout):**
-
-| Condition | Outcome | Action |
-|-----------|---------|--------|
-| No test-strategy section AND no `data-schema-version="2"` | **warn-only** | Pre-rollout RFC — warn that Test Strategy is missing but continue. Legacy RFCs are grandfathered. |
-| Has `data-schema-version="2"` but no test-strategy section | **halt** | Schema-v2 RFC is missing the Test Strategy section. Route to `/pm:rfc` for regeneration. |
-| Has test-strategy section but empty or whitespace-only subsection blocks | **halt** | Test Strategy section is malformed. Route to `/pm:rfc` for regeneration. |
-| Has test-strategy section with all `.test-strategy-block` subsections filled | **pass** | Test Strategy contract is valid. Proceed to implementation. |
-
-### Required subsections
-
-Each `<div class="test-strategy-block">` must contain a heading and non-empty body text:
-- Test levels in scope
-- New test infrastructure
-- Regression surface
-- Verification commands
-- Open test questions
-
-### On halt
-
-If the gate halts, do NOT proceed to implementation. Instead:
-- Report: "Test Strategy gate failed: {reason}"
-- Route the user back to `pm:rfc` to regenerate the RFC with a complete Test Strategy section.
-
-## Routing by kind (overrides size)
-
-When `kind` is `task` or `bug`:
-- **Step 04 (groom-readiness):** skip RFC halt and groom halt, jump to implementation
-- **Step 07 (review):** force `pm:review` (regardless of size) — do not fall to XS code-scan or S skip path
-- **Step 05 (implementation), 08 (ship), 09 (retro):** unchanged
-
-When `kind` is `proposal` (or absent/null via `resolveKind`), the Stage Routing by Size table below applies as normal — feature lifecycle.
-
-## Stage Routing by Size
-
-|  | XS | S | M | L | XL |
-|---|---|---|---|---|---|
-| Issue tracking | — | — | Yes | Yes | Yes |
-| Worktree | Stage 2 | Stage 2 | Stage 2 | Stage 2 | Stage 2 |
-| RFC check | groom-readiness (skip RFC) | groom-readiness (skip RFC) | groom-readiness | groom-readiness | groom-readiness |
-| RFC generation | — | — | RFC generation (fresh agent writes RFC) | RFC generation | RFC generation |
-| RFC review | — | — | RFC review (3+ reviewers) | RFC review | RFC review |
-| Implement | TDD | TDD | Implementation (fresh agent, inside-out TDD) | Implementation | Implementation |
-| Design critique | — | If UI (lite, 1 round) | If UI (full) | If UI (full) | If UI (full) |
-| QA | If UI (Quick) | If UI (Focused) | If UI (Full) | If UI (Full) | If UI (Full) |
-| Code scan | Code scan | Code scan | `pm:review` (full) | `pm:review` (full) | `pm:review` (full) |
-| Verification | Verification gate | Verification gate | Verification gate | Verification gate | Verification gate |
-| Finish | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop | PR → merge-loop |
-| Review feedback | — | — | `ship/references/handling-feedback.md` | handling-feedback | handling-feedback |
-| Retro | Yes | Yes | Yes | Yes | Yes |
+**Advance:** record the intake result and proceed to Step 03 (Workspace), as selected by the runner.

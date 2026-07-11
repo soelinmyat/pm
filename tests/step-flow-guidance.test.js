@@ -136,26 +136,19 @@ test("AGENTS.md Done-when description mentions advancement directive", () => {
   assert.match(text, /skill-runtime\.md/);
 });
 
-// Phase C regression pin: the Advance/Done-when apparatus is deleted
-// fleet-wide. Steps may use natural transition prose, but the mechanical
-// footer contract must never return.
-test("no step file reintroduces Advance footers or Done-when headings", () => {
-  const skillsDir = path.join(PLUGIN_ROOT, "skills");
-  const offenders = [];
-  for (const skill of fs.readdirSync(skillsDir)) {
-    const stepsDir = path.join(skillsDir, skill, "steps");
-    if (!fs.existsSync(stepsDir)) continue;
-    for (const file of fs.readdirSync(stepsDir)) {
-      if (!file.endsWith(".md")) continue;
-      const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
-      if (
-        /\*\*Advance:\*\*/.test(text) ||
-        /^## Done-when/m.test(text) ||
-        /^## Before marking done/im.test(text)
-      ) {
-        offenders.push(`${skill}/steps/${file}`);
-      }
+// Dev v2 follows the repository's current step-authoring contract: each
+// procedural step has explicit exit criteria and advancement. The final step
+// closes with a next-action offer rather than advancing to another phase.
+test("dev steps declare Done-when and deterministic transitions", () => {
+  const stepsDir = path.join(PLUGIN_ROOT, "skills", "dev", "steps");
+  const files = fs.readdirSync(stepsDir).filter((file) => file.endsWith(".md"));
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
+    assert.match(text, /^## Done-when/m, `${file} needs Done-when exit criteria`);
+    if (file !== "09-retro.md") {
+      assert.match(text, /\*\*Advance:\*\*/, `${file} needs an Advance directive`);
+    } else {
+      assert.match(text, /Offer the user/, "final retro step must offer the next action");
     }
   }
-  assert.deepEqual(offenders, []);
 });

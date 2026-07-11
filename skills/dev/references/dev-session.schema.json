@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-plugin.local/schemas/dev-session-v2.json",
+  "title": "PM dev session v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "slug",
+    "status",
+    "phase",
+    "phase_attempt",
+    "created_at",
+    "updated_at",
+    "source",
+    "task",
+    "execution",
+    "authority",
+    "routing",
+    "evidence",
+    "attempts",
+    "blockers",
+    "history"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "run_id": { "type": "string", "pattern": "^dev_" },
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "status": { "enum": ["active", "blocked", "complete"] },
+    "phase": { "$ref": "#/$defs/phase" },
+    "phase_attempt": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "source": { "$ref": "#/$defs/source" },
+    "task": { "$ref": "#/$defs/task" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "routing": { "$ref": "#/$defs/routing" },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/evidence_set" }
+    },
+    "attempts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/attempt_record" }
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/blocker_record" }
+    },
+    "history": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/history_record" }
+    },
+    "migration": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["legacy_path", "migrated_at"],
+          "properties": {
+            "legacy_path": { "type": "string", "pattern": "^/" },
+            "migrated_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "phase": {
+      "enum": [
+        "intake",
+        "workspace",
+        "readiness",
+        "implementation",
+        "design-critique",
+        "qa",
+        "review",
+        "ship",
+        "retro"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_root", "worktree", "branch", "default_branch", "base_commit"],
+      "properties": {
+        "repo_root": { "type": "string", "pattern": "^/" },
+        "worktree": { "type": "string", "pattern": "^/" },
+        "branch": { "type": "string", "minLength": 1 },
+        "default_branch": { "type": "string", "minLength": 1 },
+        "base_commit": { "type": "string", "minLength": 1 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "behavioral",
+        "security",
+        "auth",
+        "data",
+        "destructive_data",
+        "external_contract",
+        "operational",
+        "ui",
+        "reversibility",
+        "cross_module"
+      ],
+      "properties": {
+        "behavioral": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "security": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "auth": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "data": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "destructive_data": { "type": "boolean" },
+        "external_contract": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "operational": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "ui": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "reversibility": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "cross_module": { "type": "integer", "minimum": 0, "maximum": 3 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference",
+        "kind",
+        "size",
+        "risk",
+        "risk_tier",
+        "acceptance_criteria",
+        "work_units"
+      ],
+      "properties": {
+        "reference": { "type": ["string", "null"] },
+        "kind": { "type": "string", "minLength": 1 },
+        "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
+        "risk": { "$ref": "#/$defs/risk" },
+        "risk_tier": { "type": "string", "minLength": 1 },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+        "work_units": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "runtime",
+        "model",
+        "reasoning",
+        "mode",
+        "capabilities",
+        "runtime_session_id"
+      ],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["inline", "delegated", "headless"] },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" }
+        },
+        "runtime_session_id": { "type": ["string", "null"] }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_writes",
+        "commit",
+        "push_feature_branch",
+        "create_pr",
+        "merge",
+        "tracker_updates"
+      ],
+      "properties": {
+        "local_writes": { "type": "boolean" },
+        "commit": { "type": "boolean" },
+        "push_feature_branch": { "type": "boolean" },
+        "create_pr": { "type": "boolean" },
+        "merge": { "type": "boolean" },
+        "tracker_updates": { "type": "boolean" }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_phases",
+        "required_gates",
+        "review_mode",
+        "decision_version",
+        "reasons"
+      ],
+      "properties": {
+        "required_phases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/phase" }
+        },
+        "required_gates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "review_mode": { "enum": ["code-scan", "full"] },
+        "decision_version": { "type": "integer", "minimum": 1 },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "evidence_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command", "exit_code", "artifact"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "command": { "type": ["string", "null"] },
+        "exit_code": { "type": "integer" },
+        "artifact": { "type": ["string", "null"] }
+      }
+    },
+    "evidence_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "records", "recorded_at"],
+      "properties": {
+        "commit": { "type": ["string", "null"] },
+        "records": { "type": "array", "items": { "$ref": "#/$defs/evidence_record" } },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "runtime_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "reasoning"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "session_id": { "type": ["string", "null"] }
+      }
+    },
+    "attempt_record": {
+      "type": "object",
+      "required": ["phase", "attempt", "status", "summary", "commit", "recorded_at", "runtime"],
+      "properties": {
+        "phase": { "$ref": "#/$defs/phase" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "runtime": { "$ref": "#/$defs/runtime_result" }
+      }
+    },
+    "blocker_record": {
+      "type": "object",
+      "required": ["code", "reason", "phase", "recorded_at"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "remediation": { "type": "string" },
+        "phase": { "$ref": "#/$defs/phase" },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "history_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prior_phase",
+        "next_phase",
+        "reason",
+        "result_hash",
+        "timestamp",
+        "runner_version"
+      ],
+      "properties": {
+        "prior_phase": { "$ref": "#/$defs/phase" },
+        "next_phase": { "$ref": "#/$defs/phase" },
+        "reason": { "type": "string", "minLength": 1 },
+        "result_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "runner_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "phase_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "run_id",
+        "phase",
+        "attempt",
+        "status",
+        "summary",
+        "commit",
+        "files_changed",
+        "evidence",
+        "blocker",
+        "runtime"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "run_id": { "type": "string", "minLength": 1 },
+        "phase": { "$ref": "#/$defs/phase" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] },
+        "files_changed": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_record" } },
+        "blocker": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["code", "reason"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "reason": { "type": "string", "minLength": 1 },
+                "remediation": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "runtime": { "$ref": "#/$defs/runtime_result" }
+      }
+    }
+  }
+}

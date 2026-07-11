@@ -2,11 +2,19 @@
 name: Review
 order: 7
 description: Quality gates — design critique, QA, code review, and verification before ship
+phase: review
+requires:
+  - worker-contract.md
+  - qa.md
+gates:
+  - review
+  - verification
+result_schema: phase-result-v1
 ---
 
 ## Review
 
-**Multi-task skip:** If `task_count > 1` in the session state, skip this step. Per-task agents in Step 05 handled review as part of their own lifecycle. This applies regardless of individual task outcomes (merged, blocked, or failed).
+Review runs after root integration for both single- and multi-work-unit changes. Worker-local review never replaces the aggregate review and verification gates.
 
 ## Goal
 
@@ -25,7 +33,7 @@ Only stop for:
 
 ### Gate manifest (mandatory)
 
-Before running this step, ensure `.pm/dev-sessions/{slug}.gates.json` exists:
+Before running this step, ensure `.pm/dev-sessions/{slug}/gates.json` exists:
 
 ```json
 {
@@ -39,7 +47,7 @@ After every gate below, update that sidecar using the schema in `${CLAUDE_PLUGIN
 ```bash
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
 ```
@@ -72,7 +80,7 @@ The implementing agent owns the full visual verification cycle. Read `${CLAUDE_P
 8. **Fix findings**: Implement P0 and P1 fixes.
 9. **Re-seed, re-capture, re-invoke**: If P0s were found. Max 2 rounds total.
 10. **Commit**: All design critique changes committed before proceeding to QA.
-11. **Record gate**: Update `.pm/dev-sessions/{slug}.gates.json` with `design-critique: passed (commit <sha>)` and the artifact/report path. Run the checker with `--require design-critique`.
+11. **Record gate**: Update `.pm/dev-sessions/{slug}/gates.json` with `design-critique: passed (commit <sha>)` and the artifact/report path. Run the checker with `--require design-critique`.
 
 #### Skip conditions
 - Backend-only, docs-only, non-UI config-only, generated-only, or pure refactor with no user-visible UI impact
@@ -109,7 +117,7 @@ Dispatch reviewer persona `@tester` using `agent-runtime.md`.
 You are the QA agent for this dev session. Read and follow
 ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md.
 
-**Session file:** .pm/dev-sessions/{slug}.md
+**Session file:** .pm/dev-sessions/{slug}/session.json
 **Feature:** {feature description from ticket/spec}
 **Acceptance criteria:**
 {acceptance criteria list}
@@ -127,9 +135,9 @@ Verdict must be one of: Pass | Pass with concerns | Fail | Blocked.
 | QA Verdict | Action |
 |------------|--------|
 | **Pass** | Proceed to code review |
-| **Pass with concerns** | Proceed. Low/Medium issues noted in `.pm/dev-sessions/{slug}.md` for backlog. |
+| **Pass with concerns** | Proceed. Low/Medium issues noted in `.pm/dev-sessions/{slug}/session.json` for backlog. |
 | **Fail** | Fix issues, then re-verify (see below). |
-| **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}.md`. Ask user for guidance. |
+| **Blocked** | Stop. Log reason in `.pm/dev-sessions/{slug}/session.json`. Ask user for guidance. |
 
 **Shipping does not continue after QA Fail.** Fix issues and re-verify. No silent downgrades.
 
@@ -155,7 +163,7 @@ Do NOT re-run Phase 0 when the environment is still ready. Jump to Phase 3 re-ve
 
 #### State file update
 
-After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
+After QA completes (final verdict), update `.pm/dev-sessions/{slug}/session.json`:
 ```
 ## QA
 - QA verdict: Pass | Pass with concerns | Fail | Blocked
@@ -166,7 +174,7 @@ After QA completes (final verdict), update `.pm/dev-sessions/{slug}.md`:
 - Iterations: N
 ```
 
-Also update `.pm/dev-sessions/{slug}.gates.json`:
+Also update `.pm/dev-sessions/{slug}/gates.json`:
 - `qa` status `passed` for Pass or Pass with concerns
 - `qa` status `blocked` for Blocked
 - no `passed` row for Fail until issues are fixed and QA re-verifies
@@ -178,24 +186,22 @@ Also update `.pm/dev-sessions/{slug}.gates.json`:
 
 ### Code review
 
-#### Kind override: force pm:review for task/bug
+#### Executable review route
 
-If session state has `kind: task` or `kind: bug`, run the **full `pm:review`** path below regardless of size. Do NOT fall to the XS code-scan path or the S skip path — task/bug items skip grooming and the RFC, so the full review fan-out is their single quality gate and must always run. Log: `Review gate: forced-kind-{kind}`.
+Read `session.routing.review_mode`; do not recompute it from kind or size. `full` invokes `pm:review`. `code-scan` runs the bounded scan below. The intake router promotes any high/critical-risk task—including tasks and bugs—to `full`.
 
-For `kind: proposal` (or absent/null via `resolveKind`), the normal size-based routing below applies.
-
-#### Full review (M/L/XL — HARD GATE)
+#### Full review (`routing.review_mode: full` — HARD GATE)
 
 <HARD-GATE>
 BEFORE pushing or creating a PR, you MUST invoke `pm:review` on the branch.
 This runs the 6-lens review fan-out (conditionally skipping the Design lens when the upstream gate passed). This gate is NOT optional. Do NOT skip it.
-If you are about to push and `.pm/dev-sessions/{slug}.md` does not show `Review gate: passed (commit <sha>)` for the current HEAD, or `.pm/dev-sessions/{slug}.gates.json` does not have a current `review` row,
+If you are about to push and `.pm/dev-sessions/{slug}/session.json` does not show `Review gate: passed (commit <sha>)` for the current HEAD, or `.pm/dev-sessions/{slug}/gates.json` does not have a current `review` row,
 STOP and run the review first.
 </HARD-GATE>
 
 **Auto-fix all high-confidence findings.** `pm:review` runs a parallel 6-lens fan-out and tiers output by confidence (see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`):
 1. **Bugs** — genuine bugs in the diff. Runtime-uniform dispatch via `agent-runtime.md`.
-2. **Design system** — compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}.md` shows Design Critique completed and no contract drift detected.
+2. **Design system** — compliance. **Conditionally skipped** when `.pm/dev-sessions/{slug}/session.json` shows Design Critique completed and no contract drift detected.
 3. **Input edge cases** — untested edge cases and adversarial inputs.
 4. **Reuse / quality / efficiency** — the simplification lenses (absorbed from the former simplify gate): missed reuse of existing code, quality issues, unnecessary work.
 
@@ -207,11 +213,11 @@ High-confidence findings (80+) are auto-fixed and committed. Worth-checking find
 - [ ] Worth-checking findings resolved or explicitly deferred with a reason
 - [ ] Tests still pass after fixes
 - [ ] Verification gate passed (see below)
-- [ ] `.pm/dev-sessions/{slug}.md` updated with `Review gate: passed (commit <sha>)`
-- [ ] `.pm/dev-sessions/{slug}.gates.json` updated with `review: passed` for the same commit, including the `lenses` array (the checker requires `reuse`, `quality`, `efficiency` on M/L/XL manifests)
-- [ ] `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"; node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}.gates.json --commit "$(git rev-parse HEAD)" --require review` passes
+- [ ] `.pm/dev-sessions/{slug}/session.json` updated with `Review gate: passed (commit <sha>)`
+- [ ] `.pm/dev-sessions/{slug}/gates.json` updated with `review: passed` for the same commit, including the `lenses` array (the checker requires `reuse`, `quality`, `efficiency` on M/L/XL manifests)
+- [ ] `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"; node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --require review` passes
 
-#### Code scan (XS/S — HARD GATE)
+#### Code scan (`routing.review_mode: code-scan` — HARD GATE)
 
 <HARD-GATE>
 BEFORE pushing XS or S tasks, you MUST run a lightweight code scan.
@@ -236,7 +242,7 @@ specific existing code or the specific unnecessary work.
 
 **If findings exist:** fix them, run tests, commit fixes.
 
-After the scan passes, update `.pm/dev-sessions/{slug}.md`:
+After the scan passes, update `.pm/dev-sessions/{slug}/session.json`:
 
 ```
 ## Review
@@ -246,7 +252,7 @@ After the scan passes, update `.pm/dev-sessions/{slug}.md`:
 - Findings deferred: {N with reasons, or none}
 ```
 
-Then update `.pm/dev-sessions/{slug}.gates.json` with `review: passed`, `artifact` pointing to the scan report or state section, and `commit` set to current HEAD. Run the checker with `--require review`.
+Then update `.pm/dev-sessions/{slug}/gates.json` with `review: passed`, `artifact` pointing to the scan report or state section, and `commit` set to current HEAD. Run the checker with `--require review`.
 
 ---
 
@@ -254,13 +260,13 @@ Then update `.pm/dev-sessions/{slug}.gates.json` with `review: passed`, `artifac
 
 Run the full test suite fresh. Read the output. Confirm 0 failures. Do not rely on recalled test results from earlier in the session. Evidence before claims, always. No "should pass" or "looks correct" — run it, read it, then merge.
 
-After verification passes, update `.pm/dev-sessions/{slug}.md` and `.pm/dev-sessions/{slug}.gates.json` with `verification: passed`, the command output artifact or state section path, and the current commit SHA.
+After verification passes, update `.pm/dev-sessions/{slug}/session.json` and `.pm/dev-sessions/{slug}/gates.json` with `verification: passed`, the command output artifact or state section path, and the current commit SHA.
 
 ### Final gate recertification (mandatory before full checker)
 
 After verification and after the last possible mutating commit, recertify every required gate against current HEAD before running the default checker. This is not a blind timestamp refresh; it is the rule that keeps early evidence rows useful without letting later commits bypass gates.
 
-For each required gate row in `.pm/dev-sessions/{slug}.gates.json`:
+For each required gate row in `.pm/dev-sessions/{slug}/gates.json`:
 
 1. If the row is `failed` or `blocked`, stop and resolve that gate first.
 2. If `commit` already equals `git rev-parse HEAD`, leave it unchanged.
@@ -285,7 +291,7 @@ Before handing off to ship, run the shared checker:
 ```bash
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
   --base origin/{DEFAULT_BRANCH}
 ```
@@ -307,3 +313,9 @@ For M/L/XL, if human reviewers leave comments on the PR after creation, use `shi
 - [ ] `scripts/dev-gate-check.js` passes for HEAD.
 
 Then hand off to Ship (Step 8).
+
+## Done-when
+
+Every routed design, QA, review, and verification gate is current for HEAD and the shared gate checker passes.
+
+**Advance:** proceed to Step 08 (Ship).

@@ -1,140 +1,82 @@
 ---
 name: dev
-description: "Development lifecycle — auto-detects scope. Use when building, debugging, fixing, implementing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'start working on', 'develop this feature', 'work on PM-123', 'ship this', 'make this work', or references a ticket/issue to implement. For M+ work, a completed RFC is required — dev halts with a direct /rfc instruction if missing. One flow for all sizes. After RFC approval, runs autonomously through review, ship, and retro — pausing only on structured Blocked escalations from the merge loop."
+description: "Development lifecycle for building, debugging, fixing, implementing, testing, reviewing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'work on PM-123', 'develop this feature', 'ship this', or asks to resume an active development session. Routes by observed risk and scope, supports inline or delegated work, and resumes from durable phase state."
 ---
 
 # Dev — Development Lifecycle
 
 ## Purpose
 
-Unified orchestrator for all development work. Takes a task from intake through implementation to merged PR — whether the work is 1 task or N tasks emerges from the RFC. One flow handles everything from XS typo fixes to XL multi-domain overhauls.
+Take an implementation request from intake to verified delivery while preserving enough machine-readable evidence to resume safely after interruption. The runner selects only the current phase, its prerequisites, and the model/runtime profile needed for that phase.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
+## Iron Law
 
-## Hard rules
+**NEVER SHIP WITHOUT CURRENT, EXECUTED TEST AND REVIEW EVIDENCE.**
 
-- **NEVER SHIP WITHOUT TESTS.** Every change — XS through XL — must have test coverage before it reaches a PR, written before the implementation (TDD): write the failing test, **run it and observe it fail**, then implement until it passes. An unrun test proves nothing. "It's just a one-liner" is not an exemption. If you can't write a test, you don't understand the change well enough to ship it.
-- **M+ work requires a completed RFC.** Dev halts with a direct /rfc instruction if it's missing. Don't start coding to figure out the plan as you go — the RFC is 15 minutes; the wrong direction is hours. If the RFC feels like overhead, simplify it, don't skip it.
-- **Use a worktree for S+ work.** A wrong-branch commit on a dirty main blocks everything downstream. XS Express is the only worktree-free path, and it branches explicitly.
-- **Debugging is not optional on "known" fixes.** A known fix is a guess until confirmed; the debugging reference prevents shipping the wrong fix to the right symptom.
-- **Review is never skipped — it scales.** Code scan for XS/S, full 6-lens review for M+ (bugs, design, edge cases, plus the reuse/quality/efficiency simplification lenses). Cross-cutting issues are invisible from inside the change.
-- **Passing tests are not proof of correctness.** They verify your assumptions, not the user's requirements — check the assertions match the spec.
-- **Every path that can push or open a PR writes a gate sidecar and runs `scripts/dev-gate-check.js` first.** The gate manifest must be current, or a gate explicitly skipped with a reason.
-- **Before marking done:** all tests pass, the gate sidecar is current (or skipped with reasons), the state file is at the current stage, code is committed on the feature branch, and the user has the final outcome or a clear handoff.
-- **No destructive git operations.**
+## When NOT to use
 
-**When NOT to use:** Quick questions about code ("what does this function do?"), explaining existing behavior, or one-line fixes the user can apply themselves. Those don't need an RFC or a branch — just answer directly.
+- For explanation or read-only code questions, answer directly.
+- For open-ended product exploration, use `pm:think`.
+- For a validated feature that still needs a sprint-ready proposal, use `pm:groom`.
+- For M/L/XL proposal work without an approved technical design, use `pm:rfc` and resume dev after approval.
+- For shipping an already reviewed and committed branch as a standalone request, use `pm:ship`.
+
+**Workflow:** `dev` | **Telemetry steps:** `intake`, `workspace`, `readiness`, `implementation`, `design-critique`, `qa`, `review`, `ship`, `retro`
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+## Workflow
+
+1. **Resume before intake.** Find `.pm/dev-sessions/*/session.json`. If one relevant active session exists, run `scripts/dev-session.js next --session <path> --json`. If only a legacy Markdown state exists, migrate it once with `scripts/dev-session.js migrate --legacy <path> --json`; retain the source file. If multiple sessions plausibly match the request, show their phase and age and ask which one to resume.
+2. **Create canonical state for fresh work.** Run `scripts/dev-session.js init --slug <slug> --source-dir <absolute-source-dir> --json`. Enrich the session during intake with the task, risk facts, acceptance criteria, route, work units, and model profile. `session.json` is authoritative; Markdown is an optional human-readable projection.
+3. **Run one phase at a time.** Use `scripts/dev-session.js next` to obtain the active phase, required capabilities, gates, evidence kinds, allowed modes, and instruction path. Read only that step plus its `requires` references. Files in `.pm/workflows/dev/` override same-named bundled steps. Do not preload later phases. Set `PM_DEV_LEGACY_PROMPT=1` only as a temporary compatibility fallback to the previous eager-loading behavior.
+4. **Build a bounded execution packet.** Use `scripts/dev-prompt.js` to include exactly: objective, acceptance criteria, current phase, repository context, owned files, constraints, authority, required evidence, and result contract. Do not include instructions for later phases or unrelated repository history.
+5. **Choose execution mode deliberately.** Inline is the default for one ordered work unit. Delegate only when `scripts/lib/dev-work-units.js` reports dependency-ready units with disjoint ownership or when a required review skill mandates a read-only fan-out. Workers may edit, test, and commit only within assigned authority; root owns integration, push, PR creation, merge, and tracker updates.
+6. **Use a verified runtime profile.** For CLI workers, probe capabilities and use `scripts/dev-runtime/dispatch.js`. Defaults are `gpt-5.6-sol` at `high` and `claude-opus-4-8` at `xhigh`; profiles are data in `references/model-profiles.json`, not prompt prose. Missing structured output, event streaming, resume, or safe-permission support blocks dispatch instead of silently degrading.
+7. **Advance from evidence, not narrative.** Each phase returns the strict result envelope described by `references/dev-session.schema.json`. Record it with `scripts/dev-session.js record`. Only the runner advances phase state, enforces retry limits, validates reachable/current commits, and decides completion. A worker cannot declare work merged or mutate aggregate state.
+8. **Complete routed gates.** Risk routing determines review depth and whether design critique/QA apply. The final ship action must still pass `scripts/dev-gate-check.js` against current HEAD. In `PM_LOOP_WORKER=1` mode, stop after the reviewed PR is opened and return the loop result; do not merge or update durable card state.
 
 ## Loop Worker Mode (headless)
 
-When `PM_LOOP_WORKER=1` is set, this run was dispatched unattended by the PM loop. TDD, review, QA, verification, and approval gates are unchanged.
+When `PM_LOOP_WORKER=1`, all TDD, review, QA, and verification gates remain in force. Stop after the reviewed PR is opened; do not merge. Do not write or update backlog/card state because the loop worker is the only canonical durable card-state writer. Atomically write the versioned result to `PM_LOOP_RESULT_FILE` with mode `0600`. Exact terminal statuses are `shipped, blocked, failed, noop`; include bounded artifacts or remediation. Never wait for user input or treat silence as approval.
 
-1. **Implement-only terminal.** With `PM_LOOP_STAGE=dev`, stop after all gates pass and the PR is opened — do NOT run ship or merge. Do not write or update backlog/card state in loop mode; the loop worker is the only canonical durable card-state writer.
-2. **Structured result.** Atomically write the version-1 result envelope to `PM_LOOP_RESULT_FILE` (mode-0600 temp file, then rename). Exact statuses: shipped, blocked, failed, noop. `shipped` includes a `pull-request` artifact with repo, number, URL, base, head, head OID, and creation time. `blocked` includes bounded code, reason, and remediation. The `gates` list summarizes work but never replaces the committed gate sidecar.
-3. **Non-interactive.** There is no user. At any point that would ask a question: take the documented default when one exists and it is safe; otherwise return `blocked` with exactly what decision or input is needed. Never wait for input; never treat silence as approval; never skip a gate to avoid asking.
+## Steps directive
 
-**Workflow:** `dev`
+Step files live in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/`. Load the single instruction path returned by `dev-session next`, resolving a same-named `.pm/workflows/dev/` override first. Then load only the references named in that step's `requires` metadata. Execute its Goal/How/Done-when contract and record a structured phase result before selecting another step.
 
-**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/` in numeric filename order. If `.pm/workflows/dev/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
+## Red Flags — Self-Check
 
-References `agent-runtime.md` and `capability-gates.md` are loaded by the steps that need them — not here. Do not read them at skill load.
-
-**Source repo access:** Dev requires a source code repository. Step 01 (Tool Check) validates this and blocks if no source repo is found. See step 01 for the full check.
-
-## XS Express Path
-
-When the task is classified XS (one-line fix, typo, config tweak) and the user confirms, bypass the full step-file flow. The Iron Law still applies — every change gets a test and a code scan. What changes is the machinery around it.
-
-**XS Express replaces Steps 01-09 with this inline sequence:**
-
-1. **Branch** — `git checkout -b fix/{slug} origin/{DEFAULT_BRANCH}`. No worktree. No state file.
-2. **Gate sidecar** — Create `.pm/dev-sessions/{slug}.gates.json` with `schema_version: 1`, `size: "XS"`, and an empty `gates` array even though the full Markdown state file is skipped.
-3. **Implement + test** — Write the failing test first, **run it, and observe it fail** — before writing any implementation. Then write the fix and re-run: the same test passes, and the full project suite passes. The observed red run is the tdd gate evidence.
-4. **Commit implementation** — Commit the source and test changes before recording gate rows. If `git diff {DEFAULT_BRANCH}...HEAD --quiet` would show no committed diff after this commit, stop; do not push an empty branch. Record the failing command and final passing command as the `tdd` gate artifact tied to this committed HEAD.
-5. **Design critique if UI** — If the diff touches UI/UX files or user-visible interaction, invoke `pm:design-critique`, commit any fixes, and record the gate against the resulting HEAD. If there is no visual impact, record `design-critique` as `skipped` with a concrete reason.
-6. **QA if UI** — If the diff touches UI/UX files or user-visible interaction, run Quick QA, fix any Fail verdict, commit any fixes, and record `qa` as `passed` against the resulting HEAD. If there is no visual impact, record `qa` as `skipped` with a concrete reason. If the QA environment is blocked, record `qa: blocked` and stop.
-7. **Code scan** — Run a single-pass inline code scan (same brief as Step 07's XS/S code scan section — bugs plus simplification wins). Fix any findings, re-run tests, commit any fixes, and record `Review gate: passed (commit <sha>)` plus the `review` gate row.
-8. **Verification + recertification** — Run the full project test suite fresh, read the output, record the `verification` gate row, then recertify earlier gate rows for the final HEAD using `verified_commit` / `verified_at` as described in `skills/dev/steps/07-review.md`.
-9. **Gate check** — Run:
-    ```bash
-    PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-    node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-      --manifest .pm/dev-sessions/{slug}.gates.json \
-      --commit "$(git rev-parse HEAD)" \
-      --base origin/{DEFAULT_BRANCH}
-    ```
-    If it fails, fix the missing or stale gate before pushing.
-10. **Ship** — `git push -u origin fix/{slug}`, create PR via `gh pr create`, squash-merge via `gh pr merge --squash --auto` or the merge loop. Wait for merge confirmation.
-11. **Status** — Update `{pm_dir}/backlog/{slug}.md` to `status: done` if it exists. Update Linear issue to Done if configured (ask user first).
-12. **Cleanup** — `git checkout {DEFAULT_BRANCH} && git pull && git branch -d fix/{slug}`.
-
-**No worktree, no session state file, no context discovery, no formal retro, no agent dispatch.** The orchestrator does all work inline.
-
-**When to use:** Only when ALL of these are true:
-- Size is XS (confirmed by user)
-- No active session file exists for this slug
-- No RFC exists or is needed
-- Single file or tightly-scoped change
-
-**When to fall back to full flow:** If the fix touches multiple files, requires debugging, or fails code scan with structural issues — escalate to the full step flow by creating a session state file and resuming from Step 03 (Workspace).
-
----
-
-## Resume
-
-**Runs FIRST on every invocation.**
-
-Glob for active sessions in `.pm/dev-sessions/` (+ legacy `.dev-state-*.md`, `.dev-epic-state-*.md` at repo root):
-
-| Matches | Action |
-|---------|--------|
-| 1 session file | Read it, resume from where it left off |
-| Multiple files | List all with stage and last-modified, ask user which to resume |
-| None found | Proceed to fresh start |
-
-**Staleness guard:** If a session file is older than 48 hours and the user didn't explicitly reference it, ask whether to resume or discard.
-
-**Legacy migration:** Old `epic-{slug}.md` and `.dev-epic-state-*.md` files are treated identically to regular session files. All resume to the loaded workflow steps.
-
-## Bundled Skills
-
-All workflow skills are self-contained within this plugin. No external skill dependencies.
-
-| Skill / Reference | Used in |
-|-------------------|---------|
-| `pm:groom` | Auto-invoked when no proposal exists (M/L/XL) |
-| `dev/references/splitting-patterns.md` (reference) | Issue splitting within RFC (M/L/XL) |
-| `dev/references/implementation-flow.md` (reference) | Stage 3 implementation |
-| `dev/references/tdd.md` (reference) | Implementation agent (all) |
-| `dev/references/subagent-dev.md` (reference) | Implementation agent (all) |
-| `dev/references/debugging.md` (reference) | Debug |
-| `pm:design-critique` | UI design critique gate |
-| `dev/references/qa.md` (reference) | QA ship gate (all UI changes) |
-| `ship/references/handling-feedback.md` (reference) | Ship (M/L/XL) — handling PR feedback |
-
-## Project Context Discovery
-
-At intake, run the context discovery protocol defined in `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md`.
-This reads CLAUDE.md, AGENTS.md, package manifests, and MCP tools to build the project context.
-Store results in `.pm/dev-sessions/{slug}.md` under `## Project Context`.
-
-See `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md` for the full discovery contract, fallback behavior, and context injection template.
-All downstream agent prompts use the `{PROJECT_CONTEXT}` block from that contract.
-
-## State File
-
-State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions. See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` for the full schema, template, valid stage values, and update rules.
-
-When referencing the state file in subsequent sections, `.dev-state.md` means `.pm/dev-sessions/{slug}.md` — the slug is determined at intake.
-
-## Execution Defaults
-
-See `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/execution-defaults.md` for checkpoint format, path preflight, default branch detection, pre-commit validation, git state guard, subagent git context, and repeated error handling.
+- **"I already know the rest of the workflow, so I can load all steps now."** Later-phase instructions inflate context and create authority confusion; load the active phase only.
+- **"It is a task or bug, so full review is unnecessary."** Kind no longer overrides observed risk; use the risk decision recorded in state.
+- **"A fresh agent is always safer."** Agent churn discards useful context; delegate only for dependency-ready, ownership-safe work or mandated review fan-out.
+- **"The worker says it merged, so I can advance."** Workers have no merge authority; accept only a schema-valid result and root-observed repository state.
+- **"The tests passed earlier."** Evidence tied to an older commit is stale; rerun or recertify according to the review step.
+- **"The CLI probably supports this flag."** Probe required capabilities and fail closed before launching a long worker.
 
 ## Escalation Paths
 
-- **Tests won't pass after 3 attempts:** "Blocked on test failures after 3 attempts. Here's what I've tried: {summary}. Want to pair on this, or should I document and move on?"
-- **Scope is bigger than classified:** "This is growing beyond {size}. Re-classify to {new_size} and re-plan with a new RFC?"
-- **Needs product decisions mid-implementation:** "Hit a product question the RFC doesn't answer: {question}. Want to decide now, or pause and groom this first?"
-- **Can't get a clean test baseline:** "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
-- **Agent keeps failing (API overload, timeouts):** "Implementation agent failed {N} times on this task. Git state preserved. Resume manually, or skip to the next task?"
+- Missing approved RFC for routed M/L/XL proposal work: "Technical design is required before implementation. Run `pm:rfc` for {slug}, approve it, then resume this dev session."
+- Baseline or implementation failure after three attempts: "Blocked after three bounded attempts. Preserved state and evidence at {session_path}. Here is the failing command and the smallest next decision needed: {reason}."
+- Product decision absent from the approved scope: "Implementation reached an unresolved product decision: {question}. Decide it now, or pause and return to `pm:groom`."
+- Runtime lacks a required capability: "The selected runtime cannot provide {capability} safely. Upgrade/switch the CLI profile or run this phase inline."
+- QA environment unavailable for UI work: "QA is blocked by {environment issue}; this cannot be recorded as a skip. Restore the environment or explicitly stop delivery."
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "It is only a one-line behavior change." | Small changes still need an observed red test and current green verification. |
+| "Size alone tells me the review depth." | Security, auth, data, external-contract, operational, UI, reversibility, and cross-module risk can promote any size. |
+| "Parallel agents will be faster." | Only dependency-ready units with disjoint ownership are safe to run concurrently. |
+| "The result file exists, so it is valid." | Validate schema, run/phase/attempt identity, evidence, authority, and commit reachability. |
+| "Broad permissions avoid tool friction." | Use sandboxed/default permission profiles; broad permission requires explicit opt-in. |
+
+## Before Marking Done
+
+- [ ] Canonical `session.json` is saved and validates; any human projection agrees with it.
+- [ ] The user confirmed scope/size or approved the RFC where the route requires it.
+- [ ] All routed gates passed or have a valid, specific skip; blocked is never converted to skipped.
+- [ ] Required tests and verification were run against current HEAD and their evidence was recorded.
+- [ ] Root verified repository/PR/merge state and performed any authorized external updates.
+- [ ] The user received the delivered outcome or a precise blocker and resume path.

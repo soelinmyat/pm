@@ -1,139 +1,39 @@
 "use strict";
 
-// PM-51 Issue 4 — dev routing by backlog `kind`.
-// Exercises the decision logic at a parse-and-assert level, not full orchestration.
-// Each fixture represents a backlog frontmatter state; we assert that resolveKind
-// returns the expected value and that the step-file prompts contain the required
-// routing language so the orchestrator agent will behave correctly at runtime.
-
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const { parseFrontmatter } = require("../scripts/kb-frontmatter.js");
-const { resolveKind } = require("../scripts/validate.js");
+const { routeDevWork } = require("../scripts/lib/dev-risk");
 
-const FIXTURE_DIR = path.join(__dirname, "fixtures", "backlog-kind");
 const STEP_DIR = path.join(__dirname, "..", "skills", "dev", "steps");
 
-function readFm(name) {
-  const full = path.join(FIXTURE_DIR, name);
-  const parsed = parseFrontmatter(fs.readFileSync(full, "utf8"));
-  return parsed.data;
-}
-
-function readStep(name) {
-  return fs.readFileSync(path.join(STEP_DIR, name), "utf8");
-}
-
-// Codified decision matrix — matches the step-file routing language.
-function routeForKind(kind) {
-  const k = resolveKind({ kind });
-  if (k === "task" || k === "bug") {
-    return {
-      resolvedKind: k,
-      groomReadiness: "skip",
-      review: "force-full",
-    };
-  }
-  return {
-    resolvedKind: "proposal",
-    groomReadiness: "size-routed",
-    review: "size-routed",
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Fixtures — resolveKind + routing decisions
-// ---------------------------------------------------------------------------
-
-test("PM-51 routing: fixture proposal → resolved kind = proposal, feature path", () => {
-  const fm = readFm("proposal.md");
-  assert.equal(resolveKind(fm), "proposal");
-  const r = routeForKind(fm.kind);
-  assert.equal(r.resolvedKind, "proposal");
-  assert.equal(r.groomReadiness, "size-routed");
-  assert.equal(r.review, "size-routed");
+test("task and bug may skip readiness but cannot erase risk safeguards", () => {
+  const lowTask = routeDevWork({ kind: "task", size: "S", risk: { behavioral: 1 } });
+  const highBug = routeDevWork({
+    kind: "bug",
+    size: "XS",
+    risk: { security: 2, external_contract: 2 },
+  });
+  assert.ok(!lowTask.required_phases.includes("readiness"));
+  assert.equal(lowTask.review_mode, "code-scan");
+  assert.equal(highBug.review_mode, "full");
+  assert.ok(highBug.required_gates.includes("verification"));
 });
 
-test("PM-51 routing: fixture task → resolved kind = task, lightweight path", () => {
-  const fm = readFm("task.md");
-  assert.equal(resolveKind(fm), "task");
-  const r = routeForKind(fm.kind);
-  assert.equal(r.resolvedKind, "task");
-  assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.review, "force-full");
+test("M+ proposal readiness remains routed before implementation", () => {
+  const route = routeDevWork({ kind: "proposal", size: "M", risk: { behavioral: 1 } });
+  assert.ok(
+    route.required_phases.indexOf("readiness") < route.required_phases.indexOf("implementation")
+  );
 });
 
-test("PM-51 routing: fixture bug → resolved kind = bug, lightweight path", () => {
-  const fm = readFm("bug.md");
-  assert.equal(resolveKind(fm), "bug");
-  const r = routeForKind(fm.kind);
-  assert.equal(r.resolvedKind, "bug");
-  assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.review, "force-full");
-});
-
-test("PM-51 routing AC6: fixture no-kind → resolved kind = proposal (feature path)", () => {
-  const fm = readFm("no-kind.md");
-  assert.equal(fm.kind, undefined, "fixture must omit the kind field");
-  assert.equal(resolveKind(fm), "proposal");
-  const r = routeForKind(fm.kind);
-  assert.equal(r.resolvedKind, "proposal");
-  assert.equal(r.groomReadiness, "size-routed");
-  assert.equal(r.review, "size-routed");
-});
-
-test("PM-51 routing AC7: kind=task + size=L → kind wins, lightweight path", () => {
-  const fm = readFm("task-sized-L.md");
-  assert.equal(resolveKind(fm), "task");
-  assert.equal(fm.size, "L");
-  const r = routeForKind(fm.kind);
-  assert.equal(r.groomReadiness, "skip");
-  assert.equal(r.review, "force-full");
-});
-
-// ---------------------------------------------------------------------------
-// Step-file contract — the routing language the orchestrator reads at runtime
-// ---------------------------------------------------------------------------
-
-test("PM-51 routing: 02-intake persists resolved kind and handles kind × size collision", () => {
-  const text = readStep("02-intake.md");
-  assert.match(text, /resolveKind/);
-  assert.match(text, /kind.*task.*kind.*bug/i);
-  assert.match(text, /Routing by kind/);
-  assert.match(text, /overrides size/i);
-  assert.match(text, /Warning: kind=.*overrides size=/);
-});
-
-test("PM-51 routing: 04-groom-readiness short-circuits on task/bug", () => {
-  const text = readStep("04-groom-readiness.md");
-  assert.match(text, /Kind short-circuit/);
-  assert.match(text, /kind.*task.*kind.*bug/i);
-  assert.match(text, /skipped-kind-/);
-  assert.match(text, /jump.*to.*Implementation/i);
-});
-
-test("PM-51 routing: 07-review forces pm:review on task/bug regardless of size", () => {
-  const text = readStep("07-review.md");
-  assert.match(text, /Kind override/);
-  assert.match(text, /kind.*task.*kind.*bug/i);
-  assert.match(text, /forced-kind-/);
-  assert.match(text, /regardless of size/i);
-  assert.match(text, /do not fall to the XS code-scan path/i);
-});
-
-// ---------------------------------------------------------------------------
-// Regression — existing feature path must be observationally identical
-// ---------------------------------------------------------------------------
-
-test("PM-51 routing regression: proposal kind still runs size-based routing", () => {
-  const r = routeForKind("proposal");
-  assert.equal(r.review, "size-routed");
-});
-
-test("PM-51 routing regression: absent/null kind still runs size-based routing", () => {
-  assert.equal(routeForKind(undefined).review, "size-routed");
-  assert.equal(routeForKind(null).review, "size-routed");
+test("step contracts consume executable routing rather than kind-wins prose", () => {
+  const intake = fs.readFileSync(path.join(STEP_DIR, "02-intake.md"), "utf8");
+  const review = fs.readFileSync(path.join(STEP_DIR, "07-review.md"), "utf8");
+  assert.match(intake, /Kind affects readiness inputs, not safety gates/);
+  assert.match(review, /session\.routing\.review_mode/);
+  assert.match(review, /do not recompute it from kind or size/);
+  assert.doesNotMatch(intake, /kind wins/i);
 });

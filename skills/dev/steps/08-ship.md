@@ -2,13 +2,20 @@
 name: Ship
 order: 8
 description: Push branch, create PR, merge via merge-loop, clean up worktrees, update status
+phase: ship
+requires:
+  - worker-contract.md
+gates:
+  - review
+  - verification
+result_schema: phase-result-v1
 ---
 
 <!-- Merged: Ship/PR flow + Stage 6 (Worktree Cleanup) + Status Updates from dev-flow.md -->
 
 ## Ship
 
-**Multi-task skip:** If `task_count > 1` in the session state, per-task agents in Step 05 handled push/PR/merge for each task. Skip the PR creation and merge-loop sections below. **However**, the parent-level status updates MUST still run — jump directly to "Status Updates" to mark the parent backlog item and parent Linear issue as done. Verify all Linear children are actually done before closing the parent (see Step 3 below).
+Ship is root-owned for both single- and multi-work-unit changes. Workers never push, create PRs, merge, or update trackers; aggregate gates must pass on the integrated branch first.
 
 ## Goal
 
@@ -26,18 +33,15 @@ Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manage
 
 Clean up any worktrees created during this session:
 
-1. For each worktree created in Workspace or by dispatched agents, remove it:
+1. For each clean worktree created in Workspace or by dispatched agents, remove it:
    ```bash
-   git worktree remove <worktree-path> --force
+   git worktree remove <worktree-path>
    ```
 2. Delete any leftover branches that were only used inside worktrees:
    ```bash
    git branch -d <worktree-branch>
    ```
-3. If removal fails (locked worktree), force-remove:
-   ```bash
-   git worktree remove <worktree-path> --force
-   ```
+3. If removal fails because the worktree is dirty or locked, preserve it and report the exact path. Never force-remove user changes without explicit approval.
 
 Do NOT skip this step. Leftover worktrees consume disk and confuse subsequent sessions.
 
@@ -84,7 +88,7 @@ You MUST complete ALL steps below in order. Local backlog updates are always req
 
 **Step 1: Create local backlog entry if missing.**
 
-If `linear_id` is set in `.pm/dev-sessions/{slug}.md` (or RFC metadata) AND `{pm_dir}/backlog/{slug}.md` does NOT exist:
+If `linear_id` is set in `.pm/dev-sessions/{slug}/session.json` (or RFC metadata) AND `{pm_dir}/backlog/{slug}.md` does NOT exist:
 - Create `{pm_dir}/backlog/` if needed: `mkdir -p {pm_dir}/backlog`
 - **ID rule:** When Linear is available, use the Linear identifier as the local `id`. Only fall back to local `PM-{NNN}` sequence when no tracker is configured.
 - Write `{pm_dir}/backlog/{slug}.md`:
@@ -191,3 +195,9 @@ Do NOT append "Approve to proceed?" or any equivalent question. After RFC approv
 </HARD-RULE>
 
 Ship is done only when the PR is confirmed **MERGED** (verify PR state — not just auto-merge armed), worktrees are cleaned up, all status updates are complete (local backlog → done, Linear → Done if available), and the state file records the merge SHA. Then proceed to retro.
+
+## Done-when
+
+The root has verified the merged PR, preserved or safely cleaned worktrees, and completed authorized local/tracker updates.
+
+**Advance:** proceed to Step 09 (Retro).

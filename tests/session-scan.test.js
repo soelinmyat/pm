@@ -138,6 +138,35 @@ test("listDevSessions returns [] when no dev sessions exist anywhere", () => {
   }
 });
 
+test("listDevSessions reads canonical v2 JSON and suppresses a same-slug projection", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/add-auth/session.json",
+      JSON.stringify({
+        schema_version: 2,
+        run_id: "dev_json",
+        slug: "add-auth",
+        status: "active",
+        phase: "review",
+        updated_at: "2026-07-11T00:00:00.000Z",
+        task: { reference: "PROJ-9" },
+      })
+    );
+    project.write(
+      ".pm/dev-sessions/add-auth.md",
+      "# Projection\n\n| Field | Value |\n|---|---|\n| Stage | implementation |\n"
+    );
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].stage, "review");
+    assert.equal(sessions[0].linearId, "PROJ-9");
+    assert.match(sessions[0].filePath, /add-auth\/session\.json$/);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("listRfcSessions reads source-side .pm/rfc-sessions/ via the documented markdown-table schema", () => {
   const project = mktmp();
   try {

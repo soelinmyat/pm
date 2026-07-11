@@ -2,6 +2,11 @@
 name: Groom Readiness
 order: 4
 description: Check for existing RFC, route ungroomed work to pm:groom or inline scoping
+phase: readiness
+requires:
+  - risk-routing.md
+gates: []
+result_schema: phase-result-v1
 ---
 
 ## RFC Check (all sizes)
@@ -46,7 +51,7 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
   - **present but invalid** (non-zero exit) → **hard-abort**: "Schema-v2 sidecar present but failed rfc-sidecar-check — route to /pm:rfc." Do NOT fall back to the HTML.
   - **absent** (pre-sidecar RFC) → read the RFC HTML and parse `.issue-detail` elements (extract `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size` for each).
 
-  Set `task_count`. If zero issues are found, hard-abort: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Then update the session file (`.pm/dev-sessions/{slug}.md`) with `Stage: implement`, the refreshed `task_count`, and the rebuilt `## Tasks` table. Skip to Implementation. Log: `RFC: approved (path: {rfc_path}, tasks: {task_count})`.
+  Set `task_count`. If zero issues are found, hard-abort: "RFC found but no Issue sections parsed — check the JSON sidecar or the RFC HTML `.issue-detail` cards." Then update the session file (`.pm/dev-sessions/{slug}/session.json`) with `Stage: implement`, the refreshed `task_count`, and the rebuilt `## Tasks` table. Skip to Implementation. Log: `RFC: approved (path: {rfc_path}, tasks: {task_count})`.
 - **`rfc:` is non-null** but RFC file has `status: draft` AND size is M+ → RFC started but not approved. Treat same as null — continue to the RFC prompt below. Log: `RFC: draft (needs /rfc to complete)`.
 - **`rfc:` is null** AND size is M+ → No RFC exists for M-sized work. Continue to the RFC prompt below.
 - **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
@@ -89,7 +94,7 @@ Classify:
 - **Developing** (strategy OR research present) → max tier: `standard`
 - **Mature** (strategy AND research AND competitors) → max tier: `full`
 
-Log in `.pm/dev-sessions/{slug}.md`: `kb_maturity: {level}, tier_cap: {tier}`
+Log in `.pm/dev-sessions/{slug}/session.json`: `kb_maturity: {level}, tier_cap: {tier}`
 
 | Size | Action |
 |------|--------|
@@ -112,7 +117,13 @@ Time estimates by tier:
 | `standard` | ~15 min |
 | `full` | ~30 min |
 
-Log the decision in `.pm/dev-sessions/{slug}.md`:
+Log the decision in `.pm/dev-sessions/{slug}/session.json`:
 ```
 - RFC check: approved (path: {rfc_path}) | blocked-needs-rfc | blocked-needs-proposal | incomplete-groom (status not proposed/planned/in-progress) | skipped-xs | conversational-s
 ```
+
+## Done-when
+
+The routed product/readiness prerequisites are satisfied, or the session contains a direct `pm:groom`/`pm:rfc` blocker with its missing artifact.
+
+**Advance:** proceed to Step 05 (Implementation).
