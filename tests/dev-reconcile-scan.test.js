@@ -39,6 +39,19 @@ test("reconcile scan parses each canonical session once and excludes completed a
   }
 });
 
+test("reconcile scan preserves legacy plain branch fields", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-scan-"));
+  try {
+    fs.writeFileSync(path.join(root, "legacy.md"), "# CLE-1380\n\nbranch: feat/x\n");
+    assert.deepEqual(
+      scanSessionDirectory(root).map(({ issue, branch }) => ({ issue, branch })),
+      [{ issue: "CLE-1380", branch: "feat/x" }]
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function write(root, relative, value) {
   const file = path.join(root, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });

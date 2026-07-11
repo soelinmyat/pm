@@ -16,7 +16,9 @@ test("CLI dispatch probes structured, streaming, permission, and resume capabili
   assert.match(RUNTIME, /JSON\/stream event output/);
   assert.match(RUNTIME, /safe permission controls/);
   assert.match(RUNTIME, /Missing support blocks dispatch/);
-  assert.match(DISPATCH, /probeCapabilities\(options\.runtime\)/);
+  assert.match(DISPATCH, /probeCapabilitiesCached\(options\.runtime\)/);
+  assert.match(DISPATCH, /runStreaming/);
+  assert.doesNotMatch(DISPATCH, /spawnSync/);
 });
 
 test("structured dispatch records identity and classifies incomplete execution", () => {

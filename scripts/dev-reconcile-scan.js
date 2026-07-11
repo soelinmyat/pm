@@ -30,11 +30,19 @@ function scanSessionDirectory(sessionDir) {
         markdownTableValue(text, "Ticket") ||
         markdownTableValue(text, "Parent Issue");
       const branch =
-        markdownTableValue(text, "Branch") || bulletValue(text, "Branch").replace(/\*/g, "");
+        markdownTableValue(text, "Branch") ||
+        bulletValue(text, "Branch").replace(/\*/g, "") ||
+        plainFieldValue(text, "Branch");
       if (issue && branch) records.push({ issue, branch, sessionPath: entryPath });
     }
   }
   return records;
+}
+
+function plainFieldValue(text, field) {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`^\\s*${escaped}\\s*:\\s*(.+?)\\s*$`, "im"));
+  return match ? match[1].replace(/[`*]/g, "").trim() : "";
 }
 
 function tsv(records) {
@@ -59,4 +67,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, scanSessionDirectory, tsv };
+module.exports = { main, plainFieldValue, scanSessionDirectory, tsv };

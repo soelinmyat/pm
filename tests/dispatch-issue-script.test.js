@@ -8,6 +8,17 @@ const path = require("path");
 const repoRoot = path.join(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "dispatch-issue.sh");
 
+function createWorktree(worktree) {
+  fs.mkdirSync(worktree, { recursive: true });
+  execFileSync("git", ["init", "-q", worktree]);
+  execFileSync("git", ["-C", worktree, "config", "user.name", "PM Test"]);
+  execFileSync("git", ["-C", worktree, "config", "user.email", "pm@example.test"]);
+  execFileSync("git", ["-C", worktree, "commit", "--allow-empty", "-qm", "fixture"]);
+  return execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+}
+
 describe("dispatch-issue.sh", () => {
   it("script exists and is syntactically valid bash", () => {
     assert.ok(fs.existsSync(scriptPath), "scripts/dispatch-issue.sh must exist");
@@ -31,7 +42,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const promptDump = path.join(tmp, "received-prompt.txt");
@@ -144,7 +155,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       // Stub runtime: drain stdin and exit 0 WITHOUT writing the result file.
@@ -208,7 +219,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -267,7 +278,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -328,7 +339,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      createWorktree(worktree);
       fs.mkdirSync(binDir);
 
       const resultFile = path.join(tmp, "result.json");
@@ -384,7 +395,7 @@ describe("dispatch-issue.sh", () => {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
       const resultDir = path.join(tmp, "external-pm-state", "runs", "issue-1");
-      fs.mkdirSync(worktree, { recursive: true });
+      createWorktree(worktree);
       fs.mkdirSync(binDir, { recursive: true });
       fs.mkdirSync(resultDir, { recursive: true });
 
@@ -459,7 +470,7 @@ describe("dispatch-issue.sh", () => {
     try {
       const worktree = path.join(tmp, "wt");
       const binDir = path.join(tmp, "bin");
-      fs.mkdirSync(worktree);
+      const fixtureCommit = createWorktree(worktree);
       fs.mkdirSync(binDir);
       const argvDump = path.join(tmp, "claude-argv.json");
       const resultFile = path.join(tmp, "result.json");
@@ -468,7 +479,7 @@ describe("dispatch-issue.sh", () => {
         work_unit_id: "legacy",
         status: "completed",
         summary: "done",
-        commit: "abc123",
+        commit: fixtureCommit,
         files_changed: 1,
         evidence: [{ kind: "test", exit_code: 0 }],
         blocker: null,
