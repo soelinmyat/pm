@@ -28,7 +28,7 @@
     "schema_version": { "const": 2 },
     "run_id": { "type": "string", "pattern": "^dev_" },
     "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-    "status": { "enum": ["active", "blocked", "complete"] },
+    "status": { "enum": ["active", "blocked", "handoff", "complete"] },
     "phase": { "$ref": "#/$defs/phase" },
     "phase_attempt": { "type": "integer", "minimum": 1 },
     "created_at": { "type": "string", "format": "date-time" },
@@ -181,6 +181,8 @@
         },
         "status": { "enum": ["pending", "running", "completed", "blocked", "failed"] },
         "base_commit": { "type": "string", "minLength": 1 },
+        "assigned_worktree": { "type": "string", "pattern": "^/" },
+        "assigned_branch": { "type": "string", "minLength": 1 },
         "result": {
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/work_unit_result" }]
         },

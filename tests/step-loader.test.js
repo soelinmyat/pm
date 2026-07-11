@@ -206,6 +206,77 @@ test("loadWorkflow: user override replaces same-named default step", () => {
   }
 });
 
+test("loadWorkflow: user overrides cannot weaken bundled phase contracts", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "05-implementation.md": `---
+name: Implementation
+order: 5
+phase: implementation
+gates: [tdd]
+required_capabilities: [local-write]
+required_evidence: [test]
+allowed_modes: [inline, delegated]
+requires_commit: true
+---
+Default body.
+`,
+      },
+    },
+    userSteps: {
+      dev: {
+        "05-implementation.md": `---
+name: Custom implementation
+order: 5
+phase: implementation
+gates: [cosmetic]
+required_capabilities: [custom-tool]
+required_evidence: [note]
+allowed_modes: [inline, headless]
+requires_commit: false
+---
+Custom body.
+`,
+      },
+    },
+  });
+  try {
+    const [step] = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.deepEqual(step.gates, ["tdd", "cosmetic"]);
+    assert.deepEqual(step.requiredCapabilities, ["local-write", "custom-tool"]);
+    assert.deepEqual(step.requiredEvidence, ["test", "note"]);
+    assert.deepEqual(step.allowedModes, ["inline"]);
+    assert.equal(step.requiresCommit, true);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadWorkflow: a legacy filename overrides the uniquely matching phase", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "08-review.md": phaseStepFile("Review", 8, "review", "New default review."),
+      },
+    },
+    userSteps: {
+      dev: {
+        "07-review.md": phaseStepFile("Legacy override", 7, "review", "Legacy custom review."),
+      },
+    },
+  });
+  try {
+    const steps = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].phase, "review");
+    assert.equal(steps[0].source, "user");
+    assert.match(steps[0].body, /Legacy custom review/);
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("loadWorkflow: resolves @persona references from default personas", () => {
   const env = scaffold({
     defaultSteps: {

@@ -124,6 +124,50 @@ test("runner-owned work-unit transitions persist execution state and accepted co
   }
 });
 
+test("delegated work-unit results validate in their assigned worktree before integration", () => {
+  const repo = makeRepo();
+  try {
+    const worker = path.join(repo.root, ".worktrees", "delegated");
+    fs.mkdirSync(path.dirname(worker), { recursive: true });
+    execFileSync("git", ["worktree", "add", "-b", "unit/delegated", worker], { cwd: repo.root });
+    let session = createSession({ slug: "delegated", sourceDir: repo.root });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.task.work_units = [
+      { id: "unit-a", title: "Unit A", depends_on: [], owns: ["README.md"], status: "pending" },
+    ];
+    session = transitionWorkUnit(session, { id: "unit-a", status: "running", worktree: worker });
+    fs.appendFileSync(path.join(worker, "README.md"), "delegated\n");
+    execFileSync("git", ["add", "README.md"], { cwd: worker });
+    execFileSync("git", ["commit", "-m", "delegated unit"], { cwd: worker });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: worker,
+      encoding: "utf8",
+    }).trim();
+    session = transitionWorkUnit(session, {
+      id: "unit-a",
+      status: "completed",
+      worktree: worker,
+      result: {
+        schema_version: 1,
+        work_unit_id: "unit-a",
+        status: "completed",
+        summary: "Delegated unit complete",
+        commit,
+        files_changed: 1,
+        evidence: [{ kind: "test", exit_code: 0 }],
+        blocker: null,
+        runtime: { provider: "codex" },
+      },
+    });
+    assert.equal(session.task.work_units[0].status, "completed");
+    assert.equal(session.task.work_units[0].assigned_worktree, fs.realpathSync(worker));
+    assert.equal(repo.head() === commit, false, "root worktree is not integrated yet");
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("recertified gate evidence remains current after review fixes change HEAD", () => {
   const repo = makeRepo();
   try {
@@ -303,6 +347,19 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
       htmlPath,
       `<script type="application/json" id="rfc-meta">{"status":"approved"}</script><main data-sidecar-hash="${hash}"></main>`
     );
+    const htmlBytes = fs.readFileSync(htmlPath);
+    fs.writeFileSync(
+      path.join(repo.root, `${slug}.approval.json`),
+      JSON.stringify({
+        schema_version: 1,
+        slug,
+        status: "approved",
+        approved_by: "Test User",
+        approved_at: new Date().toISOString(),
+        html_sha256: `sha256:${crypto.createHash("sha256").update(htmlBytes).digest("hex")}`,
+        sidecar_sha256: hash,
+      })
+    );
     const session = createSession({ slug, sourceDir: repo.root });
     session.phase = "readiness";
     session.routing.required_phases = ["readiness", "implementation", "retro"];
@@ -318,9 +375,7 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
     });
     assert.deepEqual(validateResult(session, valid), []);
     fs.writeFileSync(htmlPath, fs.readFileSync(htmlPath, "utf8").replace("approved", "draft"));
-    assert.ok(
-      validateResult(session, valid).some((error) => /approved lifecycle/.test(error.message))
-    );
+    assert.ok(validateResult(session, valid).some((error) => /approval audit/.test(error.message)));
   } finally {
     repo.cleanup();
   }
@@ -364,6 +419,7 @@ test("ship requires explicit authority and independently verified merged PR evid
       url: receipt.pr_url,
       state: "MERGED",
       headRefName: "main",
+      headRefOid: commit,
       mergeCommit: { oid: "merge42" },
     };
     assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
@@ -372,6 +428,63 @@ test("ship requires explicit authority and independently verified merged PR evid
         verifyDelivery: () => ({ ...observed, state: "OPEN" }),
       }).some((error) => /does not match observed/.test(error.message))
     );
+    assert.ok(
+      validateResult(session, result, {
+        verifyDelivery: () => ({ ...observed, headRefOid: "older-commit" }),
+      }).some((error) => /does not match observed/.test(error.message))
+    );
+  } finally {
+    fs.rmSync(receiptPath, { force: true });
+    repo.cleanup();
+  }
+});
+
+test("headless ship records an exact open-PR handoff without merge authority", () => {
+  const repo = makeRepo();
+  const receiptPath = path.join(os.tmpdir(), `pm-handoff-${process.pid}-${Date.now()}.json`);
+  try {
+    let session = createSession({
+      slug: "headless-handoff",
+      sourceDir: repo.root,
+      mode: "headless",
+    });
+    session.phase = "ship";
+    session.routing.required_phases = ["ship", "retro"];
+    session.routing.required_gates = [];
+    session = grantAuthority(
+      session,
+      ["push_feature_branch", "create_pr"],
+      "Loop may open a reviewed PR"
+    );
+    const commit = repo.head();
+    const receipt = {
+      schema_version: 1,
+      pr_number: 43,
+      pr_url: "https://github.com/example/repo/pull/43",
+      state: "OPEN",
+      merge_sha: null,
+      head_branch: "main",
+      feature_commit: commit,
+    };
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+    const result = passedResult(session, {
+      commit,
+      evidence: [{ kind: "delivery", command: "gh", exit_code: 0, artifact: receiptPath }],
+    });
+    const observed = {
+      number: 43,
+      url: receipt.pr_url,
+      state: "OPEN",
+      headRefName: "main",
+      headRefOid: commit,
+      mergeCommit: null,
+    };
+    assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
+    assert.equal(
+      recordResult(session, result, { verifyDelivery: () => observed }).status,
+      "handoff"
+    );
+    assert.equal(session.authority.merge, false);
   } finally {
     fs.rmSync(receiptPath, { force: true });
     repo.cleanup();
@@ -381,7 +494,7 @@ test("ship requires explicit authority and independently verified merged PR evid
 test("workspace updates are verified against the same Git repository", () => {
   const repo = makeRepo();
   try {
-    const session = createSession({ slug: "workspace", sourceDir: repo.root });
+    const session = createSession({ slug: "feature-test", sourceDir: repo.root });
     const worktree = path.join(repo.root, ".worktrees", "feature");
     fs.mkdirSync(path.dirname(worktree), { recursive: true });
     execFileSync("git", ["worktree", "add", "-b", "feature/test", worktree], {
@@ -390,6 +503,10 @@ test("workspace updates are verified against the same Git repository", () => {
     const updated = updateWorkspace(session, worktree);
     assert.equal(updated.source.worktree, fs.realpathSync(worktree));
     assert.equal(updated.source.branch, "feature/test");
+    assert.throws(
+      () => createSession({ slug: "wrong", sourceDir: worktree }),
+      /does not match current branch/
+    );
   } finally {
     repo.cleanup();
   }
@@ -497,6 +614,47 @@ test("validateSession rejects unknown top-level fields and invalid paths", () =>
   }
 });
 
+test("runtime validation matches schema constraints for work units and authority logs", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "schema-parity", sourceDir: repo.root });
+    session.task.work_units = [{}];
+    session.authority_log = [
+      { actions: ["bogus"], reason: "invalid fixture", granted_at: new Date().toISOString() },
+    ];
+    const errors = validateSession(session);
+    assert.ok(errors.some((error) => /work unit id is required/.test(error.message)));
+    assert.ok(errors.some((error) => /invalid grant action bogus/.test(error.message)));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("readSession safely upgrades immediately preceding v2 state", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "compat-v2", sourceDir: repo.root });
+    delete session.authority_log;
+    session.execution.capabilities = ["legacy"];
+    session.evidence.implementation = {
+      commit: repo.head(),
+      records: [{ kind: "test", command: "old", exit_code: 0, artifact: null }],
+      recorded_at: new Date().toISOString(),
+      verified_commit: repo.head(),
+      verified_at: new Date().toISOString(),
+    };
+    const sessionPath = path.join(repo.root, "compat.json");
+    fs.writeFileSync(sessionPath, JSON.stringify(session));
+    const upgraded = readSession(sessionPath);
+    assert.deepEqual(upgraded.authority_log, []);
+    assert.equal(Object.hasOwn(upgraded.execution, "capabilities"), false);
+    assert.equal(Object.hasOwn(upgraded.evidence.implementation, "verified_commit"), false);
+    assert.deepEqual(validateSession(upgraded), []);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("atomic session writes use mode 0600 and leave no temp files", () => {
   const repo = makeRepo();
   try {
@@ -530,6 +688,27 @@ test("a mismatched or evidence-free required result cannot advance", () => {
     assert.ok(validateResult(session, noEvidence).some((error) => /evidence/.test(error.message)));
     assert.throws(() => recordResult(session, noEvidence), /result is invalid/);
     assert.equal(session.phase, "implementation");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("implementation cannot advance until every routed work unit completes", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "incomplete-units", sourceDir: repo.root });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.task.work_units = [
+      { id: "unit-a", title: "Unit A", depends_on: [], owns: ["README.md"], status: "pending" },
+    ];
+    const result = passedResult(session, {
+      commit: repo.head(),
+      evidence: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+    });
+    assert.ok(
+      validateResult(session, result).some((error) => /incomplete work units/.test(error.message))
+    );
   } finally {
     repo.cleanup();
   }
@@ -620,6 +799,31 @@ test("completion requires current final-gate evidence", () => {
     session = recordResult(session, passedResult(session));
     assert.equal(session.status, "complete");
     assert.equal(session.history.at(-1).reason, "all routed phases and final gates completed");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("verification gate binds to review-phase test evidence, not delivery", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "verification-contract", sourceDir: repo.root });
+    const head = repo.head();
+    session.phase = "retro";
+    session.routing.required_phases = ["retro"];
+    session.routing.required_gates = ["verification"];
+    session.evidence.ship = {
+      commit: head,
+      records: [{ kind: "delivery", command: "gh", exit_code: 0, artifact: null }],
+      recorded_at: new Date().toISOString(),
+    };
+    assert.throws(() => recordResult(session, passedResult(session)), /verification/);
+    session.evidence.review = {
+      commit: head,
+      records: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+      recorded_at: new Date().toISOString(),
+    };
+    assert.equal(recordResult(session, passedResult(session)).status, "complete");
   } finally {
     repo.cleanup();
   }

@@ -45,7 +45,7 @@ function parseStepFile(filePath, filename) {
       : [],
     requiredEvidence: Array.isArray(data.required_evidence) ? data.required_evidence : [],
     allowedModes: Array.isArray(data.allowed_modes) ? data.allowed_modes : [],
-    requiresCommit: data.requires_commit === true,
+    requiresCommit: data.requires_commit === true || data.requires_commit === "true",
     resultSchema:
       typeof data.result_schema === "string" && data.result_schema.trim()
         ? data.result_schema.trim()
@@ -162,8 +162,31 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   const defaultFiles = collectStepFiles(defaultStepDir);
   const userFiles = collectStepFiles(userStepDir);
 
-  // Merge: user overrides default for same filename
-  const allFilenames = new Set([...defaultFiles.keys(), ...userFiles.keys()]);
+  // Match user overrides by stable phase when a bundled filename was renamed.
+  // Exact filenames still win; phase aliases preserve older documented overrides.
+  const overrideTargets = new Map();
+  const consumedUserFiles = new Set();
+  for (const [userFilename, userPath] of userFiles) {
+    if (defaultFiles.has(userFilename)) {
+      overrideTargets.set(userFilename, userFilename);
+      consumedUserFiles.add(userFilename);
+      continue;
+    }
+    const userStep = parseStepFile(userPath, userFilename);
+    if (!userStep?.phase) continue;
+    const phaseMatches = [...defaultFiles].filter(([defaultFilename, defaultPath]) => {
+      const defaultStep = parseStepFile(defaultPath, defaultFilename);
+      return defaultStep?.phase === userStep.phase;
+    });
+    if (phaseMatches.length === 1) {
+      overrideTargets.set(phaseMatches[0][0], userFilename);
+      consumedUserFiles.add(userFilename);
+    }
+  }
+  const allFilenames = new Set([
+    ...defaultFiles.keys(),
+    ...[...userFiles.keys()].filter((filename) => !consumedUserFiles.has(filename)),
+  ]);
 
   if (allFilenames.size === 0) {
     return [];
@@ -176,10 +199,12 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   const steps = [];
 
   for (const filename of allFilenames) {
-    const isUserOverride = userFiles.has(filename);
-    const filePath = isUserOverride ? userFiles.get(filename) : defaultFiles.get(filename);
+    const userFilename =
+      overrideTargets.get(filename) || (userFiles.has(filename) ? filename : null);
+    const isUserOverride = Boolean(userFilename);
+    const filePath = isUserOverride ? userFiles.get(userFilename) : defaultFiles.get(filename);
 
-    const parsed = parseStepFile(filePath, filename);
+    const parsed = parseStepFile(filePath, userFilename || filename);
     if (!parsed) {
       console.warn(`[step-loader] Could not read step file: ${filename}`);
       continue;
@@ -193,7 +218,7 @@ function loadWorkflow(command, pmDir, pluginRoot) {
     const resolvedBody = resolvePersonaRefs(parsed.body, userPersonaDir, defaultPersonaDir);
 
     // Check enabled/disabled from config
-    const stem = filename.replace(/\.md$/, "");
+    const stem = (userFilename || filename).replace(/\.md$/, "");
     const stepCfg = stepConfig[stem];
     const enabled = stepCfg?.enabled !== false;
 
@@ -205,17 +230,13 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       appliesTo: parsed.appliesTo,
       phase: parsed.phase || baseline?.phase || null,
       requires: parsed.requires.length > 0 ? parsed.requires : baseline?.requires || [],
-      gates: parsed.gates.length > 0 ? parsed.gates : baseline?.gates || [],
-      requiredCapabilities:
-        parsed.requiredCapabilities.length > 0
-          ? parsed.requiredCapabilities
-          : baseline?.requiredCapabilities || [],
-      requiredEvidence:
-        parsed.requiredEvidence.length > 0
-          ? parsed.requiredEvidence
-          : baseline?.requiredEvidence || [],
-      allowedModes:
-        parsed.allowedModes.length > 0 ? parsed.allowedModes : baseline?.allowedModes || [],
+      gates: unionMetadata(baseline?.gates, parsed.gates),
+      requiredCapabilities: unionMetadata(
+        baseline?.requiredCapabilities,
+        parsed.requiredCapabilities
+      ),
+      requiredEvidence: unionMetadata(baseline?.requiredEvidence, parsed.requiredEvidence),
+      allowedModes: constrainModes(baseline?.allowedModes, parsed.allowedModes),
       requiresCommit: parsed.requiresCommit || baseline?.requiresCommit || false,
       resultSchema: parsed.resultSchema || baseline?.resultSchema || null,
       filePath,
@@ -229,6 +250,16 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   steps.sort((a, b) => a.order - b.order);
 
   return steps;
+}
+
+function unionMetadata(baseline = [], override = []) {
+  return [...new Set([...(baseline || []), ...(override || [])])];
+}
+
+function constrainModes(baseline = [], override = []) {
+  if (!baseline?.length) return [...override];
+  if (!override?.length) return [...baseline];
+  return override.filter((mode) => baseline.includes(mode));
 }
 
 /**

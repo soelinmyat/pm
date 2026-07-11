@@ -17,9 +17,16 @@
     "schema_version": { "const": 1 },
     "pr_number": { "type": "integer", "minimum": 1 },
     "pr_url": { "type": "string", "pattern": "^https://" },
-    "state": { "const": "MERGED" },
-    "merge_sha": { "type": "string", "minLength": 1 },
+    "state": { "enum": ["OPEN", "MERGED"] },
+    "merge_sha": { "type": ["string", "null"] },
     "head_branch": { "type": "string", "minLength": 1 },
     "feature_commit": { "type": "string", "minLength": 1 }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "MERGED" } } },
+      "then": { "properties": { "merge_sha": { "type": "string", "minLength": 1 } } },
+      "else": { "properties": { "merge_sha": { "type": "null" } } }
+    }
+  ]
 }

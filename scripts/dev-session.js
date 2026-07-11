@@ -4,6 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
+const { parseCliArgs } = require("./loop-args");
 
 const {
   applyRouting,
@@ -22,6 +23,7 @@ const {
   validateResultEnvelope,
   validateSession,
   updateWorkspace,
+  upgradeCompatibleSession,
   writeJsonAtomic,
   writeSession,
 } = require("./lib/dev-session-schema");
@@ -79,22 +81,46 @@ function parseArguments(argv) {
     return { command: "help", options: {} };
   }
   const command = argv[0];
-  const options = {};
-  for (let index = 1; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith("--")) throw cliError(`unexpected argument: ${token}`, EXIT.INVALID);
-    const key = token.slice(2).replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
-    if (key === "json") {
-      options.json = true;
-      continue;
+  const valueFlags = [
+    "slug",
+    "source-dir",
+    "task",
+    "kind",
+    "size",
+    "profile",
+    "runtime",
+    "model",
+    "reasoning",
+    "mode",
+    "session",
+    "output",
+    "facts",
+    "result",
+    "phases",
+    "commit",
+    "evidence",
+    "reason",
+    "grant",
+    "worktree",
+    "id",
+    "status",
+    "legacy",
+    "base-commit",
+  ];
+  const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
+  spec["--json"] = { key: "json", type: "boolean" };
+  try {
+    const parsed = parseCliArgs(argv.slice(1), spec);
+    if (parsed.positionals.length > 0) {
+      throw new Error(`unexpected argument: ${parsed.positionals[0]}`);
     }
-    if (index + 1 >= argv.length || argv[index + 1].startsWith("--")) {
-      throw cliError(`${token} requires a value`, EXIT.INVALID);
-    }
-    options[key] = argv[index + 1];
-    index += 1;
+    return { command, options: parsed.args };
+  } catch (error) {
+    const message = error.message
+      .replace(/^Unknown option:/, "unknown option:")
+      .replace(/^Missing value for (.+)$/, "$1 requires a value");
+    throw cliError(message, EXIT.INVALID);
   }
-  return { command, options };
 }
 
 function initCommand(options) {
@@ -132,6 +158,7 @@ function initCommand(options) {
     if (fs.existsSync(sessionPath)) {
       throw cliError(`session already exists: ${sessionPath}`, EXIT.PRECONDITION);
     }
+    fs.rmSync(path.join(path.dirname(sessionPath), "completion.json"), { force: true });
     writeSession(sessionPath, session);
   } finally {
     releaseLock();
@@ -197,7 +224,6 @@ function routeCommand(options) {
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
-  writeSession(sessionPath, updated);
   emit(
     options,
     { session_path: sessionPath, routing: updated.routing, task: updated.task },
@@ -221,8 +247,30 @@ function recordCommand(options) {
     throw cliError(formatValidation("result is invalid", envelopeErrors), EXIT.RESULT_INVALID);
   }
   const releaseLock = acquireSessionLock(sessionPath);
-  let completedSourceDir = null;
   try {
+    if (!fs.existsSync(sessionPath)) {
+      const completionPath = path.join(path.dirname(sessionPath), "completion.json");
+      try {
+        const completion = JSON.parse(fs.readFileSync(completionPath, "utf8"));
+        if (completion.result_hash !== hashResult(result)) {
+          throw new Error("completion result hash does not match this retry");
+        }
+        const session = readSession(completion.session_path);
+        emit(
+          options,
+          {
+            session_path: completion.session_path,
+            session,
+            next: nextDecision(session, completion.session_path),
+            idempotent: true,
+          },
+          `${session.phase}\n`
+        );
+        return EXIT.OK;
+      } catch (error) {
+        throw cliError(`cannot resolve completed session retry: ${error.message}`, EXIT.INVALID);
+      }
+    }
     const session = readSession(sessionPath);
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
@@ -241,11 +289,23 @@ function recordCommand(options) {
       throw cliError(error.message, EXIT.RESULT_INVALID);
     }
     let persistedPath = sessionPath;
-    if (updated.status === "complete") {
+    if (["complete", "handoff"].includes(updated.status)) {
       const sessionsDir = path.dirname(path.dirname(sessionPath));
-      persistedPath = path.join(sessionsDir, "completed", updated.slug, "session.json");
+      persistedPath = path.join(
+        sessionsDir,
+        "completed",
+        updated.slug,
+        updated.run_id,
+        "session.json"
+      );
       writeSession(persistedPath, updated);
-      completedSourceDir = path.dirname(sessionPath);
+      fs.rmSync(sessionPath, { force: true });
+      writeJsonAtomic(path.join(path.dirname(sessionPath), "completion.json"), {
+        schema_version: 1,
+        run_id: updated.run_id,
+        result_hash: hashResult(result),
+        session_path: persistedPath,
+      });
     } else {
       writeSession(sessionPath, updated);
     }
@@ -263,7 +323,6 @@ function recordCommand(options) {
     return EXIT.OK;
   } finally {
     releaseLock();
-    if (completedSourceDir) fs.rmSync(completedSourceDir, { recursive: true, force: true });
   }
 }
 
@@ -426,7 +485,7 @@ function workUnitCommand(options) {
         status: options.status,
         result,
         reason: options.reason,
-        base_commit: options.baseCommit,
+        worktree: options.worktree,
       })
     );
   } catch (error) {
@@ -442,7 +501,7 @@ function validateCommand(options) {
   const sessionPath = path.resolve(options.session);
   let parsed;
   try {
-    parsed = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+    parsed = upgradeCompatibleSession(JSON.parse(fs.readFileSync(sessionPath, "utf8")));
   } catch (error) {
     throw cliError(`cannot read session ${sessionPath}: ${error.message}`, EXIT.INVALID);
   }
@@ -546,7 +605,7 @@ function helpText() {
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
     "  workspace --session <path> --worktree <path> [--json]",
-    "  work-unit --session <path> --id <id> --status <status> [--result <path>] [--reason <text>] [--base-commit <sha>] [--json]",
+    "  work-unit --session <path> --id <id> --status <status> [--worktree <path>] [--result <path>] [--reason <text>] [--json]",
     "  validate --session <path> [--json]",
     "  migrate --legacy <path> [--output <path>] [--json]",
     "  project --session <path> [--output <path>] [--json]",

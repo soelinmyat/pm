@@ -42,7 +42,7 @@ function installGhStub(binDir, lines) {
 
 const LIST_BRANCH = [
   'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then',
-  '  echo \'{"number":1,"title":"Fix","headRefName":"feat/x","mergedAt":"2999-01-01T00:00:00Z"}\'',
+  '  echo \'[{"number":1,"title":"Fix","headRefName":"feat/x","mergedAt":"2999-01-01T00:00:00Z","state":"MERGED"}]\'',
   "  exit 0",
   "fi",
 ];
@@ -63,11 +63,7 @@ function run(project, binDir, extraEnv = {}) {
 test("reconcile-merged flags a stale issue when its branch PR is merged", () => {
   const { project, binDir, cleanup } = setup();
   try {
-    installGhStub(binDir, [
-      ...LIST_BRANCH,
-      'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo "MERGED"; exit 0; fi',
-      "exit 0",
-    ]);
+    installGhStub(binDir, [...LIST_BRANCH, "exit 0"]);
     writeSession(project, "feat-x.md", "# CLE-1380\n\nbranch: feat/x\n");
 
     const out = run(project, binDir);
@@ -83,8 +79,7 @@ test("reconcile-merged stays silent when the branch PR is still open", () => {
   const { project, binDir, cleanup } = setup();
   try {
     installGhStub(binDir, [
-      ...LIST_BRANCH,
-      'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo "OPEN"; exit 0; fi',
+      'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "[]"; exit 0; fi',
       "exit 0",
     ]);
     writeSession(project, "feat-x.md", "# CLE-1380\n\nbranch: feat/x\n");
@@ -99,17 +94,23 @@ test("reconcile-merged stays silent when the branch PR is still open", () => {
 test("reconcile-merged survives a transient 5xx on the state check (retry via pr-state.js)", () => {
   const { project, binDir, tmp, cleanup } = setup();
   try {
-    const counter = path.join(tmp, "gh-view-count");
-    // Fail the branch state query with HTTP 502 twice, then return MERGED. The
-    // raw `gh pr view` would have dropped this branch on the first 502; the
-    // pr-state.js retry wrapper recovers it.
+    const counter = path.join(tmp, "gh-list-count");
+    // Fail the consolidated merged-PR query with HTTP 502 twice, then return
+    // the branch. The shared retry wrapper must recover without N+1 requests.
     installGhStub(binDir, [
-      ...LIST_BRANCH,
-      'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then',
+      'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then',
       '  n=0; [ -f "$GH_VIEW_COUNTER" ] && n=$(cat "$GH_VIEW_COUNTER")',
       '  n=$((n + 1)); echo "$n" > "$GH_VIEW_COUNTER"',
       '  if [ "$n" -le 2 ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi',
-      '  echo "MERGED"; exit 0',
+      `  echo '${JSON.stringify([
+        {
+          number: 1,
+          title: "Fix",
+          headRefName: "feat/x",
+          mergedAt: "2999-01-01T00:00:00Z",
+          state: "MERGED",
+        },
+      ])}'; exit 0`,
       "fi",
       "exit 0",
     ]);
@@ -120,7 +121,7 @@ test("reconcile-merged survives a transient 5xx on the state check (retry via pr
       PM_PR_STATE_BACKOFF_MS: "5",
     });
     assert.match(out, /CLE-1380/, "merged PR must be reconciled despite transient 5xx");
-    assert.equal(fs.readFileSync(counter, "utf8").trim(), "3", "gh pr view retried to attempt 3");
+    assert.equal(fs.readFileSync(counter, "utf8").trim(), "3", "gh pr list retried to attempt 3");
   } finally {
     cleanup();
   }

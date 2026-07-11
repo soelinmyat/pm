@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const { randomUUID } = require("node:crypto");
-const { execFileSync, spawn } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -15,6 +15,7 @@ const { writeJsonAtomic } = require("./result");
 const { probeCapabilitiesCached } = require("./capabilities");
 const { validateOwnershipList } = require("../lib/dev-work-units");
 const { parseCliArgs } = require("../loop-args");
+const { runGit } = require("../loop-git");
 
 const USAGE_LIMIT =
   /agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|usage credit|usage limit|plan.*limit|limit.*reached|quota|rate.?limit/i;
@@ -40,9 +41,7 @@ async function main(argv = process.argv.slice(2)) {
     return 2;
   }
   try {
-    execFileSync("git", ["-C", options.worktree, "rev-parse", "--show-toplevel"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    runGit(["rev-parse", "--show-toplevel"], options.worktree, { timeout: 10_000 });
     validateOwnershipList(options.owns, "assigned ownership");
   } catch (error) {
     process.stderr.write(`invalid dispatch scope: ${error.message}\n`);
@@ -266,9 +265,10 @@ function toKebab(value) {
 
 function runStreaming(command, args, options) {
   const limit = 4 * 1024 * 1024;
-  const important = [];
-  let stdoutTail = "";
-  let stderrTail = "";
+  const lineLimit = 1024 * 1024;
+  const important = new BoundedBuffer(lineLimit);
+  const stdoutTail = new BoundedBuffer(limit);
+  const stderrTail = new BoundedBuffer(limit);
   let pending = "";
   const eventsFd = secureOpen(options.eventsPath);
   const stderrFd = secureOpen(options.stderrPath);
@@ -286,14 +286,16 @@ function runStreaming(command, args, options) {
     child.stdout.on("data", (chunk) => {
       fs.writeSync(eventsFd, chunk);
       const text = chunk.toString("utf8");
-      stdoutTail = boundedTail(stdoutTail, text, limit);
-      pending += text;
+      stdoutTail.append(chunk);
+      pending = boundedTail(pending, text, lineLimit);
       const lines = pending.split("\n");
       pending = lines.pop();
       for (const line of lines) {
         try {
           const event = JSON.parse(line);
-          if (["thread.started", "system", "result"].includes(event.type)) important.push(line);
+          if (["thread.started", "system", "result"].includes(event.type)) {
+            important.append(`${line}\n`);
+          }
         } catch {
           // Non-JSON output remains in the bounded tail and full events file.
         }
@@ -301,20 +303,22 @@ function runStreaming(command, args, options) {
     });
     child.stderr.on("data", (chunk) => {
       fs.writeSync(stderrFd, chunk);
-      stderrTail = boundedTail(stderrTail, chunk.toString("utf8"), limit);
+      stderrTail.append(chunk);
     });
     child.on("close", (status, signal) => {
       fs.closeSync(eventsFd);
       fs.closeSync(stderrFd);
-      const extractionEvents = `${important.join("\n")}\n${stdoutTail}`;
+      const stdoutText = stdoutTail.toString();
+      const stderrText = stderrTail.toString();
+      const extractionEvents = `${important.toString()}\n${stdoutText}`;
       const log = [
         `events_file=${options.eventsPath}`,
         `stderr_file=${options.stderrPath}`,
         "",
         "--- bounded stdout tail ---",
-        stdoutTail,
+        stdoutText,
         "--- bounded stderr tail ---",
-        stderrTail,
+        stderrText,
       ].join("\n");
       secureWrite(options.logFile, log);
       resolve({
@@ -322,7 +326,7 @@ function runStreaming(command, args, options) {
         signal,
         error: spawnError,
         extractionEvents,
-        stderrTail,
+        stderrTail: stderrText,
       });
     });
     child.stdin.end(options.input);
@@ -347,8 +351,44 @@ function secureWrite(filePath, content) {
 }
 
 function boundedTail(current, addition, limit) {
-  const combined = current + addition;
-  return combined.length <= limit ? combined : combined.slice(combined.length - limit);
+  const tail = new BoundedBuffer(limit);
+  tail.append(current);
+  tail.append(addition);
+  return tail.toString();
+}
+
+class BoundedBuffer {
+  constructor(limit) {
+    this.limit = limit;
+    this.chunks = [];
+    this.bytes = 0;
+  }
+
+  append(value) {
+    let chunk = Buffer.isBuffer(value) ? value : Buffer.from(String(value), "utf8");
+    if (chunk.length >= this.limit) {
+      this.chunks = [chunk.subarray(chunk.length - this.limit)];
+      this.bytes = this.limit;
+      return;
+    }
+    this.chunks.push(chunk);
+    this.bytes += chunk.length;
+    while (this.bytes > this.limit) {
+      const excess = this.bytes - this.limit;
+      const first = this.chunks[0];
+      if (first.length <= excess) {
+        this.chunks.shift();
+        this.bytes -= first.length;
+      } else {
+        this.chunks[0] = first.subarray(excess);
+        this.bytes -= excess;
+      }
+    }
+  }
+
+  toString() {
+    return Buffer.concat(this.chunks, this.bytes).toString("utf8");
+  }
 }
 
 if (require.main === module) {
@@ -363,4 +403,4 @@ if (require.main === module) {
   );
 }
 
-module.exports = { AUTHORITY, boundedTail, main, parseArgs, runStreaming };
+module.exports = { AUTHORITY, BoundedBuffer, boundedTail, main, parseArgs, runStreaming };

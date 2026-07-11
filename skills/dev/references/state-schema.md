@@ -109,7 +109,8 @@ Legacy Markdown is read only for migration and for tools not yet moved to v2. `d
 
 State files live under `.pm/dev-sessions/`, namespaced by feature slug to allow concurrent sessions:
 
-- **All sessions:** `.pm/dev-sessions/{slug}/session.json` — where `{slug}` is derived from the branch name by the shared helper exported from `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js` as `deriveSessionSlug`.
+- **Active sessions:** `.pm/dev-sessions/{slug}/session.json` — where `{slug}` is derived from the branch name by the shared `deriveSessionSlug` function in `${CLAUDE_PLUGIN_ROOT}/scripts/lib/session-slug.js` and reused by the runner and gate checker.
+- **Terminal audit:** completed and headless-handoff sessions move immutably to `.pm/dev-sessions/completed/{slug}/{run_id}/session.json`. Reusing a slug never overwrites an earlier run. The active slug directory retains a `completion.json` retry pointer until a new run starts.
 - **Gate sidecar:** `.pm/dev-sessions/{slug}/gates.json` — machine-checkable quality gate state consumed by `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js`.
 - **`.gitignore`:** `.pm/` covers all state files (no separate pattern needed).
 - **Directory creation:** If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before the first write.

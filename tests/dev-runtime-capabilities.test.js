@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const {
   detectCapabilities,
   probeCapabilities,
@@ -70,4 +71,51 @@ describe("dev runtime capability detection", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("serializes parallel cold probes and publishes the cache atomically", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capabilities-parallel-"));
+    try {
+      const executable = path.join(dir, "codex");
+      const counter = path.join(dir, "calls.log");
+      const cacheDir = path.join(dir, "cache");
+      fs.writeFileSync(
+        executable,
+        [
+          "#!/bin/sh",
+          `printf 'x\\n' >> ${JSON.stringify(counter)}`,
+          "sleep 0.05",
+          'case "$*" in',
+          '  *--version*) echo "codex-cli 1" ;;',
+          '  *resume*) echo "exec resume --output-schema" ;;',
+          '  *) echo "--sandbox --json --output-schema --output-last-message" ;;',
+          "esac",
+        ].join("\n")
+      );
+      fs.chmodSync(executable, 0o755);
+      const modulePath = require.resolve("../scripts/dev-runtime/capabilities");
+      const source = `require(${JSON.stringify(modulePath)}).probeCapabilitiesCached("codex", { executable: ${JSON.stringify(executable)}, cacheDir: ${JSON.stringify(cacheDir)} });`;
+      const env = { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}` };
+      await Promise.all([runNode(source, env), runNode(source, env)]);
+      assert.equal(fs.readFileSync(counter, "utf8").trim().split("\n").length, 3);
+      assert.deepEqual(
+        fs.readdirSync(cacheDir).filter((name) => name.includes(".tmp-") || name.endsWith(".lock")),
+        []
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
+function runNode(source, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", source], { env, stdio: "pipe" });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`child exited ${code}: ${stderr}`))
+    );
+  });
+}

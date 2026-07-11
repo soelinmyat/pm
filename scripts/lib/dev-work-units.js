@@ -1,5 +1,6 @@
 "use strict";
 
+const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
@@ -11,6 +12,8 @@ const WORK_UNIT_FIELDS = new Set([
   "status",
   "result",
   "base_commit",
+  "assigned_worktree",
+  "assigned_branch",
   "transitions",
   "updated_at",
 ]);
@@ -53,6 +56,16 @@ function validateWorkUnits(units) {
     }
     if (item.result !== undefined && item.result !== null && !isObject(item.result)) {
       throw new TypeError(`work unit ${item.id} result must be null or an object`);
+    }
+    for (const field of ["assigned_worktree", "assigned_branch", "base_commit"]) {
+      if (item[field] !== undefined && item[field] !== null && !nonEmpty(item[field])) {
+        throw new TypeError(`work unit ${item.id} ${field} must be null or a non-empty string`);
+      }
+    }
+    if (item.assigned_worktree !== undefined && item.assigned_worktree !== null) {
+      if (!path.isAbsolute(item.assigned_worktree)) {
+        throw new TypeError(`work unit ${item.id} assigned_worktree must be absolute`);
+      }
     }
     if (item.transitions !== undefined && !Array.isArray(item.transitions)) {
       throw new TypeError(`work unit ${item.id} transitions must be an array`);

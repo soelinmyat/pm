@@ -5,7 +5,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { scanSessionDirectory, tsv } = require("../scripts/dev-reconcile-scan");
+const {
+  recentMergedBranches,
+  scanSessionDirectory,
+  tsv,
+} = require("../scripts/dev-reconcile-scan");
 
 test("reconcile scan parses each canonical session once and excludes completed archives", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-scan-"));
@@ -50,6 +54,37 @@ test("reconcile scan preserves legacy plain branch fields", () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("reconcile scan resolves recent merged branches with one retried list query", () => {
+  let calls = 0;
+  const branches = recentMergedBranches(48, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: () => {
+      calls += 1;
+      if (calls === 1) return { code: 1, stdout: "", stderr: "HTTP 502" };
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            state: "MERGED",
+            headRefName: "feat/recent",
+            mergedAt: "2026-07-12T11:00:00Z",
+          },
+          {
+            state: "MERGED",
+            headRefName: "feat/old",
+            mergedAt: "2026-07-01T11:00:00Z",
+          },
+        ]),
+      };
+    },
+  });
+  assert.deepEqual([...branches], ["feat/recent"]);
+  assert.equal(calls, 2);
 });
 
 function write(root, relative, value) {

@@ -9,6 +9,7 @@ const { runGit: sharedRunGit } = require("../loop-git");
 const { writeJsonAtomic: writeAtomicJson } = require("./atomic-file");
 const { markdownTableValue } = require("./session-scan");
 const { routeDevWork } = require("./dev-risk");
+const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 
@@ -25,7 +26,13 @@ const PHASES = Object.freeze([
   "ship",
   "retro",
 ]);
-const SESSION_STATUSES = new Set(["active", "blocked", "complete"]);
+const SESSION_STATUSES = new Set(["active", "blocked", "handoff", "complete"]);
+const GRANTABLE_AUTHORITY = new Set([
+  "push_feature_branch",
+  "create_pr",
+  "merge",
+  "tracker_updates",
+]);
 const RESULT_STATUSES = new Set(["passed", "failed", "blocked", "noop"]);
 const RESULT_TOP_LEVEL_FIELDS = new Set([
   "schema_version",
@@ -211,8 +218,12 @@ function validateTask(task, errors) {
   }
   if (!Array.isArray(task.work_units)) {
     errors.push(issue("$.task.work_units", "must be an array"));
-  } else if (task.work_units.some((item) => !isObject(item))) {
-    errors.push(issue("$.task.work_units", "entries must be objects"));
+  } else {
+    try {
+      validateWorkUnits(task.work_units);
+    } catch (error) {
+      errors.push(issue("$.task.work_units", error.message));
+    }
   }
 }
 
@@ -312,6 +323,12 @@ function validateAuthorityLog(log, errors) {
     for (const field of fields) requireField(entry, field, entryPath, errors);
     if (!Array.isArray(entry.actions) || entry.actions.length === 0) {
       errors.push(issue(`${entryPath}.actions`, "must be a non-empty array"));
+    } else {
+      for (const action of entry.actions) {
+        if (!GRANTABLE_AUTHORITY.has(action)) {
+          errors.push(issue(`${entryPath}.actions`, `invalid grant action ${String(action)}`));
+        }
+      }
     }
     if (typeof entry.reason !== "string" || !entry.reason.trim()) {
       errors.push(issue(`${entryPath}.reason`, "must be a non-empty string"));
@@ -666,6 +683,19 @@ function validateResult(session, result, options = {}) {
 
 function validatePhaseEvidence(session, result, options, errors) {
   if (session.phase === "readiness") validateReadinessEvidence(session, result, errors);
+  if (session.phase === "implementation" && session.task.work_units.length > 0) {
+    const incomplete = session.task.work_units.filter((unit) => unit.status !== "completed");
+    if (incomplete.length > 0) {
+      errors.push(
+        issue(
+          "$.evidence",
+          `implementation cannot pass with incomplete work units: ${incomplete
+            .map((unit) => `${unit.id}:${unit.status}`)
+            .join(", ")}`
+        )
+      );
+    }
+  }
   if (session.phase === "ship") validateDeliveryEvidence(session, result, options, errors);
 }
 
@@ -684,6 +714,7 @@ function validateReadinessEvidence(session, result, errors) {
   const sidecarPath = evidenceArtifact(result, "rfc-readiness", errors);
   if (!sidecarPath) return;
   const htmlPath = sidecarPath.replace(/\.json$/i, ".html");
+  const approvalPath = sidecarPath.replace(/\.json$/i, ".approval.json");
   if (htmlPath === sidecarPath) {
     errors.push(issue("$.evidence", "rfc-readiness artifact must be an RFC JSON sidecar"));
     return;
@@ -706,10 +737,35 @@ function validateReadinessEvidence(session, result, errors) {
         )
       );
     }
-    const metadata = html.match(/<script[^>]+id=["']rfc-meta["'][^>]*>([\s\S]*?)<\/script>/i);
-    const status = metadata ? JSON.parse(metadata[1]).status : null;
-    if (String(status).toLowerCase() !== "approved") {
-      errors.push(issue("$.evidence", "RFC readiness requires approved lifecycle metadata"));
+    const approval = JSON.parse(fs.readFileSync(approvalPath, "utf8"));
+    const approvalFields = [
+      "schema_version",
+      "slug",
+      "status",
+      "approved_by",
+      "approved_at",
+      "html_sha256",
+      "sidecar_sha256",
+    ];
+    if (
+      !isObject(approval) ||
+      Object.keys(approval).some((field) => !approvalFields.includes(field)) ||
+      approvalFields.some((field) => !Object.hasOwn(approval, field)) ||
+      approval.schema_version !== 1 ||
+      approval.slug !== session.slug ||
+      approval.status !== "approved" ||
+      typeof approval.approved_by !== "string" ||
+      !approval.approved_by.trim() ||
+      !isIsoDate(approval.approved_at) ||
+      approval.html_sha256 !== `sha256:${sha256Hex(Buffer.from(html))}` ||
+      approval.sidecar_sha256 !== `sha256:${sha256Hex(sidecarBytes)}`
+    ) {
+      errors.push(
+        issue(
+          "$.evidence",
+          "RFC readiness requires a valid human approval audit for exact artifacts"
+        )
+      );
     }
   } catch (error) {
     errors.push(issue("$.evidence", `could not verify RFC readiness artifact: ${error.message}`));
@@ -717,7 +773,11 @@ function validateReadinessEvidence(session, result, errors) {
 }
 
 function validateDeliveryEvidence(session, result, options, errors) {
-  for (const action of ["push_feature_branch", "create_pr", "merge"]) {
+  const headless = session.execution.mode === "headless";
+  const requiredActions = headless
+    ? ["push_feature_branch", "create_pr"]
+    : ["push_feature_branch", "create_pr", "merge"];
+  for (const action of requiredActions) {
     if (session.authority[action] !== true) {
       errors.push(issue("$.evidence", `ship requires explicit ${action} authority`));
     }
@@ -754,11 +814,12 @@ function validateDeliveryEvidence(session, result, options, errors) {
     receipt.pr_number < 1 ||
     typeof receipt.pr_url !== "string" ||
     !receipt.pr_url.startsWith("https://") ||
-    receipt.state !== "MERGED" ||
+    receipt.state !== (headless ? "OPEN" : "MERGED") ||
     receipt.head_branch !== session.source.branch ||
     receipt.feature_commit !== result.commit ||
-    typeof receipt.merge_sha !== "string" ||
-    !receipt.merge_sha
+    (headless
+      ? receipt.merge_sha !== null
+      : typeof receipt.merge_sha !== "string" || !receipt.merge_sha)
   ) {
     errors.push(
       issue("$.evidence", "delivery receipt does not match the session and merged state")
@@ -770,9 +831,10 @@ function validateDeliveryEvidence(session, result, options, errors) {
     if (
       observed.number !== receipt.pr_number ||
       observed.url !== receipt.pr_url ||
-      observed.state !== "MERGED" ||
+      observed.state !== receipt.state ||
       observed.headRefName !== session.source.branch ||
-      observed.mergeCommit?.oid !== receipt.merge_sha
+      observed.headRefOid !== receipt.feature_commit ||
+      (!headless && observed.mergeCommit?.oid !== receipt.merge_sha)
     ) {
       errors.push(
         issue("$.evidence", "delivery receipt does not match observed pull-request state")
@@ -788,7 +850,13 @@ function validateDeliveryEvidence(session, result, options, errors) {
 function defaultVerifyDelivery(receipt, session) {
   const output = execFileSync(
     "gh",
-    ["pr", "view", String(receipt.pr_number), "--json", "number,url,state,mergeCommit,headRefName"],
+    [
+      "pr",
+      "view",
+      String(receipt.pr_number),
+      "--json",
+      "number,url,state,mergeCommit,headRefName,headRefOid",
+    ],
     {
       cwd: session.source.worktree,
       encoding: "utf8",
@@ -852,6 +920,15 @@ function createSession(options) {
   const branch = gitValue(sourceDir, ["branch", "--show-current"], "detached");
   const head = gitValue(sourceDir, ["rev-parse", "HEAD"], "unknown");
   const defaultBranch = detectDefaultBranch(sourceDir);
+  if (
+    !options.allowSlugMismatch &&
+    branch !== defaultBranch &&
+    normalizeSlug(deriveSessionSlug(branch)) !== slug
+  ) {
+    throw new Error(
+      `slug ${slug} does not match current branch ${branch} (${deriveSessionSlug(branch)})`
+    );
+  }
   const session = {
     schema_version: 2,
     run_id: options.runId || generateRunId(),
@@ -982,13 +1059,34 @@ function transitionWorkUnit(session, input, options = {}) {
     if (!analysis.runnable.some((candidate) => candidate.id === unit.id)) {
       throw new Error(`work unit ${unit.id} is not dependency-ready and ownership-safe`);
     }
-    unit.base_commit = runGit(session.source.worktree, ["rev-parse", "HEAD"]);
+    const assignedWorktree = fs.realpathSync(
+      path.resolve(input.worktree || session.source.worktree)
+    );
+    if (resolveGitCommonDir(assignedWorktree) !== resolveGitCommonDir(session.source.repo_root)) {
+      throw new Error(`assigned worktree does not belong to the session repository`);
+    }
+    const assignedBranch = runGit(assignedWorktree, ["branch", "--show-current"]);
+    if (!assignedBranch) throw new Error("assigned worktree must be on a branch");
+    unit.assigned_worktree = assignedWorktree;
+    unit.assigned_branch = assignedBranch;
+    unit.base_commit = runGit(assignedWorktree, ["rev-parse", "HEAD"]);
   } else if (["completed", "blocked", "failed"].includes(targetStatus)) {
+    const assignedWorktree = unit.assigned_worktree || session.source.worktree;
+    const assignedBranch = unit.assigned_branch || session.source.branch;
+    if (input.worktree && fs.realpathSync(path.resolve(input.worktree)) !== assignedWorktree) {
+      throw new Error(`work-unit result worktree does not match its running assignment`);
+    }
+    const observedBranch = runGit(assignedWorktree, ["branch", "--show-current"]);
+    if (observedBranch !== assignedBranch) {
+      throw new Error(
+        `assigned worktree branch drift: expected ${assignedBranch}, observed ${observedBranch || "detached"}`
+      );
+    }
     result = validateWorkUnitResult(input.result, {
       expectedWorkUnitId: unit.id,
       expectedOwnership: unit.owns,
-      worktree: session.source.worktree,
-      baseCommit: input.base_commit || unit.base_commit,
+      worktree: assignedWorktree,
+      baseCommit: unit.base_commit,
     });
     if (result.status !== targetStatus) {
       throw new Error(
@@ -1135,11 +1233,30 @@ function validationError(message, errors) {
 function readSession(sessionPath) {
   let session;
   try {
-    session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+    session = upgradeCompatibleSession(JSON.parse(fs.readFileSync(sessionPath, "utf8")));
   } catch (error) {
     throw new Error(`cannot read session ${sessionPath}: ${error.message}`);
   }
   assertValidSession(session);
+  return session;
+}
+
+function upgradeCompatibleSession(input) {
+  if (!isObject(input) || input.schema_version !== 2) return input;
+  const session = structuredClone(input);
+  if (!Array.isArray(session.authority_log)) session.authority_log = [];
+  if (isObject(session.execution)) delete session.execution.capabilities;
+  if (isObject(session.evidence)) {
+    for (const evidence of Object.values(session.evidence)) {
+      if (!isObject(evidence)) continue;
+      const hasLegacyRecertification = evidence.verified_commit || evidence.verified_at;
+      if (hasLegacyRecertification && !Array.isArray(evidence.verification_records)) {
+        delete evidence.verified_commit;
+        delete evidence.verified_at;
+        delete evidence.verification_records;
+      }
+    }
+  }
   return session;
 }
 
@@ -1227,7 +1344,11 @@ function recordResult(session, result, options = {}) {
     };
   }
 
-  if (result.status === "passed" || result.status === "noop") {
+  if (result.status === "passed" && priorPhase === "ship" && next.execution.mode === "headless") {
+    assertFinalGates(next, result.commit, options);
+    next.status = "handoff";
+    reason = "reviewed open PR handed off to the loop worker";
+  } else if (result.status === "passed" || result.status === "noop") {
     const phases = next.routing.required_phases;
     const currentIndex = phases.indexOf(priorPhase);
     if (currentIndex < 0) throw new Error(`current phase ${priorPhase} is not routed`);
@@ -1285,12 +1406,25 @@ function assertFinalGates(session, resultCommit, options) {
     .find((attempt) => attempt.commit)?.commit;
   const head =
     resultCommit || latestRecordedCommit || (options.branchHead || defaultBranchHead)(session);
-  const gateToPhase = { tdd: "implementation", review: "review", verification: "ship" };
+  const contracts = {
+    tdd: { phase: "implementation", kind: "test" },
+    review: { phase: "review", kind: "review" },
+    verification: { phase: "review", kind: "test" },
+  };
   const missing = [];
   for (const gate of session.routing.required_gates) {
-    const phase = gateToPhase[gate] || gate;
+    const contract = contracts[gate] || { phase: gate, kind: gate };
+    const phase = contract.phase;
     const record = session.evidence[phase];
-    if (!record || !record.commit || (record.commit !== head && record.verified_commit !== head)) {
+    const currentRecords = record?.commit === head ? record.records : record?.verification_records;
+    if (
+      !record ||
+      !record.commit ||
+      (record.commit !== head && record.verified_commit !== head) ||
+      !currentRecords?.some(
+        (evidence) => evidence.kind === contract.kind && evidence.exit_code === 0
+      )
+    ) {
       missing.push(gate);
     }
   }
@@ -1343,10 +1477,9 @@ function grantAuthority(session, actions, reason, options = {}) {
   if (typeof reason !== "string" || !reason.trim()) {
     throw new TypeError("authority grant requires a non-empty reason");
   }
-  const grantable = new Set(["push_feature_branch", "create_pr", "merge", "tracker_updates"]);
   const next = structuredClone(session);
   for (const action of [...new Set(actions)]) {
-    if (!grantable.has(action))
+    if (!GRANTABLE_AUTHORITY.has(action))
       throw new Error(`authority action is not externally grantable: ${action}`);
     next.authority[action] = true;
   }
@@ -1372,6 +1505,12 @@ function updateWorkspace(session, worktree, options = {}) {
   }
   const branch = runGit(resolved, ["branch", "--show-current"]);
   if (!branch) throw new Error(`worktree is detached: ${resolved}`);
+  const branchSlug = normalizeSlug(deriveSessionSlug(branch));
+  if (branchSlug !== session.slug) {
+    throw new Error(
+      `worktree branch slug mismatch: session ${session.slug}, branch ${branch} derives ${branchSlug}`
+    );
+  }
   const next = structuredClone(session);
   next.source.worktree = resolved;
   next.source.branch = branch;
@@ -1399,6 +1538,7 @@ function migrateLegacyMarkdown(legacyPath, options = {}) {
     task: values.Ticket || null,
     size: normalizeSize(values.Size),
     runId: normalizeLegacyRunId(values["Run ID"]),
+    allowSlugMismatch: true,
     now: isIsoDate(values["Started at"]) ? new Date(values["Started at"]).toISOString() : now,
   });
   const legacyPhase = normalizeLegacyPhase(values.Stage);
@@ -1531,6 +1671,7 @@ module.exports = {
   validateSession,
   validationError,
   updateWorkspace,
+  upgradeCompatibleSession,
   transitionWorkUnit,
   writeJsonAtomic,
   writeSession,

@@ -4,6 +4,7 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -16,7 +17,6 @@ const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
 const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
 const NEVER_SKIPPABLE_GATES = new Set(["review", "verification"]);
 const REQUIRED_GATE_FIELDS = ["name", "status", "commit", "artifact", "reason", "checked_at"];
-const SESSION_BRANCH_PREFIXES = ["codex/", "feat/", "fix/", "chore/", "release/"];
 const UI_SKIP_GATES = new Set(["design-critique", "qa"]);
 const NO_UI_SKIP_REASON =
   /(no (ui|visual|user-visible|interaction) (impact|change|surface)|no visual impact|no user-visible (impact|change|surface)|backend-only|docs-only|config-only|generated-only|pure refactor)/i;
@@ -393,18 +393,6 @@ function currentGitCommit(cwd = process.cwd()) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
-}
-
-function deriveSessionSlug(branchName) {
-  let slug = String(branchName || "").trim();
-  for (const prefix of SESSION_BRANCH_PREFIXES) {
-    if (slug.startsWith(prefix)) {
-      slug = slug.slice(prefix.length);
-      break;
-    }
-  }
-  slug = slug.replace(/\//g, "-");
-  return slug || "current";
 }
 
 function parseArgs(argv) {

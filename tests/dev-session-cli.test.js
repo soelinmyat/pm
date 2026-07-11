@@ -163,6 +163,7 @@ test("record is idempotent when a caller retries after the atomic write", () => 
     const retried = repo.run(args);
     assert.equal(retried.status, 0, retried.stderr);
     assert.equal(JSON.parse(retried.stdout).idempotent, true);
+
     assert.equal(JSON.parse(fs.readFileSync(initialized.session_path, "utf8")).history.length, 1);
   } finally {
     repo.cleanup();
@@ -207,9 +208,57 @@ test("completion moves the durable audit out of the active-session scan path", (
     ]);
     assert.equal(recorded.status, 0, recorded.stderr);
     const archived = JSON.parse(recorded.stdout).session_path;
-    assert.match(archived, /dev-sessions\/completed\/archive-cli\/session\.json$/);
+    assert.match(archived, /dev-sessions\/completed\/archive-cli\/dev_[^/]+\/session\.json$/);
     assert.ok(fs.existsSync(archived));
     assert.equal(fs.existsSync(initialized.session_path), false);
+    assert.ok(fs.existsSync(path.join(path.dirname(initialized.session_path), "completion.json")));
+    const retried = repo.run([
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      resultPath,
+      "--json",
+    ]);
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.equal(JSON.parse(retried.stdout).idempotent, true);
+
+    const second = JSON.parse(
+      repo.run(["init", "--slug", "archive-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const secondSession = JSON.parse(fs.readFileSync(second.session_path, "utf8"));
+    secondSession.phase = "retro";
+    secondSession.routing.required_phases = ["retro"];
+    secondSession.routing.required_gates = [];
+    fs.writeFileSync(second.session_path, JSON.stringify(secondSession));
+    fs.writeFileSync(
+      resultPath,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: secondSession.run_id,
+        phase: "retro",
+        attempt: 1,
+        status: "passed",
+        summary: "Second retro complete",
+        commit: null,
+        files_changed: [],
+        evidence: [{ kind: "retro", command: "retro", exit_code: 0, artifact: null }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high" },
+      })
+    );
+    const secondRecorded = repo.run([
+      "record",
+      "--session",
+      second.session_path,
+      "--result",
+      resultPath,
+      "--json",
+    ]);
+    assert.equal(secondRecorded.status, 0, secondRecorded.stderr);
+    const archiveRoot = path.join(repo.root, ".pm", "dev-sessions", "completed", "archive-cli");
+    assert.equal(fs.readdirSync(archiveRoot).length, 2);
+    assert.ok(fs.existsSync(archived), "the first immutable audit remains present");
   } finally {
     repo.cleanup();
   }

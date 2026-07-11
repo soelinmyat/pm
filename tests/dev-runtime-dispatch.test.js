@@ -6,8 +6,15 @@ const os = require("node:os");
 const path = require("node:path");
 
 const dispatchPath = path.join(__dirname, "..", "scripts", "dev-runtime", "dispatch.js");
+const { BoundedBuffer } = require("../scripts/dev-runtime/dispatch");
 
 describe("dev runtime structured dispatch", () => {
+  it("bounds retained event bytes without repeated whole-tail concatenation", () => {
+    const tail = new BoundedBuffer(32);
+    for (let index = 0; index < 1000; index += 1) tail.append(`event-${index}\n`);
+    assert.ok(tail.bytes <= 32);
+    assert.match(tail.toString(), /event-999/);
+  });
   it("captures Codex JSONL identity and promotes the schema-constrained final message", () => {
     const fixture = createFixture("codex");
     try {
