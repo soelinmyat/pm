@@ -35,19 +35,7 @@ STALE_ISSUES=""
 # Scan dev sessions for merged branches that weren't cleaned up
 SESSION_DIR="$PROJECT_DIR/.pm/dev-sessions"
 if [ -d "$SESSION_DIR" ]; then
-  while IFS= read -r session; do
-    if [[ "$session" == */session.json ]]; then
-      SESSION_STATUS=$(node -e 'const s=require(process.argv[1]); process.stdout.write(String(s.status||""))' "$session" 2>/dev/null || true)
-      [ "$SESSION_STATUS" = "complete" ] && continue
-      ISSUE_ID=$(node -e 'const s=require(process.argv[1]); const v=String(s.task?.reference||"").match(/[A-Z]+-[0-9]+/); process.stdout.write(v?.[0]||"")' "$session" 2>/dev/null || true)
-      BRANCH=$(node -e 'const s=require(process.argv[1]); process.stdout.write(String(s.source?.branch||""))' "$session" 2>/dev/null || true)
-    else
-      ISSUE_ID=$(grep -m1 -oE '[A-Z]+-[0-9]+' "$session" 2>/dev/null | head -1)
-      BRANCH=$(grep -m1 -i '[*-]*[[:space:]]*branch:' "$session" 2>/dev/null \
-        | sed 's/.*[Bb]ranch:[[:space:]]*\*\{0,2\}//' | sed 's/\*//g' | tr -d ' ' | head -1)
-    fi
-    [ -z "$ISSUE_ID" ] && continue
-    [ -z "$BRANCH" ] && continue
+  while IFS=$'\t' read -r ISSUE_ID BRANCH session; do
 
     # Check if this branch's PR was merged. pr-state.js wraps the same
     # `gh pr view <branch> --json state` query with retry on transient 5xx /
@@ -58,7 +46,7 @@ if [ -d "$SESSION_DIR" ]; then
     if [ "$PR_STATE" = "MERGED" ]; then
       STALE_ISSUES="${STALE_ISSUES}  - ${ISSUE_ID} (branch: ${BRANCH}, session: $(basename "$session"))\n"
     fi
-  done < <(find "$SESSION_DIR" -type f \( -name '*.md' -o -name 'session.json' \) -print)
+  done < <(node "$PLUGIN_ROOT/scripts/dev-reconcile-scan.js" "$SESSION_DIR" 2>/dev/null)
 fi
 
 if [ -n "$STALE_ISSUES" ]; then

@@ -169,6 +169,52 @@ test("record is idempotent when a caller retries after the atomic write", () => 
   }
 });
 
+test("completion moves the durable audit out of the active-session scan path", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "archive-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const session = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    session.phase = "retro";
+    session.routing.required_phases = ["retro"];
+    session.routing.required_gates = [];
+    fs.writeFileSync(initialized.session_path, JSON.stringify(session));
+    const resultPath = path.join(repo.root, "retro-result.json");
+    fs.writeFileSync(
+      resultPath,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: session.run_id,
+        phase: "retro",
+        attempt: 1,
+        status: "passed",
+        summary: "Retro complete",
+        commit: null,
+        files_changed: [],
+        evidence: [{ kind: "retro", command: "retro", exit_code: 0, artifact: null }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high" },
+      })
+    );
+    const recorded = repo.run([
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      resultPath,
+      "--json",
+    ]);
+    assert.equal(recorded.status, 0, recorded.stderr);
+    const archived = JSON.parse(recorded.stdout).session_path;
+    assert.match(archived, /dev-sessions\/completed\/archive-cli\/session\.json$/);
+    assert.ok(fs.existsSync(archived));
+    assert.equal(fs.existsSync(initialized.session_path), false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("route records strict intake facts and emits the durable decision", () => {
   const repo = makeRepo();
   try {

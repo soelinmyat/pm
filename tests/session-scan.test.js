@@ -192,6 +192,24 @@ test("listDevSessions omits completed canonical sessions and deduplicates retain
   }
 });
 
+test("listDevSessions ignores completed archives and surfaces malformed canonical state", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/dev-sessions/completed/done/session.json",
+      JSON.stringify({ schema_version: 2, slug: "done", status: "complete", phase: "retro" })
+    );
+    project.write(".pm/dev-sessions/broken/session.json", "{not-json");
+    const sessions = listDevSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].topic, "broken");
+    assert.equal(sessions[0].stage, "invalid");
+    assert.match(sessions[0].summary, /invalid canonical dev session/);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("listRfcSessions reads source-side .pm/rfc-sessions/ via the documented markdown-table schema", () => {
   const project = mktmp();
   try {

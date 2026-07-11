@@ -1086,6 +1086,7 @@ function normalizeSlug(value) {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!slug) throw new Error("slug must contain a letter or number");
+  if (slug === "completed") throw new Error('slug "completed" is reserved for archived sessions');
   return slug;
 }
 

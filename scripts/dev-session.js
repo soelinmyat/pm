@@ -220,6 +220,7 @@ function recordCommand(options) {
     throw cliError(formatValidation("result is invalid", envelopeErrors), EXIT.RESULT_INVALID);
   }
   const releaseLock = acquireSessionLock(sessionPath);
+  let completedSourceDir = null;
   try {
     const session = readSession(sessionPath);
     const resultHash = hashResult(result);
@@ -238,11 +239,19 @@ function recordCommand(options) {
     } catch (error) {
       throw cliError(error.message, EXIT.RESULT_INVALID);
     }
-    writeSession(sessionPath, updated);
-    const decision = nextDecision(updated, sessionPath);
+    let persistedPath = sessionPath;
+    if (updated.status === "complete") {
+      const sessionsDir = path.dirname(path.dirname(sessionPath));
+      persistedPath = path.join(sessionsDir, "completed", updated.slug, "session.json");
+      writeSession(persistedPath, updated);
+      completedSourceDir = path.dirname(sessionPath);
+    } else {
+      writeSession(sessionPath, updated);
+    }
+    const decision = nextDecision(updated, persistedPath);
     emit(
       options,
-      { session_path: sessionPath, session: updated, next: decision, idempotent: false },
+      { session_path: persistedPath, session: updated, next: decision, idempotent: false },
       `${decision.phase}\n`
     );
     if (updated.status === "blocked") {
@@ -253,6 +262,7 @@ function recordCommand(options) {
     return EXIT.OK;
   } finally {
     releaseLock();
+    if (completedSourceDir) fs.rmSync(completedSourceDir, { recursive: true, force: true });
   }
 }
 

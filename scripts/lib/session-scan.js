@@ -146,9 +146,23 @@ function buildDevJsonDescriptor(filePath, stat, text) {
   try {
     session = JSON.parse(text);
   } catch {
-    return null;
+    session = null;
   }
-  if (session?.schema_version !== 2 || typeof session.slug !== "string") return null;
+  if (session?.schema_version !== 2 || typeof session.slug !== "string") {
+    const slug = path.basename(path.dirname(filePath));
+    return {
+      kind: "dev",
+      filePath,
+      topic: slug,
+      stage: "invalid",
+      updated: "",
+      updatedEpoch: Math.floor(stat.mtimeMs / 1000),
+      linearId: "",
+      status: "invalid",
+      summary: `invalid canonical dev session: ${slug}`,
+      next: `repair or migrate dev session (${slug})`,
+    };
+  }
   if (session.status === "complete") return null;
   const reference = typeof session.task?.reference === "string" ? session.task.reference : "";
   const label = reference ? `${reference}: ${session.slug}` : session.slug;
