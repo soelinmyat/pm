@@ -13,6 +13,10 @@ const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
+const {
+  approvalTransitionDigest,
+  validateSession: validateRfcSession,
+} = require("./rfc-session-schema");
 
 const RUNNER_VERSION = "2.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -192,6 +196,7 @@ function validateTask(task, errors) {
   }
   const fields = new Set([
     "reference",
+    "rfc_sidecar",
     "kind",
     "size",
     "risk",
@@ -200,9 +205,34 @@ function validateTask(task, errors) {
     "work_units",
   ]);
   validateExactFields(task, fields, "$.task", errors);
-  for (const field of fields) requireField(task, field, "$.task", errors);
+  for (const field of fields) {
+    if (field !== "rfc_sidecar") requireField(task, field, "$.task", errors);
+  }
   if (task.reference !== null && typeof task.reference !== "string") {
     errors.push(issue("$.task.reference", "must be null or a string"));
+  }
+  if (task.rfc_sidecar !== undefined && task.rfc_sidecar !== null) {
+    const sidecarFields = new Set(["path", "sha256", "schema_version", "slug"]);
+    if (!isObject(task.rfc_sidecar)) {
+      errors.push(issue("$.task.rfc_sidecar", "must be an object"));
+      return;
+    }
+    validateExactFields(task.rfc_sidecar, sidecarFields, "$.task.rfc_sidecar", errors);
+    for (const field of sidecarFields) {
+      requireField(task.rfc_sidecar, field, "$.task.rfc_sidecar", errors);
+    }
+    if (!isAbsolutePath(task.rfc_sidecar.path)) {
+      errors.push(issue("$.task.rfc_sidecar.path", "must be absolute"));
+    }
+    if (!/^sha256:[0-9a-f]{64}$/.test(task.rfc_sidecar.sha256 || "")) {
+      errors.push(issue("$.task.rfc_sidecar.sha256", "must be sha256"));
+    }
+    if (task.rfc_sidecar.schema_version !== 3) {
+      errors.push(issue("$.task.rfc_sidecar.schema_version", "must equal 3"));
+    }
+    if (typeof task.rfc_sidecar.slug !== "string" || !task.rfc_sidecar.slug) {
+      errors.push(issue("$.task.rfc_sidecar.slug", "required"));
+    }
   }
   if (typeof task.kind !== "string" || !task.kind) errors.push(issue("$.task.kind", "required"));
   if (!new Set(["XS", "S", "M", "L", "XL", "unknown"]).has(task.size)) {
@@ -741,18 +771,22 @@ function validateReadinessEvidence(session, result, errors) {
     const approval = JSON.parse(fs.readFileSync(approvalPath, "utf8"));
     const approvalFields = [
       "schema_version",
+      "run_id",
       "slug",
       "status",
       "approved_by",
       "approved_at",
       "html_sha256",
       "sidecar_sha256",
+      "approval_transition_sha256",
     ];
     if (
       !isObject(approval) ||
       Object.keys(approval).some((field) => !approvalFields.includes(field)) ||
       approvalFields.some((field) => !Object.hasOwn(approval, field)) ||
       approval.schema_version !== 1 ||
+      typeof approval.run_id !== "string" ||
+      !/^rfc_[A-Za-z0-9_-]+$/.test(approval.run_id) ||
       approval.slug !== session.slug ||
       approval.status !== "approved" ||
       typeof approval.approved_by !== "string" ||
@@ -767,9 +801,58 @@ function validateReadinessEvidence(session, result, errors) {
           "RFC readiness requires a valid human approval audit for exact artifacts"
         )
       );
+      return;
+    }
+    const artifactRepoRoot = findContainingGitRoot(sidecarPath);
+    if (!artifactRepoRoot) {
+      errors.push(issue("$.evidence", "RFC readiness artifact is not inside a Git repository"));
+      return;
+    }
+    const archivePath = path.join(
+      session.source.repo_root,
+      ".pm",
+      "rfc-sessions",
+      "completed",
+      session.slug,
+      approval.run_id,
+      "session.json"
+    );
+    if (!fs.existsSync(archivePath)) {
+      errors.push(
+        issue("$.evidence", "RFC readiness approval audit has no matching completed RFC run")
+      );
+      return;
+    }
+    const archived = JSON.parse(fs.readFileSync(archivePath, "utf8"));
+    if (
+      archived.status !== "complete" ||
+      archived.slug !== session.slug ||
+      archived.run_id !== approval.run_id ||
+      validateRfcSession(archived).length > 0 ||
+      archived.approval.approved_by !== approval.approved_by ||
+      archived.approval.approved_at !== approval.approved_at ||
+      archived.artifact?.html_hash !== approval.html_sha256 ||
+      archived.artifact?.sidecar_hash !== approval.sidecar_sha256 ||
+      fs.realpathSync(archived.artifact?.repo_root || "") !== artifactRepoRoot ||
+      fs.realpathSync(archived.context?.artifact_repo_root || "") !== artifactRepoRoot ||
+      approval.approval_transition_sha256 !== approvalTransitionDigest(archived)
+    ) {
+      errors.push(
+        issue("$.evidence", "RFC readiness approval audit is not backed by its completed RFC run")
+      );
     }
   } catch (error) {
     errors.push(issue("$.evidence", `could not verify RFC readiness artifact: ${error.message}`));
+  }
+}
+
+function findContainingGitRoot(filePath) {
+  let current = path.dirname(path.resolve(filePath));
+  while (true) {
+    if (fs.existsSync(path.join(current, ".git"))) return fs.realpathSync(current);
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
   }
 }
 
@@ -952,6 +1035,7 @@ function createSession(options) {
     },
     task: {
       reference: options.task || null,
+      rfc_sidecar: null,
       kind: options.kind || "unknown",
       size: options.size || "unknown",
       risk: defaultRisk(),
@@ -1018,6 +1102,9 @@ function applyRouting(session, facts, options = {}) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
     validateWorkUnits(facts.work_units);
     next.task.work_units = structuredClone(facts.work_units);
+  }
+  if (options.rfcSidecar !== undefined) {
+    next.task.rfc_sidecar = structuredClone(options.rfcSidecar);
   }
   next.routing = {
     required_phases: [...route.required_phases],
@@ -1372,6 +1459,7 @@ function writeJsonAtomic(filePath, value) {
 
 function nextDecision(session, sessionPath = null, options = {}) {
   assertValidSession(session);
+  verifyRfcSidecarIdentity(session.task.rfc_sidecar);
   const metadata = resolvePhaseContract(session, options);
   return {
     schema_version: 1,
@@ -1387,11 +1475,31 @@ function nextDecision(session, sessionPath = null, options = {}) {
     ),
     required_evidence_kinds: [...metadata.required_evidence_kinds],
     requires_commit: metadata.requires_commit,
-    input_paths: [session.task.reference, session.source.worktree].filter(Boolean),
+    input_paths: [
+      session.task.reference,
+      session.task.rfc_sidecar?.path,
+      session.source.worktree,
+    ].filter(Boolean),
     allowed_modes: session.status === "active" ? [...metadata.allowed_modes] : [],
     requires: [...metadata.requires],
     result_schema: metadata.result_schema,
   };
+}
+
+function verifyRfcSidecarIdentity(identity) {
+  if (!identity) return;
+  let bytes;
+  try {
+    bytes = fs.readFileSync(identity.path);
+  } catch (error) {
+    throw new Error(`RFC sidecar identity cannot be read: ${error.message}`);
+  }
+  const observed = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+  if (observed !== identity.sha256) {
+    throw new Error(
+      "RFC sidecar identity hash drifted; reinitialize Dev or rerun route --rfc-sidecar while intake is active"
+    );
+  }
 }
 
 function promptMetadata(session, sessionPath) {
@@ -1771,6 +1879,7 @@ module.exports = {
   validateResultEnvelope,
   validateSession,
   validationError,
+  verifyRfcSidecarIdentity,
   updateWorkspace,
   upgradeCompatibleSession,
   transitionWorkUnit,

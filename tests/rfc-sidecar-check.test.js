@@ -23,7 +23,8 @@ const {
 //
 // RFCs get a structured JSON sidecar at {pm_dir}/backlog/rfcs/{slug}.json so
 // machine consumers stop grepping the human-render HTML. These tests pin the
-// schema-v2 contract, the sidecar<->HTML hash binding, and the --slug cross-check.
+// schema-v3 executable contract, legacy v2 compatibility, the sidecar<->HTML
+// hash binding, and the --slug cross-check.
 // ---------------------------------------------------------------------------
 
 function issueRow(overrides = {}) {
@@ -31,6 +32,11 @@ function issueRow(overrides = {}) {
     num: 1,
     title: "Add sidecar validator",
     size: "M",
+    depends_on: [],
+    owns: ["scripts/rfc-sidecar-check.js"],
+    acceptance_criteria: ["AC-1: Sidecars are validated"],
+    approach: "Validate a closed machine-readable execution contract.",
+    verification_commands: ["node --test tests/rfc-sidecar-check.test.js"],
     test_hooks: ["Test levels in scope -> AC-1"],
     ...overrides,
   };
@@ -49,7 +55,7 @@ function testStrategy(overrides = {}) {
 
 function sidecar(overrides = {}) {
   return {
-    schema_version: 2,
+    schema_version: 3,
     slug: "rfc-structured-artifacts",
     title: "RFC structured artifacts",
     size: "M",
@@ -78,7 +84,7 @@ function makeTmpSidecar(content) {
 
 // --- schema happy path -----------------------------------------------------
 
-test("rfc sidecar checker accepts a well-formed schema-v2 sidecar", () => {
+test("rfc sidecar checker accepts a well-formed schema-v3 sidecar", () => {
   const result = validateRfcSidecar(sidecar());
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
@@ -104,10 +110,18 @@ test("rfc sidecar checker rejects a non-object sidecar", () => {
   }
 });
 
-test("rfc sidecar checker rejects a schema_version other than 2", () => {
+test("rfc sidecar checker retains the published schema-v2 compatibility path", () => {
+  const legacy = sidecar({
+    schema_version: 2,
+    issues: [{ num: 1, title: "Legacy issue", size: "M", test_hooks: [] }],
+  });
+  assert.equal(validateRfcSidecar(legacy).ok, true);
+});
+
+test("rfc sidecar checker rejects an unsupported schema_version", () => {
   const result = validateRfcSidecar(sidecar({ schema_version: 1 }));
   assert.equal(result.ok, false);
-  assert.match(messages(result), /schema_version must equal 2/);
+  assert.match(messages(result), /schema_version must equal 2 or 3/);
 });
 
 test("rfc sidecar checker rejects unknown top-level fields (status is gone in v2)", () => {
@@ -135,6 +149,26 @@ test("rfc sidecar checker requires a canonical uppercase top-level size", () => 
     const result = validateRfcSidecar(sidecar({ size: bad }));
     assert.equal(result.ok, false, `size=${JSON.stringify(bad)}`);
     assert.match(messages(result), /size must be one of/);
+  }
+});
+
+test("schema-v3 ownership uses the same repo-relative contract as Dev", () => {
+  for (const ownership of ["/tmp/file", "C:\\temp\\file", "../outside"]) {
+    const result = validateRfcSidecar(sidecar({ issues: [issueRow({ owns: [ownership] })] }));
+    assert.equal(result.ok, false, ownership);
+    assert.match(messages(result), /repo-relative path pattern/);
+  }
+});
+
+test("malformed schema-v3 ownership returns structured issues instead of throwing", () => {
+  for (const owns of [42, {}, [42], ["README.md", null]]) {
+    let result;
+    assert.doesNotThrow(() => {
+      result = validateRfcSidecar(sidecar({ issues: [issueRow({ owns })] }));
+    });
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /owns/);
+    assert.doesNotMatch(messages(result), /trim is not a function/);
   }
 });
 
@@ -211,6 +245,41 @@ test("rfc sidecar checker rejects test_hooks that are not arrays of non-empty st
     assert.equal(result.ok, false, `test_hooks=${JSON.stringify(bad)}`);
     assert.match(messages(result), /test_hooks\[0\] must be a non-empty string/);
   }
+});
+
+test("rfc sidecar checker requires an executable issue contract", () => {
+  for (const field of [
+    "depends_on",
+    "owns",
+    "acceptance_criteria",
+    "approach",
+    "verification_commands",
+  ]) {
+    const row = issueRow();
+    delete row[field];
+    const result = validateRfcSidecar(sidecar({ issues: [row] }));
+    assert.equal(result.ok, false, field);
+    assert.match(messages(result), new RegExp(field));
+  }
+  const unknown = validateRfcSidecar(
+    sidecar({ issues: [issueRow({ implementation_guess: true })] })
+  );
+  assert.match(messages(unknown), /unknown issue field implementation_guess/);
+});
+
+test("rfc sidecar checker validates dependency references and cycles", () => {
+  const missing = validateRfcSidecar(sidecar({ issues: [issueRow({ depends_on: [99] })] }));
+  assert.match(messages(missing), /unknown dependency 99/);
+
+  const cycle = validateRfcSidecar(
+    sidecar({
+      issues: [
+        issueRow({ num: 1, depends_on: [2] }),
+        issueRow({ num: 2, title: "Second", depends_on: [1], owns: ["second.js"] }),
+      ],
+    })
+  );
+  assert.match(messages(cycle), /dependencies contain a cycle/);
 });
 
 // --- test_strategy ---------------------------------------------------------

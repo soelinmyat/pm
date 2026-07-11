@@ -141,6 +141,22 @@
       ],
       "properties": {
         "reference": { "type": ["string", "null"] },
+        "rfc_sidecar": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256", "schema_version", "slug"],
+              "properties": {
+                "path": { "type": "string", "pattern": "^/" },
+                "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "schema_version": { "const": 3 },
+                "slug": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        },
         "kind": { "type": "string", "minLength": 1 },
         "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
         "risk": { "$ref": "#/$defs/risk" },
@@ -179,6 +195,7 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         },
+        "contract": { "$ref": "#/$defs/work_unit_contract" },
         "status": { "enum": ["pending", "running", "completed", "blocked", "failed"] },
         "base_commit": { "type": "string", "minLength": 1 },
         "assigned_worktree": { "type": "string", "pattern": "^/" },
@@ -262,6 +279,33 @@
           }
         }
       ]
+    },
+    "work_unit_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acceptance_criteria",
+        "approach",
+        "verification_commands",
+        "test_hooks"
+      ],
+      "properties": {
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "approach": { "type": "string", "minLength": 1 },
+        "verification_commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "test_hooks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
     },
     "work_unit_result": {
       "type": "object",

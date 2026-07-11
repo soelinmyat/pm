@@ -12,7 +12,6 @@
 {
   "type": "rfc",
   "parent": "collaborative-workspaces",
-  "status": "approved",
   "created": "2026-04-03",
   "updated": "2026-04-08"
 }
@@ -23,6 +22,7 @@
 </style>
 </head>
 <body>
+<script id="rfc-lifecycle" type="application/json">{"status":"approved"}</script>
 
 <!-- ═══════════ HERO ═══════════ -->
 <header class="hero">
@@ -84,7 +84,7 @@
 <!-- data-sidecar-hash binds this render to its JSON sidecar ({slug}.json): the
      value is sha256 of the sidecar file bytes, prefixed "sha256:". Regenerate it
      whenever the sidecar changes. The 64-zero value below is a template placeholder. -->
-<main class="content" data-schema-version="2" data-sidecar-hash="sha256:0000000000000000000000000000000000000000000000000000000000000000">
+<main class="content" data-schema-version="3" data-sidecar-hash="sha256:0000000000000000000000000000000000000000000000000000000000000000">
 
   <!-- DECISION BRIEF -->
   <section class="section" id="brief">
@@ -484,7 +484,9 @@ graph LR
         <li><strong>Modify:</strong> <code>apps/api/src/index.ts</code> &mdash; mount collab server on /ws path</li>
       </ul>
 
+      <p><strong>Owns:</strong> <code>packages/collab/server.ts</code>, <code>apps/api/src/index.ts</code></p>
       <span class="dep-badge">Dependencies: None</span>
+      <p><strong>Verification commands:</strong> <code>npm test -- collab-server</code></p>
       <span class="hooks-badge">Test hooks: Test levels in scope &rarr; Layer 1 unit + integration; Regression surface &rarr; auth middleware tests</span>
     </div>
 
@@ -511,7 +513,9 @@ graph LR
         <li><strong>Modify:</strong> <code>apps/web/src/components/Editor.tsx</code> &mdash; integrate collaboration extension</li>
       </ul>
 
+      <p><strong>Owns:</strong> <code>packages/collab/provider.ts</code>, <code>apps/web/src/components/Editor.tsx</code></p>
       <span class="dep-badge">Dependencies: Issue 1</span>
+      <p><strong>Verification commands:</strong> <code>npm test -- collaboration-editor</code></p>
       <span class="hooks-badge">Test hooks: Test levels in scope &rarr; Layer 1 unit; Verification commands &rarr; npm test</span>
     </div>
 

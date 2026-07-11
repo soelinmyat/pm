@@ -7,6 +7,7 @@ const {
   applyContext,
   approveSession,
   assertValidSession,
+  buildApprovalAudit,
   createSession,
   grantAuthority,
   hashResult,
@@ -19,6 +20,7 @@ const {
 } = require("./lib/rfc-session-schema");
 const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
+const { acquireOwnedLock } = require("./lib/owned-lock.js");
 
 const EXIT = { OK: 0, INVALID: 2, PRECONDITION: 3, VALIDATION: 4, BLOCKED: 5 };
 
@@ -32,6 +34,7 @@ function main(argv = process.argv.slice(2)) {
     if (command === "context") return contextCommand(options);
     if (command === "record") return recordCommand(options);
     if (command === "approve") return approveCommand(options);
+    if (command === "approval-audit") return approvalAuditCommand(options);
     if (command === "authorize") return authorizeCommand(options);
     if (command === "migrate") return migrateCommand(options);
     if (command === "revise") return reviseCommand(options);
@@ -92,6 +95,7 @@ function initCommand(options) {
     if (fs.existsSync(sessionPath)) {
       throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
     }
+    clearActiveRunDirectory(sessionPath);
     writeSession(sessionPath, session);
   });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
@@ -134,20 +138,51 @@ function contextCommand(options) {
 function recordCommand(options) {
   requireOptions(options, ["session", "result"]);
   const result = readJson(options.result);
-  return mutateSession(options, (session) => {
-    const resultHash = hashResult(result);
-    if (session.attempts.some((attempt) => attempt.result_hash === resultHash)) {
-      return { session, idempotent: true };
-    }
-    return recordResult(session, result);
-  });
+  return mutateSession(
+    options,
+    (session) => {
+      const resultHash = hashResult(result);
+      const lastAttempt = session.attempts.at(-1);
+      if (
+        lastAttempt?.result_hash === resultHash &&
+        (session.status === "blocked" ||
+          !(session.phase === result.phase && session.phase_attempt === result.attempt))
+      ) {
+        return { session, idempotent: true };
+      }
+      return recordResult(session, result);
+    },
+    { terminalResult: result }
+  );
 }
 
 function approveCommand(options) {
   requireOptions(options, ["session", "approvedBy"]);
+  if (process.env.PM_LOOP_WORKER === "1") {
+    throw cliError("loop workers cannot approve RFCs", EXIT.PRECONDITION);
+  }
   return mutateSession(options, (session) =>
     approveSession(session, { approvedBy: options.approvedBy })
   );
+}
+
+function approvalAuditCommand(options) {
+  requireOptions(options, ["session", "artifact"]);
+  const sessionPath = path.resolve(options.session);
+  const artifact = readJson(options.artifact);
+  return withLock(sessionPath, () => {
+    const session = readSession(sessionPath);
+    assertValidSession(session);
+    assertCanonicalSessionPath(sessionPath, session);
+    const audit = buildApprovalAudit(session, artifact);
+    const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
+    if (approvalPath === artifact.json_path) {
+      throw cliError("RFC sidecar path must end in .json", EXIT.VALIDATION);
+    }
+    writeJsonAtomic(approvalPath, audit, { fileMode: 0o600 });
+    emit(options, { approval_path: approvalPath, approval: audit });
+    return EXIT.OK;
+  });
 }
 
 function authorizeCommand(options) {
@@ -194,10 +229,20 @@ function migrateCommand(options) {
   return EXIT.OK;
 }
 
-function mutateSession(options, mutation) {
+function mutateSession(options, mutation, mutationOptions = {}) {
   const sessionPath = path.resolve(options.session);
-  let completedSourceDir = null;
   const exitCode = withLock(sessionPath, () => {
+    if (!fs.existsSync(sessionPath) && mutationOptions.terminalResult) {
+      const recovered = recoverTerminalRetry(sessionPath, mutationOptions.terminalResult);
+      const session = readSession(recovered.session_path);
+      emit(options, {
+        session_path: recovered.session_path,
+        session,
+        idempotent: true,
+        next: null,
+      });
+      return EXIT.OK;
+    }
     const session = readSession(sessionPath);
     assertCanonicalSessionPath(sessionPath, session);
     let outcome;
@@ -211,10 +256,7 @@ function mutateSession(options, mutation) {
       outcome?.idempotent === true || JSON.stringify(next) === JSON.stringify(session);
     let outputPath = sessionPath;
     if (!idempotent && next.status === "complete") {
-      outputPath = completedSessionPath(next);
-      writeSession(outputPath, next);
-      fs.rmSync(sessionPath, { force: true });
-      completedSourceDir = path.dirname(sessionPath);
+      outputPath = archiveTerminalRun(sessionPath, next, mutationOptions.terminalResult);
     } else if (!idempotent) {
       writeSession(sessionPath, next);
     }
@@ -226,7 +268,6 @@ function mutateSession(options, mutation) {
     });
     return next.status === "blocked" ? EXIT.BLOCKED : EXIT.OK;
   });
-  if (completedSourceDir) fs.rmSync(completedSourceDir, { recursive: true, force: true });
   return exitCode;
 }
 
@@ -256,8 +297,67 @@ function completedSessionPath(session) {
     "rfc-sessions",
     "completed",
     session.slug,
+    session.run_id,
     "session.json"
   );
+}
+
+function clearActiveRunDirectory(sessionPath) {
+  const activeDir = path.dirname(sessionPath);
+  const lockName = path.basename(`${sessionPath}.lock`);
+  for (const entry of fs.readdirSync(activeDir)) {
+    if (entry === lockName) continue;
+    fs.rmSync(path.join(activeDir, entry), { recursive: true, force: true });
+  }
+}
+
+function archiveTerminalRun(sessionPath, session, result) {
+  if (!result) throw new Error("terminal RFC archive requires the handoff result");
+  const activeDir = path.dirname(sessionPath);
+  const archivePath = completedSessionPath(session);
+  const archiveDir = path.dirname(archivePath);
+  if (fs.existsSync(archiveDir)) {
+    throw new Error(`terminal RFC archive already exists: ${archiveDir}`);
+  }
+  writeSession(sessionPath, session);
+  fs.mkdirSync(path.dirname(archiveDir), { recursive: true, mode: 0o700 });
+  fs.renameSync(activeDir, archiveDir);
+  fs.rmSync(path.join(archiveDir, path.basename(`${sessionPath}.lock`)), { force: true });
+  writeJsonAtomic(path.join(activeDir, "completion.json"), {
+    schema_version: 1,
+    run_id: session.run_id,
+    result_hash: hashResult(result),
+    session_path: archivePath,
+  });
+  return archivePath;
+}
+
+function recoverTerminalRetry(sessionPath, result) {
+  if (!/^rfc_[A-Za-z0-9_-]+$/.test(result.run_id || "")) {
+    throw cliError("terminal retry run_id is invalid", EXIT.VALIDATION);
+  }
+  const activeDir = path.dirname(sessionPath);
+  const resultHash = hashResult(result);
+  try {
+    const completion = readJson(path.join(activeDir, "completion.json"));
+    if (completion.run_id === result.run_id && completion.result_hash === resultHash) {
+      return completion;
+    }
+  } catch {
+    // Fall through to immutable archive discovery.
+  }
+  const archivePath = path.join(
+    path.dirname(activeDir),
+    "completed",
+    path.basename(activeDir),
+    result.run_id,
+    "session.json"
+  );
+  const archived = readSession(archivePath);
+  if (archived.attempts.at(-1)?.result_hash !== resultHash) {
+    throw new Error("completion result hash does not match this retry");
+  }
+  return { run_id: result.run_id, result_hash: resultHash, session_path: archivePath };
 }
 
 function readSession(sessionPath) {
@@ -287,21 +387,21 @@ function writeSession(sessionPath, session) {
 function withLock(sessionPath, callback) {
   const lockPath = `${sessionPath}.lock`;
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+  let release;
   try {
-    const descriptor = fs.openSync(lockPath, "wx", 0o600);
-    fs.writeFileSync(descriptor, `${process.pid}\n`);
-    fs.closeSync(descriptor);
+    release = acquireOwnedLock(lockPath, {
+      attempts: 2,
+      waitMs: 0,
+      invalidGraceMs: 1000,
+      timeoutMessage: `RFC session is locked: ${lockPath}`,
+    });
   } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-    if (age < 30_000) throw cliError(`RFC session is locked: ${lockPath}`, EXIT.PRECONDITION);
-    fs.rmSync(lockPath, { force: true });
-    return withLock(sessionPath, callback);
+    throw cliError(error.message, EXIT.PRECONDITION);
   }
   try {
     return callback();
   } finally {
-    fs.rmSync(lockPath, { force: true });
+    release();
   }
 }
 

@@ -6,6 +6,7 @@ const path = require("node:path");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
+const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
@@ -52,6 +53,7 @@ function createSession(options) {
       linear_id: null,
       size: null,
       acceptance_criteria: [],
+      artifact_repo_root: null,
     },
     artifact: null,
     review: {
@@ -76,6 +78,7 @@ function createSession(options) {
       reasoning: options.reasoning || "inherit",
       mode: options.mode || "inherit",
       runtime_session_id: null,
+      headless: options.headless ?? process.env.PM_LOOP_WORKER === "1",
     },
     attempts: [],
     blockers: [],
@@ -93,6 +96,17 @@ function applyContext(session, facts, options = {}) {
     throw new Error("RFC context may only be configured during active intake");
   }
   if (!isObject(facts)) throw new Error("RFC context facts must be an object");
+  const contextFields = new Set([
+    "source_kind",
+    "proposal_path",
+    "linear_id",
+    "size",
+    "acceptance_criteria",
+    "artifact_repo_root",
+  ]);
+  for (const field of Object.keys(facts)) {
+    if (!contextFields.has(field)) throw new Error(`unknown RFC context field: ${field}`);
+  }
   if (!new Set(["proposal", "linear-issue"]).has(facts.source_kind)) {
     throw new Error("source_kind must be proposal or linear-issue");
   }
@@ -114,6 +128,17 @@ function applyContext(session, facts, options = {}) {
   if (facts.source_kind === "linear-issue" && !nonEmpty(facts.linear_id)) {
     throw new Error("linear-issue source requires linear_id");
   }
+  const artifactCandidate = facts.artifact_repo_root
+    ? path.resolve(facts.artifact_repo_root)
+    : facts.proposal_path
+      ? path.dirname(path.resolve(facts.proposal_path))
+      : session.source.repo_root;
+  let artifactRepoRoot;
+  try {
+    artifactRepoRoot = fs.realpathSync(findGitRoot(artifactCandidate));
+  } catch {
+    throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
+  }
   const next = structuredClone(session);
   next.context = {
     configured: true,
@@ -122,6 +147,7 @@ function applyContext(session, facts, options = {}) {
     linear_id: facts.linear_id || null,
     size: facts.size,
     acceptance_criteria: [...facts.acceptance_criteria],
+    artifact_repo_root: artifactRepoRoot,
   };
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
@@ -238,6 +264,7 @@ function validatePassedResult(session, result, options) {
     verifyArtifact(result.artifact, {
       ...options,
       expectedSlug: session.slug,
+      expectedRepoRoot: session.context.artifact_repo_root,
       forbidApproved: true,
       requireHead: true,
     });
@@ -249,6 +276,7 @@ function validatePassedResult(session, result, options) {
     verifyArtifact(result.artifact, {
       ...options,
       expectedSlug: session.slug,
+      expectedRepoRoot: session.context.artifact_repo_root,
       forbidApproved: true,
       requireHead: true,
     });
@@ -272,6 +300,7 @@ function validatePassedResult(session, result, options) {
     verifyArtifact(result.artifact, {
       ...options,
       expectedSlug: session.slug,
+      expectedRepoRoot: session.context.artifact_repo_root,
       requireApproved: true,
       requireHead: true,
     });
@@ -287,6 +316,8 @@ function validatePassedResult(session, result, options) {
     if (result.artifact.html_hash !== session.artifact.html_hash) {
       verifyLifecycleOnlyTransition(session.artifact, result.artifact);
     }
+    requireEvidence(result, "approval-audit");
+    validateApprovalAudit(session, result.artifact, result.evidence);
     session.artifact = structuredClone(result.artifact);
   }
 }
@@ -294,6 +325,9 @@ function validatePassedResult(session, result, options) {
 function approveSession(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  if (session.execution.headless || options.loopWorker || process.env.PM_LOOP_WORKER === "1") {
+    throw new Error("headless RFC sessions cannot record human approval");
+  }
   if (
     session.phase === "handoff" &&
     session.status === "approved" &&
@@ -303,6 +337,7 @@ function approveSession(session, input, options = {}) {
     verifyArtifact(session.artifact, {
       ...options,
       expectedSlug: session.slug,
+      expectedRepoRoot: session.context.artifact_repo_root,
       forbidApproved: true,
       requireHead: false,
     });
@@ -321,6 +356,7 @@ function approveSession(session, input, options = {}) {
   verifyArtifact(session.artifact, {
     ...options,
     expectedSlug: session.slug,
+    expectedRepoRoot: session.context.artifact_repo_root,
     forbidApproved: true,
     requireHead: false,
   });
@@ -500,8 +536,16 @@ function validateResultIdentity(session, result) {
     if (Object.keys(evidence).some((field) => !fields.includes(field))) {
       throw new Error("phase result evidence has unknown fields");
     }
+    if (fields.some((field) => !Object.hasOwn(evidence, field))) {
+      throw new Error("phase result evidence requires kind, command, exit_code, and artifact");
+    }
     if (!nonEmpty(evidence.kind) || !Number.isInteger(evidence.exit_code)) {
       throw new Error("phase result evidence requires kind and integer exit_code");
+    }
+    for (const field of ["command", "artifact"]) {
+      if (evidence[field] !== null && typeof evidence[field] !== "string") {
+        throw new Error(`phase result evidence.${field} must be null or string`);
+      }
     }
   }
   if (!Array.isArray(result.reviewer_verdicts)) {
@@ -518,6 +562,12 @@ function validateResultIdentity(session, result) {
     if (!nonEmpty(result.runtime[field]))
       throw new Error(`phase result runtime.${field} is required`);
   }
+  if (runtimeFields.some((field) => !Object.hasOwn(result.runtime, field))) {
+    throw new Error("phase result runtime requires provider, model, reasoning, and session_id");
+  }
+  if (result.runtime.session_id !== null && !nonEmpty(result.runtime.session_id)) {
+    throw new Error("phase result runtime.session_id must be null or string");
+  }
   if (
     result.status === "blocked" &&
     (!isObject(result.blocker) ||
@@ -526,6 +576,20 @@ function validateResultIdentity(session, result) {
       !nonEmpty(result.blocker.remediation))
   ) {
     throw new Error("blocked phase result requires blocker code, reason, and remediation");
+  }
+  if (result.status === "blocked") {
+    const blockerFields = new Set([
+      "code",
+      "reason",
+      "remediation",
+      "phase",
+      "recorded_at",
+      "resolved_at",
+      "resolution",
+    ]);
+    for (const field of Object.keys(result.blocker)) {
+      if (!blockerFields.has(field)) throw new Error(`unknown blocker field: ${field}`);
+    }
   }
 }
 
@@ -579,6 +643,12 @@ function verifyArtifact(artifact, options = {}) {
     if (!nonEmpty(artifact[field])) throw new Error(`RFC artifact requires ${field}`);
   }
   const repoRoot = fs.realpathSync(artifact.repo_root);
+  if (
+    options.expectedRepoRoot &&
+    repoRoot !== fs.realpathSync(path.resolve(options.expectedRepoRoot))
+  ) {
+    throw new Error("RFC artifact repository differs from the intake-bound artifact repository");
+  }
   const actualRoot = findGitRoot(repoRoot);
   if (!actualRoot || fs.realpathSync(actualRoot) !== repoRoot) {
     throw new Error("RFC artifact repo_root is not a canonical Git worktree");
@@ -694,36 +764,123 @@ function verifyLifecycleOnlyTransition(previousArtifact, currentArtifact) {
     timeout: 10_000,
   }).toString("utf8");
   const after = fs.readFileSync(currentArtifact.html_path, "utf8");
-  const beforeLines = before.split(/\r?\n/);
-  const afterLines = after.split(/\r?\n/);
-  if (beforeLines.length !== afterLines.length) {
-    throw new Error("RFC handoff changed HTML structure, not lifecycle metadata only");
-  }
-  for (let index = 0; index < beforeLines.length; index += 1) {
-    if (beforeLines[index] === afterLines[index]) continue;
-    if (!isLifecycleStatusLine(beforeLines[index]) || !isLifecycleStatusLine(afterLines[index])) {
-      throw new Error(`RFC handoff changed substantive HTML at line ${index + 1}`);
-    }
+  if (canonicalizeLifecycle(before) !== canonicalizeLifecycle(after)) {
+    throw new Error("RFC handoff changed substantive HTML, not lifecycle metadata only");
   }
 }
 
-function isLifecycleStatusLine(line) {
-  return (
-    /["']status["']\s*:/.test(line) ||
-    /^\s*status\s*:/.test(line) ||
-    /data-status=/.test(line) ||
-    /class=["'][^"']*pill[^"']*["'][^>]*>.*\b(?:draft|approved)\b/i.test(line)
+function canonicalizeLifecycle(html) {
+  const marker = lifecycleMarker(html);
+  return `${html.slice(0, marker.valueStart)}<LIFECYCLE>${html.slice(marker.valueEnd)}`;
+}
+
+function lifecycleMarker(html) {
+  const pattern = /<script\b(?=[^>]*\bid=["']rfc-lifecycle["'])[^>]*>([\s\S]*?)<\/script>/gi;
+  const matches = [...html.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error("RFC HTML must contain exactly one #rfc-lifecycle metadata marker");
+  }
+  const match = matches[0];
+  const body = match[1];
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error("RFC #rfc-lifecycle marker must contain valid JSON");
+  }
+  if (!isObject(parsed) || Object.keys(parsed).length !== 1 || !Object.hasOwn(parsed, "status")) {
+    throw new Error("RFC #rfc-lifecycle marker must contain only status");
+  }
+  const status = String(parsed.status).toLowerCase();
+  if (!["draft", "awaiting-approval", "approved"].includes(status)) {
+    throw new Error("RFC #rfc-lifecycle status is invalid");
+  }
+  const valueMatch = body.match(
+    /(["']status["']\s*:\s*["'])(draft|awaiting-approval|approved)(["'])/i
+  );
+  if (!valueMatch || body.match(/["']status["']\s*:/gi)?.length !== 1) {
+    throw new Error("RFC #rfc-lifecycle marker must use one explicit status field");
+  }
+  const bodyStart = match.index + match[0].indexOf(body);
+  const valueOffset = valueMatch.index + valueMatch[1].length;
+  return {
+    status,
+    valueStart: bodyStart + valueOffset,
+    valueEnd: bodyStart + valueOffset + valueMatch[2].length,
+  };
+}
+
+function approvalTransitionDigest(session, artifact = session.artifact) {
+  return sha256(
+    Buffer.from(
+      stableStringify({
+        run_id: session.run_id,
+        slug: session.slug,
+        review: session.review,
+        approval: session.approval,
+        artifact: artifact && {
+          html_path: artifact.html_path,
+          json_path: artifact.json_path,
+          html_hash: artifact.html_hash,
+          sidecar_hash: artifact.sidecar_hash,
+          repo_root: artifact.repo_root,
+        },
+      })
+    )
   );
 }
 
+function buildApprovalAudit(session, artifact, options = {}) {
+  assertValidSession(session);
+  verifySourceIdentity(session);
+  if (session.phase !== "handoff" || session.approval.status !== "approved") {
+    throw new Error("approval audit requires an explicitly approved handoff session");
+  }
+  verifyArtifact(artifact, {
+    ...options,
+    expectedSlug: session.slug,
+    expectedRepoRoot: session.context.artifact_repo_root,
+    requireApproved: true,
+    requireHead: true,
+  });
+  if (artifact.sidecar_hash !== session.artifact.sidecar_hash) {
+    throw new Error("approval audit sidecar differs from the approved design");
+  }
+  verifyLifecycleOnlyTransition(session.artifact, artifact);
+  return {
+    schema_version: 1,
+    run_id: session.run_id,
+    slug: session.slug,
+    status: "approved",
+    approved_by: session.approval.approved_by,
+    approved_at: session.approval.approved_at,
+    html_sha256: artifact.html_hash,
+    sidecar_sha256: artifact.sidecar_hash,
+    approval_transition_sha256: approvalTransitionDigest(session, artifact),
+  };
+}
+
+function validateApprovalAudit(session, artifact, evidence) {
+  const record = evidence.find((item) => item?.kind === "approval-audit" && item.exit_code === 0);
+  const expectedPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
+  if (!record || path.resolve(record.artifact || "") !== path.resolve(expectedPath)) {
+    throw new Error("handoff approval-audit evidence must point to the sibling approval audit");
+  }
+  const bytes = fs.readFileSync(expectedPath);
+  const observed = JSON.parse(bytes.toString("utf8"));
+  const expected = buildApprovalAudit(session, artifact, { requireHead: true });
+  if (stableStringify(observed) !== stableStringify(expected)) {
+    throw new Error("handoff approval audit does not match the exact approved artifact");
+  }
+  const relative = gitRelativePath(artifact.repo_root, expectedPath);
+  const committed = readGitFile(artifact.commit, relative, artifact.repo_root, { timeout: 10_000 });
+  if (!committed.equals(bytes)) {
+    throw new Error("handoff approval audit is not tracked at the declared artifact commit");
+  }
+}
+
 function extractLifecycleStatus(html) {
-  const jsonStatus = html.match(/["']status["']\s*:\s*["']([^"']+)["']/i)?.[1];
-  if (jsonStatus) return jsonStatus.trim().toLowerCase();
-  const frontmatterStatus = html.match(/^\s*status\s*:\s*([^\s<]+)/im)?.[1];
-  if (frontmatterStatus) return frontmatterStatus.trim().toLowerCase();
-  if (/class=["'][^"']*pill[^"']*["'][^>]*>.*\bapproved\b/i.test(html)) return "approved";
-  if (/class=["'][^"']*pill[^"']*["'][^>]*>.*\bdraft\b/i.test(html)) return "draft";
-  return null;
+  return lifecycleMarker(html).status;
 }
 
 function sha256(bytes) {
@@ -769,7 +926,9 @@ function validateSession(session) {
     errors
   );
   if (session.schema_version !== 2) errors.push(issue("$.schema_version", "must equal 2"));
-  if (!nonEmpty(session.run_id)) errors.push(issue("$.run_id", "required"));
+  if (!/^rfc_[A-Za-z0-9_-]+$/.test(session.run_id || "")) {
+    errors.push(issue("$.run_id", "must be an rfc_ run identifier"));
+  }
   if (!nonEmpty(session.slug)) errors.push(issue("$.slug", "required"));
   if (!STATUSES.has(session.status)) errors.push(issue("$.status", "invalid"));
   if (!PHASES.includes(session.phase)) errors.push(issue("$.phase", "invalid"));
@@ -777,7 +936,7 @@ function validateSession(session) {
     errors.push(issue("$.phase_attempt", "must be positive integer"));
   }
   for (const field of ["created_at", "updated_at"]) {
-    if (!nonEmpty(session[field]) || Number.isNaN(Date.parse(session[field]))) {
+    if (!isIsoDate(session[field])) {
       errors.push(issue(`$.${field}`, "must be an ISO timestamp"));
     }
   }
@@ -794,7 +953,15 @@ function validateSession(session) {
   );
   validateClosedObject(
     session.context,
-    ["configured", "source_kind", "proposal_path", "linear_id", "size", "acceptance_criteria"],
+    [
+      "configured",
+      "source_kind",
+      "proposal_path",
+      "linear_id",
+      "size",
+      "acceptance_criteria",
+      "artifact_repo_root",
+    ],
     "$.context",
     errors,
     (value, objectPath) => {
@@ -804,6 +971,9 @@ function validateSession(session) {
         errors.push(issue(`${objectPath}.source_kind`, "invalid"));
       if (![null, "M", "L", "XL"].includes(value.size))
         errors.push(issue(`${objectPath}.size`, "invalid"));
+      if (value.artifact_repo_root !== null && !nonEmpty(value.artifact_repo_root)) {
+        errors.push(issue(`${objectPath}.artifact_repo_root`, "must be null or a path"));
+      }
       if (
         !Array.isArray(value.acceptance_criteria) ||
         value.acceptance_criteria.some((item) => !nonEmpty(item))
@@ -828,58 +998,19 @@ function validateSession(session) {
     if (!Array.isArray(session[field])) errors.push(issue(`$.${field}`, "must be an array"));
   }
   if (Array.isArray(session.attempts)) {
-    session.attempts.forEach((value, index) =>
-      validateRecordObject(
-        value,
-        [
-          "phase",
-          "attempt",
-          "status",
-          "summary",
-          "artifact_hash",
-          "recorded_at",
-          "runtime",
-          "result_hash",
-        ],
-        `$.attempts[${index}]`,
-        errors
-      )
-    );
+    session.attempts.forEach((value, index) => validateAttempt(value, index, errors));
   }
   if (Array.isArray(session.history)) {
-    session.history.forEach((value, index) =>
-      validateRecordObject(
-        value,
-        ["prior_phase", "next_phase", "reason", "timestamp"],
-        `$.history[${index}]`,
-        errors
-      )
-    );
+    session.history.forEach((value, index) => validateHistory(value, index, errors));
   }
   if (Array.isArray(session.authority_log)) {
-    session.authority_log.forEach((value, index) =>
-      validateRecordObject(
-        value,
-        ["action", "granted", "reason", "recorded_at"],
-        `$.authority_log[${index}]`,
-        errors
-      )
-    );
+    session.authority_log.forEach((value, index) => validateAuthorityRecord(value, index, errors));
   }
   if (Array.isArray(session.blockers)) {
-    session.blockers.forEach((value, index) => {
-      if (!isObject(value) || !nonEmpty(value.code) || !nonEmpty(value.reason)) {
-        errors.push(issue(`$.blockers[${index}]`, "requires code and reason"));
-      }
-    });
+    session.blockers.forEach((value, index) => validateBlocker(value, index, errors));
   }
   if (session.migration !== null) {
-    validateRecordObject(
-      session.migration,
-      ["legacy_path", "legacy_stage", "migrated_at", "approval_trusted", "reason"],
-      "$.migration",
-      errors
-    );
+    validateMigration(session.migration, errors);
   }
   validateExecutionShape(session.execution, errors);
   if (session.status === "awaiting_approval" && session.phase !== "approval") {
@@ -932,6 +1063,121 @@ function validateRecordObject(value, fields, objectPath, errors) {
   validateExactFields(value, fields, objectPath, errors);
 }
 
+function validateAttempt(value, index, errors) {
+  const objectPath = `$.attempts[${index}]`;
+  const fields = [
+    "phase",
+    "attempt",
+    "status",
+    "summary",
+    "artifact_hash",
+    "recorded_at",
+    "runtime",
+    "result_hash",
+  ];
+  validateRecordObject(value, fields, objectPath, errors);
+  if (!isObject(value)) return;
+  if (!PHASES.filter((phase) => phase !== "approval").includes(value.phase))
+    errors.push(issue(`${objectPath}.phase`, "invalid"));
+  if (!Number.isInteger(value.attempt) || value.attempt < 1)
+    errors.push(issue(`${objectPath}.attempt`, "invalid"));
+  if (!RESULT_STATUSES.has(value.status)) errors.push(issue(`${objectPath}.status`, "invalid"));
+  if (!nonEmpty(value.summary)) errors.push(issue(`${objectPath}.summary`, "required"));
+  if (value.artifact_hash !== null && !/^sha256:[0-9a-f]{64}$/.test(value.artifact_hash || "")) {
+    errors.push(issue(`${objectPath}.artifact_hash`, "invalid"));
+  }
+  if (!isIsoDate(value.recorded_at)) errors.push(issue(`${objectPath}.recorded_at`, "invalid"));
+  validateRuntimeRecord(value.runtime, `${objectPath}.runtime`, errors);
+  if (!/^sha256:[0-9a-f]{64}$/.test(value.result_hash || ""))
+    errors.push(issue(`${objectPath}.result_hash`, "invalid"));
+}
+
+function validateRuntimeRecord(value, objectPath, errors) {
+  const fields = ["provider", "model", "reasoning", "session_id"];
+  validateRecordObject(value, fields, objectPath, errors);
+  if (!isObject(value)) return;
+  for (const field of ["provider", "model", "reasoning"]) {
+    if (!nonEmpty(value[field])) errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (value.session_id !== null && !nonEmpty(value.session_id)) {
+    errors.push(issue(`${objectPath}.session_id`, "must be null or string"));
+  }
+}
+
+function validateHistory(value, index, errors) {
+  const objectPath = `$.history[${index}]`;
+  validateRecordObject(
+    value,
+    ["prior_phase", "next_phase", "reason", "timestamp"],
+    objectPath,
+    errors
+  );
+  if (!isObject(value)) return;
+  for (const field of ["prior_phase", "next_phase", "reason"]) {
+    if (!nonEmpty(value[field])) errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (!isIsoDate(value.timestamp)) errors.push(issue(`${objectPath}.timestamp`, "invalid"));
+}
+
+function validateAuthorityRecord(value, index, errors) {
+  const objectPath = `$.authority_log[${index}]`;
+  validateRecordObject(value, ["action", "granted", "reason", "recorded_at"], objectPath, errors);
+  if (!isObject(value)) return;
+  if (!AUTHORITY_ACTIONS.includes(value.action))
+    errors.push(issue(`${objectPath}.action`, "invalid"));
+  if (typeof value.granted !== "boolean") errors.push(issue(`${objectPath}.granted`, "invalid"));
+  if (!nonEmpty(value.reason)) errors.push(issue(`${objectPath}.reason`, "required"));
+  if (!isIsoDate(value.recorded_at)) errors.push(issue(`${objectPath}.recorded_at`, "invalid"));
+}
+
+function validateBlocker(value, index, errors) {
+  const objectPath = `$.blockers[${index}]`;
+  const fields = [
+    "code",
+    "reason",
+    "remediation",
+    "phase",
+    "recorded_at",
+    "resolved_at",
+    "resolution",
+  ];
+  if (!isObject(value)) {
+    errors.push(issue(objectPath, "must be an object"));
+    return;
+  }
+  for (const field of Object.keys(value)) {
+    if (!fields.includes(field)) errors.push(issue(`${objectPath}.${field}`, "unknown field"));
+  }
+  for (const field of ["code", "reason", "remediation"]) {
+    if (!nonEmpty(value[field])) errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (value.phase !== undefined && !PHASES.includes(value.phase))
+    errors.push(issue(`${objectPath}.phase`, "invalid"));
+  for (const field of ["recorded_at", "resolved_at"]) {
+    if (value[field] !== undefined && !isIsoDate(value[field]))
+      errors.push(issue(`${objectPath}.${field}`, "invalid"));
+  }
+  if (value.resolution !== undefined && !nonEmpty(value.resolution))
+    errors.push(issue(`${objectPath}.resolution`, "invalid"));
+}
+
+function validateMigration(value, errors) {
+  const objectPath = "$.migration";
+  validateRecordObject(
+    value,
+    ["legacy_path", "legacy_stage", "migrated_at", "approval_trusted", "reason"],
+    objectPath,
+    errors
+  );
+  if (!isObject(value)) return;
+  for (const field of ["legacy_path", "legacy_stage", "reason"]) {
+    if (!nonEmpty(value[field])) errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (!isIsoDate(value.migrated_at)) errors.push(issue(`${objectPath}.migrated_at`, "invalid"));
+  if (value.approval_trusted !== false)
+    errors.push(issue(`${objectPath}.approval_trusted`, "must be false"));
+}
+
 function validateArtifactShape(value, objectPath, errors) {
   validateClosedObject(
     value,
@@ -966,6 +1212,12 @@ function validateReviewShape(value, errors) {
       if (review.status === "passed" && !/^sha256:[0-9a-f]{64}$/.test(review.artifact_hash || "")) {
         errors.push(issue("$.review.artifact_hash", "passed review requires artifact hash"));
       }
+      if (review.reviewed_at !== null && !isIsoDate(review.reviewed_at)) {
+        errors.push(issue("$.review.reviewed_at", "invalid"));
+      }
+      if (review.status === "passed" && !isIsoDate(review.reviewed_at)) {
+        errors.push(issue("$.review.reviewed_at", "passed review requires timestamp"));
+      }
       if (review.status === "passed" && Array.isArray(review.verdicts)) {
         try {
           validateReviewerVerdicts(review.verdicts, review.artifact_hash);
@@ -989,7 +1241,7 @@ function validateApprovalShape(value, errors) {
       if (approval.status === "approved") {
         if (!nonEmpty(approval.approved_by))
           errors.push(issue("$.approval.approved_by", "required"));
-        if (!nonEmpty(approval.approved_at) || Number.isNaN(Date.parse(approval.approved_at)))
+        if (!isIsoDate(approval.approved_at))
           errors.push(issue("$.approval.approved_at", "invalid"));
         if (!/^sha256:[0-9a-f]{64}$/.test(approval.artifact_hash || ""))
           errors.push(issue("$.approval.artifact_hash", "invalid"));
@@ -1001,7 +1253,7 @@ function validateApprovalShape(value, errors) {
 function validateExecutionShape(value, errors) {
   validateClosedObject(
     value,
-    ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id"],
+    ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id", "headless"],
     "$.execution",
     errors,
     (execution) => {
@@ -1010,6 +1262,9 @@ function validateExecutionShape(value, errors) {
       }
       if (execution.runtime_session_id !== null && !nonEmpty(execution.runtime_session_id))
         errors.push(issue("$.execution.runtime_session_id", "must be null or string"));
+      if (typeof execution.headless !== "boolean") {
+        errors.push(issue("$.execution.headless", "must be boolean"));
+      }
     }
   );
 }
@@ -1088,7 +1343,9 @@ module.exports = {
   REQUIRED_REVIEW_LENSES,
   applyContext,
   approveSession,
+  approvalTransitionDigest,
   assertValidSession,
+  buildApprovalAudit,
   createSession,
   grantAuthority,
   hashResult,

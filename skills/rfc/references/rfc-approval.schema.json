@@ -6,20 +6,27 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "run_id",
     "slug",
     "status",
     "approved_by",
     "approved_at",
     "html_sha256",
-    "sidecar_sha256"
+    "sidecar_sha256",
+    "approval_transition_sha256"
   ],
   "properties": {
     "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
     "slug": { "type": "string", "minLength": 1 },
     "status": { "const": "approved" },
     "approved_by": { "type": "string", "minLength": 1 },
     "approved_at": { "type": "string", "format": "date-time" },
     "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "approval_transition_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
   }
 }

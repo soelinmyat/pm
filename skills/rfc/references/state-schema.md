@@ -7,7 +7,8 @@ Canonical state lives at `{source_dir}/.pm/rfc-sessions/{slug}/session.json` and
 - State is machine-local under the source repository's gitignored `.pm/`; RFC HTML/JSON artifacts live under the resolved PM content directory.
 - `session.json` is the only lifecycle authority. Human-readable projections are optional and never drive transitions.
 - Writes are atomic, mode `0600`, lock-protected, and idempotent for retried phase results.
-- Completed sessions move atomically to `{source_dir}/.pm/rfc-sessions/completed/{slug}/session.json` as approval audits. The active scanner does not traverse that archive.
+- Completed sessions move atomically to `{source_dir}/.pm/rfc-sessions/completed/{slug}/{run_id}/session.json`. The active slug directory retains only a bounded completion pointer for idempotent retry, and the active scanner does not traverse the immutable archive.
+- The session archive preserves workflow provenance. Dev approval authority is the committed `{slug}.approval.json` beside the final HTML/sidecar, whose hashes must match the exact bytes.
 
 ## Phases
 

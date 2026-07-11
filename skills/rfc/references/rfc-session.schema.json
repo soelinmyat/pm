@@ -28,7 +28,7 @@
   ],
   "properties": {
     "schema_version": { "const": 2 },
-    "run_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
     "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
     "status": {
       "enum": ["active", "awaiting_approval", "approved", "blocked", "complete"]
@@ -57,7 +57,8 @@
         "proposal_path",
         "linear_id",
         "size",
-        "acceptance_criteria"
+        "acceptance_criteria",
+        "artifact_repo_root"
       ],
       "properties": {
         "configured": { "type": "boolean" },
@@ -65,7 +66,10 @@
         "proposal_path": { "type": ["string", "null"] },
         "linear_id": { "type": ["string", "null"] },
         "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
-        "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "artifact_repo_root": {
+          "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+        }
       }
     },
     "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
@@ -79,7 +83,40 @@
         "rounds": { "type": "integer", "minimum": 0 },
         "verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
         "reviewed_at": { "type": ["string", "null"], "format": "date-time" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "passed" } } },
+          "then": {
+            "properties": {
+              "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "rounds": { "type": "integer", "minimum": 1 },
+              "reviewed_at": { "type": "string", "format": "date-time" },
+              "verdicts": {
+                "type": "array",
+                "minItems": 3,
+                "contains": { "type": "object", "properties": { "lens": { "const": "architecture-risk" } }, "required": ["lens"] }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "passed" } } },
+          "then": {
+            "properties": {
+              "verdicts": { "type": "array", "contains": { "type": "object", "properties": { "lens": { "const": "test-strategy" } }, "required": ["lens"] } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "passed" } } },
+          "then": {
+            "properties": {
+              "verdicts": { "type": "array", "contains": { "type": "object", "properties": { "lens": { "const": "maintainability" } }, "required": ["lens"] } }
+            }
+          }
+        }
+      ]
     },
     "approval": {
       "type": "object",
@@ -90,7 +127,19 @@
         "approved_by": { "type": ["string", "null"] },
         "approved_at": { "type": ["string", "null"], "format": "date-time" },
         "artifact_hash": { "type": ["string", "null"] }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "approved" } } },
+          "then": {
+            "properties": {
+              "approved_by": { "type": "string", "minLength": 1 },
+              "approved_at": { "type": "string", "format": "date-time" },
+              "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
+          }
+        }
+      ]
     },
     "authority": { "$ref": "#/$defs/authority" },
     "authority_log": { "type": "array", "items": { "$ref": "#/$defs/authority_record" } },
@@ -100,6 +149,34 @@
     "history": { "type": "array", "items": { "$ref": "#/$defs/history" } },
     "migration": { "anyOf": [{ "$ref": "#/$defs/migration" }, { "type": "null" }] }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "awaiting_approval" } } },
+      "then": { "properties": { "phase": { "const": "approval" } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "approval" } } },
+      "then": { "properties": { "review": { "type": "object", "properties": { "status": { "const": "passed" } } } } }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["approved", "complete"] } } },
+      "then": { "properties": { "approval": { "type": "object", "properties": { "status": { "const": "approved" } } } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "complete" } } },
+      "then": { "properties": { "phase": { "const": "handoff" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": { "const": "approval" },
+          "approval": { "type": "object", "properties": { "status": { "const": "approved" } } }
+        },
+        "required": ["phase", "approval"]
+      },
+      "then": false
+    }
+  ],
   "$defs": {
     "authority": {
       "type": "object",
@@ -126,14 +203,15 @@
     "execution": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id"],
+      "required": ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id", "headless"],
       "properties": {
         "profile": { "type": "string", "minLength": 1 },
         "runtime": { "type": "string", "minLength": 1 },
         "model": { "type": "string", "minLength": 1 },
         "reasoning": { "type": "string", "minLength": 1 },
         "mode": { "type": "string", "minLength": 1 },
-        "runtime_session_id": { "type": ["string", "null"] }
+        "runtime_session_id": { "type": ["string", "null"] },
+        "headless": { "type": "boolean" }
       }
     },
     "runtime": {
@@ -253,7 +331,7 @@
       ],
       "properties": {
         "schema_version": { "const": 1 },
-        "run_id": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
         "phase": { "enum": ["intake", "generation", "review", "handoff"] },
         "attempt": { "type": "integer", "minimum": 1 },
         "status": { "enum": ["passed", "failed", "blocked"] },

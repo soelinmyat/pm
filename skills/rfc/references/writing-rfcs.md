@@ -154,15 +154,15 @@ This is the single source for how the **JSON sidecar** works. Consumers point he
 Every RFC is written as **two paired artifacts**:
 
 - `{pm_dir}/backlog/rfcs/{slug}.html` — the human render. Reviewers and approvers read this.
-- `{pm_dir}/backlog/rfcs/{slug}.json` — the machine-readable JSON sidecar (`schema_version: 2`). Machine consumers (dev intake, groom re-discovery, RFC review child-card creation) read this **first**, so they stop grepping HTML anchors.
+- `{pm_dir}/backlog/rfcs/{slug}.json` — the machine-readable JSON sidecar (`schema_version: 3`; legacy schema v2 remains readable). Machine consumers (dev intake, groom re-discovery, RFC review child-card creation) read this **first**, so they stop grepping HTML anchors.
 
 The sidecar is a projection of the render, not a second source of truth: it carries the same content as the HTML's `.issue-detail` cards and `.test-strategy-block` bodies. Schema (exactly these fields — no `status`; lifecycle authority lives in canonical RFC session state and is copied into the human artifact only after explicit approval):
 
 | Field | Content |
 |-------|---------|
-| `schema_version` | Always `2` |
+| `schema_version` | `3` for the executable contract. Version `2` remains a read-only compatibility shape with `{ num, title, size, test_hooks[] }`; recertify it through `/pm:rfc` before deriving parallel Dev work units. |
 | `slug`, `title`, `size` | RFC identity — `slug` equals the RFC slug; `size` is canonical uppercase XS/S/M/L/XL |
-| `issues[]` | `{ num, title, size, test_hooks[] }` per issue — mirrors the `.issue-detail` cards |
+| `issues[]` | Executable work units: `{ num, title, size, depends_on[], owns[], acceptance_criteria[], approach, verification_commands[], test_hooks[] }` — mirrors the `.issue-detail` cards and is sufficient to build the Dev work-unit DAG without reparsing HTML |
 | `test_strategy` | `{ test_levels, new_infrastructure, regression_surface, verification_commands, open_questions }` — mirrors the `.test-strategy-block` bodies |
 
 **Sidecar↔HTML binding.** The HTML root carries `data-sidecar-hash="sha256:{hash-of-json-bytes}"`. This ties the render to its sidecar so drift is detectable. `scripts/rfc-sidecar-check.js --html` verifies the attribute matches the sidecar bytes; `--slug` verifies `slug`.
@@ -170,6 +170,7 @@ The sidecar is a projection of the render, not a second source of truth: it carr
 **Canonical consumer rule (the one halt policy):**
 
 - **Sidecar present and valid** (`rfc-sidecar-check.js` exits clean) → it is the source of truth: read `issues[]` and `test_strategy` from it, no HTML parsing.
+- **Valid schema v2 sidecar** → it remains approved legacy evidence, but lacks the ownership/dependency contract needed for automatic work-unit routing. Use the documented legacy HTML path or recertify through `/pm:rfc`; do not invent missing ownership.
 - **Sidecar present but invalid** (non-zero exit — bad schema, slug mismatch, or `data-sidecar-hash` mismatch) → **HALT** and route to `/pm:rfc` to regenerate. Never fall back to the HTML for a present-but-broken sidecar.
 - **Sidecar absent** → legacy/pre-sidecar RFC. Fall back to the HTML `.issue-detail` / `.test-strategy-block` parse below.
 

@@ -15,6 +15,8 @@ const SECTIONS = [
   ["Required Evidence", "required_evidence"],
   ["Result Contract", "result_contract"],
 ];
+const MAX_SECTION_BYTES = 16 * 1024;
+const MAX_PROMPT_BYTES = 64 * 1024;
 
 function buildRfcPrompt(packet) {
   if (!packet || typeof packet !== "object") throw new Error("RFC prompt packet is required");
@@ -34,7 +36,22 @@ function buildRfcPrompt(packet) {
       throw new Error(`RFC prompt packet requires ${field}`);
     }
   }
-  return `${SECTIONS.map(([title, field]) => `## ${title}\n\n${render(packet[field])}`).join("\n\n")}\n`;
+  const sections = SECTIONS.map(([title, field]) => {
+    const rendered = render(packet[field]);
+    const bytes = Buffer.byteLength(rendered, "utf8");
+    if (bytes > MAX_SECTION_BYTES) {
+      throw new Error(
+        `RFC prompt section ${field} is ${bytes} bytes; limit is ${MAX_SECTION_BYTES}`
+      );
+    }
+    return `## ${title}\n\n${rendered}`;
+  });
+  const prompt = `${sections.join("\n\n")}\n`;
+  const totalBytes = Buffer.byteLength(prompt, "utf8");
+  if (totalBytes > MAX_PROMPT_BYTES) {
+    throw new Error(`RFC prompt is ${totalBytes} bytes; limit is ${MAX_PROMPT_BYTES}`);
+  }
+  return prompt;
 }
 
 function render(value) {
@@ -75,4 +92,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { buildRfcPrompt, main };
+module.exports = { MAX_PROMPT_BYTES, MAX_SECTION_BYTES, buildRfcPrompt, main };

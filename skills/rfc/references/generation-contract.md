@@ -25,12 +25,12 @@ Do not include review, approval, Linear, loop, or implementation procedures. Do 
 
 Follow `writing-rfcs.md` as the canonical document and sidecar contract. Preserve:
 
-- `data-schema-version="2"` and `data-sidecar-hash`;
+- `data-schema-version="3"`, exactly one `script#rfc-lifecycle` JSON marker, and `data-sidecar-hash`;
 - `id="brief"`, `id="execution-contract"`, `id="appendix"`, and `id="test-strategy"`;
 - `.issue-detail`, `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size`;
 - `.test-strategy`, `.test-strategy-block`, and `.hooks-badge`.
 
-The paired JSON sidecar remains schema version 2 with identity, issues, and the five test-strategy fields. `scripts/rfc-sidecar-check.js` is the executable schema/hash/slug gate.
+The paired JSON sidecar uses schema version 3 for identity, executable issue work units (`depends_on`, `owns`, acceptance criteria, approach, verification commands, and test hooks), and the five test-strategy fields. Schema v2 remains readable as a legacy, non-executable compatibility shape. `scripts/rfc-sidecar-check.js` is the executable schema/hash/slug gate.
 
 ## Worker result
 

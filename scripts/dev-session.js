@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
 const { parseCliArgs } = require("./loop-args");
+const { validateRfcSidecar } = require("./rfc-sidecar-check");
+const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
 
 const {
   applyRouting,
@@ -22,6 +25,7 @@ const {
   transitionWorkUnit,
   validateResultEnvelope,
   validateSession,
+  verifyRfcSidecarIdentity,
   updateWorkspace,
   upgradeCompatibleSession,
   writeJsonAtomic,
@@ -95,6 +99,7 @@ function parseArguments(argv) {
     "session",
     "output",
     "facts",
+    "rfc-sidecar",
     "result",
     "phases",
     "commit",
@@ -213,14 +218,69 @@ function routeCommand(options) {
   const sessionPath = path.resolve(options.session);
   const factsPath = path.resolve(options.facts);
   let facts;
+  let rfcSidecar = null;
+  let rfcSidecarPath = null;
+  let rfcSidecarIdentity = null;
   try {
     facts = JSON.parse(fs.readFileSync(factsPath, "utf8"));
   } catch (error) {
     throw cliError(`cannot read routing facts ${factsPath}: ${error.message}`, EXIT.INVALID);
   }
+  if (options.rfcSidecar) {
+    if (facts.work_units !== undefined) {
+      throw cliError("routing facts and --rfc-sidecar cannot both define work_units", EXIT.INVALID);
+    }
+    rfcSidecarPath = path.resolve(options.rfcSidecar);
+    try {
+      const bytes = fs.readFileSync(rfcSidecarPath);
+      rfcSidecar = JSON.parse(bytes.toString("utf8"));
+      rfcSidecarIdentity = {
+        path: rfcSidecarPath,
+        sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+        schema_version: rfcSidecar.schema_version,
+        slug: rfcSidecar.slug,
+      };
+    } catch (error) {
+      throw cliError(`cannot read RFC sidecar ${rfcSidecarPath}: ${error.message}`, EXIT.INVALID);
+    }
+    const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath);
+    if (!validation.ok) {
+      throw cliError(
+        `invalid RFC sidecar: ${validation.issues.map((entry) => entry.message).join("; ")}`,
+        EXIT.PRECONDITION
+      );
+    }
+    try {
+      facts = {
+        ...facts,
+        reference: facts.reference ?? rfcSidecarPath,
+        work_units: rfcIssuesToDevWorkUnits(rfcSidecar),
+      };
+    } catch (error) {
+      throw cliError(error.message, EXIT.PRECONDITION);
+    }
+  }
   let updated;
   try {
-    updated = mutateSession(sessionPath, (session) => applyRouting(session, facts));
+    updated = mutateSession(
+      sessionPath,
+      (session) => {
+        if (rfcSidecar) {
+          const binding = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
+            expectedSlug: session.slug,
+          });
+          if (!binding.ok) {
+            throw new Error(
+              `RFC sidecar does not match Dev session: ${binding.issues
+                .map((entry) => entry.message)
+                .join("; ")}`
+            );
+          }
+        }
+        return applyRouting(session, facts, { rfcSidecar: rfcSidecarIdentity });
+      },
+      { allowSidecarRebind: Boolean(rfcSidecarIdentity) }
+    );
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
@@ -268,6 +328,7 @@ function recordCommand(options) {
       }
     }
     const session = readSession(sessionPath);
+    verifyRfcSidecarIdentity(session.task.rfc_sidecar);
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
       let idempotentSession = session;
@@ -531,10 +592,12 @@ function acquireSessionLock(sessionPath) {
   return attempt();
 }
 
-function mutateSession(sessionPath, mutation) {
+function mutateSession(sessionPath, mutation, options = {}) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
-    const updated = mutation(readSession(sessionPath));
+    const session = readSession(sessionPath);
+    if (!options.allowSidecarRebind) verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+    const updated = mutation(session);
     writeSession(sessionPath, updated);
     return updated;
   } finally {
@@ -762,7 +825,7 @@ function helpText() {
     "  status --session <path> [--json]",
     "  next --session <path> [--json]",
     "  prompt --session <path> --output <path> [--json]",
-    "  route --session <path> --facts <json-path> [--json]",
+    "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
     "  record --session <path> --result <path> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",

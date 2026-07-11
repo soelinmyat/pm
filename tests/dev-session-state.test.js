@@ -396,18 +396,30 @@ test("mandatory routed phases cannot advance through noop", () => {
   }
 });
 
-test("readiness requires a hash-bound approved RFC artifact", () => {
+test("readiness rejects a fabricated approval audit without a completed RFC run", () => {
   const repo = makeRepo();
   try {
     const slug = "approved-rfc";
     const sidecarPath = path.join(repo.root, `${slug}.json`);
     const htmlPath = path.join(repo.root, `${slug}.html`);
     const sidecar = {
-      schema_version: 2,
+      schema_version: 3,
       slug,
       title: "Approved RFC",
       size: "M",
-      issues: [{ num: 1, title: "Implement", size: "M", test_hooks: ["AC-1"] }],
+      issues: [
+        {
+          num: 1,
+          title: "Implement",
+          size: "M",
+          depends_on: [],
+          owns: ["README.md"],
+          acceptance_criteria: ["AC-1"],
+          approach: "Implement the approved change.",
+          verification_commands: ["node --test"],
+          test_hooks: ["AC-1"],
+        },
+      ],
       test_strategy: {
         test_levels: "Unit and integration",
         new_infrastructure: "None",
@@ -421,18 +433,20 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
     const hash = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
     fs.writeFileSync(
       htmlPath,
-      `<script type="application/json" id="rfc-meta">{"status":"approved"}</script><main data-sidecar-hash="${hash}"></main>`
+      `<script id="rfc-lifecycle" type="application/json">{"status":"approved"}</script><main data-sidecar-hash="${hash}"></main>`
     );
     const htmlBytes = fs.readFileSync(htmlPath);
     const approvalPath = path.join(repo.root, `${slug}.approval.json`);
     const approval = {
       schema_version: 1,
+      run_id: "rfc_forged",
       slug,
       status: "approved",
       approved_by: "Test User",
       approved_at: new Date().toISOString(),
       html_sha256: `sha256:${crypto.createHash("sha256").update(htmlBytes).digest("hex")}`,
       sidecar_sha256: hash,
+      approval_transition_sha256: `sha256:${"0".repeat(64)}`,
     };
     fs.writeFileSync(approvalPath, JSON.stringify(approval));
     const session = createSession({ slug, sourceDir: repo.root });
@@ -448,7 +462,9 @@ test("readiness requires a hash-bound approved RFC artifact", () => {
         },
       ],
     });
-    assert.deepEqual(validateResult(session, valid), []);
+    assert.ok(
+      validateResult(session, valid).some((error) => /completed RFC run/.test(error.message))
+    );
     fs.writeFileSync(approvalPath, JSON.stringify({ ...approval, approved_at: "2026-07-12" }));
     assert.ok(validateResult(session, valid).some((error) => /approval audit/.test(error.message)));
     fs.writeFileSync(approvalPath, JSON.stringify(approval));

@@ -7,12 +7,21 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+let Ajv2020;
+let addFormats;
+try {
+  Ajv2020 = require("ajv/dist/2020");
+  addFormats = require("ajv-formats");
+} catch (error) {
+  if (error.code !== "MODULE_NOT_FOUND") throw error;
+}
 
 const {
   PHASES,
   applyContext,
   artifactFingerprint,
   approveSession,
+  buildApprovalAudit,
   createSession,
   grantAuthority,
   migrateLegacyMarkdown,
@@ -23,6 +32,10 @@ const {
   validateSession,
   verifyArtifact,
 } = require("../scripts/lib/rfc-session-schema");
+const {
+  createSession: createDevSession,
+  validateResult: validateDevResult,
+} = require("../scripts/lib/dev-session-schema");
 
 test("RFC session separates technical review from explicit human approval", () => {
   const repo = makeRepo();
@@ -63,20 +76,210 @@ test("RFC session separates technical review from explicit human approval", () =
       "retrying the same approval is idempotent"
     );
 
-    const approvedArtifact = updateArtifactHtml(repo, artifact, (html) =>
+    let approvedArtifact = updateArtifactHtml(repo, artifact, (html) =>
       html.replace('{"status":"draft"}', '{"status":"approved"}')
     );
+    const approvalPath = approvedArtifact.json_path.replace(/\.json$/i, ".approval.json");
+    const approvalAudit = buildApprovalAudit(session, approvedArtifact);
+    if (Ajv2020) {
+      const approvalSchema = JSON.parse(
+        fs.readFileSync(
+          path.join(__dirname, "..", "skills", "rfc", "references", "rfc-approval.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: true });
+      addFormats(ajv);
+      assert.equal(ajv.compile(approvalSchema)(approvalAudit), true);
+    }
+    fs.writeFileSync(approvalPath, `${JSON.stringify(approvalAudit, null, 2)}\n`);
+    execFileSync("git", ["add", path.relative(repo.root, approvalPath)], { cwd: repo.root });
+    execFileSync("git", ["commit", "-qm", "add approval audit"], { cwd: repo.root });
+    approvedArtifact = { ...approvedArtifact, commit: repo.head() };
     session = recordResult(
       session,
       passed(session, {
         artifact: approvedArtifact,
-        evidence: [evidence("handoff"), evidence("lifecycle")],
+        evidence: [
+          evidence("handoff"),
+          evidence("lifecycle"),
+          evidence("approval-audit", approvalPath),
+        ],
       })
     );
     assert.equal(session.status, "complete");
+    const archivePath = path.join(
+      repo.root,
+      ".pm",
+      "rfc-sessions",
+      "completed",
+      session.slug,
+      session.run_id,
+      "session.json"
+    );
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.writeFileSync(archivePath, `${JSON.stringify(session, null, 2)}\n`);
+    const devSession = createDevSession({ slug: session.slug, sourceDir: repo.root });
+    devSession.phase = "readiness";
+    devSession.routing.required_phases = ["readiness", "implementation", "retro"];
+    const devReadiness = {
+      schema_version: 1,
+      run_id: devSession.run_id,
+      phase: "readiness",
+      attempt: 1,
+      status: "passed",
+      summary: "RFC is approved for exact artifacts",
+      commit: repo.head(),
+      files_changed: [],
+      evidence: [
+        {
+          kind: "rfc-readiness",
+          command: "rfc-sidecar-check",
+          exit_code: 0,
+          artifact: approvedArtifact.json_path,
+        },
+      ],
+      blocker: null,
+      runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+    };
+    assert.deepEqual(validateDevResult(devSession, devReadiness), []);
+    fs.writeFileSync(
+      approvalPath,
+      `${JSON.stringify({ ...approvalAudit, approved_by: "forged-owner" }, null, 2)}\n`
+    );
+    assert.ok(
+      validateDevResult(devSession, devReadiness).some((entry) =>
+        /completed RFC run/.test(entry.message)
+      )
+    );
+    const substitutedSidecar = JSON.parse(fs.readFileSync(approvedArtifact.json_path, "utf8"));
+    substitutedSidecar.title = "Substituted unapproved design";
+    const substitutedSidecarBytes = Buffer.from(`${JSON.stringify(substitutedSidecar)}\n`);
+    fs.writeFileSync(approvedArtifact.json_path, substitutedSidecarBytes);
+    const substitutedSidecarHash = `sha256:${crypto
+      .createHash("sha256")
+      .update(substitutedSidecarBytes)
+      .digest("hex")}`;
+    const substitutedHtml = fs
+      .readFileSync(approvedArtifact.html_path, "utf8")
+      .replace(approvedArtifact.sidecar_hash, substitutedSidecarHash);
+    fs.writeFileSync(approvedArtifact.html_path, substitutedHtml);
+    fs.writeFileSync(
+      approvalPath,
+      `${JSON.stringify(
+        {
+          ...approvalAudit,
+          html_sha256: `sha256:${crypto.createHash("sha256").update(substitutedHtml).digest("hex")}`,
+          sidecar_sha256: substitutedSidecarHash,
+        },
+        null,
+        2
+      )}\n`
+    );
+    assert.ok(
+      validateDevResult(devSession, devReadiness).some((entry) =>
+        /completed RFC run/.test(entry.message)
+      )
+    );
     assert.deepEqual(validateSession(session), []);
   } finally {
     repo.cleanup();
+  }
+});
+
+test("Dev readiness resolves RFC state and artifacts across separate repositories", () => {
+  const source = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    let session = applyContext(createSession({ slug: "safe-approval", sourceDir: source.root }), {
+      source_kind: "proposal",
+      proposal_path: path.join(source.root, "proposal.md"),
+      size: "M",
+      acceptance_criteria: ["Separate repository approval remains verifiable"],
+      artifact_repo_root: artifactRepo.root,
+    });
+    session = recordResult(session, passed(session));
+    let artifact = makeArtifact(artifactRepo);
+    session = recordResult(
+      session,
+      passed(session, { artifact, evidence: [evidence("artifact")] })
+    );
+    session = recordResult(
+      session,
+      passed(session, {
+        artifact,
+        evidence: [evidence("review")],
+        reviewer_verdicts: requiredVerdicts(artifactFingerprint(artifact)),
+      })
+    );
+    session = approveSession(session, { approvedBy: "product-owner" });
+    artifact = updateArtifactHtml(artifactRepo, artifact, (html) =>
+      html.replace('{"status":"draft"}', '{"status":"approved"}')
+    );
+    const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
+    fs.writeFileSync(
+      approvalPath,
+      `${JSON.stringify(buildApprovalAudit(session, artifact), null, 2)}\n`
+    );
+    execFileSync("git", ["add", path.relative(artifactRepo.root, approvalPath)], {
+      cwd: artifactRepo.root,
+    });
+    execFileSync("git", ["commit", "-qm", "add separate-repo approval audit"], {
+      cwd: artifactRepo.root,
+    });
+    artifact = { ...artifact, commit: artifactRepo.head() };
+    session = recordResult(
+      session,
+      passed(session, {
+        artifact,
+        evidence: [
+          evidence("handoff"),
+          evidence("lifecycle"),
+          evidence("approval-audit", approvalPath),
+        ],
+      })
+    );
+    const archivePath = path.join(
+      source.root,
+      ".pm",
+      "rfc-sessions",
+      "completed",
+      session.slug,
+      session.run_id,
+      "session.json"
+    );
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.writeFileSync(archivePath, `${JSON.stringify(session, null, 2)}\n`);
+
+    const devSession = createDevSession({ slug: session.slug, sourceDir: source.root });
+    devSession.phase = "readiness";
+    devSession.routing.required_phases = ["readiness", "implementation", "retro"];
+    assert.deepEqual(
+      validateDevResult(devSession, {
+        schema_version: 1,
+        run_id: devSession.run_id,
+        phase: "readiness",
+        attempt: 1,
+        status: "passed",
+        summary: "Separate-repo RFC is approved",
+        commit: source.head(),
+        files_changed: [],
+        evidence: [
+          {
+            kind: "rfc-readiness",
+            command: "rfc-sidecar-check",
+            exit_code: 0,
+            artifact: artifact.json_path,
+          },
+        ],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+      }),
+      []
+    );
+  } finally {
+    source.cleanup();
+    artifactRepo.cleanup();
   }
 });
 
@@ -308,6 +511,93 @@ test("handoff rejects substantive HTML changes disguised as lifecycle evidence",
   }
 });
 
+test("handoff normalizes only the dedicated lifecycle marker", () => {
+  const repo = makeRepo();
+  try {
+    let session = routedSession(repo);
+    session = recordResult(session, passed(session));
+    const artifact = makeArtifact(repo);
+    session = recordResult(
+      session,
+      passed(session, { artifact, evidence: [evidence("artifact")] })
+    );
+    session = recordResult(
+      session,
+      passed(session, {
+        artifact,
+        evidence: [evidence("review")],
+        reviewer_verdicts: requiredVerdicts(artifactFingerprint(artifact)),
+      })
+    );
+    session = approveSession(session, { approvedBy: "owner" });
+    const changed = updateArtifactHtml(repo, artifact, (html) =>
+      html
+        .replace(
+          '<script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>',
+          '<script id="rfc-lifecycle" type="application/json">{"status":"approved"}</script>'
+        )
+        .replace('<code>{"status":"draft"}</code>', '<code>{"status":"approved"}</code>')
+    );
+    assert.throws(
+      () =>
+        recordResult(
+          session,
+          passed(session, {
+            artifact: changed,
+            evidence: [evidence("handoff"), evidence("lifecycle")],
+          })
+        ),
+      /changed substantive HTML/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("headless RFC sessions cannot cross the human approval boundary", () => {
+  const repo = makeRepo();
+  try {
+    let session = routedSession(repo, { headless: true });
+    session = recordResult(session, passed(session));
+    const artifact = makeArtifact(repo);
+    session = recordResult(
+      session,
+      passed(session, { artifact, evidence: [evidence("artifact")] })
+    );
+    session = recordResult(
+      session,
+      passed(session, {
+        artifact,
+        evidence: [evidence("review")],
+        reviewer_verdicts: requiredVerdicts(artifactFingerprint(artifact)),
+      })
+    );
+    assert.throws(
+      () => approveSession(session, { approvedBy: "unattended-worker" }),
+      /headless RFC sessions cannot record human approval/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("generation rejects an artifact repository not bound during intake", () => {
+  const source = makeRepo();
+  const foreign = makeRepo();
+  try {
+    let session = routedSession(source);
+    session = recordResult(session, passed(session));
+    const artifact = makeArtifact(foreign);
+    assert.throws(
+      () => recordResult(session, passed(session, { artifact, evidence: [evidence("artifact")] })),
+      /intake-bound artifact repository/
+    );
+  } finally {
+    source.cleanup();
+    foreign.cleanup();
+  }
+});
+
 test("external effects require narrow, explicit authority grants", () => {
   const repo = makeRepo();
   try {
@@ -397,6 +687,107 @@ test("session validation rejects unknown fields and missing nested contracts", (
   }
 });
 
+test(
+  "published RFC session schema and runtime reject malformed nested audit records",
+  { skip: !Ajv2020 && "Ajv 2020 dev dependency is not installed in this snapshot" },
+  () => {
+    const repo = makeRepo();
+    try {
+      const schema = JSON.parse(
+        fs.readFileSync(
+          path.join(__dirname, "..", "skills", "rfc", "references", "rfc-session.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true });
+      addFormats(ajv);
+      const validatePublished = ajv.compile(schema);
+      const session = createSession({ slug: "schema-parity", sourceDir: repo.root });
+      session.attempts = [
+        {
+          phase: "bogus",
+          attempt: 0,
+          status: "wat",
+          summary: "",
+          artifact_hash: "bad",
+          recorded_at: "tomorrow",
+          runtime: { provider: "", model: 3, reasoning: null, session_id: 4 },
+          result_hash: "bad",
+        },
+      ];
+      session.authority_log = [
+        { action: "merge", granted: "yes", reason: "", recorded_at: "soon" },
+      ];
+      session.blockers = [{ code: "bad", reason: "bad", remediation: "fix", unexpected: true }];
+      assert.equal(validatePublished(session), false);
+      assert.ok(validateSession(session).length > 0);
+    } finally {
+      repo.cleanup();
+    }
+  }
+);
+
+test(
+  "published RFC schema and runtime agree on lifecycle acceptance boundaries",
+  { skip: !Ajv2020 && "Ajv 2020 dev dependency is not installed in this snapshot" },
+  () => {
+    const repo = makeRepo();
+    try {
+      const schema = JSON.parse(
+        fs.readFileSync(
+          path.join(__dirname, "..", "skills", "rfc", "references", "rfc-session.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: true });
+      addFormats(ajv);
+      const validatePublished = ajv.compile(schema);
+      const base = createSession({ slug: "lifecycle-parity", sourceDir: repo.root });
+      const fixtures = [
+        ["initial", base, true],
+        [
+          "complete intake with pending approval",
+          { ...structuredClone(base), status: "complete", phase: "intake" },
+          false,
+        ],
+        [
+          "passed review without proof",
+          {
+            ...structuredClone(base),
+            review: {
+              status: "passed",
+              artifact_hash: null,
+              rounds: 0,
+              verdicts: [],
+              reviewed_at: null,
+            },
+          },
+          false,
+        ],
+        [
+          "approved without identity",
+          {
+            ...structuredClone(base),
+            approval: {
+              status: "approved",
+              approved_by: null,
+              approved_at: null,
+              artifact_hash: null,
+            },
+          },
+          false,
+        ],
+      ];
+      for (const [name, session, expected] of fixtures) {
+        assert.equal(validatePublished(session), expected, `${name}: published schema`);
+        assert.equal(validateSession(session).length === 0, expected, `${name}: runtime`);
+      }
+    } finally {
+      repo.cleanup();
+    }
+  }
+);
+
 test("legacy approved state is retained but never imported as trusted approval", () => {
   const repo = makeRepo();
   try {
@@ -424,8 +815,8 @@ test("legacy approved state is retained but never imported as trusted approval",
   }
 });
 
-function routedSession(repo) {
-  return applyContext(createSession({ slug: "safe-approval", sourceDir: repo.root }), {
+function routedSession(repo, options = {}) {
+  return applyContext(createSession({ slug: "safe-approval", sourceDir: repo.root, ...options }), {
     source_kind: "proposal",
     proposal_path: path.join(repo.root, "proposal.md"),
     size: "M",
@@ -450,8 +841,8 @@ function passed(session, overrides = {}) {
   };
 }
 
-function evidence(kind) {
-  return { kind, command: "node test", exit_code: 0, artifact: null };
+function evidence(kind, artifact = null) {
+  return { kind, command: "node test", exit_code: 0, artifact };
 }
 
 function requiredVerdicts(artifactHash) {
@@ -470,7 +861,7 @@ function makeArtifact(repo) {
   fs.writeFileSync(
     jsonPath,
     `${JSON.stringify({
-      schema_version: 2,
+      schema_version: 3,
       slug: "safe-approval",
       title: "Safe approval",
       size: "M",
@@ -479,6 +870,11 @@ function makeArtifact(repo) {
           num: 1,
           title: "Add explicit approval",
           size: "M",
+          depends_on: [],
+          owns: ["README.md"],
+          acceptance_criteria: ["AC-1"],
+          approach: "Add an explicit approval boundary.",
+          verification_commands: ["node --test tests/rfc-session-state.test.js"],
           test_hooks: ["Test levels in scope -> AC-1"],
         },
       ],
@@ -497,8 +893,9 @@ function makeArtifact(repo) {
     [
       "<!doctype html>",
       `<main data-sidecar-hash="${hash}">`,
-      '  <script type="application/json">{"status":"draft"}</script>',
+      '  <script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>',
       '  <section id="brief"></section>',
+      '  <code>{"status":"draft"}</code>',
       '  <section id="execution-contract"></section>',
       '  <section id="appendix"></section>',
       '  <section id="test-strategy" class="test-strategy">',

@@ -69,7 +69,7 @@ test("RFC reference HTML exposes layered anchors without breaking parser hooks",
   ]);
 
   for (const hook of [
-    'data-schema-version="2"',
+    'data-schema-version="3"',
     'class="issue-detail"',
     'class="issue-detail-num"',
     'class="issue-detail-title"',
