@@ -1,11 +1,17 @@
 ---
 name: Retro
-order: 9
+order: 10
 description: Auto-extract learnings from dev session state, write to pm/memory.md, and write durable implementation learnings when warranted
 phase: retro
 requires:
   - state-schema.md
 gates: []
+required_evidence:
+  - retro
+requires_commit: false
+allowed_modes:
+  - inline
+  - headless
 result_schema: phase-result-v1
 ---
 
@@ -232,3 +238,5 @@ The state file is the **single source of truth** for session state — full sche
 Learnings and any required writeback validate, the retro result is recorded, and canonical state reports `status: complete`.
 
 Offer the user the delivered summary and any clearly scoped follow-up work.
+
+**Next action:** report the completed delivery and the most useful follow-up; there is no later Dev phase.

@@ -4,8 +4,9 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { loadWorkflow, selectWorkflowStep } = require("../step-loader");
 const { routeDevWork } = require("./dev-risk");
-const { validateWorkUnits } = require("./dev-work-units");
+const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 
 const RUNNER_VERSION = "2.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -48,6 +49,7 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "task",
   "execution",
   "authority",
+  "authority_log",
   "routing",
   "evidence",
   "attempts",
@@ -56,37 +58,26 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "migration",
 ]);
 
-const PHASE_METADATA = Object.freeze({
-  intake: phaseMetadata([], [], false),
-  workspace: phaseMetadata([], [], false),
-  readiness: phaseMetadata([], [], false),
-  implementation: phaseMetadata(["local_writes"], ["tdd"], true, ["test"]),
-  "design-critique": phaseMetadata(["local_writes"], ["design-critique"], true, ["review"]),
-  qa: phaseMetadata([], ["qa"], true, ["test"]),
-  review: phaseMetadata([], ["review"], true, ["review"]),
-  ship: phaseMetadata([], ["verification"], true, ["test"]),
-  retro: phaseMetadata([], [], false),
-});
-const PHASE_INSTRUCTION_PATHS = Object.freeze({
-  intake: "skills/dev/steps/02-intake.md",
-  workspace: "skills/dev/steps/03-workspace.md",
-  readiness: "skills/dev/steps/04-groom-readiness.md",
-  implementation: "skills/dev/steps/05-implementation.md",
-  "design-critique": "skills/dev/steps/07-review.md",
-  qa: "skills/dev/steps/07-review.md",
-  review: "skills/dev/steps/07-review.md",
-  ship: "skills/dev/steps/08-ship.md",
-  retro: "skills/dev/steps/09-retro.md",
-});
-
-function phaseMetadata(requiredCapabilities, gates, requiresCommit, evidenceKinds = []) {
-  return Object.freeze({
-    required_capabilities: Object.freeze([...requiredCapabilities]),
-    gates: Object.freeze([...gates]),
-    requires_commit: requiresCommit,
-    required_evidence_kinds: Object.freeze([...evidenceKinds]),
-    allowed_modes: Object.freeze(["inline", "delegated", "headless"]),
-  });
+function resolvePhaseContract(session, options = {}) {
+  const pluginRoot = path.resolve(options.pluginRoot || path.join(__dirname, "..", ".."));
+  const steps = loadWorkflow("dev", path.join(session.source.repo_root, "pm"), pluginRoot);
+  const step = selectWorkflowStep(steps, { phase: session.phase });
+  if (!step) throw new Error(`no enabled Dev workflow step for phase ${session.phase}`);
+  const bundledRoot = path.join(pluginRoot, "skills", "dev", "steps") + path.sep;
+  const instructionPath = step.filePath.startsWith(bundledRoot)
+    ? path.relative(pluginRoot, step.filePath)
+    : step.filePath;
+  return {
+    instruction_path: instructionPath,
+    required_capabilities: [...step.requiredCapabilities],
+    gates: [...step.gates],
+    requires_commit: step.requiresCommit,
+    required_evidence_kinds: [...step.requiredEvidence],
+    allowed_modes:
+      step.allowedModes.length > 0 ? [...step.allowedModes] : ["inline", "delegated", "headless"],
+    requires: [...step.requires],
+    result_schema: step.resultSchema,
+  };
 }
 
 function issue(pathValue, message) {
@@ -143,6 +134,7 @@ function validateSession(session) {
   validateTask(session.task, errors);
   validateExecution(session.execution, errors);
   validateAuthority(session.authority, errors);
+  validateAuthorityLog(session.authority_log, errors);
   validateRouting(session.routing, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
@@ -261,7 +253,6 @@ function validateExecution(execution, errors) {
     "model",
     "reasoning",
     "mode",
-    "capabilities",
     "runtime_session_id",
   ]);
   validateExactFields(execution, fields, "$.execution", errors);
@@ -273,15 +264,6 @@ function validateExecution(execution, errors) {
   }
   if (!new Set(["inline", "delegated", "headless"]).has(execution.mode)) {
     errors.push(issue("$.execution.mode", "invalid execution mode"));
-  }
-  if (!isObject(execution.capabilities)) {
-    errors.push(issue("$.execution.capabilities", "must be an object"));
-  } else {
-    for (const [name, enabled] of Object.entries(execution.capabilities)) {
-      if (typeof enabled !== "boolean") {
-        errors.push(issue(`$.execution.capabilities.${name}`, "must be boolean"));
-      }
-    }
   }
   if (execution.runtime_session_id !== null && typeof execution.runtime_session_id !== "string") {
     errors.push(issue("$.execution.runtime_session_id", "must be null or a string"));
@@ -308,6 +290,32 @@ function validateAuthority(authority, errors) {
       errors.push(issue(`$.authority.${field}`, "must be boolean"));
     }
   }
+}
+
+function validateAuthorityLog(log, errors) {
+  if (!Array.isArray(log)) {
+    errors.push(issue("$.authority_log", "must be an array"));
+    return;
+  }
+  log.forEach((entry, index) => {
+    const entryPath = `$.authority_log[${index}]`;
+    if (!isObject(entry)) {
+      errors.push(issue(entryPath, "must be an object"));
+      return;
+    }
+    const fields = new Set(["actions", "reason", "granted_at"]);
+    validateExactFields(entry, fields, entryPath, errors);
+    for (const field of fields) requireField(entry, field, entryPath, errors);
+    if (!Array.isArray(entry.actions) || entry.actions.length === 0) {
+      errors.push(issue(`${entryPath}.actions`, "must be a non-empty array"));
+    }
+    if (typeof entry.reason !== "string" || !entry.reason.trim()) {
+      errors.push(issue(`${entryPath}.reason`, "must be a non-empty string"));
+    }
+    if (!isIsoDate(entry.granted_at)) {
+      errors.push(issue(`${entryPath}.granted_at`, "must be an ISO date"));
+    }
+  });
 }
 
 function validateRouting(routing, errors) {
@@ -389,7 +397,14 @@ function validateStateEvidence(evidence, errors) {
       errors.push(issue(evidencePath, "must be an object"));
       continue;
     }
-    const fields = new Set(["commit", "records", "recorded_at", "verified_commit", "verified_at"]);
+    const fields = new Set([
+      "commit",
+      "records",
+      "recorded_at",
+      "verified_commit",
+      "verified_at",
+      "verification_records",
+    ]);
     validateExactFields(evidenceSet, fields, evidencePath, errors);
     for (const field of ["commit", "records", "recorded_at"]) {
       requireField(evidenceSet, field, evidencePath, errors);
@@ -420,6 +435,18 @@ function validateStateEvidence(evidence, errors) {
       }
       if (!isIsoDate(evidenceSet.verified_at)) {
         errors.push(issue(`${evidencePath}.verified_at`, "must be an ISO date"));
+      }
+      if (
+        !Array.isArray(evidenceSet.verification_records) ||
+        evidenceSet.verification_records.length === 0
+      ) {
+        errors.push(
+          issue(`${evidencePath}.verification_records`, "must contain fresh passing evidence")
+        );
+      } else {
+        evidenceSet.verification_records.forEach((record, index) =>
+          validateEvidenceRecord(record, index, errors, `${evidencePath}.verification_records`)
+        );
       }
     }
   }
@@ -598,34 +625,27 @@ function validateResult(session, result, options = {}) {
   if (session.status !== "active")
     errors.push(issue("$.status", `session is ${session.status}, not active`));
 
-  const metadata = PHASE_METADATA[session.phase];
-  const applicableGates = metadata.gates.filter((gate) =>
-    session.routing.required_gates.includes(gate)
-  );
-  if (result.status === "noop" && (metadata.requires_commit || applicableGates.length > 0)) {
+  const metadata = resolvePhaseContract(session, options);
+  if (result.status === "noop") {
     errors.push(
-      issue(
-        "$.status",
-        `${session.phase} cannot use noop because it carries required work or gates`
-      )
+      issue("$.status", `${session.phase} cannot use noop; omit optional phases in routing`)
     );
   }
   if (result.status === "passed") {
     if (metadata?.requires_commit && !result.commit) {
       errors.push(issue("$.commit", `${session.phase} requires a commit`));
     }
-    const requiredEvidenceKinds =
-      applicableGates.length > 0 ? metadata.required_evidence_kinds : [];
+    const requiredEvidenceKinds = metadata.required_evidence_kinds;
     if (requiredEvidenceKinds.length > 0) {
       const records = Array.isArray(result.evidence) ? result.evidence : [];
-      const kindSatisfied = requiredEvidenceKinds.some((kind) =>
-        records.some((record) => record?.kind === kind && record.exit_code === 0)
+      const missingKinds = requiredEvidenceKinds.filter(
+        (kind) => !records.some((record) => record?.kind === kind && record.exit_code === 0)
       );
-      if (!kindSatisfied) {
+      if (missingKinds.length > 0) {
         errors.push(
           issue(
             "$.evidence",
-            `${session.phase} requires passing evidence: ${requiredEvidenceKinds.join(", ")}`
+            `${session.phase} requires passing evidence: ${missingKinds.join(", ")}`
           )
         );
       }
@@ -658,7 +678,9 @@ function validateCommit(session, commit, options, errors) {
 
 function defaultCommitReachable(session, commit) {
   try {
-    runGit(session.source.worktree, ["merge-base", "--is-ancestor", commit, session.source.branch]);
+    const currentBranch = runGit(session.source.worktree, ["branch", "--show-current"]);
+    if (currentBranch !== session.source.branch) return false;
+    runGit(session.source.worktree, ["merge-base", "--is-ancestor", commit, "HEAD"]);
     return true;
   } catch {
     return false;
@@ -666,7 +688,13 @@ function defaultCommitReachable(session, commit) {
 }
 
 function defaultBranchHead(session) {
-  return runGit(session.source.worktree, ["rev-parse", session.source.branch]);
+  const currentBranch = runGit(session.source.worktree, ["branch", "--show-current"]);
+  if (currentBranch !== session.source.branch) {
+    throw new Error(
+      `worktree branch drift: expected ${session.source.branch}, observed ${currentBranch || "detached"}`
+    );
+  }
+  return runGit(session.source.worktree, ["rev-parse", "HEAD"]);
 }
 
 function createSession(options) {
@@ -716,22 +744,17 @@ function createSession(options) {
       model: options.model || "inherit",
       reasoning: options.reasoning || "inherit",
       mode: options.mode || "inline",
-      capabilities: {
-        structured_output: false,
-        resume: false,
-        native_subagents: false,
-        background: false,
-      },
       runtime_session_id: null,
     },
     authority: {
       local_writes: true,
       commit: true,
-      push_feature_branch: true,
-      create_pr: true,
+      push_feature_branch: false,
+      create_pr: false,
       merge: false,
       tracker_updates: false,
     },
+    authority_log: [],
     routing: {
       required_phases: [...PHASES],
       required_gates: ["tdd", "review", "verification"],
@@ -787,10 +810,80 @@ function applyRouting(session, facts, options = {}) {
   return next;
 }
 
-function recertifyEvidence(session, phases, commit, options = {}) {
+function transitionWorkUnit(session, input, options = {}) {
+  assertValidSession(session);
+  if (session.status !== "active" || session.phase !== "implementation") {
+    throw new Error("work units can only transition during active implementation");
+  }
+  if (!isObject(input) || typeof input.id !== "string" || !input.id.trim()) {
+    throw new TypeError("work-unit transition requires an id");
+  }
+  const targetStatus = input.status;
+  if (!["pending", "running", "completed", "blocked", "failed"].includes(targetStatus)) {
+    throw new Error(`invalid work-unit target status: ${String(targetStatus)}`);
+  }
+  const next = structuredClone(session);
+  const unit = next.task.work_units.find((candidate) => candidate.id === input.id);
+  if (!unit) throw new Error(`unknown work unit: ${input.id}`);
+  const priorStatus = unit.status;
+  const allowed = {
+    pending: ["running"],
+    running: ["completed", "blocked", "failed"],
+    blocked: ["pending"],
+    failed: ["pending"],
+    completed: [],
+  };
+  if (!allowed[priorStatus].includes(targetStatus)) {
+    throw new Error(`invalid work-unit transition: ${priorStatus} -> ${targetStatus}`);
+  }
+
+  let result = null;
+  if (targetStatus === "running") {
+    const analysis = analyzeWorkUnits(next.task.work_units);
+    if (!analysis.runnable.some((candidate) => candidate.id === unit.id)) {
+      throw new Error(`work unit ${unit.id} is not dependency-ready and ownership-safe`);
+    }
+    unit.base_commit = runGit(session.source.worktree, ["rev-parse", "HEAD"]);
+  } else if (["completed", "blocked", "failed"].includes(targetStatus)) {
+    result = validateWorkUnitResult(input.result, {
+      expectedWorkUnitId: unit.id,
+      expectedOwnership: unit.owns,
+      worktree: session.source.worktree,
+      baseCommit: input.base_commit || unit.base_commit,
+    });
+    if (result.status !== targetStatus) {
+      throw new Error(
+        `work-unit result status mismatch: expected ${targetStatus}, received ${result.status}`
+      );
+    }
+  } else if (typeof input.reason !== "string" || !input.reason.trim()) {
+    throw new Error("retrying a blocked or failed work unit requires a reason");
+  }
+
+  const timestamp = options.now || new Date().toISOString();
+  unit.status = targetStatus;
+  unit.result = result ? structuredClone(result) : null;
+  unit.updated_at = timestamp;
+  unit.transitions = Array.isArray(unit.transitions) ? unit.transitions : [];
+  unit.transitions.push({
+    from: priorStatus,
+    to: targetStatus,
+    reason: input.reason?.trim() || result?.summary || "runner transition",
+    commit: result?.commit || null,
+    recorded_at: timestamp,
+  });
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function recertifyEvidence(session, phases, commit, verificationByPhase, options = {}) {
   assertValidSession(session);
   if (!Array.isArray(phases) || phases.length === 0) {
     throw new TypeError("recertification requires at least one evidence phase");
+  }
+  if (!isObject(verificationByPhase)) {
+    throw new TypeError("recertification requires fresh evidence grouped by phase");
   }
   const commitErrors = [];
   validateCommit(session, commit, options, commitErrors);
@@ -802,8 +895,29 @@ function recertifyEvidence(session, phases, commit, options = {}) {
     if (!PHASES.includes(phase)) throw new Error(`unknown evidence phase: ${phase}`);
     const evidence = next.evidence[phase];
     if (!evidence?.commit) throw new Error(`cannot recertify missing evidence for ${phase}`);
+    const records = verificationByPhase[phase];
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new Error(`recertification requires fresh evidence for ${phase}`);
+    }
+    const recordErrors = [];
+    records.forEach((record, index) =>
+      validateEvidenceRecord(record, index, recordErrors, `$.verification.${phase}`)
+    );
+    if (recordErrors.length > 0) {
+      throw validationError(`recertification evidence for ${phase} is invalid`, recordErrors);
+    }
+    if (records.some((record) => record.exit_code !== 0)) {
+      throw new Error(`recertification evidence for ${phase} must be passing`);
+    }
+    const originalKinds = new Set(evidence.records.map((record) => record.kind));
+    if (!records.some((record) => originalKinds.has(record.kind))) {
+      throw new Error(
+        `recertification evidence for ${phase} must recheck an original evidence kind`
+      );
+    }
     evidence.verified_commit = commit;
     evidence.verified_at = timestamp;
+    evidence.verification_records = structuredClone(records);
   }
   next.updated_at = timestamp;
   assertValidSession(next);
@@ -926,16 +1040,16 @@ function writeJsonAtomic(filePath, value) {
   }
 }
 
-function nextDecision(session, sessionPath = null) {
+function nextDecision(session, sessionPath = null, options = {}) {
   assertValidSession(session);
-  const metadata = PHASE_METADATA[session.phase];
+  const metadata = resolvePhaseContract(session, options);
   return {
     schema_version: 1,
     run_id: session.run_id,
     session_path: sessionPath ? path.resolve(sessionPath) : null,
     status: session.status,
     phase: session.phase,
-    instruction_path: PHASE_INSTRUCTION_PATHS[session.phase],
+    instruction_path: metadata.instruction_path,
     attempt: session.phase_attempt,
     required_capabilities: [...metadata.required_capabilities],
     applicable_gates: metadata.gates.filter((gate) =>
@@ -945,6 +1059,8 @@ function nextDecision(session, sessionPath = null) {
     requires_commit: metadata.requires_commit,
     input_paths: [session.task.reference, session.source.worktree].filter(Boolean),
     allowed_modes: session.status === "active" ? [...metadata.allowed_modes] : [],
+    requires: [...metadata.requires],
+    result_schema: metadata.result_schema,
   };
 }
 
@@ -958,7 +1074,7 @@ function promptMetadata(session, sessionPath) {
     session_path: path.resolve(sessionPath),
     decision,
     context_hooks: {
-      phase_instructions: PHASE_INSTRUCTION_PATHS[session.phase],
+      phase_instructions: decision.instruction_path,
       project_instructions: ["AGENTS.md", "CLAUDE.md"],
       result_schema: "skills/dev/references/dev-session.schema.json#/$defs/phase_result",
     },
@@ -1122,10 +1238,13 @@ function grantAuthority(session, actions, reason, options = {}) {
       throw new Error(`authority action is not externally grantable: ${action}`);
     next.authority[action] = true;
   }
-  next.routing.reasons.push(
-    `Authority grant (${[...new Set(actions)].join(", ")}): ${reason.trim()}`
-  );
-  next.updated_at = options.now || new Date().toISOString();
+  const grantedAt = options.now || new Date().toISOString();
+  next.authority_log.push({
+    actions: [...new Set(actions)],
+    reason: reason.trim(),
+    granted_at: grantedAt,
+  });
+  next.updated_at = grantedAt;
   assertValidSession(next);
   return next;
 }
@@ -1272,7 +1391,7 @@ function projectMarkdown(session) {
 module.exports = {
   MAX_PHASE_ATTEMPTS,
   PHASES,
-  PHASE_METADATA,
+  resolvePhaseContract,
   RUNNER_VERSION,
   applyRouting,
   createSession,
@@ -1291,6 +1410,7 @@ module.exports = {
   validateSession,
   validationError,
   updateWorkspace,
+  transitionWorkUnit,
   writeJsonAtomic,
   writeSession,
 };

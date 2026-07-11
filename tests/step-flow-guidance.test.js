@@ -145,7 +145,7 @@ test("dev steps declare Done-when and deterministic transitions", () => {
   for (const file of files) {
     const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
     assert.match(text, /^## Done-when/m, `${file} needs Done-when exit criteria`);
-    if (file !== "09-retro.md") {
+    if (file !== "10-retro.md") {
       assert.match(text, /\*\*Advance:\*\*/, `${file} needs an Advance directive`);
     } else {
       assert.match(text, /Offer the user/, "final retro step must offer the next action");

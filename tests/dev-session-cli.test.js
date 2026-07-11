@@ -50,7 +50,7 @@ test("init, status, next, prompt, validate, and project form a cold-process CLI"
     const decision = JSON.parse(next.stdout);
     assert.equal(decision.phase, "intake");
     assert.equal(decision.instruction_path, "skills/dev/steps/02-intake.md");
-    assert.deepEqual(decision.allowed_modes, ["inline", "delegated", "headless"]);
+    assert.deepEqual(decision.allowed_modes, ["inline"]);
     assert.ok(Array.isArray(decision.input_paths));
     assert.ok(Array.isArray(decision.required_capabilities));
 
@@ -105,7 +105,7 @@ test("record rejects mismatched results with exit 4 and preserves state", () => 
         summary: "Not this run",
         commit: null,
         files_changed: [],
-        evidence: [],
+        evidence: [{ kind: "intake", command: "fixture", exit_code: 0, artifact: null }],
         blocker: null,
         runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
       })
@@ -146,7 +146,7 @@ test("record is idempotent when a caller retries after the atomic write", () => 
         summary: "Intake complete",
         commit: null,
         files_changed: [],
-        evidence: [],
+        evidence: [{ kind: "intake", command: "fixture", exit_code: 0, artifact: null }],
         blocker: null,
         runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
       })
@@ -204,6 +204,116 @@ test("route records strict intake facts and emits the durable decision", () => {
   }
 });
 
+test("work-unit command owns pending, running, and completed transitions", () => {
+  const repo = makeRepo();
+  const resultPath = path.join(os.tmpdir(), `pm-work-unit-${process.pid}-${Date.now()}.json`);
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "work-unit-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const session = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.task.work_units = [
+      {
+        id: "unit-a",
+        title: "Unit A",
+        depends_on: [],
+        owns: ["README.md"],
+        status: "pending",
+      },
+    ];
+    fs.writeFileSync(initialized.session_path, JSON.stringify(session));
+
+    const running = repo.run([
+      "work-unit",
+      "--session",
+      initialized.session_path,
+      "--id",
+      "unit-a",
+      "--status",
+      "running",
+      "--json",
+    ]);
+    assert.equal(running.status, 0, running.stderr);
+    const baseCommit = JSON.parse(running.stdout).work_unit.base_commit;
+
+    fs.appendFileSync(path.join(repo.root, "README.md"), "unit\n");
+    execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+    execFileSync("git", ["commit", "-m", "unit"], { cwd: repo.root });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo.root,
+      encoding: "utf8",
+    }).trim();
+    fs.writeFileSync(
+      resultPath,
+      JSON.stringify({
+        schema_version: 1,
+        work_unit_id: "unit-a",
+        status: "completed",
+        summary: "Unit complete",
+        commit,
+        files_changed: 1,
+        evidence: [{ kind: "test", command: "node --test", exit_code: 0 }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test" },
+      })
+    );
+    const completed = repo.run([
+      "work-unit",
+      "--session",
+      initialized.session_path,
+      "--id",
+      "unit-a",
+      "--status",
+      "completed",
+      "--result",
+      resultPath,
+      "--base-commit",
+      baseCommit,
+      "--json",
+    ]);
+    assert.equal(completed.status, 0, completed.stderr);
+    assert.equal(JSON.parse(completed.stdout).work_unit.status, "completed");
+  } finally {
+    fs.rmSync(resultPath, { force: true });
+    repo.cleanup();
+  }
+});
+
+test("all mutating commands fail closed while a live session lock is held", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "locked-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const lockPath = `${initialized.session_path}.lock`;
+    fs.mkdirSync(lockPath);
+    fs.writeFileSync(
+      path.join(lockPath, "owner.json"),
+      JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() })
+    );
+    const authorized = repo.run([
+      "authorize",
+      "--session",
+      initialized.session_path,
+      "--grant",
+      "create_pr",
+      "--reason",
+      "test",
+    ]);
+    assert.equal(authorized.status, 3);
+    assert.match(authorized.stderr, /locked by process/);
+    assert.equal(
+      JSON.parse(fs.readFileSync(initialized.session_path, "utf8")).authority.create_pr,
+      false
+    );
+    fs.rmSync(lockPath, { recursive: true, force: true });
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("recertify updates existing gate evidence for the current HEAD", () => {
   const repo = makeRepo();
   try {
@@ -220,6 +330,13 @@ test("recertify updates existing gate evidence for the current HEAD", () => {
       recorded_at: new Date().toISOString(),
     };
     fs.writeFileSync(initialized.session_path, JSON.stringify(session));
+    const evidencePath = path.join(repo.root, "recertification.json");
+    fs.writeFileSync(
+      evidencePath,
+      JSON.stringify({
+        implementation: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+      })
+    );
     const result = repo.run([
       "recertify",
       "--session",
@@ -228,6 +345,8 @@ test("recertify updates existing gate evidence for the current HEAD", () => {
       "implementation",
       "--commit",
       session.evidence.implementation.commit,
+      "--evidence",
+      evidencePath,
       "--json",
     ]);
     assert.equal(result.status, 0, result.stderr);

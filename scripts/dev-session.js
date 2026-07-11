@@ -17,6 +17,7 @@ const {
   recertifyEvidence,
   recordResult,
   resumeBlocked,
+  transitionWorkUnit,
   validateResultEnvelope,
   validateSession,
   updateWorkspace,
@@ -56,6 +57,8 @@ function main(argv) {
       return authorizeCommand(options);
     case "workspace":
       return workspaceCommand(options);
+    case "work-unit":
+      return workUnitCommand(options);
     case "validate":
       return validateCommand(options);
     case "migrate":
@@ -123,10 +126,15 @@ function initCommand(options) {
     session.slug,
     "session.json"
   );
-  if (fs.existsSync(sessionPath)) {
-    throw cliError(`session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    if (fs.existsSync(sessionPath)) {
+      throw cliError(`session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+    }
+    writeSession(sessionPath, session);
+  } finally {
+    releaseLock();
   }
-  writeSession(sessionPath, session);
   emit(
     options,
     { session_path: sessionPath, session, next: nextDecision(session, sessionPath) },
@@ -176,7 +184,6 @@ function routeCommand(options) {
   requireOptions(options, ["session", "facts"]);
   const sessionPath = path.resolve(options.session);
   const factsPath = path.resolve(options.facts);
-  const session = readSession(sessionPath);
   let facts;
   try {
     facts = JSON.parse(fs.readFileSync(factsPath, "utf8"));
@@ -185,7 +192,7 @@ function routeCommand(options) {
   }
   let updated;
   try {
-    updated = applyRouting(session, facts);
+    updated = mutateSession(sessionPath, (session) => applyRouting(session, facts));
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
@@ -251,43 +258,80 @@ function recordCommand(options) {
 
 function acquireSessionLock(sessionPath) {
   const lockPath = `${sessionPath}.lock`;
+  const ownerPath = path.join(lockPath, "owner.json");
   function attempt() {
     try {
-      const descriptor = fs.openSync(lockPath, "wx", 0o600);
-      fs.writeFileSync(descriptor, `${process.pid}\n`);
-      fs.closeSync(descriptor);
+      fs.mkdirSync(path.dirname(sessionPath), { recursive: true, mode: 0o700 });
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      fs.writeFileSync(
+        ownerPath,
+        `${JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() })}\n`,
+        { mode: 0o600, flag: "wx" }
+      );
     } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const pid = Number.parseInt(fs.readFileSync(lockPath, "utf8"), 10);
-      try {
-        process.kill(pid, 0);
-        throw cliError(`session record is locked by process ${pid}`, EXIT.PRECONDITION);
-      } catch (probeError) {
-        if (probeError.exitCode) throw probeError;
-        fs.rmSync(lockPath, { force: true });
-        return attempt();
+      if (error.code !== "EEXIST") {
+        fs.rmSync(lockPath, { recursive: true, force: true });
+        throw error;
       }
+      let owner;
+      try {
+        owner = JSON.parse(fs.readFileSync(ownerPath, "utf8"));
+      } catch {
+        throw cliError("session is locked by an initializing process", EXIT.PRECONDITION);
+      }
+      if (!Number.isInteger(owner.pid) || owner.pid < 1) {
+        throw cliError("session lock has invalid owner metadata", EXIT.PRECONDITION);
+      }
+      try {
+        process.kill(owner.pid, 0);
+      } catch (probeError) {
+        if (probeError.code === "ESRCH") {
+          fs.rmSync(lockPath, { recursive: true, force: true });
+          return attempt();
+        }
+        throw probeError;
+      }
+      throw cliError(`session is locked by process ${owner.pid}`, EXIT.PRECONDITION);
     }
-    return () => fs.rmSync(lockPath, { force: true });
+    return () => fs.rmSync(lockPath, { recursive: true, force: true });
   }
   return attempt();
 }
 
+function mutateSession(sessionPath, mutation) {
+  const releaseLock = acquireSessionLock(sessionPath);
+  try {
+    const updated = mutation(readSession(sessionPath));
+    writeSession(sessionPath, updated);
+    return updated;
+  } finally {
+    releaseLock();
+  }
+}
+
 function recertifyCommand(options) {
-  requireOptions(options, ["session", "phases", "commit"]);
+  requireOptions(options, ["session", "phases", "commit", "evidence"]);
   const sessionPath = path.resolve(options.session);
-  const session = readSession(sessionPath);
+  let verification;
+  try {
+    verification = JSON.parse(fs.readFileSync(path.resolve(options.evidence), "utf8"));
+  } catch (error) {
+    throw cliError(
+      `cannot read recertification evidence ${options.evidence}: ${error.message}`,
+      EXIT.INVALID
+    );
+  }
   const phases = options.phases
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  let updated;
   try {
-    updated = recertifyEvidence(session, phases, options.commit);
+    mutateSession(sessionPath, (session) =>
+      recertifyEvidence(session, phases, options.commit, verification)
+    );
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
-  writeSession(sessionPath, updated);
   emit(
     options,
     { session_path: sessionPath, phases, commit: options.commit },
@@ -301,11 +345,10 @@ function unblockCommand(options) {
   const sessionPath = path.resolve(options.session);
   let updated;
   try {
-    updated = resumeBlocked(readSession(sessionPath), options.reason);
+    updated = mutateSession(sessionPath, (session) => resumeBlocked(session, options.reason));
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
-  writeSession(sessionPath, updated);
   emit(options, { session_path: sessionPath, session: updated }, `Resumed ${updated.phase}\n`);
   return EXIT.OK;
 }
@@ -319,11 +362,12 @@ function authorizeCommand(options) {
     .filter(Boolean);
   let updated;
   try {
-    updated = grantAuthority(readSession(sessionPath), actions, options.reason);
+    updated = mutateSession(sessionPath, (session) =>
+      grantAuthority(session, actions, options.reason)
+    );
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
-  writeSession(sessionPath, updated);
   emit(
     options,
     { session_path: sessionPath, authority: updated.authority },
@@ -337,16 +381,48 @@ function workspaceCommand(options) {
   const sessionPath = path.resolve(options.session);
   let updated;
   try {
-    updated = updateWorkspace(readSession(sessionPath), options.worktree);
+    updated = mutateSession(sessionPath, (session) => updateWorkspace(session, options.worktree));
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
-  writeSession(sessionPath, updated);
   emit(
     options,
     { session_path: sessionPath, source: updated.source },
     `${updated.source.worktree}\n`
   );
+  return EXIT.OK;
+}
+
+function workUnitCommand(options) {
+  requireOptions(options, ["session", "id", "status"]);
+  const sessionPath = path.resolve(options.session);
+  let result;
+  if (options.result) {
+    try {
+      result = JSON.parse(fs.readFileSync(path.resolve(options.result), "utf8"));
+    } catch (error) {
+      throw cliError(
+        `cannot read work-unit result ${options.result}: ${error.message}`,
+        EXIT.INVALID
+      );
+    }
+  }
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      transitionWorkUnit(session, {
+        id: options.id,
+        status: options.status,
+        result,
+        reason: options.reason,
+        base_commit: options.baseCommit,
+      })
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  const unit = updated.task.work_units.find((candidate) => candidate.id === options.id);
+  emit(options, { session_path: sessionPath, work_unit: unit }, `${unit.id}: ${unit.status}\n`);
   return EXIT.OK;
 }
 
@@ -373,10 +449,15 @@ function migrateCommand(options) {
     throw cliError(`legacy session does not exist: ${legacyPath}`, EXIT.PRECONDITION);
   }
   const migrated = migrateLegacyMarkdown(legacyPath, { output: options.output });
-  if (fs.existsSync(migrated.outputPath)) {
-    throw cliError(`session already exists: ${migrated.outputPath}`, EXIT.PRECONDITION);
+  const releaseLock = acquireSessionLock(migrated.outputPath);
+  try {
+    if (fs.existsSync(migrated.outputPath)) {
+      throw cliError(`session already exists: ${migrated.outputPath}`, EXIT.PRECONDITION);
+    }
+    writeSession(migrated.outputPath, migrated.session);
+  } finally {
+    releaseLock();
   }
-  writeSession(migrated.outputPath, migrated.session);
   emit(
     options,
     { session_path: migrated.outputPath, legacy_path: legacyPath, session: migrated.session },
@@ -464,10 +545,11 @@ function helpText() {
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--json]",
     "  record --session <path> --result <path> [--json]",
-    "  recertify --session <path> --phases <csv> --commit <sha> [--json]",
+    "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
     "  workspace --session <path> --worktree <path> [--json]",
+    "  work-unit --session <path> --id <id> --status <status> [--result <path>] [--reason <text>] [--base-commit <sha>] [--json]",
     "  validate --session <path> [--json]",
     "  migrate --legacy <path> [--output <path>] [--json]",
     "  project --session <path> [--output <path>] [--json]",

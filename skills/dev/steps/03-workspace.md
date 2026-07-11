@@ -6,6 +6,13 @@ phase: workspace
 requires:
   - execution-defaults.md
 gates: []
+required_capabilities:
+  - local_writes
+required_evidence:
+  - workspace
+requires_commit: false
+allowed_modes:
+  - inline
 result_schema: phase-result-v1
 ---
 

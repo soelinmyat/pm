@@ -194,7 +194,7 @@ Rules:
 - `passed` rows need an existing artifact path. State-file section anchors such as `.pm/dev-sessions/{slug}/session.json#review` are valid when the file exists. `skipped`, `failed`, and `blocked` rows need a concrete reason.
 - `tdd`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.
 - `design-critique` and `qa` skip reasons must describe no UI/user-visible impact (for example backend-only, docs-only, non-UI config-only, generated-only, pure refactor, or no visual impact). UI config, design-token/theme data, static HTML, and server-rendered templates are UI-impacting. Environment failures, auth failures, missing DBs, or servers that cannot start are `blocked`, not `skipped`.
-- Before final verification, run the final recertification pass in `skills/dev/steps/07-review.md`: rerun any gate whose relevant surface changed after its evidence commit, or write `verified_commit` / `verified_at` when the gate evidence still applies to final HEAD.
+- Before final verification, follow `skills/dev/steps/08-review.md`: rerun any gate whose relevant surface changed after its evidence commit, or provide fresh phase-keyed recertification evidence when the gate still applies to final HEAD.
 - Before any PM-mediated push, PR creation, or ship handoff, run:
   ```bash
   PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
@@ -310,7 +310,7 @@ Rules:
 - Task 2: reviews=2, CI runs=3, conflict commits=1, verdict=Merged
 - Task 3: verdict=Blocked (reason: missing API endpoint)
 
-Per-task agents handle QA/review/ship internally. This section aggregates key events extracted from each task's PR after the agent returns, so retro (Step 09) can learn from them. See Step 05 checkpoint for extraction logic.
+Per-task agents handle QA/review/ship internally. This section aggregates key events extracted from each task's PR after the agent returns, so retro (Step 10) can learn from them. See Step 05 checkpoint for extraction logic.
 
 ## Linear Context (if sourced from Linear)
 | Field | Value |

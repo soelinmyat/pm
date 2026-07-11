@@ -6,6 +6,11 @@ phase: readiness
 requires:
   - risk-routing.md
 gates: []
+required_evidence:
+  - rfc-readiness
+requires_commit: false
+allowed_modes:
+  - inline
 result_schema: phase-result-v1
 ---
 

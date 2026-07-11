@@ -40,6 +40,12 @@ function parseStepFile(filePath, filename) {
     phase: typeof data.phase === "string" && data.phase.trim() ? data.phase.trim() : null,
     requires: Array.isArray(data.requires) ? data.requires : [],
     gates: Array.isArray(data.gates) ? data.gates : [],
+    requiredCapabilities: Array.isArray(data.required_capabilities)
+      ? data.required_capabilities
+      : [],
+    requiredEvidence: Array.isArray(data.required_evidence) ? data.required_evidence : [],
+    allowedModes: Array.isArray(data.allowed_modes) ? data.allowed_modes : [],
+    requiresCommit: data.requires_commit === true,
     resultSchema:
       typeof data.result_schema === "string" && data.result_schema.trim()
         ? data.result_schema.trim()
@@ -178,6 +184,10 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       console.warn(`[step-loader] Could not read step file: ${filename}`);
       continue;
     }
+    const baseline =
+      isUserOverride && defaultFiles.has(filename)
+        ? parseStepFile(defaultFiles.get(filename), filename)
+        : null;
 
     // Resolve @persona references in body
     const resolvedBody = resolvePersonaRefs(parsed.body, userPersonaDir, defaultPersonaDir);
@@ -193,10 +203,22 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       order: parsed.order,
       description: parsed.description,
       appliesTo: parsed.appliesTo,
-      phase: parsed.phase,
-      requires: parsed.requires,
-      gates: parsed.gates,
-      resultSchema: parsed.resultSchema,
+      phase: parsed.phase || baseline?.phase || null,
+      requires: parsed.requires.length > 0 ? parsed.requires : baseline?.requires || [],
+      gates: parsed.gates.length > 0 ? parsed.gates : baseline?.gates || [],
+      requiredCapabilities:
+        parsed.requiredCapabilities.length > 0
+          ? parsed.requiredCapabilities
+          : baseline?.requiredCapabilities || [],
+      requiredEvidence:
+        parsed.requiredEvidence.length > 0
+          ? parsed.requiredEvidence
+          : baseline?.requiredEvidence || [],
+      allowedModes:
+        parsed.allowedModes.length > 0 ? parsed.allowedModes : baseline?.allowedModes || [],
+      requiresCommit: parsed.requiresCommit || baseline?.requiresCommit || false,
+      resultSchema: parsed.resultSchema || baseline?.resultSchema || null,
+      filePath,
       body: resolvedBody,
       enabled,
       source: isUserOverride ? "user" : "default",

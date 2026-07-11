@@ -30,15 +30,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 8 step files exist and load (06-simplify absorbed into review, v1.9)
+// AC 1: All 10 phase-local step files exist and load.
 // ---------------------------------------------------------------------------
 
-test("dev steps: all 8 step files load with correct order", () => {
+test("dev steps: all 10 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 8, `Expected 8 steps, got ${steps.length}`);
+    assert.equal(steps.length, 10, `Expected 10 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -202,12 +202,12 @@ test("dev steps: Stage 0.7 content folded into 01-tool-check", () => {
   }
 });
 
-test("dev steps: Stage 6 (Worktree Cleanup) folded into 08-ship", () => {
+test("dev steps: worktree cleanup remains in the phase-local Ship step", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("dev", pmDir, PLUGIN_ROOT);
-    const ship = steps.find((s) => s.order === 8);
-    assert.ok(ship, "Step with order 8 should exist");
+    const ship = steps.find((s) => s.phase === "ship");
+    assert.ok(ship, "Ship phase should exist");
     assert.ok(
       ship.body.includes("git worktree remove") || ship.body.includes("Worktree Cleanup"),
       "Ship step should contain worktree cleanup content"

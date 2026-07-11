@@ -31,7 +31,7 @@ test("M+ proposal readiness remains routed before implementation", () => {
 
 test("step contracts consume executable routing rather than kind-wins prose", () => {
   const intake = fs.readFileSync(path.join(STEP_DIR, "02-intake.md"), "utf8");
-  const review = fs.readFileSync(path.join(STEP_DIR, "07-review.md"), "utf8");
+  const review = fs.readFileSync(path.join(STEP_DIR, "08-review.md"), "utf8");
   assert.match(intake, /Kind affects readiness inputs, not safety gates/);
   assert.match(review, /session\.routing\.review_mode/);
   assert.match(review, /do not recompute it from kind or size/);

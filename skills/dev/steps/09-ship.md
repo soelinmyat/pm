@@ -1,6 +1,6 @@
 ---
 name: Ship
-order: 8
+order: 9
 description: Push branch, create PR, merge via merge-loop, clean up worktrees, update status
 phase: ship
 requires:
@@ -8,6 +8,12 @@ requires:
 gates:
   - review
   - verification
+required_evidence:
+  - delivery
+requires_commit: true
+allowed_modes:
+  - inline
+  - headless
 result_schema: phase-result-v1
 ---
 
@@ -204,4 +210,4 @@ Ship is done only when the PR is confirmed **MERGED** (verify PR state — not j
 
 The root has verified the merged PR, preserved or safely cleaned worktrees, and completed authorized local/tracker updates.
 
-**Advance:** proceed to Step 09 (Retro).
+**Advance:** record the verified delivery result and proceed to Step 10 (Retro).

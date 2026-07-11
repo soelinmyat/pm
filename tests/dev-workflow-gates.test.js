@@ -21,21 +21,24 @@ test("PM-native design critique is in the plugin inventory", () => {
   assert.ok(fs.existsSync(path.join(repoRoot, "skills", "design-critique", "SKILL.md")));
 });
 
-test("dev review step requires PM-native design critique rather than external skill availability", () => {
-  const text = read("skills/dev/steps/07-review.md");
+test("phase-local design critique requires the PM-native skill", () => {
+  const text = read("skills/dev/steps/06-design-critique.md");
   assert.match(text, /pm:design-critique/);
-  assert.match(text, /do not depend on an external/);
-  assert.match(text, /Skill not available\. PM owns `pm:design-critique`/);
-  assert.doesNotMatch(text, /Design critique: skipped \(skill not available\)/);
+  assert.match(text, /skill invocation is the gate/i);
+  assert.doesNotMatch(text, /skipped \(skill not available\)/i);
 });
 
-test("dev review step records gate sidecar rows and runs the checker", () => {
-  const text = read("skills/dev/steps/07-review.md");
-  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+test("separate quality phases record gate evidence and run the checker", () => {
+  const text = [
+    read("skills/dev/steps/06-design-critique.md"),
+    read("skills/dev/steps/07-qa.md"),
+    read("skills/dev/steps/08-review.md"),
+  ].join("\n");
+  assert.match(text, /gate manifest/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
-  assert.match(text, /--require design-critique/);
-  assert.match(text, /--require review/);
-  assert.match(text, /verification: passed/);
+  assert.match(text, /design-critique: passed/);
+  assert.match(text, /qa: passed/);
+  assert.match(text, /review` and `verification` rows/);
 });
 
 test("review absorbed the simplify lenses (v1.9)", () => {
@@ -77,11 +80,9 @@ test("design critique step examples use the full sidecar schema", () => {
   assert.match(scope, /UI config files such as `tailwind\.config\.\*`/);
   assert.match(scope, /design-token\/theme data such as `tokens\/\*\.json`/);
   assert.match(scope, /non-UI config-only/);
-  const devReview = read("skills/dev/steps/07-review.md");
-  assert.match(devReview, /static HTML such as `public\/index\.html`/);
-  assert.match(devReview, /server-rendered templates such as `templates\/base\.html`/);
-  assert.match(devReview, /UI config such as `tailwind\.config\.\*`/);
-  assert.match(devReview, /design-token\/theme data/);
+  const devDesign = read("skills/dev/steps/06-design-critique.md");
+  assert.match(devDesign, /design-critique-capture-guide\.md/);
+  assert.match(devDesign, /viewport/);
   assert.match(
     critique,
     /preserve any existing `tdd`, `simplify`, `qa`, `review`, or `verification` rows/
@@ -113,7 +114,7 @@ test("review treats PM plugin Markdown runtime files as reviewable source", () =
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
   const risk = read("skills/dev/references/risk-routing.md");
-  const review = read("skills/dev/steps/07-review.md");
+  const review = read("skills/dev/steps/08-review.md");
   assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
   assert.match(review, /routing\.review_mode: code-scan/);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
@@ -155,12 +156,10 @@ test("runtime policy lives in data and adapters rather than provider-specific wo
   assert.match(runtime, /Broad modes .* require `PM_DEV_ALLOW_BROAD_PERMISSIONS=1`/);
 });
 
-test("dev review step blocks QA environment failures instead of skipping them", () => {
-  const text = read("skills/dev/steps/07-review.md");
-  assert.match(text, /Dev servers can't start, auth is unavailable/);
-  assert.match(text, /record `qa: blocked`/);
-  assert.match(text, /A broken QA environment is not a passing ship gate/);
-  assert.match(text, /no `skipped` row for environment, server, DB, auth, or seed failures/);
+test("phase-local QA blocks environment failures instead of skipping them", () => {
+  const text = read("skills/dev/steps/07-qa.md");
+  assert.match(text, /unavailable app, auth flow, database, seed, or required service/i);
+  assert.match(text, /`blocked`, never `passed` or `skipped`/);
 });
 
 test("state schema treats simplify as tolerated legacy, not a required gate", () => {
@@ -173,9 +172,9 @@ test("state schema treats simplify as tolerated legacy, not a required gate", ()
 });
 
 test("dev QA gate dispatch points workers at the QA reference, not a missing skill", () => {
-  const reviewStep = read("skills/dev/steps/07-review.md");
+  const reviewStep = read("skills/dev/steps/07-qa.md");
   const qaReference = read("skills/dev/references/qa.md");
-  assert.match(reviewStep, /skills\/dev\/references\/qa\.md/);
+  assert.match(reviewStep, /- qa\.md/);
   assert.doesNotMatch(reviewStep, /Follow the pm:qa skill/);
   assert.match(qaReference, /does not install a standalone `pm:qa` command or skill/);
   assert.match(qaReference, /Manual reference mode/);
@@ -183,14 +182,13 @@ test("dev QA gate dispatch points workers at the QA reference, not a missing ski
   assert.doesNotMatch(qaReference, /Invoked as pm:qa skill/);
 });
 
-test("dev review step defines final gate recertification before the full checker", () => {
-  const text = read("skills/dev/steps/07-review.md");
-  const recertIndex = text.indexOf("### Final gate recertification");
-  const checkerIndex = text.indexOf("Before handing off to ship, run the shared checker");
+test("phase-local review requires evidenced recertification before the full checker", () => {
+  const text = read("skills/dev/steps/08-review.md");
+  const recertIndex = text.indexOf("dev-session recertify --evidence");
+  const checkerIndex = text.indexOf("scripts/dev-gate-check.js");
   assert.ok(recertIndex > -1, "recertification section must exist");
   assert.ok(checkerIndex > recertIndex, "full checker must run after recertification");
-  assert.match(text, /verified_commit/);
-  assert.match(text, /verified_at/);
+  assert.match(text, /bare commit or timestamp is never sufficient/);
   assert.match(text, /rerun the gate instead of recertifying/);
 });
 
@@ -198,7 +196,8 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   const text = read("skills/dev/references/implementation-flow.md");
   const block = text.match(/### Push and create PR[\s\S]*?```bash\n([\s\S]*?)```/);
   assert.ok(block, "implementation flow must include a push/create command block");
-  assert.match(text, /final recertification pass/);
+  assert.match(text, /08-review\.md/);
+  assert.match(text, /fresh phase-keyed evidence/);
   const checkerIndex = block[1].indexOf("scripts/dev-gate-check.js");
   const pushIndex = block[1].indexOf("git push origin {BRANCH}");
   const prIndex = block[1].indexOf("gh pr create");

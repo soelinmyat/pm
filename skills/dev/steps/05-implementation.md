@@ -10,6 +10,15 @@ requires:
   - subagent-dev.md
 gates:
   - tdd
+required_capabilities:
+  - local_writes
+required_evidence:
+  - test
+requires_commit: true
+allowed_modes:
+  - inline
+  - delegated
+  - headless
 result_schema: phase-result-v1
 ---
 
@@ -37,4 +46,4 @@ Read `multi-task-dispatch.md` only when more than one validated work unit exists
 - Accepted commits are reachable from the current worktree HEAD and required tests pass after integration.
 - The implementation phase result validates and has been recorded by the runner.
 
-**Advance:** proceed to Step 07 (Review) for routed quality gates.
+**Advance:** record the result and proceed to Step 06 (Design Critique), or the next routed quality phase selected by the runner.

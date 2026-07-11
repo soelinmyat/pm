@@ -17,6 +17,7 @@ const {
   recertifyEvidence,
   recordResult,
   resumeBlocked,
+  transitionWorkUnit,
   updateWorkspace,
   validateResult,
   validateSession,
@@ -67,6 +68,61 @@ test("applyRouting rejects invalid work-unit dependencies before persisting inta
   }
 });
 
+test("runner-owned work-unit transitions persist execution state and accepted commits", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "work-unit-ledger", sourceDir: repo.root });
+    session = applyRouting(session, {
+      kind: "task",
+      size: "S",
+      risk: {},
+      work_units: [
+        {
+          id: "unit-a",
+          title: "Implement A",
+          depends_on: [],
+          owns: ["README.md"],
+          status: "pending",
+        },
+      ],
+    });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session = transitionWorkUnit(session, { id: "unit-a", status: "running" });
+    assert.equal(session.task.work_units[0].status, "running");
+    assert.equal(session.task.work_units[0].base_commit, repo.head());
+
+    fs.appendFileSync(path.join(repo.root, "README.md"), "implemented\n");
+    execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+    execFileSync("git", ["commit", "-m", "implement unit"], { cwd: repo.root });
+    session = transitionWorkUnit(session, {
+      id: "unit-a",
+      status: "completed",
+      result: {
+        schema_version: 1,
+        work_unit_id: "unit-a",
+        status: "completed",
+        summary: "Implemented A",
+        commit: repo.head(),
+        files_changed: 1,
+        evidence: [{ kind: "test", command: "node --test", exit_code: 0 }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test" },
+      },
+    });
+    assert.equal(session.task.work_units[0].status, "completed");
+    assert.equal(session.task.work_units[0].result.commit, repo.head());
+    assert.equal(session.task.work_units[0].transitions.length, 2);
+    assert.deepEqual(validateSession(session), []);
+    assert.throws(
+      () => transitionWorkUnit(session, { id: "unit-a", status: "running" }),
+      /invalid work-unit transition/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("recertified gate evidence remains current after review fixes change HEAD", () => {
   const repo = makeRepo();
   try {
@@ -86,9 +142,12 @@ test("recertified gate evidence remains current after review fixes change HEAD",
     execFileSync("git", ["add", "README.md"], { cwd: repo.root });
     execFileSync("git", ["commit", "-m", "review fix"], { cwd: repo.root });
     const finalHead = repo.head();
-    session = recertifyEvidence(session, ["implementation"], finalHead);
+    session = recertifyEvidence(session, ["implementation"], finalHead, {
+      implementation: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+    });
     assert.equal(session.evidence.implementation.commit, original);
     assert.equal(session.evidence.implementation.verified_commit, finalHead);
+    assert.equal(session.evidence.implementation.verification_records[0].kind, "test");
     session = recordResult(session, passedResult(session));
     assert.equal(session.status, "complete");
   } finally {
@@ -117,8 +176,38 @@ test("failed gate evidence cannot be advanced or recertified through noop", () =
       /cannot use noop/
     );
     assert.throws(
-      () => recertifyEvidence(session, ["implementation"], repo.head()),
+      () => recertifyEvidence(session, ["implementation"], repo.head(), { implementation: [] }),
       /missing evidence/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("recertification rejects a bare commit or unrelated evidence kind", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "recertify-proof", sourceDir: repo.root });
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.routing.required_gates = ["tdd"];
+    session = recordResult(
+      session,
+      passedResult(session, {
+        commit: repo.head(),
+        evidence: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+      })
+    );
+    assert.throws(
+      () => recertifyEvidence(session, ["implementation"], repo.head()),
+      /fresh evidence grouped by phase/
+    );
+    assert.throws(
+      () =>
+        recertifyEvidence(session, ["implementation"], repo.head(), {
+          implementation: [{ kind: "review", command: "review", exit_code: 0, artifact: null }],
+        }),
+      /original evidence kind/
     );
   } finally {
     repo.cleanup();
@@ -150,15 +239,37 @@ test("external authority requires an explicit recorded grant", () => {
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "authority", sourceDir: repo.root });
+    assert.equal(session.authority.push_feature_branch, false);
+    assert.equal(session.authority.create_pr, false);
     const granted = grantAuthority(session, ["merge", "tracker_updates"], "User asked to ship");
     assert.equal(granted.authority.merge, true);
     assert.equal(granted.authority.tracker_updates, true);
-    assert.match(granted.routing.reasons.at(-1), /User asked to ship/);
+    assert.deepEqual(granted.authority_log[0].actions, ["merge", "tracker_updates"]);
+    assert.equal(granted.authority_log[0].reason, "User asked to ship");
+    assert.ok(Date.parse(granted.authority_log[0].granted_at));
+    assert.deepEqual(granted.routing.reasons, session.routing.reasons);
     assert.equal(session.authority.merge, false);
     assert.throws(
       () => grantAuthority(session, ["local_writes"], "expand"),
       /not externally grantable/
     );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("mandatory routed phases cannot advance through noop", () => {
+  const repo = makeRepo();
+  try {
+    for (const phase of ["intake", "workspace", "readiness"]) {
+      const session = createSession({ slug: `no-noop-${phase}`, sourceDir: repo.root });
+      session.phase = phase;
+      session.routing.required_phases = [phase, "retro"];
+      assert.throws(
+        () => recordResult(session, passedResult(session, { status: "noop" })),
+        /cannot use noop/
+      );
+    }
   } finally {
     repo.cleanup();
   }
@@ -201,6 +312,17 @@ function makeRepo() {
 }
 
 function passedResult(session, overrides = {}) {
+  const defaultEvidenceKind = {
+    intake: "intake",
+    workspace: "workspace",
+    readiness: "rfc-readiness",
+    implementation: "test",
+    "design-critique": "review",
+    qa: "test",
+    review: "review",
+    ship: "delivery",
+    retro: "retro",
+  }[session.phase];
   return {
     schema_version: 1,
     run_id: session.run_id,
@@ -210,7 +332,9 @@ function passedResult(session, overrides = {}) {
     summary: `Completed ${session.phase}`,
     commit: null,
     files_changed: [],
-    evidence: [],
+    evidence: defaultEvidenceKind
+      ? [{ kind: defaultEvidenceKind, command: "fixture", exit_code: 0, artifact: null }]
+      : [],
     blocker: null,
     runtime: {
       provider: "inline",
@@ -299,7 +423,7 @@ test("a mismatched or evidence-free required result cannot advance", () => {
     assert.ok(validateResult(session, mismatch).some((error) => /run_id/.test(error.message)));
 
     session.phase = "implementation";
-    const noEvidence = passedResult(session, { commit: repo.head() });
+    const noEvidence = passedResult(session, { commit: repo.head(), evidence: [] });
     assert.ok(validateResult(session, noEvidence).some((error) => /evidence/.test(error.message)));
     assert.throws(() => recordResult(session, noEvidence), /result is invalid/);
     assert.equal(session.phase, "implementation");
@@ -444,6 +568,23 @@ test("commit-bearing evidence must match the current reachable branch head", () 
     });
     const errors = validateResult(session, result);
     assert.ok(errors.some((error) => /stale/.test(error.message)));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("commit evidence rejects an assigned worktree switched to another branch", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "branch-drift", sourceDir: repo.root });
+    session.phase = "implementation";
+    execFileSync("git", ["switch", "-c", "other"], { cwd: repo.root });
+    const result = passedResult(session, {
+      commit: repo.head(),
+      evidence: [{ kind: "test", command: "node --test", exit_code: 0, artifact: null }],
+    });
+    const errors = validateResult(session, result);
+    assert.ok(errors.some((error) => /reachable|branch drift/.test(error.message)));
   } finally {
     repo.cleanup();
   }

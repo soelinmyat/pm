@@ -269,3 +269,65 @@ test("validateWorkUnitResult: verifies completed commit HEAD, file count, and ow
     fs.rmSync(worktree, { recursive: true, force: true });
   }
 });
+
+test("validateWorkUnitResult checks the full assigned commit range and a clean worktree", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-range-"));
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", worktree, "config", "user.name", "Test"]);
+    fs.writeFileSync(path.join(worktree, "base.txt"), "base\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "base"]);
+    const baseCommit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    fs.mkdirSync(path.join(worktree, "src"));
+    fs.writeFileSync(path.join(worktree, "src", "a.js"), "a\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "owned"]);
+    fs.writeFileSync(path.join(worktree, "escape.txt"), "escape\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "escape"]);
+    const commit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const result = {
+      schema_version: 1,
+      work_unit_id: "range",
+      status: "completed",
+      summary: "Done",
+      commit,
+      files_changed: 2,
+      evidence: [{ kind: "test", exit_code: 0 }],
+      blocker: null,
+      runtime: { provider: "inline" },
+    };
+    assert.throws(
+      () =>
+        validateWorkUnitResult(result, {
+          expectedOwnership: ["src/**/*.js"],
+          worktree,
+          baseCommit,
+        }),
+      /outside assigned ownership: escape\.txt/
+    );
+    fs.writeFileSync(path.join(worktree, "dirty.txt"), "dirty\n");
+    assert.throws(
+      () =>
+        validateWorkUnitResult(result, {
+          expectedOwnership: ["**"],
+          worktree,
+          baseCommit,
+        }),
+      /worktree is dirty/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+test("ownership globstar matches both zero-depth and nested paths", () => {
+  assert.equal(ownershipOverlaps(["src/**/*.js"], ["src/a.js"]), true);
+  assert.equal(ownershipOverlaps(["src/**/*.js"], ["src/nested/a.js"]), true);
+});

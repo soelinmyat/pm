@@ -3,6 +3,17 @@
 const { execFileSync } = require("node:child_process");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
+const WORK_UNIT_FIELDS = new Set([
+  "id",
+  "title",
+  "depends_on",
+  "owns",
+  "status",
+  "result",
+  "base_commit",
+  "transitions",
+  "updated_at",
+]);
 const RESULT_STATUSES = new Set(["completed", "blocked", "failed"]);
 const RESULT_FIELDS = new Set([
   "schema_version",
@@ -23,6 +34,11 @@ function validateWorkUnits(units) {
 
   for (const item of units) {
     if (!isObject(item)) throw new TypeError("each work unit must be an object");
+    for (const field of Object.keys(item)) {
+      if (!WORK_UNIT_FIELDS.has(field)) {
+        throw new Error(`work unit ${item.id || "(unknown)"} has unknown field: ${field}`);
+      }
+    }
     if (!nonEmpty(item.id)) throw new TypeError("work unit id is required");
     if (byId.has(item.id)) throw new Error(`duplicate work unit id: ${item.id}`);
     if (!nonEmpty(item.title)) throw new TypeError(`work unit ${item.id} title is required`);
@@ -34,6 +50,15 @@ function validateWorkUnits(units) {
     }
     if (!VALID_STATUSES.has(item.status)) {
       throw new Error(`work unit ${item.id} has invalid status: ${String(item.status)}`);
+    }
+    if (item.result !== undefined && item.result !== null && !isObject(item.result)) {
+      throw new TypeError(`work unit ${item.id} result must be null or an object`);
+    }
+    if (item.transitions !== undefined && !Array.isArray(item.transitions)) {
+      throw new TypeError(`work unit ${item.id} transitions must be an array`);
+    }
+    if (item.updated_at !== undefined && item.updated_at !== null && !nonEmpty(item.updated_at)) {
+      throw new TypeError(`work unit ${item.id} updated_at must be null or a non-empty string`);
     }
     for (const ownership of item.owns) {
       if (!nonEmpty(ownership)) throw new TypeError(`work unit ${item.id} has empty ownership`);
@@ -218,16 +243,22 @@ function validateCompletedCommit(result, options) {
   let changedPaths;
   try {
     head = runGit(worktree, ["rev-parse", "HEAD"]);
-    changedPaths = runGit(worktree, [
-      "diff-tree",
-      "--root",
-      "--no-commit-id",
-      "--name-only",
-      "-r",
-      result.commit,
-    ])
-      .split("\n")
-      .filter(Boolean);
+    const dirty = runGit(worktree, [
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "--",
+      ".",
+      ":(exclude).pm/**",
+    ]);
+    if (dirty) throw new Error(`assigned worktree is dirty: ${dirty.split("\n")[0]}`);
+    if (options.baseCommit) {
+      runGit(worktree, ["merge-base", "--is-ancestor", options.baseCommit, result.commit]);
+    }
+    const diffArgs = options.baseCommit
+      ? ["diff", "--name-only", `${options.baseCommit}..${result.commit}`]
+      : ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", result.commit];
+    changedPaths = runGit(worktree, diffArgs).split("\n").filter(Boolean);
   } catch (error) {
     throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
   }
@@ -327,8 +358,13 @@ function globMatches(pattern, value) {
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
     if (char === "*" && pattern[index + 1] === "*") {
-      expression += ".*";
-      index += 1;
+      if (pattern[index + 2] === "/") {
+        expression += "(?:.*/)?";
+        index += 2;
+      } else {
+        expression += ".*";
+        index += 1;
+      }
     } else if (char === "*") expression += "[^/]*";
     else if (char === "?") expression += "[^/]";
     else expression += char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
