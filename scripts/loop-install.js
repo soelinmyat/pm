@@ -24,6 +24,7 @@ const {
 } = require("./loop-config.js");
 const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
+const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
 
 function projectSlug(projectDir) {
@@ -163,10 +164,17 @@ function writeKillSwitchFile(pmDir, stopped) {
   const stopPath = killSwitchFilePath(pmDir);
   if (stopped) {
     fs.mkdirSync(path.dirname(stopPath), { recursive: true });
-    fs.writeFileSync(
-      stopPath,
-      "Loop workers halt while this file exists. Commit and push to stop every machine.\n"
-    );
+    const tempPath = `${stopPath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(
+        tempPath,
+        "Loop workers halt while this file exists. Commit and push to stop every machine.\n",
+        { mode: 0o600 }
+      );
+      fs.renameSync(tempPath, stopPath);
+    } finally {
+      fs.rmSync(tempPath, { force: true });
+    }
   } else if (fs.existsSync(stopPath)) {
     fs.rmSync(stopPath);
   }
@@ -212,6 +220,18 @@ function buildInstallExposure(config) {
 
 function releaseGateFor(paths, config, options = {}) {
   return evaluateCurrentCanaryReleaseGate(paths.pmStateDir, config, options);
+}
+
+function loadReleaseGateState(paths, options = {}) {
+  const snapshot = options.snapshot || withRemoteSnapshot;
+  return snapshot(paths.pmDir, (remote) => {
+    const config = (options.loadTrustedConfig || loadTrustedLoopConfig)(
+      remote.pmDir,
+      paths.pmStateDir
+    );
+    const releaseGate = (options.releaseGate || releaseGateFor)(paths, config, options);
+    return { config, releaseGate };
+  });
 }
 
 function installPaths(projectDir, pmDir = "") {
@@ -334,7 +354,14 @@ function resumeScheduler(pmDir, config, options = {}) {
   const writeError = options.writeError || ((text) => process.stderr.write(text));
   const setStop = options.setStop || setKillSwitch;
   writeError(`${formatConfigExposure(exposure)}\n`);
-  return { ...setStop(pmDir, false), exposure };
+  const result = setStop(pmDir, false);
+  if (result.pushed !== true) {
+    writeKillSwitchFile(pmDir, true);
+    throw new Error(
+      `resume was not durably pushed; local STOP restored${result.error ? `: ${result.error}` : ""}`
+    );
+  }
+  return { ...result, exposure };
 }
 
 function main() {
@@ -350,8 +377,9 @@ function main() {
 
     let config = loadLoopConfig(paths.pmDir);
     if (args.resume || args.install) {
-      config = loadTrustedLoopConfig(paths.pmDir, paths.pmStateDir);
-      const releaseGate = releaseGateFor(paths, config);
+      const trusted = loadReleaseGateState(paths);
+      config = trusted.config;
+      const releaseGate = trusted.releaseGate;
       if (!releaseGate.passed) {
         throw new Error(
           `scheduler remains ${args.resume ? "paused" : "uninstalled"} until canary evidence passes: ${releaseGate.reason}`
@@ -391,6 +419,7 @@ module.exports = {
   installPaths,
   installCron,
   launchdLabel,
+  loadReleaseGateState,
   parseArgs,
   plistInstallPath,
   projectSlug,

@@ -54,6 +54,16 @@ test("finalized event scans fail closed at the configured bound", (t) => {
   assert.throws(() => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }), /event scan limit/i);
 });
 
+test("finalized event scans reject oversized JSON evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-event-size-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  const runId = "loop-72345678-1234-4123-8123-123456789abc";
+  fs.writeFileSync(path.join(eventDir, `${runId}.json`), "x".repeat(512 * 1024 + 1));
+  assert.throws(() => scanSnapshotFinalizedEvents(root), /exceeds 524288 bytes/i);
+});
+
 test("finalized event scan bounds include lease evidence", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-lease-bound-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

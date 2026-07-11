@@ -18,8 +18,10 @@ const {
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 
 const RUN_ID_PATTERN = /^loop-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const MAX_EVIDENCE_JSON_BYTES = 512 * 1024;
 
 class TransactionAbort extends Error {
   constructor(reason, message, details = {}) {
@@ -106,17 +108,14 @@ function requireRealDirectoryIfExists(dirPath, label) {
 }
 
 function readJsonNoFollow(filePath) {
-  const before = fs.lstatSync(filePath);
-  if (before.isSymbolicLink() || !before.isFile()) {
-    throw new Error(`JSON evidence is not a real file: ${filePath}`);
-  }
-  let fd = null;
+  const read = readBoundedRegularFile(filePath, MAX_EVIDENCE_JSON_BYTES, "JSON evidence", {
+    requirePrivate: false,
+  });
+  if (!read.ok) throw new Error(`${read.reason}: ${filePath}`);
   try {
-    fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    if (!fs.fstatSync(fd).isFile()) throw new Error(`JSON evidence is not a file: ${filePath}`);
-    return JSON.parse(fs.readFileSync(fd, "utf8"));
-  } finally {
-    if (fd !== null) fs.closeSync(fd);
+    return JSON.parse(read.content.toString("utf8"));
+  } catch (error) {
+    throw new Error(`invalid JSON evidence at ${filePath}: ${error.message}`);
   }
 }
 

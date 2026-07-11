@@ -23,7 +23,7 @@ test("lease TTL covers the complete bounded claim-to-final-push envelope", () =>
   const envelope = claimEnvelopeSeconds(config, "dev");
   const margin = config.claim_envelope.scheduler_overlap_margin_seconds;
 
-  assert.equal(envelope, 6270);
+  assert.equal(envelope, 6810);
   assert.ok(config.budgets.lease_ttl_seconds > envelope + margin);
   assert.equal(config.budgets.lease_ttl_seconds, 7200);
   assert.equal("lease_ttl_minutes" in config.budgets, false);
@@ -33,9 +33,9 @@ test("loop config rejects unsafe TTLs and unbounded post-claim phases", () => {
   assert.throws(
     () =>
       normalizeLoopConfig({
-        budgets: { lease_ttl_seconds: 6570 },
+        budgets: { lease_ttl_seconds: 7110 },
       }),
-    /lease_ttl_seconds \(6570\) must be greater than claim envelope \(6270\).*margin \(300\)/
+    /lease_ttl_seconds \(7110\) must be greater than claim envelope \(6810\).*margin \(300\)/
   );
 
   for (const field of [

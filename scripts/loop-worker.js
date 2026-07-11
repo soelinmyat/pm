@@ -116,7 +116,23 @@ function readLedgers(runsDir) {
   for (const entry of fs.readdirSync(runsDir)) {
     if (!entry.endsWith(".json")) continue;
     try {
-      ledgers.push(JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8")));
+      const record = JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8"));
+      const validStage =
+        record?.stage === undefined ||
+        ["dev", "ship", "review", "rfc", "research"].includes(record.stage);
+      if (
+        !record ||
+        typeof record !== "object" ||
+        Array.isArray(record) ||
+        typeof record.status !== "string" ||
+        !record.status ||
+        typeof record.started_at !== "string" ||
+        !Number.isFinite(Date.parse(record.started_at)) ||
+        !validStage
+      ) {
+        throw new Error("malformed ledger");
+      }
+      ledgers.push(record);
     } catch {
       // unreadable ledger entries still count toward budgets: fail closed
       ledgers.push({ status: "unreadable", started_at: "9999-12-31T00:00:00Z" });
@@ -255,62 +271,78 @@ function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
   if (!plan.selected || maxIdentical < 1) return null;
   const context = noProgressContext(plan);
   const digest = /^sha256:[a-f0-9]{64}$/;
-  const events = scanSnapshotFinalizedEvents(pmDir, {
+  const events = [];
+  for (const event of scanSnapshotFinalizedEvents(pmDir, {
     cardId: context.card_id,
     stage: context.stage,
-  })
-    .filter((event) => {
-      const evidence = event.no_progress;
-      if (
-        event.terminal !== true ||
-        event.card_id !== context.card_id ||
-        event.stage !== context.stage ||
-        !RUN_ID_PATTERN.test(String(event.run_id || ""))
-      ) {
-        return false;
-      }
-      if (!evidence) return false;
-      if (
-        !digest.test(String(evidence.card_revision || "")) ||
-        !digest.test(String(evidence.execution_fingerprint || "")) ||
-        !digest.test(String(evidence.blocker_signature || "")) ||
-        !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
-        !RUN_ID_PATTERN.test(String(evidence.last_run_id || ""))
-      ) {
-        throw new Error(`malformed no-progress evidence for ${event.run_id}`);
-      }
-      if (
-        evidence.card_revision !== context.card_revision ||
-        evidence.execution_fingerprint !== context.execution_fingerprint
-      ) {
-        return false;
-      }
-      terminalEventTime(event);
-      const expected = sha256(
-        JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
-      );
-      if (evidence.signature !== expected) {
-        throw new Error(`malformed no-progress evidence signature for ${event.run_id}`);
-      }
-      return true;
-    })
-    .sort(
-      (a, b) =>
-        terminalEventTime(b) - terminalEventTime(a) ||
-        String(b.run_id).localeCompare(String(a.run_id))
+  })) {
+    const evidence = event.no_progress;
+    if (
+      event.terminal !== true ||
+      event.card_id !== context.card_id ||
+      event.stage !== context.stage ||
+      !RUN_ID_PATTERN.test(String(event.run_id || ""))
+    ) {
+      continue;
+    }
+    if (!evidence) continue;
+    if (
+      !digest.test(String(evidence.card_revision || "")) ||
+      !digest.test(String(evidence.execution_fingerprint || "")) ||
+      !digest.test(String(evidence.blocker_signature || "")) ||
+      !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
+      !RUN_ID_PATTERN.test(String(evidence.last_run_id || "")) ||
+      evidence.last_run_id !== event.run_id
+    ) {
+      throw new Error(`malformed no-progress evidence for ${event.run_id}`);
+    }
+    if (
+      evidence.card_revision !== context.card_revision ||
+      evidence.execution_fingerprint !== context.execution_fingerprint
+    ) {
+      continue;
+    }
+    const timestamp = terminalEventTime(event);
+    const expected = sha256(
+      JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
     );
-  const latest = events[0];
+    if (evidence.signature !== expected) {
+      throw new Error(`malformed no-progress evidence signature for ${event.run_id}`);
+    }
+    events.push({ event, timestamp });
+  }
+  let latest = null;
+  for (const candidate of events) {
+    if (
+      !latest ||
+      candidate.timestamp > latest.timestamp ||
+      (candidate.timestamp === latest.timestamp &&
+        String(candidate.event.run_id).localeCompare(String(latest.event.run_id)) > 0)
+    ) {
+      latest = candidate;
+    }
+  }
   if (!latest) return null;
-  const identical = events.filter(
-    (event) => event.no_progress.signature === latest.no_progress.signature
-  );
-  if (identical.length < maxIdentical) return null;
-  const oldest = identical.at(-1);
+  let count = 0;
+  let oldest = null;
+  for (const candidate of events) {
+    if (candidate.event.no_progress.signature !== latest.event.no_progress.signature) continue;
+    count += 1;
+    if (
+      !oldest ||
+      candidate.timestamp < oldest.timestamp ||
+      (candidate.timestamp === oldest.timestamp &&
+        String(candidate.event.run_id).localeCompare(String(oldest.event.run_id)) < 0)
+    ) {
+      oldest = candidate;
+    }
+  }
+  if (count < maxIdentical) return null;
   return {
-    ...latest.no_progress,
-    first_run_id: oldest.no_progress.first_run_id || oldest.run_id,
-    last_run_id: latest.no_progress.last_run_id || latest.run_id,
-    count: identical.length,
+    ...latest.event.no_progress,
+    first_run_id: oldest.event.no_progress.first_run_id || oldest.event.run_id,
+    last_run_id: latest.event.no_progress.last_run_id || latest.event.run_id,
+    count,
   };
 }
 
@@ -1047,6 +1079,7 @@ function runWorker(projectDir, options = {}) {
       const trustedConfig = loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir);
       return {
         config: trustedConfig,
+        stopped: isStopped(snapshot.pmDir),
         priorNoProgress: findNoProgressSuppressionInSnapshot(
           snapshot.pmDir,
           preview,
@@ -1055,6 +1088,9 @@ function runWorker(projectDir, options = {}) {
       };
     });
     config = trusted.config;
+    if (trusted.stopped) {
+      return { status: "stopped", reason: "kill switch present on the authoritative PM upstream" };
+    }
     priorNoProgress = trusted.priorNoProgress;
   } catch (err) {
     const blocked = {

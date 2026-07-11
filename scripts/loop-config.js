@@ -191,6 +191,10 @@ const CLAIM_PHASE_FIELDS = Object.freeze([
   "pm_finalization_seconds",
   "workspace_cleanup_seconds",
 ]);
+// A normal claimed run can independently spend this timeout while recording
+// dispatch, snapshotting the claimed card, checkpointing recovery, and pushing
+// final state. Count every bounded PM phase in the advertised lease envelope.
+const PM_FINALIZATION_PHASE_COUNT = 4;
 
 function positiveInteger(value, label) {
   if (!Number.isInteger(value) || value <= 0) {
@@ -230,10 +234,13 @@ function claimEnvelopeSeconds(config, stage = "dev") {
   if (!isPlainObject(envelope)) {
     throw new Error("claim_envelope must be an object");
   }
-  const phaseSeconds = CLAIM_PHASE_FIELDS.reduce(
-    (total, field) => total + positiveInteger(Number(envelope[field]), `claim_envelope.${field}`),
-    0
-  );
+  const phaseSeconds = CLAIM_PHASE_FIELDS.reduce((total, field) => {
+    const seconds = positiveInteger(Number(envelope[field]), `claim_envelope.${field}`);
+    return (
+      total +
+      (field === "pm_finalization_seconds" ? seconds * PM_FINALIZATION_PHASE_COUNT : seconds)
+    );
+  }, 0);
   const runtimeField =
     stage === "ship" || stage === "review"
       ? "max_runtime_seconds_per_ship_cycle"

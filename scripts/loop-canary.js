@@ -19,6 +19,7 @@ const {
 const { canonicalEngineCommand } = require("./loop-engine.js");
 const { findGitRoot, gitRelativePath, runGit, writeJsonAtomic } = require("./loop-git.js");
 const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 const { runWorker } = require("./loop-worker.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
@@ -27,6 +28,8 @@ const CANARY_CASES = Object.freeze(["preflight-failure", "blocked-result", "veri
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_CANARY_EVIDENCE_BYTES = 512 * 1024;
+const MAX_LEDGER_BYTES = 512 * 1024;
 const RUNTIME_SOURCE_ENTRIES = Object.freeze([
   "plugin.config.json",
   "package.json",
@@ -335,9 +338,17 @@ function validateEvidenceRecord(record, caseName, options = {}) {
   ) {
     return "assertions are missing";
   }
+  const allowFailed = options.allowFailed === true && record.passed === false;
   for (const key of REQUIRED_ASSERTIONS[caseName]) {
-    if (record.assertions[key] !== true) return `required assertion ${key} did not pass`;
+    if (allowFailed) {
+      if (typeof record.assertions[key] !== "boolean") {
+        return `required assertion ${key} is missing`;
+      }
+    } else if (record.assertions[key] !== true) {
+      return `required assertion ${key} did not pass`;
+    }
   }
+  if (allowFailed) return "";
   if (caseName === "preflight-failure") {
     if (record.worker_result.status !== "preflight-failed")
       return "worker preflight state is invalid";
@@ -418,11 +429,11 @@ function readCanaryEvidence(pmStateDir, options = {}) {
       }
       const filePath = path.join(runDir, caseEntry.name);
       const caseName = caseEntry.name.slice(0, -5);
-      let fd = null;
       try {
-        fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-        const record = JSON.parse(fs.readFileSync(fd, "utf8"));
-        const error = validateEvidenceRecord(record, caseName, options);
+        const read = readBoundedRegularFile(filePath, MAX_CANARY_EVIDENCE_BYTES, "canary evidence");
+        if (!read.ok) throw new Error(read.reason);
+        const record = JSON.parse(read.content.toString("utf8"));
+        const error = validateEvidenceRecord(record, caseName, { ...options, allowFailed: true });
         if (error) recordInvalid({ file: filePath, reason: error });
         else {
           const value = { ...record, evidence_path: filePath };
@@ -437,8 +448,6 @@ function readCanaryEvidence(pmStateDir, options = {}) {
         }
       } catch (error) {
         recordInvalid({ file: filePath, reason: error.message });
-      } finally {
-        if (fd !== null) fs.closeSync(fd);
       }
     }
   }
@@ -473,6 +482,9 @@ function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
       return { passed: false, reason: `missing canary evidence for ${caseName}`, cases: selected };
     }
     const record = candidates[0];
+    if (record.passed !== true) {
+      return { passed: false, reason: `failed canary evidence for ${caseName}`, cases: selected };
+    }
     if (now.getTime() - Date.parse(record.ended_at) > maxAgeSeconds * 1000) {
       return { passed: false, reason: `stale canary evidence for ${caseName}`, cases: selected };
     }
@@ -590,13 +602,18 @@ function snapshotCanaryState(pmDir, cardId, relativePath = "", options = {}) {
 
 function readLedger(workerResult) {
   const filePath = workerResult && workerResult.ledger;
-  if (!filePath || !fs.existsSync(filePath) || fs.lstatSync(filePath).isSymbolicLink()) {
+  if (!filePath) {
     return { path: filePath || "", sha256: "", value: null };
   }
+  const read = readBoundedRegularFile(filePath, MAX_LEDGER_BYTES, "canary ledger", {
+    requirePrivate: false,
+  });
+  if (!read.ok) return { path: filePath, sha256: "", value: null };
+  const content = read.content;
   return {
     path: filePath,
-    sha256: hashFile(filePath),
-    value: JSON.parse(fs.readFileSync(filePath, "utf8")),
+    sha256: sha256(content),
+    value: JSON.parse(content.toString("utf8")),
   };
 }
 

@@ -679,21 +679,23 @@ test("bootstrap failure cleans a partially-created execution worktree and dev br
   }
 });
 
-test("countRunsToday counts only same-day ledgers and fails closed on bad JSON", () => {
+test("countRunsToday counts only same-day ledgers and fails closed on malformed JSON values", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-runs-"));
   try {
     const now = new Date("2026-07-02T10:00:00Z");
     fs.writeFileSync(
       path.join(dir, "a.json"),
-      JSON.stringify({ started_at: "2026-07-02T01:00:00Z" })
+      JSON.stringify({ status: "completed", stage: "dev", started_at: "2026-07-02T01:00:00Z" })
     );
     fs.writeFileSync(
       path.join(dir, "b.json"),
-      JSON.stringify({ started_at: "2026-07-01T23:00:00Z" })
+      JSON.stringify({ status: "completed", stage: "dev", started_at: "2026-07-01T23:00:00Z" })
     );
     fs.writeFileSync(path.join(dir, "c.json"), "{broken");
-    assert.equal(countRunsToday(dir, now), 2);
-    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 1);
+    fs.writeFileSync(path.join(dir, "d.json"), "{}");
+    fs.writeFileSync(path.join(dir, "e.json"), "[]");
+    assert.equal(countRunsToday(dir, now), 4);
+    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 3);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1669,6 +1671,75 @@ test("released no-progress events use released_at to select the latest blocker s
   assert.equal(suppression.blocker_signature, blockerB);
   assert.equal(suppression.first_run_id, b1);
   assert.equal(suppression.last_run_id, b2);
+});
+
+test("no-progress evidence rejects a last_run_id that does not own its event", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-no-progress-owner-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  const runId = "loop-31111111-1111-4111-8111-111111111111";
+  const otherRunId = "loop-32222222-2222-4222-8222-222222222222";
+  const plan = {
+    selected: { id: "PM-OWNER", stage: "dev" },
+    fingerprint_input: {
+      card_revision: `sha256:${"1".repeat(64)}`,
+      execution_config_hash: `sha256:${"2".repeat(64)}`,
+    },
+  };
+  const context = {
+    card_id: plan.selected.id,
+    stage: plan.selected.stage,
+    card_revision: plan.fingerprint_input.card_revision,
+    execution_fingerprint: sha256(
+      JSON.stringify({ execution_config_hash: plan.fingerprint_input.execution_config_hash })
+    ),
+  };
+  const blockerSignature = `sha256:${"a".repeat(64)}`;
+  fs.writeFileSync(
+    path.join(eventDir, `${runId}.json`),
+    JSON.stringify({
+      run_id: runId,
+      card_id: context.card_id,
+      stage: context.stage,
+      status: "failed",
+      terminal: true,
+      released_at: "2026-07-10T01:00:00.000Z",
+      no_progress: {
+        ...context,
+        blocker_signature: blockerSignature,
+        signature: sha256(JSON.stringify({ ...context, blocker_signature: blockerSignature })),
+        first_run_id: runId,
+        last_run_id: otherRunId,
+      },
+    })
+  );
+  assert.throws(
+    () => findNoProgressSuppressionInSnapshot(root, plan, 1),
+    /malformed no-progress evidence/i
+  );
+});
+
+test("a STOP already present on the authoritative PM upstream blocks claim and dispatch", () => {
+  const fixture = makeProjectFixture();
+  const control = path.join(fixture.root, "control");
+  try {
+    git(["clone", path.join(fixture.root, "origin.git"), control], fixture.root);
+    git(["config", "user.email", "pm-control@example.com"], control);
+    git(["config", "user.name", "PM Control"], control);
+    fs.writeFileSync(path.join(control, "pm", "loop", "STOP"), "stop\n");
+    git(["add", "pm/loop/STOP"], control);
+    git(["commit", "-m", "stop loop remotely"], control);
+    git(["push", "origin", "main"], control);
+
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "STOP")), false);
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir });
+    assert.equal(result.status, "stopped", JSON.stringify(result));
+    assert.match(result.reason, /authoritative PM upstream/i);
+    assert.equal(fs.existsSync(path.join(fixture.pmDir, "loop", "leases")), false);
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("corrupt no-progress signatures fail closed without another engine execution", () => {

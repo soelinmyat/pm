@@ -77,6 +77,28 @@ function assessSituation(projectDir, options = {}) {
     { runs_today: null, ship_cycles_today: null }
   );
 
+  const needsReleaseGate = Boolean(
+    config && (paused || (installed && board.activeLeases.length === 0))
+  );
+  const releaseGate = needsReleaseGate
+    ? safe(
+        () =>
+          typeof options.releaseGateProbe === "function"
+            ? options.releaseGateProbe({ projectDir, pmDir, pmStateDir, config })
+            : evaluateCurrentCanaryReleaseGate(
+                pmStateDir,
+                loadTrustedLoopConfig(pmDir, pmStateDir)
+              ),
+        { passed: false, reason: "current canary identity is unavailable" }
+      )
+    : {
+        passed: false,
+        applicable: false,
+        reason: config
+          ? "canary gate is not needed for the current situation"
+          : "loop is not configured",
+      };
+
   const summary = {
     configured,
     installed,
@@ -84,18 +106,7 @@ function assessSituation(projectDir, options = {}) {
     board,
     budget,
     config: config ? summarizeConfig(config) : null,
-    releaseGate: config
-      ? safe(
-          () =>
-            typeof options.releaseGateProbe === "function"
-              ? options.releaseGateProbe({ projectDir, pmDir, pmStateDir, config })
-              : evaluateCurrentCanaryReleaseGate(
-                  pmStateDir,
-                  loadTrustedLoopConfig(pmDir, pmStateDir)
-                ),
-          { passed: false, reason: "current canary identity is unavailable" }
-        )
-      : { passed: false, reason: "loop is not configured" },
+    releaseGate,
     killSwitch: paused ? safe(() => killSwitchPath(pmDir), null) : null,
     note: "",
   };

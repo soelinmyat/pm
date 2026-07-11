@@ -91,10 +91,17 @@ test("ready-not-run: approved cards, not installed → ready-not-run with the li
   const { dir, cleanup } = tmp();
   try {
     initProject(dir, { config: { autonomy: {} }, cards: [approved("alpha"), approved("beta")] });
-    const s = assessSituation(dir);
+    let releaseChecks = 0;
+    const s = assessSituation(dir, {
+      releaseGateProbe() {
+        releaseChecks += 1;
+        return { passed: true, reason: "" };
+      },
+    });
     assert.equal(s.state, "ready-not-run");
     assert.equal(s.board.ready.length, 2);
     assert.deepEqual(s.board.ready.map((c) => c.id).sort(), ["ALPHA", "BETA"]);
+    assert.equal(releaseChecks, 0);
   } finally {
     cleanup();
   }
@@ -120,10 +127,18 @@ test("in-progress: an active lease wins over ready-not-run", () => {
       cards: [approved("alpha", { status: "implementing" })],
       leases: [{ card_id: "ALPHA", stage: "dev", holder: "mac-1", runtime: "claude" }],
     });
-    const s = assessSituation(dir);
+    let releaseChecks = 0;
+    const s = assessSituation(dir, {
+      installedProbe: () => true,
+      releaseGateProbe() {
+        releaseChecks += 1;
+        return { passed: false, reason: "should not run" };
+      },
+    });
     assert.equal(s.state, "in-progress");
     assert.equal(s.board.activeLeases.length, 1);
     assert.equal(s.board.activeLeases[0].holder, "mac-1");
+    assert.equal(releaseChecks, 0);
   } finally {
     cleanup();
   }
@@ -242,12 +257,12 @@ test("configuration summary exposes bounded daily runtime and safety warnings", 
       },
     });
     const s = assessSituation(dir);
-    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 139320);
+    assert.equal(s.config.maximum_daily_claim_envelope_seconds, 158760);
     assert.equal(s.config.lease_ttl_seconds, 7200);
-    assert.equal(s.config.ttl_margin_seconds, 630);
+    assert.equal(s.config.ttl_margin_seconds, 90);
     assert.ok(s.config.warnings.some((warning) => /merge autonomy/i.test(warning)));
     assert.ok(s.config.warnings.some((warning) => /danger-full-access/i.test(warning)));
-    assert.equal(s.releaseGate.passed, false, "scheduler gate fails closed without evidence");
+    assert.equal(s.releaseGate.applicable, false);
   } finally {
     cleanup();
   }

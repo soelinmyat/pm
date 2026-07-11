@@ -15,6 +15,7 @@ const {
   installPaths,
   installCron,
   launchdLabel,
+  loadReleaseGateState,
   parseArgs,
   projectSlug,
   resumeScheduler,
@@ -153,7 +154,9 @@ function writeCanaryRecord(pmStateDir, runId, caseName, overrides = {}) {
     passed: true,
     ...overrides,
   };
-  fs.writeFileSync(path.join(dir, `${caseName}.json`), `${JSON.stringify(record, null, 2)}\n`);
+  fs.writeFileSync(path.join(dir, `${caseName}.json`), `${JSON.stringify(record, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return record;
 }
 
@@ -280,12 +283,12 @@ test("install exposure reports daily claim envelope, TTL margin, and unsafe auto
     worker: { engine_bin: "/opt/custom-engine", codex_sandbox: "danger-full-access" },
   });
   const exposure = buildInstallExposure(config);
-  assert.equal(exposure.claim_envelope_seconds.dev, 6270);
-  assert.equal(exposure.claim_envelope_seconds.ship, 2670);
-  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 139320);
+  assert.equal(exposure.claim_envelope_seconds.dev, 6810);
+  assert.equal(exposure.claim_envelope_seconds.ship, 3210);
+  assert.equal(exposure.maximum_daily_claim_envelope_seconds, 158760);
   assert.equal(exposure.lease_ttl_seconds, 7200);
-  assert.equal(exposure.minimum_ttl_seconds, 6571);
-  assert.equal(exposure.ttl_margin_seconds, 630);
+  assert.equal(exposure.minimum_ttl_seconds, 7111);
+  assert.equal(exposure.ttl_margin_seconds, 90);
   assert.ok(exposure.warnings.some((warning) => /merge autonomy/i.test(warning)));
   assert.ok(exposure.warnings.some((warning) => /danger-full-access/i.test(warning)));
   assert.ok(exposure.warnings.some((warning) => /custom engine/i.test(warning)));
@@ -341,6 +344,51 @@ test("resume emits exposure before removing STOP and includes it in the result",
   assert.equal(events[0], "warning:true:true");
   assert.equal(events[1], "resume:/tmp/pm:false");
   assert.deepEqual(result.exposure, buildInstallExposure(config));
+});
+
+test("resume restores local STOP and fails when durable removal is not pushed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-resume-failure-"));
+  const pmDir = path.join(root, "pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "stop\n");
+  try {
+    assert.throws(
+      () =>
+        resumeScheduler(pmDir, normalizeLoopConfig({}), {
+          writeError() {},
+          setStop(target) {
+            fs.rmSync(path.join(target, "loop", "STOP"));
+            return { stopped: false, committed: true, pushed: false, error: "push rejected" };
+          },
+        }),
+      /not durably pushed/i
+    );
+    assert.equal(fs.existsSync(path.join(pmDir, "loop", "STOP")), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scheduler activation resolves config and release identity from the authoritative snapshot", () => {
+  const paths = { pmDir: "/local/pm", pmStateDir: "/local/.pm" };
+  const remoteConfig = normalizeLoopConfig({ scheduler_interval_minutes: 60 });
+  const state = loadReleaseGateState(paths, {
+    snapshot(pmDir, callback) {
+      assert.equal(pmDir, paths.pmDir);
+      return callback({ pmDir: "/snapshot/pm" });
+    },
+    loadTrustedConfig(pmDir, pmStateDir) {
+      assert.equal(pmDir, "/snapshot/pm");
+      assert.equal(pmStateDir, paths.pmStateDir);
+      return remoteConfig;
+    },
+    releaseGate(_paths, config) {
+      assert.equal(config, remoteConfig);
+      return { passed: true, reason: "" };
+    },
+  });
+  assert.equal(state.config, remoteConfig);
+  assert.equal(state.releaseGate.passed, true);
 });
 
 test("direct launchd install emits exposure warnings before enabling the scheduler", () => {
@@ -492,6 +540,59 @@ test("canary release gate requires fresh same-identity evidence for all three ca
     });
     assert.equal(staleGate.passed, false);
     assert.match(staleGate.reason, /stale/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a later passing canary rerun supersedes an earlier valid failed case", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-rerun-"));
+  try {
+    for (const [index, caseName] of [
+      "preflight-failure",
+      "blocked-result",
+      "verified-pr",
+    ].entries()) {
+      writeCanaryRecord(root, `passing-${index}`, caseName);
+    }
+    writeCanaryRecord(root, "failed-later", "verified-pr", {
+      ended_at: "2026-07-10T01:02:00.000Z",
+      assertions: { ...REQUIRED_ASSERTIONS["verified-pr"], verified_open_pr: false },
+      passed: false,
+    });
+    const failed = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+      maxAgeSeconds: 7200,
+    });
+    assert.equal(failed.passed, false);
+    assert.match(failed.reason, /failed canary evidence/i);
+
+    writeCanaryRecord(root, "passing-rerun", "verified-pr", {
+      ended_at: "2026-07-10T01:03:00.000Z",
+    });
+    const passing = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+      maxAgeSeconds: 7200,
+    });
+    assert.equal(passing.passed, true, JSON.stringify(passing));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("oversized canary evidence fails closed before JSON parsing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-size-"));
+  try {
+    const dir = path.join(root, "loop-canary", "oversized");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "verified-pr.json"), "x".repeat(512 * 1024 + 1), {
+      mode: 0o600,
+    });
+    const gate = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+    });
+    assert.equal(gate.passed, false);
+    assert.match(gate.reason, /too-large|exceeds/i);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
