@@ -82,8 +82,8 @@ The session persists across all subsequent interactions in the same browser cont
    c. browser_resize to 768px → browser_screenshot (if responsive matters)
    d. browser_resize to 375px → browser_screenshot (if responsive matters)
    e. Capture interactive states (browser_click to open modals, expand sections)
-5. Save all screenshots to /tmp/design-review/{feature}/
-6. Write manifest
+5. Capture into scratch space, then copy accepted evidence to `.pm/dev-sessions/{slug}/design-critique/round-{N}/`
+6. Record the files and SHA-256 values in `captures.json`
 ```
 
 ### Viewport sizes
@@ -96,8 +96,8 @@ The session persists across all subsequent interactions in the same browser cont
 
 ### Limits
 
-- Max 10 screenshots per capture round
-- Overwritten each round (designers always see latest)
+- Max 20 screenshots per capture round; route coverage, not convenience, determines the exact count
+- Preserve every cited round so before/after evidence remains verifiable
 
 ## Mobile Capture (Maestro MCP)
 
@@ -110,8 +110,8 @@ The session persists across all subsequent interactions in the same browser cont
    - launch_app: Start/restart the app with clearState
    - tap_on: Navigate to target screens
    - take_screenshot: Capture each state
-4. Save screenshots to /tmp/design-review/{feature}/
-5. Write manifest
+4. Copy accepted screenshots to `.pm/dev-sessions/{slug}/design-critique/round-{N}/`
+5. Record the files and SHA-256 values in `captures.json`
 ```
 
 ### Maestro MCP tools reference
@@ -135,25 +135,7 @@ The session persists across all subsequent interactions in the same browser cont
 
 ## Manifest Format
 
-After capture, write a manifest file listing what each screenshot shows:
-
-```markdown
-# Design Review Manifest
-
-**Feature:** {feature_slug}
-**Platform:** {web | mobile}
-**Captured:** {timestamp}
-**Seed task:** design:seed:{feature_slug}
-
-## Screenshots
-
-| File | Page/Screen | Viewport | State | Description |
-|------|-------------|----------|-------|-------------|
-| 01-work-orders-desktop.png | /work-orders | 1440px | Default | Work order list with all SLA states |
-| 02-work-orders-tablet.png | /work-orders | 768px | Default | Tablet responsive layout |
-| 03-work-orders-red-detail.png | /work-orders/123 | 1440px | Red SLA | Detail view of breached task |
-| ... | ... | ... | ... | ... |
-```
+Use the machine-readable `route.json` and `captures.json` contract in `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/evidence-contract.md`. Every screenshot maps to one coverage ID and records path, SHA-256, dimensions, kind, and full-page behavior. Markdown screenshot inventories are not gate evidence.
 
 ## Enriched Capture (after screenshots)
 
@@ -168,7 +150,7 @@ Use Playwright MCP's `browser_snapshot` tool on each page after the screenshot i
 browser_snapshot  # returns full accessibility tree
 ```
 
-Save the output to `/tmp/design-review/{feature}/a11y-snapshot-{page-slug}.md`.
+Save accepted output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/` and register it as `accessibility-tree` evidence in `captures.json`.
 
 Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
@@ -528,7 +510,7 @@ For each page, run this via `browser_evaluate`:
 })()
 ```
 
-Save the raw JSON output to `/tmp/design-review/{feature}/consistency-{page-slug}.json`.
+Save the raw JSON output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/` and register it as `dom-audit` evidence in `captures.json`.
 
 Then write a human-readable report:
 
@@ -589,7 +571,7 @@ Then write a human-readable report:
 - {N} edge-alignment issues
 ```
 
-Save to `/tmp/design-review/{feature}/consistency-{page-slug}.md`.
+If a human-readable projection is useful, save it beside the raw audit; the raw hash-bound JSON remains authoritative.
 
 Run at desktop viewport (1440px). One audit per page is sufficient.
 

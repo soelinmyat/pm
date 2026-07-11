@@ -1,0 +1,473 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
+
+const COMMIT = "a".repeat(40);
+
+function digest(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function write(root, rel, bytes) {
+  const file = path.join(root, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, bytes);
+  return { path: rel, sha256: digest(fs.readFileSync(file)) };
+}
+
+function makeFixture(options = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-design-critique-"));
+  const routePath = "evidence/route.json";
+  const capturesPath = "evidence/captures.json";
+  const reportPath = "evidence/report.json";
+  const mode = options.mode || "product-ui";
+  const platform = mode === "pm-artifact" ? "document" : "web";
+  const artifact =
+    mode === "pm-artifact"
+      ? { ...write(root, "evidence/files/subject.html", artifactSubjectHtml()), kind: "report" }
+      : null;
+  const coverage =
+    mode === "pm-artifact"
+      ? [
+          coverageRow("artifact-desktop", "primary", "desktop", true),
+          coverageRow("artifact-tablet", "responsive", "tablet", true),
+          coverageRow("artifact-narrow", "responsive", "narrow", true),
+          coverageRow("artifact-print", "print", "print", true),
+        ]
+      : [
+          coverageRow("ui-primary", "primary", "desktop", true),
+          coverageRow(
+            "ui-empty",
+            "empty",
+            "desktop",
+            false,
+            "The changed detail route has no empty collection state."
+          ),
+          coverageRow(
+            "ui-error",
+            "error",
+            "desktop",
+            false,
+            "Error rendering is unchanged and outside this surface."
+          ),
+          coverageRow(
+            "ui-boundary",
+            "boundary",
+            "desktop",
+            false,
+            "The fixed label has a validated maximum length."
+          ),
+        ];
+  const route = {
+    schema_version: 1,
+    run_id: "dc-test-run",
+    created_at: "2026-07-12T00:00:00Z",
+    mode,
+    source: { commit: COMMIT, base_ref: "origin/main", diff_sha256: "b".repeat(64) },
+    subjects: [
+      {
+        id: "account-detail",
+        title: "Account detail",
+        surface: "/accounts/1",
+        platform,
+        ...(artifact ? { artifact } : {}),
+      },
+    ],
+    coverage,
+  };
+  write(root, routePath, `${JSON.stringify(route, null, 2)}\n`);
+  const routeBinding = binding(root, routePath);
+
+  const captures = [];
+  for (const row of coverage.filter((item) => item.required)) {
+    const isPrint = row.state === "print";
+    const file = write(
+      root,
+      `evidence/files/${row.id}.${isPrint ? "pdf" : "png"}`,
+      isPrint
+        ? "%PDF-1.7\nfixture\n"
+        : Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.from(row.id)])
+    );
+    captures.push({
+      id: `capture-${row.id}`,
+      coverage_id: row.id,
+      kind: isPrint ? "pdf" : "screenshot",
+      ...file,
+      ...(isPrint ? {} : { width: 1440, height: 1000, full_page: mode === "pm-artifact" }),
+      captured_at: "2026-07-12T00:01:00Z",
+    });
+  }
+  const evidence = [evidenceFile(root, "a11y", "accessibility-tree")];
+  if (mode === "product-ui") evidence.push(evidenceFile(root, "dom", "dom-audit"));
+  else {
+    const artifactPath = path.join(root, artifact.path);
+    const structural = {
+      schema_version: 1,
+      artifact: { path: artifactPath, sha256: artifact.sha256 },
+      checks: { structural: true, metadata: true, offline: true },
+    };
+    const renderCaptures = captures
+      .filter((item) => item.kind === "screenshot")
+      .map((item) => ({
+        name: coverage.find((row) => row.id === item.coverage_id).viewport,
+        path: path.join(root, item.path),
+        sha256: `sha256:${item.sha256}`,
+      }));
+    const print = captures.find((item) => item.kind === "pdf");
+    const render = {
+      source: { path: artifactPath, sha256: `sha256:${artifact.sha256}` },
+      captures: renderCaptures,
+      print: {
+        path: path.join(root, print.path),
+        sha256: `sha256:${print.sha256}`,
+        bytes: fs.statSync(path.join(root, print.path)).size,
+        pages: 1,
+      },
+    };
+    evidence.push({
+      id: "evidence-structural",
+      subject_id: "account-detail",
+      kind: "artifact-structural",
+      ...write(root, "evidence/files/structural.json", `${JSON.stringify(structural)}\n`),
+    });
+    evidence.push({
+      id: "evidence-render",
+      subject_id: "account-detail",
+      kind: "artifact-render",
+      ...write(root, "evidence/files/render.json", `${JSON.stringify(render)}\n`),
+    });
+  }
+  const captureDoc = {
+    schema_version: 1,
+    run_id: route.run_id,
+    mode,
+    commit: COMMIT,
+    route: routeBinding,
+    captures,
+    evidence,
+    checked_at: "2026-07-12T00:02:00Z",
+  };
+  write(root, capturesPath, `${JSON.stringify(captureDoc, null, 2)}\n`);
+
+  const report = {
+    schema_version: 1,
+    run_id: route.run_id,
+    mode,
+    commit: COMMIT,
+    route: routeBinding,
+    captures: binding(root, capturesPath),
+    outcome: "passed",
+    rounds: 1,
+    coverage: { required: captures.length, captured: captures.length, percent: 100 },
+    scores:
+      mode === "product-ui"
+        ? {
+            hierarchy: 4,
+            density: 4,
+            consistency: 4,
+            accessibility: 4,
+            responsive: 4,
+            "state-clarity": 4,
+          }
+        : {
+            hierarchy: 4,
+            density: 4,
+            consistency: 4,
+            accessibility: 4,
+            responsive: 4,
+            "print-navigation": 4,
+          },
+    findings: [],
+    human_report: { path: "evidence/report.html" },
+    checked_at: "2026-07-12T00:03:00Z",
+  };
+  write(root, reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  write(
+    root,
+    "evidence/report.html",
+    htmlReport(binding(root, reportPath), binding(root, capturesPath))
+  );
+  return { root, routePath, capturesPath, reportPath, route, captures: captureDoc, report };
+}
+
+function coverageRow(id, state, viewport, required, reason = "") {
+  return { id, subject_id: "account-detail", state, viewport, required, reason };
+}
+
+function evidenceFile(root, id, kind) {
+  return {
+    id: `evidence-${id}`,
+    subject_id: "account-detail",
+    kind,
+    ...write(root, `evidence/files/${id}.json`, "{}\n"),
+  };
+}
+
+function binding(root, rel) {
+  return { path: rel, sha256: digest(fs.readFileSync(path.join(root, rel))) };
+}
+
+function htmlReport(source, captures) {
+  source = { path: source.path, sha256: `sha256:${source.sha256}` };
+  captures = { path: captures.path, sha256: `sha256:${captures.sha256}` };
+  const meta = {
+    schema_version: 1,
+    id: "report:design-critique-test",
+    kind: "report",
+    slug: "design-critique-test",
+    lifecycle: "reviewed",
+    title: "Design critique test",
+    generated_at: "2026-07-12T00:00:00Z",
+    generator: { name: "pm:design-critique", version: "test" },
+    source,
+    evidence: [captures],
+  };
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><section id="findings"><h2>Findings</h2><p>No blocking findings.</p></section></main></body></html>`;
+}
+
+function artifactSubjectHtml() {
+  const meta = {
+    schema_version: 1,
+    id: "report:artifact-subject",
+    kind: "report",
+    slug: "artifact-subject",
+    lifecycle: "reviewed",
+    title: "Artifact subject",
+    generated_at: "2026-07-12T00:00:00Z",
+    generator: { name: "pm:test", version: "1" },
+    source: { path: "source.md", sha256: null },
+    evidence: [],
+  };
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Artifact subject</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#content">Content</a></nav><main id="main"><h1>Artifact subject</h1><p data-pm-lifecycle>reviewed</p><section id="content"><h2>Content</h2><p>Evidence subject.</p></section></main></body></html>`;
+}
+
+function check(fixture, commit = COMMIT) {
+  return checkDesignCritique({
+    root: fixture.root,
+    routePath: fixture.routePath,
+    capturesPath: fixture.capturesPath,
+    reportPath: fixture.reportPath,
+    commit,
+    verifyDiff: false,
+  });
+}
+
+function rewrite(root, rel, value) {
+  write(root, rel, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function rewriteReportAndHtml(fixture) {
+  rewrite(fixture.root, fixture.reportPath, fixture.report);
+  write(
+    fixture.root,
+    "evidence/report.html",
+    htmlReport(
+      binding(fixture.root, fixture.reportPath),
+      binding(fixture.root, fixture.capturesPath)
+    )
+  );
+}
+
+test("accepts a complete product UI evidence chain", () => {
+  const fixture = makeFixture();
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("accepts a complete PM artifact evidence chain", () => {
+  const fixture = makeFixture({ mode: "pm-artifact" });
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("rejects a PM artifact whose reviewed HTML bytes changed", () => {
+  const fixture = makeFixture({ mode: "pm-artifact" });
+  fs.appendFileSync(
+    path.join(fixture.root, fixture.route.subjects[0].artifact.path),
+    "<!-- drift -->"
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /does not match file bytes/);
+});
+
+test("rejects artifact captures not bound by the render manifest", () => {
+  const fixture = makeFixture({ mode: "pm-artifact" });
+  const renderEvidence = fixture.captures.evidence.find((item) => item.kind === "artifact-render");
+  const render = JSON.parse(fs.readFileSync(path.join(fixture.root, renderEvidence.path), "utf8"));
+  render.captures[0].sha256 = `sha256:${"f".repeat(64)}`;
+  const rebound = write(fixture.root, renderEvidence.path, `${JSON.stringify(render, null, 2)}\n`);
+  renderEvidence.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /is not bound by the artifact render manifest/);
+});
+
+test("rejects stale source identity", () => {
+  const fixture = makeFixture();
+  const result = check(fixture, "c".repeat(40));
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must equal current commit/);
+});
+
+test("rejects changed capture bytes", () => {
+  const fixture = makeFixture();
+  fs.appendFileSync(path.join(fixture.root, fixture.captures.captures[0].path), "changed");
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /does not match file bytes/);
+});
+
+test("rejects screenshot bindings whose bytes are not an image", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const rebound = write(fixture.root, capture.path, "not an image");
+  capture.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /screenshot bytes must be PNG, JPEG, or WebP/);
+});
+
+test("rejects missing required coverage", () => {
+  const fixture = makeFixture();
+  fixture.captures.captures = [];
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must be captured exactly once/);
+});
+
+test("rejects a passed report with an open P1", () => {
+  const fixture = makeFixture();
+  const finding = {
+    subject_id: "account-detail",
+    region: "header",
+    rule: "hierarchy",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "design-critique",
+    summary: "Primary action is visually subordinate.",
+    remediation: "Increase action prominence.",
+  };
+  finding.id = findingId(finding);
+  fixture.report.findings = [finding];
+  rewrite(fixture.root, fixture.reportPath, fixture.report);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /passed cannot contain open or deferred P0\/P1/);
+});
+
+test("allows a passed design gate to hand a P1 to QA without owning its verdict", () => {
+  const fixture = makeFixture();
+  const finding = {
+    subject_id: "account-detail",
+    region: "save-flow",
+    rule: "functional-navigation",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "qa",
+    summary: "The post-save destination needs functional verification.",
+    remediation: "Exercise the save flow in QA.",
+  };
+  finding.id = findingId(finding);
+  fixture.report.findings = [finding];
+  rewriteReportAndHtml(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("verifies the frozen git diff hash when enabled", () => {
+  const fixture = makeFixture();
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: fixture.root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: fixture.root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: fixture.root });
+  write(fixture.root, "source.txt", "base\n");
+  execFileSync("git", ["add", "."], { cwd: fixture.root });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: fixture.root });
+  const base = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.root,
+    encoding: "utf8",
+  }).trim();
+  write(fixture.root, "source.txt", "changed\n");
+  execFileSync("git", ["add", "source.txt"], { cwd: fixture.root });
+  execFileSync("git", ["commit", "-qm", "change"], { cwd: fixture.root });
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.root,
+    encoding: "utf8",
+  }).trim();
+  const diff = execFileSync("git", ["diff", "--binary", `${base}...${commit}`], {
+    cwd: fixture.root,
+  });
+  fixture.route.source = { commit, base_ref: base, diff_sha256: digest(diff) };
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.commit = commit;
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.commit = commit;
+  fixture.report.route = binding(fixture.root, fixture.routePath);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = checkDesignCritique({
+    root: fixture.root,
+    routePath: fixture.routePath,
+    capturesPath: fixture.capturesPath,
+    reportPath: fixture.reportPath,
+    commit,
+  });
+  assert.deepEqual(result, { ok: true, issues: [] });
+  fixture.route.source.diff_sha256 = "0".repeat(64);
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  assert.match(
+    JSON.stringify(
+      checkDesignCritique({
+        root: fixture.root,
+        routePath: fixture.routePath,
+        capturesPath: fixture.capturesPath,
+        reportPath: fixture.reportPath,
+        commit,
+      }).issues
+    ),
+    /does not match the frozen git diff bytes/
+  );
+});
+
+test("rejects resolved P1 without distinct before and after evidence", () => {
+  const fixture = makeFixture();
+  const captureId = fixture.captures.captures[0].id;
+  const finding = {
+    subject_id: "account-detail",
+    region: "header",
+    rule: "hierarchy",
+    evidence_ids: [captureId],
+    priority: "P1",
+    status: "resolved",
+    owner: "design-critique",
+    summary: "Primary action was visually subordinate.",
+    remediation: "Increased action prominence.",
+    before_capture_id: captureId,
+    after_capture_id: captureId,
+  };
+  finding.id = findingId(finding);
+  fixture.report.findings = [finding];
+  rewrite(fixture.root, fixture.reportPath, fixture.report);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct before and after capture hashes/);
+});
+
+test("rejects evidence paths that escape the project root", () => {
+  const fixture = makeFixture();
+  fixture.captures.captures[0].path = "../outside.png";
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /escapes the project root/);
+});

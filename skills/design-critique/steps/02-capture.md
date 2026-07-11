@@ -1,25 +1,29 @@
 ---
 name: Capture
 order: 2
-description: Produce visual artifacts for every affected UI state before critique
+description: Capture every required route item and bind enriched evidence by hash
 ---
 
 ## Goal
 
-Create a durable visual artifact set that lets the critique inspect the actual rendered UI rather than the source diff alone.
+Create `captures.json` with complete, sanitized, byte-bound rendered and enriched evidence for the frozen route.
 
 ## How
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md`, then apply the mode-specific rules in `evidence-contract.md`.
 
-For the affected surface from Step 1:
+1. Use the project’s documented server, seed, authentication, browser, simulator, and capture commands. Real application state is required for product UI; do not substitute Storybook or request mocks.
+2. Capture every `required: true` coverage row exactly once in the current round. Copy durable evidence under `.pm/dev-sessions/{slug}/design-critique/round-{N}/`; passing evidence cannot live only in `/tmp`.
+3. For product UI, capture the exact routed states/viewports, an accessibility tree for every subject, and a DOM/visual-consistency audit for each web subject.
+4. For PM artifacts, run `artifact-check.js` and `artifact-render-check.js` against the exact HTML; retain their manifests, desktop/tablet/narrow full-document images, accessibility evidence, and non-empty print PDF.
+5. Record paths, byte hashes, dimensions, coverage IDs, capture time, subject IDs, and evidence kinds in `captures.json`. Never record private customer data; use sanitized seeds.
+6. Self-check for obvious clipping, missing content, wrong auth state, stale data, capture chrome, and route mismatch. Correct and recapture before review.
+7. If a required app, auth flow, seed, browser, simulator, artifact, or privacy-safe state is unavailable, record a concrete blocked outcome. Do not downgrade an environment failure to skipped or passed.
 
-1. Start the needed app servers using the project commands from AGENTS.md or the dev session's `## Project Context`.
-2. Seed or navigate to representative data states: happy path, empty/loading, validation/error, long content, narrow viewport, and any state named in the RFC acceptance criteria.
-3. Capture screenshots with Playwright, Maestro, browser tooling, or the project's existing screenshot workflow. Save artifacts under `/tmp/design-review/{slug}/` or `.pm/dev-sessions/{slug}.design-critique/`.
-4. Save a manifest, preferably `/tmp/design-review/{slug}/manifest.json`, with route/screen, viewport/device, artifact path, commit SHA, and timestamp for each capture.
-5. If the UI cannot be rendered, do not pass the gate. Record `blocked` with the environment reason in the Markdown state file and gate sidecar.
+## Done-when
 
-Do a visual self-check before moving on. Fix obvious broken states, re-run relevant tests, and recapture before critique.
+- Every required route row has exactly one current capture and no non-applicable row has a capture.
+- Every subject has the mode-required enriched evidence.
+- All files are durable, sanitized, regular files under the project root and their SHA-256 values match `captures.json`.
 
-If blocked, return the blocked outcome to the caller. Otherwise continue to critique.
+**Advance:** if blocked, record the recovery and return; otherwise proceed to Step 3 (Evaluate).
