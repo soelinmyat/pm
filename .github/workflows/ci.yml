@@ -67,6 +67,35 @@ jobs:
       - name: Plugin contract rule pack
         run: node scripts/validate.js --plugin
 
+  artifact-reference:
+    name: Artifact Reference QA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate offline artifact contracts
+        run: |
+          node scripts/artifact-check.js --html references/templates/proposal-reference.html --kind proposal --template
+          node scripts/artifact-check.js --html references/templates/rfc-reference.html --kind rfc --template
+
+      - name: Render viewport and print matrices
+        run: |
+          browser="$(command -v google-chrome)"
+          node scripts/artifact-render-check.js --browser "$browser" --html references/templates/proposal-reference.html --out-dir .artifacts/proposal --manifest .artifacts/proposal.json
+          node scripts/artifact-render-check.js --browser "$browser" --html references/templates/rfc-reference.html --out-dir .artifacts/rfc --manifest .artifacts/rfc.json
+
+      - name: Retain rendered QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pm-reference-artifacts
+          path: .artifacts/
+          retention-days: 14
+
   validate:
     name: Plugin Validation
     runs-on: ubuntu-latest

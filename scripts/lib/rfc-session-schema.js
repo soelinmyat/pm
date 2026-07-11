@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { inspectHtmlArtifact } = require("../artifact-check.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
@@ -693,6 +694,14 @@ function verifyArtifact(artifact, options = {}) {
     );
   }
   validateHtmlStructure(html, sidecar);
+  const artifactContract = inspectHtmlArtifact(htmlBytes, { expectedKind: "rfc" });
+  if (!artifactContract.ok) {
+    throw new Error(
+      `RFC HTML artifact contract failed: ${artifactContract.issues
+        .map((item) => `${item.path}: ${item.message}`)
+        .join("; ")}`
+    );
+  }
   const lifecycleStatus = extractLifecycleStatus(html);
   if (options.forbidApproved && lifecycleStatus === "approved") {
     throw new Error("RFC artifact claims approval before explicit human approval");
@@ -767,11 +776,75 @@ function verifyLifecycleOnlyTransition(previousArtifact, currentArtifact) {
   if (canonicalizeLifecycle(before) !== canonicalizeLifecycle(after)) {
     throw new Error("RFC handoff changed substantive HTML, not lifecycle metadata only");
   }
+  const workflowLifecycle = lifecycleMarker(after);
+  const artifactLifecycle = artifactLifecycleMarker(after);
+  if (workflowLifecycle.status !== "approved") {
+    throw new Error("RFC handoff lifecycle must be approved");
+  }
+  if (artifactLifecycle && artifactLifecycle.lifecycle !== "approved") {
+    throw new Error("RFC handoff artifact metadata lifecycle must be approved");
+  }
 }
 
 function canonicalizeLifecycle(html) {
   const marker = lifecycleMarker(html);
-  return `${html.slice(0, marker.valueStart)}<LIFECYCLE>${html.slice(marker.valueEnd)}`;
+  let canonical = `${html.slice(0, marker.valueStart)}<LIFECYCLE>${html.slice(marker.valueEnd)}`;
+  const artifactMarker = artifactLifecycleMarker(canonical);
+  if (artifactMarker) {
+    canonical = `${canonical.slice(0, artifactMarker.valueStart)}<LIFECYCLE>${canonical.slice(artifactMarker.valueEnd)}`;
+  }
+  const visibleMarker = visibleLifecycleMarker(canonical);
+  canonical = `${canonical.slice(0, visibleMarker.valueStart)}<LIFECYCLE>${canonical.slice(visibleMarker.valueEnd)}`;
+  return canonical;
+}
+
+function visibleLifecycleMarker(html) {
+  const pattern =
+    /<([a-z][a-z0-9-]*)\b(?=[^>]*\bdata-pm-lifecycle(?:=["'][^"']*["'])?)[^>]*>\s*(draft|reviewed|approved|superseded)\s*<\/\1>/gi;
+  const matches = [...html.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error("RFC HTML must contain exactly one visible data-pm-lifecycle marker");
+  }
+  const match = matches[0];
+  const valueOffset = match[0].toLowerCase().indexOf(match[2].toLowerCase());
+  return {
+    lifecycle: match[2].toLowerCase(),
+    valueStart: match.index + valueOffset,
+    valueEnd: match.index + valueOffset + match[2].length,
+  };
+}
+
+function artifactLifecycleMarker(html) {
+  const pattern = /<script\b(?=[^>]*\bid=["']pm-artifact["'])[^>]*>([\s\S]*?)<\/script>/gi;
+  const matches = [...html.matchAll(pattern)];
+  if (matches.length === 0) return null;
+  if (matches.length !== 1) {
+    throw new Error("RFC HTML must contain at most one #pm-artifact metadata marker");
+  }
+  const match = matches[0];
+  const body = match[1];
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error("RFC #pm-artifact marker must contain valid JSON");
+  }
+  if (!isObject(parsed) || !Object.hasOwn(parsed, "lifecycle")) {
+    throw new Error("RFC #pm-artifact marker must contain lifecycle");
+  }
+  const valueMatch = body.match(
+    /(["']lifecycle["']\s*:\s*["'])(draft|reviewed|approved|superseded)(["'])/i
+  );
+  if (!valueMatch || body.match(/["']lifecycle["']\s*:/gi)?.length !== 1) {
+    throw new Error("RFC #pm-artifact marker must use one explicit lifecycle field");
+  }
+  const bodyStart = match.index + match[0].indexOf(body);
+  const valueOffset = valueMatch.index + valueMatch[1].length;
+  return {
+    lifecycle: String(parsed.lifecycle).toLowerCase(),
+    valueStart: bodyStart + valueOffset,
+    valueEnd: bodyStart + valueOffset + valueMatch[2].length,
+  };
 }
 
 function lifecycleMarker(html) {

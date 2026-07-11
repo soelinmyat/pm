@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-plugin.local/schemas/html-artifact-v1.json",
+  "title": "PM HTML artifact metadata v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "slug",
+    "lifecycle",
+    "title",
+    "generated_at",
+    "generator",
+    "source",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*:[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "kind": { "enum": ["proposal", "rfc", "report"] },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "lifecycle": { "enum": ["draft", "reviewed", "approved", "superseded"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}

@@ -9,7 +9,7 @@ applies_to: [standard, full]
 
 Turn scope into fully formed designs through collaborative dialogue. Runs **after Scope Review** — the scope is locked, so design focuses on *how* to build what's been agreed.
 
-For UI features, this step produces a **prototype** (sketch / wireframe / mockup) saved to `{pm_dir}/backlog/wireframes/`. The proposal embeds the prototype as a hero figure (per Step 7).
+For UI features, this step produces a **prototype** (sketch / wireframe / mockup) saved to `{pm_dir}/backlog/wireframes/`. The proposal surfaces it as an offline-safe hero preview card and link (per Step 7); the interactive prototype remains a separate artifact.
 
 **Skip this step when:**
 - The scope is purely backend/infrastructure with no user-facing design decisions

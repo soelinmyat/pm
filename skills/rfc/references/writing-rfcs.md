@@ -14,6 +14,8 @@ Assume the implementer is a skilled developer but knows almost nothing about the
 
 **HTML reference:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` — match its structure, styling, and quality level. This is a complete example; replicate it with the actual RFC content.
 
+**Shared artifact contract:** Read `${CLAUDE_PLUGIN_ROOT}/references/artifacts/html-artifact-contract.md`. RFC HTML is self-contained, inert, accessible, responsive, printable, and bounded. Use system fonts and inline SVG or accessible text diagrams; never add CDN scripts or network assets. Keep `#pm-artifact.lifecycle` aligned with `#rfc-lifecycle.status`.
+
 **Section content guide:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-template.md` for what goes in each section.
 
 ## Scope Check

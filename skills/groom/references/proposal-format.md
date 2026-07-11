@@ -74,7 +74,7 @@ updated: YYYY-MM-DD
 
 The HTML renderer (Step 7) reads the wireframe's metadata per
 `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6 and
-embeds it as a hero-prototype figure between the title block and TL;DR.
+surfaces it as an inert hero preview card and local link between the title block and TL;DR.
 For non-visual features, omit the prototype link entirely.}
 
 **Execution Contract.** Agents execute from this block. If it conflicts with the appendix prose, revise the prose before approval.

@@ -21,7 +21,7 @@ Publish the approved RFC and perform only the downstream effects authorized inde
 ## How
 
 1. Confirm canonical state records explicit approval and the artifact still matches its approved fingerprint.
-2. Update RFC lifecycle to `approved` and proposal lifecycle to `planned`. Preserve sidecar bytes. Run the lifecycle-only verifier against the reviewed commit, revalidate, and commit the metadata-only change. Substantive content changes must use `rfc-session revise` and return to review.
+2. Update RFC lifecycle to `approved` and proposal lifecycle to `planned`. Keep `#rfc-lifecycle.status`, `#pm-artifact.lifecycle`, and the visible `[data-pm-lifecycle]` text equal to `approved`; preserve sidecar bytes. Run the lifecycle-only verifier against the reviewed commit, then run `node ${CLAUDE_PLUGIN_ROOT}/scripts/artifact-check.js --html {pm_dir}/backlog/rfcs/{slug}.html --kind rfc --manifest .pm/artifacts/rfc-{slug}.manifest.json`. Commit only after both gates pass. Substantive content changes must use `rfc-session revise` and return to review.
 3. Build the current artifact identity for that commit, then atomically write the sibling human approval audit:
 
    ```bash

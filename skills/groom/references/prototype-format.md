@@ -1,6 +1,6 @@
 # Prototype Format
 
-How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 6 (Design) to generate prototypes and by Step 7 (Draft Proposal) to embed them.
+How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 6 (Design) to generate prototypes and by Step 7 (Draft Proposal) to link them from an offline-safe preview.
 
 For shared base styles and the starter template, see:
 - `${CLAUDE_PLUGIN_ROOT}/references/templates/wireframe-base.css`
@@ -172,9 +172,9 @@ The `<ol class="callout-notes">` sits outside the canvas, below it. CSS auto-num
 
 ---
 
-## 8. Embedding in the proposal
+## 8. Referencing from the proposal
 
-The proposal HTML embeds prototypes as a hero figure between the title block and TL;DR (when the feature has a UI prototype). Pattern:
+The proposal HTML is an inert, self-contained artifact. It never frames or executes a prototype. Instead, show a metadata-derived preview card between the title block and TL;DR and link to the standalone prototype:
 
 ```html
 <figure class="hero-prototype">
@@ -182,11 +182,9 @@ The proposal HTML embeds prototypes as a hero figure between the title block and
     <span class="hero-prototype-label">Prototype</span>
     <span class="hero-prototype-fig">fig. 1 — {fidelity} wireframe</span>
   </div>
-  <div class="hero-prototype-frame-wrap">
-    <iframe class="hero-prototype-frame"
-            src="../wireframes/{slug}.html"  <!-- or {slug}/index.html -->
-            title="{slug} — {N screens}"
-            loading="lazy"></iframe>
+  <div class="hero-prototype-frame-wrap hero-prototype-preview"
+       role="img" aria-label="{fidelity} prototype: {screen names}">
+    Prototype preview is stored as a separate local artifact ({N} screens).
   </div>
   <figcaption class="hero-prototype-footer">
     <span class="hero-prototype-screens">
@@ -205,17 +203,12 @@ The proposal HTML embeds prototypes as a hero figure between the title block and
 - Single-file: `../wireframes/{slug}.html`
 - Multi-file: `../wireframes/{slug}/index.html`
 
-**Iframe height** by fidelity:
-- `sketch` → 560px
-- `wireframe` → 720px
-- `mockup` → 880px
-
 **Fidelity-specific note** (the small paragraph below the figure):
 - `sketch` → "Sketch — structural exploration. Layout and component shapes are intentional; visuals are deferred."
 - `wireframe` → "Lo-fi by intent — fidelity comes during implementation when real components are wired in."
 - `mockup` → "High-fidelity mockup using the project's actual design system. Visual review now reduces design back-and-forth in implementation."
 
-**Always one iframe.** Multi-file wireframes are accessed through their `index.html`, which itself decides how to render screens (stacked, tabs, grid). The proposal renderer never enumerates screens itself.
+**Always one inert preview.** Multi-file wireframes are accessed through their `index.html`, which decides how to render screens. The proposal renderer may list screen names from metadata but never copies, frames, or executes prototype markup.
 
 ---
 
@@ -231,4 +224,4 @@ Before marking a wireframe done in Step 6:
 - [ ] No app chrome (or `includes_chrome: true` declared per §5)
 - [ ] Metadata complete and valid per §6 schema
 - [ ] Callouts (if any) use the standard pattern per §7 — no floating text inside canvas
-- [ ] Opens cleanly when previewed standalone (not just inside the proposal iframe)
+- [ ] Opens cleanly when previewed standalone from the proposal link
