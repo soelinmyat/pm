@@ -365,7 +365,7 @@ class BoundedBuffer {
   }
 
   append(value) {
-    let chunk = Buffer.isBuffer(value) ? value : Buffer.from(String(value), "utf8");
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(String(value), "utf8");
     if (chunk.length >= this.limit) {
       this.chunks = [chunk.subarray(chunk.length - this.limit)];
       this.bytes = this.limit;
