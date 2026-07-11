@@ -8,6 +8,7 @@ const os = require("os");
 
 const {
   loadWorkflow,
+  loadPhaseStep,
   buildPrompt,
   buildPhasePrompt,
   selectWorkflowStep,
@@ -303,6 +304,37 @@ test("loadWorkflow: exact override wins deterministically over a legacy alias", 
     assert.equal(steps[0].stem, "08-review");
     assert.ok(steps[0].body.includes("Exact override."));
     assert.ok(!steps[0].body.includes("Legacy override."));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("loadPhaseStep: user body override inherits default phase contract metadata", () => {
+  const env = scaffold({
+    defaultSteps: {
+      rfc: {
+        "04-approval.md": [
+          "---",
+          "name: Approval",
+          "order: 4",
+          "phase: approval",
+          "allowed_modes:",
+          "  - inline",
+          "result_schema: explicit-approval-command",
+          "---",
+          "Default body.",
+        ].join("\n"),
+      },
+    },
+    userSteps: { rfc: { "04-approval.md": stepFile("Custom", 4, "Custom", "Custom body.") } },
+  });
+  try {
+    const step = loadPhaseStep("rfc", "approval", path.dirname(env.pmDir), env.pluginRoot);
+    assert.equal(step.source, "user");
+    assert.equal(step.phase, "approval");
+    assert.deepEqual(step.allowedModes, ["inline"]);
+    assert.equal(step.resultSchema, "explicit-approval-command");
+    assert.match(step.body, /Custom body/);
   } finally {
     env.cleanup();
   }

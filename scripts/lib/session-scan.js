@@ -202,6 +202,20 @@ function buildRfcDescriptor(filePath, stat, text) {
         next: `resume rfc (${session.slug})`,
       };
     }
+    const slug = path.basename(path.dirname(filePath));
+    return {
+      kind: "rfc",
+      filePath,
+      topic: slug,
+      stage: "invalid",
+      updated: "",
+      updatedEpoch: Math.floor(stat.mtimeMs / 1000),
+      linearId: "",
+      slug,
+      status: "invalid",
+      summary: `invalid canonical rfc session: ${slug}`,
+      next: `repair or migrate rfc session (${slug})`,
+    };
   }
   const baseName = path.basename(filePath, ".md");
   const stage = markdownTableValue(text, "Stage") || bulletValue(text, "Stage") || "active";
@@ -311,16 +325,24 @@ function listRfcSessions(paths) {
     }
   }
 
-  const out = [];
+  const bySlug = new Map();
+  const completed = new Set();
   for (const filePath of candidates) {
     const stat = safeStat(filePath);
     if (!stat) continue;
     const text = safeRead(filePath);
     const descriptor = buildRfcDescriptor(filePath, stat, text);
-    if (descriptor.status === "complete") continue;
-    out.push(descriptor);
+    if (descriptor.status === "complete") {
+      completed.add(descriptor.slug);
+      bySlug.delete(descriptor.slug);
+      continue;
+    }
+    if (completed.has(descriptor.slug)) continue;
+    const existing = bySlug.get(descriptor.slug);
+    const isCanonical = path.basename(filePath) === "session.json";
+    if (!existing || isCanonical) bySlug.set(descriptor.slug, descriptor);
   }
-  return out;
+  return [...bySlug.values()];
 }
 
 function listThinkSessions(paths) {

@@ -13,8 +13,12 @@ const {
   migrateLegacyMarkdown,
   nextDecision,
   recordResult,
+  resumeBlocked,
+  reviseSession,
   validateSession,
 } = require("./lib/rfc-session-schema");
+const { writeJsonAtomic } = require("./loop-git.js");
+const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
 
 const EXIT = { OK: 0, INVALID: 2, PRECONDITION: 3, VALIDATION: 4, BLOCKED: 5 };
 
@@ -30,6 +34,8 @@ function main(argv = process.argv.slice(2)) {
     if (command === "approve") return approveCommand(options);
     if (command === "authorize") return authorizeCommand(options);
     if (command === "migrate") return migrateCommand(options);
+    if (command === "revise") return reviseCommand(options);
+    if (command === "unblock") return unblockCommand(options);
     throw cliError(`unknown command: ${command}`, EXIT.INVALID);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
@@ -61,13 +67,16 @@ function initCommand(options) {
   requireOptions(options, ["slug", "sourceDir"]);
   let session;
   try {
+    const execution = resolveRfcProfile({
+      runtime: options.runtime,
+      profile: options.profile,
+      model: options.model,
+      reasoning: options.reasoning,
+    });
     session = createSession({
       slug: options.slug,
       sourceDir: path.resolve(options.sourceDir),
-      profile: options.profile,
-      runtime: options.runtime,
-      model: options.model,
-      reasoning: options.reasoning,
+      ...execution,
     });
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
@@ -79,10 +88,12 @@ function initCommand(options) {
     session.slug,
     "session.json"
   );
-  if (fs.existsSync(sessionPath)) {
-    throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
-  }
-  writeSession(sessionPath, session);
+  withLock(sessionPath, () => {
+    if (fs.existsSync(sessionPath)) {
+      throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+    }
+    writeSession(sessionPath, session);
+  });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
   return EXIT.OK;
 }
@@ -146,6 +157,18 @@ function authorizeCommand(options) {
   );
 }
 
+function reviseCommand(options) {
+  requireOptions(options, ["session", "reason"]);
+  return mutateSession(options, (session) => reviseSession(session, { reason: options.reason }));
+}
+
+function unblockCommand(options) {
+  requireOptions(options, ["session", "resolution"]);
+  return mutateSession(options, (session) =>
+    resumeBlocked(session, { resolution: options.resolution })
+  );
+}
+
 function migrateCommand(options) {
   requireOptions(options, ["legacy"]);
   let session;
@@ -161,18 +184,22 @@ function migrateCommand(options) {
     session.slug,
     "session.json"
   );
-  if (fs.existsSync(sessionPath)) {
-    throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
-  }
-  writeSession(sessionPath, session);
+  withLock(sessionPath, () => {
+    if (fs.existsSync(sessionPath)) {
+      throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+    }
+    writeSession(sessionPath, session);
+  });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
   return EXIT.OK;
 }
 
 function mutateSession(options, mutation) {
   const sessionPath = path.resolve(options.session);
-  return withLock(sessionPath, () => {
+  let completedSourceDir = null;
+  const exitCode = withLock(sessionPath, () => {
     const session = readSession(sessionPath);
+    assertCanonicalSessionPath(sessionPath, session);
     let outcome;
     try {
       outcome = mutation(session);
@@ -180,15 +207,27 @@ function mutateSession(options, mutation) {
       throw cliError(error.message, EXIT.VALIDATION);
     }
     const next = outcome?.session && outcome.idempotent ? outcome.session : outcome;
-    writeSession(sessionPath, next);
+    const idempotent =
+      outcome?.idempotent === true || JSON.stringify(next) === JSON.stringify(session);
+    let outputPath = sessionPath;
+    if (!idempotent && next.status === "complete") {
+      outputPath = completedSessionPath(next);
+      writeSession(outputPath, next);
+      fs.rmSync(sessionPath, { force: true });
+      completedSourceDir = path.dirname(sessionPath);
+    } else if (!idempotent) {
+      writeSession(sessionPath, next);
+    }
     emit(options, {
-      session_path: sessionPath,
+      session_path: outputPath,
       session: next,
-      idempotent: outcome?.idempotent === true,
+      idempotent,
       next: next.status === "complete" ? null : nextDecision(next, sessionPath),
     });
     return next.status === "blocked" ? EXIT.BLOCKED : EXIT.OK;
   });
+  if (completedSourceDir) fs.rmSync(completedSourceDir, { recursive: true, force: true });
+  return exitCode;
 }
 
 function loadRequiredSession(options, validate = true) {
@@ -196,7 +235,29 @@ function loadRequiredSession(options, validate = true) {
   const sessionPath = path.resolve(options.session);
   const session = readSession(sessionPath);
   if (validate) assertValidSession(session);
+  assertCanonicalSessionPath(sessionPath, session);
   return { session, sessionPath };
+}
+
+function assertCanonicalSessionPath(sessionPath, session) {
+  const canonicalPath =
+    session.status === "complete"
+      ? completedSessionPath(session)
+      : path.join(session.source.repo_root, ".pm", "rfc-sessions", session.slug, "session.json");
+  if (path.resolve(sessionPath) !== path.resolve(canonicalPath)) {
+    throw cliError(`noncanonical RFC session path: expected ${canonicalPath}`, EXIT.PRECONDITION);
+  }
+}
+
+function completedSessionPath(session) {
+  return path.join(
+    session.source.repo_root,
+    ".pm",
+    "rfc-sessions",
+    "completed",
+    session.slug,
+    "session.json"
+  );
 }
 
 function readSession(sessionPath) {
@@ -220,11 +281,7 @@ function readJson(filePath) {
 
 function writeSession(sessionPath, session) {
   assertValidSession(session);
-  fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
-  const temporary = `${sessionPath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, sessionPath);
-  fs.chmodSync(sessionPath, 0o600);
+  writeJsonAtomic(sessionPath, session, { fileMode: 0o600 });
 }
 
 function withLock(sessionPath, callback) {

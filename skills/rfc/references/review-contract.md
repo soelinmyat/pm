@@ -35,6 +35,7 @@ Return one object per required lens:
 ```json
 {
   "lens": "architecture-risk",
+  "artifact_hash": "sha256:...",
   "verdict": "pass",
   "blocking": [],
   "advisory": [
@@ -47,7 +48,7 @@ Return one object per required lens:
 }
 ```
 
-`verdict` is `pass` or `block`. A passing lens has an empty `blocking` array. Findings cite the RFC/source evidence and a bounded remediation. Praise, narrative summaries, and silence are not verdicts.
+`artifact_hash` is the combined HTML/sidecar fingerprint from the review packet. Every required lens must return the same current fingerprint. `verdict` is `pass` or `block`. A passing lens has an empty `blocking` array. Findings cite RFC/source evidence and a bounded remediation. Praise, narrative summaries, and silence are not verdicts.
 
 ## Fix loop
 

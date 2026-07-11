@@ -4,7 +4,8 @@ Read only these files:
 
 - skills/rfc/SKILL.md
 - skills/rfc/steps/03-rfc-review.md
-- skills/rfc/steps/04-approval-handoff.md
+- skills/rfc/steps/04-approval.md
+- skills/rfc/steps/05-handoff.md
 - skills/rfc/references/review-contract.md
 - skills/rfc/references/rfc-session.schema.json
 

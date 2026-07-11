@@ -7,7 +7,7 @@ Canonical state lives at `{source_dir}/.pm/rfc-sessions/{slug}/session.json` and
 - State is machine-local under the source repository's gitignored `.pm/`; RFC HTML/JSON artifacts live under the resolved PM content directory.
 - `session.json` is the only lifecycle authority. Human-readable projections are optional and never drive transitions.
 - Writes are atomic, mode `0600`, lock-protected, and idempotent for retried phase results.
-- Completed sessions remain as approval audits and are omitted from active-session listings.
+- Completed sessions move atomically to `{source_dir}/.pm/rfc-sessions/completed/{slug}/session.json` as approval audits. The active scanner does not traverse that archive.
 
 ## Phases
 
@@ -20,6 +20,8 @@ Canonical state lives at `{source_dir}/.pm/rfc-sessions/{slug}/session.json` and
 | `handoff` | Approved lifecycle and separately authorized effects | Verified handoff result |
 
 Session status is `active`, `awaiting_approval`, `approved`, `blocked`, or `complete`. Review completion sets `awaiting_approval`; only `approve` sets approval status and advances to handoff.
+
+Use `revise --reason <reason>` to invalidate review/approval and return an awaiting or approved session to review. Use `unblock --resolution <resolution>` to resolve the current blocker and resume the same phase. Both transitions are audited in session history.
 
 ## Artifact identity
 

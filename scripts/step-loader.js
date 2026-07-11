@@ -398,8 +398,21 @@ function loadPersonas(pmDir, pluginRoot) {
   return personas;
 }
 
+function loadPhaseStep(command, phase, projectRoot, pluginRoot) {
+  const steps = loadWorkflow(command, path.join(projectRoot, "pm"), pluginRoot).filter(
+    (step) => step.enabled && step.phase === phase
+  );
+  if (steps.length !== 1) {
+    throw new Error(
+      `workflow ${command} requires exactly one enabled step for phase ${phase}; found ${steps.length}`
+    );
+  }
+  return steps[0];
+}
+
 module.exports = {
   loadWorkflow,
+  loadPhaseStep,
   buildPrompt,
   selectWorkflowStep,
   buildPhasePrompt,

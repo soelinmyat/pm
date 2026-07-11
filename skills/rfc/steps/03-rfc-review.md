@@ -7,6 +7,12 @@ requires:
   - ../references/review-contract.md
   - ../references/cross-cutting-reviewers.md
   - ../../dev/test-layers.md
+required_evidence:
+  - review
+allowed_modes:
+  - inline
+  - delegated
+  - headless
 result_schema: rfc-phase-result-v1
 ---
 
@@ -33,4 +39,4 @@ Produce a technically reviewed RFC with all blocking findings resolved and enter
 - The review result is recorded and the session is `awaiting_approval`.
 - No human-approval or downstream external state has been written.
 
-**Advance:** proceed to Step 04 (Approval and Handoff) and wait for the explicit human decision.
+**Advance:** proceed to Step 04 (RFC Approval) and wait for the explicit human decision.

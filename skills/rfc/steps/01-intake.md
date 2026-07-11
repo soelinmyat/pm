@@ -5,6 +5,9 @@ description: Validate product context, size, acceptance criteria, and RFC eligib
 phase: intake
 requires:
   - ../../../references/context-discovery.md
+required_evidence:
+allowed_modes:
+  - inline
 result_schema: rfc-phase-result-v1
 ---
 

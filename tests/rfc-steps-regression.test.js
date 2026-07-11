@@ -29,12 +29,12 @@ function makeFakePmDir() {
 // AC 1: All 4 phase-local step files exist and load
 // ---------------------------------------------------------------------------
 
-test("rfc steps: all 4 step files load with correct order", () => {
+test("rfc steps: all 5 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("rfc", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 4, `Expected 4 steps, got ${steps.length}`);
+    assert.equal(steps.length, 5, `Expected 5 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {

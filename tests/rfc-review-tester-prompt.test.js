@@ -38,7 +38,7 @@ test("RFC review requires three structured lenses but adapts process count", () 
 });
 
 test("RFC review verdict is strict JSON-shaped and cannot imply approval", () => {
-  for (const field of ["lens", "verdict", "blocking", "advisory"]) {
+  for (const field of ["lens", "artifact_hash", "verdict", "blocking", "advisory"]) {
     assert.match(contract, new RegExp(`"${field}"`));
   }
   assert.match(contract, /Praise, narrative summaries, and silence are not verdicts/);

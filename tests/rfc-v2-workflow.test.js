@@ -25,12 +25,14 @@ test("review step cannot write approved lifecycle state", () => {
 });
 
 test("approval and external handoff live in a separate final step", () => {
-  const approval = read("skills/rfc/steps/04-approval-handoff.md");
+  const approval = read("skills/rfc/steps/04-approval.md");
+  const handoff = read("skills/rfc/steps/05-handoff.md");
   assert.match(approval, /rfc-session\.js approve/);
-  assert.match(approval, /artifact hash/i);
-  assert.match(approval, /authority/);
-  assert.match(approval, /Linear/);
-  assert.match(approval, /loop/);
+  assert.match(approval, /artifact (hash|fingerprint)/i);
+  assert.doesNotMatch(approval, /linear-operations\.md/);
+  assert.match(handoff, /authority/);
+  assert.match(handoff, /Linear/);
+  assert.match(handoff, /loop/);
 });
 
 test("model policy is data, not duplicated provider coaching", () => {

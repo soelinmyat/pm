@@ -28,13 +28,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 ## Workflow
 
 1. **Resume before intake.** Look for `.pm/rfc-sessions/*/session.json`. Resume the one matching the requested slug with `scripts/rfc-session.js next --session <path> --json`. If only a legacy `.md` session exists, migrate and recertify it; never trust legacy `approved` as proof because the old workflow wrote that state before human confirmation.
-2. **Create canonical state for fresh work.** Run `scripts/rfc-session.js init --slug <slug> --source-dir <absolute-source-dir> --json`. During intake, save proposal/Linear source, M/L/XL size, and acceptance criteria with the `context` command. `session.json` is authoritative and remains after completion as the approval audit.
+2. **Create canonical state for fresh work.** Run `scripts/rfc-session.js init --slug <slug> --source-dir <absolute-source-dir> --json`. During intake, save proposal/Linear source, M/L/XL size, and acceptance criteria with the `context` command. `session.json` is authoritative and moves to the completed-session archive as the approval audit.
 3. **Load one phase at a time.** Run `scripts/rfc-session.js next`. Read only its `instruction_path` and the references declared by that step. A same-named file in `.pm/workflows/rfc/` overrides the bundled step. Do not preload future phases.
 4. **Build bounded execution packets.** Use `scripts/rfc-prompt.js` for generation or delegated review. Include only the active objective, ACs, relevant repository findings, exact input/artifact paths, constraints, authority, evidence, and result contract.
 5. **Keep runtime policy in data.** Model and effort defaults live in `references/model-profiles.json`. A provider switch changes the profile, not workflow semantics or reviewer criteria.
 6. **Advance through the runner.** Every non-approval phase returns the strict phase-result envelope in `references/rfc-session.schema.json` and records it with `scripts/rfc-session.js record`. Only the runner advances phases, validates artifact identity, enforces retries, and recognizes completion.
 7. **Separate review from approval.** Passing review records three lens verdicts against the current sidecar hash and enters `status: awaiting_approval`. It does not change RFC/proposal lifecycle status. After the user explicitly approves, record `scripts/rfc-session.js approve --approved-by <identity>`; edits after review force another review.
 8. **Gate external effects independently.** RFC approval approves the design, not Linear creation, unattended loop pickup, opening applications, or starting implementation. Execute those actions only when the corresponding authority boolean is true or after a separate explicit confirmation recorded with `authorize`.
+9. **Recover explicitly.** If reviewed content changes or the user requests a redesign, run `revise --reason <reason>` and review the new hash. If a recorded blocker is resolved, run `unblock --resolution <resolution>` to resume the same phase with an auditable resolution.
 
 ## Loop Worker Mode (headless)
 

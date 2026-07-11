@@ -109,6 +109,36 @@ test("record retries are idempotent after an atomic phase advance", () => {
   }
 });
 
+test("CLI rejects noncanonical copied session paths", () => {
+  const repo = makeRepo();
+  try {
+    const init = JSON.parse(
+      repo.run(["init", "--slug", "canonical", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const copy = path.join(repo.root, "copied-session.json");
+    fs.copyFileSync(init.session_path, copy);
+    const result = repo.run(["status", "--session", copy]);
+    assert.equal(result.status, 3);
+    assert.match(result.stderr, /noncanonical RFC session path/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("init respects an exclusive creation lock for the slug", () => {
+  const repo = makeRepo();
+  try {
+    const sessionDir = path.join(repo.root, ".pm", "rfc-sessions", "locked");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, "session.json.lock"), "other-worker\n");
+    const result = repo.run(["init", "--slug", "locked", "--source-dir", repo.root]);
+    assert.equal(result.status, 3);
+    assert.match(result.stderr, /session is locked/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 function makeRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-rfc-cli-"));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });

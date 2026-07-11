@@ -93,12 +93,12 @@
       }
     },
     "authority": { "$ref": "#/$defs/authority" },
-    "authority_log": { "type": "array", "items": { "type": "object" } },
-    "execution": { "type": "object" },
-    "attempts": { "type": "array", "items": { "type": "object" } },
-    "blockers": { "type": "array", "items": { "type": "object" } },
-    "history": { "type": "array", "items": { "type": "object" } },
-    "migration": { "type": ["object", "null"] }
+    "authority_log": { "type": "array", "items": { "$ref": "#/$defs/authority_record" } },
+    "execution": { "$ref": "#/$defs/execution" },
+    "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } },
+    "blockers": { "type": "array", "items": { "$ref": "#/$defs/blocker" } },
+    "history": { "type": "array", "items": { "$ref": "#/$defs/history" } },
+    "migration": { "anyOf": [{ "$ref": "#/$defs/migration" }, { "type": "null" }] }
   },
   "$defs": {
     "authority": {
@@ -110,6 +110,93 @@
         "loop_approval": { "type": "boolean" },
         "open_browser": { "type": "boolean" },
         "start_implementation": { "type": "boolean" }
+      }
+    },
+    "authority_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "granted", "reason", "recorded_at"],
+      "properties": {
+        "action": { "enum": ["linear_create", "loop_approval", "open_browser", "start_implementation"] },
+        "granted": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "minLength": 1 },
+        "runtime_session_id": { "type": ["string", "null"] }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "reasoning", "session_id"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "session_id": { "type": ["string", "null"] }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "attempt", "status", "summary", "artifact_hash", "recorded_at", "runtime", "result_hash"],
+      "properties": {
+        "phase": { "enum": ["intake", "generation", "review", "handoff"] },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "artifact_hash": { "type": ["string", "null"] },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "result_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "reason", "remediation"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "remediation": { "type": "string", "minLength": 1 },
+        "phase": { "enum": ["intake", "generation", "review", "approval", "handoff"] },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "resolved_at": { "type": "string", "format": "date-time" },
+        "resolution": { "type": "string", "minLength": 1 }
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prior_phase", "next_phase", "reason", "timestamp"],
+      "properties": {
+        "prior_phase": { "type": "string", "minLength": 1 },
+        "next_phase": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacy_path", "legacy_stage", "migrated_at", "approval_trusted", "reason"],
+      "properties": {
+        "legacy_path": { "type": "string", "minLength": 1 },
+        "legacy_stage": { "type": "string", "minLength": 1 },
+        "migrated_at": { "type": "string", "format": "date-time" },
+        "approval_trusted": { "const": false },
+        "reason": { "type": "string", "minLength": 1 }
       }
     },
     "artifact": {
@@ -139,9 +226,10 @@
     "verdict": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["lens", "verdict", "blocking", "advisory"],
+      "required": ["lens", "artifact_hash", "verdict", "blocking", "advisory"],
       "properties": {
         "lens": { "enum": ["architecture-risk", "test-strategy", "maintainability"] },
+        "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "verdict": { "enum": ["pass", "block"] },
         "blocking": { "type": "array" },
         "advisory": { "type": "array" }
@@ -168,13 +256,13 @@
         "run_id": { "type": "string", "minLength": 1 },
         "phase": { "enum": ["intake", "generation", "review", "handoff"] },
         "attempt": { "type": "integer", "minimum": 1 },
-        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "status": { "enum": ["passed", "failed", "blocked"] },
         "summary": { "type": "string", "minLength": 1 },
         "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
         "reviewer_verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
-        "blocker": { "type": ["object", "null"] },
-        "runtime": { "type": "object" }
+        "blocker": { "anyOf": [{ "$ref": "#/$defs/blocker" }, { "type": "null" }] },
+        "runtime": { "$ref": "#/$defs/runtime" }
       }
     }
   }
