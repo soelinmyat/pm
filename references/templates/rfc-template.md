@@ -6,11 +6,32 @@ This file defines the **content** for each section. The HTML reference defines t
 
 ## Metadata
 
-Embed identity metadata separately, and include exactly one dedicated lifecycle marker in the HTML. Only this marker may change during approval:
+Follow `${CLAUDE_PLUGIN_ROOT}/references/artifacts/html-artifact-contract.md`. Embed exactly one shared identity block and one dedicated workflow lifecycle marker in the HTML:
+
+```html
+<script id="pm-artifact" type="application/json">
+{
+  "schema_version": 1,
+  "id": "rfc:{slug}",
+  "kind": "rfc",
+  "slug": "{slug}",
+  "lifecycle": "draft",
+  "title": "{title}",
+  "generated_at": "{RFC-3339 timestamp}",
+  "generator": { "name": "pm:rfc", "version": "{plugin version}" },
+  "source": { "path": "pm/backlog/{slug}.md", "sha256": "sha256:{proposal hash}" },
+  "evidence": []
+}
+</script>
+```
+
+The lifecycle fields are changed together during approval; all other artifact metadata remains stable:
 
 ```html
 <script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>
 ```
+
+Render the same lifecycle once as visible text in a dedicated marker, for example `<span data-pm-lifecycle>Draft</span>`. This is the only visible text the lifecycle-only handoff may change.
 
 ## Hero Header
 
@@ -47,7 +68,7 @@ These are the facts that justify the approach below.}
 ## Architecture
 
 {System-level design. Component relationships, data flow, integration points.
-Include a Mermaid diagram for the system overview.
+Include a system overview rendered as accessible inline SVG. If SVG rendering is unavailable, use a labeled `pre.diagram-text` text fallback; do not leave raw Mermaid source in the HTML.
 Use <details> blocks for architecture rationale (e.g., "Why X, not Y").}
 
 **Apps/services affected:** {list affected apps, packages, or services}

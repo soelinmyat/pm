@@ -27,7 +27,7 @@ The goal: the backlog entry shows a **Resolved Questions** section with clear an
 
 Write or update the backlog entry at `{pm_dir}/backlog/{topic-slug}.md`. Set `status: proposed`, `prd: null`, `rfc: null`.
 
-**No sidecar files.** All metadata lives in the proposal `.md` frontmatter.
+**No public content sidecars.** All proposal content metadata lives in the `.md` frontmatter. The private `.pm/artifacts/` integrity manifest generated in Step 3 is operational state, not a second content source.
 
 **Sections:** Use the exact section names and order from `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`. All 12 sections must be present. Do not rename, reorder, or redefine sections here — `proposal-format.md` is the single authority.
 
@@ -40,7 +40,9 @@ Additional guidance for the full-tier Present step:
 
 Create `{pm_dir}/backlog/proposals/` if it doesn't exist (`mkdir -p {pm_dir}/backlog/proposals`). Write a styled HTML version of the proposal to `{pm_dir}/backlog/proposals/{topic-slug}.html`.
 
-`${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical render and sole authority for DOM shape and styling — match it exactly and use only its existing class names. Render all twelve sections (fixed names and anchors per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`) and keep the Mermaid CDN script + `mermaid.initialize` block intact. Full-tier specifics the content must carry: the Review Summary pipeline includes the Team Review and Bar Raiser verdicts, and Resolved Questions render as numbered Q&A (answers resolved in Step 1).
+`${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical render and sole authority for DOM shape and styling — match it exactly and use only its existing class names. Render all twelve sections (fixed names and anchors per `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md`) and follow `${CLAUDE_PLUGIN_ROOT}/references/artifacts/html-artifact-contract.md`: the file is offline, inert, accessible, responsive, and printable. Render diagrams to inline SVG or accessible text, never a CDN script. Full-tier specifics the content must carry: the Review Summary pipeline includes the Team Review and Bar Raiser verdicts, and Resolved Questions render as numbered Q&A (answers resolved in Step 1).
+
+Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/artifact-check.js --html {pm_dir}/backlog/proposals/{topic-slug}.html --kind proposal --manifest .pm/artifacts/proposal-{topic-slug}.manifest.json`. Do not open or present a failing artifact.
 
 After writing the HTML, open it in the browser (portable across macOS/Linux; falls back to printing the path):
 

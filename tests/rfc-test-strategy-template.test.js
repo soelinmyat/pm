@@ -112,9 +112,11 @@ test("rfc-reference.html: has data-schema-version=3 on root element", () => {
   );
 });
 
-test("rfc-reference.html: has script#rfc-meta JSON block", () => {
+test("rfc-reference.html: has shared script#pm-artifact JSON block", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
-  assert.ok(content.includes('id="rfc-meta"'), "HTML reference must have script#rfc-meta");
+  assert.ok(content.includes('id="pm-artifact"'), "HTML reference must have script#pm-artifact");
+  assert.match(content, /"kind"\s*:\s*"rfc"/);
+  assert.match(content, /"lifecycle"\s*:\s*"approved"/);
 });
 
 test("rfc-reference.html: has one dedicated lifecycle marker", () => {

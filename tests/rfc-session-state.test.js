@@ -76,9 +76,7 @@ test("RFC session separates technical review from explicit human approval", () =
       "retrying the same approval is idempotent"
     );
 
-    let approvedArtifact = updateArtifactHtml(repo, artifact, (html) =>
-      html.replace('{"status":"draft"}', '{"status":"approved"}')
-    );
+    let approvedArtifact = updateArtifactHtml(repo, artifact, approveArtifactHtml);
     const approvalPath = approvedArtifact.json_path.replace(/\.json$/i, ".approval.json");
     const approvalAudit = buildApprovalAudit(session, approvedArtifact);
     if (Ajv2020) {
@@ -213,9 +211,7 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
       })
     );
     session = approveSession(session, { approvedBy: "product-owner" });
-    artifact = updateArtifactHtml(artifactRepo, artifact, (html) =>
-      html.replace('{"status":"draft"}', '{"status":"approved"}')
-    );
+    artifact = updateArtifactHtml(artifactRepo, artifact, approveArtifactHtml);
     const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
     fs.writeFileSync(
       approvalPath,
@@ -491,9 +487,10 @@ test("handoff rejects substantive HTML changes disguised as lifecycle evidence",
     );
     session = approveSession(session, { approvedBy: "owner" });
     const changed = updateArtifactHtml(repo, artifact, (html) =>
-      html
-        .replace('{"status":"draft"}', '{"status":"approved"}')
-        .replace('<section id="brief"></section>', '<section id="brief">Different design</section>')
+      approveArtifactHtml(html).replace(
+        '<section id="brief"></section>',
+        '<section id="brief">Different design</section>'
+      )
     );
     assert.throws(
       () =>
@@ -531,12 +528,10 @@ test("handoff normalizes only the dedicated lifecycle marker", () => {
     );
     session = approveSession(session, { approvedBy: "owner" });
     const changed = updateArtifactHtml(repo, artifact, (html) =>
-      html
-        .replace(
-          '<script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>',
-          '<script id="rfc-lifecycle" type="application/json">{"status":"approved"}</script>'
-        )
-        .replace('<code>{"status":"draft"}</code>', '<code>{"status":"approved"}</code>')
+      approveArtifactHtml(html).replace(
+        '<code>{"status":"draft"}</code>',
+        '<code>{"status":"approved"}</code>'
+      )
     );
     assert.throws(
       () =>
@@ -548,6 +543,44 @@ test("handoff normalizes only the dedicated lifecycle marker", () => {
           })
         ),
       /changed substantive HTML/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("handoff rejects contradictory shared and workflow lifecycle metadata", () => {
+  const repo = makeRepo();
+  try {
+    let session = routedSession(repo);
+    session = recordResult(session, passed(session));
+    const artifact = makeArtifact(repo);
+    session = recordResult(
+      session,
+      passed(session, { artifact, evidence: [evidence("artifact")] })
+    );
+    session = recordResult(
+      session,
+      passed(session, {
+        artifact,
+        evidence: [evidence("review")],
+        reviewer_verdicts: requiredVerdicts(artifactFingerprint(artifact)),
+      })
+    );
+    session = approveSession(session, { approvedBy: "owner" });
+    const changed = updateArtifactHtml(repo, artifact, (html) =>
+      html.replace('{"status":"draft"}', '{"status":"approved"}')
+    );
+    assert.throws(
+      () =>
+        recordResult(
+          session,
+          passed(session, {
+            artifact: changed,
+            evidence: [evidence("handoff"), evidence("lifecycle")],
+          })
+        ),
+      /workflow lifecycle contradicts PM artifact metadata/
     );
   } finally {
     repo.cleanup();
@@ -892,8 +925,21 @@ function makeArtifact(repo) {
     htmlPath,
     [
       "<!doctype html>",
-      `<main data-sidecar-hash="${hash}">`,
+      '<html lang="en">',
+      "<head>",
+      '  <meta charset="utf-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+      "  <title>Safe approval RFC</title>",
+      '  <script id="pm-artifact" type="application/json">{"schema_version":1,"id":"rfc:safe-approval","kind":"rfc","slug":"safe-approval","lifecycle":"draft","title":"Safe approval RFC","generated_at":"2026-07-12T00:00:00Z","generator":{"name":"pm:rfc","version":"test"},"source":{"path":"proposal.md","sha256":null},"evidence":[]}</script>',
+      "  <style>:focus-visible{outline:2px solid currentColor}@media(max-width:700px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{*{overflow:visible!important}}</style>",
+      "</head>",
+      "<body>",
       '  <script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>',
+      '  <a class="skip-link" href="#content">Skip to content</a>',
+      '  <nav aria-label="RFC sections"><a href="#brief">Brief</a></nav>',
+      `  <main id="content" data-sidecar-hash="${hash}">`,
+      "  <h1>Safe approval RFC</h1>",
+      "  <p>Status: <span data-pm-lifecycle>Draft</span></p>",
       '  <section id="brief"></section>',
       '  <code>{"status":"draft"}</code>',
       '  <section id="execution-contract"></section>',
@@ -907,7 +953,9 @@ function makeArtifact(repo) {
       '    <span class="issue-detail-size">M</span>',
       '    <span class="hooks-badge">AC-1</span>',
       "  </article>",
-      "</main>",
+      "  </main>",
+      "</body>",
+      "</html>",
       "",
     ].join("\n")
   );
@@ -936,6 +984,13 @@ function updateArtifactHtml(repo, artifact, transform) {
       .digest("hex")}`,
     commit: repo.head(),
   };
+}
+
+function approveArtifactHtml(html) {
+  return html
+    .replace('"lifecycle":"draft"', '"lifecycle":"approved"')
+    .replace('{"status":"draft"}', '{"status":"approved"}')
+    .replace("data-pm-lifecycle>Draft", "data-pm-lifecycle>Approved");
 }
 
 function makeRepo() {

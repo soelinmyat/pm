@@ -4,32 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PM-042 — Multi-Language Support</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>
-  document.fonts.ready.then(() => mermaid.initialize({
-    startOnLoad: true,
-    theme: 'base',
-    themeVariables: {
-      fontFamily: 'Geist, system-ui, sans-serif',
-      fontSize: '13px',
-      primaryColor: '#f4f1ec',
-      primaryTextColor: '#2a2622',
-      primaryBorderColor: '#d6cfc4',
-      lineColor: '#8a8175',
-      tertiaryColor: '#fbf9f5'
-    }
-  }));
+<script id="pm-artifact" type="application/json">
+{"schema_version":1,"id":"proposal:multi-language-support","kind":"proposal","slug":"multi-language-support","lifecycle":"reviewed","title":"Multi-Language Support","generated_at":"2026-04-10T00:00:00Z","generator":{"name":"pm:groom","version":"1.13.11"},"source":{"path":"pm/backlog/multi-language-support.md","sha256":null},"evidence":[]}
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --serif: 'Spectral', Georgia, 'Times New Roman', serif;
-    --sans: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    --mono: 'Geist Mono', 'SF Mono', Menlo, monospace;
+    --serif: Georgia, 'Times New Roman', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', Menlo, Consolas, monospace;
 
     --bg:        oklch(98% 0.005 60);
     --bg-tint:   oklch(96% 0.008 60);
@@ -146,10 +130,7 @@
   .hero-prototype-label { font-weight: 500; }
   .hero-prototype-fig { font-family: var(--mono); color: var(--ink-4); letter-spacing: 0.04em; }
   .hero-prototype-frame-wrap { background: var(--bg-tint); margin-top: var(--space-3); }
-  .hero-prototype-frame { width: 100%; border: 0; display: block; background: #fff; }
-  .hero-prototype-frame--sketch { height: 560px; }
-  .hero-prototype-frame--wireframe { height: 720px; }
-  .hero-prototype-frame--mockup { height: 880px; }
+  .hero-prototype-preview { min-height: 10rem; display: grid; place-items: center; padding: var(--space-6); border: 1px dashed var(--rule); background: var(--bg-tint); text-align: center; }
   .hero-prototype-footer {
     display: flex;
     justify-content: space-between;
@@ -671,21 +652,25 @@
     .tldr dt { margin-top: var(--space-2); }
     .usecase dl, .pipeline-row { grid-template-columns: 1fr; margin-left: 0; gap: var(--space-1); }
     .open-q-rec, .open-q-meta { margin-left: 0; }
-    .hero-prototype-frame--sketch { height: 420px; }
-    .hero-prototype-frame--wireframe { height: 520px; }
-    .hero-prototype-frame--mockup { height: 620px; }
+    .hero-prototype-preview { min-height: 8rem; padding: var(--space-5); }
   }
+  .skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 1000; padding: .6rem .8rem; background: var(--ink); color: var(--bg); font-family: var(--sans); }
+  .skip-link:focus { top: 1rem; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+  @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .toc { display: none; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype { break-inside: avoid; } }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#content">Skip to content</a>
 
-<div class="page">
+<main class="page" id="content">
 
   <!-- Masthead -->
   <header class="masthead">
     <span class="masthead-id">PM-042</span>
     <div class="masthead-meta">
-      <span class="status-mark">Proposed</span>
+      <span class="status-mark">Reviewed · Proposed</span>
       <span>Priority high</span>
       <span>Size M</span>
       <span>Apr 10, 2026</span>
@@ -704,11 +689,8 @@
       <span class="hero-prototype-label">Prototype</span>
       <span class="hero-prototype-fig">fig. 1 — wireframe</span>
     </div>
-    <div class="hero-prototype-frame-wrap">
-      <iframe class="hero-prototype-frame hero-prototype-frame--wireframe"
-              src="../wireframes/multi-language-support.html"
-              title="multi-language-support — 3 screens"
-              loading="lazy"></iframe>
+    <div class="hero-prototype-frame-wrap hero-prototype-preview" role="img" aria-label="Wireframe preview: settings, language picker, and translated interface screens">
+      <p class="hero-prototype-note">Offline preview placeholder — open the local prototype for the interactive flow.</p>
     </div>
     <figcaption class="hero-prototype-footer">
       <span>
@@ -915,7 +897,7 @@
   <section id="flow">
     <h2><span class="sec-num">VII</span>User Flow</h2>
     <div class="diagram">
-      <pre class="mermaid">
+      <pre class="diagram-text" aria-label="Delivery sequence diagram">
 flowchart TD
     A[First visit] --> B{Browser locale matches supported?}
     B -->|Yes| C[Render in detected language]
@@ -1034,7 +1016,7 @@ flowchart TD
     <span>Product Proposal · Apr 10, 2026</span>
   </footer>
 
-</div>
+</main>
 
 </body>
 </html>
