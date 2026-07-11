@@ -9,6 +9,9 @@ const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "..");
 const runScript = path.join(repoRoot, "scripts", "evals", "run.js");
+const { loadQualityCase } = require("../scripts/evals/quality.js");
+const { stageQualityCase } = require("../scripts/evals/run.js");
+const { _private: codexPrivate } = require("../scripts/evals/adapters/codex.js");
 
 test("stub eval runner stages source and writes a passing verdict", () => {
   const runId = "20260701T050200Z--dev-tdd-before-implementation--stub";
@@ -53,6 +56,143 @@ test("stub eval runner stages source and writes a passing verdict", () => {
     );
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("eval runner stages and hashes an explicit quality case into the run story", () => {
+  const runId = "20260701T050203Z--quality-dev-happy-path--stub";
+  const runDir = path.join(repoRoot, "eval-results", "runs", runId);
+  fs.rmSync(runDir, { recursive: true, force: true });
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        runScript,
+        "evals/scenarios/quality-dev-happy-path",
+        "--agent",
+        "stub",
+        "--quality-case",
+        "dev-happy-path",
+        "--run-id",
+        runId,
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const identity = JSON.parse(
+      fs.readFileSync(path.join(runDir, "metadata", "quality_case_identity.json"), "utf8")
+    );
+    assert.equal(identity.id, "dev-happy-path");
+    assert.equal(identity.workflow, "dev");
+    assert.match(identity.prompt_hash, /^sha256:[a-f0-9]{64}$/);
+    const story = fs.readFileSync(path.join(runDir, "scenario", "story.md"), "utf8");
+    assert.ok(story.includes(loadQualityCase(repoRoot, "dev-happy-path").prompt));
+    assert.doesNotMatch(story, /Implement this small PM workflow change and push it when ready/);
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("eval runner rejects a quality case whose bound scenario does not match", () => {
+  const runId = "20260701T050204Z--quality-dev-happy-path--stub";
+  const runDir = path.join(repoRoot, "eval-results", "runs", runId);
+  fs.rmSync(runDir, { recursive: true, force: true });
+  const result = spawnSync(
+    process.execPath,
+    [
+      runScript,
+      "evals/scenarios/quality-dev-happy-path",
+      "--agent",
+      "stub",
+      "--quality-case",
+      "rfc-happy-path",
+      "--run-id",
+      runId,
+    ],
+    { cwd: repoRoot, encoding: "utf8" }
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires scenario quality-rfc-happy-path/);
+  assert.equal(fs.existsSync(runDir), false);
+});
+
+test("live quality run persists and applies the exact selected profile", () => {
+  const runId = "20260701T050205Z--quality-dev-happy-path--codex";
+  const runDir = path.join(repoRoot, "eval-results", "runs", runId);
+  fs.rmSync(runDir, { recursive: true, force: true });
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        runScript,
+        "evals/scenarios/quality-dev-happy-path",
+        "--agent",
+        "codex",
+        "--quality-case",
+        "dev-happy-path",
+        "--quality-profile",
+        "sol-high",
+        "--run-id",
+        runId,
+      ],
+      { cwd: repoRoot, encoding: "utf8", env: { ...process.env, PM_EVAL_CODEX_LIVE: "0" } }
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const identity = JSON.parse(
+      fs.readFileSync(path.join(runDir, "metadata", "quality_profile_identity.json"), "utf8")
+    );
+    assert.deepEqual(identity, {
+      schema_version: 1,
+      id: "sol-high",
+      adapter: "codex",
+      model: "gpt-5.6-sol",
+      effort: "high",
+    });
+    const argv = codexPrivate.buildCodexArgv({
+      paths: { workdir: "/tmp/work", metadataDir: "/tmp/meta", qualityProfile: identity },
+    });
+    assert.deepEqual(argv.slice(0, 5), [
+      "exec",
+      "-m",
+      "gpt-5.6-sol",
+      "-c",
+      'model_reasoning_effort="high"',
+    ]);
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("quality prompt staging preserves JavaScript replacement tokens verbatim", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pm-quality-replacement-"));
+  try {
+    const scenarioStageDir = path.join(tmp, "scenario");
+    const metadataDir = path.join(tmp, "metadata");
+    fs.mkdirSync(scenarioStageDir);
+    fs.mkdirSync(metadataDir);
+    fs.writeFileSync(
+      path.join(scenarioStageDir, "story.md"),
+      "---\nid: exact\n---\n\nUser message: old\n\nStop condition: done\n"
+    );
+    stageQualityCase(
+      { scenarioStageDir, metadataDir, scenarioId: "exact" },
+      {
+        id: "exact-case",
+        workflow: "dev",
+        type: "happy-path",
+        prompt_ref: "fixture.md",
+        prompt_hash: "sha256:" + "a".repeat(64),
+        prompt: "Keep $& and $` and $' exactly.",
+        scenario_ref: "exact",
+        scenario_contract_hash: "sha256:" + "b".repeat(64),
+      }
+    );
+    assert.match(
+      fs.readFileSync(path.join(scenarioStageDir, "story.md"), "utf8"),
+      /Keep \$& and \$` and \$' exactly\./
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 

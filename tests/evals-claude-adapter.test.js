@@ -503,6 +503,50 @@ test("claudeEnv forwards PM_EVAL_CLAUDE_OAUTH_TOKEN as CLAUDE_CODE_OAUTH_TOKEN",
   }
 });
 
+test("readKeychainOAuthToken extracts only the access token from Claude credentials JSON", () => {
+  const token = _private.readKeychainOAuthToken(() => ({
+    status: 0,
+    stdout: JSON.stringify({
+      claudeAiOauth: { accessToken: "oauth-test-token", refreshToken: "must-not-be-used" },
+    }),
+  }));
+  assert.equal(token, "oauth-test-token");
+  assert.equal(
+    _private.readKeychainOAuthToken(() => ({ status: 0, stdout: "not-json" })),
+    ""
+  );
+  assert.equal(
+    _private.readKeychainOAuthToken(() => ({ status: 1, stdout: "" })),
+    ""
+  );
+});
+
+test("claudeEnv forwards an opt-in prepared keychain token without exposing refresh credentials", () => {
+  const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const priorKey = process.env.PM_EVAL_CLAUDE_API_KEY;
+  try {
+    delete process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+    delete process.env.PM_EVAL_CLAUDE_API_KEY;
+    const env = _private.claudeEnv({
+      paths: {
+        homeDir: "/tmp/pm-eval-home",
+        tmpDir: "/tmp/pm-eval-tmp",
+        xdgCacheDir: "/tmp/pm-eval-cache",
+        xdgConfigDir: "/tmp/pm-eval-config",
+        xdgDataDir: "/tmp/pm-eval-data",
+        artifactsDir: "/tmp/pm-eval-artifacts",
+        scenarioId: "dev-review-before-push",
+      },
+      prepared: { pluginRoot: "/tmp/plugin", oauthToken: "keychain-access-token" },
+    });
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "keychain-access-token");
+    assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  } finally {
+    setOrDelete("PM_EVAL_CLAUDE_OAUTH_TOKEN", priorToken);
+    setOrDelete("PM_EVAL_CLAUDE_API_KEY", priorKey);
+  }
+});
+
 test("claudeEnv omits CLAUDE_CODE_OAUTH_TOKEN when unset", () => {
   const priorToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
   try {

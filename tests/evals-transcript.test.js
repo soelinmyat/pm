@@ -44,6 +44,27 @@ test("transcript helpers fail deterministically for missing observed behavior", 
   assert.match(result.reason, /skill not called/);
 });
 
+test("quality revalidation requires the exact successful helper invocation", () => {
+  const exact = normalizeEvents([
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: 'node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" revalidate dev "$(pwd)"',
+      exit_code: 0,
+    },
+  ]);
+  const echoed = normalizeEvents([
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command: "echo 'quality-resume.js revalidate dev .'",
+      exit_code: 0,
+    },
+  ]);
+  assert.equal(checkTranscript(exact, "quality-revalidation", "dev").status, "pass");
+  assert.equal(checkTranscript(echoed, "quality-revalidation", "dev").status, "fail");
+});
+
 test("transcript helpers can order skills before matching shell commands", () => {
   const pushOrPr = String.raw`\b(git\s+push|gh\s+pr\s+(create|merge))\b`;
   const setupReviewPush = normalizeEvents([

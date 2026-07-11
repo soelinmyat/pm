@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "slug": "export-job-recovery",
+  "title": "Durable recovery for asynchronous export jobs",
+  "size": "M",
+  "issues": [
+    {
+      "num": 1,
+      "title": "Persist an idempotent export job state machine",
+      "size": "M",
+      "depends_on": [],
+      "owns": ["scripts/export-job.js", "tests/export-job.test.js"],
+      "acceptance_criteria": [
+        "AC-1: Retrying the same idempotency key returns the original job without duplicating work",
+        "AC-2: A process restart resumes queued and running jobs from the last durable transition",
+        "AC-3: Terminal failures retain a user-safe reason and the last verified checkpoint"
+      ],
+      "approach": "Store each state transition with a monotonic revision and idempotency key. Workers claim a revision using compare-and-swap, write the export checkpoint before acknowledging work, and make terminal transitions immutable. This keeps retry behavior independent of worker lifetime and gives recovery code one authoritative state source.",
+      "verification_commands": [
+        "node --test tests/export-job.test.js",
+        "node --test tests/export-recovery.integration.test.js"
+      ],
+      "test_hooks": [
+        "Unit: duplicate idempotency key and illegal transition table",
+        "Integration: kill worker after checkpoint write and resume from durable revision",
+        "Regression: existing synchronous export path remains unchanged"
+      ]
+    },
+    {
+      "num": 2,
+      "title": "Expose bounded retry and recovery status",
+      "size": "S",
+      "depends_on": [1],
+      "owns": ["scripts/export-status.js", "tests/export-status.test.js"],
+      "acceptance_criteria": [
+        "AC-4: Status distinguishes retryable, terminal, and operator-blocked failures",
+        "AC-5: Retry requests require the current revision and reject stale clients"
+      ],
+      "approach": "Return the durable state, revision, checkpoint summary, and a server-derived recovery action. Accept retries only for retryable states and require the caller's observed revision so an old page cannot revive superseded work.",
+      "verification_commands": ["node --test tests/export-status.test.js"],
+      "test_hooks": [
+        "Contract: every state maps to one explicit recovery action",
+        "Race: stale revision loses to a newer terminal transition"
+      ]
+    }
+  ],
+  "test_strategy": {
+    "test_levels": "Unit coverage for transition and idempotency rules; integration coverage for worker death, restart, and competing retries; contract coverage for status and recovery actions.",
+    "new_infrastructure": "A deterministic fake clock and crashable in-memory worker harness; production persistence uses the existing job store.",
+    "regression_surface": "Synchronous exports, job-store migrations, worker claim semantics, status polling, and error-message redaction.",
+    "verification_commands": "node --test tests/export-job.test.js tests/export-status.test.js tests/export-recovery.integration.test.js",
+    "open_questions": "Confirm the retention period for terminal checkpoints before implementation; it changes storage sizing but not the state-machine contract."
+  }
+}

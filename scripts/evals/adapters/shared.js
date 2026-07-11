@@ -1,5 +1,6 @@
 "use strict";
 
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -295,6 +296,103 @@ function isExecutableFile(filePath) {
   }
 }
 
+function spawnCapturedSync(command, argv, options, capture) {
+  const maxCaptureBytes = capture.maxBytes || 32 * 1024 * 1024;
+  const startedMs = Date.now();
+  const startedAt = new Date().toISOString();
+  writeProgress(capture.progressPath, {
+    status: "running",
+    started_at: startedAt,
+    stdout_ref: capture.stdoutPath,
+    stderr_ref: capture.stderrPath,
+    streaming: true,
+  });
+  fs.mkdirSync(path.dirname(capture.stdoutPath), { recursive: true });
+  fs.mkdirSync(path.dirname(capture.stderrPath), { recursive: true });
+  const stdoutFd = fs.openSync(capture.stdoutPath, "w");
+  const stderrFd = fs.openSync(capture.stderrPath, "w");
+  let result;
+  try {
+    result = spawnSync(command, argv, {
+      ...options,
+      stdio: ["pipe", stdoutFd, stderrFd],
+    });
+  } finally {
+    fs.closeSync(stdoutFd);
+    fs.closeSync(stderrFd);
+  }
+  const stdoutBytes = fs.statSync(capture.stdoutPath).size;
+  const stderrBytes = fs.statSync(capture.stderrPath).size;
+  const stdoutOverflow = stdoutBytes > maxCaptureBytes;
+  const stderrOverflow = stderrBytes > maxCaptureBytes;
+  const captureOverflow = stdoutOverflow || stderrOverflow;
+  const stdout = stdoutOverflow ? "" : fs.readFileSync(capture.stdoutPath, "utf8");
+  const stderr = stderrOverflow ? "" : fs.readFileSync(capture.stderrPath, "utf8");
+  const endedAt = new Date().toISOString();
+  writeProgress(capture.progressPath, {
+    status:
+      result.error && result.error.code === "ETIMEDOUT"
+        ? "timeout"
+        : captureOverflow
+          ? "overflow"
+          : "complete",
+    started_at: startedAt,
+    ended_at: endedAt,
+    duration_ms: Date.now() - startedMs,
+    exit_code: result.status,
+    signal: result.signal,
+    stdout_ref: capture.stdoutPath,
+    stderr_ref: capture.stderrPath,
+    stdout_bytes: stdoutBytes,
+    stderr_bytes: stderrBytes,
+    max_capture_bytes: maxCaptureBytes,
+    streaming: true,
+  });
+  return Object.assign(result, {
+    stdout,
+    stderr,
+    captureOverflow,
+    stdoutOverflow,
+    stderrOverflow,
+  });
+}
+
+function scanCapturedLines(filePath, visitor, maxLineBytes = 1024 * 1024) {
+  const fd = fs.openSync(filePath, "r");
+  const chunk = Buffer.alloc(64 * 1024);
+  let pending = "";
+  let matched = false;
+  try {
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(fd, chunk, 0, chunk.length, null);
+      pending += chunk.subarray(0, bytesRead).toString("utf8");
+      if (Buffer.byteLength(pending) > maxLineBytes && !pending.includes("\n")) {
+        return { matched: false, indeterminate: true, reason: "oversized-jsonl-line" };
+      }
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (visitor(line)) {
+          matched = true;
+          return { matched, indeterminate: false };
+        }
+      }
+    } while (bytesRead > 0);
+    if (pending.trim() && visitor(pending)) matched = true;
+    return { matched, indeterminate: false };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function writeProgress(filePath, value) {
+  if (!filePath) return;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n");
+}
+
 module.exports = {
   MARKER_ARTIFACT,
   AUTH_FILE_RE,
@@ -310,6 +408,8 @@ module.exports = {
   resolveBin,
   sourceMarkerVerified,
   sourceSkipDirs,
+  spawnCapturedSync,
+  scanCapturedLines,
   templateHasAuthMaterial,
   treeContains,
 };

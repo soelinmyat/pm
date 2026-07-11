@@ -20,12 +20,13 @@ const {
   resolveBin,
   sourceMarkerVerified,
   sourceSkipDirs,
+  spawnCapturedSync,
+  scanCapturedLines,
   templateHasAuthMaterial,
   treeContains,
 } = require("./shared.js");
 
 const ADAPTER_TIMEOUT_MS = 600_000;
-const OUTPUT_MAX_BUFFER = 16 * 1024 * 1024;
 
 // Dev-flow scenarios can exceed 10 minutes. PM_EVAL_CLAUDE_TIMEOUT_MS overrides
 // the default per run (mirrors PM_EVAL_CODEX_TIMEOUT_MS).
@@ -66,11 +67,17 @@ function run({ scenarioId, paths }) {
     "--plugin-dir",
     prepared.pluginRoot,
   ];
-  if (process.env.PM_EVAL_CLAUDE_MODEL) {
-    argv.push("--model", process.env.PM_EVAL_CLAUDE_MODEL);
+  const model = paths.qualityProfile
+    ? paths.qualityProfile.model
+    : process.env.PM_EVAL_CLAUDE_MODEL;
+  const effort = paths.qualityProfile
+    ? paths.qualityProfile.effort
+    : process.env.PM_EVAL_CLAUDE_REASONING_EFFORT;
+  if (model) {
+    argv.push("--model", model);
   }
-  if (process.env.PM_EVAL_CLAUDE_REASONING_EFFORT) {
-    argv.push("--effort", process.env.PM_EVAL_CLAUDE_REASONING_EFFORT);
+  if (effort) {
+    argv.push("--effort", effort);
   }
 
   writeJson(path.join(paths.metadataDir, "claude_command.json"), {
@@ -84,29 +91,47 @@ function run({ scenarioId, paths }) {
     },
   });
 
-  const result = spawnSync(claudeBin, argv, {
-    cwd: paths.workdir,
-    input: prompt,
-    env: claudeEnv({ paths, prepared }),
-    encoding: "utf8",
-    timeout: adapterTimeoutMs(),
-    maxBuffer: OUTPUT_MAX_BUFFER,
-  });
+  const stderrPath = path.join(paths.metadataDir, "claude.stderr.log");
+  const result = spawnCapturedSync(
+    claudeBin,
+    argv,
+    {
+      cwd: paths.workdir,
+      input: prompt,
+      env: claudeEnv({ paths, prepared }),
+      encoding: "utf8",
+      timeout: adapterTimeoutMs(),
+    },
+    {
+      stdoutPath: paths.transcriptRaw,
+      stderrPath,
+      progressPath: path.join(paths.metadataDir, "claude_progress.json"),
+    }
+  );
 
   const stdout = result.stdout || "";
-  const stderr = result.stderr || "";
-  fs.writeFileSync(paths.transcriptRaw, stdout);
-  fs.writeFileSync(path.join(paths.metadataDir, "claude.stderr.log"), stderr);
-  fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "claude.stdout.jsonl"), stdout);
-  fs.writeFileSync(path.join(paths.artifactsDir, "raw-output", "claude.stderr.log"), stderr);
 
   const events = normalizeClaudeStream(stdout);
+  fs.writeFileSync(
+    paths.transcriptNormalized,
+    events.map((event) => JSON.stringify(event)).join("\n") + (events.length ? "\n" : "")
+  );
 
   // Escape evidence is valid regardless of marker trust or a crashed/timed-out
   // run — check it FIRST so an escape-then-crash records as a hard fail, not
   // retryable indeterminate noise.
   if (transcriptEscapesRunDir(events, paths.runDir, paths.workdir)) {
     return { status: "fail", reason: "containment-escape" };
+  }
+  if (result.stdoutOverflow) {
+    const scan = scanCapturedLines(paths.transcriptRaw, (line) =>
+      transcriptEscapesRunDir(normalizeClaudeStream(line), paths.runDir, paths.workdir)
+    );
+    if (scan.matched) return { status: "fail", reason: "containment-escape" };
+    if (scan.indeterminate) return { status: "fail", reason: "containment-unverifiable" };
+  }
+  if (result.captureOverflow) {
+    return { status: "indeterminate", reason: "claude-output-limit" };
   }
 
   if (result.error && result.error.code === "ETIMEDOUT") {
@@ -119,11 +144,6 @@ function run({ scenarioId, paths }) {
   if (events.length === 0) {
     return { status: "indeterminate", reason: "empty-transcript" };
   }
-  fs.writeFileSync(
-    paths.transcriptNormalized,
-    events.map((event) => JSON.stringify(event)).join("\n") + "\n"
-  );
-
   if (!sourceMarkerVerified(paths, prepared.marker)) {
     return { status: "indeterminate", reason: "wrong-source" };
   }
@@ -229,6 +249,28 @@ function stageKeychainLoginState(stagedHomeDir) {
   return true;
 }
 
+function readKeychainOAuthToken(runner = spawnSync) {
+  if (process.platform !== "darwin" && runner === spawnSync) return "";
+  let result;
+  try {
+    result = runner("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], {
+      encoding: "utf8",
+      timeout: 5000,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch {
+    return "";
+  }
+  if (!result || result.status !== 0 || !result.stdout) return "";
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const token = parsed && parsed.claudeAiOauth && parsed.claudeAiOauth.accessToken;
+    return typeof token === "string" && token.trim() ? token.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 function prepareClaudeRuntime({ paths }) {
   const template = process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE
     ? path.resolve(process.env.PM_EVAL_CLAUDE_HOME_TEMPLATE)
@@ -240,14 +282,16 @@ function prepareClaudeRuntime({ paths }) {
   if (template && !copyAuthTemplate(template, claudeHome)) {
     return skip("claude-auth-missing");
   }
+  let keychainToken = "";
   if (
     !template &&
     !process.env.PM_EVAL_CLAUDE_API_KEY &&
     !process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN &&
-    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1" &&
-    !stageKeychainLoginState(paths.homeDir)
+    process.env.PM_EVAL_CLAUDE_ALLOW_KEYCHAIN === "1"
   ) {
-    return skip("claude-auth-missing");
+    keychainToken = readKeychainOAuthToken();
+    const stagedLogin = stageKeychainLoginState(paths.homeDir);
+    if (!keychainToken && !stagedLogin) return skip("claude-auth-missing");
   }
 
   if (treeContains(paths.rootDir, marker, { skipDirs: sourceSkipDirs() })) {
@@ -262,7 +306,7 @@ function prepareClaudeRuntime({ paths }) {
     if (fs.existsSync(exposedRoot)) assertUnderRunDir(exposedRoot, paths.runDir);
   }
 
-  return { status: "pass", claudeHome, pluginRoot, marker };
+  return { status: "pass", claudeHome, pluginRoot, marker, oauthToken: keychainToken };
 }
 
 function claudeEnv({ paths, prepared }) {
@@ -282,8 +326,9 @@ function claudeEnv({ paths, prepared }) {
   };
   // Subscription-backed headless auth (token minted once via `claude setup-token`)
   // takes priority over an API key so the two credentials are never both forwarded.
-  if (process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN;
+  const oauthToken = process.env.PM_EVAL_CLAUDE_OAUTH_TOKEN || prepared.oauthToken;
+  if (oauthToken) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
   } else if (process.env.PM_EVAL_CLAUDE_API_KEY) {
     env.ANTHROPIC_API_KEY = process.env.PM_EVAL_CLAUDE_API_KEY;
   }
@@ -313,8 +358,8 @@ function skipNetworkPolicy() {
     reason: "network-policy",
     detail:
       "claude live adapter requires explicit local opt-in and uncontained network acknowledgement; " +
-      "live runs execute the agent with permission checks bypassed on this host (isolation is " +
-      "HOME/XDG redirection only) — prefer a disposable machine or container",
+      "live runs execute headlessly with the configured permission mode; isolation is " +
+      "HOME/XDG redirection only — prefer a disposable machine or container",
   };
 }
 
@@ -335,6 +380,7 @@ module.exports = {
   _private: {
     normalizeClaudeStream,
     prepareClaudeRuntime,
+    readKeychainOAuthToken,
     stageKeychainLoginState,
     hasAuthPath,
     claudeEnv,

@@ -98,6 +98,24 @@ artifact-contains() {
   return 0
 }
 
+quality-outcome-valid() {
+  local case_type="$1"
+  local workflow="$2"
+  local artifacts_dir="${PM_EVAL_ARTIFACTS_DIR:-../artifacts}"
+  local plugin_root="${PM_PLUGIN_ROOT:-../runtime/pm}"
+  local checker="$plugin_root/scripts/evals/quality-outcome-check.js"
+  local target="$artifacts_dir/quality-outcome.json"
+  local output
+
+  if output="$(node "$checker" "$target" "$case_type" "$workflow" 2>&1)"; then
+    __pm_eval_emit "quality-outcome-valid" "pass"
+  else
+    printf '%s\n' "$output" | __pm_eval_escape_output
+    __pm_eval_emit "quality-outcome-valid" "fail" "invalid quality outcome"
+  fi
+  return 0
+}
+
 command-succeeds() {
   local command="$1"
   local output

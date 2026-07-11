@@ -1,0 +1,345 @@
+{
+  "$schema": "https://pm-plugin.local/evals/quality-suite.schema.json",
+  "schema_version": 1,
+  "rubric_ref": "evals/quality/rubric.json",
+  "minimum_repeats": 3,
+  "profiles": [
+    {
+      "id": "sol-high",
+      "adapter": "codex",
+      "model": "gpt-5.6-sol",
+      "effort": "high"
+    },
+    {
+      "id": "opus-xhigh",
+      "adapter": "claude",
+      "model": "claude-opus-4-8",
+      "effort": "xhigh"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "groom",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "groom-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-happy-path",
+          "scenario_contract_hash": "sha256:6ca00421b4c851ccdf9da372bbd8206c9ed6017ab405a5f9190c0038d07c3032"
+        },
+        {
+          "id": "groom-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-ambiguous-input",
+          "scenario_contract_hash": "sha256:f97a84cb475e1819a1a91cf56c823addd029b9dcdadea1def1397de7a8ffbc18"
+        },
+        {
+          "id": "groom-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-resume",
+          "scenario_contract_hash": "sha256:88934e1c99dc11c658af34c88d707f25ed29d96ce24eb980920c7c0bb611dd04"
+        },
+        {
+          "id": "groom-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:c7aa3d9635d945ee821f723363107b18cc05e40f07a20fc45bf41b8584af449b"
+        },
+        {
+          "id": "groom-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-authority-boundary",
+          "scenario_contract_hash": "sha256:bd2fb634e0e0a8fa6d5c69e9576c35e96ed0de8b8dcaf6e2b75f0689e6d5fff6"
+        },
+        {
+          "id": "groom-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:927dd69018d91f6b6dc48ffefd57d701100d55203b6fe7e66a84ea7b84ecfae7"
+        },
+        {
+          "id": "groom-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/groom.md",
+          "scenario_ref": "quality-groom-repeated-run-variance",
+          "scenario_contract_hash": "sha256:665a48148b14bb3c659639ecdfb7427bce0fcd4fa6837ec9d9c61d10e6c2af72"
+        }
+      ]
+    },
+    {
+      "id": "rfc",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "rfc-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-happy-path",
+          "scenario_contract_hash": "sha256:e7d81ea89d21bb89d46d9b775945598c5184b2166811e793e82a680b633f7b16"
+        },
+        {
+          "id": "rfc-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-ambiguous-input",
+          "scenario_contract_hash": "sha256:92df694402a45cc7527c04bed225e7a5381da1a197eb5efd0328052f26e61669"
+        },
+        {
+          "id": "rfc-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-resume",
+          "scenario_contract_hash": "sha256:ae1ec5fb2b782bc8ccf8abf93851ea79361b23c26fe5d8a1e6f7dc53d9507e8c"
+        },
+        {
+          "id": "rfc-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:3fcc5aec59f401614d5b8683976ca0bed0e0229bcff2358d3be7146b76d6ba56"
+        },
+        {
+          "id": "rfc-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-authority-boundary",
+          "scenario_contract_hash": "sha256:d5ed189bcfb3825a581275623e83d4f3300c215d3e31253f921426a0c87ec888"
+        },
+        {
+          "id": "rfc-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:55796235f9baa14bc56825d4fe05f371020fab3159ea92e319920e7a38ec00f0"
+        },
+        {
+          "id": "rfc-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/rfc.md",
+          "scenario_ref": "quality-rfc-repeated-run-variance",
+          "scenario_contract_hash": "sha256:5b4b5c05ab914eb30b6a5776c57b290be438f7d463e24e454ea86fc688cf659f"
+        }
+      ]
+    },
+    {
+      "id": "dev",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "dev-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-happy-path",
+          "scenario_contract_hash": "sha256:7f40422ad124be2de60356ebe2c8aac9371c8b93f5ffd3eb4907fce1c8d66fe4"
+        },
+        {
+          "id": "dev-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-ambiguous-input",
+          "scenario_contract_hash": "sha256:052a25b49bd8b2a6d04a115ab408f0248d0799f3dcf2be222fdf2f708529d8da"
+        },
+        {
+          "id": "dev-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-resume",
+          "scenario_contract_hash": "sha256:9b8d9a7b2579086bfc8c24c205219590bcc391d5d402ad21990b0c2b1e9f29f0"
+        },
+        {
+          "id": "dev-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:4e5279209ab0f122c294a8f2a120fe6d3c7e323a72b7caec325cad58e28e833b"
+        },
+        {
+          "id": "dev-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-authority-boundary",
+          "scenario_contract_hash": "sha256:dd653f24ad7702ffc3941f6a04fb50db73b5da74de396a3c55e9cdece33284cc"
+        },
+        {
+          "id": "dev-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:9e5e8ff7e8b93f6378a6e096f104de55f74b4b12c36eb7de54230479db9eafce"
+        },
+        {
+          "id": "dev-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/dev.md",
+          "scenario_ref": "quality-dev-repeated-run-variance",
+          "scenario_contract_hash": "sha256:9318de1efa523915abd6e4c1bf0a2617d41ed04db68ca07cca67c06e8a3c5035"
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "review-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-happy-path",
+          "scenario_contract_hash": "sha256:92e1f4346d32cbff80149b593326f396cf6f368338cf1606f11de778428112c8"
+        },
+        {
+          "id": "review-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-ambiguous-input",
+          "scenario_contract_hash": "sha256:0bbf8cb8cf0676c51c018e610645674118d07df40f01b38f2924ba9e8fa89f6b"
+        },
+        {
+          "id": "review-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-resume",
+          "scenario_contract_hash": "sha256:75845fbc7d8196f50004080155256d5258e261c538b3fc920fe3d27606051fee"
+        },
+        {
+          "id": "review-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:8539a5bd21f31cf5e3d30ed322a54210b825ab50e2760fe4a5ef73c0e850d4d5"
+        },
+        {
+          "id": "review-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-authority-boundary",
+          "scenario_contract_hash": "sha256:a98bd66b2e2680bea560b19838f997547ef3c517f0cb3492ffcbc0a09a654856"
+        },
+        {
+          "id": "review-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:8a707179749702c1eb9cbafef3e9633e7b77e625c821dcbe926b11c1c62af343"
+        },
+        {
+          "id": "review-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/review.md",
+          "scenario_ref": "quality-review-repeated-run-variance",
+          "scenario_contract_hash": "sha256:f29cc80f28f3e54506cba5e7b7204d573ce992fb64cd49785fa1428c8edc8d91"
+        }
+      ]
+    },
+    {
+      "id": "design-critique",
+      "authority_boundary": false,
+      "cases": [
+        {
+          "id": "design-critique-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-happy-path",
+          "scenario_contract_hash": "sha256:4eafd88aadc30d2e3e72932e6e00f1856c1e04dc7c6dfcb54ff59e04ba898aab"
+        },
+        {
+          "id": "design-critique-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-ambiguous-input",
+          "scenario_contract_hash": "sha256:0924159fe8b688dddfcceab2fc5195d3a032132b2ea6825e6f623f6d5606e104"
+        },
+        {
+          "id": "design-critique-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-resume",
+          "scenario_contract_hash": "sha256:d70904cb4faefaadaf1ab554e97bedfa9780fba5ee9d65bc3764f7270bba85b5"
+        },
+        {
+          "id": "design-critique-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:888f594b61e96b6dce2ceba3bdf0620151eb2f678c9ea47ecc535ddab9a853b2"
+        },
+        {
+          "id": "design-critique-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:b9d0fba4484b887cb4c1ded05df36dbc277a8ab4af38d1a5cdec105bfcd2f4e3"
+        },
+        {
+          "id": "design-critique-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/design-critique.md",
+          "scenario_ref": "quality-design-critique-repeated-run-variance",
+          "scenario_contract_hash": "sha256:a32129d145535a7b40067d2c5a2074773172f2b0fe84ea3588804a993e801093"
+        }
+      ]
+    },
+    {
+      "id": "ship",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "ship-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-happy-path",
+          "scenario_contract_hash": "sha256:2d9033e66bd6e4595b296098d97829373cc2615a237cb74665d109a758ed5d5d"
+        },
+        {
+          "id": "ship-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-ambiguous-input",
+          "scenario_contract_hash": "sha256:2d95ea0b0e9578d1e7d40ac41b4f99a10d3f102e67a67f2489f69d4500eac2be"
+        },
+        {
+          "id": "ship-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-resume",
+          "scenario_contract_hash": "sha256:de0c89de35b506c1d5ad9d261421b36a5a8ac35a6fd89f28691425730f006605"
+        },
+        {
+          "id": "ship-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:59091670fa9f2391f21505fb9be16fe656b0783c46505076a9dc0d606ff00074"
+        },
+        {
+          "id": "ship-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-authority-boundary",
+          "scenario_contract_hash": "sha256:1fcd24a0c72c0b1647cdf436db284a9601525cfe99616de444c3e9b725374aae"
+        },
+        {
+          "id": "ship-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:e0b7c9d8d2ec605ce9977ec6a7c03fd2090f6ea990d17bcdf2a6b78c05ffa004"
+        },
+        {
+          "id": "ship-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/ship.md",
+          "scenario_ref": "quality-ship-repeated-run-variance",
+          "scenario_contract_hash": "sha256:f32efc1172db97da555be90ac7ebf5177023dfdfa2a8a3d233e9d58662c0b0a5"
+        }
+      ]
+    }
+  ]
+}
