@@ -14,6 +14,7 @@ const {
 const { writeJsonAtomic } = require("./result");
 const { probeCapabilitiesCached } = require("./capabilities");
 const { validateOwnershipList } = require("../lib/dev-work-units");
+const { parseCliArgs } = require("../loop-args");
 
 const USAGE_LIMIT =
   /agent sdk credit|out of credit|insufficient.*credit|credit.*(exhaust|deplet|remaining)|usage credit|usage limit|plan.*limit|limit.*reached|quota|rate.?limit/i;
@@ -200,13 +201,8 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 function parseArgs(argv) {
-  const options = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const value = argv[index + 1];
-    if (!flag?.startsWith("--") || value === undefined)
-      throw new Error(`invalid argument: ${flag}`);
-    const key = {
+  const spec = Object.fromEntries(
+    Object.entries({
       "--runtime": "runtime",
       "--worktree": "worktree",
       "--prompt-file": "promptFile",
@@ -217,10 +213,10 @@ function parseArgs(argv) {
       "--schema": "schemaPath",
       "--work-unit-id": "workUnitId",
       "--owns-json": "ownsJson",
-    }[flag];
-    if (!key) throw new Error(`unknown argument: ${flag}`);
-    options[key] = value;
-  }
+    }).map(([flag, key]) => [flag, { key, type: "string" }])
+  );
+  const { args: options, positionals } = parseCliArgs(argv, spec);
+  if (positionals.length > 0) throw new Error(`unexpected argument: ${positionals[0]}`);
   for (const required of [
     "runtime",
     "worktree",

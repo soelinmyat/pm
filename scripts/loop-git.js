@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
+const { writeJsonAtomic } = require("./lib/atomic-file");
 const { DEFAULT_LOOP_CONFIG, leaseTtlSeconds, loadLoopConfig } = require("./loop-config.js");
 
 const GIT_ENV_KEYS_TO_CLEAR = [
@@ -122,23 +123,6 @@ function readJsonFile(filePath) {
   } catch (err) {
     throw new Error(`Invalid JSON at ${filePath}: ${err.message}`);
   }
-}
-
-function writeJsonAtomic(filePath, value, options = {}) {
-  fs.mkdirSync(path.dirname(filePath), {
-    recursive: true,
-    mode: options.directoryMode,
-  });
-  const tempPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.tmp`
-  );
-  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
-    flag: options.exclusiveTemp ? "wx" : "w",
-    mode: options.fileMode,
-  });
-  if (options.fileMode !== undefined) fs.chmodSync(tempPath, options.fileMode);
-  fs.renameSync(tempPath, filePath);
 }
 
 function isLeaseExpired(lease, now = new Date()) {

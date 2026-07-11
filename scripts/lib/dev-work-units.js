@@ -1,6 +1,6 @@
 "use strict";
 
-const { execFileSync } = require("node:child_process");
+const { runGit: sharedRunGit } = require("../loop-git");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -289,10 +289,7 @@ function pathIsOwned(fileValue, patternValue) {
 }
 
 function runGit(worktree, args) {
-  return execFileSync("git", ["-C", worktree, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  return sharedRunGit(args, worktree);
 }
 
 function detectCycle(units, byId) {

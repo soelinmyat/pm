@@ -3,6 +3,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
 
 const {
   applyRouting,
@@ -493,21 +494,7 @@ function projectCommand(options) {
 }
 
 function writeTextAtomic(filePath, text) {
-  const directory = path.dirname(filePath);
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const temporary = path.join(directory, `.${path.basename(filePath)}.tmp-${process.pid}`);
-  try {
-    fs.writeFileSync(temporary, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    fs.renameSync(temporary, filePath);
-    fs.chmodSync(filePath, 0o600);
-  } catch (error) {
-    try {
-      fs.unlinkSync(temporary);
-    } catch {
-      // Nothing to clean up.
-    }
-    throw error;
-  }
+  writeAtomicText(filePath, text, { directoryMode: 0o700, fileMode: 0o600 });
 }
 
 function loadRequiredSession(options) {

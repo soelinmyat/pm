@@ -1,5 +1,4 @@
-const fs = require("node:fs");
-const path = require("node:path");
+const { writeJsonAtomic: writeAtomicJson } = require("../lib/atomic-file");
 const { validateWorkUnitResult } = require("../lib/dev-work-units");
 
 function parseJson(value, label = "result") {
@@ -43,10 +42,7 @@ function nonEmpty(value) {
 }
 
 function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, filePath);
+  writeAtomicJson(filePath, value, { directoryMode: 0o700, fileMode: 0o600 });
 }
 
 module.exports = { parseJson, validateWorkerResult, writeJsonAtomic };

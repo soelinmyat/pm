@@ -2,6 +2,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeTextAtomic } = require("./lib/atomic-file");
+const { parseCliArgs } = require("./loop-args");
 
 const SECTION_NAMES = Object.freeze([
   "Outcome",
@@ -138,35 +140,20 @@ function main(argv = process.argv.slice(2)) {
   const input = JSON.parse(fs.readFileSync(path.resolve(options.input), "utf8"));
   const result = buildWorkerPrompt(input);
   const outputPath = path.resolve(options.output);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true, mode: 0o700 });
-  const temporary = `${outputPath}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(temporary, `${result.prompt}\n`, { mode: 0o600, flag: "wx" });
-    fs.renameSync(temporary, outputPath);
-    fs.chmodSync(outputPath, 0o600);
-  } catch (error) {
-    try {
-      fs.unlinkSync(temporary);
-    } catch {
-      // Nothing to clean up.
-    }
-    throw error;
-  }
+  writeTextAtomic(outputPath, `${result.prompt}\n`, {
+    directoryMode: 0o700,
+    fileMode: 0o600,
+  });
   process.stdout.write(`${JSON.stringify({ output: outputPath, ...result.metrics })}\n`);
   return 0;
 }
 
 function parseArgs(argv) {
-  const options = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const value = argv[index + 1];
-    if (!flag?.startsWith("--") || value === undefined)
-      throw new Error(`invalid argument: ${flag}`);
-    if (flag === "--input") options.input = value;
-    else if (flag === "--output") options.output = value;
-    else throw new Error(`unknown argument: ${flag}`);
-  }
+  const { args: options, positionals } = parseCliArgs(argv, {
+    "--input": { key: "input", type: "string" },
+    "--output": { key: "output", type: "string" },
+  });
+  if (positionals.length > 0) throw new Error(`unexpected argument: ${positionals[0]}`);
   if (!options.input || !options.output) throw new Error("--input and --output are required");
   return options;
 }

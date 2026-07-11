@@ -5,6 +5,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { loadWorkflow, selectWorkflowStep } = require("../step-loader");
+const { runGit: sharedRunGit } = require("../loop-git");
+const { writeJsonAtomic: writeAtomicJson } = require("./atomic-file");
+const { markdownTableValue } = require("./session-scan");
 const { routeDevWork } = require("./dev-risk");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
@@ -1113,11 +1116,7 @@ function gitValue(repoDir, args, fallback) {
 }
 
 function runGit(repoDir, args) {
-  return execFileSync("git", args, {
-    cwd: repoDir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  return sharedRunGit(args, repoDir);
 }
 
 function assertValidSession(session) {
@@ -1150,31 +1149,7 @@ function writeSession(sessionPath, session) {
 }
 
 function writeJsonAtomic(filePath, value) {
-  const directory = path.dirname(filePath);
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const tempPath = path.join(
-    directory,
-    `.${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`
-  );
-  const payload = `${JSON.stringify(value, null, 2)}\n`;
-  let descriptor;
-  try {
-    descriptor = fs.openSync(tempPath, "wx", 0o600);
-    fs.writeFileSync(descriptor, payload, "utf8");
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    fs.renameSync(tempPath, filePath);
-    fs.chmodSync(filePath, 0o600);
-  } catch (error) {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    try {
-      fs.unlinkSync(tempPath);
-    } catch {
-      // Nothing to clean up.
-    }
-    throw error;
-  }
+  writeAtomicJson(filePath, value, { directoryMode: 0o700, fileMode: 0o600 });
 }
 
 function nextDecision(session, sessionPath = null, options = {}) {
@@ -1449,10 +1424,19 @@ function migrateLegacyMarkdown(legacyPath, options = {}) {
 
 function parseMarkdownState(text) {
   const values = {};
-  for (const match of text.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*$/gm)) {
-    const key = match[1].trim();
-    const value = match[2].trim();
-    if (key !== "Field" && !/^-+$/.test(key)) values[key] = value;
+  for (const field of [
+    "Repo root",
+    "Run ID",
+    "Started at",
+    "Ticket",
+    "Size",
+    "Stage",
+    "Worktree",
+    "Active cwd",
+    "Branch",
+  ]) {
+    const value = markdownTableValue(text, field);
+    if (value) values[field] = value;
   }
   return values;
 }
