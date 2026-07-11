@@ -632,5 +632,6 @@ module.exports = {
   buildManifest,
   inspectHtmlArtifact,
   parseArtifactMetadata,
+  structuralMarkup,
   validateMetadata,
 };

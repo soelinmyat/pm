@@ -5,12 +5,9 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { inspectHtmlArtifact } = require("./artifact-check");
-const {
-  VIEWPORTS: ARTIFACT_VIEWPORTS,
-  inspectPdf,
-  inspectPng,
-} = require("./artifact-render-check");
+const zlib = require("node:zlib");
+const { inspectHtmlArtifact, structuralMarkup } = require("./artifact-check");
+const { VIEWPORTS: ARTIFACT_VIEWPORTS } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -22,6 +19,7 @@ const STATES = new Set(["primary", "empty", "error", "boundary", "responsive", "
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
+let activeReadCache = null;
 const SCORE_KEYS = Object.freeze({
   "product-ui": [
     "hierarchy",
@@ -42,6 +40,16 @@ const SCORE_KEYS = Object.freeze({
 });
 
 function checkDesignCritique(options) {
+  const previousCache = activeReadCache;
+  activeReadCache = new Map();
+  try {
+    return checkDesignCritiqueUncached(options);
+  } finally {
+    activeReadCache = previousCache;
+  }
+}
+
+function checkDesignCritiqueUncached(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
   const issues = [];
   const routeFile = readJsonFile(root, options.routePath, "route", issues);
@@ -115,7 +123,34 @@ function resolveGitIdentity(root, options, issues) {
   if (options.commit && head && options.commit !== head)
     add(issues, "commit", `supplied commit must equal current HEAD ${head}`);
   if (!text(options.baseRef)) add(issues, "base", "an expected base ref is required");
-  return { commit: head || options.commit, baseRef: options.baseRef };
+  const trustedBase =
+    options.verifyBase === false ? options.baseRef : resolveTrustedBase(root, issues);
+  if (trustedBase && options.baseRef && trustedBase !== options.baseRef)
+    add(issues, "base", `supplied base must equal repository default ${trustedBase}`);
+  return { commit: head || options.commit, baseRef: trustedBase || options.baseRef };
+}
+
+function resolveTrustedBase(root, issues) {
+  try {
+    const symbolic = execFileSync(
+      "git",
+      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      { cwd: root, encoding: "utf8" }
+    ).trim();
+    if (symbolic) return symbolic;
+  } catch {
+    // Fall through to the conventional remote default only when it exists.
+  }
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "origin/main"], {
+      cwd: root,
+      stdio: "ignore",
+    });
+    return "origin/main";
+  } catch {
+    add(issues, "base", "cannot resolve trusted origin default branch");
+    return "";
+  }
 }
 
 function validateDiffIdentity(root, route, baseRef, issues) {
@@ -238,6 +273,13 @@ function validateCaptures(root, captures, route, routeFile, issues) {
         `captures.captures`,
         `required coverage ${item.id} must have exactly one active capture`
       );
+    if (item.required && activeCount === 1) {
+      const rows = (captures.captures || []).filter((capture) => capture.coverage_id === item.id);
+      const active = rows.find((capture) => capture.active === true);
+      const latestRound = Math.max(...rows.map((capture) => capture.round));
+      if (active.round !== latestRound)
+        add(issues, `captures.captures`, `active coverage ${item.id} must use the latest round`);
+    }
     if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
@@ -355,6 +397,8 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
     );
   }
   if (render) {
+    if (!isRfc3339DateTime(render.checked_at))
+      add(issues, `${at}.render.checked_at`, "must be RFC 3339");
     if (
       realPathMaybe(render.source?.path) !== artifactFile.path ||
       render.source?.sha256 !== `sha256:${artifactFile.sha256}`
@@ -363,6 +407,55 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
     const viewports = new Set((render.captures || []).map((item) => item.name));
     for (const viewport of ARTIFACT_VIEWPORT_NAMES)
       if (!viewports.has(viewport)) add(issues, `${at}.render.captures`, `missing ${viewport}`);
+    if (viewports.size !== (render.captures || []).length)
+      add(issues, `${at}.render.captures`, "viewport names must be unique");
+    const renderedPaths = new Set();
+    for (const expected of ARTIFACT_VIEWPORTS) {
+      const item = (render.captures || []).find((candidate) => candidate.name === expected.name);
+      if (!item) continue;
+      if (item.width !== expected.width || item.height !== expected.height)
+        add(issues, `${at}.render.${expected.name}`, "viewport dimensions are noncanonical");
+      validateRenderedPng(
+        root,
+        item,
+        expected.width,
+        expected.height,
+        `${at}.render.${expected.name}`,
+        renderedPaths,
+        issues
+      );
+      if (
+        !object(item.full_page) ||
+        item.full_page.width !== expected.width ||
+        item.full_page.height < expected.height
+      )
+        add(
+          issues,
+          `${at}.render.${expected.name}.full_page`,
+          "requires canonical-width full-page metadata"
+        );
+      else
+        validateRenderedPng(
+          root,
+          item.full_page,
+          expected.width,
+          item.full_page.height,
+          `${at}.render.${expected.name}.full_page`,
+          renderedPaths,
+          issues
+        );
+      if (
+        !object(item.metrics) ||
+        item.metrics.horizontalOverflow !== false ||
+        item.metrics.mainVisible !== true ||
+        item.metrics.h1Visible !== true ||
+        !Number.isFinite(item.metrics.bodyText) ||
+        item.metrics.bodyText < 100 ||
+        !Number.isFinite(item.metrics.anchorCount) ||
+        item.metrics.anchorCount < 1
+      )
+        add(issues, `${at}.render.${expected.name}.metrics`, "requires passing render metrics");
+    }
     if (
       !text(render.print?.path) ||
       !/^sha256:[a-f0-9]{64}$/.test(render.print?.sha256 || "") ||
@@ -370,6 +463,20 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
       !positiveInt(render.print?.pages)
     )
       add(issues, `${at}.render.print`, "requires a non-empty hash-bound PDF");
+    else {
+      const printFile = readAbsoluteProjectFile(
+        root,
+        render.print.path,
+        `${at}.render.print.path`,
+        issues
+      );
+      if (
+        printFile &&
+        (render.print.sha256 !== `sha256:${printFile.sha256}` ||
+          render.print.bytes !== printFile.bytes.length)
+      )
+        add(issues, `${at}.render.print`, "print hash and byte count must match the PDF");
+    }
     const renderedByViewport = new Map();
     for (const item of render.captures || []) {
       const files = new Set();
@@ -402,6 +509,35 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
         add(issues, `${at}.capture.${capture.id}`, "is not bound by the artifact render manifest");
     }
   }
+}
+
+function validateRenderedPng(root, item, width, height, label, seen, issues) {
+  if (!object(item) || !text(item.path) || !/^sha256:[a-f0-9]{64}$/.test(item.sha256 || "")) {
+    add(issues, label, "requires a hash-bound PNG");
+    return;
+  }
+  const file = readAbsoluteProjectFile(root, item.path, `${label}.path`, issues);
+  if (!file) return;
+  if (seen.has(file.path)) add(issues, label, "render files must be distinct");
+  seen.add(file.path);
+  if (item.sha256 !== `sha256:${file.sha256}` || item.bytes !== file.bytes.length)
+    add(issues, label, "render hash and byte count must match the file");
+  try {
+    const dimensions = inspectPngStrict(file.bytes);
+    if (dimensions.width !== width || dimensions.height !== height)
+      add(issues, label, `render dimensions must equal ${width}x${height}`);
+  } catch (error) {
+    add(issues, label, error.message);
+  }
+}
+
+function readAbsoluteProjectFile(root, absolute, label, issues) {
+  if (!text(absolute) || !path.isAbsolute(absolute)) {
+    add(issues, label, "must be an absolute renderer path");
+    return null;
+  }
+  const relative = path.relative(root, realPathMaybe(absolute));
+  return readBoundFile(root, relative, label, issues);
 }
 
 function readEvidenceJson(root, entry, label, issues) {
@@ -544,7 +680,25 @@ function validateFindings(findings, route, captures, outcome, issues) {
     if (["P0", "P1"].includes(finding.priority) && finding.status === "resolved") {
       const before = captureById.get(finding.before_capture_id);
       const after = captureById.get(finding.after_capture_id);
-      if (!before || !after || before.sha256 === after.sha256)
+      const subjectCoverage = new Set(
+        (route.coverage || [])
+          .filter((item) => item.subject_id === finding.subject_id)
+          .map((item) => item.id)
+      );
+      if (
+        !before ||
+        !after ||
+        before.sha256 === after.sha256 ||
+        before.coverage_id !== after.coverage_id ||
+        !subjectCoverage.has(before.coverage_id) ||
+        before.active !== false ||
+        after.active !== true ||
+        !Number.isInteger(before.round) ||
+        !Number.isInteger(after.round) ||
+        before.round >= after.round ||
+        !finding.evidence_ids.includes(before.id) ||
+        !finding.evidence_ids.includes(after.id)
+      )
         add(issues, at, "resolved P0/P1 requires distinct before and after capture hashes");
     }
     if (
@@ -571,7 +725,7 @@ function validateCaptureBytes(root, item, label, issues) {
   if (!file) return;
   try {
     if (item.kind === "screenshot") {
-      const dimensions = inspectPng(file.path);
+      const dimensions = inspectPngStrict(file.bytes);
       if (dimensions.width !== item.width || dimensions.height !== item.height)
         add(
           issues,
@@ -580,13 +734,110 @@ function validateCaptureBytes(root, item, label, issues) {
         );
     }
     if (item.kind === "pdf") {
-      const inspected = inspectPdf(file.path);
+      const inspected = inspectPdfStrict(file.bytes);
       if (!positiveInt(item.pages) || item.pages !== inspected.pages)
         add(issues, label, `declared pages must equal ${inspected.pages}`);
     }
   } catch (error) {
     add(issues, label, error.message);
   }
+}
+
+function inspectPngStrict(bytes) {
+  const signature = Buffer.from("89504e470d0a1a0a", "hex");
+  if (bytes.length < 1024 || !bytes.subarray(0, 8).equals(signature))
+    throw new Error("invalid PNG capture");
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  let sawHeader = false;
+  let sawEnd = false;
+  const compressed = [];
+  while (offset + 12 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) throw new Error("invalid PNG chunk length");
+    const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    const data = bytes.subarray(offset + 8, offset + 8 + length);
+    const expectedCrc = bytes.readUInt32BE(offset + 8 + length);
+    if (crc32(Buffer.concat([Buffer.from(type, "ascii"), data])) !== expectedCrc)
+      throw new Error(`invalid PNG ${type} checksum`);
+    if (type === "IHDR") {
+      if (sawHeader || length !== 13 || offset !== 8) throw new Error("invalid PNG header");
+      sawHeader = true;
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      interlace = data[12];
+      if (!positiveInt(width) || !positiveInt(height) || data[10] !== 0 || data[11] !== 0)
+        throw new Error("invalid PNG dimensions or compression");
+    } else if (type === "IDAT") compressed.push(data);
+    else if (type === "IEND") {
+      if (length !== 0) throw new Error("invalid PNG end chunk");
+      sawEnd = true;
+      offset = end;
+      break;
+    }
+    offset = end;
+  }
+  if (!sawHeader || !sawEnd || compressed.length === 0 || interlace !== 0)
+    throw new Error("PNG must contain non-interlaced IHDR, IDAT, and IEND chunks");
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
+  if (!channels || ![1, 2, 4, 8, 16].includes(bitDepth)) throw new Error("unsupported PNG format");
+  let pixels;
+  try {
+    pixels = zlib.inflateSync(Buffer.concat(compressed), { maxOutputLength: 256 * 1024 * 1024 });
+  } catch (error) {
+    throw new Error(`invalid PNG pixel stream: ${error.message}`);
+  }
+  const rowBytes = Math.ceil((width * channels * bitDepth) / 8);
+  if (pixels.length !== (rowBytes + 1) * height) throw new Error("invalid PNG pixel length");
+  for (let row = 0; row < height; row += 1)
+    if (pixels[row * (rowBytes + 1)] > 4) throw new Error("invalid PNG row filter");
+  return { width, height };
+}
+
+function inspectPdfStrict(bytes) {
+  if (bytes.length < 1024 || !/^%PDF-1\.[0-7]/.test(bytes.subarray(0, 8).toString("ascii")))
+    throw new Error("invalid PDF header");
+  const textValue = bytes.toString("latin1");
+  if (!/%%EOF\s*$/.test(textValue)) throw new Error("invalid PDF end marker");
+  const startMatches = [...textValue.matchAll(/startxref\s+(\d+)\s+%%EOF/g)];
+  if (startMatches.length === 0) throw new Error("PDF startxref is required");
+  const xrefOffset = Number(startMatches.at(-1)[1]);
+  if (!Number.isSafeInteger(xrefOffset) || xrefOffset < 9 || xrefOffset >= bytes.length)
+    throw new Error("invalid PDF xref offset");
+  const xrefText = textValue.slice(xrefOffset, xrefOffset + 200);
+  if (!xrefText.startsWith("xref") && !/\d+\s+\d+\s+obj[\s\S]*\/Type\s*\/XRef/.test(xrefText))
+    throw new Error("invalid PDF xref structure");
+  const catalog = textValue.match(/\d+\s+\d+\s+obj[\s\S]*?\/Type\s*\/Catalog[\s\S]*?endobj/);
+  const pagesRoot = textValue.match(
+    /\d+\s+\d+\s+obj[\s\S]*?\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)[\s\S]*?endobj/
+  );
+  const pages = (textValue.match(/\/Type\s*\/Page\b/g) || []).length;
+  if (!catalog || !pagesRoot || pages < 1 || Number(pagesRoot[1]) !== pages)
+    throw new Error("invalid PDF catalog or page tree");
+  return { pages };
+}
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let value = 0; value < 256; value += 1) {
+    let crc = value;
+    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    table[value] = crc >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function validateHumanReport(root, human, report, reportFile, capturesFile, issues) {
@@ -611,25 +862,45 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, issu
     )
   )
     add(issues, "report.human_report", "metadata evidence must bind the exact captures manifest");
-  const html = htmlFile.bytes.toString("utf8");
-  if (!hasDataValue(html, "data-dc-outcome", report.outcome))
+  const html = structuralMarkup(htmlFile.bytes.toString("utf8"));
+  const outcome = visibleMarker(html, { "data-dc-outcome": report.outcome });
+  if (!outcome || normalizeVisible(outcome.text).toLowerCase() !== report.outcome)
     add(issues, "report.human_report", "visible outcome marker must match report JSON");
-  if (!hasDataValue(html, "data-dc-coverage", String(report.coverage?.percent)))
+  const coverage = visibleMarker(html, {
+    "data-dc-coverage": String(report.coverage?.percent),
+  });
+  if (!coverage || !normalizeVisible(coverage.text).includes(`${report.coverage?.percent}%`))
     add(issues, "report.human_report", "visible coverage marker must match report JSON");
+  const nextAction = visibleMarker(html, {
+    "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")),
+  });
   if (
-    !hasDataValue(html, "data-dc-next-action-sha256", digest(Buffer.from(report.next_action || "")))
+    !nextAction ||
+    !normalizeVisible(nextAction.text).includes(normalizeVisible(report.next_action))
   )
     add(issues, "report.human_report", "visible next action must match report JSON");
-  for (const [key, score] of Object.entries(report.scores || {}))
-    if (!hasTagWithData(html, { "data-dc-score-key": key, "data-dc-score-value": score.value }))
+  for (const [key, score] of Object.entries(report.scores || {})) {
+    const marker = visibleMarker(html, {
+      "data-dc-score-key": key,
+      "data-dc-score-value": score.value,
+    });
+    if (!marker || !normalizeVisible(marker.text).includes(normalizeVisible(score.rationale)))
       add(issues, "report.human_report", `visible score ${key} must match report JSON`);
+  }
   for (const finding of report.findings || []) {
+    const projection = findingProjection(finding);
+    const marker = visibleMarker(html, {
+      "data-dc-finding-id": finding.id,
+      "data-dc-finding-priority": finding.priority,
+      "data-dc-finding-status": finding.status,
+      "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(projection))),
+    });
+    const visibleText = normalizeVisible(marker?.text || "");
     if (
-      !hasTagWithData(html, {
-        "data-dc-finding-id": finding.id,
-        "data-dc-finding-priority": finding.priority,
-        "data-dc-finding-status": finding.status,
-      })
+      !marker ||
+      ![finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids].every(
+        (value) => visibleText.includes(normalizeVisible(value))
+      )
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
@@ -640,10 +911,48 @@ function hasDataValue(html, attribute, value) {
   return new RegExp(`\\b${attribute}=["']${escaped}["']`, "i").test(html);
 }
 
-function hasTagWithData(html, attributes) {
-  return [...String(html).matchAll(/<[^!][^>]*>/g)].some((match) =>
-    Object.entries(attributes).every(([name, value]) => hasDataValue(match[0], name, String(value)))
+function visibleMarker(html, attributes) {
+  const firstAttribute = Object.keys(attributes)[0];
+  const pattern = new RegExp(
+    `<([a-z][a-z0-9-]*)\\b(?=[^>]*\\b${firstAttribute}=["'])[^>]*>([\\s\\S]*?)<\\/\\1>`,
+    "gi"
   );
+  for (const match of String(html).matchAll(pattern)) {
+    const opening = match[0].slice(0, match[0].indexOf(">") + 1);
+    if (!Object.entries(attributes).every(([name, value]) => hasDataValue(opening, name, value)))
+      continue;
+    if (
+      /\bhidden\b|\baria-hidden=["']true["']|style=["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(
+        opening
+      )
+    )
+      continue;
+    const textValue = match[2].replace(/<[^>]+>/g, " ");
+    if (normalizeVisible(textValue)) return { text: textValue };
+  }
+  return null;
+}
+
+function normalizeVisible(value) {
+  return String(value)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findingProjection(finding) {
+  return {
+    id: finding.id,
+    priority: finding.priority,
+    status: finding.status,
+    owner: finding.owner,
+    summary: finding.summary,
+    remediation: finding.remediation,
+    evidence_ids: finding.evidence_ids,
+    before_capture_id: finding.before_capture_id || null,
+    after_capture_id: finding.after_capture_id || null,
+  };
 }
 
 function findingId(finding) {
@@ -690,13 +999,16 @@ function readBoundFile(root, rel, label, issues) {
     const real = fs.realpathSync(resolved);
     if (real !== root && !real.startsWith(`${fs.realpathSync(root)}${path.sep}`))
       throw new Error("resolves outside project root");
-    const bytes = fs.readFileSync(real);
-    return {
+    const cached = activeReadCache?.get(real);
+    const file = cached || {
       path: real,
-      relative: path.relative(root, real).split(path.sep).join("/"),
-      bytes,
-      sha256: digest(bytes),
+      bytes: fs.readFileSync(real),
     };
+    if (!cached) {
+      file.sha256 = digest(file.bytes);
+      activeReadCache?.set(real, file);
+    }
+    return { ...file, relative: path.relative(root, real).split(path.sep).join("/") };
   } catch (error) {
     add(issues, label, error.message);
     return null;

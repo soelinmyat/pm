@@ -93,7 +93,7 @@ Mobile product UI requires a primary `device` row. Every PM artifact subject als
 
 Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
 
-Each capture records `round` (1 or 2) and `active`. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest capture stays active for each required coverage ID. IDs include the round; coverage IDs stay stable.
+Each capture records `round` (1 or 2) and `active`. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`. IDs include the round; coverage IDs stay stable.
 
 Accessibility and DOM evidence are JSON objects bound to the route commit, subject, and cited capture IDs. Accessibility checks require passing `landmarks`, `names`, and `focus_order`; DOM audits require passing `overflow`, `edge_alignment`, and `hierarchy`. Both retain a `findings` array, including when empty.
 
@@ -166,7 +166,7 @@ Resolved P0/P1 needs distinct before/after capture hashes. Deferred findings nee
 
 Render `report.html` from `references/templates/design-critique-report.html`. The inert PM artifact metadata uses kind `report`, lifecycle `reviewed`, `source.path` equal to `report.json`, `source.sha256` equal to `sha256:<report-json-hash>`, and an evidence row binding `captures.json` the same way. Replace all example zero hashes before validation.
 
-The first screenful shows outcome, subject mode, coverage, largest remaining issue, and next action. Mark the visible outcome with `data-dc-outcome="{outcome}"`, coverage with `data-dc-coverage="{percent}"`, and the next action with `data-dc-next-action-sha256="{raw-sha256-of-next-action}"`. Every score card carries `data-dc-score-key` and `data-dc-score-value`. Every rendered finding carries `data-dc-finding-id`, `data-dc-finding-priority`, and `data-dc-finding-status`. Include score anchors, findings with evidence IDs, before/after proof, ownership handoffs, method, and print-friendly navigation.
+The first screenful shows outcome, subject mode, coverage, largest remaining issue, and next action. Mark the visible outcome with `data-dc-outcome="{outcome}"`, coverage with `data-dc-coverage="{percent}"`, and the next action with `data-dc-next-action-sha256="{raw-sha256-of-next-action}"`; their visible text must agree. Every score card carries `data-dc-score-key` and `data-dc-score-value` and visibly includes its rationale. Every rendered finding carries `data-dc-finding-id`, `data-dc-finding-priority`, `data-dc-finding-status`, and `data-dc-finding-sha256`, where the digest binds the normalized finding projection defined by the checker. Its visible content includes summary, remediation, owner, and evidence IDs. Markers in comments, scripts, templates, hidden elements, or empty elements are ignored. Include before/after proof, ownership handoffs, method, and print-friendly navigation.
 
 ## Outcome mapping
 

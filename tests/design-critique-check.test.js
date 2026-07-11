@@ -7,6 +7,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
 
@@ -87,12 +88,20 @@ function makeFixture(options = {}) {
   const routeBinding = binding(root, routePath);
 
   const captures = [];
+  const artifactDimensions = {
+    desktop: { width: 1440, height: 1000 },
+    tablet: { width: 768, height: 1024 },
+    narrow: { width: 500, height: 812 },
+  };
   for (const row of coverage.filter((item) => item.required)) {
     const isPrint = row.state === "print";
+    const viewport = artifactDimensions[row.viewport] || { width: 1440, height: 1000 };
+    const captureHeight =
+      mode === "pm-artifact" && !isPrint ? viewport.height + 200 : viewport.height;
     const file = write(
       root,
       `evidence/files/${row.id}.${isPrint ? "pdf" : "png"}`,
-      isPrint ? validPdf() : validPng(1440, 1000)
+      isPrint ? validPdf() : validPng(viewport.width, captureHeight)
     );
     captures.push({
       id: `capture-${row.id}`,
@@ -103,7 +112,7 @@ function makeFixture(options = {}) {
       round: 1,
       ...(isPrint
         ? { pages: 1 }
-        : { width: 1440, height: 1000, full_page: mode === "pm-artifact" }),
+        : { width: viewport.width, height: captureHeight, full_page: mode === "pm-artifact" }),
       captured_at: "2026-07-12T00:01:00Z",
     });
   }
@@ -117,11 +126,36 @@ function makeFixture(options = {}) {
     );
     const renderCaptures = captures
       .filter((item) => item.kind === "screenshot")
-      .map((item) => ({
-        name: coverage.find((row) => row.id === item.coverage_id).viewport,
-        path: path.join(root, item.path),
-        sha256: `sha256:${item.sha256}`,
-      }));
+      .map((item) => {
+        const name = coverage.find((row) => row.id === item.coverage_id).viewport;
+        const viewport = artifactDimensions[name];
+        const screen = write(
+          root,
+          `evidence/files/artifact-${name}-screen.png`,
+          validPng(viewport.width, viewport.height, 2)
+        );
+        return {
+          name,
+          ...viewport,
+          path: path.join(root, screen.path),
+          sha256: `sha256:${screen.sha256}`,
+          bytes: fs.statSync(path.join(root, screen.path)).size,
+          metrics: {
+            horizontalOverflow: false,
+            mainVisible: true,
+            h1Visible: true,
+            bodyText: 500,
+            anchorCount: 4,
+          },
+          full_page: {
+            path: path.join(root, item.path),
+            sha256: `sha256:${item.sha256}`,
+            bytes: fs.statSync(path.join(root, item.path)).size,
+            width: item.width,
+            height: item.height,
+          },
+        };
+      });
     const print = captures.find((item) => item.kind === "pdf");
     const render = {
       source: { path: artifactPath, sha256: `sha256:${artifact.sha256}` },
@@ -132,6 +166,7 @@ function makeFixture(options = {}) {
         bytes: fs.statSync(path.join(root, print.path)).size,
         pages: 1,
       },
+      checked_at: "2026-07-12T00:02:00Z",
     };
     evidence.push({
       id: "evidence-structural",
@@ -221,20 +256,59 @@ function auditEvidenceFile(root, id, kind, captures) {
 }
 
 function validPng(width, height, marker = 0) {
-  const bytes = Buffer.alloc(1024);
-  Buffer.from("89504e470d0a1a0a", "hex").copy(bytes, 0);
-  bytes.writeUInt32BE(13, 8);
-  bytes.write("IHDR", 12, "ascii");
-  bytes.writeUInt32BE(width, 16);
-  bytes.writeUInt32BE(height, 20);
-  bytes[bytes.length - 1] = marker;
-  return bytes;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let row = 0; row < height; row += 1) rows[row * (width * 4 + 1)] = 0;
+  rows[rows.length - 1] = marker;
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function validPdf() {
-  const bytes = Buffer.alloc(1024, 0x20);
-  bytes.write("%PDF-1.7\n1 0 obj << /Type /Page >>\n", 0, "ascii");
-  return bytes;
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n",
+  ];
+  let body = "%PDF-1.7\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += object;
+  }
+  body += `%${"padding".repeat(150)}\n`;
+  const xref = Buffer.byteLength(body, "latin1");
+  body += "xref\n0 4\n0000000000 65535 f \n";
+  for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
+
+function pngChunk(type, data) {
+  const typeBytes = Buffer.from(type, "ascii");
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(testCrc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return chunk;
+}
+
+function testCrc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function binding(root, rel) {
@@ -257,19 +331,30 @@ function htmlReport(source, captures, report) {
     evidence: [captures],
   };
   const findingMarkers = (report.findings || [])
-    .map(
-      (finding) =>
-        `<article data-dc-finding-id="${finding.id}" data-dc-finding-priority="${finding.priority}" data-dc-finding-status="${finding.status}">${finding.summary}</article>`
-    )
+    .map((finding) => {
+      const projection = {
+        id: finding.id,
+        priority: finding.priority,
+        status: finding.status,
+        owner: finding.owner,
+        summary: finding.summary,
+        remediation: finding.remediation,
+        evidence_ids: finding.evidence_ids,
+        before_capture_id: finding.before_capture_id || null,
+        after_capture_id: finding.after_capture_id || null,
+      };
+      const projectionHash = digest(Buffer.from(JSON.stringify(projection)));
+      return `<article data-dc-finding-id="${finding.id}" data-dc-finding-priority="${finding.priority}" data-dc-finding-status="${finding.status}" data-dc-finding-sha256="${projectionHash}">${finding.priority} ${finding.status} ${finding.owner} ${finding.summary} ${finding.remediation} ${finding.evidence_ids.join(" ")}</article>`;
+    })
     .join("");
   const scoreMarkers = Object.entries(report.scores)
     .map(
       ([key, score]) =>
-        `<span data-dc-score-key="${key}" data-dc-score-value="${score.value}">${key}</span>`
+        `<span data-dc-score-key="${key}" data-dc-score-value="${score.value}">${key} ${score.value} ${score.rationale}</span>`
     )
     .join("");
   const nextHash = digest(Buffer.from(report.next_action));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">Outcome</p><p data-dc-coverage="${report.coverage.percent}">Coverage</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
 }
 
 function artifactSubjectHtml() {
@@ -347,7 +432,7 @@ test("rejects artifact captures not bound by the render manifest", () => {
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const result = check(fixture);
   assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /is not bound by the artifact render manifest/);
+  assert.match(JSON.stringify(result.issues), /render hash and byte count must match the file/);
 });
 
 test("rejects artifact captures swapped between viewport labels", () => {
@@ -364,7 +449,7 @@ test("rejects artifact captures swapped between viewport labels", () => {
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const result = check(fixture);
   assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /is not bound by the artifact render manifest/);
+  assert.match(JSON.stringify(result.issues), /render dimensions must equal/);
 });
 
 test("rejects stale source identity", () => {
@@ -400,6 +485,22 @@ test("rejects decoded dimensions that differ from the capture manifest", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /declared dimensions must equal 1440x1000/);
+});
+
+test("rejects PNG headers without a decodable pixel stream", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const fake = Buffer.alloc(1024);
+  Buffer.from("89504e470d0a1a0a", "hex").copy(fake);
+  fake.write("IHDR", 12, "ascii");
+  fake.writeUInt32BE(1440, 16);
+  fake.writeUInt32BE(1000, 20);
+  const rebound = write(fixture.root, capture.path, fake);
+  capture.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /PNG/);
 });
 
 test("rejects oversized evidence before reading it", () => {
@@ -494,6 +595,31 @@ test("rejects a human report whose visible outcome diverges from JSON", () => {
   assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
 });
 
+test("rejects correct outcome attributes with contradictory visible text", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs
+      .readFileSync(htmlPath, "utf8")
+      .replace('data-dc-outcome="passed">passed', 'data-dc-outcome="passed">failed')
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
+test("ignores semantic markers hidden in HTML comments", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const marker = '<p data-dc-outcome="passed">passed</p>';
+  fs.writeFileSync(htmlPath, html.replace(marker, `<!-- ${marker} -->`));
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
 test("rejects a human report whose visible score diverges from JSON", () => {
   const fixture = makeFixture();
   const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
@@ -530,10 +656,14 @@ test("verifies the frozen git diff hash when enabled", () => {
     cwd: fixture.root,
     encoding: "utf8",
   }).trim();
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", base], { cwd: fixture.root });
+  execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], {
+    cwd: fixture.root,
+  });
   const diff = execFileSync("git", ["diff", "--binary", `${base}...${commit}`], {
     cwd: fixture.root,
   });
-  fixture.route.source = { commit, base_ref: base, diff_sha256: digest(diff) };
+  fixture.route.source = { commit, base_ref: "origin/main", diff_sha256: digest(diff) };
   rewrite(fixture.root, fixture.routePath, fixture.route);
   fixture.captures.commit = commit;
   fixture.captures.route = binding(fixture.root, fixture.routePath);
@@ -556,7 +686,7 @@ test("verifies the frozen git diff hash when enabled", () => {
     capturesPath: fixture.capturesPath,
     reportPath: fixture.reportPath,
     commit,
-    baseRef: base,
+    baseRef: "origin/main",
   });
   assert.deepEqual(result, { ok: true, issues: [] });
   assert.match(
@@ -567,10 +697,23 @@ test("verifies the frozen git diff hash when enabled", () => {
         capturesPath: fixture.capturesPath,
         reportPath: fixture.reportPath,
         commit: base,
-        baseRef: base,
+        baseRef: "origin/main",
       }).issues
     ),
     /supplied commit must equal current HEAD/
+  );
+  assert.match(
+    JSON.stringify(
+      checkDesignCritique({
+        root: fixture.root,
+        routePath: fixture.routePath,
+        capturesPath: fixture.capturesPath,
+        reportPath: fixture.reportPath,
+        commit,
+        baseRef: commit,
+      }).issues
+    ),
+    /supplied base must equal repository default origin\/main/
   );
   fixture.route.source.diff_sha256 = "0".repeat(64);
   rewrite(fixture.root, fixture.routePath, fixture.route);
@@ -582,7 +725,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         capturesPath: fixture.capturesPath,
         reportPath: fixture.reportPath,
         commit,
-        baseRef: base,
+        baseRef: "origin/main",
       }).issues
     ),
     /does not match the frozen git diff bytes/
@@ -660,6 +803,40 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
   for (const score of Object.values(fixture.report.scores)) score.evidence_ids = [after.id];
   rewriteReportAndHtml(fixture);
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("rejects an active capture older than an inactive later round", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures[0];
+  const laterFile = write(
+    fixture.root,
+    "evidence/files/ui-primary-later.png",
+    validPng(1440, 1000, 3)
+  );
+  const later = {
+    ...before,
+    id: "capture-ui-primary-later",
+    ...laterFile,
+    active: false,
+    round: 2,
+    captured_at: "2026-07-12T00:04:00Z",
+  };
+  fixture.captures.captures.push(later);
+  for (const evidence of fixture.captures.evidence.filter((item) =>
+    ["accessibility-tree", "dom-audit"].includes(item.kind)
+  )) {
+    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+    audit.capture_ids.push(later.id);
+    const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
+    evidence.sha256 = rebound.sha256;
+  }
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.rounds = 2;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must use the latest round/);
 });
 
 test("rejects evidence paths that escape the project root", () => {
