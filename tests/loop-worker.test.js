@@ -740,7 +740,12 @@ test("normal waiting ship cycles do not consume failure attempts", () => {
     ]) {
       fs.writeFileSync(
         path.join(dir, `${name}.json`),
-        JSON.stringify({ card: { id: "PM-WAIT" }, stage: "ship", status })
+        JSON.stringify({
+          card: { id: "PM-WAIT" },
+          stage: "ship",
+          status,
+          started_at: new Date().toISOString(),
+        })
       );
     }
     assert.equal(countCardAttempts(dir, "PM-WAIT", "ship"), 2);
