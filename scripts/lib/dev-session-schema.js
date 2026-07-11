@@ -6,6 +6,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { loadWorkflow, selectWorkflowStep } = require("../step-loader");
 const { routeDevWork } = require("./dev-risk");
+const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 
 const RUNNER_VERSION = "2.0.0";
@@ -653,10 +654,145 @@ function validateResult(session, result, options = {}) {
         errors.push(issue("$.evidence", "passed results cannot contain failing evidence"));
       }
     }
+    validatePhaseEvidence(session, result, options, errors);
   }
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
   return errors;
+}
+
+function validatePhaseEvidence(session, result, options, errors) {
+  if (session.phase === "readiness") validateReadinessEvidence(session, result, errors);
+  if (session.phase === "ship") validateDeliveryEvidence(session, result, options, errors);
+}
+
+function evidenceArtifact(result, kind, errors) {
+  const record = result.evidence.find(
+    (candidate) => candidate?.kind === kind && candidate.exit_code === 0
+  );
+  if (!record || typeof record.artifact !== "string" || !path.isAbsolute(record.artifact)) {
+    errors.push(issue("$.evidence", `${kind} evidence requires an absolute artifact path`));
+    return null;
+  }
+  return record.artifact;
+}
+
+function validateReadinessEvidence(session, result, errors) {
+  const sidecarPath = evidenceArtifact(result, "rfc-readiness", errors);
+  if (!sidecarPath) return;
+  const htmlPath = sidecarPath.replace(/\.json$/i, ".html");
+  if (htmlPath === sidecarPath) {
+    errors.push(issue("$.evidence", "rfc-readiness artifact must be an RFC JSON sidecar"));
+    return;
+  }
+  try {
+    const sidecarBytes = fs.readFileSync(sidecarPath);
+    const sidecar = JSON.parse(sidecarBytes.toString("utf8"));
+    const html = fs.readFileSync(htmlPath, "utf8");
+    const validation = validateRfcSidecar(sidecar, sidecarPath, {
+      expectedSlug: session.slug,
+      htmlPath,
+      storedHash: extractSidecarHash(html),
+      sidecarHash: `sha256:${sha256Hex(sidecarBytes)}`,
+    });
+    if (!validation.ok) {
+      errors.push(
+        issue(
+          "$.evidence",
+          `RFC readiness artifact is invalid: ${validation.issues.map((entry) => entry.message).join("; ")}`
+        )
+      );
+    }
+    const metadata = html.match(/<script[^>]+id=["']rfc-meta["'][^>]*>([\s\S]*?)<\/script>/i);
+    const status = metadata ? JSON.parse(metadata[1]).status : null;
+    if (String(status).toLowerCase() !== "approved") {
+      errors.push(issue("$.evidence", "RFC readiness requires approved lifecycle metadata"));
+    }
+  } catch (error) {
+    errors.push(issue("$.evidence", `could not verify RFC readiness artifact: ${error.message}`));
+  }
+}
+
+function validateDeliveryEvidence(session, result, options, errors) {
+  for (const action of ["push_feature_branch", "create_pr", "merge"]) {
+    if (session.authority[action] !== true) {
+      errors.push(issue("$.evidence", `ship requires explicit ${action} authority`));
+    }
+  }
+  const receiptPath = evidenceArtifact(result, "delivery", errors);
+  if (!receiptPath) return;
+  let receipt;
+  try {
+    receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+  } catch (error) {
+    errors.push(issue("$.evidence", `could not read delivery receipt: ${error.message}`));
+    return;
+  }
+  const required = [
+    "schema_version",
+    "pr_number",
+    "pr_url",
+    "state",
+    "merge_sha",
+    "head_branch",
+    "feature_commit",
+  ];
+  if (
+    !isObject(receipt) ||
+    required.some((field) => !Object.hasOwn(receipt, field)) ||
+    Object.keys(receipt).some((field) => !required.includes(field))
+  ) {
+    errors.push(issue("$.evidence", "delivery receipt is missing required fields"));
+    return;
+  }
+  if (
+    receipt.schema_version !== 1 ||
+    !Number.isInteger(receipt.pr_number) ||
+    receipt.pr_number < 1 ||
+    typeof receipt.pr_url !== "string" ||
+    !receipt.pr_url.startsWith("https://") ||
+    receipt.state !== "MERGED" ||
+    receipt.head_branch !== session.source.branch ||
+    receipt.feature_commit !== result.commit ||
+    typeof receipt.merge_sha !== "string" ||
+    !receipt.merge_sha
+  ) {
+    errors.push(
+      issue("$.evidence", "delivery receipt does not match the session and merged state")
+    );
+    return;
+  }
+  try {
+    const observed = (options.verifyDelivery || defaultVerifyDelivery)(receipt, session);
+    if (
+      observed.number !== receipt.pr_number ||
+      observed.url !== receipt.pr_url ||
+      observed.state !== "MERGED" ||
+      observed.headRefName !== session.source.branch ||
+      observed.mergeCommit?.oid !== receipt.merge_sha
+    ) {
+      errors.push(
+        issue("$.evidence", "delivery receipt does not match observed pull-request state")
+      );
+    }
+  } catch (error) {
+    errors.push(
+      issue("$.evidence", `could not verify pull-request delivery state: ${error.message}`)
+    );
+  }
+}
+
+function defaultVerifyDelivery(receipt, session) {
+  const output = execFileSync(
+    "gh",
+    ["pr", "view", String(receipt.pr_number), "--json", "number,url,state,mergeCommit,headRefName"],
+    {
+      cwd: session.source.worktree,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  );
+  return JSON.parse(output);
 }
 
 function validateCommit(session, commit, options, errors) {

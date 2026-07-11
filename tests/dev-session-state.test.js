@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 
 const {
@@ -271,6 +272,108 @@ test("mandatory routed phases cannot advance through noop", () => {
       );
     }
   } finally {
+    repo.cleanup();
+  }
+});
+
+test("readiness requires a hash-bound approved RFC artifact", () => {
+  const repo = makeRepo();
+  try {
+    const slug = "approved-rfc";
+    const sidecarPath = path.join(repo.root, `${slug}.json`);
+    const htmlPath = path.join(repo.root, `${slug}.html`);
+    const sidecar = {
+      schema_version: 2,
+      slug,
+      title: "Approved RFC",
+      size: "M",
+      issues: [{ num: 1, title: "Implement", size: "M", test_hooks: ["AC-1"] }],
+      test_strategy: {
+        test_levels: "Unit and integration",
+        new_infrastructure: "None",
+        regression_surface: "Dev runner",
+        verification_commands: "node --test",
+        open_questions: "None",
+      },
+    };
+    const bytes = Buffer.from(`${JSON.stringify(sidecar, null, 2)}\n`);
+    fs.writeFileSync(sidecarPath, bytes);
+    const hash = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+    fs.writeFileSync(
+      htmlPath,
+      `<script type="application/json" id="rfc-meta">{"status":"approved"}</script><main data-sidecar-hash="${hash}"></main>`
+    );
+    const session = createSession({ slug, sourceDir: repo.root });
+    session.phase = "readiness";
+    session.routing.required_phases = ["readiness", "implementation", "retro"];
+    const valid = passedResult(session, {
+      evidence: [
+        {
+          kind: "rfc-readiness",
+          command: "rfc-sidecar-check",
+          exit_code: 0,
+          artifact: sidecarPath,
+        },
+      ],
+    });
+    assert.deepEqual(validateResult(session, valid), []);
+    fs.writeFileSync(htmlPath, fs.readFileSync(htmlPath, "utf8").replace("approved", "draft"));
+    assert.ok(
+      validateResult(session, valid).some((error) => /approved lifecycle/.test(error.message))
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("ship requires explicit authority and independently verified merged PR evidence", () => {
+  const repo = makeRepo();
+  const receiptPath = path.join(os.tmpdir(), `pm-delivery-${process.pid}-${Date.now()}.json`);
+  try {
+    let session = createSession({ slug: "delivery-proof", sourceDir: repo.root });
+    session.phase = "ship";
+    session.routing.required_phases = ["ship", "retro"];
+    session.routing.required_gates = [];
+    const commit = repo.head();
+    const receipt = {
+      schema_version: 1,
+      pr_number: 42,
+      pr_url: "https://github.com/example/repo/pull/42",
+      state: "MERGED",
+      merge_sha: "merge42",
+      head_branch: "main",
+      feature_commit: commit,
+    };
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+    const result = passedResult(session, {
+      commit,
+      evidence: [
+        { kind: "delivery", command: "gh pr view 42", exit_code: 0, artifact: receiptPath },
+      ],
+    });
+    assert.ok(
+      validateResult(session, result).some((error) => /explicit .* authority/.test(error.message))
+    );
+    session = grantAuthority(
+      session,
+      ["push_feature_branch", "create_pr", "merge"],
+      "User authorized delivery"
+    );
+    const observed = {
+      number: 42,
+      url: receipt.pr_url,
+      state: "MERGED",
+      headRefName: "main",
+      mergeCommit: { oid: "merge42" },
+    };
+    assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
+    assert.ok(
+      validateResult(session, result, {
+        verifyDelivery: () => ({ ...observed, state: "OPEN" }),
+      }).some((error) => /does not match observed/.test(error.message))
+    );
+  } finally {
+    fs.rmSync(receiptPath, { force: true });
     repo.cleanup();
   }
 });

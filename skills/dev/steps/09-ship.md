@@ -5,6 +5,7 @@ description: Push branch, create PR, merge via merge-loop, clean up worktrees, u
 phase: ship
 requires:
   - worker-contract.md
+  - delivery-receipt.schema.json
 gates:
   - review
   - verification
@@ -37,7 +38,7 @@ Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manage
 
 Before any external effect, read the canonical authority envelope. Push/PR, merge, and tracker updates run only when their corresponding booleans are true. If merge or tracker authority is false, stop at the reviewed PR/status boundary and return a structured blocker naming the exact grant required; do not infer consent from an approved implementation plan.
 
-After merge is verified but **before** deleting the feature branch or removing its worktree, record the ship phase result using the verified feature HEAD as `commit` and the PR/merge identity as evidence/artifacts. The squash merge SHA is observed delivery metadata, not the commit validated against the feature branch. Only after the runner advances to retro may cleanup remove the feature worktree.
+After merge is verified but **before** deleting the feature branch or removing its worktree, write a strict `delivery-receipt.schema.json` artifact containing the PR number/URL/state, merge SHA, head branch, and feature commit. Record the ship phase result using the verified feature HEAD as `commit` and that receipt as `delivery` evidence. The runner independently reads current PR state with `gh`; a claimed receipt cannot advance the phase by itself. The squash merge SHA is observed delivery metadata, not the commit validated against the feature branch. Only after the runner advances to retro may cleanup remove the feature worktree.
 
 ### Worktree Cleanup
 
