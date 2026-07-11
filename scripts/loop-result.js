@@ -13,6 +13,7 @@ const {
 } = require("./dev-gate-check.js");
 const { RUN_ID_PATTERN } = require("./loop-pm-transaction.js");
 const { runGit } = require("./loop-git.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
 const { protectedSourcePaths } = require("./loop-protection.js");
 
@@ -328,54 +329,6 @@ function createRunResultCapability(pmStateDir, runId) {
   );
   fs.closeSync(fd);
   return { runDir, resultFile };
-}
-
-function readBoundedRegularFile(filePath, maxBytes, kind, options = {}) {
-  let fd;
-  try {
-    const before = fs.lstatSync(filePath);
-    if (
-      !before.isFile() ||
-      before.isSymbolicLink() ||
-      (options.requirePrivate !== false && (before.mode & 0o077) !== 0)
-    ) {
-      return failed(`${kind}-unsafe-path`, `${kind} path is not a restrictive regular file`);
-    }
-    fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    const stat = fs.fstatSync(fd);
-    if (
-      !stat.isFile() ||
-      stat.dev !== before.dev ||
-      stat.ino !== before.ino ||
-      (options.requirePrivate !== false && (stat.mode & 0o077) !== 0)
-    ) {
-      return failed(`${kind}-unsafe-path`, `${kind} changed during inspection or is unsafe`);
-    }
-    if (stat.size > maxBytes)
-      return failed(`${kind}-too-large`, `${kind} exceeds ${maxBytes} bytes`);
-    if (options.readContent === false) return { ok: true, bytes: stat.size };
-    const buffer = Buffer.allocUnsafe(maxBytes + 1);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const bytesRead = fs.readSync(fd, buffer, offset, buffer.length - offset, null);
-      if (bytesRead === 0) break;
-      offset += bytesRead;
-    }
-    if (offset > maxBytes) {
-      return failed(`${kind}-too-large`, `${kind} exceeds ${maxBytes} bytes`);
-    }
-    const after = fs.fstatSync(fd);
-    if (after.dev !== stat.dev || after.ino !== stat.ino || after.size !== offset) {
-      return failed(`${kind}-unsafe-path`, `${kind} changed while it was being read`);
-    }
-    return { ok: true, content: buffer.subarray(0, offset) };
-  } catch (err) {
-    if (err && err.code === "ENOENT") return failed(`${kind}-missing`, `${kind} file is missing`);
-    if (err && err.code === "ELOOP") return failed(`${kind}-unsafe-path`, `${kind} is a symlink`);
-    return failed(`${kind}-unreadable`, `${kind} could not be read: ${err.message}`);
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
 }
 
 function readStageResult(filePath, context) {

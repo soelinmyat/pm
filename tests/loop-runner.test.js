@@ -982,3 +982,25 @@ test("quarantine-aware selection skips the matching candidate and keeps lower pr
     quarantine_expires_at: "later",
   });
 });
+
+test("exact-card selection bypasses unrelated higher-priority eligible work", () => {
+  const board = {
+    columns: {
+      ready_for_dev: [
+        { id: "PM-HIGH", title: "Higher priority", implementationApproved: true },
+        { id: "PM-CANARY", title: "Approved canary", implementationApproved: true },
+      ],
+      implementing: [],
+    },
+  };
+  const selected = selectNextCard(board, config({ autonomy: { start_dev: true } }), {
+    mode: "dev",
+    cardId: "PM-CANARY",
+  });
+  assert.equal(selected.card.id, "PM-CANARY");
+  assert.deepEqual(selected.skipped[0], {
+    id: "PM-HIGH",
+    column: "ready_for_dev",
+    reason: "not requested card PM-CANARY",
+  });
+});

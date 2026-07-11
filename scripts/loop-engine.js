@@ -59,7 +59,35 @@ function engineCommand(config, prompt, context = {}) {
   return { bin: "codex", args, input: prompt };
 }
 
+function canonicalEngineCommand(config, recorded = null, context = {}) {
+  const command = recorded || engineCommand(config, "PM loop engine identity");
+  const normalized = { bin: command.bin, args: [...(command.args || [])] };
+  const worker = config.worker || {};
+  const kind = worker.engine || config.default_runtime || "codex";
+  if (worker.engine_bin || kind === "claude") return normalized;
+  if (context.resultDir) {
+    for (let index = 0; index < normalized.args.length - 1; index += 1) {
+      if (
+        normalized.args[index] === "--add-dir" &&
+        path.resolve(normalized.args[index + 1]) === path.resolve(context.resultDir)
+      ) {
+        normalized.args[index + 1] = "<PM_LOOP_RESULT_DIR>";
+        return normalized;
+      }
+    }
+  }
+  const inputIndex = normalized.args.lastIndexOf("-");
+  normalized.args.splice(
+    inputIndex < 0 ? normalized.args.length : inputIndex,
+    0,
+    "--add-dir",
+    "<PM_LOOP_RESULT_DIR>"
+  );
+  return normalized;
+}
+
 module.exports = {
+  canonicalEngineCommand,
   codexSandbox,
   codexWritableDirs,
   engineCommand,

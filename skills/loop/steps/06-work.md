@@ -22,14 +22,19 @@ card revision changes.
 Preview first (no claim, no execution):
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --dry-run
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual --dry-run
 ```
 
 Execute one unit of work:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual
 ```
+
+CLI worker invocations default to scheduler-safe canary gating so scheduler
+entries installed by earlier plugin versions also fail closed. Use `--manual`
+only for an explicitly supervised one-off run; generated schedulers use
+`--scheduled`.
 
 The default mode covers the full lifecycle in priority order (ship cycles for
 in-flight PRs first, then new dev work, then rfc/research if their autonomy
@@ -46,6 +51,13 @@ The worker refuses to run when:
 - both implementation gates are not true (`autonomy.start_dev` + per-card
   `implementation_approved`/`approved_by`/`approved_at`),
 - the lease cannot be committed AND pushed (no durable claim, no dispatch).
+
+Durable failed/noop events also carry a SHA-256 signature of the exact card
+revision, stage, and blocker. Once `budgets.max_identical_no_progress` is met,
+the worker still performs exact-plan preflight and claims through the existing
+transaction, but records a `suppressed` phase and finalizes `needs-human`
+without launching the engine. The terminal event and card preserve both the
+first and last run IDs.
 
 Claim atomically writes the lease and
 `pm/loop/events/<run_id>.json`. Immediately before engine execution, the worker
@@ -82,6 +94,18 @@ card becomes non-dispatchable `needs-human`.
 
 The crash-safe ledger remains at `.pm/loop-runs/<run_id>.json`; bounded engine
 logs remain under `.pm/loop-runs/<run_id>/`.
+
+When an engine result includes structured usage, the ledger copies those exact
+values and sets `usage_available: true`. When it does not, the ledger records
+`usage_available: false` and no fabricated usage object. PM does not support
+exact token cutoffs without a stable engine usage field.
+
+Engine execution runs in its own interruptible process group. The worker polls
+`pm/loop/STOP` while the engine is active, sends TERM to the group first, and
+sends KILL only after `claim_envelope.shutdown_grace_seconds`. The ledger and
+durable stopped event preserve the signal plus request, TERM, KILL, start, and
+end timestamps; the worker finalizes the card at `needs-human` and deletes the
+lease/recovery through the existing transaction.
 
 A card's lifecycle spans multiple wakes by design — ship is event-driven
 (CI runs, remote review rounds) and cannot finish in one engine run:

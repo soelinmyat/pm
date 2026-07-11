@@ -34,11 +34,13 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     max_runtime_seconds_per_ship_cycle: 1800,
     lease_ttl_seconds: 7200,
     max_attempts_per_stage: 3,
+    max_identical_no_progress: 1,
   },
   claim_envelope: {
     branch_promotion_seconds: 120,
     bootstrap_recheck_seconds: 300,
     shutdown_grace_seconds: 30,
+    remote_stop_poll_seconds: 30,
     artifact_verification_seconds: 120,
     pm_finalization_seconds: 180,
     workspace_cleanup_seconds: 120,
@@ -50,6 +52,9 @@ const DEFAULT_LOOP_CONFIG = Object.freeze({
     probe_timeout_seconds: 60,
     quarantine_ttl_seconds: 3600,
     service_checks: [],
+  },
+  canary: {
+    evidence_ttl_seconds: 86400,
   },
   worker: {
     engine: "",
@@ -148,6 +153,7 @@ function normalizeLoopConfig(config) {
     "budgets",
     "claim_envelope",
     "preflight",
+    "canary",
     "worker",
   ]) {
     if (!isPlainObject(normalized[key])) {
@@ -177,18 +183,35 @@ function assertCanonicalEngineArgs(extraArgs) {
   }
 }
 
-const CLAIM_PHASE_FIELDS = Object.freeze([
-  "branch_promotion_seconds",
-  "bootstrap_recheck_seconds",
-  "shutdown_grace_seconds",
-  "artifact_verification_seconds",
-  "pm_finalization_seconds",
-  "workspace_cleanup_seconds",
-]);
+const CLAIM_PHASE_WEIGHTS = Object.freeze({
+  branch_promotion_seconds: 1,
+  bootstrap_recheck_seconds: 1,
+  shutdown_grace_seconds: 1,
+  artifact_verification_seconds: 1,
+  // Dispatch, claimed-card snapshot, recovery checkpoint, and final push are
+  // independently bounded PM transactions on the normal claimed-run path.
+  pm_finalization_seconds: 4,
+  workspace_cleanup_seconds: 1,
+});
 
 function positiveInteger(value, label) {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive integer`);
+  }
+  return value;
+}
+
+function exactCronIntervalMinutes(value, label = "scheduler_interval_minutes") {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer exact cron interval`);
+  }
+  const subHourly = value <= 60 && 60 % value === 0;
+  const hourly =
+    value > 60 && value % 60 === 0 && value <= 1440 && (value === 1440 || 24 % (value / 60) === 0);
+  if (!subHourly && !hourly) {
+    throw new Error(
+      `${label} must be an exact cron interval that divides an hour or a 24-hour day`
+    );
   }
   return value;
 }
@@ -209,10 +232,10 @@ function claimEnvelopeSeconds(config, stage = "dev") {
   if (!isPlainObject(envelope)) {
     throw new Error("claim_envelope must be an object");
   }
-  const phaseSeconds = CLAIM_PHASE_FIELDS.reduce(
-    (total, field) => total + positiveInteger(Number(envelope[field]), `claim_envelope.${field}`),
-    0
-  );
+  const phaseSeconds = Object.entries(CLAIM_PHASE_WEIGHTS).reduce((total, [field, weight]) => {
+    const seconds = positiveInteger(Number(envelope[field]), `claim_envelope.${field}`);
+    return total + seconds * weight;
+  }, 0);
   const runtimeField =
     stage === "ship" || stage === "review"
       ? "max_runtime_seconds_per_ship_cycle"
@@ -222,6 +245,64 @@ function claimEnvelopeSeconds(config, stage = "dev") {
     `budgets.${runtimeField}`
   );
   return phaseSeconds + runtime;
+}
+
+function configExposure(config) {
+  const devEnvelope = claimEnvelopeSeconds(config, "dev");
+  const shipEnvelope = claimEnvelopeSeconds(config, "ship");
+  const longestEnvelope = Math.max(devEnvelope, shipEnvelope);
+  const margin = Number(config.claim_envelope.scheduler_overlap_margin_seconds);
+  const ttl = leaseTtlSeconds(config);
+  const warnings = [];
+  if (config.autonomy && config.autonomy.merge_pr === true) {
+    warnings.push(
+      "Merge autonomy is enabled: verified pull requests may merge without a human stop."
+    );
+  }
+  const worker = config.worker || {};
+  if (worker.codex_sandbox === "danger-full-access") {
+    warnings.push(
+      "Codex danger-full-access is a broad host permission grant, not capability isolation."
+    );
+  }
+  if (
+    Array.isArray(worker.engine_args) &&
+    worker.engine_args.includes("--dangerously-bypass-approvals-and-sandbox")
+  ) {
+    warnings.push(
+      "Codex dangerously-bypass-approvals-and-sandbox disables approval and sandbox controls."
+    );
+  }
+  if (worker.engine_bin) {
+    warnings.push(
+      "A custom engine binary runs with host-user permissions outside Codex/Claude sandbox controls."
+    );
+  }
+  if (worker.claude_permission_mode === "bypassPermissions") {
+    warnings.push("Claude bypassPermissions is a broad host permission grant.");
+  }
+  if (Array.isArray(worker.codex_add_dirs) && worker.codex_add_dirs.length > 0) {
+    warnings.push("Extra Codex writable directories broaden engine host exposure.");
+  }
+  return {
+    claim_envelope_seconds: { dev: devEnvelope, ship: shipEnvelope },
+    maximum_daily_claim_envelope_seconds:
+      devEnvelope * Number(config.budgets.max_runs_per_day) +
+      shipEnvelope * Number(config.budgets.max_ship_cycles_per_day),
+    lease_ttl_seconds: ttl,
+    minimum_ttl_seconds: longestEnvelope + margin + 1,
+    ttl_margin_seconds: ttl - (longestEnvelope + margin),
+    warnings,
+  };
+}
+
+function formatConfigExposure(exposure) {
+  if (!exposure) return "";
+  return [
+    `Maximum daily claim envelope: ${exposure.maximum_daily_claim_envelope_seconds}s.`,
+    `Lease TTL: ${exposure.lease_ttl_seconds}s (minimum ${exposure.minimum_ttl_seconds}s; margin ${exposure.ttl_margin_seconds}s).`,
+    ...exposure.warnings.map((warning) => `WARNING: ${warning}`),
+  ].join("\n");
 }
 
 function validateLoopConfig(config) {
@@ -263,6 +344,15 @@ function validateLoopConfig(config) {
   }
 
   const ttl = positiveInteger(leaseTtlSeconds(config), "budgets.lease_ttl_seconds");
+  for (const field of ["max_runs_per_day", "max_ship_cycles_per_day"]) {
+    positiveInteger(Number(config.budgets[field]), `budgets.${field}`);
+  }
+  positiveInteger(
+    Number(config.budgets.max_identical_no_progress),
+    "budgets.max_identical_no_progress"
+  );
+  positiveInteger(Number(config.canary.evidence_ttl_seconds), "canary.evidence_ttl_seconds");
+  exactCronIntervalMinutes(config.scheduler_interval_minutes);
   const devEnvelope = claimEnvelopeSeconds(config, "dev");
   const shipEnvelope = claimEnvelopeSeconds(config, "ship");
   const envelope = Math.max(devEnvelope, shipEnvelope);
@@ -271,6 +361,10 @@ function validateLoopConfig(config) {
     "claim_envelope.scheduler_overlap_margin_seconds"
   );
   positiveInteger(Number(config.claim_envelope.cas_attempts), "claim_envelope.cas_attempts");
+  positiveInteger(
+    Number(config.claim_envelope.remote_stop_poll_seconds),
+    "claim_envelope.remote_stop_poll_seconds"
+  );
   if (ttl <= envelope + margin) {
     throw new Error(
       `budgets.lease_ttl_seconds (${ttl}) must be greater than claim envelope (${envelope}) ` +
@@ -431,6 +525,8 @@ function main() {
       process.stdout.write(`${configPath(args.pmDir)}\n`);
     } else {
       process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+      const exposure = configExposure(config);
+      process.stderr.write(`${formatConfigExposure(exposure)}\n`);
     }
   } catch (err) {
     process.stderr.write(`loop-config: ${err.message}\n`);
@@ -443,11 +539,14 @@ module.exports = {
   approveExecutionConfig,
   assertCanonicalEngineArgs,
   claimEnvelopeSeconds,
+  configExposure,
   configPath,
   deepMerge,
   ensureLoopDirs,
+  exactCronIntervalMinutes,
   executionConfig,
   executionConfigHash,
+  formatConfigExposure,
   hostConfigPath,
   initLoopConfig,
   loadLoopConfig,

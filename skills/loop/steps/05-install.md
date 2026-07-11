@@ -72,18 +72,49 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --stop  
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --resume  # resume
 ```
 
+- **Supervised canary:** keep the scheduler paused/uninstalled and keep
+  `autonomy.merge_pr: false` until these exact commands all pass:
+
+  Set `CLEANLOG_ROOT` to the absolute consumer project root. Set `CANARY_CARD`
+  to an eligible approved card that is expected to produce an OPEN PR, then run
+  the exact commands from the installed PM plugin root:
+
+```bash
+cd "${CLAUDE_PLUGIN_ROOT}"
+```
+
+```bash
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case preflight-failure
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case blocked-result
+node scripts/loop-canary.js --project-dir "$CLEANLOG_ROOT" --case verified-pr --card "$CANARY_CARD" --no-merge
+```
+
+  Records live at `.pm/loop-canary/<run_id>/<case>.json` and pin the plugin
+  version, source commit, resolved config hash, exact plan, and engine binary/
+  argv identity. The release gate accepts only three passing, fresh records
+  with the same plugin/source/config/engine identity. Missing, stale, mixed,
+  or failed evidence fails closed. The verified PR stays OPEN; the canary never
+  merges it.
+
 3. Generate the scheduler asset and show it to the user before installing:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD"
 ```
 
-4. Only after the user confirms, install (macOS writes the LaunchAgent and
-   loads it; Linux users add the printed line via `crontab -e`):
+4. Only after the user confirms, install through the gate-checked command
+   (macOS writes and loads the LaunchAgent; Linux updates crontab):
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-install.js --project-dir "$PWD" --install
 ```
+
+`--install` and `--resume` enforce the canary release gate before changing
+scheduler state. Gate-owned scheduler entries pass `--scheduled`, and every scheduled
+wake rechecks current same-identity evidence before claiming work. Generated assets are
+previews only; they do not silently enable unattended scheduling.
+Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
+scheduler entries; explicitly supervised one-off runs use `--manual`.
 
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.

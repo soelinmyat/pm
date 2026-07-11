@@ -94,6 +94,52 @@ test("loop docs describe the lease envelope and isolated recovery transactions",
   assert.match(readme, /validated stage results.*needs-human/is);
 });
 
+test("loop docs keep scheduling gated on exact same-identity supervised canaries", () => {
+  const readme = read("README.md");
+  const install = read(".codex/INSTALL.md");
+  const skill = read("skills/loop/SKILL.md");
+  const config = read("skills/loop/steps/04-config.md");
+  const route = read("skills/loop/steps/01-route.md");
+  const installStep = read("skills/loop/steps/05-install.md");
+  const work = read("skills/loop/steps/06-work.md");
+  const all = [readme, install, skill, config, route, installStep, work].join("\n");
+
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case preflight-failure/
+  );
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case blocked-result/
+  );
+  assert.match(
+    all,
+    /node scripts\/loop-canary\.js --project-dir "\$CLEANLOG_ROOT" --case verified-pr --card "\$CANARY_CARD" --no-merge/
+  );
+  for (const document of [readme, install]) {
+    assert.match(document, /cd "\$PM_PLUGIN_ROOT"/);
+    assert.match(document, /CLEANLOG_ROOT.*consumer project/is);
+    assert.match(document, /CANARY_CARD.*approved.*OPEN PR/is);
+  }
+  assert.match(readme, /export PM_PLUGIN_ROOT=/);
+  assert.match(installStep, /cd "\$\{CLAUDE_PLUGIN_ROOT\}"/);
+  assert.match(installStep, /CLEANLOG_ROOT.*consumer project/is);
+  assert.match(installStep, /CANARY_CARD.*approved.*OPEN PR/is);
+  assert.match(all, /usage_available: false/);
+  assert.match(all, /TERM.*KILL/is);
+  assert.match(all, /same.*plugin.*source.*config.*engine/is);
+  assert.match(all, /stale.*mixed.*fail/is);
+  assert.match(all, /scheduler.*(paused|uninstalled).*until/is);
+  assert.match(all, /--scheduled/);
+  assert.match(all, /scheduled.*wake.*rechecks/is);
+  assert.match(work, /loop-worker\.js --project-dir "\$PWD" --manual/);
+  assert.match(route, /canary-required/);
+  assert.match(route, /paused.*releaseGate\.passed.*resume/is);
+  assert.match(route, /paused.*canary.*install/is);
+  assert.match(installStep, /Linux updates crontab/);
+  assert.match(all, /does not support exact token cutoffs/i);
+});
+
 test("loop-capable workflows return stage results and leave durable card writes to the worker", () => {
   const contracts = {
     dev: /shipped, blocked, failed, noop/,

@@ -17,6 +17,7 @@ const {
   markRunDispatched,
   releaseClaim,
   runIsolatedTransaction,
+  scanSnapshotFinalizedEvents,
   scanSnapshotTransactions,
 } = require("../scripts/loop-pm-transaction.js");
 
@@ -41,6 +42,52 @@ test("snapshot transaction scanning includes finalized durable events through th
     states.map((entry) => [entry.run_id, entry.state]),
     [[runId, "finalized"]]
   );
+});
+
+test("finalized event scans fail closed at the configured bound", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-event-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  fs.writeFileSync(path.join(eventDir, "unexpected-a.txt"), "a\n");
+  fs.writeFileSync(path.join(eventDir, "unexpected-b.txt"), "b\n");
+  assert.throws(() => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }), /event scan limit/i);
+});
+
+test("finalized event scans reject oversized JSON evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-event-size-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const eventDir = path.join(root, "loop", "events");
+  fs.mkdirSync(eventDir, { recursive: true });
+  const runId = "loop-72345678-1234-4123-8123-123456789abc";
+  fs.writeFileSync(path.join(eventDir, `${runId}.json`), "x".repeat(512 * 1024 + 1));
+  assert.throws(() => scanSnapshotFinalizedEvents(root), /exceeds 524288 bytes/i);
+});
+
+test("finalized event scan bounds include lease evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-lease-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  const leaseDir = path.join(root, "loop", "leases");
+  fs.mkdirSync(leaseDir, { recursive: true });
+  fs.writeFileSync(path.join(leaseDir, "unexpected-a.txt"), "a\n");
+  fs.writeFileSync(path.join(leaseDir, "unexpected-b.txt"), "b\n");
+  assert.throws(
+    () => scanSnapshotFinalizedEvents(root, { maxEntries: 1 }),
+    /lease evidence scan limit/i
+  );
+});
+
+test("transaction recovery scans share one bound across leases, events, and recovery", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-transaction-scan-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  fs.mkdirSync(path.join(root, "loop", "recovery"), { recursive: true });
+  fs.writeFileSync(path.join(root, "loop", "events", "unexpected.txt"), "one\n");
+  fs.writeFileSync(path.join(root, "loop", "recovery", "unexpected.txt"), "two\n");
+  const states = scanSnapshotTransactions(root, { maxEntries: 1 });
+  assert.ok(states.some((entry) => /evidence-scan-limit/.test(entry.run_id)));
+  assert.ok(states.some((entry) => entry.state === "ambiguous"));
 });
 
 test("scoped transaction scanning retains structurally unowned durable records as ambiguous", (t) => {
@@ -79,6 +126,64 @@ test("duplicate leases claiming one run ID are explicitly ambiguous", (t) => {
   const [state] = scanSnapshotTransactions(root, { now: FIXED_NOW, runIds: [runId] });
   assert.equal(state.state, "ambiguous");
   assert.match(state.reason, /duplicate.*lease/i);
+});
+
+test("symlinked transaction directories and JSON records are always ambiguous", async (t) => {
+  const runId = "loop-72345678-1234-4123-8123-123456789abc";
+  const cases = ["events-directory", "event-file", "recovery-directory", "lease-file"];
+  for (const caseName of cases) {
+    await t.test(caseName, () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-loop-symlink-${caseName}-`));
+      t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+      const external = path.join(root, "external");
+      const loopDir = path.join(root, "pm", "loop");
+      fs.mkdirSync(external, { recursive: true });
+      fs.mkdirSync(path.join(loopDir, "events"), { recursive: true });
+      const event = {
+        run_id: runId,
+        card_id: "PM-404",
+        stage: "dev",
+        terminal: true,
+        status: "failed",
+      };
+      const externalEvent = path.join(external, `${runId}.json`);
+      fs.writeFileSync(externalEvent, JSON.stringify(event));
+      fs.writeFileSync(path.join(loopDir, "events", `${runId}.json`), JSON.stringify(event));
+
+      if (caseName === "events-directory") {
+        fs.rmSync(path.join(loopDir, "events"), { recursive: true });
+        fs.symlinkSync(external, path.join(loopDir, "events"));
+      } else if (caseName === "event-file") {
+        fs.rmSync(path.join(loopDir, "events", `${runId}.json`));
+        fs.symlinkSync(externalEvent, path.join(loopDir, "events", `${runId}.json`));
+      } else if (caseName === "recovery-directory") {
+        fs.symlinkSync(external, path.join(loopDir, "recovery"));
+      } else {
+        const leases = path.join(loopDir, "leases");
+        fs.mkdirSync(leases, { recursive: true });
+        const externalLease = path.join(external, "lease.json");
+        fs.writeFileSync(
+          externalLease,
+          JSON.stringify({
+            run_id: runId,
+            card_id: "PM-404",
+            stage: "dev",
+            phase: "claimed",
+            expires_at: "2026-07-10T01:00:00Z",
+          })
+        );
+        fs.symlinkSync(externalLease, path.join(leases, "dev-pm-404.json"));
+      }
+
+      const states = scanSnapshotTransactions(path.join(root, "pm"), {
+        now: FIXED_NOW,
+        runIds: [runId],
+        includeFinalized: true,
+      });
+      const state = states.find((entry) => entry.run_id === runId);
+      assert.equal(state.state, "ambiguous", JSON.stringify(states));
+    });
+  }
 });
 
 const FIXED_NOW = new Date("2026-07-10T00:00:00.000Z");
@@ -308,6 +413,60 @@ test("checkpoint and finalization atomically persist recovery then card/event/ar
   assert.equal(terminalEvent.terminal, true);
   assert.equal(git(fixture.project, ["rev-parse", "HEAD"]), sharedHead);
   assert.equal(git(fixture.project, ["status", "--porcelain"]), "");
+});
+
+test("recovery finalization fails closed when authoritative STOP appears", (t) => {
+  const fixture = makeFixture(t);
+  const claimed = claim(fixture);
+  assert.equal(claimed.result.ok, true);
+  assert.equal(
+    markRunDispatched(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      dispatchedAt: "2026-07-10T00:00:05.000Z",
+    }).ok,
+    true
+  );
+  const transition = {
+    card_write: {
+      relative_path: "pm/backlog/transaction.md",
+      expected_revision: claimed.expectedCardRevision,
+      content: cardBody("stopped recovery").replace("status: planned", "status: needs-human"),
+    },
+    artifact_writes: [],
+  };
+  assert.equal(
+    checkpointRecovery(fixture.pmDir, {
+      runId: claimed.runId,
+      cardId: "PM-TX1",
+      stage: "dev",
+      resultHash: sha256("stopped-result"),
+      artifactHashes: [],
+      transition,
+      checkpointedAt: "2026-07-10T00:00:10.000Z",
+    }).ok,
+    true
+  );
+  remoteCommit(
+    fixture,
+    (clone) => {
+      fs.mkdirSync(path.join(clone, "pm", "loop"), { recursive: true });
+      fs.writeFileSync(path.join(clone, "pm", "loop", "STOP"), "stop\n");
+    },
+    "stop before recovery finalization"
+  );
+  const finalized = finalizeRun(fixture.pmDir, {
+    runId: claimed.runId,
+    cardId: "PM-TX1",
+    stage: "dev",
+    event: { status: "blocked", summary: "stopped", terminal: true },
+    requireStopAbsent: true,
+  });
+  assert.equal(finalized.ok, false);
+  assert.equal(finalized.reason, "kill-switch-present");
+  assert.match(finalized.error, /authoritative STOP/i);
+  assert.match(remoteFile(fixture, `pm/loop/recovery/${claimed.runId}.json`), /ready-to-finalize/);
 });
 
 test("recovery inspection distinguishes never-dispatched, dispatched, finalized, and ambiguous runs", (t) => {

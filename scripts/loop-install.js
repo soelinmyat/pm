@@ -5,7 +5,7 @@
 // (macOS) or cron line (Linux) that wakes loop-worker.js on an interval,
 // entirely on infrastructure the user owns — no vendor scheduling service.
 //
-// Default is generate-and-print; --install writes the LaunchAgent and loads it.
+// Default is a preview only; --install performs the gate-checked scheduler mutation.
 // The kill switch (pm/loop/STOP) is the always-available off button; commit and
 // push it to stop workers on every machine.
 
@@ -15,9 +15,17 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
-const { loadLoopConfig } = require("./loop-config.js");
+const {
+  configExposure,
+  exactCronIntervalMinutes,
+  formatConfigExposure,
+  loadLoopConfig,
+  loadTrustedLoopConfig,
+} = require("./loop-config.js");
+const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
-const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
+const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
 
 function projectSlug(projectDir) {
   return path
@@ -46,6 +54,7 @@ function buildLaunchdPlist(opts) {
     opts.projectDir,
     "--mode",
     opts.mode || "default",
+    "--scheduled",
   ];
   const intervalSeconds = (Number(opts.intervalMinutes) || 30) * 60;
   const logPath = opts.logPath || path.join(os.homedir(), "Library", "Logs", `${label}.log`);
@@ -81,17 +90,32 @@ function buildLaunchdPlist(opts) {
   ].join("\n");
 }
 
+function cronShellQuote(value) {
+  // cron parses percent signs before handing the command to the shell, even
+  // inside shell quotes. Escape them for cron, then quote the entire value for
+  // the POSIX shell used to execute the resulting command.
+  const cronSafe = String(value).replace(/%/g, "\\%");
+  return `'${cronSafe.split("'").join("'\"'\"'")}'`;
+}
+
 function buildCronLine(opts) {
-  const interval = Number(opts.intervalMinutes) || 30;
+  const interval = exactCronIntervalMinutes(
+    opts.intervalMinutes === undefined ? 30 : Number(opts.intervalMinutes)
+  );
   const nodeBin = opts.nodeBin || process.execPath;
   const logPath =
     opts.logPath || path.join(os.homedir(), ".pm-loop", `${projectSlug(opts.projectDir)}.log`);
   const schedule =
-    interval >= 60 ? `0 */${Math.round(interval / 60)} * * *` : `*/${interval} * * * *`;
+    interval === 1440
+      ? "0 0 * * *"
+      : interval >= 60
+        ? `0 */${interval / 60} * * *`
+        : `*/${interval} * * * *`;
   const pathEnv = opts.pathEnv || process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
   return (
-    `${schedule} PATH=${pathEnv} ${nodeBin} ${opts.workerScript} ` +
-    `--project-dir ${opts.projectDir} --mode ${opts.mode || "default"} >> ${logPath} 2>&1`
+    `${schedule} PATH=${cronShellQuote(pathEnv)} ${cronShellQuote(nodeBin)} ` +
+    `${cronShellQuote(opts.workerScript)} --project-dir ${cronShellQuote(opts.projectDir)} ` +
+    `--mode ${cronShellQuote(opts.mode || "default")} --scheduled >> ${cronShellQuote(logPath)} 2>&1`
   );
 }
 
@@ -112,6 +136,20 @@ function installLaunchd(plist, label) {
   return target;
 }
 
+function installCron(line, options = {}) {
+  const run = options.run || execFileSync;
+  let existing = "";
+  try {
+    existing = String(run("crontab", ["-l"], { encoding: "utf8" }) || "");
+  } catch (error) {
+    if (error && Number(error.status) !== 1) throw error;
+  }
+  if (existing.split(/\r?\n/).includes(line)) return "crontab";
+  const input = `${existing.trimEnd()}${existing.trim() ? "\n" : ""}${line}\n`;
+  run("crontab", ["-"], { input, encoding: "utf8" });
+  return "crontab";
+}
+
 // The kill switch has two halves so callers on a request path can flip the
 // local state instantly and push in the background:
 //   writeKillSwitchFile — synchronous fs write/remove (fast, local truth)
@@ -126,10 +164,17 @@ function writeKillSwitchFile(pmDir, stopped) {
   const stopPath = killSwitchFilePath(pmDir);
   if (stopped) {
     fs.mkdirSync(path.dirname(stopPath), { recursive: true });
-    fs.writeFileSync(
-      stopPath,
-      "Loop workers halt while this file exists. Commit and push to stop every machine.\n"
-    );
+    const tempPath = `${stopPath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(
+        tempPath,
+        "Loop workers halt while this file exists. Commit and push to stop every machine.\n",
+        { mode: 0o600 }
+      );
+      fs.renameSync(tempPath, stopPath);
+    } finally {
+      fs.rmSync(tempPath, { force: true });
+    }
   } else if (fs.existsSync(stopPath)) {
     fs.rmSync(stopPath);
   }
@@ -146,13 +191,16 @@ function pushKillSwitch(pmDir, stopped, options = {}) {
   try {
     const rel = gitRelativePath(gitRoot, stopPath);
     runGit(["add", "-A", "--", rel], gitRoot, { timeout });
-    runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout,
-    });
-    committed = true;
+    const changed = Boolean(runGit(["status", "--porcelain", "--", rel], gitRoot, { timeout }));
+    if (changed) {
+      runGit(["commit", "-m", stopped ? "pm loop stop" : "pm loop resume", "--", rel], gitRoot, {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout,
+      });
+      committed = true;
+    }
     runGit(["push"], gitRoot, { stdio: ["ignore", "pipe", "pipe"], timeout });
-    return { committed: true, pushed: true };
+    return { committed, pushed: true, no_change: !changed };
   } catch (err) {
     // Surface the failure — the "halt every machine" guarantee must fail loudly.
     return {
@@ -169,6 +217,58 @@ function setKillSwitch(pmDir, stopped, options = {}) {
   return { stopPath: file.stopPath, stopped, ...push, committed: push.committed };
 }
 
+function probeAuthoritativeStop(pmDir, options = {}) {
+  if (typeof options.remoteStopProbe === "function") {
+    return options.remoteStopProbe(pmDir);
+  }
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) throw new Error("authoritative STOP state requires a Git root");
+  runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
+  return withRemoteSnapshot(pmDir, (snapshot) =>
+    fs.existsSync(path.join(snapshot.pmDir, "loop", "STOP"))
+  );
+}
+
+function stopScheduler(pmDir, options = {}) {
+  const setStop = options.setStop || setKillSwitch;
+  const result = setStop(pmDir, true, options);
+  if (result.pushed === true) return result;
+  let confirmed = false;
+  try {
+    confirmed = probeAuthoritativeStop(pmDir, options) === true;
+  } catch {
+    confirmed = false;
+  }
+  if (confirmed) return { ...result, pushed: true, verified_remote: true };
+  throw new Error(
+    `STOP is local but was not durably pushed${result.error ? `: ${result.error}` : ""}`
+  );
+}
+
+function buildInstallExposure(config) {
+  return configExposure(config);
+}
+
+function releaseGateFor(paths, config, options = {}) {
+  return evaluateCurrentCanaryReleaseGate(paths.pmStateDir, config, options);
+}
+
+function loadReleaseGateState(paths, options = {}) {
+  const snapshot = options.snapshot || withRemoteSnapshot;
+  return snapshot(paths.pmDir, (remote) => {
+    const config = (options.loadTrustedConfig || loadTrustedLoopConfig)(
+      remote.pmDir,
+      paths.pmStateDir
+    );
+    const releaseGate = (options.releaseGate || releaseGateFor)(paths, config, options);
+    return { config, releaseGate };
+  });
+}
+
+function installPaths(projectDir, pmDir = "") {
+  return pmDir ? { pmDir, pmStateDir: resolvePmStateDir(pmDir) } : resolvePmPaths(projectDir);
+}
+
 function generate(opts) {
   const workerScript = path.join(__dirname, "loop-worker.js");
   const platform = opts.format === "auto" ? process.platform : opts.format;
@@ -177,7 +277,12 @@ function generate(opts) {
     workerScript,
     mode: opts.mode,
     intervalMinutes: opts.intervalMinutes,
+    logPath: opts.logPath,
+    nodeBin: opts.nodeBin,
+    pathEnv: opts.pathEnv,
   };
+  const exposure = opts.config ? buildInstallExposure(opts.config) : null;
+  const exposureText = formatConfigExposure(exposure);
   if (platform === "darwin" || platform === "launchd") {
     const label = launchdLabel(opts.projectDir);
     return {
@@ -185,17 +290,28 @@ function generate(opts) {
       label,
       installPath: plistInstallPath(label),
       content: buildLaunchdPlist({ ...shared, label }),
+      exposure,
       instructions: [
-        `Write the plist to ${plistInstallPath(label)} and run:`,
-        `  launchctl load ${plistInstallPath(label)}`,
-        "or rerun this command with --install to do both.",
+        "Preview only — do not load this plist manually.",
+        "After the same-identity canary gate passes, rerun with --install.",
+        exposureText,
       ].join("\n"),
     };
   }
+  const logPath =
+    shared.logPath || path.join(os.homedir(), ".pm-loop", `${projectSlug(opts.projectDir)}.log`);
   return {
     kind: "cron",
-    content: buildCronLine(shared),
-    instructions: "Add the line above via `crontab -e`.",
+    content: buildCronLine({ ...shared, logPath }),
+    logPath,
+    exposure,
+    instructions: [
+      "Preview only — do not add this line to crontab manually.",
+      "After the same-identity canary gate passes, rerun with --install.",
+      exposureText,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 }
 
@@ -204,7 +320,7 @@ function parseArgs(argv) {
     projectDir: process.cwd(),
     pmDir: "",
     mode: "default",
-    intervalMinutes: 0,
+    intervalMinutes: "",
     format: "auto",
     install: false,
     stop: false,
@@ -227,30 +343,112 @@ function parseArgs(argv) {
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
-  args.intervalMinutes = Number(args.intervalMinutes) || 0;
+  args.intervalMinutes =
+    args.intervalMinutes === ""
+      ? 0
+      : exactCronIntervalMinutes(Number(args.intervalMinutes), "--interval");
   return args;
+}
+
+function installGenerated(generated, intervalMinutes, options = {}) {
+  const writeError = options.writeError || ((text) => process.stderr.write(text));
+  const install = options.install || (generated.kind === "launchd" ? installLaunchd : installCron);
+  writeError(
+    [
+      `Activating the gate-approved ${generated.kind} scheduler.`,
+      formatConfigExposure(generated.exposure),
+    ]
+      .filter(Boolean)
+      .join("\n") + "\n"
+  );
+  if (generated.kind === "cron") {
+    if (!generated.logPath) throw new Error("cron activation requires a log path");
+    fs.mkdirSync(path.dirname(generated.logPath), { recursive: true, mode: 0o700 });
+  }
+  const installed = install(generated.content, generated.label);
+  const result = {
+    installed: true,
+    label: generated.label,
+    interval_minutes: intervalMinutes,
+    exposure: generated.exposure,
+  };
+  if (generated.kind === "launchd") result.plist = installed;
+  else {
+    result.crontab = installed;
+    result.log_path = generated.logPath;
+  }
+  return result;
+}
+
+function resumeScheduler(pmDir, config, options = {}) {
+  const exposure = configExposure(config);
+  const writeError = options.writeError || ((text) => process.stderr.write(text));
+  const setStop = options.setStop || setKillSwitch;
+  writeError(`${formatConfigExposure(exposure)}\n`);
+  const result = setStop(pmDir, false, options);
+  if (result.pushed !== true) {
+    let remoteStopped = null;
+    try {
+      remoteStopped = probeAuthoritativeStop(pmDir, options);
+    } catch {
+      remoteStopped = null;
+    }
+    if (result.committed !== true && remoteStopped === false) {
+      return { ...result, pushed: true, verified_remote: true, exposure };
+    }
+
+    const restored = setStop(pmDir, true, options);
+    let stopConfirmed = restored.pushed === true;
+    if (!stopConfirmed) {
+      try {
+        stopConfirmed = probeAuthoritativeStop(pmDir, options) === true;
+      } catch {
+        stopConfirmed = false;
+      }
+    }
+    if (!stopConfirmed) writeKillSwitchFile(pmDir, true);
+    throw new Error(
+      `resume was not durably confirmed; STOP ${stopConfirmed ? "republished" : "restored locally but remote state is unknown"}${result.error ? `: ${result.error}` : ""}`
+    );
+  }
+  return { ...result, exposure };
 }
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const paths = args.pmDir ? { pmDir: args.pmDir } : resolvePmPaths(args.projectDir);
+    const paths = installPaths(args.projectDir, args.pmDir);
 
-    if (args.stop || args.resume) {
-      const result = setKillSwitch(paths.pmDir, args.stop);
+    if (args.stop) {
+      const result = stopScheduler(paths.pmDir);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
 
-    const config = loadLoopConfig(paths.pmDir);
+    let config = loadLoopConfig(paths.pmDir);
+    if (args.resume || args.install) {
+      const trusted = loadReleaseGateState(paths);
+      config = trusted.config;
+      const releaseGate = trusted.releaseGate;
+      if (!releaseGate.passed) {
+        throw new Error(
+          `scheduler remains ${args.resume ? "paused" : "uninstalled"} until canary evidence passes: ${releaseGate.reason}`
+        );
+      }
+      if (args.resume) {
+        const result = resumeScheduler(paths.pmDir, config);
+        process.stdout.write(
+          `${JSON.stringify({ ...result, release_gate: releaseGate }, null, 2)}\n`
+        );
+        return;
+      }
+    }
     const intervalMinutes = args.intervalMinutes || Number(config.scheduler_interval_minutes) || 30;
-    const generated = generate({ ...args, intervalMinutes });
+    const generated = generate({ ...args, intervalMinutes, config });
 
-    if (args.install && generated.kind === "launchd") {
-      const installed = installLaunchd(generated.content, generated.label);
-      process.stdout.write(
-        `${JSON.stringify({ installed: true, plist: installed, label: generated.label, interval_minutes: intervalMinutes }, null, 2)}\n`
-      );
+    if (args.install) {
+      const installed = installGenerated(generated, intervalMinutes);
+      process.stdout.write(`${JSON.stringify(installed, null, 2)}\n`);
       return;
     }
 
@@ -263,14 +461,23 @@ function main() {
 }
 
 module.exports = {
+  buildInstallExposure,
   buildCronLine,
   buildLaunchdPlist,
   generate,
+  installGenerated,
+  installPaths,
+  installCron,
   launchdLabel,
+  loadReleaseGateState,
+  parseArgs,
   plistInstallPath,
   projectSlug,
+  probeAuthoritativeStop,
   pushKillSwitch,
+  resumeScheduler,
   setKillSwitch,
+  stopScheduler,
   writeKillSwitchFile,
 };
 

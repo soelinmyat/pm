@@ -12,14 +12,15 @@ const path = require("node:path");
 
 const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
-const { loadLoopConfig, configPath } = require("./loop-config.js");
+const { loadLoopConfig, loadTrustedLoopConfig, configPath } = require("./loop-config.js");
 const { buildLoopBoard } = require("./loop-board.js");
-const { launchdLabel } = require("./loop-install.js");
+const { buildInstallExposure, launchdLabel } = require("./loop-install.js");
+const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { isStopped, killSwitchPath, countRunsToday, runsDirFor } = require("./loop-worker.js");
 
 // State precedence, as implemented (config is the precondition for every other
 // state, so it's checked first): unconfigured > paused > in-progress >
-// installed-idle > ready-not-run > no-work.
+// canary-required > installed-idle > ready-not-run > no-work.
 function assessSituation(projectDir, options = {}) {
   let pmDir;
   let pmStateDir;
@@ -41,15 +42,9 @@ function assessSituation(projectDir, options = {}) {
       // Config present but malformed (bad JSON, or well-formed-but-wrong-type,
       // which loadLoopConfig now rejects) — route the operator to fix it rather
       // than proceed on silently-substituted permissive defaults.
-      return {
-        state: "unconfigured",
+      return unconfigured(`Loop config is present but unreadable: ${err.message}`, {
         configured: true,
-        installed: false,
-        paused: false,
-        board: emptyBoardView(),
-        config: null,
-        note: `Loop config is present but unreadable: ${err.message}`,
-      };
+      });
     }
   }
 
@@ -76,6 +71,28 @@ function assessSituation(projectDir, options = {}) {
     { runs_today: null, ship_cycles_today: null }
   );
 
+  const needsReleaseGate = Boolean(
+    config && (paused || (installed && board.activeLeases.length === 0))
+  );
+  const releaseGate = needsReleaseGate
+    ? safe(
+        () =>
+          typeof options.releaseGateProbe === "function"
+            ? options.releaseGateProbe({ projectDir, pmDir, pmStateDir, config })
+            : evaluateCurrentCanaryReleaseGate(
+                pmStateDir,
+                loadTrustedLoopConfig(pmDir, pmStateDir)
+              ),
+        { passed: false, reason: "current canary identity is unavailable" }
+      )
+    : {
+        passed: false,
+        applicable: false,
+        reason: config
+          ? "canary gate is not needed for the current situation"
+          : "loop is not configured",
+      };
+
   const summary = {
     configured,
     installed,
@@ -83,6 +100,7 @@ function assessSituation(projectDir, options = {}) {
     board,
     budget,
     config: config ? summarizeConfig(config) : null,
+    releaseGate,
     killSwitch: paused ? safe(() => killSwitchPath(pmDir), null) : null,
     note: "",
   };
@@ -99,6 +117,13 @@ function assessSituation(projectDir, options = {}) {
   }
   if (paused) return { ...summary, state: "paused" };
   if (board.activeLeases.length > 0) return { ...summary, state: "in-progress" };
+  if (installed && !summary.releaseGate.passed) {
+    return {
+      ...summary,
+      state: "canary-required",
+      note: `Installed scheduler lacks current canary evidence: ${summary.releaseGate.reason}`,
+    };
+  }
   if (installed) return { ...summary, state: "installed-idle" };
   if (board.ready.length > 0) return { ...summary, state: "ready-not-run" };
   return { ...summary, state: "no-work" };
@@ -140,6 +165,7 @@ function summarizeConfig(config) {
   const autonomy = config.autonomy || {};
   const budgets = config.budgets || {};
   const worker = config.worker || {};
+  const exposure = buildInstallExposure(config);
   return {
     // Mirror the worker's own resolution (engineCommand) so the router reports
     // the engine that will actually run, not a wrong default.
@@ -149,6 +175,7 @@ function summarizeConfig(config) {
     interval_minutes: Number(config.scheduler_interval_minutes) || 30,
     max_runs_per_day: budgets.max_runs_per_day ?? null,
     max_ship_cycles_per_day: budgets.max_ship_cycles_per_day ?? null,
+    ...exposure,
   };
 }
 
@@ -180,7 +207,7 @@ function emptyBoardView() {
   return { counts: {}, ready: [], needsRfc: 0, needsHuman: 0, activeLeases: [], note: "" };
 }
 
-function unconfigured(note) {
+function unconfigured(note, overrides = {}) {
   return {
     state: "unconfigured",
     configured: false,
@@ -188,7 +215,9 @@ function unconfigured(note) {
     paused: false,
     board: emptyBoardView(),
     config: null,
+    releaseGate: { passed: false, reason: "loop is not configured" },
     note,
+    ...overrides,
   };
 }
 

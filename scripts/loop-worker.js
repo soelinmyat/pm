@@ -15,7 +15,6 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
 const {
@@ -28,6 +27,7 @@ const { engineCommand } = require("./loop-engine.js");
 const { bootstrapWorktree } = require("./worktree-bootstrap.js");
 const {
   findGitRoot,
+  gitRelativePath,
   removeWorkspace,
   runGit,
   sanitizeId,
@@ -38,10 +38,18 @@ const {
   checkpointRecovery,
   finalizeRun,
   markRunDispatched,
+  markRunSuppressed,
   releaseClaim,
+  RUN_ID_PATTERN,
+  scanSnapshotFinalizedEvents,
   withRemoteSnapshot,
 } = require("./loop-pm-transaction.js");
-const { buildContractFailureResult, buildStageTransition } = require("./loop-card-state.js");
+const {
+  buildContractFailureResult,
+  buildNoProgressResult,
+  buildStageTransition,
+  buildStoppedResult,
+} = require("./loop-card-state.js");
 const {
   activeQuarantineForPlan,
   copyReadContext,
@@ -58,8 +66,13 @@ const {
 const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
+const { runEngineInterruptibleSync } = require("./loop-process.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
+const MAX_LEDGER_BYTES = 512 * 1024;
+const MAX_LEDGER_ENTRIES = 10_000;
+const UNREADABLE_LEDGER = Symbol("unreadable-ledger");
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -69,23 +82,98 @@ function isStopped(pmDir) {
   return fs.existsSync(killSwitchPath(pmDir));
 }
 
+function prepareRemoteStopMonitor(pmDir, pmStateDir, runId, config) {
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) return null;
+  const upstream = runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
+  const separator = upstream.indexOf("/");
+  if (separator <= 0 || separator === upstream.length - 1) return null;
+  const remoteName = upstream.slice(0, separator);
+  const branch = upstream.slice(separator + 1);
+  const remote = runGit(["remote", "get-url", remoteName], gitRoot);
+  const pmRelative = gitRelativePath(gitRoot, pmDir).replace(/\\/g, "/");
+  const stopRelative = path.posix.join(pmRelative === "." ? "" : pmRelative, "loop", "STOP");
+  const parent = path.join(pmStateDir, "loop-stop-monitors");
+  const gitDir = path.join(parent, `${sanitizeId(runId)}.git`);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  fs.rmSync(gitDir, { recursive: true, force: true });
+  runGit(["init", "--bare", gitDir], parent, { timeout: 5000 });
+  return {
+    gitDir,
+    remote,
+    ref: `refs/heads/${branch}`,
+    path: stopRelative,
+    pollMs: Number(config.claim_envelope.remote_stop_poll_seconds) * 1000,
+    timeoutMs: 5000,
+  };
+}
+
 function runsDirFor(paths) {
   // ponytail: run ledger + logs live in the local state dir (.pm), not the
   // committed pm/ tree — budgets are per-machine in this slice.
   return path.join(paths.pmStateDir, "loop-runs");
 }
 
-function readLedgers(runsDir) {
+function unreadableLedger(weight = 1) {
+  return {
+    status: "unreadable",
+    started_at: "9999-12-31T00:00:00Z",
+    budget_weight: weight,
+    [UNREADABLE_LEDGER]: true,
+  };
+}
+
+function readLedgers(runsDir, options = {}) {
   if (!fs.existsSync(runsDir)) return [];
   const ledgers = [];
-  for (const entry of fs.readdirSync(runsDir)) {
-    if (!entry.endsWith(".json")) continue;
-    try {
-      ledgers.push(JSON.parse(fs.readFileSync(path.join(runsDir, entry), "utf8")));
-    } catch {
-      // unreadable ledger entries still count toward budgets: fail closed
-      ledgers.push({ status: "unreadable", started_at: "9999-12-31T00:00:00Z" });
+  const maxEntries = Number.isSafeInteger(options.maxEntries)
+    ? options.maxEntries
+    : MAX_LEDGER_ENTRIES;
+  const directory = fs.opendirSync(runsDir);
+  let scanned = 0;
+  try {
+    let entry;
+    while ((entry = directory.readSync()) !== null) {
+      scanned += 1;
+      if (scanned > maxEntries) {
+        ledgers.push(unreadableLedger(Number.MAX_SAFE_INTEGER));
+        break;
+      }
+      if (!entry.name.endsWith(".json")) continue;
+      try {
+        const read = readBoundedRegularFile(
+          path.join(runsDir, entry.name),
+          MAX_LEDGER_BYTES,
+          "loop ledger",
+          { requirePrivate: false }
+        );
+        if (!read.ok) throw new Error(read.reason);
+        const record = JSON.parse(read.content.toString("utf8"));
+        const validStage =
+          record?.stage === undefined ||
+          ["dev", "ship", "review", "rfc", "research"].includes(record.stage);
+        if (
+          !record ||
+          typeof record !== "object" ||
+          Array.isArray(record) ||
+          typeof record.status !== "string" ||
+          !record.status ||
+          record.status === "unreadable" ||
+          Object.hasOwn(record, "budget_weight") ||
+          typeof record.started_at !== "string" ||
+          !Number.isFinite(Date.parse(record.started_at)) ||
+          !validStage
+        ) {
+          throw new Error("malformed ledger");
+        }
+        ledgers.push(record);
+      } catch {
+        // Unreadable ledger entries still count toward both budgets: fail closed.
+        ledgers.push(unreadableLedger());
+      }
     }
+  } finally {
+    directory.closeSync();
   }
   return ledgers;
 }
@@ -99,22 +187,29 @@ function isShipLedger(record) {
 // count toward the main budget: fail closed.
 function countRunsInLedgers(ledgers, now = new Date(), opts = {}) {
   const today = now.toISOString().slice(0, 10);
-  return ledgers.filter((record) => {
-    const sameDay =
-      String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
-    if (!sameDay) return false;
-    if (opts.stage === "ship") return isShipLedger(record);
-    return !isShipLedger(record);
-  }).length;
+  return ledgers.reduce((total, record) => {
+    const unreadable = record[UNREADABLE_LEDGER] === true;
+    const sameDay = String(record.started_at || "").slice(0, 10) === today || unreadable;
+    if (!sameDay) return total;
+    if (unreadable) {
+      const weight =
+        Number.isSafeInteger(record.budget_weight) && record.budget_weight > 0
+          ? record.budget_weight
+          : 1;
+      return total + weight;
+    }
+    if (opts.stage === "ship") return total + (isShipLedger(record) ? 1 : 0);
+    return total + (isShipLedger(record) ? 0 : 1);
+  }, 0);
 }
 
 function countRunsToday(runsDir, now = new Date(), opts = {}) {
-  return countRunsInLedgers(readLedgers(runsDir), now, opts);
+  return countRunsInLedgers(readLedgers(runsDir, opts), now, opts);
 }
 
 // Normal waiting/blocked/success terminals do not consume failure attempts.
 // Unknown legacy statuses still count so unreadable or old failures fail closed.
-function countCardAttempts(runsDir, cardId, stage) {
+function countCardAttemptsInLedgers(ledgers, cardId, stage) {
   const nonFailures = new Set([
     "completed",
     "waiting",
@@ -122,13 +217,184 @@ function countCardAttempts(runsDir, cardId, stage) {
     "ready-for-human",
     "blocked",
   ]);
-  return readLedgers(runsDir).filter(
+  return ledgers.filter(
     (record) =>
       record.card &&
       record.card.id === cardId &&
       (record.stage || "dev") === stage &&
       !nonFailures.has(record.status)
   ).length;
+}
+
+function countCardAttempts(runsDir, cardId, stage) {
+  return countCardAttemptsInLedgers(readLedgers(runsDir), cardId, stage);
+}
+
+function usageEvidence(result) {
+  const usage = result && result.usage;
+  const available = Boolean(
+    usage &&
+    typeof usage === "object" &&
+    [usage.input_tokens, usage.output_tokens, usage.total_tokens].some(Number.isSafeInteger)
+  );
+  return available
+    ? {
+        usage_available: true,
+        usage: {
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          total_tokens: usage.total_tokens,
+        },
+      }
+    : { usage_available: false };
+}
+
+function blockerSignature(result) {
+  const blocker = result && result.blocker;
+  return sha256(
+    JSON.stringify({
+      status: String(result && result.status ? result.status : "unknown"),
+      code: String(
+        blocker && blocker.code ? blocker.code : result && result.status ? result.status : "unknown"
+      ),
+      reason: String(
+        blocker && blocker.reason ? blocker.reason : result && result.summary ? result.summary : ""
+      ),
+      remediation: String(blocker && blocker.remediation ? blocker.remediation : ""),
+    })
+  );
+}
+
+function noProgressContext(plan) {
+  const stage = plan.selected.stage || "dev";
+  const cardRevision =
+    plan.lease?.expected_card_revision || plan.fingerprint_input?.card_revision || "";
+  const executionFingerprint = sha256(
+    JSON.stringify({
+      execution_config_hash: plan.fingerprint_input?.execution_config_hash || "",
+    })
+  );
+  return {
+    card_id: plan.selected.id,
+    stage,
+    card_revision: cardRevision,
+    execution_fingerprint: executionFingerprint,
+  };
+}
+
+function noProgressEvidence(plan, result, previous = null) {
+  const context = noProgressContext(plan);
+  const blocker = previous?.blocker_signature || blockerSignature(result);
+  const signature = sha256(
+    JSON.stringify({
+      ...context,
+      blocker_signature: blocker,
+    })
+  );
+  return {
+    signature,
+    blocker_signature: blocker,
+    card_revision: context.card_revision,
+    execution_fingerprint: context.execution_fingerprint,
+    first_run_id: previous?.first_run_id || plan.run_id,
+    last_run_id: plan.run_id,
+  };
+}
+
+function terminalEventTime(event) {
+  const timestamp = event.finalized_at || event.released_at || "";
+  const value = Date.parse(timestamp);
+  if (!Number.isFinite(value)) {
+    throw new Error(`malformed no-progress terminal timestamp for ${event.run_id}`);
+  }
+  return value;
+}
+
+function findNoProgressSuppressionInSnapshot(pmDir, plan, maxIdentical) {
+  if (!plan.selected || maxIdentical < 1) return null;
+  const context = noProgressContext(plan);
+  const digest = /^sha256:[a-f0-9]{64}$/;
+  const events = [];
+  for (const event of scanSnapshotFinalizedEvents(pmDir, {
+    cardId: context.card_id,
+    stage: context.stage,
+  })) {
+    const evidence = event.no_progress;
+    if (
+      event.terminal !== true ||
+      event.card_id !== context.card_id ||
+      event.stage !== context.stage ||
+      !RUN_ID_PATTERN.test(String(event.run_id || ""))
+    ) {
+      continue;
+    }
+    if (!evidence) continue;
+    if (
+      !digest.test(String(evidence.card_revision || "")) ||
+      !digest.test(String(evidence.execution_fingerprint || "")) ||
+      !digest.test(String(evidence.blocker_signature || "")) ||
+      !RUN_ID_PATTERN.test(String(evidence.first_run_id || "")) ||
+      !RUN_ID_PATTERN.test(String(evidence.last_run_id || "")) ||
+      evidence.last_run_id !== event.run_id
+    ) {
+      throw new Error(`malformed no-progress evidence for ${event.run_id}`);
+    }
+    if (
+      evidence.card_revision !== context.card_revision ||
+      evidence.execution_fingerprint !== context.execution_fingerprint
+    ) {
+      continue;
+    }
+    const timestamp = terminalEventTime(event);
+    const expected = sha256(
+      JSON.stringify({ ...context, blocker_signature: evidence.blocker_signature })
+    );
+    if (evidence.signature !== expected) {
+      throw new Error(`malformed no-progress evidence signature for ${event.run_id}`);
+    }
+    events.push({ event, timestamp });
+  }
+  let latest = null;
+  for (const candidate of events) {
+    if (
+      !latest ||
+      candidate.timestamp > latest.timestamp ||
+      (candidate.timestamp === latest.timestamp &&
+        String(candidate.event.run_id).localeCompare(String(latest.event.run_id)) > 0)
+    ) {
+      latest = candidate;
+    }
+  }
+  if (!latest) return null;
+  let count = 0;
+  let oldest = null;
+  for (const candidate of events) {
+    if (candidate.event.no_progress.signature !== latest.event.no_progress.signature) continue;
+    count += 1;
+    if (
+      !oldest ||
+      candidate.timestamp < oldest.timestamp ||
+      (candidate.timestamp === oldest.timestamp &&
+        String(candidate.event.run_id).localeCompare(String(oldest.event.run_id)) < 0)
+    ) {
+      oldest = candidate;
+    }
+  }
+  if (count < maxIdentical) return null;
+  return {
+    ...latest.event.no_progress,
+    first_run_id: oldest.event.no_progress.first_run_id || oldest.event.run_id,
+    last_run_id: latest.event.no_progress.last_run_id || latest.event.run_id,
+    count,
+  };
+}
+
+function findNoProgressSuppression(pmDir, plan, maxIdentical, options = {}) {
+  return withRemoteSnapshot(
+    pmDir,
+    (snapshot) => findNoProgressSuppressionInSnapshot(snapshot.pmDir, plan, maxIdentical),
+    options
+  );
 }
 
 // Card `command` values are git-synced frontmatter — an injection surface for
@@ -331,6 +597,7 @@ function releaseLease(pmDir, lease, options = {}) {
       stage: lease.stage,
       reason: options.reason || "legacy-worker-release",
       eventStatus: options.eventStatus || options.reason || "released",
+      noProgress: options.noProgress || null,
     },
     {
       skipPush: options.skipPush,
@@ -370,13 +637,28 @@ function claimedCardSnapshot(pmDir, lease, options = {}) {
 }
 
 function processEvidence(spawnResult, timeoutMs) {
-  const timedOut = Boolean(spawnResult?.error && spawnResult.error.code === "ETIMEDOUT");
+  const timedOut = Boolean(
+    spawnResult?.timed_out || (spawnResult?.error && spawnResult.error.code === "ETIMEDOUT")
+  );
   return {
     exit_code: Number.isInteger(spawnResult?.status) ? spawnResult.status : null,
     signal: spawnResult?.signal || spawnResult?.error?.signal || null,
     timed_out: timedOut,
     timeout_seconds: timeoutMs / 1000,
     error_code: spawnResult?.error?.code || null,
+    stopped: Boolean(spawnResult?.stopped),
+    stop: spawnResult?.stopped
+      ? {
+          requested_at: spawnResult.stop?.requested_at || null,
+          term_sent_at: spawnResult.stop?.term_sent_at || null,
+          term_signal: spawnResult.stop?.term_signal || null,
+          kill_sent_at: spawnResult.stop?.kill_sent_at || null,
+          kill_signal: spawnResult.stop?.kill_signal || null,
+          source: spawnResult.stop?.source || "local",
+        }
+      : undefined,
+    started_at: spawnResult?.started_at || undefined,
+    ended_at: spawnResult?.ended_at || undefined,
   };
 }
 
@@ -442,12 +724,46 @@ function validRefSnapshot(value) {
   );
 }
 
-function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRoot = "") {
+function protectedPmStateUnchanged(
+  before,
+  after,
+  sourceBranch = "",
+  sourceGitRoot = "",
+  options = {}
+) {
   if (!validProtectedPmSnapshot(before) || !validProtectedPmSnapshot(after)) return false;
   if (before.git_root !== after.git_root) return false;
   if (!before.git_root) return before.tree_hash === after.tree_hash;
-  if (before.head !== after.head || before.protected_status !== after.protected_status)
+  const normalizeProtectedStatus = (value) =>
+    String(value || "")
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line &&
+          !(options.allowStopControl === true && /(?:^|\s)(?:pm\/)?loop\/STOP(?:\s|$)/.test(line))
+      )
+      .sort()
+      .join("\n");
+  let committedStopControl = false;
+  if (before.head !== after.head && options.allowStopControl === true) {
+    try {
+      const changed = runGit(["diff", "--name-only", before.head, after.head], before.git_root)
+        .split(/\r?\n/)
+        .filter(Boolean);
+      committedStopControl =
+        changed.length > 0 &&
+        changed.every((file) => file === "pm/loop/STOP" || file === "loop/STOP");
+    } catch {
+      committedStopControl = false;
+    }
+  }
+  if (
+    (before.head !== after.head && !committedStopControl) ||
+    normalizeProtectedStatus(before.protected_status) !==
+      normalizeProtectedStatus(after.protected_status)
+  ) {
     return false;
+  }
   const sameRepository =
     sourceGitRoot && path.resolve(before.git_root) === path.resolve(sourceGitRoot);
   const allowed = new Set(
@@ -458,7 +774,10 @@ function protectedPmStateUnchanged(before, after, sourceBranch = "", sourceGitRo
   const left = parseRefSnapshot(before.refs);
   const right = parseRefSnapshot(after.refs);
   for (const ref of new Set([...left.keys(), ...right.keys()])) {
-    if (!allowed.has(ref) && left.get(ref) !== right.get(ref)) return false;
+    if (allowed.has(ref) || left.get(ref) === right.get(ref)) continue;
+    const isStopControlRefMove =
+      committedStopControl && left.get(ref) === before.head && right.get(ref) === after.head;
+    if (!isStopControlRefMove) return false;
   }
   return true;
 }
@@ -633,6 +952,7 @@ function finalizeStageOutcome(input) {
     dispatchAt: input.dispatchRecord.event && input.dispatchRecord.event.dispatched_at,
     prDispatchAt: plan.selected.prDispatchAt || "",
     verifiedArtifact: artifactVerification && artifactVerification.artifact,
+    noProgress: input.noProgress || null,
   });
   if (!mapped.ok) {
     return { ok: false, status: "failed-contract", reason: mapped.reason };
@@ -641,7 +961,7 @@ function finalizeStageOutcome(input) {
     maxAttempts: config.claim_envelope.cas_attempts,
     timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
   };
-  const terminalEvent = { ...mapped.event, process };
+  const terminalEvent = { ...mapped.event, ...(process ? { process } : {}) };
   const checkpoint = (options.checkpointRecovery || checkpointRecovery)(
     paths.pmDir,
     {
@@ -710,15 +1030,51 @@ function runWorker(projectDir, options = {}) {
   if (isStopped(paths.pmDir)) {
     return { status: "stopped", reason: `kill switch present: ${killSwitchPath(paths.pmDir)}` };
   }
+  if (!options.dryRun) {
+    try {
+      const upstreamStopped = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+        isStopped(snapshot.pmDir)
+      );
+      if (upstreamStopped) {
+        return {
+          status: "stopped",
+          reason: "kill switch present on the authoritative PM upstream",
+        };
+      }
+    } catch (error) {
+      return {
+        status: "stopped",
+        reason: `authoritative STOP state could not be verified: ${String(error.message || error).slice(0, 2000)}`,
+      };
+    }
+  }
+  if (options.scheduled === true) {
+    try {
+      config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+        loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir)
+      );
+      const releaseGate = options.releaseGateProbe
+        ? options.releaseGateProbe(paths.pmStateDir, config)
+        : require("./loop-canary.js").evaluateCurrentCanaryReleaseGate(paths.pmStateDir, config);
+      if (!releaseGate.passed) {
+        return {
+          status: "canary-required",
+          reason: `scheduled wake refused: ${releaseGate.reason}`,
+          release_gate: releaseGate,
+        };
+      }
+    } catch (error) {
+      return {
+        status: "canary-required",
+        reason: `scheduled wake could not verify canary evidence: ${String(error.message || error).slice(0, 2000)}`,
+      };
+    }
+  }
 
   const runsDir = runsDirFor(paths);
-  const runsToday = countRunsToday(runsDir, now);
-  const maxRuns = Number(config.budgets && config.budgets.max_runs_per_day) || 12;
-  if (runsToday >= maxRuns) {
-    return { status: "budget-exhausted", runs_today: runsToday, max_runs_per_day: maxRuns };
-  }
-  const shipCyclesToday = countRunsToday(runsDir, now, { stage: "ship" });
-  const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
+  const ledgers = (options.readLedgers || readLedgers)(runsDir);
+  const runsToday = countRunsInLedgers(ledgers, now);
+  const shipCyclesToday = countRunsInLedgers(ledgers, now, { stage: "ship" });
 
   const quarantineCheck = (_card, meta) => activeQuarantineForPlan(paths.pmStateDir, meta, now);
   const preview = runLoop(projectDir, {
@@ -726,6 +1082,7 @@ function runWorker(projectDir, options = {}) {
     config,
     now,
     mode,
+    cardId: options.cardId || "",
     dryRun: true,
     quarantineCheck,
   });
@@ -751,6 +1108,7 @@ function runWorker(projectDir, options = {}) {
           cardId: recovery.card_id,
           stage: recovery.stage,
           event: terminalEvent,
+          requireStopAbsent: true,
           allowedArtifactPaths: (recovery.transition?.artifact_writes || []).map(
             (artifact) => artifact.relative_path
           ),
@@ -775,10 +1133,27 @@ function runWorker(projectDir, options = {}) {
 
   if (!preview.selected) return preview;
 
+  const maxIdenticalNoProgress =
+    Number(config.budgets && config.budgets.max_identical_no_progress) || 1;
+  let priorNoProgress = null;
   try {
-    config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
-      loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir)
-    );
+    const trusted = withRemoteSnapshot(paths.pmDir, (snapshot) => {
+      const trustedConfig = loadTrustedLoopConfig(snapshot.pmDir, paths.pmStateDir);
+      return {
+        config: trustedConfig,
+        stopped: isStopped(snapshot.pmDir),
+        priorNoProgress: findNoProgressSuppressionInSnapshot(
+          snapshot.pmDir,
+          preview,
+          Number(trustedConfig.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
+        ),
+      };
+    });
+    config = trusted.config;
+    if (trusted.stopped) {
+      return { status: "stopped", reason: "kill switch present on the authoritative PM upstream" };
+    }
+    priorNoProgress = trusted.priorNoProgress;
   } catch (err) {
     const blocked = {
       blocker_code: "execution-config-unapproved",
@@ -796,6 +1171,11 @@ function runWorker(projectDir, options = {}) {
 
   const previewStage = preview.selected.stage || "dev";
   const previewShipStage = previewStage === "ship" || previewStage === "review";
+  const maxRuns = Number(config.budgets && config.budgets.max_runs_per_day) || 12;
+  if (!previewShipStage && runsToday >= maxRuns) {
+    return { status: "budget-exhausted", runs_today: runsToday, max_runs_per_day: maxRuns };
+  }
+  const maxShipCycles = Number(config.budgets && config.budgets.max_ship_cycles_per_day) || 24;
   if (previewShipStage && shipCyclesToday >= maxShipCycles) {
     return {
       ...preview,
@@ -804,15 +1184,14 @@ function runWorker(projectDir, options = {}) {
     };
   }
   const maxAttempts = Number(config.budgets && config.budgets.max_attempts_per_stage) || 3;
-  const attempts = countCardAttempts(runsDir, preview.selected.id, previewStage);
-  if (attempts >= maxAttempts) {
+  const attempts = countCardAttemptsInLedgers(ledgers, preview.selected.id, previewStage);
+  if (attempts >= maxAttempts && !priorNoProgress) {
     return {
       ...preview,
       status: "attempts-exhausted",
       reason: `card ${preview.selected.id} failed ${attempts}x at stage ${previewStage} (max_attempts_per_stage ${maxAttempts}); needs a human look`,
     };
   }
-
   const preflight = runPreflight(projectDir, preview, config, {
     pmDir: paths.pmDir,
     pmStateDir: paths.pmStateDir,
@@ -838,6 +1217,7 @@ function runWorker(projectDir, options = {}) {
     config,
     now,
     mode,
+    cardId: options.cardId || "",
     dryRun: false,
     claimOnly: true,
     holder: options.holder || os.hostname(),
@@ -872,16 +1252,21 @@ function runWorker(projectDir, options = {}) {
     stage,
     started_at: now.toISOString(),
     log_dir: logDir,
+    usage_available: false,
   };
 
   // Every claimed dispatch gets a ledger — including early rejections — so
   // budgets and the attempts backstop always advance and nothing can livelock
   // the wake cycle for free.
-  const bail = (status, reason) => {
+  const bail = (status, reason, includeNoProgress = true) => {
+    const evidence = includeNoProgress
+      ? noProgressEvidence(plan, { status, summary: reason })
+      : null;
     const release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
       reason: status,
+      noProgress: evidence,
     });
     const durableStatus = release.released ? status : "finalization-blocked";
     const durableReason = release.released
@@ -893,6 +1278,7 @@ function runWorker(projectDir, options = {}) {
       reason: durableReason,
       ended_at: new Date().toISOString(),
       lease_release: release,
+      ...(evidence ? { no_progress: evidence } : {}),
     });
     return {
       ...plan,
@@ -913,6 +1299,78 @@ function runWorker(projectDir, options = {}) {
   const projectGitRoot = findGitRoot(projectDir);
   if (!projectGitRoot) {
     return bail("failed", "project is not a git repository");
+  }
+  try {
+    if (typeof options.afterClaim === "function") options.afterClaim(plan);
+    priorNoProgress = (options.findNoProgressSuppression || findNoProgressSuppression)(
+      paths.pmDir,
+      plan,
+      Number(config.budgets?.max_identical_no_progress) || maxIdenticalNoProgress
+    );
+  } catch (error) {
+    return bail(
+      "no-progress-check-failed",
+      `post-claim no-progress check failed: ${String(error.message || error).slice(0, 2000)}`,
+      false
+    );
+  }
+  if (priorNoProgress) {
+    writeJsonAtomic(ledgerPath, ledger);
+    const suppressionRecord = (options.markRunSuppressed || markRunSuppressed)(
+      paths.pmDir,
+      { runId, cardId: plan.lease.card_id, stage: plan.lease.stage },
+      {
+        maxAttempts: config.claim_envelope.cas_attempts,
+        timeoutMs: Number(config.claim_envelope.pm_finalization_seconds) * 1000,
+      }
+    );
+    ledger.suppression_record = suppressionRecord;
+    if (!suppressionRecord.ok) {
+      return bail(
+        "suppression-checkpoint-failed",
+        suppressionRecord.reason || "failed to durably record no-progress suppression"
+      );
+    }
+    const evidence = noProgressEvidence(plan, null, priorNoProgress);
+    const stageResult = buildNoProgressResult({
+      runId,
+      cardId: plan.selected.id,
+      stage,
+      noProgress: evidence,
+    });
+    const finalized = finalizeStageOutcome({
+      paths,
+      plan,
+      config,
+      result: stageResult,
+      resultHash: resultHashFor(stageResult),
+      artifactVerification: { ok: true },
+      process: null,
+      options,
+      now,
+      dispatchRecord: suppressionRecord,
+      noProgress: evidence,
+    });
+    ledger.no_progress = evidence;
+    ledger.finalization = compactFinalization(finalized);
+    ledger.status = finalized.status;
+    ledger.reason = finalized.reason || undefined;
+    ledger.ended_at = new Date().toISOString();
+    Object.assign(ledger, usageEvidence(stageResult));
+    writeJsonAtomic(ledgerPath, ledger);
+    return {
+      status: finalized.status,
+      reason: finalized.reason || undefined,
+      run_id: runId,
+      card: plan.selected,
+      exit_code: null,
+      workspace: null,
+      branch: null,
+      ledger: ledgerPath,
+      log_dir: logDir,
+      result_dir: null,
+      fingerprint: plan.fingerprint,
+    };
   }
   try {
     const capability = createRunResultCapability(paths.pmStateDir, runId);
@@ -937,11 +1395,14 @@ function runWorker(projectDir, options = {}) {
   if (!workspace.ok) {
     status = "bootstrap-failed";
     reason = workspace.reason;
+    const failureNoProgress = noProgressEvidence(plan, { status, summary: reason });
+    ledger.no_progress = failureNoProgress;
     release = releaseLease(paths.pmDir, plan.lease, {
       ...options,
       config,
       reason: status,
       eventStatus: status,
+      noProgress: failureNoProgress,
     });
     if (!release.released) {
       status = "finalization-blocked";
@@ -987,7 +1448,6 @@ function runWorker(projectDir, options = {}) {
       ledger.workspace = { path: workspace.workspacePath, branch: workspace.branch };
       writeJsonAtomic(ledgerPath, ledger);
 
-      const runEngine = options.spawnSync || spawnSync;
       const snapshotPm = options.snapshotProtectedPmState || snapshotProtectedPmState;
       let protectedBefore;
       let protectedBeforeError = "";
@@ -996,33 +1456,66 @@ function runWorker(projectDir, options = {}) {
       } catch (err) {
         protectedBeforeError = String(err.message || err).slice(0, 2000);
       }
-      const spawned = protectedBeforeError
-        ? {
-            status: null,
-            signal: null,
-            stdout: "",
-            stderr: "",
-            error: { code: "EPROTECTEDSNAPSHOT", message: protectedBeforeError },
-          }
-        : runEngine(command.bin, command.args, {
-            cwd: workspace.workspacePath,
-            input: command.input,
-            encoding: "utf8",
-            timeout: timeoutMs,
-            maxBuffer: ENGINE_MAX_BUFFER,
-            env: {
-              ...process.env,
-              PM_LOOP_WORKER: "1",
-              PM_LOOP_STAGE: plan.selected.stage || "dev",
-              PM_LOOP_CARD_ID: plan.selected.id,
-              PM_LOOP_RUN_ID: runId,
-              PM_LOOP_RESULT_DIR: resultDir,
-              PM_LOOP_RESULT_FILE: resultFile,
-              PM_LOOP_LOG_DIR: logDir,
-            },
-          });
-      fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
-      fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
+      let remoteStop = null;
+      let remoteStopError = "";
+      try {
+        const prepareStopMonitor = options.prepareRemoteStopMonitor || prepareRemoteStopMonitor;
+        remoteStop = prepareStopMonitor(paths.pmDir, paths.pmStateDir, runId, config);
+        if (!remoteStop) remoteStopError = "remote STOP monitor is unavailable";
+      } catch (error) {
+        remoteStopError = String(error.message || error).slice(0, 2000);
+      }
+      ledger.stop_control = {
+        local_path: killSwitchPath(paths.pmDir),
+        remote_available: Boolean(remoteStop),
+        remote_error: remoteStopError,
+      };
+      const spawned =
+        protectedBeforeError || remoteStopError
+          ? {
+              status: null,
+              signal: null,
+              stdout: "",
+              stderr: "",
+              error: {
+                code: protectedBeforeError ? "EPROTECTEDSNAPSHOT" : "EREMOTESTOPCONTROL",
+                message: protectedBeforeError || remoteStopError,
+              },
+            }
+          : (() => {
+              const engineOptions = {
+                cwd: workspace.workspacePath,
+                input: command.input,
+                encoding: "utf8",
+                timeout: timeoutMs,
+                timeoutMs,
+                graceMs: Number(config.claim_envelope.shutdown_grace_seconds) * 1000,
+                pollMs: 250,
+                stopPath: killSwitchPath(paths.pmDir),
+                remoteStop,
+                maxBuffer: ENGINE_MAX_BUFFER,
+                stdoutPath: path.join(logDir, "stdout.log"),
+                stderrPath: path.join(logDir, "stderr.log"),
+                env: {
+                  ...process.env,
+                  PM_LOOP_WORKER: "1",
+                  PM_LOOP_STAGE: plan.selected.stage || "dev",
+                  PM_LOOP_CARD_ID: plan.selected.id,
+                  PM_LOOP_RUN_ID: runId,
+                  PM_LOOP_RESULT_DIR: resultDir,
+                  PM_LOOP_RESULT_FILE: resultFile,
+                  PM_LOOP_LOG_DIR: logDir,
+                },
+              };
+              return typeof options.spawnSync === "function"
+                ? options.spawnSync(command.bin, command.args, engineOptions)
+                : runEngineInterruptibleSync(command.bin, command.args, engineOptions);
+            })();
+      if (remoteStop?.gitDir) fs.rmSync(remoteStop.gitDir, { recursive: true, force: true });
+      if (!spawned.logs_written) {
+        fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });
+        fs.writeFileSync(path.join(logDir, "stderr.log"), spawned.stderr || "", { mode: 0o600 });
+      }
       processInfo = processEvidence(spawned, timeoutMs);
       exitCode = processInfo.exit_code;
       ledger.process = processInfo;
@@ -1043,7 +1536,8 @@ function runWorker(projectDir, options = {}) {
           protectedBefore,
           protectedAfter,
           workspace.branch,
-          projectGitRoot
+          projectGitRoot,
+          { allowStopControl: processInfo.stopped }
         );
       const protectedPmVerification = {
         ok: !protectedBeforeError && !protectedAfterError && !protectedPmChanged,
@@ -1074,6 +1568,14 @@ function runWorker(projectDir, options = {}) {
             "engine execution changed PM refs or protected PM path status"
         );
         resultHash = resultHashFor(stageResult);
+      } else if (processInfo.stopped) {
+        stageResult = buildStoppedResult({
+          runId,
+          cardId: plan.selected.id,
+          stage,
+          summary: "STOP interrupted the active engine process.",
+        });
+        resultHash = resultHashFor(stageResult);
       } else if (!read.ok) {
         const processDescription = processInfo.timed_out
           ? "engine timed out"
@@ -1099,6 +1601,7 @@ function runWorker(projectDir, options = {}) {
         stageResult = read.result;
         resultHash = `sha256:${read.sha256}`;
       }
+      Object.assign(ledger, usageEvidence(read.ok ? read.result : stageResult));
 
       let artifactVerification = { ok: true };
       if (stageResult.status !== "failed-contract") {
@@ -1122,6 +1625,9 @@ function runWorker(projectDir, options = {}) {
         }
       }
 
+      const currentNoProgress = ["failed", "noop"].includes(stageResult.status)
+        ? noProgressEvidence(plan, stageResult)
+        : null;
       let finalized = finalizeStageOutcome({
         paths,
         plan,
@@ -1133,6 +1639,7 @@ function runWorker(projectDir, options = {}) {
         options,
         now,
         dispatchRecord,
+        noProgress: currentNoProgress,
       });
       if (!finalized.ok && finalized.status === "failed-contract") {
         stageResult = contractFailure(plan, "transition-invalid", finalized.reason);
@@ -1148,6 +1655,7 @@ function runWorker(projectDir, options = {}) {
           options,
           now,
           dispatchRecord,
+          noProgress: null,
         });
       }
       ledger.finalization = compactFinalization(finalized);
@@ -1190,6 +1698,7 @@ function runWorker(projectDir, options = {}) {
     ledger: ledgerPath,
     log_dir: logDir,
     result_dir: resultDir,
+    fingerprint: plan.fingerprint,
   };
 }
 
@@ -1204,6 +1713,9 @@ function parseArgs(argv) {
     skipPull: false,
     skipPush: false,
     allowUnsynced: false,
+    cardId: "",
+    scheduled: false,
+    manual: false,
   };
   const { args, positionals } = parseCliArgs(
     argv,
@@ -1217,10 +1729,20 @@ function parseArgs(argv) {
       "--skip-pull": { key: "skipPull", type: "boolean" },
       "--skip-push": { key: "skipPush", type: "boolean" },
       "--allow-unsynced": { key: "allowUnsynced", type: "boolean" },
+      "--card": { key: "cardId", type: "string" },
+      "--scheduled": { key: "scheduled", type: "boolean" },
+      "--manual": { key: "manual", type: "boolean" },
     },
     defaults
   );
   if (positionals.length > 0) throw new Error(`Unexpected argument: ${positionals[0]}`);
+  if (args.scheduled && args.manual) {
+    throw new Error("--scheduled and --manual are mutually exclusive");
+  }
+  // Legacy scheduler entries did not carry --scheduled. Default every CLI
+  // invocation to scheduler-safe gating and require an explicit marker for a
+  // human-supervised one-off run. Programmatic canary calls bypass this parser.
+  args.scheduled = args.scheduled || !args.manual;
   args.projectDir = path.resolve(args.projectDir);
   if (args.pmDir) args.pmDir = path.resolve(args.pmDir);
   if (args.pmStateDir) args.pmStateDir = path.resolve(args.pmStateDir);
@@ -1244,18 +1766,23 @@ module.exports = {
   buildPrompt,
   isSafeBranchRef,
   countCardAttempts,
+  countCardAttemptsInLedgers,
   countRunsInLedgers,
   countRunsToday,
   engineCommand,
+  findNoProgressSuppression,
+  findNoProgressSuppressionInSnapshot,
   isDispatchableCommand,
   isStopped,
   killSwitchPath,
+  parseArgs,
   prepareWorkspace,
   protectedPmStateUnchanged,
   readLedgers,
   releaseLease,
   runsDirFor,
   runWorker,
+  usageEvidence,
 };
 
 if (require.main === module) {

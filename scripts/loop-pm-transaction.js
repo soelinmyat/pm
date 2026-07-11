@@ -18,8 +18,10 @@ const {
   writeJsonAtomic,
 } = require("./loop-git.js");
 const { pathChainHasSymlink } = require("./worktree-bootstrap.js");
+const { readBoundedRegularFile } = require("./loop-safe-file.js");
 
 const RUN_ID_PATTERN = /^loop-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const MAX_EVIDENCE_JSON_BYTES = 512 * 1024;
 
 class TransactionAbort extends Error {
   constructor(reason, message, details = {}) {
@@ -89,6 +91,52 @@ function readJson(filePath) {
 
 function readJsonIfExists(filePath) {
   return fs.existsSync(filePath) ? readJson(filePath) : null;
+}
+
+function requireRealDirectoryIfExists(dirPath, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(dirPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`${label} must be a real directory, not a symbolic link`);
+  }
+  return true;
+}
+
+function readJsonNoFollow(filePath) {
+  const read = readBoundedRegularFile(filePath, MAX_EVIDENCE_JSON_BYTES, "JSON evidence", {
+    requirePrivate: false,
+  });
+  if (!read.ok) throw new Error(`${read.reason}: ${filePath}`);
+  try {
+    return JSON.parse(read.content.toString("utf8"));
+  } catch (error) {
+    throw new Error(`invalid JSON evidence at ${filePath}: ${error.message}`);
+  }
+}
+
+function readJsonNoFollowIfExists(filePath) {
+  try {
+    fs.lstatSync(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  return readJsonNoFollow(filePath);
+}
+
+function* directoryEntries(dirPath) {
+  const directory = fs.opendirSync(dirPath);
+  try {
+    let entry;
+    while ((entry = directory.readSync()) !== null) yield entry;
+  } finally {
+    directory.closeSync();
+  }
 }
 
 function timeoutValue(timeout) {
@@ -579,17 +627,17 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
         if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
-        if (
-          phase === "dispatched" &&
-          lease.phase === "dispatched" &&
-          event.status === "dispatched"
-        ) {
+        if (lease.phase === phase && event.status === phase) {
           return { lease, event, idempotent: true };
         }
-        if (phase === "dispatched" && (lease.phase !== "claimed" || event.status !== "claimed")) {
+        if (
+          !["dispatched", "suppressed"].includes(phase) ||
+          lease.phase !== "claimed" ||
+          event.status !== "claimed"
+        ) {
           throw new TransactionAbort(
             "phase-conflict",
-            `cannot mark a run dispatched from ${lease.phase || "unknown"}`
+            `cannot mark a run ${phase} from ${lease.phase || "unknown"}`
           );
         }
         updatedLease = { ...lease, phase, [`${phase}_at`]: timestamp };
@@ -614,6 +662,10 @@ function updateRunPhase(pmDir, input, phase, options = {}) {
 
 function markRunDispatched(pmDir, input, options = {}) {
   return updateRunPhase(pmDir, input, "dispatched", options);
+}
+
+function markRunSuppressed(pmDir, input, options = {}) {
+  return updateRunPhase(pmDir, input, "suppressed", options);
 }
 
 function normalizeTransition(transition) {
@@ -699,7 +751,7 @@ function checkpointRecovery(pmDir, input, options = {}) {
         if (!eventMatchesLease(event, lease, runId) || event.terminal === true) {
           throw new TransactionAbort("event-owner-conflict", "claim event is missing or terminal");
         }
-        if (!["dispatched", "finalizing"].includes(lease.phase)) {
+        if (!["dispatched", "suppressed", "finalizing"].includes(lease.phase)) {
           throw new TransactionAbort(
             "dispatch-not-recorded",
             `cannot checkpoint lease in ${lease.phase || "unknown"} phase`
@@ -754,7 +806,12 @@ function checkpointRecovery(pmDir, input, options = {}) {
           recovery = existingRecovery;
           return { recovery: existingRecovery, lease, event, idempotent: true };
         }
-        if (event.status !== "dispatched" || event.phase !== "dispatched" || existingRecovery) {
+        if (
+          event.status !== lease.phase ||
+          event.phase !== lease.phase ||
+          !["dispatched", "suppressed"].includes(lease.phase) ||
+          existingRecovery
+        ) {
           throw new TransactionAbort(
             "recovery-conflict",
             "dispatch state is inconsistent with a new recovery checkpoint"
@@ -851,6 +908,16 @@ function finalizeRun(pmDir, input, options = {}) {
           input.cardId || input.card_id,
           input.stage
         );
+        if (input.requireStopAbsent === true) {
+          const stopRelative = joinRelative(context.pmRelative, "loop", "STOP");
+          assertNoSymlinkPath(context.workspace, stopRelative);
+          if (fs.existsSync(path.join(context.workspace, ...stopRelative.split("/")))) {
+            throw new TransactionAbort(
+              "kill-switch-present",
+              "authoritative STOP appeared before recovery finalization"
+            );
+          }
+        }
         for (const protectedPath of [paths.event, paths.recovery, paths.lease]) {
           assertNoSymlinkPath(context.workspace, protectedPath);
         }
@@ -1018,7 +1085,7 @@ function releaseClaim(pmDir, input, options = {}) {
             "generic release cannot remove a finalizing recovery checkpoint"
           );
         }
-        if (!["claimed", "dispatched"].includes(lease.phase)) {
+        if (!["claimed", "dispatched", "suppressed"].includes(lease.phase)) {
           throw new TransactionAbort(
             "phase-conflict",
             `cannot release a lease in ${lease.phase || "unknown"} phase`
@@ -1031,6 +1098,9 @@ function releaseClaim(pmDir, input, options = {}) {
           terminal: true,
           released_at: releasedAt,
           release_reason: input.reason || "legacy-worker-release",
+          ...(input.noProgress || input.no_progress
+            ? { no_progress: input.noProgress || input.no_progress }
+            : {}),
         });
         fs.rmSync(path.join(context.workspace, ...paths.lease.split("/")));
         return { released: true, lease };
@@ -1084,16 +1154,34 @@ function withRemoteSnapshot(pmDir, callback, options = {}) {
   }
 }
 
-function buildLeaseIndex(pmDir) {
+function buildLeaseIndex(pmDir, options = {}) {
   const leaseDir = path.join(pmDir, "loop", "leases");
   const byRun = new Map();
   const invalid = [];
   const records = [];
-  if (!fs.existsSync(leaseDir)) return { byRun, invalid, records };
-  for (const entry of fs.readdirSync(leaseDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  let scannedEntries = 0;
+  try {
+    if (!requireRealDirectoryIfExists(leaseDir, "lease evidence directory")) {
+      return { byRun, invalid, records, scanned_entries: scannedEntries };
+    }
+  } catch (error) {
+    invalid.push(error.message);
+    return { byRun, invalid, records, scanned_entries: scannedEntries };
+  }
+  for (const entry of directoryEntries(leaseDir)) {
+    scannedEntries += 1;
+    if (scannedEntries > maxEntries) {
+      invalid.push(`lease evidence scan limit exceeded (${maxEntries})`);
+      break;
+    }
+    if (!entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      invalid.push(entry.name);
+      continue;
+    }
     try {
-      const lease = JSON.parse(fs.readFileSync(path.join(leaseDir, entry.name), "utf8"));
+      const lease = readJsonNoFollow(path.join(leaseDir, entry.name));
       records.push({ entry: entry.name, lease });
       if (lease.run_id) {
         const matches = byRun.get(lease.run_id) || [];
@@ -1106,7 +1194,7 @@ function buildLeaseIndex(pmDir) {
       invalid.push(entry.name);
     }
   }
-  return { byRun, invalid, records };
+  return { byRun, invalid, records, scanned_entries: scannedEntries };
 }
 
 function findLeaseByRunId(pmDir, runId, leaseIndex = buildLeaseIndex(pmDir)) {
@@ -1123,8 +1211,10 @@ function inspectSnapshotRunState(pmDir, runId, options = {}) {
   let recovery = null;
   let parseError = "";
   try {
-    if (fs.existsSync(eventPath)) event = JSON.parse(fs.readFileSync(eventPath, "utf8"));
-    if (fs.existsSync(recoveryPath)) recovery = JSON.parse(fs.readFileSync(recoveryPath, "utf8"));
+    requireRealDirectoryIfExists(path.dirname(eventPath), "events evidence directory");
+    requireRealDirectoryIfExists(path.dirname(recoveryPath), "recovery evidence directory");
+    event = readJsonNoFollowIfExists(eventPath);
+    recovery = readJsonNoFollowIfExists(recoveryPath);
   } catch (err) {
     parseError = err.message;
   }
@@ -1224,17 +1314,33 @@ function listRunIds(pmDir, options = {}) {
   );
   const requestedCards = new Set((options.cardIds || []).map(String).filter(Boolean));
   const scoped = requestedRuns.size > 0 || requestedCards.size > 0;
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  let scannedEntries = Number(options.leaseIndex?.scanned_entries || 0);
   for (const runId of requestedRuns) ids.add(runId);
   const relevant = (record, runId) =>
     !scoped || requestedRuns.has(runId) || requestedCards.has(String(record?.card_id || ""));
-  for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
+  evidence: for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
     const dir = path.join(pmDir, "loop", child);
-    if (!fs.existsSync(dir)) continue;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try {
+      if (!requireRealDirectoryIfExists(dir, `${child} evidence directory`)) continue;
+    } catch {
+      ids.add(`ambiguous:${child}-directory`);
+      continue;
+    }
+    for (const entry of directoryEntries(dir)) {
+      scannedEntries += 1;
+      if (scannedEntries > maxEntries) {
+        ids.add(`ambiguous:evidence-scan-limit-${maxEntries}`);
+        break evidence;
+      }
+      if (!entry.name.endsWith(".json")) continue;
       const runId = entry.name.slice(0, -5);
+      if (!entry.isFile() || entry.isSymbolicLink()) {
+        ids.add(RUN_ID_PATTERN.test(runId) ? runId : `ambiguous:${child}:${entry.name}`);
+        continue;
+      }
       try {
-        const record = JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+        const record = readJsonNoFollow(path.join(dir, entry.name));
         if (
           child === "events" &&
           options.includeFinalized !== true &&
@@ -1259,14 +1365,65 @@ function listRunIds(pmDir, options = {}) {
 }
 
 function scanSnapshotTransactions(pmDir, options = {}) {
-  const leaseIndex = buildLeaseIndex(pmDir);
-  const scanOptions = { ...options, leaseIndex };
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  const leaseIndex = buildLeaseIndex(pmDir, { maxEntries });
+  const scanOptions = { ...options, maxEntries, leaseIndex };
   return listRunIds(pmDir, scanOptions).map((runId) => {
     if (!RUN_ID_PATTERN.test(runId)) {
       return { run_id: runId, state: "ambiguous", redispatch: false };
     }
     return inspectSnapshotRunState(pmDir, runId, scanOptions);
   });
+}
+
+function scanSnapshotFinalizedEvents(pmDir, options = {}) {
+  const eventDir = path.join(pmDir, "loop", "events");
+  const leaseDir = path.join(pmDir, "loop", "leases");
+  const recoveryDir = path.join(pmDir, "loop", "recovery");
+  if (!requireRealDirectoryIfExists(eventDir, "events evidence directory")) return [];
+  requireRealDirectoryIfExists(leaseDir, "lease evidence directory");
+  requireRealDirectoryIfExists(recoveryDir, "recovery evidence directory");
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  const leaseIndex = buildLeaseIndex(pmDir, { maxEntries });
+  if (leaseIndex.invalid.length > 0) {
+    throw new Error(`lease evidence is invalid: ${leaseIndex.invalid[0]}`);
+  }
+  const events = [];
+  let scannedEntries = leaseIndex.scanned_entries;
+  for (const entry of directoryEntries(eventDir)) {
+    scannedEntries += 1;
+    if (scannedEntries > maxEntries) {
+      throw new Error(`finalized event scan limit exceeded (${maxEntries})`);
+    }
+    if (!entry.name.endsWith(".json")) continue;
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      throw new Error(`invalid finalized event evidence entry: ${entry.name}`);
+    }
+    const runId = entry.name.slice(0, -5);
+    if (!RUN_ID_PATTERN.test(runId)) {
+      throw new Error(`invalid finalized event run ID: ${entry.name}`);
+    }
+    let event;
+    try {
+      event = readJsonNoFollow(path.join(eventDir, entry.name));
+    } catch (error) {
+      throw new Error(`invalid finalized event evidence ${entry.name}: ${error.message}`);
+    }
+    if (event.run_id !== runId || typeof event.card_id !== "string" || !event.card_id) {
+      throw new Error(`invalid finalized event ownership: ${entry.name}`);
+    }
+    if (event.terminal !== true) continue;
+    if (
+      (options.cardId && event.card_id !== options.cardId) ||
+      (options.stage && event.stage !== options.stage) ||
+      (leaseIndex.byRun.get(runId) || []).length > 0 ||
+      fs.existsSync(path.join(pmDir, "loop", "recovery", `${runId}.json`))
+    ) {
+      continue;
+    }
+    events.push(event);
+  }
+  return events;
 }
 
 function scanRemoteTransactions(pmDir, options = {}) {
@@ -1288,11 +1445,13 @@ module.exports = {
   finalizeRun,
   inspectRemoteRunState,
   markRunDispatched,
+  markRunSuppressed,
   planFinalization,
   releaseClaim,
   runIsolatedTransaction,
   safeRelativePath,
   scanRemoteTransactions,
+  scanSnapshotFinalizedEvents,
   scanSnapshotTransactions,
   withRemoteSnapshot,
 };

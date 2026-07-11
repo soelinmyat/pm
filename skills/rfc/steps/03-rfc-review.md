@@ -210,7 +210,7 @@ Cross-cutting reviewers return compact JSON verdicts. Merge their findings with 
       If yes, run one worker cycle:
 
       ```bash
-      node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD"
+      node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual
       ```
     - **If no:** skip — cards stay `needs_human` on the loop board until
       approved manually or via a later `/pm:loop` session.
