@@ -731,7 +731,10 @@ function createFixtureCanary(projectDir, caseName, config) {
   try {
     const sourceCommit = runGit(["rev-parse", "HEAD"], sourceGitRoot);
     runGit(["init", "--bare", "--initial-branch=main", sourceOrigin], root);
-    runGit(["fetch", sourceGitRoot, `${sourceCommit}:refs/heads/main`], sourceOrigin);
+    runGit(
+      ["-c", "core.hooksPath=/dev/null", "push", sourceOrigin, `${sourceCommit}:refs/heads/main`],
+      sourceGitRoot
+    );
     runGit(["symbolic-ref", "HEAD", "refs/heads/main"], sourceOrigin);
     runGit(["clone", "--no-hardlinks", sourceOrigin, project], root);
     runGit(["remote", "set-url", "origin", sourceOrigin], project);
