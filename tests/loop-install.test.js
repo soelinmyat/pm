@@ -434,6 +434,23 @@ test("stop fails unless STOP is pushed or confirmed on the authoritative remote"
   assert.equal(confirmed.verified_remote, true);
 });
 
+test("local-only STOP state is never reported as remotely verified", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-local-stop-"));
+  const pmDir = path.join(root, "pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  try {
+    assert.throws(() => stopScheduler(pmDir), /not durably pushed/i);
+    assert.equal(fs.existsSync(path.join(pmDir, "loop", "STOP")), true);
+    assert.throws(
+      () => resumeScheduler(pmDir, normalizeLoopConfig({}), { writeError() {} }),
+      /remote state is unknown/i
+    );
+    assert.equal(fs.existsSync(path.join(pmDir, "loop", "STOP")), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("scheduler activation resolves config and release identity from the authoritative snapshot", () => {
   const paths = { pmDir: "/local/pm", pmStateDir: "/local/.pm" };
   const remoteConfig = normalizeLoopConfig({ scheduler_interval_minutes: 60 });

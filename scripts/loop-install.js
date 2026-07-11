@@ -221,6 +221,9 @@ function probeAuthoritativeStop(pmDir, options = {}) {
   if (typeof options.remoteStopProbe === "function") {
     return options.remoteStopProbe(pmDir);
   }
+  const gitRoot = findGitRoot(pmDir);
+  if (!gitRoot) throw new Error("authoritative STOP state requires a Git root");
+  runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], gitRoot);
   return withRemoteSnapshot(pmDir, (snapshot) =>
     fs.existsSync(path.join(snapshot.pmDir, "loop", "STOP"))
   );

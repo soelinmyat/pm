@@ -1030,7 +1030,7 @@ function runWorker(projectDir, options = {}) {
   if (isStopped(paths.pmDir)) {
     return { status: "stopped", reason: `kill switch present: ${killSwitchPath(paths.pmDir)}` };
   }
-  if (!options.dryRun)
+  if (!options.dryRun) {
     try {
       const upstreamStopped = withRemoteSnapshot(paths.pmDir, (snapshot) =>
         isStopped(snapshot.pmDir)
@@ -1047,6 +1047,7 @@ function runWorker(projectDir, options = {}) {
         reason: `authoritative STOP state could not be verified: ${String(error.message || error).slice(0, 2000)}`,
       };
     }
+  }
   if (options.scheduled === true) {
     try {
       config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
