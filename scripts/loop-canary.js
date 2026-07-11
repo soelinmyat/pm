@@ -385,7 +385,6 @@ function readCanaryEvidence(pmStateDir, options = {}) {
   const root = canaryRoot(pmStateDir);
   const records = [];
   const invalid = [];
-  const latest = new Map();
   const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 1000;
   let scannedEntries = 0;
   let invalidCount = 0;
@@ -434,33 +433,14 @@ function readCanaryEvidence(pmStateDir, options = {}) {
         const record = JSON.parse(read.content.toString("utf8"));
         const error = validateEvidenceRecord(record, caseName, { ...options, allowFailed: true });
         if (error) recordInvalid({ file: filePath, reason: error });
-        else {
-          const value = { ...record, evidence_path: filePath };
-          if (options.latestOnly) {
-            const prior = latest.get(caseName);
-            const valueTime = Date.parse(value.ended_at);
-            const priorTime = prior ? Date.parse(prior.ended_at) : Number.NEGATIVE_INFINITY;
-            const priorRecord = prior ? { ...prior } : null;
-            if (priorRecord) delete priorRecord.evidence_path;
-            if (prior && valueTime === priorTime && !stableEqual(record, priorRecord)) {
-              recordInvalid({
-                file: filePath,
-                reason: `conflicting latest canary evidence timestamp for ${caseName}`,
-              });
-            } else if (!prior || valueTime > priorTime) {
-              latest.set(caseName, value);
-            }
-          } else {
-            records.push(value);
-          }
-        }
+        else records.push({ ...record, evidence_path: filePath });
       } catch (error) {
         recordInvalid({ file: filePath, reason: error.message });
       }
     }
   }
   return {
-    records: options.latestOnly ? [...latest.values()] : records,
+    records,
     invalid,
     invalid_count: invalidCount,
   };
@@ -489,7 +469,25 @@ function evaluateCanaryReleaseGate(pmStateDir, expectedIdentity, options = {}) {
     if (candidates.length === 0) {
       return { passed: false, reason: `missing canary evidence for ${caseName}`, cases: selected };
     }
-    const record = candidates[0];
+    const latestTime = Date.parse(candidates[0].ended_at);
+    const latestCandidates = candidates.filter(
+      (candidate) => Date.parse(candidate.ended_at) === latestTime
+    );
+    const canonical = latestCandidates.map((candidate) => {
+      const copy = { ...candidate };
+      delete copy.evidence_path;
+      return copy;
+    });
+    if (canonical.some((candidate) => !stableEqual(candidate, canonical[0]))) {
+      return {
+        passed: false,
+        reason: `conflicting latest canary evidence timestamp for ${caseName}`,
+        cases: selected,
+      };
+    }
+    const record = latestCandidates.sort((left, right) =>
+      String(left.evidence_path).localeCompare(String(right.evidence_path))
+    )[0];
     if (record.passed !== true) {
       return { passed: false, reason: `failed canary evidence for ${caseName}`, cases: selected };
     }
@@ -528,12 +526,18 @@ function evaluateCurrentCanaryReleaseGate(pmStateDir, config, options = {}) {
 
 function directoryInventory(pmDir, child, options = {}) {
   const root = path.join(pmDir, "loop", child);
-  const entries = fs.existsSync(root)
-    ? fs
-        .readdirSync(root, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-        .sort((a, b) => a.name.localeCompare(b.name))
-    : [];
+  const entries = [];
+  const budget = options.budget || { scanned: 0, maxEntries: 10_000 };
+  if (fs.existsSync(root)) {
+    for (const entry of directoryEntries(root)) {
+      budget.scanned += 1;
+      if (budget.scanned > budget.maxEntries) {
+        throw new Error(`canary state inventory scan limit exceeded (${budget.maxEntries})`);
+      }
+      if (entry.isFile() && !entry.isSymbolicLink()) entries.push(entry);
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+  }
   let treeIdentity = entries.map((entry) => entry.name).join("\n");
   const gitRoot = findGitRoot(pmDir);
   if (gitRoot && fs.existsSync(root)) {
@@ -593,6 +597,12 @@ function findCard(pmDir, cardId, relativePath = "") {
 }
 
 function snapshotCanaryState(pmDir, cardId, relativePath = "", options = {}) {
+  const inventoryBudget = {
+    scanned: 0,
+    maxEntries: Number.isSafeInteger(options.maxInventoryEntries)
+      ? options.maxInventoryEntries
+      : 10_000,
+  };
   return withRemoteSnapshot(
     pmDir,
     (snapshot) => ({
@@ -600,9 +610,12 @@ function snapshotCanaryState(pmDir, cardId, relativePath = "", options = {}) {
         snapshot.upstreamOid ||
         (snapshot.gitRoot ? runGit(["rev-parse", "HEAD"], snapshot.workspace) : ""),
       card: findCard(snapshot.pmDir, cardId, relativePath),
-      leases: directoryInventory(snapshot.pmDir, "leases"),
-      recovery: directoryInventory(snapshot.pmDir, "recovery"),
-      events: directoryInventory(snapshot.pmDir, "events", { runId: options.runId || "" }),
+      leases: directoryInventory(snapshot.pmDir, "leases", { budget: inventoryBudget }),
+      recovery: directoryInventory(snapshot.pmDir, "recovery", { budget: inventoryBudget }),
+      events: directoryInventory(snapshot.pmDir, "events", {
+        runId: options.runId || "",
+        budget: inventoryBudget,
+      }),
     }),
     options
   );
@@ -903,6 +916,7 @@ module.exports = {
   canonicalEngineArgv,
   createFixtureCanary,
   currentCanaryIdentity,
+  directoryInventory,
   evaluateCurrentCanaryReleaseGate,
   evaluateCanaryReleaseGate,
   parseArgs,

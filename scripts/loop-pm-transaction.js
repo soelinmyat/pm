@@ -1314,10 +1314,12 @@ function listRunIds(pmDir, options = {}) {
   );
   const requestedCards = new Set((options.cardIds || []).map(String).filter(Boolean));
   const scoped = requestedRuns.size > 0 || requestedCards.size > 0;
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  let scannedEntries = Number(options.leaseIndex?.scanned_entries || 0);
   for (const runId of requestedRuns) ids.add(runId);
   const relevant = (record, runId) =>
     !scoped || requestedRuns.has(runId) || requestedCards.has(String(record?.card_id || ""));
-  for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
+  evidence: for (const child of scoped ? ["recovery"] : ["events", "recovery"]) {
     const dir = path.join(pmDir, "loop", child);
     try {
       if (!requireRealDirectoryIfExists(dir, `${child} evidence directory`)) continue;
@@ -1325,7 +1327,12 @@ function listRunIds(pmDir, options = {}) {
       ids.add(`ambiguous:${child}-directory`);
       continue;
     }
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of directoryEntries(dir)) {
+      scannedEntries += 1;
+      if (scannedEntries > maxEntries) {
+        ids.add(`ambiguous:evidence-scan-limit-${maxEntries}`);
+        break evidence;
+      }
       if (!entry.name.endsWith(".json")) continue;
       const runId = entry.name.slice(0, -5);
       if (!entry.isFile() || entry.isSymbolicLink()) {
@@ -1358,8 +1365,9 @@ function listRunIds(pmDir, options = {}) {
 }
 
 function scanSnapshotTransactions(pmDir, options = {}) {
-  const leaseIndex = buildLeaseIndex(pmDir);
-  const scanOptions = { ...options, leaseIndex };
+  const maxEntries = Number.isSafeInteger(options.maxEntries) ? options.maxEntries : 10_000;
+  const leaseIndex = buildLeaseIndex(pmDir, { maxEntries });
+  const scanOptions = { ...options, maxEntries, leaseIndex };
   return listRunIds(pmDir, scanOptions).map((runId) => {
     if (!RUN_ID_PATTERN.test(runId)) {
       return { run_id: runId, state: "ambiguous", redispatch: false };

@@ -704,6 +704,7 @@ test("countRunsToday counts only same-day ledgers and fails closed on malformed 
 test("ledger budgets fail closed on oversized, symlinked, and entry-flood evidence", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-ledger-bounds-"));
   const external = path.join(dir, "external.json");
+  const now = new Date();
   try {
     fs.writeFileSync(
       external,
@@ -711,10 +712,17 @@ test("ledger budgets fail closed on oversized, symlinked, and entry-flood eviden
     );
     fs.symlinkSync(external, path.join(dir, "linked.json"));
     fs.writeFileSync(path.join(dir, "oversized.json"), "x".repeat(512 * 1024 + 1));
+    fs.writeFileSync(
+      path.join(dir, "forged.json"),
+      JSON.stringify({
+        status: "unreadable",
+        started_at: now.toISOString(),
+        budget_weight: -1000,
+      })
+    );
     fs.writeFileSync(path.join(dir, "extra.txt"), "ignored\n");
-    const now = new Date();
-    assert.equal(countRunsToday(dir, now), 3);
-    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 2);
+    assert.equal(countRunsToday(dir, now), 4);
+    assert.equal(countRunsToday(dir, now, { stage: "ship" }), 3);
     assert.ok(countRunsToday(dir, now, { maxEntries: 1 }) >= Number.MAX_SAFE_INTEGER);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -769,6 +777,38 @@ test("scheduled wakes fail closed when current canary evidence is unavailable", 
 
     const manual = runWorker(fixture.project, { pmDir: fixture.pmDir, dryRun: true });
     assert.equal(manual.status, "dry-run");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("manual dry-run does not require an authoritative PM upstream", () => {
+  const fixture = makeProjectFixture();
+  try {
+    git(["remote", "remove", "origin"], fixture.project);
+    const result = runWorker(fixture.project, { pmDir: fixture.pmDir, dryRun: true });
+    assert.notEqual(result.status, "stopped", JSON.stringify(result));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("engine dispatch fails closed when the remote STOP monitor cannot be prepared", () => {
+  const fixture = makeProjectFixture();
+  try {
+    let spawnCalls = 0;
+    const result = runWorker(fixture.project, {
+      pmDir: fixture.pmDir,
+      prepareRemoteStopMonitor: () => null,
+      spawnSync() {
+        spawnCalls += 1;
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+    assert.equal(spawnCalls, 0);
+    assert.equal(result.status, "failed-contract", JSON.stringify(result));
+    const ledger = JSON.parse(fs.readFileSync(result.ledger, "utf8"));
+    assert.equal(ledger.process.error_code, "EREMOTESTOPCONTROL");
   } finally {
     fixture.cleanup();
   }

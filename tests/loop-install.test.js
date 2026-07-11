@@ -670,6 +670,34 @@ test("equal-timestamp conflicting canary reruns fail closed deterministically", 
   }
 });
 
+test("older equal-timestamp conflicts do not invalidate one unambiguous newer rerun", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-old-tie-"));
+  try {
+    writeCanaryRecord(root, "preflight", "preflight-failure");
+    writeCanaryRecord(root, "blocked", "blocked-result");
+    writeCanaryRecord(root, "verified-old-pass", "verified-pr", {
+      started_at: "2026-07-10T00:58:00.000Z",
+      ended_at: "2026-07-10T00:59:00.000Z",
+    });
+    writeCanaryRecord(root, "verified-old-fail", "verified-pr", {
+      started_at: "2026-07-10T00:58:00.000Z",
+      ended_at: "2026-07-10T00:59:00.000Z",
+      assertions: { ...REQUIRED_ASSERTIONS["verified-pr"], verified_open_pr: false },
+      passed: false,
+    });
+    writeCanaryRecord(root, "verified-new", "verified-pr", {
+      ended_at: "2026-07-10T01:03:00.000Z",
+    });
+    const gate = evaluateCanaryReleaseGate(root, null, {
+      now: new Date("2026-07-10T02:00:00.000Z"),
+      maxAgeSeconds: 7200,
+    });
+    assert.equal(gate.passed, true, JSON.stringify(gate));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("oversized canary evidence fails closed before JSON parsing", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-size-"));
   try {

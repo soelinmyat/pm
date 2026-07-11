@@ -9,6 +9,7 @@ const path = require("node:path");
 const {
   canonicalEngineArgv,
   currentCanaryIdentity,
+  directoryInventory,
   runtimeSourceHash,
   runCanary,
   validateEvidenceRecord,
@@ -248,6 +249,21 @@ test("runtime source identity changes when an optional published template change
   const first = runtimeSourceHash(root);
   fs.writeFileSync(template, "modified template\n");
   assert.notEqual(runtimeSourceHash(root), first);
+});
+
+test("canary state inventories share one bounded entry budget", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-canary-inventory-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "loop", "leases"), { recursive: true });
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  fs.writeFileSync(path.join(root, "loop", "leases", "one.json"), "{}\n");
+  fs.writeFileSync(path.join(root, "loop", "events", "two.json"), "{}\n");
+  const budget = { scanned: 0, maxEntries: 1 };
+  assert.equal(directoryInventory(root, "leases", { budget }).count, 1);
+  assert.throws(
+    () => directoryInventory(root, "events", { budget }),
+    /inventory scan limit exceeded/i
+  );
 });
 
 test("canary fails when engine identity changes during execution", () => {

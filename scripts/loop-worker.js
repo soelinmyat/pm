@@ -72,6 +72,7 @@ const { readBoundedRegularFile } = require("./loop-safe-file.js");
 const ENGINE_MAX_BUFFER = 32 * 1024 * 1024;
 const MAX_LEDGER_BYTES = 512 * 1024;
 const MAX_LEDGER_ENTRIES = 10_000;
+const UNREADABLE_LEDGER = Symbol("unreadable-ledger");
 
 function killSwitchPath(pmDir) {
   return path.join(pmDir, "loop", "STOP");
@@ -118,6 +119,7 @@ function unreadableLedger(weight = 1) {
     status: "unreadable",
     started_at: "9999-12-31T00:00:00Z",
     budget_weight: weight,
+    [UNREADABLE_LEDGER]: true,
   };
 }
 
@@ -156,6 +158,8 @@ function readLedgers(runsDir, options = {}) {
           Array.isArray(record) ||
           typeof record.status !== "string" ||
           !record.status ||
+          record.status === "unreadable" ||
+          Object.hasOwn(record, "budget_weight") ||
           typeof record.started_at !== "string" ||
           !Number.isFinite(Date.parse(record.started_at)) ||
           !validStage
@@ -184,10 +188,16 @@ function isShipLedger(record) {
 function countRunsInLedgers(ledgers, now = new Date(), opts = {}) {
   const today = now.toISOString().slice(0, 10);
   return ledgers.reduce((total, record) => {
-    const sameDay =
-      String(record.started_at || "").slice(0, 10) === today || record.status === "unreadable";
+    const unreadable = record[UNREADABLE_LEDGER] === true;
+    const sameDay = String(record.started_at || "").slice(0, 10) === today || unreadable;
     if (!sameDay) return total;
-    if (record.status === "unreadable") return total + (record.budget_weight || 1);
+    if (unreadable) {
+      const weight =
+        Number.isSafeInteger(record.budget_weight) && record.budget_weight > 0
+          ? record.budget_weight
+          : 1;
+      return total + weight;
+    }
     if (opts.stage === "ship") return total + (isShipLedger(record) ? 1 : 0);
     return total + (isShipLedger(record) ? 0 : 1);
   }, 0);
@@ -1020,19 +1030,23 @@ function runWorker(projectDir, options = {}) {
   if (isStopped(paths.pmDir)) {
     return { status: "stopped", reason: `kill switch present: ${killSwitchPath(paths.pmDir)}` };
   }
-  try {
-    const upstreamStopped = withRemoteSnapshot(paths.pmDir, (snapshot) =>
-      isStopped(snapshot.pmDir)
-    );
-    if (upstreamStopped) {
-      return { status: "stopped", reason: "kill switch present on the authoritative PM upstream" };
+  if (!options.dryRun)
+    try {
+      const upstreamStopped = withRemoteSnapshot(paths.pmDir, (snapshot) =>
+        isStopped(snapshot.pmDir)
+      );
+      if (upstreamStopped) {
+        return {
+          status: "stopped",
+          reason: "kill switch present on the authoritative PM upstream",
+        };
+      }
+    } catch (error) {
+      return {
+        status: "stopped",
+        reason: `authoritative STOP state could not be verified: ${String(error.message || error).slice(0, 2000)}`,
+      };
     }
-  } catch (error) {
-    return {
-      status: "stopped",
-      reason: `authoritative STOP state could not be verified: ${String(error.message || error).slice(0, 2000)}`,
-    };
-  }
   if (options.scheduled === true) {
     try {
       config = withRemoteSnapshot(paths.pmDir, (snapshot) =>
@@ -1444,7 +1458,9 @@ function runWorker(projectDir, options = {}) {
       let remoteStop = null;
       let remoteStopError = "";
       try {
-        remoteStop = prepareRemoteStopMonitor(paths.pmDir, paths.pmStateDir, runId, config);
+        const prepareStopMonitor = options.prepareRemoteStopMonitor || prepareRemoteStopMonitor;
+        remoteStop = prepareStopMonitor(paths.pmDir, paths.pmStateDir, runId, config);
+        if (!remoteStop) remoteStopError = "remote STOP monitor is unavailable";
       } catch (error) {
         remoteStopError = String(error.message || error).slice(0, 2000);
       }
@@ -1453,43 +1469,47 @@ function runWorker(projectDir, options = {}) {
         remote_available: Boolean(remoteStop),
         remote_error: remoteStopError,
       };
-      const spawned = protectedBeforeError
-        ? {
-            status: null,
-            signal: null,
-            stdout: "",
-            stderr: "",
-            error: { code: "EPROTECTEDSNAPSHOT", message: protectedBeforeError },
-          }
-        : (() => {
-            const engineOptions = {
-              cwd: workspace.workspacePath,
-              input: command.input,
-              encoding: "utf8",
-              timeout: timeoutMs,
-              timeoutMs,
-              graceMs: Number(config.claim_envelope.shutdown_grace_seconds) * 1000,
-              pollMs: 250,
-              stopPath: killSwitchPath(paths.pmDir),
-              remoteStop,
-              maxBuffer: ENGINE_MAX_BUFFER,
-              stdoutPath: path.join(logDir, "stdout.log"),
-              stderrPath: path.join(logDir, "stderr.log"),
-              env: {
-                ...process.env,
-                PM_LOOP_WORKER: "1",
-                PM_LOOP_STAGE: plan.selected.stage || "dev",
-                PM_LOOP_CARD_ID: plan.selected.id,
-                PM_LOOP_RUN_ID: runId,
-                PM_LOOP_RESULT_DIR: resultDir,
-                PM_LOOP_RESULT_FILE: resultFile,
-                PM_LOOP_LOG_DIR: logDir,
+      const spawned =
+        protectedBeforeError || remoteStopError
+          ? {
+              status: null,
+              signal: null,
+              stdout: "",
+              stderr: "",
+              error: {
+                code: protectedBeforeError ? "EPROTECTEDSNAPSHOT" : "EREMOTESTOPCONTROL",
+                message: protectedBeforeError || remoteStopError,
               },
-            };
-            return typeof options.spawnSync === "function"
-              ? options.spawnSync(command.bin, command.args, engineOptions)
-              : runEngineInterruptibleSync(command.bin, command.args, engineOptions);
-          })();
+            }
+          : (() => {
+              const engineOptions = {
+                cwd: workspace.workspacePath,
+                input: command.input,
+                encoding: "utf8",
+                timeout: timeoutMs,
+                timeoutMs,
+                graceMs: Number(config.claim_envelope.shutdown_grace_seconds) * 1000,
+                pollMs: 250,
+                stopPath: killSwitchPath(paths.pmDir),
+                remoteStop,
+                maxBuffer: ENGINE_MAX_BUFFER,
+                stdoutPath: path.join(logDir, "stdout.log"),
+                stderrPath: path.join(logDir, "stderr.log"),
+                env: {
+                  ...process.env,
+                  PM_LOOP_WORKER: "1",
+                  PM_LOOP_STAGE: plan.selected.stage || "dev",
+                  PM_LOOP_CARD_ID: plan.selected.id,
+                  PM_LOOP_RUN_ID: runId,
+                  PM_LOOP_RESULT_DIR: resultDir,
+                  PM_LOOP_RESULT_FILE: resultFile,
+                  PM_LOOP_LOG_DIR: logDir,
+                },
+              };
+              return typeof options.spawnSync === "function"
+                ? options.spawnSync(command.bin, command.args, engineOptions)
+                : runEngineInterruptibleSync(command.bin, command.args, engineOptions);
+            })();
       if (remoteStop?.gitDir) fs.rmSync(remoteStop.gitDir, { recursive: true, force: true });
       if (!spawned.logs_written) {
         fs.writeFileSync(path.join(logDir, "stdout.log"), spawned.stdout || "", { mode: 0o600 });

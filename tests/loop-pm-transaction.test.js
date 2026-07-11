@@ -78,6 +78,18 @@ test("finalized event scan bounds include lease evidence", (t) => {
   );
 });
 
+test("transaction recovery scans share one bound across leases, events, and recovery", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-transaction-scan-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "loop", "events"), { recursive: true });
+  fs.mkdirSync(path.join(root, "loop", "recovery"), { recursive: true });
+  fs.writeFileSync(path.join(root, "loop", "events", "unexpected.txt"), "one\n");
+  fs.writeFileSync(path.join(root, "loop", "recovery", "unexpected.txt"), "two\n");
+  const states = scanSnapshotTransactions(root, { maxEntries: 1 });
+  assert.ok(states.some((entry) => /evidence-scan-limit/.test(entry.run_id)));
+  assert.ok(states.some((entry) => entry.state === "ambiguous"));
+});
+
 test("scoped transaction scanning retains structurally unowned durable records as ambiguous", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-unowned-scan-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
