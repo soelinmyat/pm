@@ -731,6 +731,7 @@ function createFixtureCanary(projectDir, caseName, config) {
   try {
     const sourceCommit = runGit(["rev-parse", "HEAD"], sourceGitRoot);
     runGit(["init", "--bare", "--initial-branch=main", sourceOrigin], root);
+    runGit(["config", "receive.shallowUpdate", "true"], sourceOrigin);
     runGit(
       ["-c", "core.hooksPath=/dev/null", "push", sourceOrigin, `${sourceCommit}:refs/heads/main`],
       sourceGitRoot
