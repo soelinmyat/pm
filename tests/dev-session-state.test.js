@@ -7,8 +7,14 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
-const Ajv2020 = require("ajv/dist/2020");
-const addFormats = require("ajv-formats");
+let Ajv2020;
+let addFormats;
+try {
+  Ajv2020 = require("ajv/dist/2020");
+  addFormats = require("ajv-formats");
+} catch (error) {
+  if (error.code !== "MODULE_NOT_FOUND") throw error;
+}
 
 const {
   PHASES,
@@ -744,58 +750,62 @@ test("runtime validation matches schema constraints for work units and authority
   }
 });
 
-test("published schema rejects work-unit result states that disagree with runtime state", () => {
-  const repo = makeRepo();
-  try {
-    const schemaPath = path.join(
-      __dirname,
-      "..",
-      "skills",
-      "dev",
-      "references",
-      "dev-session.schema.json"
-    );
-    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-    const ajv = new Ajv2020({ allErrors: true });
-    addFormats(ajv);
-    const validatePublishedSchema = ajv.compile(schema);
-    const session = createSession({ slug: "published-schema", sourceDir: repo.root });
-    session.task.work_units = [
-      {
-        id: "unit-a",
-        title: "Unit A",
-        depends_on: [],
-        owns: ["README.md"],
-        status: "completed",
-        base_commit: repo.head(),
-        assigned_worktree: repo.root,
-        assigned_branch: "main",
-        result: {
-          schema_version: 1,
-          work_unit_id: "unit-a",
+test(
+  "published schema rejects work-unit result states that disagree with runtime state",
+  { skip: !Ajv2020 && "Ajv 2020 dev dependency is not installed in this snapshot" },
+  () => {
+    const repo = makeRepo();
+    try {
+      const schemaPath = path.join(
+        __dirname,
+        "..",
+        "skills",
+        "dev",
+        "references",
+        "dev-session.schema.json"
+      );
+      const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+      const ajv = new Ajv2020({ allErrors: true });
+      addFormats(ajv);
+      const validatePublishedSchema = ajv.compile(schema);
+      const session = createSession({ slug: "published-schema", sourceDir: repo.root });
+      session.task.work_units = [
+        {
+          id: "unit-a",
+          title: "Unit A",
+          depends_on: [],
+          owns: ["README.md"],
           status: "completed",
-          summary: "Complete",
-          commit: repo.head(),
-          files_changed: 1,
-          evidence: [{ kind: "test", exit_code: 0 }],
-          blocker: null,
-          runtime: { provider: "test" },
+          base_commit: repo.head(),
+          assigned_worktree: repo.root,
+          assigned_branch: "main",
+          result: {
+            schema_version: 1,
+            work_unit_id: "unit-a",
+            status: "completed",
+            summary: "Complete",
+            commit: repo.head(),
+            files_changed: 1,
+            evidence: [{ kind: "test", exit_code: 0 }],
+            blocker: null,
+            runtime: { provider: "test" },
+          },
         },
-      },
-    ];
-    assert.equal(
-      validatePublishedSchema(session),
-      true,
-      JSON.stringify(validatePublishedSchema.errors)
-    );
-    session.task.work_units[0].result.status = "failed";
-    assert.equal(validatePublishedSchema(session), false);
-    session.task.work_units[0].status = "running";
-    assert.equal(validatePublishedSchema(session), false);
-  } finally {
-    repo.cleanup();
+      ];
+      assert.equal(
+        validatePublishedSchema(session),
+        true,
+        JSON.stringify(validatePublishedSchema.errors)
+      );
+      session.task.work_units[0].result.status = "failed";
+      assert.equal(validatePublishedSchema(session), false);
+      session.task.work_units[0].status = "running";
+      assert.equal(validatePublishedSchema(session), false);
+    } finally {
+      repo.cleanup();
+    }
   }
-});
+);
 
 test("readSession safely upgrades immediately preceding v2 state", () => {
   const repo = makeRepo();

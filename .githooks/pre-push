@@ -164,21 +164,28 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   fi
 
   if [[ -f "$gate_manifest" ]]; then
-    checker_tmp=$(mktemp "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
-    if ! git show "$local_oid:scripts/dev-gate-check.js" > "$checker_tmp"; then
-      rm -f "$checker_tmp"
-      echo "ERROR: unable to read scripts/dev-gate-check.js from pushed commit $local_oid."
+    checker_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
+    checker_archive="$checker_tmp/scripts.tar"
+    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts; then
+      rm -rf "$checker_tmp"
+      echo "ERROR: unable to archive scripts from pushed commit $local_oid."
       exit 1
     fi
+    if ! tar -xf "$checker_archive" -C "$checker_tmp"; then
+      rm -rf "$checker_tmp"
+      echo "ERROR: unable to extract scripts from pushed commit $local_oid."
+      exit 1
+    fi
+    rm -f "$checker_archive"
     echo "Checking PM dev gates for $branch_name..."
-    if ! node "$checker_tmp" \
+    if ! node "$checker_tmp/scripts/dev-gate-check.js" \
       --manifest "$gate_manifest" \
       --commit "$local_oid" \
       --base origin/main; then
-      rm -f "$checker_tmp"
+      rm -rf "$checker_tmp"
       exit 1
     fi
-    rm -f "$checker_tmp"
+    rm -rf "$checker_tmp"
   elif [[ -n "$changed_pm_runtime_files" ]]; then
     echo "ERROR: PM dev gate manifest not found for branch $branch_name."
     echo "Expected $gate_manifest before pushing PM runtime/source changes."

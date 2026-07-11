@@ -260,8 +260,9 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /git show "\$commit:plugin\.config\.json"/);
   assert.match(text, /commands\/\$\{name\}\.md/);
   assert.match(text, /skills\/\$\{name\}\/SKILL\.md/);
-  assert.match(text, /git show "\$local_oid:scripts\/dev-gate-check\.js" > "\$checker_tmp"/);
-  assert.match(text, /if ! node "\$checker_tmp"/);
+  assert.match(text, /git archive --format=tar --output="\$checker_archive" "\$local_oid" scripts/);
+  assert.match(text, /tar -xf "\$checker_archive" -C "\$checker_tmp"/);
+  assert.match(text, /if ! node "\$checker_tmp\/scripts\/dev-gate-check\.js"/);
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
   assert.doesNotMatch(text, /if ! node --test tests\/\*\.test\.js/);
   assert.match(text, /--base origin\/main/);
@@ -370,7 +371,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("config", "user.name", "Test User").status, 0);
     fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
-    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "plugin.config.json"),
       JSON.stringify({ commands: ["dev"] }, null, 2)
@@ -380,7 +381,11 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       path.join(dir, "skills", "dev", "SKILL.md"),
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
-    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    fs.writeFileSync(
+      path.join(dir, "scripts", "dev-gate-check.js"),
+      'require("./lib/checker-helper");\n'
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(0);\n");
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "base").status, 0);
     assert.equal(git("branch", "-M", "main").status, 0);
@@ -388,7 +393,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
     assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
     fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
-    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(42);\n");
+    fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(42);\n");
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
     const localOid = git("rev-parse", "HEAD").stdout.trim();
