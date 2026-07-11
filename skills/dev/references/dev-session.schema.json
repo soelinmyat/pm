@@ -208,6 +208,58 @@
             "properties": { "status": { "enum": ["completed", "blocked", "failed"] } }
           },
           "then": { "required": ["result"] }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["pending", "running"] } } },
+          "then": { "properties": { "result": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "completed" } } },
+          "then": {
+            "properties": {
+              "result": {
+                "allOf": [
+                  { "$ref": "#/$defs/work_unit_result" },
+                  {
+                    "type": "object",
+                    "properties": { "status": { "const": "completed" } }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "blocked" } } },
+          "then": {
+            "properties": {
+              "result": {
+                "allOf": [
+                  { "$ref": "#/$defs/work_unit_result" },
+                  {
+                    "type": "object",
+                    "properties": { "status": { "const": "blocked" } }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "failed" } } },
+          "then": {
+            "properties": {
+              "result": {
+                "allOf": [
+                  { "$ref": "#/$defs/work_unit_result" },
+                  {
+                    "type": "object",
+                    "properties": { "status": { "const": "failed" } }
+                  }
+                ]
+              }
+            }
+          }
         }
       ]
     },
@@ -270,6 +322,7 @@
             "properties": {
               "commit": { "type": "string", "minLength": 1 },
               "evidence": {
+                "type": "array",
                 "minItems": 1,
                 "contains": {
                   "type": "object",

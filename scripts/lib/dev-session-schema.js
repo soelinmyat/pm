@@ -1285,6 +1285,79 @@ function upgradeCompatibleSession(input) {
       }
     }
   }
+  const units = session.task?.work_units;
+  let resetLegacyUnits = false;
+  if (Array.isArray(units)) {
+    const terminalSession = new Set(["complete", "handoff"]).has(session.status);
+    const timestamp = isIsoDate(session.updated_at)
+      ? session.updated_at
+      : isIsoDate(session.created_at)
+        ? session.created_at
+        : new Date().toISOString();
+    for (const unit of units) {
+      if (!isObject(unit) || unit.status === "pending") continue;
+      const missingLegacyAssignment =
+        typeof unit.assigned_worktree !== "string" ||
+        !unit.assigned_worktree ||
+        typeof unit.assigned_branch !== "string" ||
+        !unit.assigned_branch;
+      if (!missingLegacyAssignment) continue;
+      if (terminalSession) {
+        unit.base_commit ||= session.source?.base_commit;
+        unit.assigned_worktree ||= session.source?.worktree;
+        unit.assigned_branch ||= session.source?.branch;
+        unit.updated_at ||= timestamp;
+        continue;
+      }
+      const priorStatus = unit.status;
+      const commit =
+        isObject(unit.result) && typeof unit.result.commit === "string" ? unit.result.commit : null;
+      unit.transitions = Array.isArray(unit.transitions) ? unit.transitions : [];
+      unit.transitions.push({
+        from: priorStatus,
+        to: "pending",
+        reason: "compatibility upgrade requires reassignment and result revalidation",
+        commit,
+        recorded_at: timestamp,
+      });
+      unit.status = "pending";
+      unit.result = null;
+      unit.updated_at = timestamp;
+      delete unit.base_commit;
+      delete unit.assigned_worktree;
+      delete unit.assigned_branch;
+      resetLegacyUnits = true;
+    }
+  }
+  if (resetLegacyUnits) {
+    session.status = "active";
+    session.phase = "implementation";
+    session.phase_attempt = 1;
+    if (isObject(session.routing)) {
+      const existing = Array.isArray(session.routing.required_phases)
+        ? session.routing.required_phases
+        : [];
+      const implementationIndex = PHASES.indexOf("implementation");
+      session.routing.required_phases = [
+        "implementation",
+        ...existing.filter(
+          (phase, index) =>
+            PHASES.indexOf(phase) > implementationIndex && existing.indexOf(phase) === index
+        ),
+      ];
+      session.routing.reasons = Array.isArray(session.routing.reasons)
+        ? session.routing.reasons
+        : [];
+      session.routing.reasons.push(
+        "Legacy work-unit state was reset for safe reassignment and fresh gate evidence."
+      );
+    }
+    if (isObject(session.evidence)) {
+      for (const phase of ["implementation", "design-critique", "qa", "review", "ship", "retro"]) {
+        delete session.evidence[phase];
+      }
+    }
+  }
   return session;
 }
 

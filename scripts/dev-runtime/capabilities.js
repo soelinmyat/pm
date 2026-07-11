@@ -110,22 +110,21 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
   const attempts = options.lockAttempts ?? 200;
   const waitMs = options.lockWaitMs ?? 25;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const token = crypto.randomBytes(16).toString("hex");
+    const candidatePath = `${lockPath}.candidate-${process.pid}-${token}`;
     try {
-      fs.mkdirSync(lockPath, { mode: 0o700 });
-      try {
-        writeJsonAtomic(
-          path.join(lockPath, "owner.json"),
-          { pid: process.pid, created_at: new Date().toISOString() },
-          { directoryMode: 0o700, fileMode: 0o600 }
-        );
-      } catch (error) {
-        fs.rmSync(lockPath, { recursive: true, force: true });
-        throw error;
-      }
-      const release = () => fs.rmSync(lockPath, { recursive: true, force: true });
+      writeJsonAtomic(
+        candidatePath,
+        { pid: process.pid, token, created_at: new Date().toISOString() },
+        { directoryMode: 0o700, fileMode: 0o600 }
+      );
+      fs.linkSync(candidatePath, lockPath);
+      fs.rmSync(candidatePath, { force: true });
+      const release = () => releaseProbeLock(lockPath, token);
       release.cached = null;
       return release;
     } catch (error) {
+      fs.rmSync(candidatePath, { force: true });
       if (error.code !== "EEXIST") throw error;
       const cached = readCached();
       if (cached) {
@@ -133,8 +132,7 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
         release.cached = cached;
         return release;
       }
-      if (isStaleProbeLock(lockPath, options.initializationGraceMs ?? 100)) {
-        fs.rmSync(lockPath, { recursive: true, force: true });
+      if (reclaimStaleProbeLock(lockPath, options)) {
         continue;
       }
       synchronousWait(waitMs);
@@ -143,25 +141,68 @@ function acquireProbeLock(lockPath, readCached, options = {}) {
   throw new Error(`timed out waiting for capability probe lock: ${lockPath}`);
 }
 
-function isStaleProbeLock(lockPath, initializationGraceMs) {
+function releaseProbeLock(lockPath, token) {
   try {
-    const owner = JSON.parse(fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"));
-    const pid = Number(owner.pid);
-    if (!Number.isInteger(pid) || pid < 1) return true;
+    if (readProbeOwner(lockPath).token === token) fs.rmSync(lockPath, { force: true });
+  } catch {
+    // The lock was already reclaimed or released.
+  }
+}
+
+function reclaimStaleProbeLock(lockPath, options) {
+  const invalidGraceMs = options.invalidLockGraceMs ?? 1000;
+  let observed;
+  try {
+    observed = readProbeOwner(lockPath);
     try {
-      process.kill(pid, 0);
+      process.kill(observed.pid, 0);
       return false;
     } catch (error) {
-      return error.code === "ESRCH";
+      if (error.code !== "ESRCH") return false;
     }
   } catch {
     try {
-      if (initializationGraceMs <= 0) return true;
-      return Date.now() - fs.statSync(lockPath).mtimeMs >= initializationGraceMs;
+      if (Date.now() - fs.statSync(lockPath).mtimeMs < invalidGraceMs) return false;
+      observed = { token: null };
     } catch {
-      return true;
+      return false;
     }
   }
+  options.beforeReclaimRename?.({ lockPath, observed: structuredClone(observed) });
+  const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+  try {
+    fs.renameSync(lockPath, quarantine);
+  } catch {
+    return false;
+  }
+  try {
+    const moved = readProbeOwner(quarantine);
+    if (!observed.token || moved.token !== observed.token) {
+      try {
+        fs.renameSync(quarantine, lockPath);
+      } catch {
+        // A newer owner already restored the fixed lock path.
+      }
+      return false;
+    }
+  } catch {
+    if (observed.token) return false;
+  }
+  fs.rmSync(quarantine, { recursive: true, force: true });
+  return true;
+}
+
+function readProbeOwner(lockPath) {
+  const owner = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+  if (
+    !Number.isInteger(owner.pid) ||
+    owner.pid < 1 ||
+    typeof owner.token !== "string" ||
+    !owner.token
+  ) {
+    throw new Error("invalid capability lock owner");
+  }
+  return owner;
 }
 
 function synchronousWait(ms) {

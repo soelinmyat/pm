@@ -39,7 +39,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Loop Worker Mode (headless)
 
-When `PM_LOOP_WORKER=1`, all TDD, review, QA, and verification gates remain in force. Stop after the reviewed PR is opened; do not merge. Do not write or update backlog/card state because the loop worker is the only canonical durable card-state writer. Atomically write the versioned result to `PM_LOOP_RESULT_FILE` with mode `0600`. Exact terminal statuses are `shipped, blocked, failed, noop`; include bounded artifacts or remediation. Never wait for user input or treat silence as approval.
+When `PM_LOOP_WORKER=1`, `dev-session init` derives headless mode from the environment and rejects a conflicting explicit mode. All TDD, review, QA, and verification gates remain in force. Stop after the reviewed PR is opened; do not merge. Do not write or update backlog/card state because the loop worker is the only canonical durable card-state writer. Atomically write the versioned result to `PM_LOOP_RESULT_FILE` with mode `0600`. Exact terminal statuses are `shipped, blocked, failed, noop`; include bounded artifacts or remediation. Never wait for user input or treat silence as approval.
 
 ## Steps directive
 

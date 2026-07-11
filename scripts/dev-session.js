@@ -273,7 +273,7 @@ function recordCommand(options) {
       let idempotentSession = session;
       let idempotentPath = sessionPath;
       if (["complete", "handoff"].includes(session.status)) {
-        idempotentPath = archiveTerminalRun(sessionPath, session, result);
+        idempotentPath = archiveTerminalRun(sessionPath, session, result, resultPath);
         idempotentSession = readSession(idempotentPath);
       }
       const decision = nextDecision(idempotentSession, idempotentPath);
@@ -297,7 +297,7 @@ function recordCommand(options) {
     }
     let persistedPath = sessionPath;
     if (["complete", "handoff"].includes(updated.status)) {
-      persistedPath = archiveTerminalRun(sessionPath, updated, result);
+      persistedPath = archiveTerminalRun(sessionPath, updated, result, resultPath);
       updated = readSession(persistedPath);
     } else {
       writeSession(sessionPath, updated);
@@ -328,15 +328,27 @@ function clearActiveRunDirectory(sessionPath) {
   }
 }
 
-function archiveTerminalRun(sessionPath, session, result) {
+function archiveTerminalRun(sessionPath, session, result, resultPath) {
   const activeDir = path.dirname(sessionPath);
   const sessionsDir = path.dirname(activeDir);
   const archiveDir = path.join(sessionsDir, "completed", session.slug, session.run_id);
   const persistedPath = path.join(archiveDir, "session.json");
   if (fs.existsSync(archiveDir)) throw new Error(`terminal archive already exists: ${archiveDir}`);
-  const archivedSession = rebaseRunPaths(session, activeDir, archiveDir, session.source.repo_root);
+  const archivedSession = rebaseContractPaths(
+    session,
+    activeDir,
+    archiveDir,
+    session.source.repo_root
+  );
   writeSession(sessionPath, archivedSession);
-  rebaseRunJsonArtifacts(activeDir, archiveDir, session.source.repo_root, sessionPath);
+  rebaseKnownRunJsonArtifacts(
+    activeDir,
+    archiveDir,
+    session.source.repo_root,
+    sessionPath,
+    session,
+    resultPath
+  );
   fs.mkdirSync(path.dirname(archiveDir), { recursive: true, mode: 0o700 });
   fs.renameSync(activeDir, archiveDir);
   fs.rmSync(path.join(archiveDir, path.basename(`${sessionPath}.lock`)), {
@@ -383,48 +395,85 @@ function recoverTerminalRetry(sessionPath, result) {
   return { session_path: archivePath, run_id: result.run_id, result_hash: resultHash };
 }
 
-function rebaseRunJsonArtifacts(activeDir, archiveDir, repoRoot, sessionPath) {
-  const lockPath = `${sessionPath}.lock`;
-  const pending = [activeDir];
-  while (pending.length > 0) {
-    const directory = pending.pop();
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
-      if (entryPath === lockPath || entryPath.startsWith(`${lockPath}${path.sep}`)) continue;
-      if (entry.isDirectory()) {
-        pending.push(entryPath);
-      } else if (entry.isFile() && entryPath !== sessionPath && entry.name.endsWith(".json")) {
-        let parsed;
-        try {
-          parsed = JSON.parse(fs.readFileSync(entryPath, "utf8"));
-        } catch {
-          // Non-contract scratch JSON remains byte-for-byte archived.
-          continue;
-        }
-        writeJsonAtomic(entryPath, rebaseRunPaths(parsed, activeDir, archiveDir, repoRoot));
-      }
+const RUN_PATH_FIELDS = new Set([
+  "artifact",
+  "events_file",
+  "log_file",
+  "output_path",
+  "result_file",
+  "session_path",
+  "stderr_file",
+]);
+
+function rebaseKnownRunJsonArtifacts(
+  activeDir,
+  archiveDir,
+  repoRoot,
+  sessionPath,
+  session,
+  resultPath
+) {
+  const candidates = new Set([
+    path.join(activeDir, "gates.json"),
+    path.join(activeDir, "runtime.json"),
+  ]);
+  collectContractArtifactPaths(session, activeDir, repoRoot, candidates);
+  if (resultPath && isWithin(activeDir, resultPath)) candidates.add(path.resolve(resultPath));
+
+  for (const artifactPath of candidates) {
+    if (artifactPath === sessionPath || path.extname(artifactPath) !== ".json") continue;
+    let source;
+    let parsed;
+    try {
+      source = fs.readFileSync(artifactPath, "utf8");
+      parsed = JSON.parse(source);
+    } catch {
+      continue;
     }
+    const rebased = rebaseContractPaths(parsed, activeDir, archiveDir, repoRoot);
+    if (JSON.stringify(rebased) !== JSON.stringify(parsed)) writeJsonAtomic(artifactPath, rebased);
   }
 }
 
-function rebaseRunPaths(value, fromDir, toDir, repoRoot) {
-  if (Array.isArray(value))
-    return value.map((item) => rebaseRunPaths(item, fromDir, toDir, repoRoot));
+function collectContractArtifactPaths(value, activeDir, repoRoot, candidates, key = null) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectContractArtifactPaths(item, activeDir, repoRoot, candidates, key);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [childKey, item] of Object.entries(value)) {
+      collectContractArtifactPaths(item, activeDir, repoRoot, candidates, childKey);
+    }
+    return;
+  }
+  if (RUN_PATH_FIELDS.has(key) && typeof value === "string") {
+    const absolute = path.isAbsolute(value) ? value : path.resolve(repoRoot || activeDir, value);
+    if (isWithin(activeDir, absolute)) candidates.add(absolute);
+  }
+}
+
+function rebaseContractPaths(value, fromDir, toDir, repoRoot, key = null) {
+  if (Array.isArray(value)) {
+    return value.map((item) => rebaseContractPaths(item, fromDir, toDir, repoRoot, key));
+  }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        rebaseRunPaths(item, fromDir, toDir, repoRoot),
+        rebaseContractPaths(item, fromDir, toDir, repoRoot, key),
       ])
     );
   }
   if (
+    RUN_PATH_FIELDS.has(key) &&
     typeof value === "string" &&
     (value === fromDir || value.startsWith(`${fromDir}${path.sep}`))
   ) {
     return path.join(toDir, path.relative(fromDir, value));
   }
-  if (typeof value === "string" && repoRoot) {
+  if (RUN_PATH_FIELDS.has(key) && typeof value === "string" && repoRoot) {
     const normalized = value.replace(/\\/g, "/");
     const fromRelative = path.relative(repoRoot, fromDir).replace(/\\/g, "/");
     const toRelative = path.relative(repoRoot, toDir).replace(/\\/g, "/");
@@ -433,6 +482,11 @@ function rebaseRunPaths(value, fromDir, toDir, repoRoot) {
     }
   }
   return value;
+}
+
+function isWithin(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function acquireSessionLock(sessionPath) {

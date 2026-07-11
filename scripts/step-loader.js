@@ -174,18 +174,26 @@ function loadWorkflow(command, pmDir, pluginRoot) {
   // Exact filenames still win; phase aliases preserve older documented overrides.
   const overrideTargets = new Map();
   const consumedUserFiles = new Set();
-  for (const [userFilename, userPath] of userFiles) {
-    if (defaultFiles.has(userFilename)) {
-      overrideTargets.set(userFilename, userFilename);
-      consumedUserFiles.add(userFilename);
-      continue;
-    }
+  // Resolve in explicit precedence passes so filesystem enumeration order can
+  // never let a legacy alias replace an exact override.
+  for (const defaultFilename of defaultFiles.keys()) {
+    if (!userFiles.has(defaultFilename)) continue;
+    overrideTargets.set(defaultFilename, defaultFilename);
+    consumedUserFiles.add(defaultFilename);
+  }
+  for (const userFilename of [...userFiles.keys()].sort()) {
+    if (consumedUserFiles.has(userFilename)) continue;
     const aliasedDefault = LEGACY_STEP_ALIASES[command]?.[userFilename];
     if (aliasedDefault && defaultFiles.has(aliasedDefault)) {
-      overrideTargets.set(aliasedDefault, userFilename);
+      if (!overrideTargets.has(aliasedDefault)) {
+        overrideTargets.set(aliasedDefault, userFilename);
+      }
       consumedUserFiles.add(userFilename);
-      continue;
     }
+  }
+  for (const userFilename of [...userFiles.keys()].sort()) {
+    if (consumedUserFiles.has(userFilename)) continue;
+    const userPath = userFiles.get(userFilename);
     const userStep = parseStepFile(userPath, userFilename);
     if (!userStep?.phase) continue;
     const phaseMatches = [...defaultFiles].filter(([defaultFilename, defaultPath]) => {
@@ -193,7 +201,9 @@ function loadWorkflow(command, pmDir, pluginRoot) {
       return defaultStep?.phase === userStep.phase;
     });
     if (phaseMatches.length === 1) {
-      overrideTargets.set(phaseMatches[0][0], userFilename);
+      if (!overrideTargets.has(phaseMatches[0][0])) {
+        overrideTargets.set(phaseMatches[0][0], userFilename);
+      }
       consumedUserFiles.add(userFilename);
     }
   }

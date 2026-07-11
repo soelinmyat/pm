@@ -87,35 +87,96 @@ test("reconcile scan resolves recent merged branches with one retried list query
   assert.equal(calls, 2);
 });
 
-test("reconcile scan checks finite active branches when the merged list is saturated", () => {
+test("reconcile scan expands the consolidated query when the first page budget saturates", () => {
   let calls = 0;
-  const rows = Array.from({ length: 100 }, (_, index) => ({
+  const rows = Array.from({ length: 3 }, (_, index) => ({
     state: "MERGED",
-    headRefName: `feat/listed-${index}`,
+    headRefName: index === 2 ? "feat/missing" : `feat/listed-${index}`,
     mergedAt: "2026-07-12T11:00:00Z",
   }));
   const merged = recentMergedBranches(48, {
     now: Date.parse("2026-07-12T12:00:00Z"),
-    candidateBranches: ["feat/missing"],
+    listLimit: 2,
+    searchResultCap: 8,
     backoffMs: 0,
     sleep: () => {},
     runGh: (args) => {
       calls += 1;
-      if (args[1] === "list") return { code: 0, stdout: JSON.stringify(rows), stderr: "" };
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          state: "MERGED",
-          mergedAt: "2026-07-12T10:00:00Z",
-          number: 999,
-          headRefOid: "abc",
-        }),
-        stderr: "",
-      };
+      assert.equal(args[args.indexOf("--search") + 1], "merged:>=2026-07-10");
+      const limit = Number(args[args.indexOf("--limit") + 1]);
+      return { code: 0, stdout: JSON.stringify(rows.slice(0, limit)), stderr: "" };
     },
   });
   assert.equal(merged.has("feat/missing"), true);
   assert.equal(calls, 2);
+});
+
+test("reconcile scan scopes mature repositories to the requested merge window", () => {
+  let calls = 0;
+  const merged = recentMergedBranches(24, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    listLimit: 2,
+    searchResultCap: 2,
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      calls += 1;
+      assert.equal(args[args.indexOf("--search") + 1], "merged:>=2026-07-11");
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            state: "MERGED",
+            headRefName: "feat/recent-in-mature-repo",
+            mergedAt: "2026-07-12T11:00:00Z",
+          },
+        ]),
+      };
+    },
+  });
+  assert.deepEqual([...merged], ["feat/recent-in-mature-repo"]);
+  assert.equal(calls, 1);
+});
+
+test("reconcile scan verifies finite active candidates at the search result ceiling", () => {
+  let listCalls = 0;
+  let viewCalls = 0;
+  const merged = recentMergedBranches(24, {
+    now: Date.parse("2026-07-12T12:00:00Z"),
+    listLimit: 2,
+    searchResultCap: 2,
+    candidateBranches: ["feat/outside-search-cap"],
+    backoffMs: 0,
+    sleep: () => {},
+    runGh: (args) => {
+      if (args[1] === "list") {
+        listCalls += 1;
+        return {
+          code: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            { state: "MERGED", headRefName: "feat/first", mergedAt: "2026-07-12T11:00:00Z" },
+            { state: "MERGED", headRefName: "feat/second", mergedAt: "2026-07-12T10:00:00Z" },
+          ]),
+        };
+      }
+      viewCalls += 1;
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          state: "MERGED",
+          mergedAt: "2026-07-12T09:00:00Z",
+          number: 42,
+          headRefOid: "abc",
+        }),
+      };
+    },
+  });
+  assert.equal(merged.has("feat/outside-search-cap"), true);
+  assert.equal(listCalls, 1);
+  assert.equal(viewCalls, 1);
 });
 
 function write(root, relative, value) {

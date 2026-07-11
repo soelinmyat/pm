@@ -190,6 +190,10 @@ test("completion moves the durable audit out of the active-session scan path", (
       })
     );
     fs.writeFileSync(path.join(activeDir, "review.log"), "review evidence\n");
+    const semanticJson = `${JSON.stringify({
+      summary: ".pm/dev-sessions/archive-cli/this is prose, not a path field",
+    })}\n`;
+    fs.writeFileSync(path.join(activeDir, "semantic.json"), semanticJson);
     const resultPath = path.join(repo.root, "retro-result.json");
     fs.writeFileSync(
       resultPath,
@@ -221,6 +225,11 @@ test("completion moves the durable audit out of the active-session scan path", (
     assert.ok(fs.existsSync(archived));
     assert.ok(fs.existsSync(path.join(path.dirname(archived), "gates.json")));
     assert.ok(fs.existsSync(path.join(path.dirname(archived), "review.log")));
+    assert.equal(
+      fs.readFileSync(path.join(path.dirname(archived), "semantic.json"), "utf8"),
+      semanticJson,
+      "unregistered JSON artifacts remain byte-for-byte intact"
+    );
     assert.match(
       JSON.parse(fs.readFileSync(path.join(path.dirname(archived), "gates.json"), "utf8")).gates[0]
         .artifact,

@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
+const Ajv2020 = require("ajv/dist/2020");
+const addFormats = require("ajv-formats");
 
 const {
   PHASES,
@@ -742,6 +744,59 @@ test("runtime validation matches schema constraints for work units and authority
   }
 });
 
+test("published schema rejects work-unit result states that disagree with runtime state", () => {
+  const repo = makeRepo();
+  try {
+    const schemaPath = path.join(
+      __dirname,
+      "..",
+      "skills",
+      "dev",
+      "references",
+      "dev-session.schema.json"
+    );
+    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+    const ajv = new Ajv2020({ allErrors: true });
+    addFormats(ajv);
+    const validatePublishedSchema = ajv.compile(schema);
+    const session = createSession({ slug: "published-schema", sourceDir: repo.root });
+    session.task.work_units = [
+      {
+        id: "unit-a",
+        title: "Unit A",
+        depends_on: [],
+        owns: ["README.md"],
+        status: "completed",
+        base_commit: repo.head(),
+        assigned_worktree: repo.root,
+        assigned_branch: "main",
+        result: {
+          schema_version: 1,
+          work_unit_id: "unit-a",
+          status: "completed",
+          summary: "Complete",
+          commit: repo.head(),
+          files_changed: 1,
+          evidence: [{ kind: "test", exit_code: 0 }],
+          blocker: null,
+          runtime: { provider: "test" },
+        },
+      },
+    ];
+    assert.equal(
+      validatePublishedSchema(session),
+      true,
+      JSON.stringify(validatePublishedSchema.errors)
+    );
+    session.task.work_units[0].result.status = "failed";
+    assert.equal(validatePublishedSchema(session), false);
+    session.task.work_units[0].status = "running";
+    assert.equal(validatePublishedSchema(session), false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("readSession safely upgrades immediately preceding v2 state", () => {
   const repo = makeRepo();
   try {
@@ -766,6 +821,119 @@ test("readSession safely upgrades immediately preceding v2 state", () => {
     assert.equal(Object.hasOwn(upgraded.execution, "capabilities"), false);
     assert.equal(Object.hasOwn(upgraded.evidence.implementation, "verified_commit"), false);
     assert.deepEqual(validateSession(upgraded), []);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("readSession resets legacy in-flight work units for safe reassignment", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "compat-work-units", sourceDir: repo.root });
+    session.phase = "review";
+    session.routing.required_phases = ["review", "ship", "retro"];
+    session.evidence.implementation = {
+      commit: repo.head(),
+      records: [{ kind: "test", command: "old", exit_code: 0, artifact: null }],
+      recorded_at: session.updated_at,
+    };
+    session.task.work_units = [
+      {
+        id: "running-unit",
+        title: "Running unit",
+        depends_on: [],
+        owns: ["README.md"],
+        status: "running",
+        base_commit: repo.head(),
+      },
+      {
+        id: "completed-unit",
+        title: "Completed unit",
+        depends_on: [],
+        owns: ["legacy.txt"],
+        status: "completed",
+        base_commit: repo.head(),
+        result: {
+          schema_version: 1,
+          work_unit_id: "completed-unit",
+          status: "completed",
+          summary: "Legacy completion",
+          commit: repo.head(),
+          files_changed: 1,
+          evidence: [{ kind: "test", exit_code: 0 }],
+          blocker: null,
+          runtime: { provider: "legacy" },
+        },
+      },
+    ];
+    const sessionPath = path.join(repo.root, "compat-work-units.json");
+    fs.writeFileSync(sessionPath, JSON.stringify(session));
+
+    const upgraded = readSession(sessionPath);
+    assert.equal(upgraded.phase, "implementation");
+    assert.equal(upgraded.status, "active");
+    assert.deepEqual(upgraded.routing.required_phases, [
+      "implementation",
+      "review",
+      "ship",
+      "retro",
+    ]);
+    assert.equal(Object.hasOwn(upgraded.evidence, "implementation"), false);
+    for (const unit of upgraded.task.work_units) {
+      assert.equal(unit.status, "pending");
+      assert.equal(unit.result, null);
+      assert.equal(Object.hasOwn(unit, "assigned_worktree"), false);
+      assert.equal(unit.transitions.at(-1).to, "pending");
+      assert.match(unit.transitions.at(-1).reason, /compatibility upgrade/);
+    }
+    assert.equal(upgraded.task.work_units[1].transitions.at(-1).commit, repo.head());
+    assert.deepEqual(validateSession(upgraded), []);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("readSession preserves legacy terminal sessions while backfilling assignment metadata", () => {
+  const repo = makeRepo();
+  try {
+    for (const status of ["complete", "handoff"]) {
+      const session = createSession({ slug: `compat-${status}`, sourceDir: repo.root });
+      session.status = status;
+      session.phase = status === "complete" ? "retro" : "ship";
+      session.routing.required_phases = [session.phase];
+      session.task.work_units = [
+        {
+          id: "legacy-terminal",
+          title: "Legacy terminal unit",
+          depends_on: [],
+          owns: ["README.md"],
+          status: "completed",
+          base_commit: repo.head(),
+          result: {
+            schema_version: 1,
+            work_unit_id: "legacy-terminal",
+            status: "completed",
+            summary: "Legacy completion",
+            commit: repo.head(),
+            files_changed: 1,
+            evidence: [{ kind: "test", exit_code: 0 }],
+            blocker: null,
+            runtime: { provider: "legacy" },
+          },
+        },
+      ];
+      const sessionPath = path.join(repo.root, `compat-${status}.json`);
+      fs.writeFileSync(sessionPath, JSON.stringify(session));
+
+      const upgraded = readSession(sessionPath);
+      const unit = upgraded.task.work_units[0];
+      assert.equal(upgraded.status, status);
+      assert.equal(upgraded.phase, session.phase);
+      assert.equal(unit.status, "completed");
+      assert.equal(unit.assigned_worktree, session.source.worktree);
+      assert.equal(unit.assigned_branch, session.source.branch);
+      assert.deepEqual(validateSession(upgraded), []);
+    }
   } finally {
     repo.cleanup();
   }

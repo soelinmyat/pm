@@ -57,19 +57,42 @@ function tsv(records) {
 }
 
 function recentMergedBranches(hours, options = {}) {
-  const result = runGhWithRetry(
-    ["pr", "list", "--state", "merged", "--limit", "100", "--json", "headRefName,mergedAt,state"],
-    options
-  );
-  if (result.code !== 0) throw new Error(result.stderr || "GitHub PR list failed");
-  let rows;
-  try {
-    rows = JSON.parse(result.stdout || "[]");
-  } catch (error) {
-    throw new Error(`GitHub PR list returned invalid JSON: ${error.message}`);
-  }
-  if (!Array.isArray(rows)) throw new Error("GitHub PR list did not return an array");
   const cutoff = (options.now || Date.now()) - hours * 60 * 60 * 1000;
+  const mergedSince = new Date(cutoff).toISOString().slice(0, 10);
+  const searchResultCap = options.searchResultCap || 1000;
+  let limit = Math.min(options.listLimit || 500, searchResultCap);
+  let rows = [];
+  let saturated = false;
+  while (true) {
+    const result = runGhWithRetry(
+      [
+        "pr",
+        "list",
+        "--state",
+        "merged",
+        "--search",
+        `merged:>=${mergedSince}`,
+        "--limit",
+        String(limit),
+        "--json",
+        "headRefName,mergedAt,state",
+      ],
+      options
+    );
+    if (result.code !== 0) throw new Error(result.stderr || "GitHub PR list failed");
+    try {
+      rows = JSON.parse(result.stdout || "[]");
+    } catch (error) {
+      throw new Error(`GitHub PR list returned invalid JSON: ${error.message}`);
+    }
+    if (!Array.isArray(rows)) throw new Error("GitHub PR list did not return an array");
+    if (rows.length < limit) break;
+    if (limit >= searchResultCap) {
+      saturated = true;
+      break;
+    }
+    limit = Math.min(limit * 2, searchResultCap);
+  }
   const merged = new Set(
     rows
       .filter(
@@ -81,7 +104,7 @@ function recentMergedBranches(hours, options = {}) {
       )
       .map((row) => row.headRefName)
   );
-  if (rows.length >= 100) {
+  if (saturated) {
     for (const branch of new Set(options.candidateBranches || [])) {
       if (merged.has(branch)) continue;
       const info = getPrInfo(branch, options);

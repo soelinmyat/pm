@@ -113,13 +113,42 @@ describe("dev runtime capability detection", () => {
     try {
       fs.mkdirSync(lockPath);
       const release = acquireProbeLock(lockPath, () => null, {
-        initializationGraceMs: 0,
+        invalidLockGraceMs: 0,
         lockAttempts: 2,
         lockWaitMs: 0,
       });
-      assert.ok(fs.existsSync(path.join(lockPath, "owner.json")));
+      assert.equal(typeof JSON.parse(fs.readFileSync(lockPath, "utf8")).token, "string");
       release();
       assert.equal(fs.existsSync(lockPath), false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reclaim a valid owner that replaces an observed malformed lock", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capabilities-lock-aba-"));
+    const lockPath = path.join(dir, "probe.lock");
+    const replacement = {
+      pid: process.pid,
+      token: "replacement-owner",
+      created_at: new Date().toISOString(),
+    };
+    try {
+      fs.mkdirSync(lockPath);
+      assert.throws(
+        () =>
+          acquireProbeLock(lockPath, () => null, {
+            invalidLockGraceMs: 0,
+            lockAttempts: 2,
+            lockWaitMs: 0,
+            beforeReclaimRename: () => {
+              fs.rmSync(lockPath, { recursive: true, force: true });
+              fs.writeFileSync(lockPath, JSON.stringify(replacement));
+            },
+          }),
+        /timed out waiting/
+      );
+      assert.deepEqual(JSON.parse(fs.readFileSync(lockPath, "utf8")), replacement);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

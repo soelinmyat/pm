@@ -282,6 +282,32 @@ test("loadWorkflow: a legacy filename overrides the uniquely matching phase", ()
   }
 });
 
+test("loadWorkflow: exact override wins deterministically over a legacy alias", () => {
+  const env = scaffold({
+    defaultSteps: {
+      dev: {
+        "08-review.md": phaseStepFile("Review", 8, "review", "Bundled review."),
+      },
+    },
+    userSteps: {
+      dev: {
+        "07-review.md": stepFile("Legacy review", 7, "Legacy", "Legacy override."),
+        "08-review.md": stepFile("Exact review", 8, "Exact", "Exact override."),
+      },
+    },
+  });
+
+  try {
+    const steps = loadWorkflow("dev", env.pmDir, env.pluginRoot);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].stem, "08-review");
+    assert.ok(steps[0].body.includes("Exact override."));
+    assert.ok(!steps[0].body.includes("Legacy override."));
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("loadWorkflow: resolves @persona references from default personas", () => {
   const env = scaffold({
     defaultSteps: {
