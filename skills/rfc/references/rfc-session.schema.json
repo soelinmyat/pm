@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm.local/schemas/rfc-session-v2.json",
+  "title": "PM RFC Session v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "slug",
+    "status",
+    "phase",
+    "phase_attempt",
+    "created_at",
+    "updated_at",
+    "source",
+    "context",
+    "artifact",
+    "review",
+    "approval",
+    "authority",
+    "authority_log",
+    "execution",
+    "attempts",
+    "blockers",
+    "history",
+    "migration"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "status": {
+      "enum": ["active", "awaiting_approval", "approved", "blocked", "complete"]
+    },
+    "phase": { "enum": ["intake", "generation", "review", "approval", "handoff"] },
+    "phase_attempt": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_root", "worktree", "branch", "base_commit"],
+      "properties": {
+        "repo_root": { "type": "string", "minLength": 1 },
+        "worktree": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "base_commit": { "type": "string", "minLength": 1 }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured",
+        "source_kind",
+        "proposal_path",
+        "linear_id",
+        "size",
+        "acceptance_criteria"
+      ],
+      "properties": {
+        "configured": { "type": "boolean" },
+        "source_kind": { "type": ["string", "null"], "enum": ["proposal", "linear-issue", null] },
+        "proposal_path": { "type": ["string", "null"] },
+        "linear_id": { "type": ["string", "null"] },
+        "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "artifact_hash", "rounds", "verdicts", "reviewed_at"],
+      "properties": {
+        "status": { "enum": ["not_started", "passed"] },
+        "artifact_hash": { "type": ["string", "null"] },
+        "rounds": { "type": "integer", "minimum": 0 },
+        "verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
+        "reviewed_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "approved_by", "approved_at", "artifact_hash"],
+      "properties": {
+        "status": { "enum": ["pending", "approved"] },
+        "approved_by": { "type": ["string", "null"] },
+        "approved_at": { "type": ["string", "null"], "format": "date-time" },
+        "artifact_hash": { "type": ["string", "null"] }
+      }
+    },
+    "authority": { "$ref": "#/$defs/authority" },
+    "authority_log": { "type": "array", "items": { "type": "object" } },
+    "execution": { "type": "object" },
+    "attempts": { "type": "array", "items": { "type": "object" } },
+    "blockers": { "type": "array", "items": { "type": "object" } },
+    "history": { "type": "array", "items": { "type": "object" } },
+    "migration": { "type": ["object", "null"] }
+  },
+  "$defs": {
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["linear_create", "loop_approval", "open_browser", "start_implementation"],
+      "properties": {
+        "linear_create": { "type": "boolean" },
+        "loop_approval": { "type": "boolean" },
+        "open_browser": { "type": "boolean" },
+        "start_implementation": { "type": "boolean" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["html_path", "json_path", "html_hash", "sidecar_hash", "repo_root", "commit"],
+      "properties": {
+        "html_path": { "type": "string", "minLength": 1 },
+        "json_path": { "type": "string", "minLength": 1 },
+        "html_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sidecar_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "repo_root": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command", "exit_code", "artifact"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "command": { "type": ["string", "null"] },
+        "exit_code": { "type": "integer" },
+        "artifact": { "type": ["string", "null"] }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lens", "verdict", "blocking", "advisory"],
+      "properties": {
+        "lens": { "enum": ["architecture-risk", "test-strategy", "maintainability"] },
+        "verdict": { "enum": ["pass", "block"] },
+        "blocking": { "type": "array" },
+        "advisory": { "type": "array" }
+      }
+    },
+    "phase_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "run_id",
+        "phase",
+        "attempt",
+        "status",
+        "summary",
+        "artifact",
+        "evidence",
+        "reviewer_verdicts",
+        "blocker",
+        "runtime"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "run_id": { "type": "string", "minLength": 1 },
+        "phase": { "enum": ["intake", "generation", "review", "handoff"] },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "reviewer_verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
+        "blocker": { "type": ["object", "null"] },
+        "runtime": { "type": "object" }
+      }
+    }
+  }
+}

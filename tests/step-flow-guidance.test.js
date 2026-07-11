@@ -152,3 +152,18 @@ test("dev steps declare Done-when and deterministic transitions", () => {
     }
   }
 });
+
+test("procedural RFC steps retain explicit Done-when and transition contracts", () => {
+  const skillsDir = path.join(PLUGIN_ROOT, "skills");
+  const stepsDir = path.join(skillsDir, "rfc", "steps");
+  const missing = [];
+  for (const file of fs.readdirSync(stepsDir)) {
+    if (!file.endsWith(".md")) continue;
+    const text = fs.readFileSync(path.join(stepsDir, file), "utf8");
+    if (!/^## Goal/m.test(text) || !/^## How/m.test(text) || !/^## Done-when/m.test(text)) {
+      missing.push(`rfc/steps/${file}`);
+    }
+    if (!/\*\*Advance:\*\*/.test(text)) missing.push(`rfc/steps/${file} (advance)`);
+  }
+  assert.deepEqual(missing, []);
+});

@@ -1,255 +1,36 @@
 ---
 name: RFC Review
 order: 3
-description: Senior engineer review of RFC — architecture, test strategy, complexity (M/L/XL)
+description: Run structured architecture, testing, and maintainability review against one artifact hash
+phase: review
+requires:
+  - ../references/review-contract.md
+  - ../references/cross-cutting-reviewers.md
+  - ../../dev/test-layers.md
+result_schema: rfc-phase-result-v1
 ---
 
-## RFC Review (M/L/XL)
+## Goal
 
-**Goal:** Produce an independently reviewed RFC with every blocking architecture, test-strategy, and maintainability finding resolved, then stop at the human approval boundary.
+Produce a technically reviewed RFC with all blocking findings resolved and enter the human awaiting approval (`awaiting_approval`) boundary without writing approval state.
 
-Senior engineers challenge the RFC — architecture decisions, test strategy, and complexity. This is the last human-interactive gate before implementation.
+## How
 
-**Loop worker branch:** If `PM_LOOP_WORKER=1`, review the candidate under `PM_LOOP_RESULT_DIR/artifacts/` with the same reviewers and validation gates. Skip proposal status, backlog `rfc:`, child-card, index, and approval-audit writes. Never self-approve. Atomically write `artifact-ready` or `needs-approval` to `PM_LOOP_RESULT_FILE` with the verified HTML document payload; use `blocked`, `failed`, or `noop` for those exact outcomes.
+1. Read the canonical artifact identity and verify the sidecar/HTML binding before dispatch. Reviewers read the current RFC, proposal, relevant repository instructions, and their single lens contract—not the entire workflow.
+2. Cover the three mandatory lenses from `review-contract.md`: `architecture-risk`, `test-strategy`, and `maintainability`. One capable reviewer may cover all lenses for a cohesive RFC; use independent parallel reviewers when lens isolation reduces correlated misses. For multi-issue RFCs, add only the cross-cutting integration/scope lenses justified by real dependencies.
+3. Require the strict verdict object from every lens. Deduplicate findings by evidence and affected contract. Do not infer `pass` from praise or silence.
+4. Run the **layered artifact gate**: Decision Brief quality and decision-readiness, Execution Contract completeness, appendix separation, and Contract/prose consistency.
+5. Fix blocking findings. Preserve advisory notes with role/lens attribution. Regenerate the sidecar whenever mirrored HTML data changes, recompute the hash, and commit the artifact pair together.
+6. Re-run every affected lens against the new artifact. Maximum two fix/review rounds; unresolved blocking findings produce a structured blocker.
+7. Run the sidecar validator once more. Record the final artifact identity, passing `review` evidence, and all three structured lens verdicts.
+8. The runner advances to approval as `status: awaiting_approval`. Do not update RFC frontmatter to approved, proposal status to planned, Linear, loop cards, or implementation state.
+9. When `PM_LOOP_WORKER=1`, skip proposal/backlog/approval writes, atomically return `needs-approval` with the reviewed document through `PM_LOOP_RESULT_FILE`, and stop. Never self-approve.
 
-### The 3 standard RFC reviewers
+## Done-when
 
-Dispatch these reviewer intents using `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md`. In Claude or Codex-with-delegation, run them in parallel. In Codex without delegation, run the same briefs inline.
+- All required review lenses return `pass` with no blocking findings against the same current artifact hash.
+- The final HTML/sidecar pair validates and any review fixes are committed together.
+- The review result is recorded and the session is `awaiting_approval`.
+- No human-approval or downstream external state has been written.
 
-**Review as @adversarial-engineer:**
-
-```text
-Review this engineering RFC for architecture soundness and risk.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**Review as @tester (BLOCKING — scoped to Test Strategy + Test hooks only):**
-
-```text
-Review this engineering RFC **only** for Test Strategy completeness and per-issue Test hooks validity. Do NOT review architecture, code quality, or complexity — those belong to the other reviewers.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-**Test principles reference:** Read `skills/dev/test-layers.md` before reviewing. This file defines the inside-out TDD order, platform × layer matrix, contract sync gate, and per-layer principles that the Test Strategy section must ground in.
-
-## Your review checklist
-
-### 1. Test Strategy section completeness
-
-The RFC must have a Test Strategy section with five subsections. Check each:
-
-| Subsection | What to verify |
-|---|---|
-| **Test levels in scope** | Names specific layers from the platform × layer matrix in `test-layers.md`. Not vague ("we'll add tests") — names concrete layers (e.g., "unit", "integration", "E2E"). |
-| **New test infrastructure** | Lists any new fixtures, mocks, helpers, or contract sync setup this RFC requires. "None" is valid if justified. |
-| **Regression surface** | Names existing tests or test areas that must not break. Empty is a blocking finding for any M/L/XL RFC. |
-| **Verification commands** | Lists the project's test commands (from AGENTS.md). Must not be empty. |
-| **Open test questions** | Lists unresolved testing questions or explicitly states there are none. |
-
-**Blocking finding** if: any subsection is missing, empty, or contains only vague placeholder text that does not ground in `test-layers.md` principles.
-
-### 2. Per-issue Test hooks
-
-Each issue card in the RFC should have a Test hooks field that traces to specific Test Strategy subsections. Check each issue:
-
-- The Test hooks field exists and is not empty.
-- Each hook references a real subsection from the Test Strategy section (not invented subsection names).
-- Hooks trace to the issue's own Acceptance Criteria — a hook that doesn't connect to any AC in that issue is a blocking finding.
-- Reject hook lists that just copy every subsection name verbatim without specificity (checkbox theater).
-
-**Blocking finding** if: an issue has no Test hooks field, hooks reference nonexistent subsections, or hooks don't trace to the issue's ACs.
-
-### 3. Scope limit
-
-Do NOT raise findings about:
-- Architecture decisions (that's @adversarial-engineer's scope)
-- Code complexity or maintainability (that's @staff-engineer's scope)
-- Implementation approach (unless it directly contradicts test-layers.md principles)
-
-Return your findings as **Blocking** (not Advisory) when Test Strategy subsections are incomplete/vague or when hooks don't trace to real subsections. Advisory items are appropriate only for minor suggestions that don't affect test coverage completeness.
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-**Review as @staff-engineer:**
-
-```text
-Review this engineering RFC for complexity and long-term maintainability.
-
-**RFC to review:** {pm_dir}/backlog/rfcs/{slug}.html
-**Proposal for reference:** {pm_dir}/backlog/{slug}.md
-
-## Project Context
-{PROJECT_CONTEXT}
-```
-
-### Cross-cutting reviewers (multi-task only)
-
-When `task_count > 1`, also dispatch cross-cutting reviewers. Read `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/cross-cutting-reviewers.md` for the prompts. Scale by task count:
-
-| Tasks with code work | Cross-cutting reviewers | Standard reviewers |
-|---|---|---|
-| 1 | None | 3 (adversarial, test, staff) |
-| 2 | 1 combined (architect + integration + scope) | 3 (adversarial, test, staff) |
-| 3+ | 3 parallel (architect, integration, scope) | 3 (adversarial, test, staff) |
-
-Cross-cutting reviewers return compact JSON verdicts. Merge their findings with the standard reviewer findings.
-
-### Handling findings
-
-1. Merge all reviewer outputs. Deduplicate.
-2. Check the layered artifact gate before general findings:
-   - **Decision Brief quality:** verdict-first, <= 400-word target, names recommendation, fit, biggest risk, and decision needed.
-   - **Execution Contract completeness:** scope, non-goals, files, dependencies, AC summary, Test hooks, verification commands, and open implementation questions are present.
-   - **Appendix separation:** evidence, architecture, alternatives, risks, advisory notes, and change log are outside the default read path.
-   - **Contract/prose consistency:** if the Execution Contract conflicts with appendix prose, the contract wins and the prose must be fixed before approval.
-3. Fix all **Blocking issues** in the RFC (orchestrator edits directly).
-4. Collect all **Advisory items** (non-blocking) from every reviewer. Write them into the RFC's **Advisory Notes** section. Each note includes the reviewer role tag (e.g., `@adversarial-engineer`) and the specific advice. Omit the section if no advisory items were raised.
-5. If blocking issues were fixed, re-dispatch reviewers on the updated RFC (max 2 iterations).
-6. **Re-sync the JSON sidecar to the edited HTML, then commit both.** The blocking fixes above edited the HTML, so the sidecar and its `data-sidecar-hash` are now stale. Regenerate `{pm_dir}/backlog/rfcs/{slug}.json` from the edited HTML (its `.issue-detail` cards and `.test-strategy-block` bodies), recompute the sidecar's SHA-256, update `data-sidecar-hash` on the HTML root, then revalidate:
-   ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js \
-     --sidecar {pm_dir}/backlog/rfcs/{slug}.json \
-     --html {pm_dir}/backlog/rfcs/{slug}.html \
-     --slug {slug}
-   ```
-   Commit the RFC HTML and its JSON sidecar together. If nothing was edited (no blocking fixes), the sidecar is already in sync — still run the validator once to confirm before approval.
-7. Keep RFC lifecycle metadata at `status: awaiting-approval`. Review completion is not human approval.
-8. Keep the proposal out of `planned` until the user approves the exact reviewed artifacts.
-9. **Resolve open questions.** Collect all questions from reviewers and any open questions in the RFC's Risks section. For each:
-   - **Answer it** using the proposal (`{pm_dir}/backlog/{slug}.md`), PRD, codebase findings, and research. Most reviewer questions can be answered with context they didn't have access to.
-   - **Record the answer** in the RFC's Resolved Questions section: `Q: {question} → A: {answer}`.
-   - **Escalate only genuine product decisions** that cannot be derived from existing data. Mark as "Decision needed" with a recommended answer.
-   - Update the Change Log section with review iterations, fixes applied, and reviewer verdicts.
-   - Commit the updated RFC.
-10. **Open RFC in browser.**
-
-   The RFC is already HTML (written in RFC Generation). After resolving questions and updating the Change Log, open it directly (portable across macOS/Linux; falls back to printing the path):
-
-   ```bash
-   open {pm_dir}/backlog/rfcs/{slug}.html 2>/dev/null \
-     || xdg-open {pm_dir}/backlog/rfcs/{slug}.html 2>/dev/null \
-     || echo "View: {pm_dir}/backlog/rfcs/{slug}.html"
-   ```
-
-   Present to the user: "RFC reviewed by {N} engineers. [N] blocking issues found and fixed. Opening RFC in browser."
-11. Wait for explicit user approval. If the user does not approve, stop at `awaiting-approval`; never create approval state from review completion or silence.
-
-    After explicit approval, update the RFC lifecycle metadata to `status: approved` and the proposal status to `planned`. Then write `{pm_dir}/backlog/rfcs/{slug}.approval.json` as the canonical approval audit for the exact artifact bytes, following `references/rfc-approval.schema.json`:
-
-    ```json
-    {
-      "schema_version": 1,
-      "slug": "{slug}",
-      "status": "approved",
-      "approved_by": "{human identity}",
-      "approved_at": "{ISO-8601 timestamp}",
-      "html_sha256": "sha256:{hash of final HTML bytes}",
-      "sidecar_sha256": "sha256:{hash of final JSON sidecar bytes}"
-    }
-    ```
-
-    The audit is valid only when both hashes match the files beside it. Commit the final HTML, sidecar, approval audit, and proposal lifecycle update together. Dev readiness treats the HTML metadata as a projection and this human approval audit as authority.
-
-12. **Linear issue creation (after approval).**
-
-    Read `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md` for retry, verification, and rollback patterns. Follow the "Multi-Issue Creation" section for parent + child issue creation. All Linear calls below must follow the retry pattern (3 attempts, log failures, never block workflow).
-
-    If Linear is configured (`{pm_state_dir}/config.json` has `linear: true` or Linear MCP is available) AND `linear_id` is NOT already set in the RFC session state or proposal frontmatter:
-
-    > "Linear is configured. Create Linear issue(s) for this RFC? (y/n)"
-
-    Wait for the user's answer.
-
-    - **If yes:**
-
-      **Single-issue RFC** (`task_count == 1`):
-      - Create a single Linear issue with the RFC title and summary as description.
-      - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
-      - Capture the Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the Linear identifier.
-      - Say: "Linear issue created. ID: {ID}."
-
-      **Multi-issue RFC** (`task_count > 1`):
-      - **Create a parent issue** in Linear with the RFC title and a summary description linking to the backlog entry.
-      - **Sanitize local file links** before sending: convert `[text]({pm_dir}/...)` → `text (\`{pm_dir}/...\`)`. Leave absolute URLs unchanged.
-      - Capture the parent Linear ID. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `linear_id` and `id` to the parent Linear identifier.
-      - **Create child issues** for each RFC issue. Take the issue **list and order** (num, title, size) from the JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when present; the sidecar carries no prose, so pull each child's **description summary from that issue's RFC HTML section**. Fall back to the `## Tasks` table or the `.issue-detail` cards when there is no sidecar. For each child:
-        - Title: the issue title from the RFC
-        - Description: a brief summary from the RFC issue section
-        - Parent: the parent issue ID created above
-        - Create via `save_issue` with `parentId` set to the parent issue ID
-      - Say: "Linear parent + {N} child issues created. Parent ID: {ID}."
-
-      Update the RFC session state with `linear_id`.
-
-    - **If no:**
-      - Skip Linear issue creation. Use local `PM-{NNN}` sequence for the `id` field if not already set.
-      - Say: "Skipping Linear."
-
-    If `linear_id` is ALREADY set (issue originated from Linear or was created during groom), skip this step silently.
-
-13. **Loop handoff (after approval).**
-
-    If the project has a loop config (`pm/loop/config.json` exists):
-
-    a. **Ensure local child cards exist** for multi-issue RFCs: one backlog card
-       per RFC issue with `parent: "{slug}"`, and the parent card's `children:`
-       list set to the RFC implementation order. Read the RFC issue list from the
-       JSON sidecar (`{pm_dir}/backlog/rfcs/{slug}.json` → `issues[]`) when present;
-       fall back to the session `## Tasks` table or the `.issue-detail` cards. If
-       the cards already exist (created during groom), verify the `children:` order
-       matches the RFC and fix drift. The loop dispatches children strictly in this order.
-
-    b. Ask exactly one question:
-
-    > "Approve this work for unattended loop pickup? This records
-    > `implementation_approved: true` with your name and today's date on
-    > {each child card | the card}.{ If `autonomy.merge_pr` is enabled, add:
-    > Loop autonomy is set to merge: each item will be implemented, tested,
-    > and merged to main without further review stops.}"
-
-    - **If yes:** update each child card (or the single card) frontmatter:
-      `implementation_approved: true`, `approved_by: {user}`,
-      `approved_at: {today}`, `updated: {today}`. Then offer an immediate
-      start:
-
-      > "Approved for loop pickup. The next scheduled wake will start
-      > `{first child slug}` — or I can start it now with `/pm:loop work`.
-      > Start now? (y/n)"
-
-      If yes, run one worker cycle:
-
-      ```bash
-      node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-worker.js --project-dir "$PWD" --manual
-      ```
-    - **If no:** skip — cards stay `needs_human` on the loop board until
-      approved manually or via a later `/pm:loop` session.
-
-14. Then ask:
-
-    > "RFC approved. Continue to implementation, or stop and resume later?"
-
-    - **(a) Continue now** → Print "RFC approved. Run `/pm:dev {slug}` to implement." Delete the rfc session file (`{source_dir}/.pm/rfc-sessions/{slug}.md`). **Stop here.**
-    - **(b) Stop and resume later** → Do these in order:
-      1. Update `{pm_dir}/backlog/{slug}.md` frontmatter: set `status: planned`, `updated: {today}`.
-      2. Update `{source_dir}/.pm/rfc-sessions/{slug}.md`:
-         - Set `Stage: approved`
-         - Set `RFC path: {pm_dir}/backlog/rfcs/{slug}.html`
-         - Update `Resume Instructions` → `Next action: RFC already approved. Run /pm:dev {slug} to implement.`
-      3. Print:
-         ```
-         Session paused. RFC approved, ready to build.
-         - RFC: {pm_dir}/backlog/rfcs/{slug}.html
-         - Backlog: {pm_dir}/backlog/{slug}.md (status: planned)
-         - Session: {source_dir}/.pm/rfc-sessions/{slug}.md (stage: approved)
-         - Resume: run /pm:dev {slug} to implement.
-         ```
-      **Stop here. Do not proceed to implementation.**
-
-**Done-when:** All blocking reviewer findings are resolved and the RFC is either explicitly approved by the user outside loop mode or returned as a verified `needs-approval`/`artifact-ready` result in loop mode. Summarize the reviewed artifact and offer `/pm:dev {slug}` only after approval; otherwise state the required human decision.
+**Advance:** proceed to Step 04 (Approval and Handoff) and wait for the explicit human decision.

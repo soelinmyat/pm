@@ -30,6 +30,10 @@ Both `/pm:list` (terminal) and any future dashboard consumer import labels from 
 | `rfc` | `intake` | Intake |
 | `rfc` | `rfc-generation` | RFC generation |
 | `rfc` | `rfc-review` | RFC review |
+| `rfc` | `generation` | RFC generation |
+| `rfc` | `review` | RFC review |
+| `rfc` | `approval` | Awaiting approval |
+| `rfc` | `handoff` | RFC handoff |
 | `rfc` | `approved` | Approved |
 | `dev` | `active` | In progress |
 | `dev` | `intake` | Intake |

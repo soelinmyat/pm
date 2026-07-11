@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model",
+    "status",
+    "review_cannot_approve",
+    "external_authority_separate",
+    "three_lenses_mandatory",
+    "findings"
+  ],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["pass", "fail"] },
+    "review_cannot_approve": { "type": "boolean" },
+    "external_authority_separate": { "type": "boolean" },
+    "three_lenses_mandatory": { "type": "boolean" },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

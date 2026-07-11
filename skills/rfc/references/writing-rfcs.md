@@ -6,8 +6,6 @@ Write engineering RFCs that turn a product proposal into an actionable implement
 
 Assume the implementer is a skilled developer but knows almost nothing about the codebase or problem domain. Document everything: which files to touch, implementation approach per issue, verification commands, and the testing contract. DRY. YAGNI. TDD. Frequent commits.
 
-**Announce at start:** "I'm generating the engineering RFC."
-
 **Context:** This should be run in a dedicated worktree. Read the proposal (`{pm_dir}/backlog/{slug}.md`) for product context. The backlog entry contains full PRD content — user flows, wireframes, competitive context.
 
 **Save RFCs to:** `{pm_dir}/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
@@ -158,7 +156,7 @@ Every RFC is written as **two paired artifacts**:
 - `{pm_dir}/backlog/rfcs/{slug}.html` — the human render. Reviewers and approvers read this.
 - `{pm_dir}/backlog/rfcs/{slug}.json` — the machine-readable JSON sidecar (`schema_version: 2`). Machine consumers (dev intake, groom re-discovery, RFC review child-card creation) read this **first**, so they stop grepping HTML anchors.
 
-The sidecar is a projection of the render, not a second source of truth: it carries the same content as the HTML's `.issue-detail` cards and `.test-strategy-block` bodies. Schema (exactly these fields — no `status`; RFC lifecycle lives in the RFC frontmatter):
+The sidecar is a projection of the render, not a second source of truth: it carries the same content as the HTML's `.issue-detail` cards and `.test-strategy-block` bodies. Schema (exactly these fields — no `status`; lifecycle authority lives in canonical RFC session state and is copied into the human artifact only after explicit approval):
 
 | Field | Content |
 |-------|---------|
@@ -200,8 +198,8 @@ The RFC HTML template (`references/templates/rfc-reference.html`) uses these cla
 
 After writing the complete RFC, the writer should:
 
-1. Commit the RFC to `{pm_dir}/backlog/rfcs/{slug}.html`
-2. Update the proposal's frontmatter to link the RFC
-3. Return the `RFC_COMPLETE` payload and stop
+1. Write the RFC HTML and JSON sidecar in its assigned artifact worktree.
+2. Run the sidecar/hash/slug validator and return the strict generation phase result.
+3. Stop without changing proposal lifecycle, RFC approval state, trackers, loop cards, or implementation state.
 
-The orchestrator then dispatches RFC reviewers, handles findings, and gets user approval. Implementation is a separate `/dev` invocation after RFC approval.
+The root verifies and commits the artifact pair, records generation, dispatches RFC review, and obtains explicit user approval. Implementation is a separate `pm:dev` invocation after approval and requires separate start authority.

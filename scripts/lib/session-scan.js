@@ -180,6 +180,29 @@ function buildDevJsonDescriptor(filePath, stat, text) {
 }
 
 function buildRfcDescriptor(filePath, stat, text) {
+  if (path.basename(filePath) === "session.json") {
+    let session;
+    try {
+      session = JSON.parse(text);
+    } catch {
+      session = null;
+    }
+    if (session?.schema_version === 2 && session.slug) {
+      return {
+        kind: "rfc",
+        filePath,
+        topic: session.slug,
+        stage: session.phase || "active",
+        updated: session.updated_at || "",
+        updatedEpoch: dateToEpoch(session.updated_at) || Math.floor(stat.mtimeMs / 1000),
+        linearId: session.context?.linear_id || "",
+        slug: session.slug,
+        status: session.status,
+        summary: `rfc ${session.status}: ${session.slug} (${session.phase})`,
+        next: `resume rfc (${session.slug})`,
+      };
+    }
+  }
   const baseName = path.basename(filePath, ".md");
   const stage = markdownTableValue(text, "Stage") || bulletValue(text, "Stage") || "active";
   const slug = markdownTableValue(text, "Slug") || baseName;
@@ -279,12 +302,23 @@ function listRfcSessions(paths) {
   const sourceDir = resolveSourceDir(paths);
   const sessionsDir = path.join(sourceDir, ".pm", "rfc-sessions");
 
+  const candidates = collectSessionFiles(sessionsDir);
+  if (fileExists(sessionsDir)) {
+    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const sessionPath = path.join(sessionsDir, entry.name, "session.json");
+      if (fileExists(sessionPath)) candidates.push(sessionPath);
+    }
+  }
+
   const out = [];
-  for (const filePath of collectSessionFiles(sessionsDir)) {
+  for (const filePath of candidates) {
     const stat = safeStat(filePath);
     if (!stat) continue;
     const text = safeRead(filePath);
-    out.push(buildRfcDescriptor(filePath, stat, text));
+    const descriptor = buildRfcDescriptor(filePath, stat, text);
+    if (descriptor.status === "complete") continue;
+    out.push(descriptor);
   }
   return out;
 }

@@ -83,7 +83,17 @@ test("allPhases exposes every documented (kind, phase, label) tuple for lint che
   }
 
   const rfcPhases = new Set(entries.filter((e) => e.kind === "rfc").map((e) => e.phase));
-  for (const required of ["active", "intake", "rfc-generation", "rfc-review", "approved"]) {
+  for (const required of [
+    "active",
+    "intake",
+    "rfc-generation",
+    "rfc-review",
+    "generation",
+    "review",
+    "approval",
+    "handoff",
+    "approved",
+  ]) {
     assert.ok(rfcPhases.has(required), `rfc kind must document phase=${required}`);
   }
 });
