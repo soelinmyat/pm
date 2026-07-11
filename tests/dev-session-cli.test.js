@@ -335,6 +335,214 @@ test("route records strict intake facts and emits the durable decision", () => {
   }
 });
 
+test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "rfc-route-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const factsPath = path.join(repo.root, "facts.json");
+    fs.writeFileSync(
+      factsPath,
+      JSON.stringify({
+        reference: "PM-123",
+        kind: "proposal",
+        size: "L",
+        risk: {},
+        acceptance_criteria: ["AC-1"],
+      })
+    );
+    const sidecarPath = path.join(repo.root, "approved-rfc.json");
+    const issue = (num, depends_on, owns) => ({
+      num,
+      title: `Issue ${num}`,
+      size: "M",
+      depends_on,
+      owns,
+      acceptance_criteria: [`AC-${num}`],
+      approach: `Implement issue ${num}`,
+      verification_commands: ["node --test"],
+      test_hooks: [`AC-${num}`],
+    });
+    fs.writeFileSync(
+      sidecarPath,
+      JSON.stringify({
+        schema_version: 3,
+        slug: "rfc-route-cli",
+        title: "Approved RFC",
+        size: "L",
+        issues: [issue(1, [], ["scripts/shared.js"]), issue(2, [1], ["scripts/consumer.js"])],
+        test_strategy: {
+          test_levels: "Unit and integration",
+          new_infrastructure: "None",
+          regression_surface: "Dev route",
+          verification_commands: "node --test",
+          open_questions: "None",
+        },
+      })
+    );
+    const routed = repo.run([
+      "route",
+      "--session",
+      initialized.session_path,
+      "--facts",
+      factsPath,
+      "--rfc-sidecar",
+      sidecarPath,
+      "--json",
+    ]);
+    assert.equal(routed.status, 0, routed.stderr);
+    assert.deepEqual(JSON.parse(routed.stdout).task.work_units, [
+      {
+        id: "rfc-1",
+        title: "Issue 1",
+        depends_on: [],
+        owns: ["scripts/shared.js"],
+        contract: {
+          acceptance_criteria: ["AC-1"],
+          approach: "Implement issue 1",
+          verification_commands: ["node --test"],
+          test_hooks: ["AC-1"],
+        },
+        status: "pending",
+      },
+      {
+        id: "rfc-2",
+        title: "Issue 2",
+        depends_on: ["rfc-1"],
+        owns: ["scripts/consumer.js"],
+        contract: {
+          acceptance_criteria: ["AC-2"],
+          approach: "Implement issue 2",
+          verification_commands: ["node --test"],
+          test_hooks: ["AC-2"],
+        },
+        status: "pending",
+      },
+    ]);
+    assert.equal(repo.run(["status", "--session", initialized.session_path, "--json"]).status, 0);
+    const cold = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    assert.equal(cold.task.reference, "PM-123");
+    assert.equal(cold.task.rfc_sidecar.path, sidecarPath);
+    assert.match(cold.task.rfc_sidecar.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.deepEqual(cold.task.work_units[1].contract.acceptance_criteria, ["AC-2"]);
+    fs.appendFileSync(sidecarPath, "\n");
+    const drifted = repo.run(["next", "--session", initialized.session_path]);
+    assert.notEqual(drifted.status, 0);
+    assert.match(drifted.stderr, /sidecar identity hash drifted/);
+    const beforeMutation = fs.readFileSync(initialized.session_path, "utf8");
+    const resultPath = path.join(repo.root, "drifted-result.json");
+    fs.writeFileSync(
+      resultPath,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: cold.run_id,
+        phase: "intake",
+        attempt: 1,
+        status: "passed",
+        summary: "Must not persist against drift",
+        commit: null,
+        files_changed: [],
+        evidence: [{ kind: "intake", command: "fixture", exit_code: 0, artifact: null }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+      })
+    );
+    const rejectedMutation = repo.run([
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      resultPath,
+    ]);
+    assert.notEqual(rejectedMutation.status, 0);
+    assert.match(rejectedMutation.stderr, /sidecar identity hash drifted/);
+    assert.equal(fs.readFileSync(initialized.session_path, "utf8"), beforeMutation);
+    const rejectedUnit = repo.run([
+      "work-unit",
+      "--session",
+      initialized.session_path,
+      "--id",
+      "rfc-1",
+      "--status",
+      "running",
+    ]);
+    assert.notEqual(rejectedUnit.status, 0);
+    assert.match(rejectedUnit.stderr, /sidecar identity hash drifted/);
+    assert.equal(fs.readFileSync(initialized.session_path, "utf8"), beforeMutation);
+    const rebound = repo.run([
+      "route",
+      "--session",
+      initialized.session_path,
+      "--facts",
+      factsPath,
+      "--rfc-sidecar",
+      sidecarPath,
+      "--json",
+    ]);
+    assert.equal(rebound.status, 0, rebound.stderr);
+    const reboundSession = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    assert.notEqual(reboundSession.task.rfc_sidecar.sha256, cold.task.rfc_sidecar.sha256);
+    assert.deepEqual(reboundSession.task.work_units[1].contract.acceptance_criteria, ["AC-2"]);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("route rejects an RFC sidecar belonging to another slug", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "expected-rfc", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const factsPath = path.join(repo.root, "facts-mismatch.json");
+    fs.writeFileSync(factsPath, JSON.stringify({ kind: "proposal", size: "M", risk: {} }));
+    const sidecarPath = path.join(repo.root, "other-rfc.json");
+    fs.writeFileSync(
+      sidecarPath,
+      JSON.stringify({
+        schema_version: 3,
+        slug: "other-rfc",
+        title: "Other RFC",
+        size: "M",
+        issues: [
+          {
+            num: 1,
+            title: "Other work",
+            size: "M",
+            depends_on: [],
+            owns: ["README.md"],
+            acceptance_criteria: ["Other AC"],
+            approach: "Do other work",
+            verification_commands: ["node --test"],
+            test_hooks: [],
+          },
+        ],
+        test_strategy: {
+          test_levels: "Unit",
+          new_infrastructure: "None",
+          regression_surface: "Other",
+          verification_commands: "node --test",
+          open_questions: "None",
+        },
+      })
+    );
+    const routed = repo.run([
+      "route",
+      "--session",
+      initialized.session_path,
+      "--facts",
+      factsPath,
+      "--rfc-sidecar",
+      sidecarPath,
+    ]);
+    assert.equal(routed.status, 3);
+    assert.match(routed.stderr, /slug must equal expected-rfc/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("work-unit command owns pending, running, and completed transitions", () => {
   const repo = makeRepo();
   const resultPath = path.join(os.tmpdir(), `pm-work-unit-${process.pid}-${Date.now()}.json`);

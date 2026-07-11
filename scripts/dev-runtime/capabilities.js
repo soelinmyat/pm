@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { writeJsonAtomic } = require("../lib/atomic-file");
+const { acquireOwnedLock } = require("../lib/owned-lock");
 
 function detectCapabilities(provider, { help = "", resumeHelp = "", version = "" } = {}) {
   if (provider === "codex") {
@@ -107,107 +108,14 @@ function readCapabilityCache(cachePath, provider, fingerprint) {
 }
 
 function acquireProbeLock(lockPath, readCached, options = {}) {
-  const attempts = options.lockAttempts ?? 200;
-  const waitMs = options.lockWaitMs ?? 25;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const token = crypto.randomBytes(16).toString("hex");
-    const candidatePath = `${lockPath}.candidate-${process.pid}-${token}`;
-    try {
-      writeJsonAtomic(
-        candidatePath,
-        { pid: process.pid, token, created_at: new Date().toISOString() },
-        { directoryMode: 0o700, fileMode: 0o600 }
-      );
-      fs.linkSync(candidatePath, lockPath);
-      fs.rmSync(candidatePath, { force: true });
-      const release = () => releaseProbeLock(lockPath, token);
-      release.cached = null;
-      return release;
-    } catch (error) {
-      fs.rmSync(candidatePath, { force: true });
-      if (error.code !== "EEXIST") throw error;
-      const cached = readCached();
-      if (cached) {
-        const release = () => {};
-        release.cached = cached;
-        return release;
-      }
-      if (reclaimStaleProbeLock(lockPath, options)) {
-        continue;
-      }
-      synchronousWait(waitMs);
-    }
-  }
-  throw new Error(`timed out waiting for capability probe lock: ${lockPath}`);
-}
-
-function releaseProbeLock(lockPath, token) {
-  try {
-    if (readProbeOwner(lockPath).token === token) fs.rmSync(lockPath, { force: true });
-  } catch {
-    // The lock was already reclaimed or released.
-  }
-}
-
-function reclaimStaleProbeLock(lockPath, options) {
-  const invalidGraceMs = options.invalidLockGraceMs ?? 1000;
-  let observed;
-  try {
-    observed = readProbeOwner(lockPath);
-    try {
-      process.kill(observed.pid, 0);
-      return false;
-    } catch (error) {
-      if (error.code !== "ESRCH") return false;
-    }
-  } catch {
-    try {
-      if (Date.now() - fs.statSync(lockPath).mtimeMs < invalidGraceMs) return false;
-      observed = { token: null };
-    } catch {
-      return false;
-    }
-  }
-  options.beforeReclaimRename?.({ lockPath, observed: structuredClone(observed) });
-  const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
-  try {
-    fs.renameSync(lockPath, quarantine);
-  } catch {
-    return false;
-  }
-  try {
-    const moved = readProbeOwner(quarantine);
-    if (!observed.token || moved.token !== observed.token) {
-      try {
-        fs.renameSync(quarantine, lockPath);
-      } catch {
-        // A newer owner already restored the fixed lock path.
-      }
-      return false;
-    }
-  } catch {
-    if (observed.token) return false;
-  }
-  fs.rmSync(quarantine, { recursive: true, force: true });
-  return true;
-}
-
-function readProbeOwner(lockPath) {
-  const owner = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-  if (
-    !Number.isInteger(owner.pid) ||
-    owner.pid < 1 ||
-    typeof owner.token !== "string" ||
-    !owner.token
-  ) {
-    throw new Error("invalid capability lock owner");
-  }
-  return owner;
-}
-
-function synchronousWait(ms) {
-  if (ms <= 0) return;
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  return acquireOwnedLock(lockPath, {
+    attempts: options.lockAttempts ?? 200,
+    waitMs: options.lockWaitMs ?? 25,
+    invalidGraceMs: options.invalidLockGraceMs ?? 1000,
+    beforeReclaimRename: options.beforeReclaimRename,
+    readCached,
+    timeoutMessage: `timed out waiting for capability probe lock: ${lockPath}`,
+  });
 }
 
 function findExecutable(command, envPath = process.env.PATH || "") {

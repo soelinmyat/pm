@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "codex": "gpt-5.6-sol-high",
+    "claude": "claude-opus-4-8-xhigh",
+    "inline": "inherit"
+  },
+  "profiles": {
+    "gpt-5.6-sol-high": {
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "mode": "workspace-write"
+    },
+    "claude-opus-4-8-xhigh": {
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "effort": "xhigh",
+      "mode": "auto"
+    },
+    "inherit": {
+      "provider": "inline",
+      "model": "inherit",
+      "effort": "inherit",
+      "mode": "inherit"
+    }
+  }
+}

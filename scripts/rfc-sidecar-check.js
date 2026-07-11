@@ -5,14 +5,28 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { issue, requireValue, printResult } = require("./lib/check-cli.js");
+const { validateRepoRelativePattern } = require("./lib/dev-work-units");
 
 // The RFC sidecar is the machine-readable twin of the human-render RFC HTML.
 // Machine consumers (dev intake, groom re-discovery, rfc review child cards)
 // read this JSON instead of grepping HTML anchors. Schema stays in lockstep
 // with the .issue-detail cards and Test Strategy blocks the HTML renders, and
 // the HTML root carries data-sidecar-hash to bind the two artifacts together.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+const SUPPORTED_SCHEMA_VERSIONS = new Set([2, SCHEMA_VERSION]);
 const VALID_SIZES = new Set(["XS", "S", "M", "L", "XL"]);
+const V2_ISSUE_FIELDS = new Set(["num", "title", "size", "test_hooks"]);
+const ISSUE_FIELDS = new Set([
+  "num",
+  "title",
+  "size",
+  "depends_on",
+  "owns",
+  "acceptance_criteria",
+  "approach",
+  "verification_commands",
+  "test_hooks",
+]);
 const ALLOWED_TOP_KEYS = new Set([
   "schema_version",
   "slug",
@@ -36,8 +50,8 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
     return { ok: false, issues: [issue(sidecarPath, "RFC sidecar must be an object")] };
   }
   const issues = [];
-  if (sidecar.schema_version !== SCHEMA_VERSION) {
-    issues.push(issue(sidecarPath, `schema_version must equal ${SCHEMA_VERSION}`));
+  if (!SUPPORTED_SCHEMA_VERSIONS.has(sidecar.schema_version)) {
+    issues.push(issue(sidecarPath, `schema_version must equal 2 or ${SCHEMA_VERSION}`));
   }
   for (const key of Object.keys(sidecar)) {
     if (!ALLOWED_TOP_KEYS.has(key)) {
@@ -53,7 +67,7 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
   if (!isValidSize(sidecar.size)) {
     issues.push(issue(sidecarPath, `size must be one of ${[...VALID_SIZES].join(", ")}`));
   }
-  validateIssues(sidecar.issues, sidecarPath, issues);
+  validateIssues(sidecar.issues, sidecarPath, issues, sidecar.schema_version);
   validateTestStrategy(sidecar.test_strategy, sidecarPath, issues);
 
   if (
@@ -69,7 +83,7 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
   return { ok: issues.length === 0, issues };
 }
 
-function validateIssues(list, sidecarPath, issues) {
+function validateIssues(list, sidecarPath, issues, schemaVersion) {
   if (!Array.isArray(list) || list.length === 0) {
     issues.push(issue(sidecarPath, "issues must be a non-empty array"));
     return;
@@ -80,6 +94,10 @@ function validateIssues(list, sidecarPath, issues) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       issues.push(issue(where, "issue must be an object"));
       return;
+    }
+    const allowedFields = schemaVersion === 2 ? V2_ISSUE_FIELDS : ISSUE_FIELDS;
+    for (const key of Object.keys(entry)) {
+      if (!allowedFields.has(key)) issues.push(issue(where, `unknown issue field ${key}`));
     }
     if (!Number.isInteger(entry.num) || entry.num <= 0) {
       issues.push(issue(where, "num must be a positive integer"));
@@ -98,6 +116,27 @@ function validateIssues(list, sidecarPath, issues) {
     if (!isValidSize(entry.size)) {
       issues.push(issue(where, `size must be one of ${[...VALID_SIZES].join(", ")}`));
     }
+    if (schemaVersion === SCHEMA_VERSION) {
+      validateIntegerList(entry.depends_on, "depends_on", where, issues);
+      validateStringList(entry.owns, "owns", where, issues, { nonEmpty: true });
+      for (const ownership of Array.isArray(entry.owns) ? entry.owns : []) {
+        if (!isNonEmptyString(ownership)) continue;
+        try {
+          validateRepoRelativePattern(ownership, "owns");
+        } catch (error) {
+          issues.push(issue(where, error.message));
+        }
+      }
+      validateStringList(entry.acceptance_criteria, "acceptance_criteria", where, issues, {
+        nonEmpty: true,
+      });
+      if (!isNonEmptyString(entry.approach)) {
+        issues.push(issue(where, "approach must be a non-empty string"));
+      }
+      validateStringList(entry.verification_commands, "verification_commands", where, issues, {
+        nonEmpty: true,
+      });
+    }
     if (!Array.isArray(entry.test_hooks)) {
       issues.push(issue(where, "test_hooks must be an array"));
     } else {
@@ -108,6 +147,74 @@ function validateIssues(list, sidecarPath, issues) {
       });
     }
   });
+  if (schemaVersion !== SCHEMA_VERSION) return;
+  const issueNums = new Set(
+    list.filter((entry) => Number.isInteger(entry?.num)).map((entry) => entry.num)
+  );
+  for (const entry of list) {
+    if (!entry || !Array.isArray(entry.depends_on)) continue;
+    for (const dependency of entry.depends_on) {
+      if (dependency === entry.num) {
+        issues.push(issue(sidecarPath, `issue ${entry.num} cannot depend on itself`));
+      } else if (!issueNums.has(dependency)) {
+        issues.push(issue(sidecarPath, `issue ${entry.num} has unknown dependency ${dependency}`));
+      }
+    }
+  }
+  if (hasDependencyCycle(list))
+    issues.push(issue(sidecarPath, "issue dependencies contain a cycle"));
+}
+
+function validateIntegerList(value, field, where, issues) {
+  if (!Array.isArray(value)) {
+    issues.push(issue(where, `${field} must be an array`));
+    return;
+  }
+  const seen = new Set();
+  value.forEach((item, index) => {
+    if (!Number.isInteger(item) || item <= 0) {
+      issues.push(issue(where, `${field}[${index}] must be a positive integer`));
+    } else if (seen.has(item)) {
+      issues.push(issue(where, `${field} must not contain duplicates`));
+    }
+    seen.add(item);
+  });
+}
+
+function validateStringList(value, field, where, issues, options = {}) {
+  if (!Array.isArray(value) || (options.nonEmpty && value.length === 0)) {
+    issues.push(issue(where, `${field} must be ${options.nonEmpty ? "a non-empty" : "an"} array`));
+    return;
+  }
+  const seen = new Set();
+  value.forEach((item, index) => {
+    if (!isNonEmptyString(item)) {
+      issues.push(issue(where, `${field}[${index}] must be a non-empty string`));
+    } else if (seen.has(item)) {
+      issues.push(issue(where, `${field} must not contain duplicates`));
+    }
+    seen.add(item);
+  });
+}
+
+function hasDependencyCycle(list) {
+  const graph = new Map(
+    list
+      .filter((entry) => Number.isInteger(entry?.num) && Array.isArray(entry.depends_on))
+      .map((entry) => [entry.num, entry.depends_on])
+  );
+  const visiting = new Set();
+  const visited = new Set();
+  function visit(num) {
+    if (visiting.has(num)) return true;
+    if (visited.has(num) || !graph.has(num)) return false;
+    visiting.add(num);
+    if (graph.get(num).some(visit)) return true;
+    visiting.delete(num);
+    visited.add(num);
+    return false;
+  }
+  return [...graph.keys()].some(visit);
 }
 
 function validateTestStrategy(strategy, sidecarPath, issues) {
@@ -286,6 +393,7 @@ if (require.main === module) {
 
 module.exports = {
   SCHEMA_VERSION,
+  SUPPORTED_SCHEMA_VERSIONS,
   TEST_STRATEGY_FIELDS,
   VALID_SIZES,
   validateRfcSidecar,

@@ -247,6 +247,81 @@ test("listRfcSessions returns [] when the directory does not exist", () => {
   }
 });
 
+test("listRfcSessions reads canonical JSON and omits completed approval audits", () => {
+  const project = mktmp();
+  try {
+    const base = {
+      schema_version: 2,
+      slug: "approval-safe",
+      status: "awaiting_approval",
+      phase: "approval",
+      updated_at: "2026-07-11T10:00:00.000Z",
+      context: { linear_id: "PM-42" },
+    };
+    project.write(".pm/rfc-sessions/approval-safe/session.json", JSON.stringify(base));
+    project.write(
+      ".pm/rfc-sessions/done/session.json",
+      JSON.stringify({ ...base, slug: "done", status: "complete", phase: "handoff" })
+    );
+
+    const sessions = listRfcSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].topic, "approval-safe");
+    assert.equal(sessions[0].stage, "approval");
+    assert.equal(sessions[0].status, "awaiting_approval");
+    assert.equal(sessions[0].linearId, "PM-42");
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("listRfcSessions prefers canonical JSON over retained legacy state", () => {
+  const project = mktmp();
+  try {
+    project.write(
+      ".pm/rfc-sessions/same.md",
+      [
+        "# RFC",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        "| Slug | same |",
+        "| Stage | approved |",
+      ].join("\n")
+    );
+    project.write(
+      ".pm/rfc-sessions/same/session.json",
+      JSON.stringify({
+        schema_version: 2,
+        slug: "same",
+        status: "awaiting_approval",
+        phase: "approval",
+        updated_at: "2026-07-11T10:00:00.000Z",
+        context: { linear_id: null },
+      })
+    );
+    const sessions = listRfcSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].stage, "approval");
+    assert.match(sessions[0].filePath, /session\.json$/);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("listRfcSessions surfaces malformed canonical JSON instead of parsing it as Markdown", () => {
+  const project = mktmp();
+  try {
+    project.write(".pm/rfc-sessions/broken/session.json", "{not json");
+    const sessions = listRfcSessions({ sourceDir: project.root });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].status, "invalid");
+    assert.equal(sessions[0].topic, "broken");
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("listThinkSessions reads source-side .pm/think-sessions/ when present and empty otherwise", () => {
   const project = mktmp();
   try {

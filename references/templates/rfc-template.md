@@ -6,16 +6,10 @@ This file defines the **content** for each section. The HTML reference defines t
 
 ## Metadata
 
-Embedded in the HTML as data attributes or a `<script type="application/json">` block in the `<head>`:
+Embed identity metadata separately, and include exactly one dedicated lifecycle marker in the HTML. Only this marker may change during approval:
 
-```json
-{
-  "type": "rfc",
-  "parent": "{proposal-slug}",
-  "status": "draft | reviewed | approved",
-  "created": "YYYY-MM-DD",
-  "updated": "YYYY-MM-DD"
-}
+```html
+<script id="rfc-lifecycle" type="application/json">{"status":"draft"}</script>
 ```
 
 ## Hero Header
@@ -85,7 +79,7 @@ Omit this section if no API changes.}
 - Dependencies on external systems or teams
 Format as a table: Risk | Impact | Mitigation}
 
-<!-- canonical: schema v2 — do not rename subsections without bumping schema_version -->
+<!-- canonical: schema v3 — do not rename subsections without bumping schema_version -->
 ## Test Strategy
 
 {Grounded in `skills/dev/test-layers.md` principles. Every M/L/XL RFC must fill all five subsections below. If a subsection does not apply, state "Not applicable" with a one-sentence rationale.}
@@ -128,9 +122,13 @@ implement top-to-bottom. Each issue should produce working, testable software on
 {Which files to create/modify, key implementation details, patterns to follow.
 Detailed enough that a developer with zero codebase context can execute.}
 
+**Owns:** {Exact files or conservative directory globs this issue may modify.}
+
 **Dependencies:** None | Issue {N}
 
 **Size estimate:** XS | S | M
+
+**Verification commands:** {Exact commands that prove this issue's acceptance criteria.}
 
 **Test hooks:** {Which Test Strategy subsections this issue exercises, traced to specific ACs. E.g., "Test levels in scope -> Layer 1 unit; Regression surface -> existing parser tests". Omit subsections the issue does not touch.}
 

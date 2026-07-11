@@ -52,7 +52,8 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC exists → RFC is ready only when `{slug}.approval.json` follows `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/rfc-approval.schema.json`, records explicit human approval, and its HTML/sidecar SHA-256 values match the exact adjacent files. HTML `status: approved` is a projection, not approval authority. **Re-discover tasks from the RFC** (the session file may have stale task data from a prior intake that ran before the RFC existed), following the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json --html {pm_dir}/backlog/rfcs/{slug}.html --slug {slug}`:
-  - **valid** → rebuild the `## Tasks` table from its `issues[]` (`num`, `title`, `size`, `test_hooks`) — no HTML parse.
+  - **valid schema v3** → rebuild the `## Tasks` table and work-unit DAG from executable `issues[]`; map `num: N` to `id: "rfc-N"` and numeric dependencies through the same mapping, then copy ownership and the bounded execution fields — no HTML parse.
+  - **valid schema v2** → treat as legacy approval evidence and use the documented HTML fallback or recertify through `/pm:rfc`; never infer ownership or dependencies.
   - **present but invalid** (non-zero exit) → **hard-abort**: "Schema-v2 sidecar present but failed rfc-sidecar-check — route to /pm:rfc." Do NOT fall back to the HTML.
   - **sidecar or approval audit absent** → hard-abort and route to `/pm:rfc` to refresh and obtain approval for an exact artifact. Do not infer approval from editable HTML metadata or a remembered conversation.
 

@@ -8,7 +8,7 @@ const path = require("path");
 // ---------------------------------------------------------------------------
 // Issue 1 regression tests: Test Strategy section in rfc-template.md and
 // rfc-reference.html. Validates D1 (five subsections), D2 (per-issue hooks),
-// D5 (schema-v2 marker), D7 (canonical schema comment).
+// D5 (schema-v3 marker), D7 (canonical schema comment).
 // ---------------------------------------------------------------------------
 
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
@@ -56,11 +56,11 @@ test("rfc-template.md: has all five D1 subsections", () => {
   }
 });
 
-test("rfc-template.md: has canonical schema v2 HTML comment (D7)", () => {
+test("rfc-template.md: has canonical schema v3 HTML comment (D7)", () => {
   const content = fs.readFileSync(TEMPLATE_PATH, "utf8");
   assert.ok(
-    content.includes("<!-- canonical: schema v2"),
-    "Template must contain the canonical schema v2 HTML comment"
+    content.includes("<!-- canonical: schema v3"),
+    "Template must contain the canonical schema v3 HTML comment"
   );
 });
 
@@ -104,17 +104,22 @@ test("rfc-reference.html: has five .test-strategy-block elements", () => {
   assert.equal(matches.length, 5, `Expected 5 test-strategy-block elements, got ${matches.length}`);
 });
 
-test("rfc-reference.html: has data-schema-version=2 on root element", () => {
+test("rfc-reference.html: has data-schema-version=3 on root element", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
   assert.ok(
-    content.includes('data-schema-version="2"'),
-    "HTML reference must have data-schema-version=2"
+    content.includes('data-schema-version="3"'),
+    "HTML reference must have data-schema-version=3"
   );
 });
 
 test("rfc-reference.html: has script#rfc-meta JSON block", () => {
   const content = fs.readFileSync(REFERENCE_PATH, "utf8");
   assert.ok(content.includes('id="rfc-meta"'), "HTML reference must have script#rfc-meta");
+});
+
+test("rfc-reference.html: has one dedicated lifecycle marker", () => {
+  const content = fs.readFileSync(REFERENCE_PATH, "utf8");
+  assert.equal((content.match(/id="rfc-lifecycle"/g) || []).length, 1);
 });
 
 test("rfc-reference.html: TOC has #test-strategy link", () => {

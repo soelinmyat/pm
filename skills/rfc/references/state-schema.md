@@ -1,61 +1,44 @@
 # RFC Session State Schema
 
-State file location: `{source_dir}/.pm/rfc-sessions/{slug}.md`
+Canonical state lives at `{source_dir}/.pm/rfc-sessions/{slug}/session.json` and conforms to `rfc-session.schema.json`.
 
-**Directory creation:** If `{source_dir}/.pm/rfc-sessions/` does not exist, create it (`mkdir -p`) before the first write.
+## Ownership and durability
 
-**Repo location:** RFC sessions are ephemeral, machine-local state — they always live in the **source repo's** `.pm/rfc-sessions/`, never in the PM repo. The source repo's `.pm/` is gitignored; committing session scratchpad state to the shared PM repo would leak in-progress work. The RFC **artefact** (the generated HTML document) still lives in `{pm_dir}/backlog/rfcs/` in the PM repo — only the session state is source-side. In same-repo mode, source_dir is the project root, so this resolves to `.pm/rfc-sessions/{slug}.md` there.
+- State is machine-local under the source repository's gitignored `.pm/`; RFC HTML/JSON artifacts live under the resolved PM content directory.
+- `session.json` is the only lifecycle authority. Human-readable projections are optional and never drive transitions.
+- Writes are atomic, mode `0600`, lock-protected, and idempotent for retried phase results.
+- Completed sessions move atomically to `{source_dir}/.pm/rfc-sessions/completed/{slug}/{run_id}/session.json`. The active slug directory retains only a bounded completion pointer for idempotent retry, and the active scanner does not traverse the immutable archive.
+- The session archive preserves workflow provenance. Dev approval authority is the committed `{slug}.approval.json` beside the final HTML/sidecar, whose hashes must match the exact bytes.
 
-## Valid Stage Values
+## Phases
 
-`intake`, `rfc-generation`, `rfc-review`, `approved`.
+| Phase | Meaning | Exit |
+|---|---|---|
+| `intake` | Product source, M/L/XL size, and ACs validated | Context and passing intake result |
+| `generation` | RFC HTML/sidecar created and validated | Commit-linked artifact identity |
+| `review` | Required technical lenses run | All lenses pass on current hash |
+| `approval` | Reviewed artifact awaits human decision | Explicit `approve` command only |
+| `handoff` | Approved lifecycle and separately authorized effects | Verified handoff result |
 
-## Template
+Session status is `active`, `awaiting_approval`, `approved`, `blocked`, or `complete`. Review completion sets `awaiting_approval`; only `approve` sets approval status and advances to handoff.
 
-```markdown
-# RFC Session State
+Use `revise --reason <reason>` to invalidate review/approval and return an awaiting or approved session to review. Use `unblock --resolution <resolution>` to resolve the current blocker and resume the same phase. Both transitions are audited in session history.
 
-| Field | Value |
-|-------|-------|
-| Run ID | {PM_RUN_ID} |
-| Stage | intake |
-| Size | M |
-| Ticket | PROJ-456 |
-| Slug | {slug} |
-| RFC path | null |
-| Started at | 2026-04-13T01:00:00Z |
-| Stage started at | 2026-04-13T01:00:00Z |
-| Completed at | null |
+## Artifact identity
 
-## Project Context
-- Product: Example App — task management for teams
-- Stack: Rails API + React frontend
-- Test command: pnpm test
-- Issue tracker: Linear (detected via MCP)
-- Monorepo: no
-- CLAUDE.md: present
-- AGENTS.md: present
-- Strategy: present
+The state binds generation, review, approval, and handoff to:
 
-## Decisions
-- Source: proposal | linear-issue
-- Proposal path: {pm_dir}/backlog/{slug}.md
-- Linear ID: {linear_id} | null
-- Linear readiness: dev-ready | null
-- Size gate: needs-rfc | skipped-xs | skipped-s
-- RFC check: needs-rfc | already-approved | no-proposal
+- absolute HTML and JSON sidecar paths;
+- SHA-256 of the HTML bytes;
+- SHA-256 of the sidecar bytes;
+- artifact repository root and commit.
 
-## Resume Instructions
-- Stage: [current stage name]
-- Next action: [single next action to take]
-- Key context: [1-2 sentences a cold reader needs]
-- Blockers: [any blocking issues, or "none"]
-```
+Approval verifies both current HTML and sidecar bytes equal the reviewed fingerprint. A content edit routes back through review. The expected approval metadata-only HTML/commit update may change the HTML hash and commit but not the sidecar hash, and requires passing lifecycle-only evidence.
 
-## Update Rules
+## External authority
 
-- Write the full file (not append) at each stage transition.
-- Keep `Stage started at` current at every stage transition.
-- Set `Completed at` when the session finishes (RFC approved or stopped).
-- Resume Instructions must be populated at every stage transition. A cold reader should be able to continue from this section alone.
-- After approval, update `RFC path` to the generated RFC file location.
+`linear_create`, `loop_approval`, `open_browser`, and `start_implementation` default false. Each grant has an audit record with action, reason, and timestamp. RFC approval does not expand these booleans.
+
+## Legacy migration
+
+Retain legacy `.md` sessions. Parse identity and artifact paths, then write canonical JSON. Because the old workflow could set `approved` before asking the human, legacy `rfc-review` and `approved` stages return to technical review/approval recertification and never import approval provenance as trusted.

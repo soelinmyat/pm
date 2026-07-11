@@ -10,6 +10,7 @@ const WORK_UNIT_FIELDS = new Set([
   "title",
   "depends_on",
   "owns",
+  "contract",
   "status",
   "result",
   "base_commit",
@@ -56,6 +57,7 @@ function validateWorkUnits(units, options = {}) {
     if (!VALID_STATUSES.has(item.status)) {
       throw new Error(`work unit ${item.id} has invalid status: ${String(item.status)}`);
     }
+    if (item.contract !== undefined) validateWorkUnitContract(item.contract, item.id);
     if (item.result !== undefined && item.result !== null && !isObject(item.result)) {
       throw new TypeError(`work unit ${item.id} result must be null or an object`);
     }
@@ -152,6 +154,31 @@ function validateTransition(unitId, transition, index) {
   }
   if (!isRfc3339DateTime(transition.recorded_at)) {
     throw new TypeError(`work unit ${unitId} transition ${index} recorded_at must be RFC 3339`);
+  }
+}
+
+function validateWorkUnitContract(contract, unitId) {
+  if (!isObject(contract)) throw new TypeError(`work unit ${unitId} contract must be an object`);
+  const fields = ["acceptance_criteria", "approach", "verification_commands", "test_hooks"];
+  for (const field of Object.keys(contract)) {
+    if (!fields.includes(field))
+      throw new Error(`work unit ${unitId} contract has unknown field ${field}`);
+  }
+  for (const field of fields) {
+    if (!Object.hasOwn(contract, field)) {
+      throw new Error(`work unit ${unitId} contract requires ${field}`);
+    }
+  }
+  for (const field of ["acceptance_criteria", "verification_commands", "test_hooks"]) {
+    if (!Array.isArray(contract[field]) || contract[field].some((item) => !nonEmpty(item))) {
+      throw new TypeError(`work unit ${unitId} contract ${field} must contain non-empty strings`);
+    }
+  }
+  if (contract.acceptance_criteria.length === 0 || contract.verification_commands.length === 0) {
+    throw new TypeError(`work unit ${unitId} contract requires acceptance and verification`);
+  }
+  if (!nonEmpty(contract.approach)) {
+    throw new TypeError(`work unit ${unitId} contract approach is required`);
   }
 }
 
@@ -462,6 +489,7 @@ module.exports = {
   narrowAuthority,
   ownershipOverlaps,
   validateOwnershipList,
+  validateRepoRelativePattern,
   validateWorkUnitResult,
   validateWorkUnits,
 };

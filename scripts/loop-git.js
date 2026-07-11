@@ -41,6 +41,16 @@ function runGit(args, cwd, options = {}) {
   }).trim();
 }
 
+function readGitFile(commit, relativePath, cwd, options = {}) {
+  return execFileSync("git", ["show", `${commit}:${relativePath}`], {
+    cwd,
+    encoding: null,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: cleanGitEnv(),
+    timeout: options.timeout,
+  });
+}
+
 function realpathForGit(targetPath) {
   const parts = [];
   let cursor = path.resolve(targetPath);
@@ -395,6 +405,7 @@ module.exports = {
   leasePath,
   listLeases,
   prepareLease,
+  readGitFile,
   removeWorkspace,
   runGit,
   sanitizeId,

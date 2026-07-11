@@ -1,133 +1,42 @@
 ---
 name: Intake
 order: 1
-description: Resume detection, proposal lookup, size gate, and RFC-needed determination
+description: Validate product context, size, acceptance criteria, and RFC eligibility
+phase: intake
+requires:
+  - ../../../references/context-discovery.md
+required_evidence:
+allowed_modes:
+  - inline
+result_schema: rfc-phase-result-v1
 ---
 
 ## Goal
 
-Determine whether an RFC is needed and gather all product context for generation. By the end of this step, you either proceed to RFC generation with full context or stop early with a clear reason.
+Establish whether an RFC is warranted and persist complete, source-backed product context for generation.
 
 ## How
 
-### 1. Resume Detection
+1. Resolve `pm_dir`, `pm_state_dir`, and `source_dir` through the shared runtime contract. Read project instructions before producing output.
+2. For fresh work, initialize the canonical session. For existing JSON state, use `rfc-session next`; do not ask whether to resume when the slug unambiguously matches the user's request. If multiple sessions match, show phase, status, and age and ask which one.
+3. Find `{pm_dir}/backlog/{slug}.md`. Accept proposal states `proposed`, `planned`, or `in-progress` only when scope and acceptance criteria are substantive. A Linear issue may substitute only when it carries title, description, and explicit ACs; tracking metadata alone is not a proposal.
+4. Reject an existing RFC only when durable state proves explicit approval for its current artifact hash. A draft or reviewed RFC resumes its canonical phase.
+5. Apply the size gate. XS/S routes to `pm:dev`. M/L/XL continues. If size is absent, recommend one from module count, cross-cutting decisions, risk, and duration, then obtain the user's confirmation before persisting it.
+6. Run context discovery. Record only relevant product/technical instructions and exact source paths; do not paste the repository or preload generation/review instructions.
+7. Write a facts JSON file containing `source_kind`, `proposal_path` or `linear_id`, canonical size, and acceptance criteria. Persist it with:
 
-Glob `{source_dir}/.pm/rfc-sessions/*.md`.
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-session.js context \
+     --session {session_path} --facts {facts_json} --json
+   ```
 
-If a matching session file exists for the requested slug:
-- Read it. Check the `Stage` field.
-- If `Stage` is `approved`: print the message below and **stop**.
+8. Record a passing intake result. Do not create RFC artifacts, tracker issues, or approval state in intake.
 
-> "RFC already approved. Run `/pm:dev` to implement."
+## Done-when
 
-- If `Stage` is any other value: offer to resume or start fresh. If resuming, skip to the recorded stage. If starting fresh, delete the file and continue.
+- Product context is approved/dev-ready and traceable to a proposal or complete Linear issue.
+- Size is confirmed as M/L/XL; XS/S has stopped with a `pm:dev` handoff.
+- Acceptance criteria are non-empty and saved in canonical JSON state.
+- The intake result is recorded and `rfc-session next` returns generation.
 
-### 2. Handle Missing Slug
-
-If no slug was provided and no session file matched:
-
-> "Which feature? Provide a slug or describe the feature."
-
-Wait for the user's answer. Derive the slug from their response.
-
-### 3. Proposal Lookup
-
-Look for `{pm_dir}/backlog/{slug}.md`. Three outcomes:
-
-**A. Proposal found — check frontmatter:**
-
-- Read `status:` and `rfc:` fields.
-- If `rfc:` is non-null AND the referenced RFC file exists with `status: approved`:
-
-> "RFC already approved for '{slug}'. Run `/pm:dev` to implement."
-
-**Stop.** Do not re-generate.
-
-- If `rfc:` is non-null but RFC file has `status: draft`: RFC was started but not completed. Log: `RFC: resuming draft`. Continue to size gate (Step 4) — the generation step will detect and resume the existing draft.
-
-- If `status:` is `proposed`, `planned`, or `in-progress`: valid proposal. Continue to size gate (Step 4).
-- If `status:` is anything else (draft, rejected, etc.): proposal isn't ready.
-
-> "The proposal for '{slug}' isn't complete (status: {status}). Run `/pm:groom` to finish it first."
-
-**Stop.**
-
-**B. No proposal found — check Linear:**
-
-If no `{pm_dir}/backlog/{slug}.md` exists, check whether a Linear issue is available:
-
-- If Linear MCP tools are available, search for the slug or ticket ID.
-- If a Linear issue is found with enough context (title, description, ACs):
-  - Record `linear_readiness: dev-ready` in state.
-  - Use the Linear issue as product context instead of a proposal.
-  - Pass the Linear issue data to RFC generation:
-
-  ```
-  **Product Context (from Linear issue):**
-  - Linear ID: {linear_id}
-  - Title: {linear_title}
-  - Description: {linear_description}
-  - Labels: {linear_labels}
-  ```
-
-  If sub-issues exist, also include:
-  ```
-  - Sub-issues:
-    - {SUB_ID}: {SUB_TITLE} (size: {SIZE})
-      Description: {SUB_DESCRIPTION}
-      ACs: {SUB_ACS}
-  ```
-
-  - Log: `RFC check: needs-rfc (Linear-sourced, dev-ready, no local proposal)`
-  - Continue to size gate (Step 4).
-
-- If no Linear issue found or Linear unavailable:
-
-> "No product proposal found for '{slug}'. Run `/pm:groom {slug}` first to create one."
-
-**Stop.**
-
-### 4. Size Gate
-
-Read the `size:` field from the proposal frontmatter (or infer from Linear labels).
-
-| Size | Action |
-|------|--------|
-| XS | Print: "This is XS work — no RFC needed. Run `/pm:dev` directly." **Stop.** |
-| S | Print: "This is S work — no RFC needed. Run `/pm:dev` directly." **Stop.** |
-| M, L, XL | RFC needed. Continue to context discovery. |
-
-If size is missing, propose one based on the proposal content:
-
-1. Read the proposal body (scope, ACs, competitive context, technical feasibility).
-2. Apply these heuristics:
-   - **XS:** Single-line or config-only change. No new logic.
-   - **S:** One concern, a few ACs, contained to one module. Straightforward.
-   - **M:** Multiple ACs, touches 2-3 modules, some design decisions. A few days of work.
-   - **L:** Cross-cutting, multiple issues/concerns, new patterns or abstractions. A week+.
-   - **XL:** Major initiative, new subsystem, multiple parallel tracks. Multi-week.
-3. Also factor in `scope_signal` if set (`small` → XS/S, `medium` → M, `large` → L/XL).
-4. Present your recommendation:
-
-> "No size set. Based on the scope ({one-sentence reason}), I'd call this **{SIZE}**. Sound right? (or tell me a different size)"
-
-Wait for confirmation or override. Apply the gate above.
-
-### 5. Context Discovery
-
-Run context discovery per `${CLAUDE_PLUGIN_ROOT}/references/context-discovery.md`.
-
-Extract and store in the session state file:
-- Product context (from CLAUDE.md)
-- Technical context (from AGENTS.md)
-- Stack detection
-- Issue tracker detection
-- Strategy context (if `{pm_dir}/strategy.md` exists)
-
-### 6. Write Session State
-
-Create `{source_dir}/.pm/rfc-sessions/{slug}.md` following the template in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/state-schema.md`. Use the markdown table format (not YAML frontmatter).
-
-Update `Stage` to `rfc-generation` when intake completes.
-
-Intake ends one of two ways: **stopped early** — the user was told to run `/pm:dev` (XS/S), `/pm:groom` (no proposal), or that the RFC is already approved; or **proceeding** — the session state file is written with `Stage: rfc-generation`, product context extracted, and proposal or Linear data loaded, ready for RFC generation.
+**Advance:** proceed to Step 02 (RFC Generation).

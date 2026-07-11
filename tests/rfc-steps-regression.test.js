@@ -26,15 +26,15 @@ function makeFakePmDir() {
 }
 
 // ---------------------------------------------------------------------------
-// AC 1: All 3 step files exist and load
+// AC 1: All 4 phase-local step files exist and load
 // ---------------------------------------------------------------------------
 
-test("rfc steps: all 3 step files load with correct order", () => {
+test("rfc steps: all 5 step files load with correct order", () => {
   const { pmDir, cleanup } = makeFakePmDir();
   try {
     const steps = loadWorkflow("rfc", pmDir, PLUGIN_ROOT);
 
-    assert.equal(steps.length, 3, `Expected 3 steps, got ${steps.length}`);
+    assert.equal(steps.length, 5, `Expected 5 steps, got ${steps.length}`);
 
     // Verify each step has a valid order and non-empty body
     for (let i = 0; i < steps.length; i++) {
@@ -80,28 +80,27 @@ test("rfc steps: each step has name, order, and description in frontmatter", () 
 
 const CRITICAL_KEYWORDS = [
   // Step 1: Intake
-  "Resume Detection",
-  "Proposal Lookup",
-  "Size Gate",
-  "rfc-sessions",
-  "context-discovery.md",
+  "size gate",
+  "canonical session",
+  "acceptance criteria",
 
   // Step 2: RFC Generation
-  "RFC_COMPLETE",
-  "splitting-patterns.md",
-  "rfc-reference.html",
-  "rfc-template.md",
   "writing-rfcs.md",
-  "spec-reviewers.md",
-  "task_count",
+  "rfc-prompt.js",
+  "sidecar_hash",
 
   // Step 3: RFC Review
-  "Adversarial Engineer",
-  "Staff Engineer",
-  "cross-cutting-reviewers.md",
-  "Handling findings",
-  "Blocking issues",
-  "Run `/pm:dev",
+  "architecture-risk",
+  "test-strategy",
+  "maintainability",
+  "cross-cutting integration",
+  "awaiting_approval",
+
+  // Step 4: approval and handoff
+  "rfc-session.js approve",
+  "linear_create",
+  "loop_approval",
+  "pm:dev {slug}",
 ];
 
 test("rfc steps: concatenated output contains all critical instruction keywords", () => {
@@ -150,26 +149,19 @@ test("rfc steps: no stale {WORKTREE_PATH} template references", () => {
 // AC 5: Reference paths use ${CLAUDE_PLUGIN_ROOT} template variable
 // ---------------------------------------------------------------------------
 
-test("rfc steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", () => {
-  const { pmDir, cleanup } = makeFakePmDir();
-  try {
-    const steps = loadWorkflow("rfc", pmDir, PLUGIN_ROOT);
-    const prompt = buildPrompt(steps);
-
-    const references = [
-      "writing-rfcs.md",
-      "splitting-patterns.md",
-      "spec-reviewers.md",
-      "cross-cutting-reviewers.md",
-    ];
-
-    for (const ref of references) {
-      assert.ok(
-        prompt.includes(`\${CLAUDE_PLUGIN_ROOT}`) && prompt.includes(ref),
-        `Reference "${ref}" should use \${CLAUDE_PLUGIN_ROOT} variable`
-      );
-    }
-  } finally {
-    cleanup();
+test("rfc steps: phase references are declared in requires metadata", () => {
+  const generation = fs.readFileSync(
+    path.join(PLUGIN_ROOT, "skills/rfc/steps/02-rfc-generation.md"),
+    "utf8"
+  );
+  const review = fs.readFileSync(
+    path.join(PLUGIN_ROOT, "skills/rfc/steps/03-rfc-review.md"),
+    "utf8"
+  );
+  for (const ref of ["writing-rfcs.md", "splitting-patterns.md", "rfc-template.md"]) {
+    assert.ok(generation.includes(ref), `Generation requires must include ${ref}`);
+  }
+  for (const ref of ["review-contract.md", "cross-cutting-reviewers.md", "test-layers.md"]) {
+    assert.ok(review.includes(ref), `Review requires must include ${ref}`);
   }
 });
