@@ -10,6 +10,7 @@ const path = require("node:path");
 const {
   checkReviewRepeats,
   deriveConsistencyMetrics,
+  readBoundedJson,
 } = require("../scripts/evals/review-repeat-check");
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
@@ -149,32 +150,49 @@ test("malformed comparison roots return structured issues instead of throwing", 
   }
 });
 
+test("invalid and oversized comparison JSON returns structured issues", (t) => {
+  const cases = [
+    ["truncated", Buffer.from('{"schema_version":')],
+    ["empty", Buffer.alloc(0)],
+    ["invalid token", Buffer.from("not-json\n")],
+    ["oversized", Buffer.alloc(4 * 1024 * 1024 + 1, 0x20)],
+  ];
+  for (const [label, bytes] of cases) {
+    const root = temporaryRoot(t, `pm-review-comparison-bytes-${label.replaceAll(" ", "-")}-`);
+    const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
+    writeBytes(root, comparisonPath, bytes);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    assert.deepEqual(result.computed_metrics, null, label);
+    assert.match(JSON.stringify(result.issues), /comparison/, label);
+  }
+});
+
+test("bounded JSON reader accepts exactly 4 MiB and rejects one byte more", (t) => {
+  const root = temporaryRoot(t, "pm-review-json-budget-");
+  const exactPath = ".pm/exact.json";
+  const oversizedPath = ".pm/oversized.json";
+  const prefix = Buffer.from('{"ok":true}');
+  writeBytes(
+    root,
+    exactPath,
+    Buffer.concat([prefix, Buffer.alloc(4 * 1024 * 1024 - prefix.length, 0x20)])
+  );
+  writeBytes(root, oversizedPath, Buffer.alloc(4 * 1024 * 1024 + 1, 0x20));
+  const issues = [];
+  const exact = readBoundedJson(root, exactPath, "exact", issues);
+  assert.deepEqual(exact.value, { ok: true });
+  assert.equal(exact.bytes.length, 4 * 1024 * 1024);
+  assert.equal(readBoundedJson(root, oversizedPath, "oversized", issues), null);
+  assert.match(JSON.stringify(issues), /oversized exceeds 4194304-byte JSON budget/);
+});
+
 test("bound review evidence fails closed for malformed values and object schemas", (t) => {
   const malformedValues = [
     ["null", null],
     ["array", []],
     ["string", "not-an-object"],
     ["number", 42],
-  ];
-  const bindings = [
-    {
-      label: "canonical_report",
-      select(comparison) {
-        return comparison.canonical_report;
-      },
-    },
-    {
-      label: "runs[0].target",
-      select(comparison) {
-        return comparison.runs[0].target;
-      },
-    },
-    {
-      label: "runs[0].results[0]",
-      select(comparison) {
-        return comparison.runs[0].results[0];
-      },
-    },
   ];
   const root = temporaryRoot(t, "pm-review-malformed-binding-");
   const comparisonPath = seedComparison(root);
@@ -205,21 +223,30 @@ test("bound review evidence fails closed for malformed values and object schemas
     fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
   };
 
-  for (const bound of bindings) {
-    for (const [valueLabel, value] of malformedValues) {
-      restore();
-      replaceBoundValue(bound.select, value);
+  const setTargetAllocation = (runIndex, allocation, omit = false) => {
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    const targetBinding = comparison.runs[runIndex].target;
+    const target = JSON.parse(fs.readFileSync(path.join(root, targetBinding.path), "utf8"));
+    if (omit) delete target.allocation;
+    else target.allocation = allocation;
+    replaceBoundValue((value) => value.runs[runIndex].target, target);
+  };
 
-      const result = checkReviewRepeats(root, comparisonPath);
-      assert.equal(result.ok, false, `${bound.label} ${valueLabel}`);
-      assert.match(
-        JSON.stringify(result.issues),
-        new RegExp(
-          `${bound.label.replaceAll("[", "\\[").replaceAll("]", "\\]")} must contain a non-array JSON object`
-        ),
-        `${bound.label} ${valueLabel}`
-      );
-    }
+  for (const [valueLabel, value] of malformedValues) {
+    restore();
+    replaceBoundValue((comparison) => comparison.canonical_report, value);
+    replaceBoundValue((comparison) => comparison.runs[0].target, value);
+    replaceBoundValue((comparison) => comparison.runs[1].results[0], value);
+    const result = checkReviewRepeats(root, comparisonPath);
+    const serialized = JSON.stringify(result.issues);
+    assert.equal(result.ok, false, valueLabel);
+    assert.match(serialized, /canonical_report must contain a non-array JSON object/, valueLabel);
+    assert.match(serialized, /runs\[0\]\.target must contain a non-array JSON object/, valueLabel);
+    assert.match(
+      serialized,
+      /runs\[1\]\.results\[0\] must contain a non-array JSON object/,
+      valueLabel
+    );
   }
 
   for (const [label, report] of [
@@ -234,72 +261,102 @@ test("bound review evidence fails closed for malformed values and object schemas
     assert.match(JSON.stringify(result.issues), /canonical_report/, label);
   }
 
-  for (const [label, allocation, omit = false] of [
-    ["missing", undefined, true],
-    ["null", null],
-    ["object", {}],
-    ["matching-length object", { length: 1 }],
-    ["string", "x"],
+  for (const [label, allocations] of [
+    ["missing-null-object", [[undefined, true], [null], [{}]]],
+    ["matching-object-string", [[{ length: 1 }], ["x"], [null]]],
+  ]) {
+    restore();
+    allocations.forEach(([allocation, omit], runIndex) =>
+      setTargetAllocation(runIndex, allocation, omit)
+    );
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    const serialized = JSON.stringify(result.issues);
+    for (const runIndex of [0, 1, 2])
+      assert.match(
+        serialized,
+        new RegExp(`runs\\[${runIndex}\\]\\.target allocation must be an array`),
+        label
+      );
+  }
+
+  for (const [label, members] of [
+    ["first-three", malformedValues.slice(0, 3).map((item) => item[1])],
+    ["last", [malformedValues[3][1], null, null]],
+  ]) {
+    restore();
+    members.forEach((member, runIndex) => setTargetAllocation(runIndex, [member]));
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    const serialized = JSON.stringify(result.issues);
+    for (const runIndex of [0, 1, 2])
+      assert.match(
+        serialized,
+        new RegExp(`runs\\[${runIndex}\\]\\.target allocation\\[0\\] requires a worker_id object`),
+        label
+      );
+  }
+
+  for (const [label, members] of [
+    ["first-three", malformedValues.slice(0, 3).map((item) => item[1])],
+    ["last", [malformedValues[3][1], null, []]],
   ]) {
     restore();
     const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
-    const targetBinding = comparison.runs[0].target;
-    const target = JSON.parse(fs.readFileSync(path.join(root, targetBinding.path), "utf8"));
-    if (omit) delete target.allocation;
-    else target.allocation = allocation;
-    replaceBoundValue((value) => value.runs[0].target, target);
+    members.forEach((member, runIndex) => {
+      comparison.runs[runIndex] = member;
+    });
+    fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
     const result = checkReviewRepeats(root, comparisonPath);
     assert.equal(result.ok, false, label);
-    assert.match(
-      JSON.stringify(result.issues),
-      /runs\[0\]\.target allocation must be an array/,
-      label
-    );
+    const serialized = JSON.stringify(result.issues);
+    for (const runIndex of [0, 1, 2])
+      assert.match(
+        serialized,
+        new RegExp(`runs\\[${runIndex}\\] requires a kebab-case run_id`),
+        label
+      );
   }
 
-  for (const [label, member] of malformedValues) {
+  for (const [label, members] of [
+    ["first-three", malformedValues.slice(0, 3).map((item) => item[1])],
+    ["last", [malformedValues[3][1], null, []]],
+  ]) {
     restore();
     const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
-    const targetBinding = comparison.runs[0].target;
-    const target = JSON.parse(fs.readFileSync(path.join(root, targetBinding.path), "utf8"));
-    target.allocation = [member];
-    replaceBoundValue((value) => value.runs[0].target, target);
-    const result = checkReviewRepeats(root, comparisonPath);
-    assert.equal(result.ok, false, `allocation member ${label}`);
-    assert.match(
-      JSON.stringify(result.issues),
-      /runs\[0\]\.target allocation\[0\] requires a worker_id object/,
-      `allocation member ${label}`
-    );
-  }
-
-  for (const [label, member] of malformedValues) {
-    restore();
-    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
-    comparison.runs[1] = member;
+    members.forEach((member, runIndex) => {
+      comparison.runs[runIndex].results[0] = member;
+    });
     fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
     const result = checkReviewRepeats(root, comparisonPath);
-    assert.equal(result.ok, false, `run member ${label}`);
-    assert.match(
-      JSON.stringify(result.issues),
-      /runs\[1\] requires a kebab-case run_id/,
-      `run member ${label}`
-    );
+    assert.equal(result.ok, false, label);
+    const serialized = JSON.stringify(result.issues);
+    for (const runIndex of [0, 1, 2])
+      assert.match(
+        serialized,
+        new RegExp(`runs\\[${runIndex}\\]\\.results\\[0\\] requires path and SHA-256`),
+        label
+      );
   }
 
-  for (const [label, member] of malformedValues) {
-    restore();
-    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
-    comparison.runs[0].results[0] = member;
-    fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
-    const result = checkReviewRepeats(root, comparisonPath);
-    assert.equal(result.ok, false, `result binding ${label}`);
-    assert.match(
-      JSON.stringify(result.issues),
-      /runs\[0\]\.results\[0\] requires path and SHA-256/,
-      `result binding ${label}`
-    );
+  restore();
+  const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+  const oversized = Buffer.alloc(4 * 1024 * 1024 + 1, 0x20);
+  for (const selected of [
+    comparison.canonical_report,
+    comparison.runs[0].target,
+    comparison.runs[1].results[0],
+  ]) {
+    writeBytes(root, selected.path, oversized);
+    selected.sha256 = crypto.createHash("sha256").update(oversized).digest("hex");
   }
+  fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+  const oversizedResult = checkReviewRepeats(root, comparisonPath);
+  const oversizedIssues = JSON.stringify(oversizedResult.issues);
+  assert.equal(oversizedResult.ok, false);
+  assert.match(oversizedIssues, /canonical_report exceeds 4194304-byte JSON budget/);
+  assert.match(oversizedIssues, /runs\[0\]\.target exceeds 4194304-byte JSON budget/);
+  assert.match(oversizedIssues, /runs\[1\]\.results\[0\] exceeds 4194304-byte JSON budget/);
 });
 
 function temporaryRoot(t, prefix) {
@@ -458,6 +515,12 @@ function write(root, relative, value) {
   const file = path.join(root, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeBytes(root, relative, bytes) {
+  const file = path.join(root, relative);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, bytes);
 }
 
 function binding(root, relative) {

@@ -7,6 +7,7 @@ const path = require("node:path");
 const { safeProjectInput } = require("../lib/safe-project-output");
 const { checkReview, expandFromReport } = require("../review-check");
 
+const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const METRIC_NAMES = Object.freeze([
   "finding_set_agreement",
   "finding_count_stability",
@@ -16,8 +17,15 @@ const METRIC_NAMES = Object.freeze([
 
 function checkReviewRepeats(root, comparisonPath) {
   const projectRoot = fs.realpathSync(path.resolve(root));
-  const comparison = readJson(projectRoot, comparisonPath);
   const issues = [];
+  const comparisonFile = readBoundedJson(projectRoot, comparisonPath, "comparison", issues);
+  if (!comparisonFile)
+    return {
+      ok: false,
+      issues,
+      computed_metrics: null,
+    };
+  const comparison = comparisonFile.value;
   if (!object(comparison))
     return {
       ok: false,
@@ -239,24 +247,32 @@ function readBinding(root, binding, label, issues) {
     issues.push(`${label} requires path and SHA-256`);
     return null;
   }
+  const loaded = readBoundedJson(root, binding.path, label, issues);
+  if (!loaded) return null;
+  if (digest(loaded.bytes) !== binding.sha256) {
+    issues.push(`${label} SHA-256 mismatch`);
+    return null;
+  }
+  if (!object(loaded.value)) {
+    issues.push(`${label} must contain a non-array JSON object`);
+    return null;
+  }
+  return { value: loaded.value };
+}
+
+function readBoundedJson(root, relative, label, issues) {
   try {
-    const file = safeProjectInput(root, binding.path);
+    const file = safeProjectInput(root, relative);
+    const size = fs.statSync(file).size;
+    if (size > MAX_JSON_BYTES) throw new Error(`exceeds ${MAX_JSON_BYTES}-byte JSON budget`);
     const bytes = fs.readFileSync(file);
-    if (digest(bytes) !== binding.sha256) throw new Error("SHA-256 mismatch");
-    const value = JSON.parse(bytes.toString("utf8"));
-    if (!object(value)) {
-      issues.push(`${label} must contain a non-array JSON object`);
-      return null;
-    }
-    return { value };
+    if (bytes.length > MAX_JSON_BYTES)
+      throw new Error(`exceeds ${MAX_JSON_BYTES}-byte JSON budget`);
+    return { value: JSON.parse(bytes.toString("utf8")), bytes };
   } catch (error) {
     issues.push(`${label} ${error.message}`);
     return null;
   }
-}
-
-function readJson(root, relative) {
-  return JSON.parse(fs.readFileSync(safeProjectInput(root, relative), "utf8"));
 }
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -285,4 +301,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkReviewRepeats, deriveConsistencyMetrics };
+module.exports = { checkReviewRepeats, deriveConsistencyMetrics, readBoundedJson };
