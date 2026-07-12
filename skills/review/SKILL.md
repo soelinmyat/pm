@@ -54,7 +54,7 @@ Execute the ordered files in `${CLAUDE_PLUGIN_ROOT}/skills/review/steps/`. Resol
 
 Detailed schemas and identity rules live in `references/evidence-contract.md`. Reviewer calibration and JSON output live in `references/reviewer-briefs.md`.
 
-Resolve session paths with the shared `deriveSessionSlug` helper: a branch such as `codex/pm-dev-workflow-proposal` uses the slug `pm-dev-workflow-proposal`.
+Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js`: a branch such as `codex/pm-dev-workflow-proposal` uses the slug `pm-dev-workflow-proposal`.
 
 ## Red Flags — Self-Check
 

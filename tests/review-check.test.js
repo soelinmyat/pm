@@ -186,6 +186,21 @@ test("malformed evidence returns structured issues instead of throwing", () => {
   assert.match(JSON.stringify(result.issues), /evidence\[0\].*must be an object/);
 });
 
+test("reuse findings require both changed and reusable source locators", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const finding = validFinding("reuse");
+  setFindingForLens(fixture, "reuse", finding);
+  const result = generate(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /changed-source and reusable-source locators/);
+
+  finding.evidence.push({ kind: "source", ref: "skills/dev/references/model-profiles.json:1" });
+  finding.id = findingId(finding);
+  const valid = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(valid, "reuse", finding);
+  assert.equal(generate(valid).ok, true);
+});
+
 test("Review-owned blockers fail while QA-owned findings become non-blocking handoffs", () => {
   const blocked = makeFixture({ maxWorkers: 6 });
   const reviewFinding = validFinding("bug");

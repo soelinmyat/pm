@@ -561,6 +561,19 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       if (REQUIRED_EVIDENCE[finding.category]?.has(evidence.kind)) categoryEvidence = true;
     }
     if (!categoryEvidence) add(issues, `${label}.evidence`, `does not support ${finding.category}`);
+    if (
+      finding.category === "reuse" &&
+      new Set(
+        finding.evidence
+          .filter((item) => object(item) && item.kind === "source" && text(item.ref))
+          .map((item) => item.ref)
+      ).size < 2
+    )
+      add(
+        issues,
+        `${label}.evidence`,
+        "reuse requires distinct changed-source and reusable-source locators"
+      );
   }
   if (identityReady) {
     const expectedId = findingId(finding);

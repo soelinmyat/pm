@@ -126,6 +126,24 @@ test("review gate rejects unknown evidence contract versions", () => {
   assert.match(JSON.stringify(result.issues), /evidence_kind must equal review-report-v1/);
 });
 
+test("canonical review artifact cannot omit its evidence contract", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gates-review-kind-"));
+  const artifact = path.join(root, ".pm/dev-sessions/example/review/report.html");
+  fs.mkdirSync(path.dirname(artifact), { recursive: true });
+  fs.writeFileSync(artifact, "<!doctype html><title>Unbound</title>");
+  const result = checkGateManifest(
+    manifest([gate("review", "abc123", { artifact: "review/report.html" })]),
+    {
+      manifestPath: path.join(root, ".pm/dev-sessions/example.gates.json"),
+      artifactRoot: path.join(root, ".pm/dev-sessions/example"),
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+    }
+  );
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /requires evidence_kind review-report-v1/);
+});
+
 test("canonical gate manifests are bound to the active session run ID", () => {
   const rows = [gate("review"), gate("verification")];
   const ok = checkGateManifest(manifest(rows, { run_id: "dev_current" }), {

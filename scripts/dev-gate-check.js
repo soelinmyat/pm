@@ -148,8 +148,17 @@ function validateReviewReportArtifact(
   currentCommit,
   issues
 ) {
-  if (!reviewGate || reviewGate.status !== "passed" || reviewGate.evidence_kind === undefined)
+  if (!reviewGate || reviewGate.status !== "passed") return;
+  if (reviewGate.evidence_kind === undefined) {
+    const artifact = String(reviewGate.artifact || "")
+      .split(path.sep)
+      .join("/");
+    if (/(^|\/)review\/report\.html$/.test(artifact))
+      issues.push(
+        issue(manifestPath, "canonical review/report.html requires evidence_kind review-report-v1")
+      );
     return;
+  }
   if (reviewGate.evidence_kind !== "review-report-v1") {
     issues.push(issue(manifestPath, "review evidence_kind must equal review-report-v1"));
     return;
