@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readProjectInput } = require("./safe-project-output");
 
 function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   const projectRoot = fs.realpathSync(path.resolve(root));
@@ -36,7 +37,20 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0)
     throw new Error((result.stderr || result.stdout || "project output write failed").trim());
-  return path.resolve(projectRoot, relativePath);
+  const state = JSON.parse(result.stdout || "{}");
+  if (state.committed !== true) throw new Error("project output child omitted committed state");
+  try {
+    const attested = readProjectInput(projectRoot, relativePath, maxBytes);
+    if (!attested.bytes.equals(bytes))
+      throw new Error("committed bytes do not match requested output");
+  } catch (error) {
+    const failure = new Error(
+      `project output committed but path attestation failed: ${error.message}`
+    );
+    failure.committed = true;
+    throw failure;
+  }
+  return { path: path.resolve(projectRoot, relativePath), ...state };
 }
 
 function writeProjectJsonAtomic(root, relativePath, value, options = {}) {
@@ -94,7 +108,12 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     if (options.replace === false) fs.unlinkSync(temporary);
     fs.closeSync(descriptor);
     descriptor = undefined;
-    fsyncDirectory();
+    const durability = fsyncDirectory();
+    return {
+      committed: true,
+      directory_synced: durability.synced,
+      ...(durability.errorCode ? { directory_sync_error: durability.errorCode } : {}),
+    };
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
     fs.rmSync(temporary, { force: true });
@@ -123,14 +142,25 @@ function enterDirectory(component, mode) {
 
 function fsyncDirectory() {
   let descriptor;
+  let outcome = { synced: false, errorCode: "UNKNOWN" };
   try {
     descriptor = fs.openSync(".", fs.constants.O_RDONLY);
     fs.fsyncSync(descriptor);
+    outcome = { synced: true };
   } catch (error) {
-    if (!new Set(["EINVAL", "ENOTSUP", "EBADF"]).has(error.code)) throw error;
+    // The file and rename are already durable at the file-descriptor level.
+    // Directory fsync support varies by platform, so surface its durability
+    // state without converting a completed commit into a retryable failure.
+    outcome = { synced: false, errorCode: error.code || "UNKNOWN" };
   } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (descriptor !== undefined)
+      try {
+        fs.closeSync(descriptor);
+      } catch (error) {
+        outcome = { synced: false, errorCode: error.code || "UNKNOWN" };
+      }
   }
+  return outcome;
 }
 
 function validateRelative(relativePath) {
@@ -149,13 +179,14 @@ function childMain(argv) {
       argv;
     if (!new Set(["replace", "exclusive"]).has(policy)) throw new Error("invalid write policy");
     const content = fs.readFileSync(0);
-    writeFromAnchoredRoot(relativePath, content, {
+    const state = writeFromAnchoredRoot(relativePath, content, {
       fileMode: Number(fileMode),
       directoryMode: Number(directoryMode),
       replace: policy === "replace",
       expectedRootDev,
       expectedRootIno,
     });
+    process.stdout.write(`${JSON.stringify(state)}\n`);
     return 0;
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
@@ -166,7 +197,6 @@ function childMain(argv) {
 if (require.main === module) process.exitCode = childMain(process.argv.slice(2));
 
 module.exports = {
-  writeFromAnchoredRoot,
   writeProjectFileAtomic,
   writeProjectJsonAtomic,
   writeProjectTextAtomic,
