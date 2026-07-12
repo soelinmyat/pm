@@ -404,6 +404,24 @@ test("quoted git -C paths remain one shell word", () => {
   }
 });
 
+test("repeated git -C options compose relative to the preceding directory", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-repeated-git-c-"));
+  const first = path.join(parent, "first");
+  const gated = path.join(parent, "gated");
+  try {
+    fs.mkdirSync(first);
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    assertBlock(
+      runHook("git -C first -C ../gated push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("cd <dir> && git push form is detected and gated against that repo", () => {
   const repo = makeRepo();
   const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-cwd2-"));
@@ -831,6 +849,21 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
       runHook("env FOO=bar git push origin HEAD", { cwd: dir }),
       /verification is failed/
     );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dynamic push-option payloads do not obscure a static push identity", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    for (const command of [
+      "git push -o trace=$TRACE origin HEAD",
+      "git push --push-option=$TRACE origin HEAD",
+      "git push --receive-pack $RECEIVE origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
