@@ -225,22 +225,22 @@ function validateReviewReportArtifact(
     issues.push(issue(manifestPath, "review-report-v1 requires sibling review/report.json"));
     return;
   }
-  let retainedReport = null;
-  try {
-    retainedReport = JSON.parse(
-      readRegularProjectFile(reportPath, artifactRoot, MAX_JSON_BYTES).bytes.toString("utf8")
+  const expectedRenderManifest = path.join(path.dirname(htmlPath), "renders", "manifest.json");
+  const resolvedRenderManifest = resolveArtifactPath(reviewGate.render_manifest, artifactRoot);
+  const renderBindingValid =
+    resolvedRenderManifest &&
+    path.resolve(resolvedRenderManifest) === path.resolve(expectedRenderManifest) &&
+    /^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || "");
+  if (
+    !resolvedRenderManifest ||
+    path.resolve(resolvedRenderManifest) !== path.resolve(expectedRenderManifest)
+  )
+    issues.push(
+      issue(manifestPath, "review-report-v1 requires render_manifest review/renders/manifest.json")
     );
-  } catch {
-    // The canonical Review checker below reports the authoritative parse error.
-  }
-  validateReviewRenderManifest(
-    reviewGate,
-    htmlPath,
-    artifactRoot,
-    manifestPath,
-    retainedReport,
-    issues
-  );
+  else if (!/^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || ""))
+    issues.push(issue(manifestPath, "review-report-v1 requires render_manifest_sha256"));
+  let renderValidated = false;
   try {
     const root = path.resolve(artifactRoot || process.cwd());
     const relative = path.relative(root, reportPath).split(path.sep).join("/");
@@ -255,6 +255,17 @@ function validateReviewReportArtifact(
         verifyBrowser: false,
       })
     );
+    if (renderBindingValid) {
+      validateReviewRenderManifest(
+        reviewGate,
+        htmlPath,
+        artifactRoot,
+        manifestPath,
+        result.report,
+        issues
+      );
+      renderValidated = true;
+    }
     if (!result.ok)
       issues.push(
         issue(
@@ -303,6 +314,8 @@ function validateReviewReportArtifact(
         issue(manifestPath, "review target base must equal the authoritative delivery base")
       );
   } catch (error) {
+    if (renderBindingValid && !renderValidated)
+      validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, null, issues);
     issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
   }
 }
@@ -415,30 +428,18 @@ function validateReviewRenderManifest(
     );
   if (!Array.isArray(value.markers)) {
     issues.push(issue(manifestPath, "review render manifest requires browser marker evidence"));
-  } else if (reviewMarkerReport(report)) {
-    const markerIssues = [];
-    require("./review-check").validateRenderedReportMarkers(value.markers, report, markerIssues);
-    for (const markerIssue of markerIssues)
-      issues.push(
-        issue(manifestPath, `retained browser marker evidence failed: ${markerIssue.message}`)
-      );
+  } else if (report) {
+    try {
+      const markerIssues = [];
+      require("./review-check").validateRenderedReportMarkers(value.markers, report, markerIssues);
+      for (const markerIssue of markerIssues)
+        issues.push(
+          issue(manifestPath, `retained browser marker evidence failed: ${markerIssue.message}`)
+        );
+    } catch (error) {
+      issues.push(issue(manifestPath, `retained browser marker evidence failed: ${error.message}`));
+    }
   }
-}
-
-function reviewMarkerReport(report) {
-  return (
-    report &&
-    typeof report.outcome === "string" &&
-    Number.isInteger(report.review_round) &&
-    Array.isArray(report.blockers) &&
-    Array.isArray(report.coverage?.required) &&
-    Array.isArray(report.coverage?.completed) &&
-    typeof report.source?.commit === "string" &&
-    typeof report.source?.base_ref === "string" &&
-    typeof report.source?.base_commit === "string" &&
-    typeof report.top_issue === "string" &&
-    typeof report.next_action === "string"
-  );
 }
 
 function validateRenderedFile(

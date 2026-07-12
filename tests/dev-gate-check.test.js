@@ -291,6 +291,10 @@ test("canonical Dev routing binds the Review target mode and exact completed len
   const originalCheck = reviewModule.checkReview;
   const originalExpand = reviewModule.expandFromReport;
   reviewModule.expandFromReport = (options) => options;
+  let checkedReport = {
+    ...reviewReportForMarkers({ coverage: lenses }),
+    target: { path: ".pm/dev-sessions/example/review/target.json" },
+  };
   reviewModule.checkReview = () => ({
     ok: true,
     issues: [],
@@ -299,10 +303,7 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       source: { base_ref: "origin/main", base_commit: "base123" },
       dev_context: devReviewContext(routedSession),
     },
-    report: {
-      ...reviewReportForMarkers({ coverage: lenses }),
-      target: { path: ".pm/dev-sessions/example/review/target.json" },
-    },
+    report: checkedReport,
   });
   const row = gate("review", "abc123", {
     artifact: ".pm/dev-sessions/example/review/report.html",
@@ -429,10 +430,30 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     assert.equal(foreign.ok, false);
     assert.match(JSON.stringify(foreign.issues), /must belong to the canonical Dev session/);
 
-    fs.writeFileSync(
-      path.join(reviewDir, "report.json"),
-      `${JSON.stringify(reviewReportForMarkers({ coverage: lenses }))}\n`
+    checkedReport = { ...checkedReport, findings: [{ evidence: {} }] };
+    const malformedProjection = checkGateManifest(
+      manifest([row], { run_id: routedSession.run_id }),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        canonicalSession: routedSession,
+        requireSessionBinding: true,
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: "base123",
+      }
     );
+    assert.equal(malformedProjection.ok, false);
+    assert.match(
+      JSON.stringify(malformedProjection.issues),
+      /retained browser marker evidence failed/
+    );
+    checkedReport = {
+      ...reviewReportForMarkers({ coverage: lenses }),
+      target: { path: ".pm/dev-sessions/example/review/target.json" },
+    };
+
     const manifestFile = path.join(root, render.path);
     const hiddenMarkers = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
     hiddenMarkers.markers.find((marker) => marker.attributes["data-review-source-sha256"]).visible =
