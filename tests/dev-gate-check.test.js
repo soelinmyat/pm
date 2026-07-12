@@ -203,9 +203,10 @@ test("review enforcement rejects legacy-shaped passed rows while inspection rema
   assert.equal(inspected.ok, true, JSON.stringify(inspected.issues, null, 2));
 });
 
-test("gate-time canonical review validation authenticates frozen Git without browser or live-tree checks", () => {
+test("nested canonical review rows resolve project-relative evidence from the project root", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-gate-options-"));
-  const reviewDir = path.join(root, "review");
+  const sessionDir = path.join(root, ".pm", "dev-sessions", "example");
+  const reviewDir = path.join(sessionDir, "review");
   fs.mkdirSync(reviewDir, { recursive: true });
   fs.writeFileSync(path.join(reviewDir, "report.html"), "<!doctype html><title>Review</title>");
   fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
@@ -228,7 +229,7 @@ test("gate-time canonical review validation authenticates frozen Git without bro
     const result = checkGateManifest(
       manifest([
         gate("review", "abc123", {
-          artifact: "review/report.html",
+          artifact: ".pm/dev-sessions/example/review/report.html",
           evidence_kind: "review-report-v1",
           render_manifest: render.path,
           render_manifest_sha256: render.sha256,
@@ -245,6 +246,8 @@ test("gate-time canonical review validation authenticates frozen Git without bro
     assert.equal(received.verifyGit, false);
     assert.equal(received.verifyFrozenGit, true);
     assert.equal(received.verifyBrowser, false);
+    assert.equal(received.root, root);
+    assert.equal(received.reportPath, ".pm/dev-sessions/example/review/report.json");
   } finally {
     reviewModule.checkReview = originalCheck;
     reviewModule.expandFromReport = originalExpand;

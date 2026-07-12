@@ -423,6 +423,10 @@ function verifyDocumentArtifact(runDir, artifact) {
 }
 
 function verifyCommittedGateSidecar(workspace, options = {}) {
+  return verifyCommittedGateSidecarWithChecker(workspace, options, checkGateManifest);
+}
+
+function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) {
   let actualHead;
   try {
     actualHead = runGit(["rev-parse", "HEAD"], workspace, { timeout: 30_000 });
@@ -522,11 +526,12 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
       if (!artifactRead.ok) return artifactRead;
     }
   }
-  const checked = checkGateManifest(manifest, {
+  const checked = gateChecker(manifest, {
     currentCommit: options.expectedHeadOid,
     manifestPath,
     artifactRoot: workspace,
     changedFiles,
+    reviewEvidenceMode: "enforce",
   });
   if (!checked.ok) {
     return {
@@ -554,4 +559,5 @@ module.exports = {
   verifyCommittedGateSidecar,
   verifyDocumentArtifact,
   writeStageResult,
+  __test: { verifyCommittedGateSidecarWithChecker },
 };

@@ -16,10 +16,17 @@ const {
   verifyCommittedGateSidecar,
   verifyDocumentArtifact,
   writeStageResult,
+  __test,
 } = require("../scripts/loop-result.js");
 
 const RUN_ID = "loop-123e4567-e89b-42d3-a456-426614174000";
 const CONTEXT = { runId: RUN_ID, cardId: "PM-108", stage: "dev" };
+
+function checkedGateFixture(manifest, options) {
+  assert.ok(Array.isArray(manifest.gates));
+  assert.equal(options.reviewEvidenceMode, "enforce");
+  return { ok: true, issues: [] };
+}
 
 function tmpDir(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-result-"));
@@ -356,11 +363,15 @@ function makeGateFixture(t, { protectedChange = false, stale = false } = {}) {
 
 test("gate verification pins the sidecar to expected source HEAD and rejects protected source paths", (t) => {
   const fixture = makeGateFixture(t);
-  const verified = verifyCommittedGateSidecar(fixture.root, {
-    expectedHeadOid: fixture.headOid,
-    expectedHead: "loop/pm-108",
-    baseRef: fixture.baseOid,
-  });
+  const verified = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+    },
+    checkedGateFixture
+  );
   assert.equal(verified.ok, true, JSON.stringify(verified));
   assert.deepEqual(verified.changedFiles, ["scripts/change.js"]);
 
@@ -380,13 +391,29 @@ test("gate verification uses a flat legacy sidecar only without a canonical sess
   fs.renameSync(fixture.manifestPath, legacyPath);
   fs.rmdirSync(path.dirname(fixture.manifestPath));
 
+  const checked = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+    },
+    checkedGateFixture
+  );
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  assert.equal(checked.manifestPath, legacyPath);
+});
+
+test("delivery verification rejects a legacy-shaped Review row", (t) => {
+  const fixture = makeGateFixture(t);
   const checked = verifyCommittedGateSidecar(fixture.root, {
     expectedHeadOid: fixture.headOid,
     expectedHead: "loop/pm-108",
     baseRef: fixture.baseOid,
   });
-  assert.equal(checked.ok, true, JSON.stringify(checked));
-  assert.equal(checked.manifestPath, legacyPath);
+  assert.equal(checked.ok, false);
+  assert.equal(checked.code, "gate-verification-failed");
+  assert.match(checked.reason, /requires evidence_kind review-report-v1 in enforcement mode/);
 });
 
 test("gate verification rejects stale, missing, symlinked, and wrong-HEAD evidence", (t) => {

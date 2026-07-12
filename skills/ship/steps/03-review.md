@@ -14,7 +14,7 @@ The review gate is the last quality check before code leaves your machine. Bugs 
 
 ### Skip check
 
-**Verify review ran (standalone invocation guard):** Resolve the branch sidecar and its `review` row. The row must be `passed`, equal current HEAD, and point to `review/report.html`. Read sibling `review/report.json`, then run `node "$PM_PLUGIN_ROOT/scripts/review-check.js" --root "$PWD" --report "{REPORT_PATH}" --from-report`. Only a passing current check may skip a new review. Log: "Review gate already passed with current checked evidence — skipping."
+**Verify review ran (standalone invocation guard):** Resolve the branch sidecar and its `review` row. The row must be `passed`, equal current HEAD, and point to project-relative `.pm/dev-sessions/{slug}/review/report.html`. Read sibling `review/report.json`, then run `node "$PM_PLUGIN_ROOT/scripts/review-check.js" --root "$PWD" --report "{REPORT_PATH}" --from-report`. Only a passing current check may skip a new review. Log: "Review gate already passed with current checked evidence — skipping."
 
 If the row, report, any bound result, current SHA, remote base, diff, or browser-checked HTML fails, the state is stale — do NOT skip. Re-run Review so what ships is what was reviewed.
 

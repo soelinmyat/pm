@@ -132,6 +132,23 @@ test("malformed runs values return structured issues instead of throwing", () =>
   }
 });
 
+test("malformed comparison roots return structured issues instead of throwing", () => {
+  for (const [label, comparison] of [
+    ["null", null],
+    ["array", []],
+    ["string", "not-an-object"],
+    ["number", 42],
+  ]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-review-comparison-${label}-`));
+    const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
+    write(root, comparisonPath, comparison);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    assert.deepEqual(result.computed_metrics, null, label);
+    assert.match(JSON.stringify(result.issues), /comparison must be a non-array object/, label);
+  }
+});
+
 function snapshotDrafts(root, runs) {
   return runs.flatMap((run) => {
     const roundRoot = path.posix.dirname(run.target.path);

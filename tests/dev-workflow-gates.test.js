@@ -91,6 +91,7 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(contract, /deterministic identity/);
   const devDesign = read("skills/dev/steps/06-design-critique.md");
@@ -107,10 +108,15 @@ test("review skip requires a current checked report and gate row", () => {
   const ship = read("skills/ship/steps/03-review.md");
   const publish = read("skills/review/steps/05-publish.md");
   assert.match(skill, /checked `report\.json` and gate row already pass current validation/);
-  assert.match(ship, /review\/report\.html/);
+  assert.match(ship, /\.pm\/dev-sessions\/\{slug\}\/review\/report\.html/);
   assert.match(ship, /review\/report\.json/);
   assert.match(ship, /review-check\.js/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.match(publish, /artifact `\.pm\/dev-sessions\/\{slug\}\/review\/report\.html`/);
+  assert.match(
+    publish,
+    /render_manifest: `?\.pm\/dev-sessions\/\{slug\}\/review\/renders\/manifest\.json`?/
+  );
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(ship, /--from-report/);
   assert.match(ship, /do NOT skip/);

@@ -18,6 +18,12 @@ function checkReviewRepeats(root, comparisonPath) {
   const projectRoot = fs.realpathSync(path.resolve(root));
   const comparison = readJson(projectRoot, comparisonPath);
   const issues = [];
+  if (!object(comparison))
+    return {
+      ok: false,
+      issues: ["comparison must be a non-array object"],
+      computed_metrics: null,
+    };
   if (comparison.schema_version !== 1) issues.push("schema_version must equal 1");
   const runs = Array.isArray(comparison.runs) ? comparison.runs : [];
   if (runs.length !== 3) issues.push("runs must contain exactly three independent Review runs");
