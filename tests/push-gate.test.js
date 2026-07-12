@@ -675,6 +675,20 @@ test("compound pushes resolve each relative cd from the current shell directory"
   }
 });
 
+test("pipeline and background directory changes do not leak into the following push", () => {
+  const outer = makeRepo();
+  const gated = path.join(outer, "gated");
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(outer, "x");
+    for (const command of ["cd gated | git push origin HEAD", "cd gated & git push origin HEAD"])
+      assertBlock(runHook(command, { cwd: outer }), /verification is failed/);
+  } finally {
+    fs.rmSync(outer, { recursive: true, force: true });
+  }
+});
+
 test("conditional cd branches cannot redirect gate inspection away from the pushed repo", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-conditional-cd-"));
   const gated = path.join(parent, "gated");
@@ -927,6 +941,14 @@ test("cwd-changing wrapper options gate the effective repository", () => {
       "sudo -nDgated git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+    const literal = path.join(parent, "repo$archive");
+    fs.mkdirSync(literal);
+    makeRepoAt(literal);
+    writeFailingGates(literal, "x");
+    assertBlock(
+      runHook("env -C 'repo$archive' git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
     assertBlock(
       runHook("env -P /usr/bin git push origin HEAD", { cwd: gated }),
       /verification is failed/

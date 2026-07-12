@@ -170,7 +170,6 @@ function parseSegment(segment, depth = 0) {
             (wrapper === "sudo" && (option === "-D" || option === "--chdir")))
         ) {
           if (value === undefined) return null;
-          if (/[\\'"$`]/.test(value)) return indeterminatePush(wrapperDir);
           wrapperDir = composeGitDirectory(wrapperDir, value);
           wrapperDynamic ||= shellWords[valueIndex]?.dynamic === true;
         }
@@ -453,8 +452,20 @@ function detectGitPushes(command, baseCwd) {
   };
 
   for (const shellToken of scanShellTokens(joined)) {
+    const statesBeforeSegment = states.map((state) => ({ ...state }));
     visit(joined.slice(cursor, shellToken.index));
     const token = shellToken.value;
+    if (token === "|" || token === "&") {
+      states = dedupeShellStates(
+        statesBeforeSegment.flatMap((state) => [
+          { cwd: state.cwd, succeeded: true },
+          { cwd: state.cwd, succeeded: false },
+        ])
+      );
+      operator = token;
+      cursor = shellToken.end;
+      continue;
+    }
     if (token === "(") {
       const { executes, skips } = partitionShellStates(states, operator);
       subshells.push({ executes, skips });
