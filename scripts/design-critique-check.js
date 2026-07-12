@@ -1010,30 +1010,68 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
 
 function validateRenderedMarkers(markers, report, issues) {
   const expected = [
-    { "data-dc-outcome": report.outcome },
-    { "data-dc-coverage": String(report.coverage?.percent) },
-    { "data-dc-top-issue-sha256": digest(Buffer.from(report.top_issue || "")) },
-    { "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")) },
+    {
+      attributes: { "data-dc-outcome": report.outcome },
+      exactText: report.outcome,
+      firstScreen: true,
+    },
+    {
+      attributes: { "data-dc-coverage": String(report.coverage?.percent) },
+      requiredText: [`${report.coverage?.percent}%`],
+      firstScreen: true,
+    },
+    {
+      attributes: {
+        "data-dc-top-issue-sha256": digest(Buffer.from(report.top_issue || "")),
+      },
+      requiredText: [report.top_issue],
+      firstScreen: true,
+    },
+    {
+      attributes: {
+        "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")),
+      },
+      requiredText: [report.next_action],
+      firstScreen: true,
+    },
     ...Object.entries(report.scores || {}).map(([key, score]) => ({
-      "data-dc-score-key": key,
-      "data-dc-score-value": String(score.value),
+      attributes: {
+        "data-dc-score-key": key,
+        "data-dc-score-value": String(score.value),
+      },
+      requiredText: [score.rationale],
     })),
     ...(report.findings || []).map((finding) => ({
-      "data-dc-finding-id": finding.id,
-      "data-dc-finding-priority": finding.priority,
-      "data-dc-finding-status": finding.status,
-      "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
+      attributes: {
+        "data-dc-finding-id": finding.id,
+        "data-dc-finding-priority": finding.priority,
+        "data-dc-finding-status": finding.status,
+        "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
+      },
+      requiredText: [finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids],
     })),
   ];
-  for (const attributes of expected) {
+  for (const item of expected) {
+    const { attributes } = item;
     const matches = markers.filter((marker) =>
       Object.entries(attributes).every(([name, value]) => marker.attributes?.[name] === value)
     );
-    if (matches.length !== 1 || matches[0].visible !== true || !text(matches[0].text))
+    const renderedText = normalizeVisible(matches[0]?.text || "");
+    const textMatches = item.exactText
+      ? renderedText.toLowerCase() === normalizeVisible(item.exactText).toLowerCase()
+      : (item.requiredText || []).every((value) =>
+          renderedText.includes(normalizeVisible(value || ""))
+        );
+    if (
+      matches.length !== 1 ||
+      matches[0].visible !== true ||
+      (item.firstScreen && matches[0].inViewport !== true) ||
+      !textMatches
+    )
       add(
         issues,
         "report.human_report",
-        `rendered marker ${JSON.stringify(attributes)} must exist exactly once and be visible`
+        `rendered marker ${JSON.stringify(attributes)} must exist exactly once with matching visible text${item.firstScreen ? " in the first screenful" : ""}`
       );
   }
 }

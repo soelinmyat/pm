@@ -410,6 +410,7 @@ function renderedMarkers(report, hidden = () => false) {
     attributes,
     text,
     visible: !hidden(attributes),
+    inViewport: true,
   }));
 }
 
@@ -717,9 +718,63 @@ for (const [name, wrapper] of [
         renderedMarkers(fixture.report, (attributes) => attributes["data-dc-outcome"] === "passed"),
     });
     assert.equal(result.ok, false);
-    assert.match(JSON.stringify(result.issues), /must exist exactly once and be visible/);
+    assert.match(
+      JSON.stringify(result.issues),
+      /must exist exactly once with matching visible text/
+    );
   });
 }
+
+test("rejects a marker whose JSON-bound text is hidden behind visible filler", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const marker = `<p data-dc-next-action-sha256="${digest(Buffer.from(fixture.report.next_action))}">${fixture.report.next_action}</p>`;
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("</style>", "[data-hide]{display:none}</style>")
+      .replace(
+        marker,
+        marker.replace(
+          fixture.report.next_action,
+          `<span data-hide>${fixture.report.next_action}</span><span>Proceed</span>`
+        )
+      )
+  );
+  const markers = renderedMarkers(fixture.report);
+  markers.find((item) => item.attributes["data-dc-next-action-sha256"]).text = "Proceed";
+  const result = check(fixture, COMMIT, {
+    verifyBrowser: true,
+    markerProbe: () => markers,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /matching visible text in the first screenful/);
+});
+
+test("rejects a summary marker outside the first screenful", () => {
+  const fixture = makeFixture();
+  const markers = renderedMarkers(fixture.report);
+  markers.find((item) => item.attributes["data-dc-top-issue-sha256"]).inViewport = false;
+  const result = check(fixture, COMMIT, {
+    verifyBrowser: true,
+    markerProbe: () => markers,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /matching visible text in the first screenful/);
+});
+
+test("rejects a marker clipped by an overflow ancestor", () => {
+  const fixture = makeFixture();
+  const markers = renderedMarkers(fixture.report);
+  markers.find((item) => item.attributes["data-dc-score-key"] === "hierarchy").visible = false;
+  const result = check(fixture, COMMIT, {
+    verifyBrowser: true,
+    markerProbe: () => markers,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /matching visible text/);
+});
 
 test("rejects failed outcome without a blocking design finding or reason", () => {
   const fixture = makeFixture();

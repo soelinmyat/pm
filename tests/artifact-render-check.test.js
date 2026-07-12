@@ -8,6 +8,7 @@ const path = require("node:path");
 
 const {
   VIEWPORTS,
+  browserCandidates,
   findClosingBodyIndex,
   probeDataMarkerVisibility,
   renderArtifact,
@@ -35,7 +36,7 @@ if (dump) {
   const markerId = probe.match(/marker[.]id="([^"]+)"/)[1];
   const width = Number(process.argv.find((arg) => arg.startsWith("--window-size=")).split("=")[1].split(",")[0]);
   const metrics = probe.includes("pm-data-marker-visibility")
-    ? [{attributes:{"data-dc-outcome":"passed"},text:"passed",visible:false}]
+    ? [{attributes:{"data-dc-outcome":"passed"},text:"passed",visible:false,inViewport:false}]
     : {innerWidth:width,clientWidth:width-15,scrollWidth:width-15,documentHeight:2400,bodyText:500,mainVisible:true,h1Visible:true,anchorCount:4,horizontalOverflow:false};
   process.stdout.write('<html><head><meta id="' + markerId + '" data-json="' + encodeURIComponent(JSON.stringify(metrics)) + '"></head></html>');
 }
@@ -162,11 +163,31 @@ test("browser marker probe reports computed visibility instead of trusting marku
       '<!doctype html><style>[data-dc-outcome]{display:none}</style><details><p data-dc-outcome="passed">passed</p></details>'
     );
     assert.deepEqual(probeDataMarkerVisibility(fakeBrowser(root), htmlPath, root), [
-      { attributes: { "data-dc-outcome": "passed" }, text: "passed", visible: false },
+      {
+        attributes: { "data-dc-outcome": "passed" },
+        text: "passed",
+        visible: false,
+        inViewport: false,
+      },
     ]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("browser candidates include standard Windows Chrome, Chromium, and Edge installs", () => {
+  const candidates = browserCandidates("win32", {
+    LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+    PROGRAMFILES: "C:\\Program Files",
+    "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+  });
+  assert.ok(
+    candidates.some((candidate) => candidate.endsWith("Google/Chrome/Application/chrome.exe"))
+  );
+  assert.ok(candidates.some((candidate) => candidate.endsWith("Chromium/Application/chrome.exe")));
+  assert.ok(
+    candidates.some((candidate) => candidate.endsWith("Microsoft/Edge/Application/msedge.exe"))
+  );
 });
 
 test("render probe finds the body close outside JSON raw text and trailing comments", () => {

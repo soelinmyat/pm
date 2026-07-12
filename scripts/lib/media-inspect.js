@@ -126,7 +126,8 @@ function inspectPdfBytes(bytes) {
   if (!Number.isSafeInteger(xrefOffset) || text.slice(xrefOffset, xrefOffset + 4) !== "xref")
     throw new Error("invalid PDF xref offset");
   const { entries, trailer } = parseXref(text, xrefOffset);
-  const rootRef = trailer.match(/\/Root\s+(\d+)\s+(\d+)\s+R/);
+  const trailerDictionary = extractDictionary(trailer, 0, "trailer");
+  const rootRef = trailerDictionary.match(/\/Root\s+(\d+)\s+(\d+)\s+R/);
   if (!rootRef) throw new Error("PDF trailer Root is required");
   const objects = new Map();
   for (const entry of entries.filter((item) => item.inUse)) {
@@ -137,7 +138,7 @@ function inspectPdfBytes(bytes) {
     if (end < 0) throw new Error(`PDF object ${entry.object} is unterminated`);
     objects.set(`${entry.object}:${entry.generation}`, source.slice(0, end + 6));
   }
-  const root = resolveObject(objects, rootRef[1], rootRef[2], "Root");
+  const root = objectDictionary(resolveObject(objects, rootRef[1], rootRef[2], "Root"), "Root");
   if (!/\/Type\s*\/Catalog\b/.test(root)) throw new Error("PDF Root is not a Catalog");
   const pagesRef = root.match(/\/Pages\s+(\d+)\s+(\d+)\s+R/);
   if (!pagesRef) throw new Error("PDF Catalog Pages is required");
@@ -180,7 +181,7 @@ function walkPages(objects, object, generation, visited) {
   const key = `${object}:${generation}`;
   if (visited.has(key)) throw new Error("PDF page tree cycle");
   visited.add(key);
-  const source = resolveObject(objects, object, generation, "Pages");
+  const source = objectDictionary(resolveObject(objects, object, generation, "Pages"), "Pages");
   if (/\/Type\s*\/Page\b/.test(source)) return 1;
   if (!/\/Type\s*\/Pages\b/.test(source)) throw new Error("PDF page tree node is invalid");
   const count = Number(source.match(/\/Count\s+(\d+)/)?.[1]);
@@ -190,6 +191,85 @@ function walkPages(objects, object, generation, visited) {
   const actual = refs.reduce((sum, ref) => sum + walkPages(objects, ref[1], ref[2], visited), 0);
   if (actual !== count) throw new Error("PDF page tree Count does not match Kids");
   return actual;
+}
+
+function objectDictionary(source, label) {
+  const objectStart = source.match(/^\d+\s+\d+\s+obj\b/)?.[0].length;
+  if (!objectStart) throw new Error(`PDF ${label} object header is invalid`);
+  return extractDictionary(source, objectStart, `${label} object`);
+}
+
+function extractDictionary(source, start, label) {
+  let cursor = skipPdfSpaceAndComments(source, start);
+  if (!source.startsWith("<<", cursor)) throw new Error(`PDF ${label} dictionary is required`);
+  const begin = cursor;
+  let depth = 0;
+  let literalDepth = 0;
+  let escaped = false;
+  let hexString = false;
+  while (cursor < source.length) {
+    const char = source[cursor];
+    const next = source[cursor + 1];
+    if (literalDepth > 0) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === "(") literalDepth += 1;
+      else if (char === ")") literalDepth -= 1;
+      cursor += 1;
+      continue;
+    }
+    if (hexString) {
+      if (char === ">") hexString = false;
+      cursor += 1;
+      continue;
+    }
+    if (char === "%") {
+      const lineEnd = source.indexOf("\n", cursor + 1);
+      cursor = lineEnd < 0 ? source.length : lineEnd + 1;
+      continue;
+    }
+    if (char === "(") {
+      literalDepth = 1;
+      cursor += 1;
+      continue;
+    }
+    if (char === "<" && next !== "<") {
+      hexString = true;
+      cursor += 1;
+      continue;
+    }
+    if (char === "<" && next === "<") {
+      depth += 1;
+      cursor += 2;
+      continue;
+    }
+    if (char === ">" && next === ">") {
+      depth -= 1;
+      cursor += 2;
+      if (depth === 0) return source.slice(begin, cursor);
+      if (depth < 0) break;
+      continue;
+    }
+    cursor += 1;
+  }
+  throw new Error(`PDF ${label} dictionary is unterminated`);
+}
+
+function skipPdfSpaceAndComments(source, start) {
+  let cursor = start;
+  while (cursor < source.length) {
+    if (/\s/.test(source[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    if (source[cursor] === "%") {
+      const lineEnd = source.indexOf("\n", cursor + 1);
+      cursor = lineEnd < 0 ? source.length : lineEnd + 1;
+      continue;
+    }
+    break;
+  }
+  return cursor;
 }
 
 function resolveObject(objects, object, generation, label) {

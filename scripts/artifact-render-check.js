@@ -167,7 +167,33 @@ function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
 function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirname(htmlPath)) {
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
-  const probe = `<script>(()=>{const visible=(element)=>{if(!element)return false;let node=element;while(node&&node.nodeType===1){const style=getComputedStyle(node);if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||Number(style.opacity)===0)return false;node=node.parentElement}const rects=element.getClientRects();return rects.length>0&&Array.from(rects).some((rect)=>rect.width>0&&rect.height>0)};const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),text:(element.innerText||"").replace(/\\s+/g," ").trim(),visible:visible(element)}));const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)})();</script>`;
+  const probe = `<script>(()=>{
+    const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;
+    const visibility=(element)=>{
+      if(!element)return {visible:false,inViewport:false};
+      let rects=Array.from(element.getClientRects()).filter((rect)=>rect.width>0&&rect.height>0);
+      if(rects.length===0)return {visible:false,inViewport:false};
+      let node=element;
+      while(node&&node.nodeType===1){
+        const style=getComputedStyle(node);
+        if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||Number(style.opacity)===0)return {visible:false,inViewport:false};
+        if(node!==element){
+          const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);
+          const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);
+          if(clipsX||clipsY){
+            const clip=node.getBoundingClientRect();
+            rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);
+            if(rects.length===0)return {visible:false,inViewport:false};
+          }
+        }
+        node=node.parentElement;
+      }
+      const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};
+      return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))};
+    };
+    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),text:(element.innerText||"").replace(/\\s+/g," ").trim(),...visibility(element)}));
+    const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)
+  })();</script>`;
   const bodyClose = findClosingBodyIndex(source);
   const instrumented =
     bodyClose >= 0
@@ -305,14 +331,7 @@ function resolveBrowser(explicit) {
     if (fs.existsSync(explicit) && fs.statSync(explicit).isFile()) return explicit;
     throw new Error(`configured Chromium browser does not exist: ${explicit}`);
   }
-  const candidates = [
-    process.env.PM_ARTIFACT_BROWSER,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ].filter(Boolean);
+  const candidates = browserCandidates(process.platform, process.env);
   const found = candidates.find(
     (candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()
   );
@@ -320,6 +339,32 @@ function resolveBrowser(explicit) {
     throw new Error("no Chromium browser found; pass --browser or set PM_ARTIFACT_BROWSER");
   }
   return found;
+}
+
+function browserCandidates(platform = process.platform, env = process.env) {
+  const candidates = [env.PM_ARTIFACT_BROWSER];
+  if (platform === "win32") {
+    for (const root of [env.LOCALAPPDATA, env.PROGRAMFILES, env["PROGRAMFILES(X86)"]].filter(
+      Boolean
+    )) {
+      candidates.push(
+        path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
+        path.join(root, "Chromium", "Application", "chrome.exe"),
+        path.join(root, "Microsoft", "Edge", "Application", "msedge.exe")
+      );
+    }
+  } else {
+    candidates.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/usr/bin/google-chrome",
+      "/usr/bin/microsoft-edge",
+      "/usr/bin/chromium",
+      "/usr/bin/chromium-browser"
+    );
+  }
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function digestFile(filePath) {
@@ -358,6 +403,7 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   VIEWPORTS,
+  browserCandidates,
   captureMetrics,
   findClosingBodyIndex,
   inspectPdf,
