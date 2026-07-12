@@ -907,6 +907,7 @@ test("verifies the frozen git diff hash when enabled", () => {
     commit,
     baseRef: "origin/main",
     baseCommit: base,
+    verifyBrowser: false,
   });
   assert.deepEqual(result, { ok: true, issues: [] });
   assert.match(
@@ -919,6 +920,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         commit: base,
         baseRef: "origin/main",
         baseCommit: base,
+        verifyBrowser: false,
       }).issues
     ),
     /supplied commit must equal current HEAD/
@@ -933,6 +935,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         commit,
         baseRef: commit,
         baseCommit: commit,
+        verifyBrowser: false,
       }).issues
     ),
     /supplied base must equal remote default origin\/main/
@@ -949,6 +952,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         commit,
         baseRef: "origin/main",
         baseCommit: base,
+        verifyBrowser: false,
       }).issues
     ),
     /does not match the frozen git diff bytes/

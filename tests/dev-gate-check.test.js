@@ -287,6 +287,7 @@ test("canonical Dev routing binds the Review target mode and exact completed len
   reviewModule.checkReview = () => ({
     ok: true,
     issues: [],
+    target: { mode: "code-scan" },
     report: {
       source: { commit: "abc123" },
       outcome: "passed",
@@ -310,6 +311,16 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       requireSessionBinding: true,
     });
     assert.equal(matching.ok, true, JSON.stringify(matching.issues));
+
+    fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "full" }));
+    const swappedPath = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+      requireSessionBinding: true,
+    });
+    assert.equal(swappedPath.ok, true, JSON.stringify(swappedPath.issues));
 
     const wrongMode = checkGateManifest(manifest([row], { run_id: "run-1" }), {
       artifactRoot: root,

@@ -197,6 +197,7 @@ function checkReview(options) {
     ok: issues.length === 0,
     issues,
     report,
+    target,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

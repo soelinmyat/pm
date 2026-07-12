@@ -257,14 +257,11 @@ function validateReviewReportArtifact(
     if (JSON.stringify(recorded) !== JSON.stringify(completed))
       issues.push(issue(manifestPath, "review row lenses must exactly match report coverage"));
     if (expectedReviewMode) {
-      const targetPath = resolveArtifactPath(result.report?.target?.path, artifactRoot);
-      const targetFile = readRegularProjectFile(targetPath, artifactRoot, 4 * 1024 * 1024);
-      const reviewTarget = JSON.parse(targetFile.bytes.toString("utf8"));
-      if (reviewTarget.mode !== expectedReviewMode)
+      if (result.target?.mode !== expectedReviewMode)
         issues.push(
           issue(
             manifestPath,
-            `review target mode ${reviewTarget.mode || "missing"} must equal routed ${expectedReviewMode}`
+            `review target mode ${result.target?.mode || "missing"} must equal routed ${expectedReviewMode}`
           )
         );
     }

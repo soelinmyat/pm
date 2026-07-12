@@ -237,7 +237,11 @@ test("browser marker probe reports computed visibility instead of trusting marku
 
 test(
   "real browser marker probe excludes offscreen and clipped descendant text",
-  { skip: !installedBrowser && "Chromium is not installed" },
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
   () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
     try {
