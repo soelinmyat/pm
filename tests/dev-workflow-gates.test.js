@@ -144,6 +144,12 @@ test("review treats PM plugin Markdown runtime files as reviewable source", () =
   assert.match(briefs, /PM plugin runtime Markdown is source/);
 });
 
+test("review report navigation wraps without narrow horizontal overflow", () => {
+  const template = read("references/templates/review-report.html");
+  assert.match(template, /@media\(max-width:720px\).*nav ul\{flex-wrap:wrap/);
+  assert.match(template, /\.lede\{[^}]*overflow-wrap:anywhere/);
+});
+
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
   const risk = read("skills/dev/references/risk-routing.md");
   const review = read("skills/dev/steps/08-review.md");
