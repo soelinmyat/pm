@@ -14,8 +14,8 @@ const {
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 
-test("review repeat comparison binds three complete independent result sets", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-repeats-"));
+test("review repeat comparison binds three complete independent result sets", (t) => {
+  const root = temporaryRoot(t, "pm-review-repeats-");
   const source = seedGit(root);
   const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) =>
     seedRun(root, runId, source)
@@ -113,13 +113,13 @@ test("consistency metrics are derived from checked report findings and outcomes"
   });
 });
 
-test("malformed runs values return structured issues instead of throwing", () => {
+test("malformed runs values return structured issues instead of throwing", (t) => {
   for (const [label, runs] of [
     ["null", null],
     ["object", { run_id: "not-an-array" }],
     ["string", "not-an-array"],
   ]) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-review-repeats-${label}-`));
+    const root = temporaryRoot(t, `pm-review-repeats-${label}-`);
     const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
     write(root, comparisonPath, { schema_version: 1, runs });
     const result = checkReviewRepeats(root, comparisonPath);
@@ -132,14 +132,14 @@ test("malformed runs values return structured issues instead of throwing", () =>
   }
 });
 
-test("malformed comparison roots return structured issues instead of throwing", () => {
+test("malformed comparison roots return structured issues instead of throwing", (t) => {
   for (const [label, comparison] of [
     ["null", null],
     ["array", []],
     ["string", "not-an-object"],
     ["number", 42],
   ]) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-review-comparison-${label}-`));
+    const root = temporaryRoot(t, `pm-review-comparison-${label}-`);
     const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
     write(root, comparisonPath, comparison);
     const result = checkReviewRepeats(root, comparisonPath);
@@ -176,8 +176,7 @@ test("bound review evidence fails closed for malformed values and object schemas
       },
     },
   ];
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-malformed-binding-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = temporaryRoot(t, "pm-review-malformed-binding-");
   const comparisonPath = seedComparison(root);
   const absoluteComparison = path.join(root, comparisonPath);
   const baselineComparisonBytes = fs.readFileSync(absoluteComparison);
@@ -257,7 +256,57 @@ test("bound review evidence fails closed for malformed values and object schemas
       label
     );
   }
+
+  for (const [label, member] of malformedValues) {
+    restore();
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    const targetBinding = comparison.runs[0].target;
+    const target = JSON.parse(fs.readFileSync(path.join(root, targetBinding.path), "utf8"));
+    target.allocation = [member];
+    replaceBoundValue((value) => value.runs[0].target, target);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, `allocation member ${label}`);
+    assert.match(
+      JSON.stringify(result.issues),
+      /runs\[0\]\.target allocation\[0\] requires a worker_id object/,
+      `allocation member ${label}`
+    );
+  }
+
+  for (const [label, member] of malformedValues) {
+    restore();
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    comparison.runs[1] = member;
+    fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, `run member ${label}`);
+    assert.match(
+      JSON.stringify(result.issues),
+      /runs\[1\] requires a kebab-case run_id/,
+      `run member ${label}`
+    );
+  }
+
+  for (const [label, member] of malformedValues) {
+    restore();
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    comparison.runs[0].results[0] = member;
+    fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, `result binding ${label}`);
+    assert.match(
+      JSON.stringify(result.issues),
+      /runs\[0\]\.results\[0\] requires path and SHA-256/,
+      `result binding ${label}`
+    );
+  }
 });
+
+function temporaryRoot(t, prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return root;
+}
 
 function seedComparison(root) {
   const source = seedGit(root);

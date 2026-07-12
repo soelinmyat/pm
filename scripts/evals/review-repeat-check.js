@@ -93,11 +93,25 @@ function checkReviewRepeats(root, comparisonPath) {
       issues.push(`${at}.results must exactly cover target allocation`);
       continue;
     }
-    const expectedWorkers = new Set(target.value.allocation.map((item) => item.worker_id));
+    const expectedWorkers = new Set();
+    let allocationValid = true;
+    for (const [allocationIndex, item] of target.value.allocation.entries()) {
+      if (!object(item) || !slug(item.worker_id)) {
+        issues.push(`${at}.target allocation[${allocationIndex}] requires a worker_id object`);
+        allocationValid = false;
+        continue;
+      }
+      expectedWorkers.add(item.worker_id);
+    }
+    if (!allocationValid) continue;
     const actualWorkers = new Set();
+    let resultsValid = true;
     for (const [resultIndex, binding] of run.results.entries()) {
       const result = readBinding(projectRoot, binding, `${at}.results[${resultIndex}]`, issues);
-      if (!result) continue;
+      if (!result) {
+        resultsValid = false;
+        continue;
+      }
       if (
         result.value.run_id !== run.run_id ||
         JSON.stringify(result.value.source) !== JSON.stringify(target.value.source) ||
@@ -112,29 +126,35 @@ function checkReviewRepeats(root, comparisonPath) {
       [...expectedWorkers].some((worker) => !actualWorkers.has(worker))
     )
       issues.push(`${at}.results do not match allocated workers`);
-    const checked = checkReview({
-      root: projectRoot,
-      targetPath: run.target.path,
-      resultPaths: run.results.map((item) => item.path),
-      verifyGit: false,
-      verifyFrozenGit: true,
-      verifyBrowser: false,
-      validateOnly: true,
-    });
-    if (!checked.ok)
+    if (!resultsValid) continue;
+    let checked = null;
+    try {
+      checked = checkReview({
+        root: projectRoot,
+        targetPath: run.target.path,
+        resultPaths: run.results.map((item) => item.path),
+        verifyGit: false,
+        verifyFrozenGit: true,
+        verifyBrowser: false,
+        validateOnly: true,
+      });
+    } catch (error) {
+      issues.push(`${at} canonical Review validation failed internally: ${error.message}`);
+    }
+    if (checked && !checked.ok)
       issues.push(
         `${at} fails canonical Review validation: ${checked.issues
           .map((item) => `${item.path} ${item.message}`)
           .join("; ")}`
       );
-    else checkedReports.push(checked.report);
+    else if (checked) checkedReports.push(checked.report);
   }
   if (
     canonical &&
     !runs.some(
       (run) =>
-        run.target?.path === canonical.value.target?.path &&
-        run.target?.sha256 === canonical.value.target?.sha256
+        run?.target?.path === canonical.value.target?.path &&
+        run?.target?.sha256 === canonical.value.target?.sha256
     )
   )
     issues.push("one repeat run must exactly match the canonical passing report target");
