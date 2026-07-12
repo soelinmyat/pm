@@ -500,6 +500,17 @@ test("bug findings require corroboration and trace evidence requires a locator",
   assert.match(JSON.stringify(drifted.issues), /does not match artifact bytes/);
 });
 
+test("Git-backed evidence rejects irrelevant SHA-256 identity salt", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const finding = validFinding("bug");
+  finding.evidence[0].sha256 = "f".repeat(64);
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "bug", finding);
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /Git-backed evidence must not include sha256/);
+});
+
 test("deleted source evidence is checked against frozen base line bounds", () => {
   const fixture = makeFixture({ maxWorkers: 6, deleteFile: true });
   const finding = validFinding("edge");

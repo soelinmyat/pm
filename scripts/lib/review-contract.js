@@ -60,10 +60,12 @@ function allocateLenses(lenses, maxWorkers, profile) {
 
 function findingId(finding) {
   const evidence = [...(finding?.evidence || [])]
-    .map(
-      (item) =>
-        `${normalize(item.kind)}:${normalize(item.ref)}:${normalize(item.sha256 || "unbound")}`
-    )
+    .map((item) => {
+      const artifact = new Set(["trace", "benchmark", "upstream-gate"]).has(item.kind);
+      return `${normalize(item.kind)}:${normalize(item.ref)}:${normalize(
+        artifact ? item.sha256 : "unbound"
+      )}`;
+    })
     .sort();
   const identity = [
     normalizePath(finding?.file),

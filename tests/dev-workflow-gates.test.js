@@ -122,6 +122,8 @@ test("review preserves immutable fix rounds and publishes only the passing proje
   const publish = read("skills/review/steps/05-publish.md");
   assert.match(contract, /round-1\//);
   assert.match(contract, /Never overwrite a finalized prior run or round/);
+  assert.match(contract, /kind:ref:digest/);
+  assert.match(contract, /literal `unbound` sentinel/);
   assert.match(target, /runs\/\{RUN_ID\}\/round-\{N\}\/target\.json/);
   assert.match(synthesize, /review-report\.js.*draft-report\.json.*draft-report\.html/);
   assert.match(resolve, /round-\{N-1\}\/report\.json/);

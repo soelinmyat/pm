@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { safeProjectInput } = require("../lib/safe-project-output");
+const { checkReview } = require("../review-check");
 
 function checkReviewRepeats(root, comparisonPath) {
   const projectRoot = fs.realpathSync(path.resolve(root));
@@ -14,6 +15,7 @@ function checkReviewRepeats(root, comparisonPath) {
   if (!Array.isArray(comparison.runs) || comparison.runs.length !== 3)
     issues.push("runs must contain exactly three independent Review runs");
   const runIds = new Set();
+  let frozenSource = null;
   for (const [index, run] of (comparison.runs || []).entries()) {
     const at = `runs[${index}]`;
     if (!object(run) || !slug(run.run_id)) {
@@ -25,6 +27,10 @@ function checkReviewRepeats(root, comparisonPath) {
     const target = readBinding(projectRoot, run.target, `${at}.target`, issues);
     if (!target) continue;
     if (target.value.run_id !== run.run_id) issues.push(`${at}.target run_id mismatch`);
+    const sourceIdentity = JSON.stringify(target.value.source);
+    if (frozenSource === null) frozenSource = sourceIdentity;
+    else if (sourceIdentity !== frozenSource)
+      issues.push(`${at}.target must bind the same frozen source as every repeat`);
     const targetPattern = new RegExp(
       `^\\.pm/dev-sessions/feature/review/runs/${escapeRegex(run.run_id)}/round-[1-3]/target\\.json$`
     );
@@ -52,6 +58,26 @@ function checkReviewRepeats(root, comparisonPath) {
       [...expectedWorkers].some((worker) => !actualWorkers.has(worker))
     )
       issues.push(`${at}.results do not match allocated workers`);
+    const roundRoot = path.posix.dirname(run.target.path);
+    const draftReport = `${roundRoot}/draft-report.json`;
+    const checked = checkReview({
+      root: projectRoot,
+      targetPath: run.target.path,
+      resultPaths: run.results.map((item) => item.path),
+      reportPath: draftReport,
+      humanReportPath: `${roundRoot}/draft-report.html`,
+      reportStage: "draft",
+      writeReport: true,
+      verifyGit: false,
+      verifyBrowser: false,
+    });
+    fs.rmSync(path.join(projectRoot, draftReport), { force: true });
+    if (!checked.ok)
+      issues.push(
+        `${at} fails canonical Review validation: ${checked.issues
+          .map((item) => `${item.path} ${item.message}`)
+          .join("; ")}`
+      );
   }
   for (const metric of ["recall", "false_positive_rate", "severity_calibration", "deduplication"]) {
     const value = comparison.metrics?.[metric];

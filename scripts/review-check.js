@@ -684,7 +684,14 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       if (!EVIDENCE_KINDS.has(evidence.kind) || !text(evidence.ref) || evidence.ref.length > 1000) {
         add(issues, at, "requires a known kind and bounded reference");
         identityReady = false;
-      } else validateEvidenceReference(root, evidence, target, at, issues);
+      } else {
+        if (
+          ["source", "test", "contract", "design-token"].includes(evidence.kind) &&
+          evidence.sha256 !== undefined
+        )
+          add(issues, `${at}.sha256`, "Git-backed evidence must not include sha256");
+        validateEvidenceReference(root, evidence, target, at, issues);
+      }
       if (refs.has(`${evidence.kind}:${evidence.ref}`))
         add(issues, at, "duplicates evidence in this finding");
       refs.add(`${evidence.kind}:${evidence.ref}`);

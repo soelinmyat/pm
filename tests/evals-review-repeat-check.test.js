@@ -46,18 +46,72 @@ function seedRun(root, runId) {
     base_commit: "b".repeat(40),
     diff_sha256: "c".repeat(64),
   };
+  const lenses = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
+  const runtime = {
+    provider: "codex",
+    model: "gpt-5.6-sol",
+    effort: "high",
+    external_effects: false,
+  };
   write(root, targetPath, {
+    schema_version: 1,
     run_id: runId,
+    review_round: 1,
+    iteration_cap: 3,
+    created_at: "2026-07-12T00:00:00Z",
+    mode: "full",
     source,
-    allocation: [{ worker_id: "reviewer-1" }],
+    changed_files: [
+      {
+        path: "src/example.js",
+        old_path: null,
+        status: "M",
+        sha256: "d".repeat(64),
+        bytes: 10,
+      },
+    ],
+    acceptance: null,
+    upstream: { design_critique: null },
+    ownership: {
+      review: ["source-correctness"],
+      design_critique: ["rendered-design"],
+      qa: ["live-behavior"],
+    },
+    lenses: lenses.map((name) => ({
+      name,
+      applicable: true,
+      reason: "required repeat lens",
+    })),
+    allocation: [
+      {
+        worker_id: "reviewer-1",
+        profile: "codex-workhorse",
+        lenses,
+        independent: true,
+        runtime,
+      },
+    ],
+    prior_report: null,
   });
   const target = binding(root, targetPath);
   const resultPath = `${roundRoot}/results/reviewer-1.json`;
   write(root, resultPath, {
+    schema_version: 1,
     run_id: runId,
+    review_round: 1,
     source,
     target,
     worker_id: "reviewer-1",
+    profile: "codex-workhorse",
+    runtime,
+    lenses,
+    verdicts: lenses.map((lens) => ({
+      lens,
+      outcome: "clean",
+      summary: `No ${lens} finding in the frozen repeat.`,
+    })),
+    findings: [],
+    checked_at: "2026-07-12T00:01:00Z",
   });
   return { run_id: runId, target, results: [binding(root, resultPath)] };
 }

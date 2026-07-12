@@ -28,6 +28,9 @@ test("finding identity is deterministic across evidence order but changes with l
   const reversed = { ...finding, evidence: [...finding.evidence].reverse() };
   assert.equal(findingId(finding), findingId(reversed));
   assert.equal(findingId(finding), findingId({ ...finding, category: "edge" }));
+  const saltedSource = structuredClone(finding);
+  saltedSource.evidence[0].sha256 = "f".repeat(64);
+  assert.equal(findingId(finding), findingId(saltedSource));
   assert.notEqual(findingId(finding), findingId({ ...finding, line_start: 11 }));
 });
 

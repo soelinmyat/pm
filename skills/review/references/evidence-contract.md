@@ -46,8 +46,10 @@ One result is required for every allocation row. Result run, round, target bindi
 Findings use the schema in `reviewer-briefs.md`. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
 
 ```text
-[normalized file, line_start, line_end, normalized rule, sorted normalized "kind:ref" evidence]
+[normalized file, line_start, line_end, normalized rule, sorted normalized "kind:ref:digest" evidence]
 ```
+
+`digest` is the exact SHA-256 for trace, benchmark, and upstream-gate evidence. Git-backed source, test, contract, and design-token evidence must not include `sha256` and use the literal `unbound` sentinel in the identity tuple. For example: `source:src/cache.js:18:unbound`.
 
 Category is deliberately excluded so independent lenses can converge on the same defect. A reviewer may emit only assigned categories. The primary file must be changed and line ranges must exist in current text (deleted-file diff locations remain valid).
 
