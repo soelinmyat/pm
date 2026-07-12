@@ -148,6 +148,7 @@ function mergeSignals(signals, decisions) {
       fix_kind: lead.fix_kind,
       verify: lead.verify,
       evidence: lead.evidence,
+      change_anchors: lead.change_anchors,
       owner: "review",
       disposition: lead.disposition,
       decision_required: rows.some((row) => row.decision_required === true),

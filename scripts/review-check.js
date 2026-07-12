@@ -15,7 +15,15 @@ const {
   reviewPathContext,
 } = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
-const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
+const {
+  MAX_CHANGED_FILE_BYTES,
+  MAX_FINDING_PROSE_CHARS,
+  MAX_FINDING_RENDER_CHARS_PER_ROUND,
+  MAX_FINDINGS_PER_REVIEWER,
+  MAX_FINDINGS_PER_ROUND,
+  MAX_HTML_BYTES,
+  MAX_JSON_BYTES,
+} = require("./lib/review-limits");
 const {
   DECISION_ACTIONS,
   deriveLensApplicability,
@@ -53,8 +61,10 @@ const REQUIRED_EVIDENCE = Object.freeze({
   efficiency: new Set(["source", "benchmark", "trace"]),
 });
 const FROZEN_MERGE_BASE = Symbol("review-frozen-merge-base");
-const MAX_FINDINGS_PER_REVIEWER = 100;
-const MAX_FINDINGS_PER_ROUND = 300;
+const CHANGE_HUNK_CACHE = Symbol("review-change-hunk-cache");
+const CHANGE_HUNK_ANCHOR_POLICY = "changed-hunk-anchor-v1";
+const MAX_CHANGE_ANCHORS = 8;
+const MAX_ANCHOR_PATHS = 500;
 
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -222,6 +232,7 @@ function validateTarget(target, issues) {
     target,
     [
       "schema_version",
+      "relevance_policy",
       "run_id",
       "review_round",
       "iteration_cap",
@@ -241,6 +252,11 @@ function validateTarget(target, issues) {
     issues
   );
   if (target.schema_version !== 1) add(issues, "target.schema_version", "must equal 1");
+  if (
+    target.relevance_policy !== undefined &&
+    target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY
+  )
+    add(issues, "target.relevance_policy", `must equal ${CHANGE_HUNK_ANCHOR_POLICY} when present`);
   if (!slug(target.run_id)) add(issues, "target.run_id", "must be kebab-case");
   if (!isRfc3339DateTime(target.created_at)) add(issues, "target.created_at", "must be RFC 3339");
   if (!Number.isInteger(target.review_round) || target.review_round < 1 || target.review_round > 3)
@@ -395,6 +411,7 @@ function validateTargetBindings(root, target, reviewRoot, issues) {
             reportPath: target.prior_report.path,
             fromReport: true,
             verifyGit: false,
+            verifyFrozenGit: true,
             verifyBrowser: false,
           })
         );
@@ -445,6 +462,8 @@ function validateChangedFiles(files, issues) {
   if (files.length > 500)
     add(issues, "target.changed_files", "must not exceed the 500-file budget");
   const seen = new Set();
+  let committedBytes = 0;
+  let aggregateIssue = false;
   for (const [index, item] of files.entries()) {
     const at = `target.changed_files[${index}]`;
     if (!object(item)) {
@@ -462,8 +481,18 @@ function validateChangedFiles(files, issues) {
     if (item.status === "D") {
       if (item.sha256 !== null || item.bytes !== null)
         add(issues, at, "deleted files require null bytes and hash");
-    } else if (!sha256(item.sha256) || !Number.isInteger(item.bytes) || item.bytes < 0)
-      add(issues, at, "current files require SHA-256 and byte count");
+    } else if (!sha256(item.sha256) || !Number.isSafeInteger(item.bytes) || item.bytes < 0)
+      add(issues, at, "current files require SHA-256 and safe byte count");
+    else if (!aggregateIssue) {
+      if (item.bytes > MAX_CHANGED_FILE_BYTES - committedBytes) {
+        add(
+          issues,
+          "target.changed_files",
+          `must not exceed the ${MAX_CHANGED_FILE_BYTES}-byte aggregate committed-byte budget`
+        );
+        aggregateIssue = true;
+      } else committedBytes += item.bytes;
+    }
   }
 }
 
@@ -612,6 +641,7 @@ function validateResult(
   label,
   issues
 ) {
+  const renderCharsBefore = signals.reduce((sum, finding) => sum + findingRenderChars(finding), 0);
   if (!object(result)) return add(issues, label, "must be an object");
   closed(
     result,
@@ -681,6 +711,16 @@ function validateResult(
       });
     }
   }
+  const renderCharsAfter = signals.reduce((sum, finding) => sum + findingRenderChars(finding), 0);
+  if (
+    renderCharsBefore <= MAX_FINDING_RENDER_CHARS_PER_ROUND &&
+    renderCharsAfter > MAX_FINDING_RENDER_CHARS_PER_ROUND
+  )
+    add(
+      issues,
+      `${label}.findings`,
+      `round finding text must not exceed ${MAX_FINDING_RENDER_CHARS_PER_ROUND} rendered characters`
+    );
   validateVerdicts(
     result.verdicts,
     plan?.lenses || [],
@@ -740,6 +780,7 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       "fix_kind",
       "verify",
       "evidence",
+      "change_anchors",
       "owner",
       "disposition",
       "decision_required",
@@ -776,8 +817,15 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       `${label}.line_end`,
       issues
     );
+  if (target.relevance_policy === CHANGE_HUNK_ANCHOR_POLICY)
+    validateChangeAnchors(root, finding.change_anchors, target, `${label}.change_anchors`, issues);
   for (const field of ["rule", "issue", "impact", "fix", "verify"])
-    if (!text(finding[field])) add(issues, `${label}.${field}`, "is required");
+    if (!text(finding[field]) || finding[field].length > MAX_FINDING_PROSE_CHARS)
+      add(
+        issues,
+        `${label}.${field}`,
+        `is required and must not exceed ${MAX_FINDING_PROSE_CHARS} characters`
+      );
   if (!FIX_KINDS.has(finding.fix_kind)) add(issues, `${label}.fix_kind`, "is invalid");
   if (!OWNERS.includes(finding.owner)) add(issues, `${label}.owner`, "is invalid");
   else if (finding.owner !== "review")
@@ -947,6 +995,109 @@ function validateChangedLineRange(root, target, changed, end, label, issues) {
   } catch (error) {
     add(issues, label, `cannot resolve frozen source: ${error.message}`);
   }
+}
+
+function validateChangeAnchors(root, anchors, target, label, issues) {
+  if (!Array.isArray(anchors) || anchors.length < 1 || anchors.length > MAX_CHANGE_ANCHORS)
+    return add(issues, label, `must contain 1 through ${MAX_CHANGE_ANCHORS} causal anchors`);
+  const changedByPath = new Map();
+  for (const changed of target.changed_files || []) {
+    changedByPath.set(changed.path, changed);
+    if (changed.old_path) changedByPath.set(changed.old_path, changed);
+  }
+  for (const [index, anchor] of anchors.entries()) {
+    const at = `${label}[${index}]`;
+    if (!object(anchor)) {
+      add(issues, at, "must be an object");
+      continue;
+    }
+    closed(anchor, ["path", "side", "line_start", "line_end"], at, issues);
+    const changed = changedByPath.get(anchor.path);
+    if (!projectPath(anchor.path) || !changed) {
+      add(issues, `${at}.path`, "must reference a frozen changed path or its old rename path");
+      continue;
+    }
+    if (!new Set(["head", "base", "path"]).has(anchor.side)) {
+      add(issues, `${at}.side`, "must be head, base, or path");
+      continue;
+    }
+    let change;
+    try {
+      change = frozenPathChange(root, target, changed);
+    } catch (error) {
+      add(issues, at, `cannot resolve frozen change hunks: ${error.message}`);
+      continue;
+    }
+    if (anchor.side === "path") {
+      if (
+        (anchor.line_start !== null && anchor.line_start !== undefined) ||
+        (anchor.line_end !== null && anchor.line_end !== undefined)
+      )
+        add(issues, at, "path anchors must omit line_start and line_end");
+      if (!change.non_textual)
+        add(issues, at, "path anchors require a changed path with no textual hunks");
+      continue;
+    }
+    if (
+      !positiveLine(anchor.line_start) ||
+      !positiveLine(anchor.line_end) ||
+      anchor.line_end < anchor.line_start
+    ) {
+      add(issues, at, "head and base anchors require a valid positive line range");
+      continue;
+    }
+    const intersects = change.hunks.some((hunk) => {
+      const start = anchor.side === "head" ? hunk.new_start : hunk.old_start;
+      const count = anchor.side === "head" ? hunk.new_count : hunk.old_count;
+      return count > 0 && anchor.line_start <= start + count - 1 && start <= anchor.line_end;
+    });
+    if (!intersects)
+      add(issues, at, `does not intersect a ${anchor.side} changed hunk in the frozen diff`);
+  }
+}
+
+function frozenPathChange(root, target, changed) {
+  let cache = target[CHANGE_HUNK_CACHE];
+  if (!cache) {
+    cache = new Map();
+    target[CHANGE_HUNK_CACHE] = cache;
+  }
+  const key = `${changed.old_path || ""}\0${changed.path}`;
+  if (cache.has(key)) return cache.get(key);
+  if (cache.size >= MAX_ANCHOR_PATHS)
+    throw new Error(`anchor verification exceeds the ${MAX_ANCHOR_PATHS}-path budget`);
+  let mergeBase = target[FROZEN_MERGE_BASE];
+  if (!mergeBase) {
+    mergeBase = git(root, ["merge-base", target.source.base_commit, target.source.commit])
+      .toString()
+      .trim();
+    if (!sha(mergeBase)) throw new Error("source and base have no merge base");
+    target[FROZEN_MERGE_BASE] = mergeBase;
+  }
+  const paths = [...new Set([changed.old_path, changed.path].filter(Boolean))];
+  const common = [mergeBase, target.source.commit, "--", ...paths];
+  const patch = git(
+    root,
+    ["diff", "--unified=0", "--no-color", "--no-ext-diff", ...common],
+    "utf8"
+  );
+  const hunks = [];
+  const pattern = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
+  for (const match of patch.matchAll(pattern))
+    hunks.push({
+      old_start: Number(match[1]),
+      old_count: match[2] === undefined ? 1 : Number(match[2]),
+      new_start: Number(match[3]),
+      new_count: match[4] === undefined ? 1 : Number(match[4]),
+    });
+  const summary = git(root, ["diff", "--summary", ...common], "utf8").trim();
+  const numstat = git(root, ["diff", "--numstat", ...common], "utf8").trim();
+  const value = {
+    hunks,
+    non_textual: hunks.length === 0 && (summary.length > 0 || numstat.length > 0),
+  };
+  cache.set(key, value);
+  return value;
 }
 
 function validateTextLineRange(bytes, end, label, issues) {
@@ -1266,6 +1417,7 @@ function validateRenderedReportMarkers(markers, report, issues) {
         finding.issue,
         finding.impact,
         finding.fix,
+        finding.verify,
         finding.owner,
         `Decision required: ${finding.decision_required ? "yes" : "no"}`,
         `Disputed: ${finding.disputed ? "yes" : "no"}`,
@@ -1273,6 +1425,20 @@ function validateRenderedReportMarkers(markers, report, issues) {
           ? [finding.decision.action, finding.decision.approver, finding.decision.rationale]
           : ["No recorded decision."]),
         ...finding.evidence.map((item) => item.ref),
+        ...(finding.change_anchors || []).map(changeAnchorText),
+        ...(finding.signals || []).flatMap((signal) => [
+          signal.reviewer_id,
+          signal.category,
+          signal.severity,
+          `${signal.confidence}%`,
+          `owner ${signal.owner}`,
+          `disposition ${signal.disposition}`,
+          `fix ${signal.fix_kind}`,
+          `decision required ${signal.decision_required ? "yes" : "no"}`,
+          ...(signal.change_anchors || []).map(changeAnchorText),
+          ...(signal.issue !== finding.issue ? [signal.issue] : []),
+          ...(signal.fix !== finding.fix ? [signal.fix] : []),
+        ]),
       ],
       firstScreen: false,
     })),
@@ -1442,6 +1608,33 @@ function git(root, args, encoding = "utf8") {
 
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+function findingRenderChars(finding) {
+  const fields = [
+    finding.category,
+    finding.severity,
+    finding.file,
+    finding.rule,
+    finding.issue,
+    finding.impact,
+    finding.fix,
+    finding.fix_kind,
+    finding.verify,
+    finding.owner,
+    finding.disposition,
+    ...(finding.evidence || []).flatMap((item) => [item?.kind, item?.ref]),
+    ...(finding.change_anchors || []).flatMap((item) => [
+      item?.path,
+      item?.side,
+      Number.isInteger(item?.line_start) ? String(item.line_start) : "",
+      Number.isInteger(item?.line_end) ? String(item.line_end) : "",
+    ]),
+  ];
+  return fields.reduce((sum, value) => sum + (typeof value === "string" ? value.length : 0), 0);
+}
+function changeAnchorText(anchor) {
+  if (anchor?.side === "path") return `${anchor.path} [path]`;
+  return `${anchor?.path || "unknown"} [${anchor?.side || "unknown"} ${anchor?.line_start}-${anchor?.line_end}]`;
 }
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);

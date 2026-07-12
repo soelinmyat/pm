@@ -195,6 +195,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     if ! node "$checker_tmp/scripts/dev-gate-check.js" \
       --manifest "$gate_manifest" \
       --commit "$local_oid" \
+      --branch "$branch_name" \
       --review-evidence-mode enforce \
       --base origin/main; then
       rm -rf "$checker_tmp"

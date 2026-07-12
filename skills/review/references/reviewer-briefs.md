@@ -53,6 +53,7 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
       "fix_kind": "behavioral",
       "verify": "Exercise the cache invalidation regression in tests/cache.test.js.",
       "evidence": [{ "kind": "source", "ref": "src/cache.js:42-45" }],
+      "change_anchors": [{ "path": "src/cache.js", "side": "head", "line_start": 42, "line_end": 45 }],
       "owner": "review",
       "disposition": "open",
       "decision_required": false
@@ -63,3 +64,5 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 ```
 
 Compute finding IDs with `findingId` from `scripts/lib/review-contract.js`; never guess them.
+
+For targets with `relevance_policy: changed-hunk-anchor-v1`, every finding needs 1–8 causal `change_anchors`. Use `head` for added/current changed lines, `base` for removed lines, and `path` only for a changed non-textual path with no line hunk. A finding's primary line may describe unchanged code, but at least one anchor must identify the frozen diff hunk that caused the issue. Anchors are retained for audit and deliberately excluded from finding identity.

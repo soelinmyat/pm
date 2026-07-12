@@ -438,6 +438,7 @@ test("push-gate hook file is executable", () => {
   const stat = fs.statSync(HOOK);
   assert.ok(stat.mode & 0o111, "hooks/push-gate must be executable");
   assert.match(fs.readFileSync(HOOK, "utf8"), /"--review-evidence-mode",\s*"enforce"/);
+  assert.match(fs.readFileSync(HOOK, "utf8"), /"--branch",\s*branch/);
 });
 
 // ---------------------------------------------------------------------------

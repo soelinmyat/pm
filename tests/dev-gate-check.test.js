@@ -1515,6 +1515,8 @@ test("dev gate checker parses comma-separated required gates", () => {
 
 test("dev gate checker parses base refs and changed files", () => {
   const parsed = parseArgs([
+    "--branch",
+    "chore/Review++Gate",
     "--base",
     "origin/main",
     "--changed-file",
@@ -1522,8 +1524,30 @@ test("dev gate checker parses base refs and changed files", () => {
     "--changed-files",
     "README.md,skills/dev/SKILL.md",
   ]);
+  assert.equal(parsed.currentBranch, "chore/Review++Gate");
   assert.equal(parsed.baseRef, "origin/main");
   assert.deepEqual(parsed.changedFiles, ["src/App.tsx", "README.md", "skills/dev/SKILL.md"]);
+});
+
+test("canonical sessions require the exact delivery branch, not only a colliding slug", () => {
+  const canonicalSession = {
+    run_id: "dev_branch",
+    slug: "review-gate",
+    source: { branch: "chore/Review++Gate" },
+    routing: { review_mode: "code-scan" },
+  };
+  const result = checkGateManifest(manifest([], { run_id: canonicalSession.run_id }), {
+    currentCommit: "abc123",
+    currentBranch: "chore/review-gate",
+    requiredGates: [],
+    canonicalSession,
+    manifestPath: ".pm/dev-sessions/review-gate/gates.json",
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /sibling session branch must equal chore\/review-gate/
+  );
 });
 
 test("dev gate checker defaults to enforcement and accepts explicit migration inspection", () => {

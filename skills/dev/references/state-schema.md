@@ -204,6 +204,7 @@ Rules:
   node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
     --manifest .pm/dev-sessions/{slug}/gates.json \
     --commit "$(git rev-parse HEAD)" \
+    --branch "$(git branch --show-current)" \
     --review-evidence-mode enforce \
     --base origin/{DEFAULT_BRANCH}
   ```
@@ -281,7 +282,7 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}/gates.json
-- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --review-evidence-mode enforce`
+- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --branch "$(git branch --show-current)" --review-evidence-mode enforce`
 - Required before push: tdd, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch

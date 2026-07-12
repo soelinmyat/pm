@@ -149,6 +149,13 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "ios/en.lproj/Checkout.strings",
     "ios/App/Main.storyboard",
     "ios/App/Assets.xcassets/Accent.colorset/Contents.json",
+    "ContentView.swift",
+    "MyApp/ContentView.swift",
+    "Features/Home/HomeScreen.swift",
+    "Checkout/CardViewController.swift",
+    "Checkout/CardViewController.m",
+    "AppDelegate.swift",
+    "MyApp/SceneDelegate.m",
     "android/CheckoutScreen.kt",
     "android/app/src/main/java/com/acme/payments/Card.kt",
     "android/app/src/main/res/layout/checkout.xml",
@@ -163,7 +170,14 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     );
     assert.equal(design.applicable, true, path);
   }
-  for (const path of ["server/jobs/sync.ts", "pm/backlog/rfc.html", ".pm/private/report.html"]) {
+  for (const path of [
+    "server/jobs/sync.ts",
+    "pm/backlog/rfc.html",
+    ".pm/private/report.html",
+    "Sources/Networking/APIClient.swift",
+    "Sources/Core/DateParser.swift",
+    "Sources/Models/User.swift",
+  ]) {
     const design = deriveLensApplicability("full", [{ path }]).find(
       (item) => item.name === "design"
     );

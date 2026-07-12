@@ -11,7 +11,7 @@ const {
   devReviewContext,
 } = require("./lib/review-contract");
 const projectWriter = require("./lib/project-atomic-write");
-const { MAX_JSON_BYTES } = require("./lib/review-limits");
+const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
@@ -85,6 +85,7 @@ function buildReviewTarget(options) {
 
   return {
     schema_version: 1,
+    relevance_policy: "changed-hunk-anchor-v1",
     run_id: options.runId || `review-${crypto.randomUUID()}`,
     review_round: round,
     iteration_cap: 3,
@@ -189,6 +190,7 @@ function changedFileInventory(root, baseCommit, commit) {
   const fields = raw.toString("utf8").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const rows = [];
+  let committedBytes = 0;
   for (let index = 0; index < fields.length; ) {
     const status = fields[index++];
     if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
@@ -204,18 +206,19 @@ function changedFileInventory(root, baseCommit, commit) {
     const deleted = status === "D";
     const binding = deleted
       ? { sha256: null, bytes: null }
-      : bindCommittedFile(root, commit, filePath);
+      : bindCommittedFile(root, commit, filePath, MAX_CHANGED_FILE_BYTES - committedBytes);
+    if (!deleted) committedBytes += binding.bytes;
     rows.push({ path: filePath, old_path: oldPath, status, ...binding });
   }
   return rows.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function bindCommittedFile(root, commit, relative) {
-  const bytes = readCommittedBlob(root, commit, relative);
+function bindCommittedFile(root, commit, relative, remainingBytes = MAX_CHANGED_FILE_BYTES) {
+  const bytes = readCommittedBlob(root, commit, relative, remainingBytes);
   return { sha256: digest(bytes), bytes: bytes.length };
 }
 
-function readCommittedBlob(root, commit, relative) {
+function readCommittedBlob(root, commit, relative, remainingBytes = MAX_CHANGED_FILE_BYTES) {
   const tree = git(root, ["ls-tree", "-z", commit, "--", relative], null).toString("utf8");
   const match = tree.match(/^([0-7]{6}) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/);
   if (!match || match[3] !== relative || match[1] === "120000")
@@ -223,6 +226,10 @@ function readCommittedBlob(root, commit, relative) {
   const size = Number(git(root, ["cat-file", "-s", match[2]]).trim());
   if (!Number.isSafeInteger(size) || size < 0 || size > MAX_BOUND_BYTES)
     throw new Error(`changed file exceeds 64 MiB: ${relative}`);
+  if (!Number.isSafeInteger(remainingBytes) || remainingBytes < 0 || size > remainingBytes)
+    throw new Error(
+      `changed files exceed the ${MAX_CHANGED_FILE_BYTES}-byte aggregate committed-byte budget`
+    );
   const bytes = git(root, ["cat-file", "blob", match[2]], null);
   if (bytes.length !== size) throw new Error(`changed blob size drifted: ${relative}`);
   return bytes;

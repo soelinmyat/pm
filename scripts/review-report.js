@@ -156,6 +156,9 @@ function findingCard(finding) {
   const evidence = (finding.evidence || [])
     .map((item) => `<code>${escapeHtml(item.ref)}</code>`)
     .join(" · ");
+  const anchors = (finding.change_anchors || [])
+    .map((anchor) => `<code>${escapeHtml(changeAnchorText(anchor))}</code>`)
+    .join(" · ");
   const signals = (finding.signals || [])
     .map((signal) => {
       const differences = [];
@@ -163,6 +166,9 @@ function findingCard(finding) {
         differences.push(`<span><strong>Signal issue:</strong> ${escapeHtml(signal.issue)}</span>`);
       if (signal.fix !== finding.fix)
         differences.push(`<span><strong>Signal fix:</strong> ${escapeHtml(signal.fix)}</span>`);
+      const signalAnchors = (signal.change_anchors || [])
+        .map((anchor) => `<code>${escapeHtml(changeAnchorText(anchor))}</code>`)
+        .join(" · ");
       return `<li>${escapeHtml(signal.reviewer_id)} · ${escapeHtml(
         signal.category
       )} · ${escapeHtml(signal.severity)} · ${signal.confidence}% · owner ${escapeHtml(
@@ -170,8 +176,8 @@ function findingCard(finding) {
       )} · disposition ${escapeHtml(signal.disposition)} · fix ${escapeHtml(
         signal.fix_kind
       )} · decision required ${signal.decision_required ? "yes" : "no"}${
-        differences.length ? `<div>${differences.join(" ")}</div>` : ""
-      }</li>`;
+        signalAnchors ? `<div><strong>Signal anchors:</strong> ${signalAnchors}</div>` : ""
+      }${differences.length ? `<div>${differences.join(" ")}</div>` : ""}</li>`;
     })
     .join("");
   const decision = finding.decision
@@ -191,7 +197,12 @@ function findingCard(finding) {
     finding.fix
   )}</p><p><strong>Advisory verification plan (do not execute directly):</strong> <code>${escapeHtml(
     finding.verify
-  )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
+  )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Change anchors:</strong> ${anchors || "Legacy target — not required."}</div><div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details open><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
+}
+
+function changeAnchorText(anchor) {
+  if (anchor?.side === "path") return `${anchor.path} [path]`;
+  return `${anchor?.path || "unknown"} [${anchor?.side || "unknown"} ${anchor?.line_start}-${anchor?.line_end}]`;
 }
 
 function handoffList(values) {

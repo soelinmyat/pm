@@ -13,15 +13,24 @@ const {
   checkReview,
   expandFromReport,
   validateFrozenTarget,
+  validateRenderedReportMarkers,
   validateSignal,
 } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const {
   buildReviewTarget,
   changedFileInventory,
+  readCommittedBlob,
   resolveTrustedBase,
 } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
+const {
+  MAX_CHANGED_FILE_BYTES,
+  MAX_FINDING_PROSE_CHARS,
+  MAX_FINDING_RENDER_CHARS_PER_ROUND,
+  MAX_FINDINGS_PER_REVIEWER,
+  MAX_FINDINGS_PER_ROUND,
+} = require("../scripts/lib/review-limits");
 const { createSession } = require("../scripts/lib/dev-session-schema");
 const {
   expectedPriorReportPath,
@@ -194,6 +203,96 @@ test("frozen review uses three-dot merge-base semantics on diverged branches", (
   } finally {
     fs.rmSync(control, { recursive: true, force: true });
   }
+});
+
+test("changed-hunk policy accepts a stable primary line only with a causal hunk anchor", () => {
+  const fixture = makeFixture({ maxWorkers: 2, multiline: true });
+  const target = fixture.target;
+  const finding = {
+    ...validFinding("bug"),
+    line_start: 1,
+    line_end: 1,
+    evidence: [
+      { kind: "source", ref: "src/example.js:1" },
+      { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+    ],
+    change_anchors: [{ path: "src/example.js", side: "head", line_start: 2, line_end: 2 }],
+  };
+  finding.id = findingId(finding);
+  const accepted = [];
+  validateFrozenTarget(fixture.root, target, accepted);
+  assert.equal(
+    validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", accepted),
+    true
+  );
+  assert.deepEqual(accepted, []);
+
+  finding.change_anchors = [{ path: "src/example.js", side: "head", line_start: 1, line_end: 1 }];
+  const rejected = [];
+  validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", rejected);
+  assert.match(JSON.stringify(rejected), /does not intersect a head changed hunk/);
+});
+
+test("changed-hunk policy authenticates additions, deletions, and non-textual path changes", () => {
+  const fixture = makeFixture({ maxWorkers: 2, deleteFile: true });
+  fs.writeFileSync(path.join(fixture.root, "src/added.js"), "module.exports = 'added';\n");
+  fs.writeFileSync(path.join(fixture.root, "src/binary.dat"), Buffer.from([0, 1, 2, 3]));
+  git(fixture.root, ["add", "src/added.js", "src/binary.dat"]);
+  git(fixture.root, ["commit", "-qm", "add textual and binary sources"]);
+  const target = buildReviewTarget({ root: fixture.root, maxWorkers: 2 });
+  const frozenIssues = [];
+  validateFrozenTarget(fixture.root, target, frozenIssues);
+  assert.deepEqual(frozenIssues, []);
+
+  for (const specimen of [
+    {
+      file: "src/added.js",
+      evidence: "src/added.js:1",
+      anchor: { path: "src/added.js", side: "head", line_start: 1, line_end: 1 },
+    },
+    {
+      file: "src/deleted.js",
+      evidence: "src/deleted.js:1",
+      anchor: { path: "src/deleted.js", side: "base", line_start: 1, line_end: 1 },
+    },
+    {
+      file: "src/added.js",
+      evidence: "src/added.js:1",
+      anchor: { path: "src/binary.dat", side: "path" },
+    },
+  ]) {
+    const finding = {
+      ...validFinding("bug"),
+      file: specimen.file,
+      evidence: [
+        { kind: "source", ref: specimen.evidence },
+        { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+      ],
+      change_anchors: [specimen.anchor],
+    };
+    finding.id = findingId(finding);
+    const issues = [];
+    assert.equal(
+      validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", issues),
+      true
+    );
+    assert.deepEqual(issues, []);
+  }
+});
+
+test("legacy targets remain readable without change anchors", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const target = structuredClone(fixture.target);
+  delete target.relevance_policy;
+  const finding = validFinding("bug");
+  delete finding.change_anchors;
+  const issues = [];
+  validateFrozenTarget(fixture.root, target, issues);
+  assert.equal(
+    validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", issues),
+    true
+  );
+  assert.deepEqual(issues, []);
 });
 
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
@@ -618,11 +717,88 @@ test("reviewer finding floods fail closed before conflict synthesis", () => {
   const resultPath = fixture.resultPaths[0];
   const absolute = path.join(fixture.root, resultPath);
   const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
-  result.findings = Array.from({ length: 101 }, () => validFinding(result.lenses[0]));
+  result.findings = uniqueFindings(result.lenses[0], MAX_FINDINGS_PER_REVIEWER + 1);
   fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
   const checked = generate(fixture);
   assert.equal(checked.ok, false);
-  assert.match(JSON.stringify(checked.issues), /at most 100 findings/);
+  assert.match(
+    JSON.stringify(checked.issues),
+    new RegExp(`at most ${MAX_FINDINGS_PER_REVIEWER} findings`)
+  );
+});
+
+test("reviewer and round finding budgets accept the exact boundary", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const resultPath = fixture.resultPaths[0];
+  const absolute = path.join(fixture.root, resultPath);
+  const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+  const lens = result.lenses[0];
+  result.findings = uniqueFindings(lens, MAX_FINDINGS_PER_ROUND, "boundary");
+  result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
+  fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
+
+  const checked = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues, null, 2));
+  assert.equal(checked.report.findings.length, MAX_FINDINGS_PER_ROUND);
+});
+
+test("aggregate round finding floods fail even when each reviewer stays within budget", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const firstCount = Math.ceil(MAX_FINDINGS_PER_ROUND / 2);
+  const counts = [firstCount, MAX_FINDINGS_PER_ROUND - firstCount + 1];
+  for (const [index, count] of counts.entries()) {
+    const absolute = path.join(fixture.root, fixture.resultPaths[index]);
+    const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    const lens = result.lenses[0];
+    result.findings = uniqueFindings(lens, count, `round-${index}`);
+    result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
+    fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
+  }
+
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(
+    JSON.stringify(checked.issues),
+    new RegExp(`round must contain at most ${MAX_FINDINGS_PER_ROUND} findings`)
+  );
+});
+
+test("finding prose budgets reject one oversized field and aggregate wrapping text", () => {
+  let fixture = makeFixture({ maxWorkers: 6 });
+  const finding = validFinding("quality");
+  finding.issue = "x".repeat(MAX_FINDING_PROSE_CHARS + 1);
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "quality", finding);
+  let checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(
+    JSON.stringify(checked.issues),
+    new RegExp(`must not exceed ${MAX_FINDING_PROSE_CHARS} characters`)
+  );
+
+  fixture = makeFixture({ maxWorkers: 6 });
+  const resultPath = fixture.resultPaths.find((relative) => {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, relative), "utf8"));
+    return result.lenses.includes("quality");
+  });
+  const absolute = path.join(fixture.root, resultPath);
+  const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+  result.findings = uniqueFindings("quality", 5, "text-budget").map((item) => {
+    item.impact = "x".repeat(1_700);
+    item.id = findingId(item);
+    return item;
+  });
+  result.verdicts.find((verdict) => verdict.lens === "quality").outcome = "findings";
+  fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
+  checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(
+    JSON.stringify(checked.issues),
+    new RegExp(`must not exceed ${MAX_FINDING_RENDER_CHARS_PER_ROUND} rendered characters`)
+  );
 });
 
 test("checker mirrors the target builder's 500-file review budget", () => {
@@ -636,6 +812,40 @@ test("checker mirrors the target builder's 500-file review budget", () => {
   const result = generate(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /500-file budget/);
+});
+
+test("changed-file aggregate byte budget accepts the boundary and fails closed above it", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const committedBytes = fixture.target.changed_files[0].bytes;
+  assert.equal(
+    readCommittedBlob(
+      fixture.root,
+      fixture.target.source.commit,
+      fixture.target.changed_files[0].path,
+      committedBytes
+    ).length,
+    committedBytes
+  );
+  assert.throws(
+    () =>
+      readCommittedBlob(
+        fixture.root,
+        fixture.target.source.commit,
+        fixture.target.changed_files[0].path,
+        committedBytes - 1
+      ),
+    /aggregate committed-byte budget/
+  );
+  fixture.target.changed_files[0].bytes = MAX_CHANGED_FILE_BYTES;
+  write(fixture.root, fixture.targetPath, fixture.target);
+  let result = generate(fixture);
+  assert.doesNotMatch(JSON.stringify(result.issues), /aggregate committed-byte budget/);
+
+  fixture.target.changed_files[0].bytes = MAX_CHANGED_FILE_BYTES + 1;
+  write(fixture.root, fixture.targetPath, fixture.target);
+  result = generate(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /aggregate committed-byte budget/);
 });
 
 test("reuse findings require both changed and reusable source locators", () => {
@@ -1159,6 +1369,88 @@ test("prior-round evidence remains valid after the cited source is removed", () 
   assert.match(JSON.stringify(checked.issues), /missing planned reviewer/);
 });
 
+test("later rounds authenticate prior frozen Git evidence on a diverged deleted-file diff", () => {
+  const fixture = makeFixture({ maxWorkers: 6, deleteFile: true });
+  const finding = {
+    ...validFinding("bug"),
+    file: "src/deleted.js",
+    line_start: 1,
+    line_end: 1,
+    evidence: [
+      { kind: "source", ref: "src/deleted.js:1" },
+      { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+    ],
+  };
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "bug", finding);
+  assert.equal(
+    generate(fixture, {
+      reportPath: fixture.roundReportPath,
+      htmlPath: fixture.roundHtmlPath,
+    }).ok,
+    true
+  );
+
+  // Rebind a structurally canonical round after forging only its frozen diff identity.
+  fixture.target.source.diff_sha256 = "0".repeat(64);
+  write(fixture.root, fixture.targetPath, fixture.target);
+  const targetBinding = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.target = targetBinding;
+    result.source = fixture.target.source;
+    write(fixture.root, resultPath, result);
+  }
+  const prior = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, fixture.roundReportPath), "utf8")
+  );
+  prior.source = fixture.target.source;
+  prior.target = targetBinding;
+  prior.results = fixture.resultPaths
+    .map((resultPath) => binding(fixture.root, resultPath))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  write(fixture.root, fixture.roundReportPath, prior);
+
+  const control = `${fixture.root}-prior-control`;
+  execFileSync("git", ["clone", "-q", `${fixture.root}-origin.git`, control]);
+  try {
+    git(control, ["config", "user.email", "test@example.com"]);
+    git(control, ["config", "user.name", "Test"]);
+    fs.writeFileSync(path.join(control, "default.txt"), "remote default advanced\n");
+    git(control, ["add", "default.txt"]);
+    git(control, ["commit", "-qm", "advance default independently"]);
+    git(control, ["push", "-q", "origin", "main"]);
+
+    fs.appendFileSync(path.join(fixture.root, "src/example.js"), "module.exports.round = 2;\n");
+    git(fixture.root, ["add", "src/example.js"]);
+    git(fixture.root, ["commit", "-qm", "round two source"]);
+    const target = buildReviewTarget({
+      root: fixture.root,
+      maxWorkers: 3,
+      profile: "codex-workhorse",
+      runId: "review-test",
+      round: 2,
+      priorReportPath: fixture.roundReportPath,
+    });
+    const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
+    write(fixture.root, targetPath, target);
+    const checked = checkReview({
+      root: fixture.root,
+      targetPath,
+      resultPaths: [],
+      reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.json",
+      humanReportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.html",
+      reportStage: "draft",
+      writeReport: true,
+      verifyBrowser: false,
+    });
+    assert.equal(checked.ok, false);
+    assert.match(JSON.stringify(checked.issues), /frozen Git diff bytes/);
+  } finally {
+    fs.rmSync(control, { recursive: true, force: true });
+  }
+});
+
 test("renderer escapes reviewer text without treating data as template syntax", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const finding = validFinding("bug");
@@ -1179,6 +1471,80 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   );
   const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
+  assert.match(html, /<details open><summary>Independent signals<\/summary>/);
+  assert.match(html, new RegExp(generated.report.findings[0].signals[0].reviewer_id));
+  assert.match(html, /node --test tests\/example\.test\.js/);
+});
+
+test("rendered finding markers require advisory verification and independent signal detail", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  const generated = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  const finding = generated.report.findings[0];
+  const signal = finding.signals[0];
+  const findingMarkerIssue = (issues) =>
+    issues.filter((issue) => issue.message.includes(`"data-review-finding-id":"${finding.id}"`));
+  const sharedText = [
+    finding.issue,
+    finding.impact,
+    finding.fix,
+    finding.owner,
+    "Decision required: no",
+    "Disputed: no",
+    "No recorded decision.",
+    ...finding.evidence.map((item) => item.ref),
+    ...finding.change_anchors.map((anchor) =>
+      anchor.side === "path"
+        ? `${anchor.path} [path]`
+        : `${anchor.path} [${anchor.side} ${anchor.line_start}-${anchor.line_end}]`
+    ),
+  ];
+  const signalText = [
+    signal.reviewer_id,
+    signal.category,
+    signal.severity,
+    `${signal.confidence}%`,
+    `owner ${signal.owner}`,
+    `disposition ${signal.disposition}`,
+    `fix ${signal.fix_kind}`,
+    `decision required ${signal.decision_required ? "yes" : "no"}`,
+    ...signal.change_anchors.map((anchor) =>
+      anchor.side === "path"
+        ? `${anchor.path} [path]`
+        : `${anchor.path} [${anchor.side} ${anchor.line_start}-${anchor.line_end}]`
+    ),
+  ];
+  const marker = (textParts) => ({
+    attributes: { "data-review-finding-id": finding.id },
+    text: textParts.join(" "),
+    firstScreenText: "",
+    visible: true,
+    inViewport: false,
+  });
+
+  let issues = [];
+  validateRenderedReportMarkers([marker([...sharedText, ...signalText])], generated.report, issues);
+  assert.equal(findingMarkerIssue(issues).length, 1, "missing verification must fail visibility");
+
+  issues = [];
+  validateRenderedReportMarkers(
+    [marker([...sharedText, finding.verify])],
+    generated.report,
+    issues
+  );
+  assert.equal(findingMarkerIssue(issues).length, 1, "missing signal detail must fail visibility");
+
+  issues = [];
+  validateRenderedReportMarkers(
+    [marker([...sharedText, finding.verify, ...signalText])],
+    generated.report,
+    issues
+  );
+  assert.equal(findingMarkerIssue(issues).length, 0);
 });
 
 test("Review HTML expansion fails before publishing beyond the shared byte budget", () => {
@@ -1364,6 +1730,45 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
 });
 
 test(
+  "real Chromium renders the maximum accepted finding set within the artifact budget",
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
+  () => {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const absolute = path.join(fixture.root, fixture.resultPaths[0]);
+    const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    const lens = result.lenses[0];
+    result.findings = uniqueFindings(lens, MAX_FINDINGS_PER_ROUND, "render-boundary");
+    result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
+    fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
+    const generated = generate(fixture, {
+      reportPath: fixture.roundReportPath,
+      htmlPath: fixture.roundHtmlPath,
+    });
+    assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.roundReportPath,
+      outputPath: fixture.roundHtmlPath,
+    });
+
+    const rendered = renderArtifact({
+      htmlPath: path.join(fixture.root, fixture.roundHtmlPath),
+      outputDir: path.join(fixture.root, ".pm/finding-boundary-render"),
+      browserPath: installedBrowser,
+      projectRoot: fixture.root,
+    });
+    assert.equal(
+      rendered.captures.every(({ metrics }) => metrics.documentHeight <= 16_000),
+      true
+    );
+  }
+);
+
+test(
   "real Chromium keeps long reviewer-controlled prose inside the narrow viewport",
   {
     skip:
@@ -1467,12 +1872,17 @@ test(
   }
 );
 
-function makeFixture({ maxWorkers, deleteFile = false, runScoped = true }) {
+function makeFixture({ maxWorkers, deleteFile = false, runScoped = true, multiline = false }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
-  fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = { value: 1 };\n");
+  fs.writeFileSync(
+    path.join(root, "src/example.js"),
+    multiline
+      ? "const stable = true;\nmodule.exports = { value: 1, stable };\n"
+      : "module.exports = { value: 1 };\n"
+  );
   if (deleteFile)
     fs.writeFileSync(path.join(root, "src/deleted.js"), "module.exports = 'delete me';\n");
   fs.writeFileSync(
@@ -1499,7 +1909,12 @@ function makeFixture({ maxWorkers, deleteFile = false, runScoped = true }) {
   execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
   git(root, ["remote", "add", "origin", origin]);
   git(root, ["push", "-q", "origin", `${base}:refs/heads/main`]);
-  fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = { value: 2 };\n");
+  fs.writeFileSync(
+    path.join(root, "src/example.js"),
+    multiline
+      ? "const stable = true;\nmodule.exports = { value: 2, stable };\n"
+      : "module.exports = { value: 2 };\n"
+  );
   if (deleteFile) fs.rmSync(path.join(root, "src/deleted.js"));
   git(root, ["add", "-A"]);
   git(root, ["commit", "-qm", "change"]);
@@ -1565,6 +1980,7 @@ function validFinding(category) {
     fix_kind: "behavioral",
     verify: "node --test tests/example.test.js",
     evidence: [{ kind: "source", ref: "src/example.js:1" }],
+    change_anchors: [{ path: "src/example.js", side: "head", line_start: 1, line_end: 1 }],
     owner: "review",
     disposition: "open",
     decision_required: false,
@@ -1573,6 +1989,15 @@ function validFinding(category) {
     finding.evidence.push({ kind: "contract", ref: "skills/dev/references/model-profiles.json:1" });
   finding.id = findingId(finding);
   return finding;
+}
+
+function uniqueFindings(category, count, prefix = "finding") {
+  return Array.from({ length: count }, (_, index) => {
+    const finding = validFinding(category);
+    finding.rule = `${prefix}-${index}`;
+    finding.id = findingId(finding);
+    return finding;
+  });
 }
 
 function setFindingForLens(fixture, lens, finding) {

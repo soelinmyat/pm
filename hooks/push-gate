@@ -391,6 +391,8 @@ function main() {
       manifestPath,
       "--commit",
       headSha,
+      "--branch",
+      branch,
       "--review-evidence-mode",
       "enforce",
     ];

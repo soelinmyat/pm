@@ -26,6 +26,8 @@ const UI_TEMPLATE_MARKUP_RE =
   /\.(html?|astro|erb|ejs|hbs|handlebars|liquid|twig|njk|j2|pug|jade|slim|haml|mustache|cshtml|razor|blade\.php)$/i;
 const APPLE_UI_RE =
   /(^|\/)(ios|macos|watchos|tvos|swiftui|uikit)(\/|$).*\.(swift|m|mm|h|storyboard|xib|strings|stringsdict)$|\.(storyboard|xib)$|(^|\/)[^/]+\.xcassets\//i;
+const APPLE_UI_NAMED_FILE_RE =
+  /(^|\/)(?:[A-Z][A-Za-z0-9_]*(?:ViewController|View|Screen)|AppDelegate|SceneDelegate)\.(?:swift|m|mm|h)$/;
 const ANDROID_UI_RE =
   /(^|\/)(android|app)(\/|$).*\.(kt|kts)$|(^|\/)(android\/[^/]+\/)?(app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
 const FLUTTER_UI_RE = /(^|\/)lib\/.*\.dart$|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
@@ -39,7 +41,13 @@ function isUiImpactPath(file) {
   if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;
   if (UI_ASSET_RE.test(file)) return true;
   if (NEXT_APP_ROUTER_MARKUP_RE.test(file)) return true;
-  if (APPLE_UI_RE.test(file) || ANDROID_UI_RE.test(file) || FLUTTER_UI_RE.test(file)) return true;
+  if (
+    APPLE_UI_RE.test(file) ||
+    APPLE_UI_NAMED_FILE_RE.test(file) ||
+    ANDROID_UI_RE.test(file) ||
+    FLUTTER_UI_RE.test(file)
+  )
+    return true;
   if (!JS_TS_PATH_RE.test(file)) return false;
   return (
     UI_JS_TS_PATH_RE.test(file) ||

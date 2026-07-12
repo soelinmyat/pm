@@ -35,6 +35,7 @@ Review JSON bindings (targets, results, decisions, reports, gate-row references,
 Generate `target.json` with `scripts/review-target.js`. It freezes:
 
 - run ID, round 1–3, iteration cap 3, mode, timestamp;
+- additive relevance policy `changed-hunk-anchor-v1` for newly generated targets (legacy targets without it remain readable);
 - current commit, authoritative remote base ref/object, and binary diff SHA-256;
 - for Dev-routed work, canonical Dev run/slug, routed mode/version, and acceptance-criteria digest;
 - sorted changed-file status, old path, current byte hash, and byte count;
@@ -58,6 +59,8 @@ Findings use the schema in `reviewer-briefs.md`. The `verify` field is an untrus
 `digest` is the exact SHA-256 for trace, benchmark, and upstream-gate evidence. Git-backed source, test, contract, and design-token evidence must not include `sha256` and use the literal `unbound` sentinel in the identity tuple. For example: `source:src/cache.js:18:unbound`.
 
 Category is deliberately excluded so independent lenses can converge on the same defect. A reviewer may emit only assigned categories. The primary file must be changed and line ranges must exist in current text (deleted-file diff locations remain valid).
+
+When the target declares `relevance_policy: changed-hunk-anchor-v1`, each finding carries 1–8 causal `change_anchors`. A `head` anchor intersects an added/current zero-context hunk range; a `base` anchor intersects a removed zero-context hunk range; a `path` anchor names a frozen changed path that has no textual hunks (for example a binary or metadata-only change) and omits line fields. Anchor paths may use the current path or the frozen old path of a rename. Validation derives and lazily caches hunks from the authenticated merge base and target commit with bounded, argument-only Git calls. This permits an unchanged primary line when a concrete changed hunk caused the defect, while rejecting findings attached only to unrelated pre-existing code. Anchors are retained in signals, canonical findings, JSON, and HTML, but excluded from deterministic finding identity so adding provenance does not split otherwise identical signals.
 
 Evidence locator forms:
 
@@ -83,7 +86,7 @@ Never infer approver identity or create a decision from reviewer majority. Repos
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Each reviewer may emit at most 100 findings and a round at most 300; larger evidence fails before synthesis. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. After exact merging, findings are grouped by normalized file and swept in line order; overlapping ranges become disputed when their fix kind or normalized remediation conflicts, even if reviewer-authored rule names or corroborating evidence produced different IDs. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
+Exact IDs merge. Keep all signals. Each reviewer and the complete round may contain at most 24 findings. Each rendered finding prose field is capped at 2,000 characters, and all finding text in the round is capped at 8,000 characters. Larger evidence fails before synthesis so a low finding count cannot bypass the single fully visible human report's 16,000px render budget with unbounded wrapping prose; the browser render remains the final layout gate. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. After exact merging, findings are grouped by normalized file and swept in line order; overlapping ranges become disputed when their fix kind or normalized remediation conflicts, even if reviewer-authored rule names or corroborating evidence produced different IDs. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 

@@ -89,6 +89,8 @@ function checkGateManifest(manifest, opts = {}) {
     );
     if (canonicalSession.slug !== expectedSlug)
       issues.push(issue(manifestPath, `sibling session slug must equal ${expectedSlug}`));
+    if (opts.currentBranch && canonicalSession.source?.branch !== opts.currentBranch)
+      issues.push(issue(manifestPath, `sibling session branch must equal ${opts.currentBranch}`));
   }
 
   const legacySimplifyTolerated = !requiredGates.includes("simplify");
@@ -772,6 +774,8 @@ function parseArgs(argv) {
       opts.manifestPath = requireValue(argv, ++index, arg);
     } else if (arg === "--commit") {
       opts.currentCommit = requireValue(argv, ++index, arg);
+    } else if (arg === "--branch") {
+      opts.currentBranch = requireValue(argv, ++index, arg);
     } else if (arg === "--run-id") {
       opts.runId = requireValue(argv, ++index, arg);
     } else if (arg === "--require") {
@@ -821,7 +825,7 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--branch NAME] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
@@ -899,6 +903,24 @@ function main(argv = process.argv.slice(2)) {
     return 1;
   }
   const sibling = readSiblingSessionContext(manifestPath);
+  let currentBranch = opts.currentBranch || null;
+  if (sibling.session && opts.reviewEvidenceMode === "enforce" && !currentBranch) {
+    try {
+      currentBranch = execFileSync("git", ["branch", "--show-current"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (!currentBranch) throw new Error("detached HEAD");
+    } catch (error) {
+      const result = {
+        ok: false,
+        issues: [issue(manifestPath, `unable to determine delivery branch: ${error.message}`)],
+      };
+      printResult(result, opts.json);
+      return 1;
+    }
+  }
   let changedFiles = opts.changedFiles;
   let authoritativeBaseRef = opts.baseRef || null;
   let authoritativeBaseCommit = null;
@@ -940,6 +962,7 @@ function main(argv = process.argv.slice(2)) {
 
   const result = checkGateManifest(manifest, {
     currentCommit,
+    currentBranch,
     manifestPath,
     requiredGates: opts.requiredGates,
     allowSkippedGates: opts.allowSkippedGates,

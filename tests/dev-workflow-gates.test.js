@@ -264,6 +264,7 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
   assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.match(block[1], /--review-evidence-mode enforce/);
+  assert.match(block[1], /--branch/);
   assert.match(block[1], /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
   assert.ok(prIndex > checkerIndex, "checker must appear before gh pr create");
@@ -274,6 +275,7 @@ test("ship push step requires the full default gate contract before git push", (
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--branch/);
   assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.doesNotMatch(text, /--require review,verification/);
