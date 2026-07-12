@@ -125,9 +125,11 @@ function stripToken(token) {
 function parseSegment(segment) {
   const withoutRedirections = stripTrailingShellRedirections(segment);
   if (withoutRedirections === null) return null;
-  const tokens = splitSimpleShellWords(withoutRedirections.trim().replace(/^[({]\s*/, "")).map(
-    stripToken
+  const shellWords = splitSimpleShellWords(
+    withoutRedirections.trim().replace(/^[({]\s*/, "")
   );
+  const tokens = shellWords.map((word) => stripToken(word.value));
+  const indeterminate = shellWords.some((word) => word.dynamic);
   let i = 0;
   // Skip leading `VAR=value` assignments and common command wrappers.
   while (
@@ -154,10 +156,7 @@ function parseSegment(segment) {
         gitDir,
         workTree,
         args: isPush ? tokens.slice(i + 1) : [],
-        indeterminate:
-          [dir, gitDir, workTree, ...(isPush ? tokens.slice(i + 1) : [])]
-            .filter((value) => value !== null)
-            .some(hasShellExpansion),
+        indeterminate,
       };
     }
     if (token === "-C" && i + 1 < tokens.length) {
@@ -184,31 +183,39 @@ function parseSegment(segment) {
   return null;
 }
 
-function hasShellExpansion(value) {
-  return /[$`*?[\]{}]/.test(value) || value.startsWith("~");
-}
-
 function splitSimpleShellWords(input) {
   const syntax = lexShellCharacters(input);
   if (!syntax.closed) return [];
   const words = [];
   let current = "";
   let active = false;
+  let dynamic = false;
+  const pushWord = () => {
+    words.push({ value: current, dynamic });
+    current = "";
+    active = false;
+    dynamic = false;
+  };
   for (const entry of syntax.characters) {
     if (entry.marker) {
       active = true;
+      if (entry.quote === "`") dynamic = true;
       continue;
     }
     if (!entry.quote && !entry.escaped && /\s/.test(entry.char)) {
-      if (active) words.push(current);
-      current = "";
-      active = false;
+      if (active) pushWord();
     } else {
+      if (
+        (!entry.escaped && entry.char === "$" && entry.quote !== "'") ||
+        (!entry.quote && !entry.escaped && "*?[]{}".includes(entry.char)) ||
+        (!entry.quote && !entry.escaped && entry.char === "~" && !active)
+      )
+        dynamic = true;
       current += entry.char;
       active = true;
     }
   }
-  if (active) words.push(current);
+  if (active) pushWord();
   return words;
 }
 
@@ -380,6 +387,24 @@ function scanShellTokens(command) {
     const entry = syntax.characters[offset];
     if (entry.quote || entry.escaped) continue;
     const next = syntax.characters[offset + 1];
+    if (
+      entry.char === "$" &&
+      next &&
+      !next.quote &&
+      !next.escaped &&
+      next.char === "(" &&
+      next.index === entry.index + 1
+    ) {
+      let depth = 1;
+      while (offset + 2 < syntax.characters.length && depth > 0) {
+        offset += 1;
+        const nested = syntax.characters[offset + 1];
+        if (!nested.quote && !nested.escaped && nested.char === "(") depth += 1;
+        else if (!nested.quote && !nested.escaped && nested.char === ")") depth -= 1;
+      }
+      offset += 1;
+      continue;
+    }
     const pair =
       next && !next.quote && !next.escaped && next.index === entry.index + 1
         ? `${entry.char}${next.char}`

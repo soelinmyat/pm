@@ -366,6 +366,22 @@ test("quoted git -C paths remain one shell word", () => {
       /could not determine the repository/
     );
     assertBlock(
+      runHook("git -C $(pwd)/gated push origin HEAD", { cwd: parent }),
+      /could not determine the repository/
+    );
+    assertBlock(
+      runHook("git -C `pwd`/gated push origin HEAD", { cwd: parent }),
+      /could not determine the repository/
+    );
+    const literal = path.join(parent, "repo$archive");
+    fs.mkdirSync(literal);
+    makeRepoAt(literal);
+    writeFailingGates(literal, "x");
+    assertBlock(
+      runHook("git -C 'repo$archive' push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+    assertBlock(
       runHook(">/dev/null git push origin HEAD", { cwd: repo }),
       /verification is failed/
     );
