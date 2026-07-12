@@ -88,6 +88,7 @@ test("dev gate checker accepts required gates tied to the current commit", () =>
     {
       currentCommit: "abc123",
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      requiredGates: ["tdd", "simplify", "design-critique", "qa", "verification"],
     }
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
@@ -184,6 +185,15 @@ test("canonical sessions cannot use legacy-shaped passed Review rows", () => {
 
 test("review enforcement rejects legacy rows and inspection is explicitly non-authoritative", () => {
   const legacy = manifest([gate("review")]);
+  const defaulted = checkGateManifest(legacy, {
+    currentCommit: "abc123",
+    requiredGates: ["review"],
+  });
+  assert.equal(defaulted.ok, false);
+  assert.match(
+    defaulted.issues.map((item) => item.message).join("\n"),
+    /requires evidence_kind review-report-v1 in enforcement mode/
+  );
   const enforced = checkGateManifest(legacy, {
     currentCommit: "abc123",
     requiredGates: ["review"],
@@ -597,9 +607,10 @@ test("dev gate checker accepts recertified older evidence rows at final HEAD", (
     {
       currentCommit: "final-sha",
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      reviewEvidenceMode: "inspect",
     }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("dev gate checker accepts current evidence even when old recertification remains", () => {
@@ -614,9 +625,10 @@ test("dev gate checker accepts current evidence even when old recertification re
       currentCommit: "final-sha",
       requiredGates: ["review"],
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      reviewEvidenceMode: "inspect",
     }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("dev gate checker accepts explicit skip reasons for required gates", () => {
@@ -1071,7 +1083,7 @@ test("dev gate checker rejects passed gates with missing artifacts", () => {
   assert.match(missing.issues.map((i) => i.message).join("\n"), /artifact path does not exist/);
 });
 
-test("dev gate checker accepts state-section artifact anchors when the file exists", () => {
+test("legacy review state anchors are readable only through non-authoritative inspection", () => {
   const result = checkGateManifest(
     manifest([
       gate("review", "abc123", {
@@ -1082,9 +1094,12 @@ test("dev gate checker accepts state-section artifact anchors when the file exis
       currentCommit: "abc123",
       requiredGates: ["review"],
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      reviewEvidenceMode: "inspect",
     }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.ok, false);
+  assert.equal(result.authoritative, false);
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("dev gate checker rejects stale gate commits", () => {
@@ -1379,9 +1394,10 @@ test("dev gate checker does not require simplify by default (absorbed into revie
     {
       currentCommit: "abc123",
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      reviewEvidenceMode: "inspect",
     }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("dev gate checker tolerates legacy simplify rows without requiring freshness", () => {
@@ -1397,9 +1413,10 @@ test("dev gate checker tolerates legacy simplify rows without requiring freshnes
     {
       currentCommit: "abc123",
       manifestPath: ".pm/dev-sessions/current.gates.json",
+      reviewEvidenceMode: "inspect",
     }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("legacy simplify rows with failed or blocked status still fail the checker", () => {
@@ -1428,9 +1445,9 @@ test("legacy passed simplify rows are not policed for artifact existence", () =>
       gate("review"),
       gate("verification"),
     ]),
-    { currentCommit: "abc123" }
+    { currentCommit: "abc123", reviewEvidenceMode: "inspect" }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.equal(result.inspection_ok, true, JSON.stringify(result.issues, null, 2));
 });
 
 test("M/L/XL manifests require the review row to record the absorbed lenses", () => {
@@ -1439,7 +1456,7 @@ test("M/L/XL manifests require the review row to record the absorbed lenses", ()
       [gate("tdd"), gate("design-critique"), gate("qa"), gate("review"), gate("verification")],
       { size: "M" }
     ),
-    { currentCommit: "abc123" }
+    { currentCommit: "abc123", reviewEvidenceMode: "inspect" }
   );
   assert.equal(noLenses.ok, false);
   assert.match(noLenses.issues.map((i) => i.message).join("\n"), /review row must record lenses/);
@@ -1457,9 +1474,9 @@ test("M/L/XL manifests require the review row to record the absorbed lenses", ()
       ],
       { size: "L" }
     ),
-    { currentCommit: "abc123" }
+    { currentCommit: "abc123", reviewEvidenceMode: "inspect" }
   );
-  assert.equal(withLenses.ok, true, JSON.stringify(withLenses.issues, null, 2));
+  assert.equal(withLenses.inspection_ok, true, JSON.stringify(withLenses.issues, null, 2));
 
   const partialLenses = checkGateManifest(
     manifest(
@@ -1472,7 +1489,7 @@ test("M/L/XL manifests require the review row to record the absorbed lenses", ()
       ],
       { size: "XL" }
     ),
-    { currentCommit: "abc123" }
+    { currentCommit: "abc123", reviewEvidenceMode: "inspect" }
   );
   assert.equal(partialLenses.ok, false);
   assert.match(
@@ -1489,9 +1506,9 @@ test("XS/S and unsized manifests do not require review lenses", () => {
         [gate("tdd"), gate("design-critique"), gate("qa"), gate("review"), gate("verification")],
         overrides
       ),
-      { currentCommit: "abc123" }
+      { currentCommit: "abc123", reviewEvidenceMode: "inspect" }
     );
-    assert.equal(result.ok, true, `size=${size}: ${JSON.stringify(result.issues)}`);
+    assert.equal(result.inspection_ok, true, `size=${size}: ${JSON.stringify(result.issues)}`);
   }
 });
 

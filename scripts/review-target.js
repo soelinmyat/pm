@@ -6,8 +6,8 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
-const { writeJsonAtomic } = require("./lib/atomic-file");
-const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
+const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
+const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -333,12 +333,17 @@ function main(argv = process.argv.slice(2)) {
       expectedReviewPath(reviewRoot, target.review_round, "target"),
       "target"
     );
-    const absoluteOut = safeProjectOutput(options.root || process.cwd(), options.outPath);
-    if (fs.existsSync(absoluteOut))
-      throw new Error("refusing to overwrite an existing review target");
-    writeJsonAtomic(absoluteOut, target, {
-      fileMode: 0o600,
-    });
+    try {
+      writeProjectJsonAtomic(options.root || process.cwd(), options.outPath, target, {
+        fileMode: 0o600,
+        directoryMode: 0o700,
+        replace: false,
+      });
+    } catch (error) {
+      if (/EEXIST|file exists/i.test(error.message))
+        throw new Error("refusing to overwrite an existing review target");
+      throw error;
+    }
     process.stdout.write(`${JSON.stringify(target, null, 2)}\n`);
     return 0;
   } catch (error) {

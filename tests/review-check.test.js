@@ -19,7 +19,8 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-check");
-const { safeProjectInput, safeProjectOutput } = require("../scripts/lib/safe-project-output");
+const { writeProjectTextAtomic } = require("../scripts/lib/project-atomic-write");
+const { readProjectInput } = require("../scripts/lib/safe-project-output");
 
 let installedBrowser = null;
 try {
@@ -265,18 +266,22 @@ test("fresh review paths require an explicit run namespace", () => {
   );
 });
 
-test("review outputs reject symlinked path ancestors", () => {
+test("review I/O rejects symlinked path ancestors", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-output-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-outside-"));
   fs.mkdirSync(path.join(root, ".pm"), { recursive: true });
   fs.symlinkSync(outside, path.join(root, ".pm", "linked"));
-  assert.throws(() => safeProjectOutput(root, ".pm/linked/report.json"), /contains symlink/);
+  assert.throws(
+    () => writeProjectTextAtomic(root, ".pm/linked/report.json", "unsafe"),
+    /not a real directory/
+  );
   fs.symlinkSync(path.join(outside, "missing"), path.join(root, ".pm", "dangling"));
-  assert.throws(() => safeProjectOutput(root, ".pm/dangling/report.json"), /contains symlink/);
-  fs.symlinkSync(path.join(outside, "missing-file"), path.join(root, ".pm", "final.json"));
-  assert.throws(() => safeProjectOutput(root, ".pm/final.json"), /contains symlink/);
+  assert.throws(
+    () => writeProjectTextAtomic(root, ".pm/dangling/report.json", "unsafe"),
+    /not a real directory/
+  );
   fs.writeFileSync(path.join(outside, "evidence.json"), "{}\n");
-  assert.throws(() => safeProjectInput(root, ".pm/linked/evidence.json"), /contains symlink/);
+  assert.throws(() => readProjectInput(root, ".pm/linked/evidence.json"), /contains symlink/);
 });
 
 test("later round target creation requires an intervening source commit", () => {

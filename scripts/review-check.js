@@ -7,8 +7,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
-const { writeJsonAtomic } = require("./lib/atomic-file");
-const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
+const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
+const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -167,20 +167,24 @@ function checkReview(options) {
   }
   if (options.writeReport && options.reportPath && issues.length === 0)
     if (projectPath(options.reportPath)) {
-      let absoluteReport;
       try {
-        absoluteReport = safeProjectOutput(root, options.reportPath);
+        const immutable =
+          (options.reportStage || "final") === "final" && report.outcome !== "passed";
+        writeProjectJsonAtomic(root, options.reportPath, report, {
+          fileMode: 0o600,
+          directoryMode: 0o700,
+          replace: !immutable,
+        });
       } catch (error) {
-        add(issues, "report.path", error.message);
+        add(
+          issues,
+          "report.path",
+          /EEXIST|file exists/i.test(error.message)
+            ? "refusing to overwrite immutable non-passing round report"
+            : error.message
+        );
         return { ok: false, issues, report };
       }
-      if (
-        (options.reportStage || "final") === "final" &&
-        report.outcome !== "passed" &&
-        fs.existsSync(absoluteReport)
-      )
-        add(issues, "report.path", "refusing to overwrite immutable non-passing round report");
-      else writeJsonAtomic(absoluteReport, report, { fileMode: 0o600 });
     } else add(issues, "report.path", "must be project-relative without traversal");
   return { ok: issues.length === 0, issues, report };
 }

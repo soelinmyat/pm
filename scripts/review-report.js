@@ -4,8 +4,8 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { writeTextAtomic } = require("./lib/atomic-file");
-const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
+const { writeProjectTextAtomic } = require("./lib/project-atomic-write");
+const { readProjectInput } = require("./lib/safe-project-output");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -17,7 +17,7 @@ function renderReviewReport(options) {
   const reportPath = loadedReport.path;
   const bytes = loadedReport.bytes;
   const report = JSON.parse(bytes.toString("utf8"));
-  const outputPath = safeProjectOutput(root, options.outputPath);
+  const outputPath = projectOutputPath(root, options.outputPath, "output");
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
   const relativeOutput = path.relative(root, outputPath).split(path.sep).join("/");
   const pathContext = reviewPathContext(report.target?.path, report.review_round, report.run_id);
@@ -122,9 +122,17 @@ function renderReviewReport(options) {
   const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
   for (const [name, value] of Object.entries(replacements))
     html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
-  if (reportStage === "final" && report.outcome !== "passed" && fs.existsSync(outputPath))
-    throw new Error("refusing to overwrite immutable non-passing human report");
-  writeTextAtomic(outputPath, html, { fileMode: 0o600 });
+  try {
+    writeProjectTextAtomic(root, options.outputPath, html, {
+      fileMode: 0o600,
+      directoryMode: 0o700,
+      replace: !(reportStage === "final" && report.outcome !== "passed"),
+    });
+  } catch (error) {
+    if (/EEXIST|file exists/i.test(error.message))
+      throw new Error("refusing to overwrite immutable non-passing human report");
+    throw error;
+  }
   return {
     path: relativeOutput,
     sha256: digest(Buffer.from(html)),
@@ -201,6 +209,20 @@ function projectFile(root, relative, label) {
   } catch (error) {
     throw new Error(`${label} ${error.message}`);
   }
+}
+
+function projectOutputPath(root, relative, label) {
+  if (
+    typeof relative !== "string" ||
+    path.isAbsolute(relative) ||
+    relative.split(/[\\/]/).some((part) => !part || part === "." || part === "..")
+  )
+    throw new Error(`${label} path must be project-relative`);
+  const absolute = path.resolve(root, relative);
+  const relation = path.relative(root, absolute);
+  if (relation === "" || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation))
+    throw new Error(`${label} path escapes project root`);
+  return absolute;
 }
 
 function escapeHtml(value) {

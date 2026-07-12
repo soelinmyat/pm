@@ -66,6 +66,12 @@ const GENERATED_PATH_RE =
 
 function checkGateManifest(manifest, opts = {}) {
   const issues = [];
+  const reviewEvidenceMode = opts.reviewEvidenceMode ?? "enforce";
+  if (!new Set(["enforce", "inspect"]).has(reviewEvidenceMode))
+    return {
+      ok: false,
+      issues: [issue(opts.manifestPath || DEFAULT_MANIFEST_PATH, "reviewEvidenceMode is invalid")],
+    };
   const requiredGatesInput = normalizeGateNames(opts.requiredGates);
   const requiredGates = requiredGatesInput.length > 0 ? requiredGatesInput : DEFAULT_REQUIRED_GATES;
   const allowSkippedGates = new Set(
@@ -145,12 +151,12 @@ function checkGateManifest(manifest, opts = {}) {
       artifactRoot,
       currentCommit,
       Boolean(manifest.run_id),
-      opts.reviewEvidenceMode === "enforce",
+      reviewEvidenceMode === "enforce",
       issues
     );
   }
 
-  if (opts.reviewEvidenceMode === "inspect")
+  if (reviewEvidenceMode === "inspect")
     return {
       ok: false,
       authoritative: false,
