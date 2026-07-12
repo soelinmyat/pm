@@ -4,7 +4,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { safeProjectInput } = require("../lib/safe-project-output");
+const { readProjectInput } = require("../lib/safe-project-output");
 const { checkReview, expandFromReport } = require("../review-check");
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -262,15 +262,14 @@ function readBinding(root, binding, label, issues) {
 
 function readBoundedJson(root, relative, label, issues) {
   try {
-    const file = safeProjectInput(root, relative);
-    const size = fs.statSync(file).size;
-    if (size > MAX_JSON_BYTES) throw new Error(`exceeds ${MAX_JSON_BYTES}-byte JSON budget`);
-    const bytes = fs.readFileSync(file);
-    if (bytes.length > MAX_JSON_BYTES)
-      throw new Error(`exceeds ${MAX_JSON_BYTES}-byte JSON budget`);
+    const { bytes } = readProjectInput(root, relative, MAX_JSON_BYTES);
     return { value: JSON.parse(bytes.toString("utf8")), bytes };
   } catch (error) {
-    issues.push(`${label} ${error.message}`);
+    const message = error.message.replace(
+      `input exceeds ${MAX_JSON_BYTES}-byte budget`,
+      `exceeds ${MAX_JSON_BYTES}-byte JSON budget`
+    );
+    issues.push(`${label} ${message}`);
     return null;
   }
 }

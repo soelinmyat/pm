@@ -7,8 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
-const { safeProjectOutput } = require("./lib/safe-project-output");
-const { safeProjectInput } = require("./lib/safe-project-output");
+const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -213,11 +212,14 @@ function optionalJsonFileBinding(root, relative, label) {
 function readOptionalFile(root, relative, label, maxBytes) {
   if (!relative) return null;
   validateGitPath(relative);
-  const absolute = safeProjectInput(root, relative);
-  const stat = fs.statSync(absolute);
-  if (stat.size > maxBytes)
-    throw new Error(`${label} exceeds ${maxBytes === MAX_JSON_BYTES ? "4 MiB JSON" : "64 MiB"}`);
-  const bytes = fs.readFileSync(absolute);
+  let bytes;
+  try {
+    bytes = readProjectInput(root, relative, maxBytes).bytes;
+  } catch (error) {
+    if (error.message === `input exceeds ${maxBytes}-byte budget`)
+      throw new Error(`${label} exceeds ${maxBytes === MAX_JSON_BYTES ? "4 MiB JSON" : "64 MiB"}`);
+    throw error;
+  }
   return {
     binding: { path: relative.split(path.sep).join("/"), sha256: digest(bytes) },
     bytes,

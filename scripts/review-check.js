@@ -8,7 +8,7 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
 const { writeJsonAtomic } = require("./lib/atomic-file");
-const { safeProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
+const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -1175,13 +1175,11 @@ function readBoundFile(root, relative, label, issues) {
     return null;
   }
   try {
-    const absolute = safeProjectInput(root, relative);
-    const stat = fs.statSync(absolute);
-    if (stat.size > 64 * 1024 * 1024) throw new Error("exceeds 64 MiB");
-    const bytes = fs.readFileSync(absolute);
+    const loaded = readProjectInput(root, relative, 64 * 1024 * 1024);
+    const { bytes } = loaded;
     return {
-      path: absolute,
-      relative: path.relative(root, absolute).split(path.sep).join("/"),
+      path: loaded.path,
+      relative: loaded.relative,
       bytes,
       sha256: digest(bytes),
     };

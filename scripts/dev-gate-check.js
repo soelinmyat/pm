@@ -5,13 +5,9 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const {
-  VIEWPORTS: REVIEW_RENDER_VIEWPORTS,
-  inspectPdf,
-  inspectPng,
-  validateMetrics,
-} = require("./artifact-render-check");
-const { safeProjectInput } = require("./lib/safe-project-output");
+const { VIEWPORTS: REVIEW_RENDER_VIEWPORTS, validateMetrics } = require("./artifact-render-check");
+const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
+const { readProjectInput } = require("./lib/safe-project-output");
 const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
@@ -154,6 +150,13 @@ function checkGateManifest(manifest, opts = {}) {
     );
   }
 
+  if (opts.reviewEvidenceMode === "inspect")
+    return {
+      ok: false,
+      authoritative: false,
+      inspection_ok: issues.length === 0,
+      issues,
+    };
   return { ok: issues.length === 0, issues };
 }
 
@@ -356,10 +359,10 @@ function validateRenderedFile(
     if (entry.sha256 !== `sha256:${digest(file.bytes)}` || entry.bytes !== file.bytes.length)
       throw new Error("hash or byte count does not match rendered bytes");
     if (kind === "png") {
-      const image = inspectPng(file.path);
+      const image = inspectPngBytes(file.bytes);
       if (image.width !== width || image.height !== heightOrPages)
         throw new Error(`PNG dimensions must equal ${width}x${heightOrPages}`);
-    } else if (inspectPdf(file.path).pages !== heightOrPages) {
+    } else if (inspectPdfBytes(file.bytes).pages !== heightOrPages) {
       throw new Error(`PDF pages must equal ${heightOrPages}`);
     }
   } catch (error) {
@@ -376,20 +379,13 @@ function readRegularProjectFile(filePath, artifactRoot, maxBytes) {
     relative = path.relative(root, absolute);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
     throw new Error("path resolves outside the project root");
-  const safe = safeProjectInput(root, relative);
-  const stat = fs.lstatSync(safe);
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error("must be a regular non-symlink file");
-  if (stat.size > maxBytes) throw new Error("evidence exceeds its byte budget");
-  const real = fs.realpathSync(safe);
-  const realRelative = path.relative(root, real);
-  if (
-    realRelative === ".." ||
-    realRelative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(realRelative)
-  )
-    throw new Error("path resolves outside the project root");
-  return { path: real, bytes: fs.readFileSync(real) };
+  try {
+    return readProjectInput(root, relative, maxBytes);
+  } catch (error) {
+    if (error.message === `input exceeds ${maxBytes}-byte budget`)
+      throw new Error("evidence exceeds its byte budget");
+    throw error;
+  }
 }
 
 function digest(bytes) {
@@ -745,6 +741,10 @@ function toRel(file) {
 function printResult(result, json) {
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return;
+  }
+  if (result.authoritative === false && result.inspection_ok) {
+    process.stdout.write("Dev gate inspection complete (non-authoritative).\n");
     return;
   }
   if (result.ok) {

@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file");
-const { safeProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
+const { readProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -13,9 +13,9 @@ const MAX_JSON_BYTES = 4 * 1024 * 1024;
 
 function renderReviewReport(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
-  const reportPath = projectFile(root, options.reportPath, "report");
-  const bytes = fs.readFileSync(reportPath);
-  if (bytes.length > MAX_JSON_BYTES) throw new Error("review report exceeds JSON budget");
+  const loadedReport = projectFile(root, options.reportPath, "report");
+  const reportPath = loadedReport.path;
+  const bytes = loadedReport.bytes;
   const report = JSON.parse(bytes.toString("utf8"));
   const outputPath = safeProjectOutput(root, options.outputPath);
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
@@ -197,7 +197,7 @@ function projectFile(root, relative, label) {
   )
     throw new Error(`${label} path must be project-relative`);
   try {
-    return safeProjectInput(root, relative);
+    return readProjectInput(root, relative, MAX_JSON_BYTES);
   } catch (error) {
     throw new Error(`${label} ${error.message}`);
   }

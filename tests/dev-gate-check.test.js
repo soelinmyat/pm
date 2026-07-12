@@ -182,7 +182,7 @@ test("canonical sessions cannot use legacy-shaped passed Review rows", () => {
   }
 });
 
-test("review enforcement rejects legacy-shaped passed rows while inspection remains readable", () => {
+test("review enforcement rejects legacy rows and inspection is explicitly non-authoritative", () => {
   const legacy = manifest([gate("review")]);
   const enforced = checkGateManifest(legacy, {
     currentCommit: "abc123",
@@ -200,7 +200,12 @@ test("review enforcement rejects legacy-shaped passed rows while inspection rema
     requiredGates: ["review"],
     reviewEvidenceMode: "inspect",
   });
-  assert.equal(inspected.ok, true, JSON.stringify(inspected.issues, null, 2));
+  assert.deepEqual(inspected, {
+    ok: false,
+    authoritative: false,
+    inspection_ok: true,
+    issues: [],
+  });
 });
 
 test("nested canonical review rows resolve project-relative evidence from the project root", () => {
@@ -1350,7 +1355,13 @@ test("dev gate checker CLI cannot authorize a legacy-shaped required Review row"
       ],
       { cwd: repoRoot, encoding: "utf8" }
     );
-    assert.equal(inspected.status, 0, inspected.stderr || inspected.stdout);
+    assert.notEqual(inspected.status, 0, inspected.stderr || inspected.stdout);
+    assert.deepEqual(JSON.parse(inspected.stdout), {
+      ok: false,
+      authoritative: false,
+      inspection_ok: true,
+      issues: [],
+    });
   } finally {
     tmp.cleanup();
   }
