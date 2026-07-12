@@ -873,6 +873,14 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
     assertBlock(runHook("nice -n 5 git push origin HEAD", { cwd: dir }), /verification is failed/);
     assertBlock(runHook("env -S 'git push origin HEAD'", { cwd: dir }), /verification is failed/);
     assertBlock(runHook("env -S 'git' push origin HEAD", { cwd: dir }), /verification is failed/);
+    const spaced = path.join(dir, "gated repo");
+    fs.mkdirSync(spaced);
+    makeRepoAt(spaced);
+    writeFailingGates(spaced, "x");
+    assertBlock(
+      runHook("env -S 'git -C' 'gated repo' push origin HEAD", { cwd: dir }),
+      /verification is failed/
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

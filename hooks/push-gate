@@ -184,12 +184,19 @@ function parseSegment(segment, depth = 0) {
         ) {
           if (value === undefined) return null;
           const remainderStart = inlineValue ? i + 1 : i + 2;
-          const nested = parseSegment([value, ...tokens.slice(remainderStart)].join(" "), depth + 1);
+          const nestedCommand = [
+            value,
+            ...tokens.slice(remainderStart).map(shellQuoteLiteral),
+          ].join(" ");
+          const nested = parseSegment(nestedCommand, depth + 1);
           if (!nested) return null;
           nested.dir = nested.dir
             ? composeGitDirectory(wrapperDir, nested.dir)
             : wrapperDir;
-          nested.indeterminate ||= wrapperDynamic || shellWords[valueIndex]?.dynamic === true;
+          nested.indeterminate ||=
+            wrapperDynamic ||
+            shellWords[valueIndex]?.dynamic === true ||
+            shellWords.slice(remainderStart).some((word) => word.dynamic);
           return nested;
         }
         i += 1;
@@ -273,6 +280,10 @@ function normalizeWrapperOption(wrapper, rawOption) {
     }
   }
   return { option: rawOption, inlineValue: false, inlineValueText: null };
+}
+
+function shellQuoteLiteral(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function composeGitDirectory(current, next) {
