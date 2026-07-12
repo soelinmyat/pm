@@ -271,15 +271,12 @@ function detectGitPushes(command, baseCwd) {
 }
 
 function parseDirectoryChange(segment) {
-  let commandText = segment;
-  let withoutRedirect;
-  do {
-    withoutRedirect = commandText;
-    commandText = commandText.replace(
-      /\s+\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s]+)\s*$/,
-      ""
-    );
-  } while (commandText !== withoutRedirect);
+  const commandText = stripTrailingShellRedirections(segment);
+  if (commandText === null)
+    return {
+      recognized: /^(?:(?:builtin|command)\s+)?(?:cd|pushd|popd)\b/.test(segment),
+      target: null,
+    };
   const match = commandText.match(
     /^(?:(?:builtin|command)\s+)?(cd|pushd|popd)(?:\s+(-P|--))?(?:\s+(.*?))?\s*$/
   );
@@ -292,6 +289,40 @@ function parseDirectoryChange(segment) {
     return { recognized: true, target: process.env.HOME ? path.resolve(process.env.HOME) : null };
   if (operand === "-") return { recognized: true, target: null };
   return { recognized: true, target: decodeSimpleShellWord(operand) };
+}
+
+function stripTrailingShellRedirections(segment) {
+  let quote = null;
+  let redirectIndex = -1;
+  for (let i = 0; i < segment.length; i += 1) {
+    const char = segment[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === "\\" && quote !== "'") i += 1;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") {
+      i += 1;
+      continue;
+    }
+    if (char === ">" || char === "<") {
+      redirectIndex = i;
+      while (redirectIndex > 0 && /\d/.test(segment[redirectIndex - 1])) redirectIndex -= 1;
+      if (redirectIndex > 0 && !/\s/.test(segment[redirectIndex - 1])) redirectIndex = i;
+      break;
+    }
+  }
+  if (redirectIndex < 0) return segment;
+  const suffix = segment.slice(redirectIndex);
+  if (
+    !/^(?:\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix)
+  )
+    return null;
+  return segment.slice(0, redirectIndex).trimEnd();
 }
 
 function decodeSimpleShellWord(raw) {

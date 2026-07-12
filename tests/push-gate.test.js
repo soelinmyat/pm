@@ -627,7 +627,7 @@ test("subshell and brace-group cd state gates pushes in the effective repository
 
 test("group delimiters inside quoted repository paths remain ordinary path characters", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-quoted-group-"));
-  const name = "gated(parent){repo}";
+  const name = "gated(parent){repo}>report";
   const gated = path.join(parent, name);
   try {
     fs.mkdirSync(gated);
@@ -693,10 +693,16 @@ test("cwd-mutating shell builtins cannot move push inspection away from the repo
     writeFailingGates(gated, "x");
     for (const command of [
       "pushd gated >/dev/null && git push origin HEAD",
+      "pushd gated>/dev/null && git push origin HEAD",
+      "cd gated>/dev/null && git push origin HEAD",
       "builtin cd gated && git push origin HEAD",
       "command cd gated && git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+    assertBlock(
+      runHook("cd >/dev/null gated && git push origin HEAD", { cwd: parent }),
+      /could not determine the repository/
+    );
     assertBlock(
       runHook("popd && git push origin HEAD", { cwd: parent }),
       /could not determine the repository/
