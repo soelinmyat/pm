@@ -221,6 +221,9 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "services/payments/src/main/kotlin/com/acme/Ledger.kt",
     "services/payments/src/main/kotlin/com/acme/PaymentAdapter.kt",
     "services/payments/src/main/kotlin/com/acme/Overview.kt",
+    "app/services/Billing.kt",
+    "app/domain/Ledger.kt",
+    "app/jobs/Reconcile.kt",
   ]) {
     const design = deriveLensApplicability("full", [{ path }]).find(
       (item) => item.name === "design"

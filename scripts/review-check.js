@@ -908,7 +908,14 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
           evidence.sha256 !== undefined
         )
           add(issues, `${at}.sha256`, "Git-backed evidence must not include sha256");
-        validateEvidenceReference(root, evidence, target, at, issues);
+        validateEvidenceReference(
+          root,
+          evidence,
+          target,
+          at,
+          issues,
+          evidenceAnchorSide(finding, evidence, at, issues)
+        );
       }
     if (!categoryEvidence) add(issues, `${label}.evidence`, `does not support ${finding.category}`);
     if (finding.category === "bug") {
@@ -950,7 +957,7 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
   return valid;
 }
 
-function validateEvidenceReference(root, evidence, target, label, issues) {
+function validateEvidenceReference(root, evidence, target, label, issues, anchorSide = null) {
   if (["source", "test", "contract", "design-token"].includes(evidence.kind)) {
     const match = evidence.ref.match(/^(.+):(\d+)(?:-(\d+))?$/);
     if (!match || !projectPath(match[1]))
@@ -964,7 +971,9 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     );
     try {
       const commit =
-        changed?.status === "D" || (changed?.old_path === match[1] && changed.path !== match[1])
+        anchorSide === "base" ||
+        changed?.status === "D" ||
+        (changed?.old_path === match[1] && changed.path !== match[1])
           ? target[FROZEN_MERGE_BASE] || target.source.base_commit
           : target.source.commit;
       const bytes = readFrozenBlob(root, target, commit, match[1]);
@@ -992,6 +1001,36 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
   if (!validateArtifactEvidence(file, evidence, label, issues, false)) return;
   if (!file.bytes.toString("utf8").includes(match[2]))
     add(issues, `${label}.ref`, "locator is not present in the bound artifact bytes");
+}
+
+function evidenceAnchorSide(finding, evidence, label, issues) {
+  if (!object(evidence) || !["source", "test", "contract", "design-token"].includes(evidence.kind))
+    return null;
+  const locator = parseGitLocator(evidence.ref);
+  if (!locator) return null;
+  const sides = new Set(
+    (finding.change_anchors || [])
+      .filter(
+        (anchor) =>
+          object(anchor) &&
+          (anchor.side === "head" || anchor.side === "base") &&
+          anchor.path === locator.path &&
+          positiveLine(anchor.line_start) &&
+          positiveLine(anchor.line_end) &&
+          anchor.line_start <= locator.end &&
+          locator.start <= anchor.line_end
+      )
+      .map((anchor) => anchor.side)
+  );
+  if (sides.size > 1) {
+    add(
+      issues,
+      `${label}.ref`,
+      "cannot bind the same Git evidence range to both head and base anchors"
+    );
+    return null;
+  }
+  return sides.size === 1 ? [...sides][0] : null;
 }
 
 function evidenceIdentityKey(evidence) {
@@ -1157,6 +1196,10 @@ function validateChangeAnchors(root, finding, target, label, issues) {
       add(issues, `${at}.side`, "must be head, base, or path");
       continue;
     }
+    if (anchor.side === "head" && anchor.path !== changed.path)
+      add(issues, `${at}.path`, "head anchors must use the frozen current path");
+    if (anchor.side === "base" && anchor.path !== (changed.old_path || changed.path))
+      add(issues, `${at}.path`, "base anchors must use the frozen base or old rename path");
     let change;
     try {
       change = frozenPathChange(root, target, changed);

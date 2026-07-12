@@ -263,6 +263,54 @@ test("base-side evidence resolves through a renamed file's old path", () => {
   }
 });
 
+test("modified-file base anchors resolve evidence from the merge-base side", () => {
+  const fixture = makeFixture({ maxWorkers: 2, removeLine: true });
+  const finding = {
+    ...validFinding("edge"),
+    evidence: [{ kind: "source", ref: "src/example.js:2" }],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "base",
+        line_start: 2,
+        line_end: 2,
+        affected_ref: "src/example.js:2",
+        relation: "Removing the second source line causes the reported edge failure.",
+      },
+    ],
+  };
+  finding.id = findingId(finding);
+  const issues = [];
+  validateFrozenTarget(fixture.root, fixture.target, issues);
+  validateSignal(fixture.root, finding, "reviewer-2", ["edge"], fixture.target, "finding", issues);
+  assert.deepEqual(issues, []);
+});
+
+test("rename anchors cannot swap current and old path sides", () => {
+  const fixture = makeFixture({ maxWorkers: 2, renameFile: true });
+  const finding = {
+    ...validFinding("edge"),
+    file: "src/renamed.js",
+    line_start: 2,
+    line_end: 2,
+    evidence: [{ kind: "source", ref: "src/old-name.js:2" }],
+    change_anchors: [
+      {
+        path: "src/old-name.js",
+        side: "head",
+        line_start: 2,
+        line_end: 2,
+        affected_ref: "src/old-name.js:2",
+        relation: "This deliberately binds a head anchor to the old rename path.",
+      },
+    ],
+  };
+  finding.id = findingId(finding);
+  const issues = [];
+  validateSignal(fixture.root, finding, "reviewer-2", ["edge"], fixture.target, "finding", issues);
+  assert.match(JSON.stringify(issues), /head anchors must use the frozen current path/);
+});
+
 test("changed-hunk policy accepts a stable primary line only with a causal hunk anchor", () => {
   const fixture = makeFixture({ maxWorkers: 2, multiline: true });
   const target = fixture.target;
@@ -2311,6 +2359,7 @@ function makeFixture({
   maxWorkers,
   deleteFile = false,
   renameFile = false,
+  removeLine = false,
   runScoped = true,
   multiline = false,
 }) {
@@ -2320,9 +2369,11 @@ function makeFixture({
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
   fs.writeFileSync(
     path.join(root, "src/example.js"),
-    multiline
-      ? "const stable = true;\nmodule.exports = { value: 1, stable };\n"
-      : "module.exports = { value: 1 };\n"
+    removeLine
+      ? "module.exports = { value: 1 };\nmodule.exports.extra = true;\n"
+      : multiline
+        ? "const stable = true;\nmodule.exports = { value: 1, stable };\n"
+        : "module.exports = { value: 1 };\n"
   );
   if (deleteFile)
     fs.writeFileSync(path.join(root, "src/deleted.js"), "module.exports = 'delete me';\n");
@@ -2357,9 +2408,11 @@ function makeFixture({
   git(root, ["push", "-q", "origin", `${base}:refs/heads/main`]);
   fs.writeFileSync(
     path.join(root, "src/example.js"),
-    multiline
-      ? "const stable = true;\nmodule.exports = { value: 2, stable };\n"
-      : "module.exports = { value: 2 };\n"
+    removeLine
+      ? "module.exports = { value: 1 };\n"
+      : multiline
+        ? "const stable = true;\nmodule.exports = { value: 2, stable };\n"
+        : "module.exports = { value: 2 };\n"
   );
   if (deleteFile) fs.rmSync(path.join(root, "src/deleted.js"));
   if (renameFile) {

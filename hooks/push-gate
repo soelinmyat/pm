@@ -186,9 +186,10 @@ function parseSegment(segment) {
 // CONTINUATION — join it first so a wrapped push stays one command (bare newlines
 // remain genuine separators, so a push on a later line is never missed). Tracks a
 // leading `cd <dir>` so `cd repo && git push` gates the right repo.
-function detectGitPush(command) {
+function detectGitPushes(command) {
   const joined = command.replace(/\\\r?\n/g, " ");
   let cwdOverride = null;
+  const pushes = [];
   for (const segment of joined.split(SEGMENT_SPLIT)) {
     const trimmed = segment.trim();
     const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
@@ -198,16 +199,16 @@ function detectGitPush(command) {
     }
     const parsed = parseSegment(trimmed);
     if (parsed && parsed.isPush) {
-      return {
+      pushes.push({
         dir: parsed.dir,
         gitDir: parsed.gitDir,
         workTree: parsed.workTree,
         cwdOverride,
         args: parsed.args,
-      };
+      });
     }
   }
-  return null;
+  return pushes;
 }
 
 // Destination branch a refspec writes to, or a sentinel for delete/tag/none.
@@ -338,50 +339,21 @@ function resolveRepoDir(baseCwd, push) {
   return repoDir;
 }
 
-function main() {
-  let raw = "";
-  try {
-    raw = fs.readFileSync(0, "utf8");
-  } catch {
-    return allow();
-  }
-
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return allow();
-  }
-
-  const command =
-    payload && payload.tool_input && typeof payload.tool_input.command === "string"
-      ? payload.tool_input.command
-      : "";
-
-  // Cheap pre-filter: the vast majority of Bash calls are not pushes.
-  if (!command || !command.includes("push")) return allow();
-
-  const push = detectGitPush(command);
-  if (!push) return allow();
-
-  const baseCwd =
-    (payload && typeof payload.cwd === "string" && payload.cwd) ||
-    process.env.CLAUDE_PROJECT_DIR ||
-    process.cwd();
+function gatePush(baseCwd, push) {
   const repoDir = resolveRepoDir(baseCwd, push);
 
   const branch = currentBranch(repoDir);
-  if (!branch) return allow(); // detached HEAD or not a git repo — can't identify a session.
+  if (!branch) return false;
 
   // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
   // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
-  if (!pushUpdatesSessionBranch(push.args, branch)) return allow();
+  if (!pushUpdatesSessionBranch(push.args, branch)) return false;
 
   let slug;
   try {
     slug = loadDeriveSessionSlug()(branch);
   } catch {
-    return allow(); // can't compute the manifest name → can't tell a session exists.
+    return false;
   }
 
   const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
@@ -391,23 +363,27 @@ function main() {
   const currentPath = path.join(sessionsDir, "current.gates.json");
   const manifestPath = canonicalPath;
   if (fs.existsSync(canonicalSessionDir) && !fs.existsSync(canonicalPath)) {
-    return blockUnverified(
+    blockUnverified(
       branch,
       `.pm/dev-sessions/${slug}/gates.json`,
       "canonical gate manifest is missing"
     );
+    return true;
   }
   if (!fs.existsSync(manifestPath)) {
-    if (fs.existsSync(legacyPath) || fs.existsSync(currentPath))
-      return blockUnverified(
+    if (fs.existsSync(legacyPath) || fs.existsSync(currentPath)) {
+      blockUnverified(
         branch,
         `.pm/dev-sessions/${slug}/gates.json`,
         "legacy gate manifests are inspection-only; migrate and recertify the canonical session"
       );
-    return allow(); // no PM dev session for this branch — no-op.
+      return true;
+    }
+    return false;
   }
   if (!fs.existsSync(path.join(canonicalSessionDir, "session.json"))) {
-    return blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
+    blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
+    return true;
   }
   const manifestRel = path.relative(repoDir, manifestPath).split(path.sep).join("/");
 
@@ -416,14 +392,19 @@ function main() {
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
     const pushed = sessionBranchPushSource(push.args, branch);
-    if (pushed.error) return blockUnverified(branch, manifestRel, pushed.error);
+    if (pushed.error) {
+      blockUnverified(branch, manifestRel, pushed.error);
+      return true;
+    }
     const pushedSha = gitCapture(repoDir, ["rev-parse", "--verify", `${pushed.source}^{commit}`]);
-    if (!/^[a-f0-9]{40,64}$/.test(pushedSha))
-      return blockUnverified(
+    if (!/^[a-f0-9]{40,64}$/.test(pushedSha)) {
+      blockUnverified(
         branch,
         manifestRel,
         `unable to resolve pushed source ${pushed.source} to one commit`
       );
+      return true;
+    }
 
     const checkerArgs = [
       "--manifest",
@@ -449,13 +430,44 @@ function main() {
     if (!result || result.error || typeof result.status !== "number") {
       const detail =
         result && result.error ? result.error.code || result.error.message : "no verdict";
-      return blockUnverified(branch, manifestRel, detail);
+      blockUnverified(branch, manifestRel, detail);
+      return true;
     }
-    if (result.status === 0) return allow();
-    return blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
+    if (result.status === 0) return false;
+    blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
+    return true;
   } catch (err) {
-    return blockUnverified(branch, manifestRel, (err && err.message) || "hook error");
+    blockUnverified(branch, manifestRel, (err && err.message) || "hook error");
+    return true;
   }
+}
+
+function main() {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(0, "utf8");
+  } catch {
+    return allow();
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return allow();
+  }
+  const command =
+    payload && payload.tool_input && typeof payload.tool_input.command === "string"
+      ? payload.tool_input.command
+      : "";
+  if (!command || !command.includes("push")) return allow();
+  const pushes = detectGitPushes(command);
+  if (pushes.length === 0) return allow();
+  const baseCwd =
+    (payload && typeof payload.cwd === "string" && payload.cwd) ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+  for (const push of pushes) if (gatePush(baseCwd, push)) return;
+  return allow();
 }
 
 try {

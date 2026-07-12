@@ -29,7 +29,7 @@ const APPLE_UI_RE =
 const APPLE_UI_NAMED_FILE_RE =
   /(^|\/)(?:[A-Z][A-Za-z0-9_]*(?:ViewController|View|Screen)|AppDelegate|SceneDelegate)\.(?:swift|m|mm|h)$/;
 const ANDROID_UI_RE =
-  /(^|\/)(android|app)(\/|$).*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?(?:app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)|(^|\/)[^/]+\/src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
+  /(^|\/)android(\/|$).*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?app\/src\/[^/]+\/(java|kotlin)\/.*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?(?:app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)|(^|\/)[^/]+\/src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
 const ANDROID_NAMED_KOTLIN_UI_RE =
   /(^|\/)[^/]+\/src\/[^/]+\/(java|kotlin)\/.*(?:Activity|Fragment|Screen|Dialog|Composable|Ui|UI)\.(kt|kts)$/i;
 const ANDROID_UI_PACKAGE_KOTLIN_RE =

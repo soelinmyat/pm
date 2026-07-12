@@ -540,6 +540,21 @@ test("explicit push of the session branch is still gated → block", () => {
   }
 });
 
+test("every push in a compound command is evaluated", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    for (const command of [
+      "git push origin HEAD:refs/heads/other && git push origin HEAD",
+      "git push origin refs/tags/v1.0.0\ngit push origin HEAD",
+      "git push origin HEAD && git push origin HEAD:refs/heads/other",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {
