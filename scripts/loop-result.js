@@ -465,7 +465,12 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
 
   const slug = deriveSessionSlug(options.expectedHead);
   const sessionRoot = path.join(workspace, ".pm", "dev-sessions");
-  const manifestPath = options.manifestPath || path.join(sessionRoot, `${slug}.gates.json`);
+  const canonicalSessionDir = path.join(sessionRoot, slug);
+  const canonicalManifest = path.join(canonicalSessionDir, "gates.json");
+  const legacyManifest = path.join(sessionRoot, `${slug}.gates.json`);
+  const manifestPath =
+    options.manifestPath ||
+    (fs.existsSync(canonicalSessionDir) ? canonicalManifest : legacyManifest);
   if (pathChainHasSymlink(workspace, manifestPath)) {
     return failed("gate-sidecar-unsafe", "gate sidecar must be a bounded regular file");
   }

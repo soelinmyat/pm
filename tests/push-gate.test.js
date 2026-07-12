@@ -45,9 +45,27 @@ function headSha(dir) {
 }
 
 function writeGates(dir, slug, gatesManifest) {
-  const dsDir = path.join(dir, ".pm", "dev-sessions");
-  fs.mkdirSync(dsDir, { recursive: true });
-  fs.writeFileSync(path.join(dsDir, `${slug}.gates.json`), JSON.stringify(gatesManifest, null, 2));
+  const sessionDir = path.join(dir, ".pm", "dev-sessions", slug);
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionDir, "gates.json"), JSON.stringify(gatesManifest, null, 2));
+}
+
+function writeLegacyGates(dir, slug, gatesManifest) {
+  const sessionsDir = path.join(dir, ".pm", "dev-sessions");
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionsDir, `${slug}.gates.json`),
+    JSON.stringify(gatesManifest, null, 2)
+  );
+}
+
+function writeCurrentGates(dir, gatesManifest) {
+  const sessionsDir = path.join(dir, ".pm", "dev-sessions");
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionsDir, "current.gates.json"),
+    JSON.stringify(gatesManifest, null, 2)
+  );
 }
 
 const REQUIRED = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -200,6 +218,51 @@ test("push with a legacy-shaped passed Review row is blocked", () => {
   }
 });
 
+test("flat legacy manifest is used only when no canonical session directory exists", () => {
+  const dir = makeRepo();
+  try {
+    const m = passingManifest(dir, "x", headSha(dir));
+    m.gates.find((g) => g.name === "qa").status = "failed";
+    m.gates.find((g) => g.name === "qa").reason = "legacy qa failed";
+    writeLegacyGates(dir, "x", m);
+    assertBlock(runHook("git push", { cwd: dir }), /qa is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical manifest wins when a conflicting flat legacy manifest also exists", () => {
+  const dir = makeRepo();
+  try {
+    const canonical = passingManifest(dir, "x", headSha(dir));
+    canonical.gates.find((g) => g.name === "verification").status = "failed";
+    canonical.gates.find((g) => g.name === "verification").reason = "canonical failure";
+    writeGates(dir, "x", canonical);
+
+    const legacy = passingManifest(dir, "x", headSha(dir));
+    legacy.gates.find((g) => g.name === "qa").status = "failed";
+    legacy.gates.find((g) => g.name === "qa").reason = "legacy failure";
+    writeLegacyGates(dir, "x", legacy);
+
+    const result = runHook("git push", { cwd: dir });
+    assertBlock(result, /verification is failed/);
+    assert.doesNotMatch(decisionOf(result).permissionDecisionReason, /qa is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("flat legacy manifest cannot shadow a canonical session missing gates.json", () => {
+  const dir = makeRepo();
+  try {
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "x"), { recursive: true });
+    writeLegacyGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    assertBlock(runHook("git push", { cwd: dir }), /canonical gate manifest is missing/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("push is allowed when the enforcement checker returns a clean verdict", () => {
   const dir = makeRepo();
   const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-cleanroot-"));
@@ -296,17 +359,17 @@ test("cd <dir> && git push form is detected and gated against that repo", () => 
 
 // ---------------------------------------------------------------------------
 // current.gates.json fallback (parity with .githooks/pre-push): when no
-// {slug}.gates.json exists but current.gates.json does, gate against it.
+// canonical session or flat legacy manifest exists, gate against it.
 // ---------------------------------------------------------------------------
 
-test("current.gates.json is used when no {slug}.gates.json exists", () => {
+test("current.gates.json is used when no canonical or flat slug manifest exists", () => {
   const dir = makeRepo();
   try {
     const sha = headSha(dir);
     const m = passingManifest(dir, "x", sha);
     m.gates.find((g) => g.name === "verification").status = "failed";
     m.gates.find((g) => g.name === "verification").reason = "tests failed";
-    writeGates(dir, "current", m);
+    writeCurrentGates(dir, m);
 
     assertBlock(runHook("git push", { cwd: dir }), /verification is failed/);
   } finally {
@@ -554,7 +617,7 @@ test("block message names current.gates.json when that fallback was the one chec
     const m = passingManifest(dir, "x", headSha(dir));
     m.gates.find((g) => g.name === "verification").status = "failed";
     m.gates.find((g) => g.name === "verification").reason = "tests failed";
-    writeGates(dir, "current", m);
+    writeCurrentGates(dir, m);
 
     const result = runHook("git push", { cwd: dir });
     assertBlock(result, /current\.gates\.json/);

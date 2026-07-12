@@ -361,7 +361,20 @@ function main() {
   }
 
   const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
-  let manifestPath = path.join(sessionsDir, `${slug}.gates.json`);
+  const canonicalSessionDir = path.join(sessionsDir, slug);
+  const canonicalPath = path.join(canonicalSessionDir, "gates.json");
+  const legacyPath = path.join(sessionsDir, `${slug}.gates.json`);
+  let manifestPath = canonicalPath;
+  if (fs.existsSync(canonicalSessionDir) && !fs.existsSync(canonicalPath)) {
+    return blockUnverified(
+      branch,
+      `.pm/dev-sessions/${slug}/gates.json`,
+      "canonical gate manifest is missing"
+    );
+  }
+  if (!fs.existsSync(canonicalPath) && !fs.existsSync(canonicalSessionDir)) {
+    manifestPath = legacyPath;
+  }
   if (!fs.existsSync(manifestPath)) {
     const currentPath = path.join(sessionsDir, "current.gates.json");
     if (fs.existsSync(currentPath)) {
@@ -370,9 +383,7 @@ function main() {
       return allow(); // no PM dev session for this branch — no-op.
     }
   }
-  // Name the manifest that was actually checked (current.gates.json when that
-  // fallback was used), not the slug manifest that may not exist.
-  const manifestRel = `.pm/dev-sessions/${path.basename(manifestPath)}`;
+  const manifestRel = path.relative(repoDir, manifestPath).split(path.sep).join("/");
 
   // VERIFICATION REGION. A push to the session branch is being gated against a
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including

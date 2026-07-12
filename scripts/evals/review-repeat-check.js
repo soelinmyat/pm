@@ -19,8 +19,8 @@ function checkReviewRepeats(root, comparisonPath) {
   const comparison = readJson(projectRoot, comparisonPath);
   const issues = [];
   if (comparison.schema_version !== 1) issues.push("schema_version must equal 1");
-  if (!Array.isArray(comparison.runs) || comparison.runs.length !== 3)
-    issues.push("runs must contain exactly three independent Review runs");
+  const runs = Array.isArray(comparison.runs) ? comparison.runs : [];
+  if (runs.length !== 3) issues.push("runs must contain exactly three independent Review runs");
   const canonical = readBinding(
     projectRoot,
     comparison.canonical_report,
@@ -54,7 +54,7 @@ function checkReviewRepeats(root, comparisonPath) {
   let frozenSource = canonicalChecked?.report
     ? JSON.stringify(canonicalChecked.report.source)
     : null;
-  for (const [index, run] of (comparison.runs || []).entries()) {
+  for (const [index, run] of runs.entries()) {
     const at = `runs[${index}]`;
     if (!object(run) || !slug(run.run_id)) {
       issues.push(`${at} requires a kebab-case run_id`);
@@ -115,7 +115,7 @@ function checkReviewRepeats(root, comparisonPath) {
   }
   if (
     canonical &&
-    !(comparison.runs || []).some(
+    !runs.some(
       (run) =>
         run.target?.path === canonical.value.target?.path &&
         run.target?.sha256 === canonical.value.target?.sha256

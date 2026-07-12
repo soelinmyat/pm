@@ -141,9 +141,19 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   fi
   gate_slug=$(derive_gate_slug "$branch_name")
 
-  gate_manifest=".pm/dev-sessions/${gate_slug}.gates.json"
-  if [[ ! -f "$gate_manifest" && "$branch_name" == "$(git branch --show-current 2>/dev/null)" && -f ".pm/dev-sessions/current.gates.json" ]]; then
+  canonical_session_dir=".pm/dev-sessions/${gate_slug}"
+  canonical_gate_manifest="${canonical_session_dir}/gates.json"
+  legacy_gate_manifest=".pm/dev-sessions/${gate_slug}.gates.json"
+  gate_manifest="$canonical_gate_manifest"
+  gate_session_detected=0
+  if [[ -d "$canonical_session_dir" ]]; then
+    gate_session_detected=1
+  elif [[ -f "$legacy_gate_manifest" ]]; then
+    gate_manifest="$legacy_gate_manifest"
+    gate_session_detected=1
+  elif [[ "$branch_name" == "$(git branch --show-current 2>/dev/null)" && -f ".pm/dev-sessions/current.gates.json" ]]; then
     gate_manifest=".pm/dev-sessions/current.gates.json"
+    gate_session_detected=1
   fi
 
   if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
@@ -157,7 +167,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     exit 1
   fi
 
-  if [[ -n "$changed_pm_runtime_files" || -f "$gate_manifest" ]]; then
+  if [[ -n "$changed_pm_runtime_files" || "$gate_session_detected" -eq 1 ]]; then
     if ! verify_pm_commit_inventory "$local_oid"; then
       exit 1
     fi
@@ -187,10 +197,10 @@ for push_ref_line in "${push_ref_lines[@]}"; do
       exit 1
     fi
     rm -rf "$checker_tmp"
-  elif [[ -n "$changed_pm_runtime_files" ]]; then
+  elif [[ -n "$changed_pm_runtime_files" || "$gate_session_detected" -eq 1 ]]; then
     echo "ERROR: PM dev gate manifest not found for branch $branch_name."
     echo "Expected $gate_manifest before pushing PM runtime/source changes."
-    echo "Run all required dev gates, record .pm/dev-sessions/${gate_slug}.gates.json, then retry."
+    echo "Run all required dev gates, record .pm/dev-sessions/${gate_slug}/gates.json, then retry."
     exit 1
   fi
 done

@@ -252,6 +252,163 @@ test("gate-time canonical review validation authenticates frozen Git without bro
   }
 });
 
+test("review render evidence rejects forged retained-render boundaries", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-forgery-"));
+  const outside = `${root}-outside.png`;
+  try {
+    const reviewDir = path.join(root, "review");
+    const htmlPath = path.join(reviewDir, "report.html");
+    fs.mkdirSync(reviewDir, { recursive: true });
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    const render = seedReviewRenderManifest(root, htmlPath);
+    const manifestPath = path.join(root, render.path);
+    const baseline = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const retainedFiles = [
+      ...baseline.captures.flatMap((capture) => [capture.path, capture.full_page.path]),
+      baseline.print.path,
+    ];
+    const retainedBytes = new Map(retainedFiles.map((file) => [file, fs.readFileSync(file)]));
+    const forgedHash = `sha256:${"0".repeat(64)}`;
+    const scenarios = [
+      {
+        name: "gate-row manifest hash",
+        mutate() {},
+        gateHash: () => "0".repeat(64),
+        expected: /render manifest SHA-256 does not match its bytes/,
+      },
+      {
+        name: "source hash",
+        mutate(value) {
+          value.source.sha256 = forgedHash;
+        },
+        expected: /bind the exact report\.html bytes/,
+      },
+      {
+        name: "capture hash",
+        mutate(value) {
+          value.captures[0].sha256 = forgedHash;
+        },
+        expected: /review render desktop: hash or byte count does not match rendered bytes/,
+      },
+      {
+        name: "capture byte count",
+        mutate(value) {
+          value.captures[0].bytes += 1;
+        },
+        expected: /review render desktop: hash or byte count does not match rendered bytes/,
+      },
+      {
+        name: "capture PNG dimensions",
+        mutate(value) {
+          const capture = value.captures[0];
+          fs.writeFileSync(capture.path, validGatePng(capture.width - 1, capture.height));
+          capture.sha256 = `sha256:${fileDigest(capture.path)}`;
+          capture.bytes = fs.statSync(capture.path).size;
+        },
+        expected: /PNG dimensions must equal 1440x1000/,
+      },
+      {
+        name: "capture overflow metrics",
+        mutate(value) {
+          value.captures[0].metrics.horizontalOverflow = true;
+        },
+        expected: /desktop render has horizontal document overflow/,
+      },
+      {
+        name: "missing canonical viewport",
+        mutate(value) {
+          value.captures.pop();
+        },
+        expected: /requires one canonical capture per viewport/,
+      },
+      {
+        name: "missing full-page capture",
+        mutate(value) {
+          delete value.captures[0].full_page;
+        },
+        expected: /requires canonical full-page metadata/,
+      },
+      {
+        name: "print hash",
+        mutate(value) {
+          value.print.sha256 = forgedHash;
+        },
+        expected: /review render print: hash or byte count does not match rendered bytes/,
+      },
+      {
+        name: "print byte count",
+        mutate(value) {
+          value.print.bytes += 1;
+        },
+        expected: /review render print: hash or byte count does not match rendered bytes/,
+      },
+      {
+        name: "empty print evidence",
+        mutate(value) {
+          value.print.pages = 0;
+        },
+        expected: /requires a non-empty print PDF/,
+      },
+      {
+        name: "out-of-root capture",
+        mutate(value) {
+          fs.writeFileSync(outside, retainedBytes.get(value.captures[0].path));
+          value.captures[0].path = outside;
+          value.captures[0].sha256 = `sha256:${fileDigest(outside)}`;
+          value.captures[0].bytes = fs.statSync(outside).size;
+        },
+        expected: /path resolves outside the project root/,
+      },
+      {
+        name: "symlinked capture",
+        mutate(value) {
+          const capture = value.captures[0];
+          const link = path.join(path.dirname(capture.path), "desktop-link.png");
+          fs.rmSync(link, { force: true });
+          fs.symlinkSync(capture.path, link);
+          capture.path = link;
+        },
+        expected: /project path contains symlink|must be a regular non-symlink file/,
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      for (const [file, bytes] of retainedBytes) fs.writeFileSync(file, bytes);
+      const value = structuredClone(baseline);
+      scenario.mutate(value);
+      fs.writeFileSync(manifestPath, `${JSON.stringify(value)}\n`);
+      const result = checkGateManifest(
+        manifest([
+          gate("review", "abc123", {
+            artifact: "review/report.html",
+            evidence_kind: "review-report-v1",
+            render_manifest: render.path,
+            render_manifest_sha256: scenario.gateHash
+              ? scenario.gateHash()
+              : fileDigest(manifestPath),
+          }),
+        ]),
+        {
+          artifactRoot: root,
+          currentCommit: "abc123",
+          requiredGates: ["review"],
+          reviewEvidenceMode: "enforce",
+        }
+      );
+      assert.equal(result.ok, false, scenario.name);
+      assert.match(
+        result.issues.map((item) => item.message).join("\n"),
+        scenario.expected,
+        scenario.name
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
+  }
+});
+
 function seedReviewRenderManifest(root, htmlPath) {
   const renderDir = path.join(path.dirname(htmlPath), "renders");
   fs.mkdirSync(renderDir, { recursive: true });

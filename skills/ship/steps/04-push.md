@@ -21,14 +21,14 @@ Run any documented setup commands before pushing.
 
 ### Dev gate checker
 
-Before running `git push`, ensure `.pm/dev-sessions/{slug}.gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
+Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
 
 Then run the shared PM gate checker against current HEAD:
 
 ```bash
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}.gates.json \
+  --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
   --review-evidence-mode enforce \
   --base origin/{DEFAULT_BRANCH}

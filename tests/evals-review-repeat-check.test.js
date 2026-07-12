@@ -113,6 +113,25 @@ test("consistency metrics are derived from checked report findings and outcomes"
   });
 });
 
+test("malformed runs values return structured issues instead of throwing", () => {
+  for (const [label, runs] of [
+    ["null", null],
+    ["object", { run_id: "not-an-array" }],
+    ["string", "not-an-array"],
+  ]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-review-repeats-${label}-`));
+    const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
+    write(root, comparisonPath, { schema_version: 1, runs });
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    assert.match(
+      JSON.stringify(result.issues),
+      /runs must contain exactly three independent Review runs/,
+      label
+    );
+  }
+});
+
 function snapshotDrafts(root, runs) {
   return runs.flatMap((run) => {
     const roundRoot = path.posix.dirname(run.target.path);

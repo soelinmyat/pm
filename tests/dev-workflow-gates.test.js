@@ -90,6 +90,8 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(resolve, /two total review rounds/);
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(contract, /deterministic identity/);
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
@@ -108,6 +110,8 @@ test("review skip requires a current checked report and gate row", () => {
   assert.match(ship, /review\/report\.html/);
   assert.match(ship, /review\/report\.json/);
   assert.match(ship, /review-check\.js/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(ship, /--from-report/);
   assert.match(ship, /do NOT skip/);
   assert.match(publish, /Preserve all other rows/);
@@ -245,6 +249,7 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
   assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.match(block[1], /--review-evidence-mode enforce/);
+  assert.match(block[1], /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
   assert.ok(prIndex > checkerIndex, "checker must appear before gh pr create");
 });
@@ -254,6 +259,8 @@ test("ship push step requires the full default gate contract before git push", (
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.doesNotMatch(text, /--require review,verification/);
   assert.match(text, /any required gate row is stale/);
   assert.match(text, /any required gate is missing/);
@@ -262,7 +269,8 @@ test("ship push step requires the full default gate contract before git push", (
 
 test("ship merge loop rechecks the full sidecar against the remote branch tip", () => {
   const text = read("skills/ship/steps/07-merge-loop.md");
-  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(text, /git rev-parse origin\/\{branch\}/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /effective attestation is `commit` when it equals `remote_tip`/);
@@ -315,6 +323,9 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /unable to diff origin\/main\.\.\.\$local_oid/);
   assert.match(text, /push_ref_lines/);
   assert.match(text, /--commit "\$local_oid"/);
+  assert.match(text, /canonical_session_dir="\.pm\/dev-sessions\/\$\{gate_slug\}"/);
+  assert.match(text, /canonical_gate_manifest="\$\{canonical_session_dir\}\/gates\.json"/);
+  assert.match(text, /elif \[\[ -f "\$legacy_gate_manifest" \]\]/);
   assert.match(text, /origin\/main\.\.\.\$local_oid/);
   assert.match(text, /changed_pm_runtime_files/);
   assert.match(text, /plugin\.config\.json/);
@@ -444,8 +455,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     const localOid = git("rev-parse", "HEAD").stdout.trim();
 
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
-    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions"), { recursive: true });
-    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden.gates.json"), "{}\n");
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden", "gates.json"), "{}\n");
 
     const zeroOid = "0000000000000000000000000000000000000000";
     const result = spawnSync("bash", [hook, "origin"], {
@@ -456,6 +467,57 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
     assert.match(result.stdout + result.stderr, /Checking PM dev gates for codex\/harden/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push never lets a flat legacy manifest shadow a canonical session", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-canonical-gate-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    assert.equal(git("branch", "-M", "main").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden.gates.json"), "{}\n");
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "origin"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /Expected \.pm\/dev-sessions\/harden\/gates\.json/);
+    assert.doesNotMatch(result.stdout + result.stderr, /Checking PM dev gates/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

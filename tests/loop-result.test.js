@@ -322,7 +322,9 @@ function makeGateFixture(t, { protectedChange = false, stale = false } = {}) {
     checked_at: "2026-07-10T10:00:00Z",
     ...overrides,
   });
-  const manifestPath = path.join(sessionDir, "loop-pm-108.gates.json");
+  const canonicalSessionDir = path.join(sessionDir, "loop-pm-108");
+  fs.mkdirSync(canonicalSessionDir, { recursive: true, mode: 0o700 });
+  const manifestPath = path.join(canonicalSessionDir, "gates.json");
   fs.writeFileSync(
     manifestPath,
     `${JSON.stringify(
@@ -370,6 +372,21 @@ test("gate verification pins the sidecar to expected source HEAD and rejects pro
   });
   assert.equal(protectedResult.ok, false);
   assert.equal(protectedResult.code, "protected-source-path-changed");
+});
+
+test("gate verification uses a flat legacy sidecar only without a canonical session directory", (t) => {
+  const fixture = makeGateFixture(t);
+  const legacyPath = path.join(fixture.root, ".pm", "dev-sessions", "loop-pm-108.gates.json");
+  fs.renameSync(fixture.manifestPath, legacyPath);
+  fs.rmdirSync(path.dirname(fixture.manifestPath));
+
+  const checked = verifyCommittedGateSidecar(fixture.root, {
+    expectedHeadOid: fixture.headOid,
+    expectedHead: "loop/pm-108",
+    baseRef: fixture.baseOid,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  assert.equal(checked.manifestPath, legacyPath);
 });
 
 test("gate verification rejects stale, missing, symlinked, and wrong-HEAD evidence", (t) => {
