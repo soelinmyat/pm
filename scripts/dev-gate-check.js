@@ -225,7 +225,22 @@ function validateReviewReportArtifact(
     issues.push(issue(manifestPath, "review-report-v1 requires sibling review/report.json"));
     return;
   }
-  validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, null, issues);
+  let retainedReport = null;
+  try {
+    retainedReport = JSON.parse(
+      readRegularProjectFile(reportPath, artifactRoot, MAX_JSON_BYTES).bytes.toString("utf8")
+    );
+  } catch {
+    // The canonical Review checker below reports the authoritative parse error.
+  }
+  validateReviewRenderManifest(
+    reviewGate,
+    htmlPath,
+    artifactRoot,
+    manifestPath,
+    retainedReport,
+    issues
+  );
   try {
     const root = path.resolve(artifactRoot || process.cwd());
     const relative = path.relative(root, reportPath).split(path.sep).join("/");
@@ -240,15 +255,6 @@ function validateReviewReportArtifact(
         verifyBrowser: false,
       })
     );
-    if (result.report)
-      validateReviewRenderManifest(
-        reviewGate,
-        htmlPath,
-        artifactRoot,
-        manifestPath,
-        result.report,
-        issues
-      );
     if (!result.ok)
       issues.push(
         issue(
@@ -409,7 +415,7 @@ function validateReviewRenderManifest(
     );
   if (!Array.isArray(value.markers)) {
     issues.push(issue(manifestPath, "review render manifest requires browser marker evidence"));
-  } else if (report) {
+  } else if (reviewMarkerReport(report)) {
     const markerIssues = [];
     require("./review-check").validateRenderedReportMarkers(value.markers, report, markerIssues);
     for (const markerIssue of markerIssues)
@@ -417,6 +423,22 @@ function validateReviewRenderManifest(
         issue(manifestPath, `retained browser marker evidence failed: ${markerIssue.message}`)
       );
   }
+}
+
+function reviewMarkerReport(report) {
+  return (
+    report &&
+    typeof report.outcome === "string" &&
+    Number.isInteger(report.review_round) &&
+    Array.isArray(report.blockers) &&
+    Array.isArray(report.coverage?.required) &&
+    Array.isArray(report.coverage?.completed) &&
+    typeof report.source?.commit === "string" &&
+    typeof report.source?.base_ref === "string" &&
+    typeof report.source?.base_commit === "string" &&
+    typeof report.top_issue === "string" &&
+    typeof report.next_action === "string"
+  );
 }
 
 function validateRenderedFile(

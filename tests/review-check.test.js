@@ -605,6 +605,18 @@ test("malformed decision entries return structured issues instead of crashing sy
   }
 });
 
+test("reviewer finding floods fail closed before conflict synthesis", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const resultPath = fixture.resultPaths[0];
+  const absolute = path.join(fixture.root, resultPath);
+  const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+  result.findings = Array.from({ length: 101 }, () => validFinding(result.lenses[0]));
+  fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /at most 100 findings/);
+});
+
 test("checker mirrors the target builder's 500-file review budget", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
   const original = fixture.target.changed_files[0];

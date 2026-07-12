@@ -168,18 +168,33 @@ function mergeSignals(signals, decisions) {
 }
 
 function markCrossFindingConflicts(findings, unresolved) {
-  for (let leftIndex = 0; leftIndex < findings.length; leftIndex += 1) {
-    const left = findings[leftIndex];
-    for (let rightIndex = leftIndex + 1; rightIndex < findings.length; rightIndex += 1) {
-      const right = findings[rightIndex];
-      const sameFile = normalizePath(left.file) === normalizePath(right.file);
-      const overlaps = left.line_start <= right.line_end && right.line_start <= left.line_end;
-      const incompatibleFix =
-        left.fix_kind !== right.fix_kind || normalize(left.fix) !== normalize(right.fix);
-      if (!sameFile || !overlaps || !incompatibleFix) continue;
-      left.disputed = true;
-      right.disputed = true;
-      unresolved.push(left.id, right.id);
+  const byFile = new Map();
+  for (const finding of findings) {
+    const file = normalizePath(finding.file);
+    const rows = byFile.get(file) || [];
+    rows.push(finding);
+    byFile.set(file, rows);
+  }
+  for (const rows of byFile.values()) {
+    rows.sort(
+      (left, right) =>
+        left.line_start - right.line_start ||
+        left.line_end - right.line_end ||
+        left.id.localeCompare(right.id)
+    );
+    for (let leftIndex = 0; leftIndex < rows.length; leftIndex += 1) {
+      const left = rows[leftIndex];
+      for (let rightIndex = leftIndex + 1; rightIndex < rows.length; rightIndex += 1) {
+        const right = rows[rightIndex];
+        if (right.line_start > left.line_end) break;
+        const overlaps = left.line_start <= right.line_end && right.line_start <= left.line_end;
+        const incompatibleFix =
+          left.fix_kind !== right.fix_kind || normalize(left.fix) !== normalize(right.fix);
+        if (!overlaps || !incompatibleFix) continue;
+        left.disputed = true;
+        right.disputed = true;
+        unresolved.push(left.id, right.id);
+      }
     }
   }
 }

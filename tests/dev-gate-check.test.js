@@ -429,6 +429,10 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     assert.equal(foreign.ok, false);
     assert.match(JSON.stringify(foreign.issues), /must belong to the canonical Dev session/);
 
+    fs.writeFileSync(
+      path.join(reviewDir, "report.json"),
+      `${JSON.stringify(reviewReportForMarkers({ coverage: lenses }))}\n`
+    );
     const manifestFile = path.join(root, render.path);
     const hiddenMarkers = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
     hiddenMarkers.markers.find((marker) => marker.attributes["data-review-source-sha256"]).visible =

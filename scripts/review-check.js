@@ -53,6 +53,8 @@ const REQUIRED_EVIDENCE = Object.freeze({
   efficiency: new Set(["source", "benchmark", "trace"]),
 });
 const FROZEN_MERGE_BASE = Symbol("review-frozen-merge-base");
+const MAX_FINDINGS_PER_REVIEWER = 100;
+const MAX_FINDINGS_PER_ROUND = 300;
 
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -644,6 +646,18 @@ function validateResult(
   validateRuntime(result.runtime, `${label}.runtime`, issues);
   if (!isRfc3339DateTime(result.checked_at)) add(issues, `${label}.checked_at`, "must be RFC 3339");
   if (!Array.isArray(result.findings)) return add(issues, `${label}.findings`, "must be an array");
+  if (result.findings.length > MAX_FINDINGS_PER_REVIEWER)
+    return add(
+      issues,
+      `${label}.findings`,
+      `must contain at most ${MAX_FINDINGS_PER_REVIEWER} findings`
+    );
+  if (signals.length + result.findings.length > MAX_FINDINGS_PER_ROUND)
+    return add(
+      issues,
+      `${label}.findings`,
+      `round must contain at most ${MAX_FINDINGS_PER_ROUND} findings`
+    );
   const ids = new Set();
   for (const [index, finding] of result.findings.entries()) {
     const at = `${label}.findings[${index}]`;

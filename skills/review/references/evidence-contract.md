@@ -83,7 +83,7 @@ Never infer approver identity or create a decision from reviewer majority. Repos
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. After exact merging, findings whose source ranges overlap also become disputed when their fix kind or normalized remediation conflicts, even if reviewer-authored rule names or corroborating evidence produced different IDs. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
+Exact IDs merge. Keep all signals. Each reviewer may emit at most 100 findings and a round at most 300; larger evidence fails before synthesis. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. After exact merging, findings are grouped by normalized file and swept in line order; overlapping ranges become disputed when their fix kind or normalized remediation conflicts, even if reviewer-authored rule names or corroborating evidence produced different IDs. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 
